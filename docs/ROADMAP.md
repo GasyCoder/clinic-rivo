@@ -1,0 +1,273 @@
+# RIVO — Development Roadmap
+
+CDC :
+
+```text
+https://github.com/GasyCoder/cdc-clinic-george
+```
+
+---
+
+# Phase 0 — Fondation
+
+- [x] Laravel 13 installé
+- [ ] Documentation projet
+- [ ] README.md
+- [ ] AGENTS.md
+- [ ] CLAUDE.md
+- [ ] AI_CONTEXT.md
+- [ ] DECISIONS.md
+- [ ] CDC_REFERENCE.md
+- [ ] Skill Codex
+- [ ] Repository GitHub application
+- [ ] Configuration Git
+- [ ] DashWind
+- [ ] Vue / Inertia vérifiés
+- [ ] Configuration base locale
+- [ ] Authentification
+- [ ] RBAC dynamique
+- [ ] Permissions
+- [ ] Soft Delete
+- [ ] Audit
+- [ ] UUID
+- [ ] Base API `/api/v1`
+- [ ] Queue / Jobs
+
+---
+
+# Phase 1 — Réception / Patients / Caisse
+
+- [ ] Patient
+- [ ] Identification patient
+- [ ] Recherche patient
+- [ ] Détection des doublons
+- [ ] Episode de soins
+- [ ] Réception
+- [ ] Orientation
+- [ ] Rendez-vous
+- [ ] Prestations facturables
+- [ ] Factures
+- [ ] Facture lignes
+- [ ] Caisse unique
+- [ ] Paiements
+- [ ] Paiements partiels
+- [ ] Créances
+- [ ] Remboursements autorisés
+- [ ] Remises autorisées
+- [ ] Reçus
+- [ ] Ouverture caisse
+- [ ] Clôture caisse
+- [ ] Rapport caisse
+
+---
+
+# Phase 2 — Médecine / Soins
+
+- [ ] Dossier médical
+- [ ] Consultation
+- [ ] Diagnostic
+- [ ] Prescription
+- [ ] Constantes
+- [ ] Soins
+- [ ] Ordres de soins
+- [ ] Demande laboratoire
+- [ ] Demande chirurgie
+- [ ] Hospitalisation
+- [ ] Transfert médical
+- [ ] Sortie médicale
+
+---
+
+# Phase 3 — Laboratoire
+
+- [ ] Catalogue analyses
+- [ ] Demande analyse
+- [ ] Analyse interne
+- [ ] Analyse externe
+- [ ] Vérification statut paiement
+- [ ] Prélèvement
+- [ ] Echantillon
+- [ ] Analyse
+- [ ] Saisie résultat
+- [ ] Validation résultat
+- [ ] Correction contrôlée
+- [ ] Résultat critique
+- [ ] Impression
+- [ ] Export
+- [ ] Rapport
+
+Règle :
+
+```text
+AUCUN ENCAISSEMENT DANS LE LABORATOIRE
+```
+
+---
+
+# Phase 4 — Pharmacie / Stocks
+
+- [ ] Médicaments
+- [ ] Produits
+- [ ] DCI
+- [ ] Dosages
+- [ ] Lots
+- [ ] Péremptions
+- [ ] Stocks
+- [ ] Entrées
+- [ ] Sorties
+- [ ] Inventaires
+- [ ] Ajustements
+- [ ] Prescription reçue
+- [ ] Préparation délivrance
+- [ ] Vérification statut financier si nécessaire
+- [ ] Délivrance
+- [ ] Déstockage
+- [ ] Retours
+- [ ] Alertes stock
+- [ ] Alertes péremption
+- [ ] Transfert stock
+- [ ] Rapports
+
+Règle :
+
+```text
+AUCUNE CAISSE DANS LA PHARMACIE
+AUCUN PAIEMENT DANS LA PHARMACIE
+```
+
+---
+
+# Phase 5 — Chirurgie
+
+- [ ] Demande chirurgie
+- [ ] Programmation
+- [ ] Préopératoire
+- [ ] Validation préopératoire
+- [ ] Intervention
+- [ ] Anesthésie
+- [ ] Equipe bloc
+- [ ] Consommables
+- [ ] Compte rendu
+- [ ] Complications
+- [ ] Postopératoire
+- [ ] Sortie
+- [ ] Prestations facturables
+
+Règle :
+
+```text
+AUCUN ENCAISSEMENT DANS LA CHIRURGIE
+```
+
+---
+
+# Phase 6 — Administration
+
+- [ ] Employés
+- [ ] RH
+- [ ] Contrats
+- [ ] Présences
+- [ ] Congés
+- [ ] Absences
+- [ ] Planning
+- [ ] Logistique
+- [ ] Stock administratif
+- [ ] Visiteurs
+- [ ] Gardiennage
+- [ ] Rapports RH
+
+---
+
+# Phase 7 — API inter-sites
+
+- [ ] `/api/v1`
+- [ ] Authentification API
+- [ ] Service accounts
+- [ ] Permissions API
+- [ ] UUID
+- [ ] Request UUID
+- [ ] Idempotency
+- [ ] Queue
+- [ ] Retry
+- [ ] Backoff
+- [ ] Timeout
+- [ ] Journal API
+- [ ] Recherche patient distante
+- [ ] Transfert patient
+- [ ] Réception transfert
+- [ ] Accusé réception
+- [ ] Transfert stock
+- [ ] Autres échanges métier
+
+---
+
+# Phase 8 — Super Administration
+
+Domaine :
+
+```text
+admin.rivo.mg
+```
+
+- [ ] Auth Super Admin
+- [ ] API Mampikony
+- [ ] API Ambondromamy
+- [ ] Vue Mampikony
+- [ ] Vue Ambondromamy
+- [ ] Vue consolidée
+- [ ] Patients
+- [ ] Activités
+- [ ] Caisse
+- [ ] Finance
+- [ ] Laboratoire
+- [ ] Pharmacie
+- [ ] Stocks
+- [ ] Chirurgie
+- [ ] Utilisateurs
+- [ ] Rôles
+- [ ] Permissions
+- [ ] Audit
+- [ ] Rapports
+- [ ] Gestion indisponibilité d'une API
+
+---
+
+# Phase 9 — Qualité et Production
+
+- [ ] Tests unitaires
+- [ ] Tests fonctionnels
+- [ ] Tests permissions
+- [ ] Tests sécurité
+- [ ] Tests API
+- [ ] Tests idempotence
+- [ ] Tests Soft Delete
+- [ ] Tests Audit
+- [ ] Tests de charge
+- [ ] Sauvegardes
+- [ ] Tests restauration
+- [ ] Monitoring
+- [ ] Logs
+- [ ] Production Mampikony
+- [ ] Production Ambondromamy
+- [ ] Production Admin
+- [ ] Recette client
+
+---
+
+# Règle
+
+Une phase métier ne doit pas être considérée terminée uniquement parce que son interface fonctionne.
+
+Pour chaque fonctionnalité vérifier :
+
+```text
+Business rules
+Validation
+Authorization
+Permissions
+Audit
+Soft Delete
+Tests
+API impact
+Failure handling
+```

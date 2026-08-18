@@ -1,12 +1,34 @@
 <script setup>
+import { computed } from 'vue';
 import { Menu, MenuButton, MenuItems } from '@headlessui/vue';
+import { router, usePage } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import { useThemeStore } from '@/stores/theme';
 
 const theme = useThemeStore();
+const page = usePage();
 
 const visibility = defineModel('visibility');
+
+const user = computed(() => page.props.auth.user);
+
+const initials = computed(() => {
+    if (!user.value) {
+        return '';
+    }
+
+    return user.value.name
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0].toUpperCase())
+        .join('');
+});
+
+const logout = () => {
+    router.post('/logout');
+};
 </script>
 
 <template>
@@ -40,10 +62,10 @@ const visibility = defineModel('visibility');
                                 <Menu as="div" class="dropdown relative">
                                     <MenuButton class="dropdown-toggle *:pointer-events-none peer inline-flex items-center group">
                                         <div class="flex items-center">
-                                            <Avatar rounded icon="user-alt" size="sm" variant="primary" />
+                                            <Avatar rounded :text="initials" size="sm" variant="primary" />
                                             <div class="hidden md:block ms-3 text-start">
-                                                <div class="text-slate-600 dark:text-white text-xs font-bold flex items-center">
-                                                    Compte
+                                                <div class="text-slate-600 dark:text-white text-xs font-bold flex items-center max-w-[140px] truncate">
+                                                    {{ user?.name }}
                                                     <em class="text-sm leading-none ms-1 ni ni-chevron-down" />
                                                 </div>
                                             </div>
@@ -51,6 +73,10 @@ const visibility = defineModel('visibility');
                                     </MenuButton>
 
                                     <MenuItems class="dropdown-menu absolute end-0 top-full mt-2.5 max-xs:min-w-[240px] max-xs:max-w-[240px] min-w-[260px] max-w-[260px] border border-t-3 border-gray-200 dark:border-gray-800 border-t-primary-600 dark:border-t-primary-600 bg-white dark:bg-gray-950 rounded shadow z-[1000]">
+                                        <div class="px-7 py-4 border-b border-gray-200 dark:border-gray-800">
+                                            <div class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ user?.name }}</div>
+                                            <div class="text-xs text-slate-400 truncate">{{ user?.email }}</div>
+                                        </div>
                                         <ul class="py-3">
                                             <li>
                                                 <div class="relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-400 cursor-default">
@@ -61,7 +87,6 @@ const visibility = defineModel('visibility');
                                                     </span>
                                                 </div>
                                             </li>
-                                            <li class="block border-t border-gray-200 dark:border-gray-800 my-3" />
                                             <li>
                                                 <button
                                                     type="button"
@@ -79,6 +104,17 @@ const visibility = defineModel('visibility');
                                                     <div class="ms-auto relative h-6 w-12 rounded-full border-2 border-gray-200 dark:border-primary-600 bg-white dark:bg-primary-600">
                                                         <div class="absolute start-0.5 dark:start-6.5 top-0.5 h-4 w-4 rounded-full bg-gray-200 dark:bg-white transition-all duration-300" />
                                                     </div>
+                                                </button>
+                                            </li>
+                                            <li class="block border-t border-gray-200 dark:border-gray-800 my-3" />
+                                            <li>
+                                                <button
+                                                    type="button"
+                                                    class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-400 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
+                                                    @click="logout"
+                                                >
+                                                    <Icon class="text-lg leading-none w-7" name="signout" />
+                                                    <span>Déconnexion</span>
                                                 </button>
                                             </li>
                                         </ul>

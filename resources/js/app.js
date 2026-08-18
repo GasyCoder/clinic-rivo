@@ -6,8 +6,8 @@ const pinia = createPinia();
 createInertiaApp({
     title: (title) => {
         return title
-            ? `${title} — RIVO`
-            : 'RIVO — Clinique Saint Georges';
+            ? `${title} - Clinique Saint Georges`
+            : 'Clinique Saint Georges';
     },
 
     withApp(app) {

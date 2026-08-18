@@ -1,12 +1,15 @@
 <script setup>
+import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 const visibility = defineModel('visibility');
 
 const page = usePage();
+const { can } = usePermissions();
 
-const menuData = [
+const rawMenu = [
     { heading: 'Principal' },
     { icon: 'growth', text: 'Tableau de bord', link: '/' },
     { heading: 'Gestion clinique' },
@@ -17,9 +20,38 @@ const menuData = [
     { icon: 'table-view', text: 'Laboratoire' },
     { icon: 'cart', text: 'Pharmacie' },
     { heading: 'Gestion' },
-    { icon: 'file-docs', text: 'Administration' },
+    { icon: 'file-docs', text: 'Administration', permission: 'user.manage' },
     { icon: 'setting-alt', text: 'Super Administration' },
 ];
+
+// A heading is only rendered when at least one item under it is visible —
+// items gated by a `permission` the user does not hold are dropped entirely
+// (not just disabled), items with no `permission` requirement are always
+// shown (visually present but inactive until their module/route exists).
+const menuData = computed(() => {
+    const visible = [];
+    let pendingHeading = null;
+
+    for (const item of rawMenu) {
+        if (item.heading) {
+            pendingHeading = item;
+            continue;
+        }
+
+        if (item.permission && !can(item.permission)) {
+            continue;
+        }
+
+        if (pendingHeading) {
+            visible.push(pendingHeading);
+            pendingHeading = null;
+        }
+
+        visible.push(item);
+    }
+
+    return visible;
+});
 
 const isActive = (item) => {
     if (!item.link) {

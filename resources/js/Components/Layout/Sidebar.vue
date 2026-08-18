@@ -91,7 +91,7 @@ const closeMobile = () => {
                     class="hidden font-heading text-xl
                            font-bold text-primary-600 xl:block"
                 >
-                    R
+                    C
                 </div>
             </Link>
 

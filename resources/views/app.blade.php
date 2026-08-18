@@ -9,7 +9,7 @@
     >
 
     <title inertia>
-        {{ config('app.name', 'RIVO') }}
+        {{ config('app.name', 'Clinique Saint Georges') }}
     </title>
 
     @vite([

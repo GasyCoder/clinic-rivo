@@ -9,7 +9,7 @@ import { Head } from '@inertiajs/vue3'
         <main class="mx-auto max-w-7xl px-6 py-16">
             <div class="rounded-lg bg-white p-8 shadow-sm">
                 <h1 class="text-3xl font-bold text-gray-900">
-                    RIVO — Clinique Saint Georges
+                    Clinique Saint Georges
                 </h1>
 
                 <p class="mt-4 text-gray-600">

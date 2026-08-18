@@ -1,12 +1,17 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import { bunny } from 'laravel-vite-plugin/fonts';
+import vue from '@vitejs/plugin-vue';
+import inertia from '@inertiajs/vite';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
     plugins: [
         laravel({
-            input: ['resources/css/app.css', 'resources/js/app.js'],
+            input: [
+                'resources/css/app.css',
+                'resources/js/app.js',
+            ],
             refresh: true,
             fonts: [
                 bunny('Instrument Sans', {
@@ -14,11 +19,22 @@ export default defineConfig({
                 }),
             ],
         }),
+
+        vue(),
+
+        inertia(),
+
         tailwindcss(),
     ],
+
     server: {
         watch: {
-            ignored: ['**/storage/framework/views/**'],
+            ignored: [
+                '**/storage/framework/views/**',
+                '**/.agents/**',
+                '**/.claude/**',
+                '**/.codex/**',
+            ],
         },
     },
 });

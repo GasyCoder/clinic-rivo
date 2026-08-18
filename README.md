@@ -9,7 +9,7 @@ Le système couvre deux établissements indépendants :
 
 ---
 
-## Stack technique
+## Stack cible
 
 - Laravel 13
 - Vue.js
@@ -19,6 +19,18 @@ Le système couvre deux établissements indépendants :
 - MySQL / MariaDB
 - REST API JSON
 - Laravel Queue / Jobs
+
+## État actuel du projet
+
+- [x] Laravel 13
+- [x] MySQL / MariaDB configuré dans `.env.example`
+- [x] Tailwind CSS / Vite
+- [ ] Vue.js
+- [ ] Inertia.js
+- [ ] DashWind
+- [ ] Authentification
+- [ ] RBAC
+- [ ] API inter-sites
 
 ---
 

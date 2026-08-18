@@ -11,18 +11,21 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 0 — Fondation
 
 - [x] Laravel 13 installé
-- [ ] Documentation projet
-- [ ] README.md
-- [ ] AGENTS.md
-- [ ] CLAUDE.md
-- [ ] AI_CONTEXT.md
-- [ ] DECISIONS.md
-- [ ] CDC_REFERENCE.md
-- [ ] Skill Codex
-- [ ] Repository GitHub application
-- [ ] Configuration Git
+- [x] Documentation projet
+- [x] README.md
+- [x] AGENTS.md
+- [x] CLAUDE.md
+- [x] AI_CONTEXT.md
+- [x] DECISIONS.md
+- [x] CDC_REFERENCE.md
+- [x] Skill Codex
+- [x] Repository GitHub application
+- [x] Configuration Git
+
 - [ ] DashWind
-- [ ] Vue / Inertia vérifiés
+- [ ] Vue.js
+- [ ] Inertia.js
+- [ ] Configuration frontend
 - [ ] Configuration base locale
 - [ ] Authentification
 - [ ] RBAC dynamique

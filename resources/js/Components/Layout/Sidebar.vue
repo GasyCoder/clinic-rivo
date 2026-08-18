@@ -1,132 +1,95 @@
 <script setup>
+import { onMounted, ref } from 'vue';
+import SimpleBar from 'simplebar-vue';
+import { useResizeObserver } from '@vueuse/core';
 import { Link } from '@inertiajs/vue3';
 import Menu from './Menu.vue';
+import Icon from '@/Components/UI/Icon.vue';
 import { useThemeStore } from '@/stores/theme';
 
 const theme = useThemeStore();
 
-const visibility = defineModel('visibility', {
-    default: false,
+const visibility = defineModel('visibility');
+const compact = defineModel('compact');
+
+const mobile = ref(false);
+const mouseEnter = ref(false);
+
+onMounted(() => {
+    useResizeObserver(document.documentElement, (entries) => {
+        if (entries[0].contentRect.width < 1280) {
+            setTimeout(() => {
+                mobile.value = true;
+                compact.value = false;
+            }, 2000);
+        } else {
+            mobile.value = false;
+            visibility.value = false;
+        }
+    });
 });
-
-const compact = defineModel('compact', {
-    default: false,
-});
-
-const toggleCompact = () => {
-    compact.value = !compact.value;
-};
-
-const closeMobile = () => {
-    visibility.value = false;
-};
 </script>
 
 <template>
-    <aside
-        class="fixed start-0 top-0 z-[1031] h-screen
-               border-e border-gray-200 bg-white
-               transition-all duration-300
-               dark:border-gray-900 dark:bg-gray-950"
-        :class="[
-            visibility
-                ? 'translate-x-0'
-                : '-translate-x-full xl:translate-x-0',
-
-            compact
-                ? 'w-72 xl:w-[74px]'
-                : 'w-72',
-
-            theme.sidebar === 'dark'
-                ? 'dark'
-                : '',
-        ]"
+    <div
+        :class="{
+            'nk-sidebar group/sidebar peer fixed w-72 [&.is-compact:not(.has-hover)]:w-[74px] min-h-screen max-h-screen overflow-hidden h-full start-0 top-0 z-[1031] transition-[transform,width] duration-300 -translate-x-full rtl:translate-x-full xl:translate-x-0 xl:rtl:translate-x-0 [&.sidebar-visible]:translate-x-0': true,
+            'sidebar-visible': visibility,
+            'nk-sidebar-mobile': mobile,
+            'is-compact': compact,
+            'has-hover': compact && mouseEnter,
+            dark: theme.sidebar === 'dark',
+        }"
     >
-        <!-- Brand -->
-        <div
-            class="flex h-16 items-center border-b
-                   border-gray-200 px-4
-                   dark:border-gray-900"
-        >
-            <button
-                type="button"
-                class="me-3 hidden h-9 w-9 flex-none
-                       items-center justify-center rounded-full
-                       text-slate-600 transition
-                       hover:bg-gray-100
-                       dark:text-slate-300
-                       dark:hover:bg-gray-900
-                       xl:inline-flex"
-                @click="toggleCompact"
-            >
-                <em class="icon ni ni-menu text-2xl" />
-            </button>
-
-            <Link
-                href="/"
-                class="min-w-0"
-                @click="closeMobile"
-            >
-                <div
-                    v-if="!compact"
-                    class="leading-tight"
-                >
-                    <div
-                        class="font-heading text-xl font-bold
-                               text-slate-700 dark:text-white"
+        <div class="flex items-center min-w-full w-72 h-16 border-b border-e bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-900 px-6 py-3 overflow-hidden">
+            <div class="-ms-1 me-4">
+                <div class="hidden xl:block">
+                    <a
+                        href="#sidebar"
+                        class="sidebar-compact-toggle *:pointer-events-none inline-flex items-center isolate relative h-9 w-9 px-1.5 before:content-[''] before:absolute before:-z-[1] before:h-5 before:w-5 hover:before:h-10 hover:before:w-10 before:rounded-full before:opacity-0 hover:before:opacity-100 before:transition-all before:duration-300 before:-translate-x-1/2 before:-translate-y-1/2 before:top-1/2 before:left-1/2 before:bg-gray-200 dark:before:bg-gray-900"
+                        @click.prevent="compact = !compact"
                     >
-                        Clinique
-                    </div>
-
-                    <div
-                        class="truncate text-xxs
-                               text-slate-400"
-                    >
-                        Saint Georges
-                    </div>
+                        <Icon class="text-2xl text-slate-600 dark:text-slate-300" name="menu" />
+                    </a>
                 </div>
 
-                <div
-                    v-else
-                    class="hidden font-heading text-xl
-                           font-bold text-primary-600 xl:block"
-                >
-                    C
+                <div class="xl:hidden">
+                    <button
+                        type="button"
+                        class="sidebar-toggle *:pointer-events-none inline-flex items-center isolate relative h-9 w-9 px-1.5 before:content-[''] before:absolute before:-z-[1] before:h-5 before:w-5 hover:before:h-10 hover:before:w-10 before:rounded-full before:opacity-0 hover:before:opacity-100 before:transition-all before:duration-300 before:-translate-x-1/2 before:-translate-y-1/2 before:top-1/2 before:left-1/2 before:bg-gray-200 dark:before:bg-gray-900 rtl:-scale-x-100"
+                        @click="visibility = !visibility"
+                    >
+                        <Icon name="arrow-left" class="text-2xl text-slate-600 dark:text-slate-300" />
+                    </button>
                 </div>
-            </Link>
+            </div>
 
-            <button
-                type="button"
-                class="ms-auto inline-flex h-9 w-9
-                       items-center justify-center rounded-full
-                       text-slate-600 hover:bg-gray-100
-                       dark:text-slate-300
-                       dark:hover:bg-gray-900 xl:hidden"
-                @click="closeMobile"
-            >
-                <em class="icon ni ni-cross text-xl" />
-            </button>
+            <div class="relative flex flex-shrink-0 min-w-0">
+                <Link
+                    href="/"
+                    class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
+                >
+                    <span class="font-heading text-lg font-bold text-slate-700 dark:text-white">RIVO</span>
+                    <span class="truncate text-xxs text-slate-400">Clinique Saint Georges</span>
+                </Link>
+            </div>
         </div>
 
-        <!-- Menu -->
         <div
-            class="h-[calc(100vh-4rem)] overflow-y-auto
-                   overflow-x-hidden"
+            class="nk-sidebar-body max-h-full relative overflow-hidden w-full bg-white dark:bg-gray-950 border-e border-gray-200 dark:border-gray-900"
+            @mouseenter="mouseEnter = true"
+            @mouseleave="mouseEnter = false"
         >
-            <Menu
-                v-model:visibility="visibility"
-                :compact="compact"
-            />
+            <div class="flex flex-col w-full h-[calc(100vh-theme(spacing.16))]">
+                <SimpleBar class="h-full pt-4 pb-10">
+                    <Menu v-model:visibility="visibility" />
+                </SimpleBar>
+            </div>
         </div>
-    </aside>
+    </div>
 
-    <!-- Mobile backdrop -->
-    <button
-        v-if="visibility"
-        type="button"
-        aria-label="Fermer le menu"
-        class="fixed inset-0 z-[1030]
-               bg-slate-950/30 xl:hidden"
-        @click="closeMobile"
+    <div
+        class="sidebar-toggle fixed inset-0 bg-slate-950 bg-opacity-20 z-[1030] opacity-0 invisible peer-[.sidebar-visible]:opacity-100 peer-[.sidebar-visible]:visible xl:!opacity-0 xl:!invisible"
+        @click.prevent="visibility = false"
     />
 </template>

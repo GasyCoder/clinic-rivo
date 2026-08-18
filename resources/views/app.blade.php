@@ -20,7 +20,7 @@
     <x-inertia::head />
 </head>
 
-<body>
+<body class="min-w-[320px] bg-gray-50 font-body text-sm font-normal leading-relaxed text-slate-600 dark:bg-gray-1000 dark:text-slate-300">
     <x-inertia::app />
 </body>
 </html>

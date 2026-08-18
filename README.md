@@ -1,4 +1,4 @@
-# RIVO — Clinique Saint Georges
+# RIVO - Clinique Saint Georges
 
 Application web de gestion clinique développée pour la Clinique Saint Georges.
 

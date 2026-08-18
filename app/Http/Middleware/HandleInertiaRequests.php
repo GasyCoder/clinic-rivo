@@ -51,6 +51,12 @@ class HandleInertiaRequests extends Middleware
                 ] : null,
             ],
             'permissions' => $user ? $user->effectivePermissionNames()->values()->all() : [],
+            'site' => [
+                'brand' => config('rivo.brand'),
+                'code' => config('rivo.site.code'),
+                'name' => config('rivo.site.name'),
+                'type' => config('rivo.site.type'),
+            ],
         ];
     }
 }

@@ -1,6 +1,6 @@
 <script setup>
-import { ref } from 'vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
+import { Head, useForm, usePage } from '@inertiajs/vue3';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
 import FormGroup from '@/Components/UI/FormGroup.vue';
 import FormLabel from '@/Components/UI/FormLabel.vue';
@@ -31,6 +31,9 @@ const submit = () => {
 const sites = ['Mampikony', 'Ambondromamy', 'Boriziny'];
 
 const year = new Date().getFullYear();
+
+const page = usePage();
+const site = computed(() => page.props.site);
 </script>
 
 <template>
@@ -48,8 +51,11 @@ const year = new Date().getFullYear();
                     </div>
 
                     <h1 class="font-heading text-xl font-bold leading-tighter -tracking-snug text-slate-700 dark:text-white">
-                        Clinique Saint Georges
+                        {{ site.brand }}
                     </h1>
+                    <p v-if="site.name" class="mt-1 text-sm font-bold text-primary-600">
+                        {{ site.name }}
+                    </p>
                     <p class="mt-2 text-sm leading-6 text-slate-400">
                         Accès réservé au personnel de la clinique.
                     </p>
@@ -121,7 +127,7 @@ const year = new Date().getFullYear();
             </div>
 
             <div class="w-full px-6 pb-8 text-center text-xs text-slate-400 sm:px-11 lg:text-start">
-                © {{ year }} Clinique Saint Georges
+                © {{ year }} {{ site.brand }}
             </div>
         </div>
 
@@ -136,7 +142,7 @@ const year = new Date().getFullYear();
 
             <div class="relative flex flex-none items-center gap-2 text-white/90">
                 <em class="ni ni-plus-medi-fill text-2xl leading-none" />
-                <span class="font-heading text-sm font-bold tracking-wide">Clinique Saint Georges</span>
+                <span class="font-heading text-sm font-bold tracking-wide">{{ site.brand }}</span>
             </div>
 
             <div class="relative">

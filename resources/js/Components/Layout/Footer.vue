@@ -1,4 +1,10 @@
 <script setup>
+import { computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
+
+const page = usePage();
+const site = computed(() => page.props.site);
+
 const year = new Date().getFullYear();
 </script>
 
@@ -7,7 +13,7 @@ const year = new Date().getFullYear();
         <div class="container max-w-none">
             <div class="flex items-center justify-between flex-wrap">
                 <div class="text-sm text-slate-500 pb-1 sm:pb-0">
-                    &copy; {{ year }} Clinique Saint Georges
+                    &copy; {{ year }} {{ site.brand }}<span v-if="site.name"> — {{ site.name }}</span>
                 </div>
 
                 <div class="text-xs text-slate-400">

@@ -12,6 +12,7 @@ const page = usePage();
 const visibility = defineModel('visibility');
 
 const user = computed(() => page.props.auth.user);
+const site = computed(() => page.props.site);
 
 const initials = computed(() => {
     if (!user.value) {
@@ -47,13 +48,12 @@ const logout = () => {
                     </div>
 
                     <div class="px-1 py-3.5 flex xl:hidden">
-                        <span class="font-heading text-base font-bold text-slate-700 dark:text-white">Clinique Saint Georges</span>
+                        <span class="font-heading text-base font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
                     </div>
 
-                    <div class="px-1 py-2 hidden xl:flex items-center min-w-0">
-                        <p class="text-sm font-medium text-slate-600 dark:text-slate-300 truncate">
-                            Clinique Saint Georges
-                        </p>
+                    <div class="px-1 py-2 hidden xl:flex flex-col justify-center min-w-0">
+                        <span class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
+                        <span v-if="site.name" class="text-xs text-slate-400 truncate">{{ site.name }}</span>
                     </div>
 
                     <div class="px-1 py-3.5 ms-auto">

@@ -1,13 +1,15 @@
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import SimpleBar from 'simplebar-vue';
 import { useResizeObserver } from '@vueuse/core';
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import Menu from './Menu.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import { useThemeStore } from '@/stores/theme';
 
 const theme = useThemeStore();
+const page = usePage();
+const site = computed(() => page.props.site);
 
 const visibility = defineModel('visibility');
 const compact = defineModel('compact');
@@ -69,8 +71,8 @@ onMounted(() => {
                     href="/"
                     class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
                 >
-                    <span class="font-heading text-base font-bold leading-tight text-slate-700 dark:text-white">Clinique</span>
-                    <span class="truncate text-xxs text-slate-400">Saint Georges</span>
+                    <span class="font-heading text-sm font-bold leading-tight text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
+                    <span v-if="site.name" class="truncate text-xxs text-slate-400">{{ site.name }}</span>
                 </Link>
             </div>
         </div>

@@ -1,29 +1,22 @@
 <script setup>
-import { Head } from '@inertiajs/vue3'
+import { Head } from '@inertiajs/vue3';
+import AppLayout from '@/Layouts/AppLayout.vue';
+
+defineOptions({
+    layout: AppLayout,
+});
 </script>
 
 <template>
-    <Head title="Accueil" />
+    <Head title="Dashboard" />
 
-    <div class="min-h-screen bg-gray-50">
-        <main class="mx-auto max-w-7xl px-6 py-16">
-            <div class="rounded-lg bg-white p-8 shadow-sm">
-                <h1 class="text-3xl font-bold text-gray-900">
-                    Clinique Saint Georges
-                </h1>
+    <div class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+        <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">
+            Clinique Saint Georges
+        </h1>
 
-                <p class="mt-4 text-gray-600">
-                    Laravel 13 + Vue 3 + Inertia 3
-                </p>
-
-                <div class="mt-6">
-                    <span
-                        class="inline-flex rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700"
-                    >
-                        Frontend opérationnel
-                    </span>
-                </div>
-            </div>
-        </main>
+        <p class="mt-2 text-sm text-gray-500">
+            DashWind + Laravel + Inertia + Vue
+        </p>
     </div>
 </template>

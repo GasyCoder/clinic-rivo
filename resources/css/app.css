@@ -1,9 +1,20 @@
-@import 'tailwindcss';
-@import "../dashwind/assets/css/app.css";
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
+@import "../dashwind/assets/css/bundles/nioicon/style.css";
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
-}
+@import "./tailwind.css";
+@import "../dashwind/assets/css/app.css";
+
+@import "../dashwind/assets/css/bundles/simplebar/simplebar.css";
+@import "../dashwind/assets/css/bundles/choice/choices.css";
+@import "../dashwind/assets/css/bundles/dropzone/dropzone.css";
+@import "../dashwind/assets/css/bundles/datepicker/datepicker.css";
+@import "../dashwind/assets/css/bundles/nouislider/nouislider.css";
+@import "../dashwind/assets/css/bundles/swiper/swiper-bundle.css";
+@import "../dashwind/assets/css/bundles/simple-datatables/simple-datatables.css";
+@import "../dashwind/assets/css/bundles/tagify/tagify.css";
+@import "../dashwind/assets/css/bundles/fullcalendar/fullcalendar.css";
+
+@import "../dashwind/assets/css/custom/validation/style.css";
+@import "../dashwind/assets/css/custom/keyframes.css";
+@import "../dashwind/assets/css/custom/font-faces.css";
+
+@import "../dashwind/assets/css/app.css";

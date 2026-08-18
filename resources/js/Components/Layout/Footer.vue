@@ -15,7 +15,7 @@ const year = new Date().getFullYear();
                    sm:items-center sm:justify-between"
         >
             <span>
-                © {{ year }} RIVO — Clinique Saint Georges
+                © {{ year }} Clinique Saint Georges
             </span>
 
             <span>

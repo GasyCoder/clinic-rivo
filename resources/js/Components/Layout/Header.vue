@@ -41,7 +41,7 @@ const visibility = defineModel('visibility', {
                 <div
                     class="hidden text-xs text-slate-400 sm:block"
                 >
-                    Système de gestion clinique RIVO
+                    Système de gestion clinique
                 </div>
             </div>
 

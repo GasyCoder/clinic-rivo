@@ -75,14 +75,14 @@ const closeMobile = () => {
                         class="font-heading text-xl font-bold
                                text-slate-700 dark:text-white"
                     >
-                        RIVO
+                        Clinique
                     </div>
 
                     <div
                         class="truncate text-xxs
                                text-slate-400"
                     >
-                        Clinique Saint Georges
+                        Saint Georges
                     </div>
                 </div>
 

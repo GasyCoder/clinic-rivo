@@ -4,8 +4,8 @@ Application web de gestion clinique développée pour la Clinique Saint Georges.
 
 Le système couvre deux établissements indépendants :
 
-- Clinique Saint Georges — Mampikony
-- Clinique Saint Georges — Ambondromamy
+- Clinique Saint Georges - Mampikony
+- Clinique Saint Georges - Ambondromamy
 
 ---
 

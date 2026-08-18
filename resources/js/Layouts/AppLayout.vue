@@ -1,11 +1,11 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { ref } from 'vue';
 
 import Sidebar from '@/Components/Layout/Sidebar.vue';
 import Header from '@/Components/Layout/Header.vue';
 import Footer from '@/Components/Layout/Footer.vue';
 
-import { useThemeStore } from '@/stores/theme';
+import { useThemeSync } from '@/composables/useThemeSync';
 
 defineProps({
     container: {
@@ -14,23 +14,10 @@ defineProps({
     },
 });
 
-const theme = useThemeStore();
+useThemeSync();
 
 const sidebarVisibility = ref(false);
 const sidebarCompact = ref(false);
-
-const applyTheme = () => {
-    if (typeof document === 'undefined') {
-        return;
-    }
-
-    document.documentElement.classList.toggle('dark', theme.mode === 'dark');
-    document.body.setAttribute('dir', theme.direction);
-};
-
-onMounted(applyTheme);
-
-watch(() => [theme.mode, theme.direction], applyTheme);
 </script>
 
 <template>

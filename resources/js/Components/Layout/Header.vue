@@ -25,7 +25,7 @@ const visibility = defineModel('visibility');
                     </div>
 
                     <div class="px-1 py-3.5 flex xl:hidden">
-                        <span class="font-heading text-lg font-bold text-slate-700 dark:text-white">RIVO</span>
+                        <span class="font-heading text-base font-bold text-slate-700 dark:text-white">Clinique Saint Georges</span>
                     </div>
 
                     <div class="px-1 py-2 hidden xl:flex items-center min-w-0">

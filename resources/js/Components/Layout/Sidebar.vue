@@ -69,8 +69,8 @@ onMounted(() => {
                     href="/"
                     class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
                 >
-                    <span class="font-heading text-lg font-bold text-slate-700 dark:text-white">RIVO</span>
-                    <span class="truncate text-xxs text-slate-400">Clinique Saint Georges</span>
+                    <span class="font-heading text-base font-bold leading-tight text-slate-700 dark:text-white">Clinique</span>
+                    <span class="truncate text-xxs text-slate-400">Saint Georges</span>
                 </Link>
             </div>
         </div>

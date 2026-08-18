@@ -7,7 +7,7 @@ const year = new Date().getFullYear();
         <div class="container max-w-none">
             <div class="flex items-center justify-between flex-wrap">
                 <div class="text-sm text-slate-500 pb-1 sm:pb-0">
-                    &copy; {{ year }} RIVO &middot; Clinique Saint Georges
+                    &copy; {{ year }} Clinique Saint Georges
                 </div>
 
                 <div class="text-xs text-slate-400">

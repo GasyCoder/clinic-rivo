@@ -1,0 +1,39 @@
+.form-wrap{
+    position: relative;
+}
+.form-error{
+    font-size: 11px;
+    line-height: 1.8;
+    font-style: italic;
+    margin-top: .25rem;
+    @apply text-red-600;
+}
+
+.floating-feedbacks .form-error {
+    position: absolute;
+    font-size: 11px;
+    line-height: 1;
+    bottom: calc(100% + 4px);
+    padding: 0.3rem 0.5rem;
+    z-index: 1;
+    border-radius: 3px;
+    white-space: nowrap;
+    @apply bg-red-500 text-white end-0;
+}
+.floating-feedbacks .form-error:before {
+    position: absolute;
+    content: "";
+    height: 0;
+    width: 0;
+    bottom: -5px;
+    @apply border-s-6 border-e-6 border-b-6 border-e-red-500 border-s-transparent border-b-transparent end-2.5;
+}
+
+.floating-feedbacks .form-check-wrap .form-error{
+    @apply end-auto start-0;
+}
+
+.floating-feedbacks .form-check-wrap .form-error:before{
+    bottom: -6px;
+    @apply border-s-red-500 border-e-transparent end-auto start-2.5;
+}

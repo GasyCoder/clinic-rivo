@@ -3,7 +3,7 @@ import laravel from 'laravel-vite-plugin';
 import { bunny } from 'laravel-vite-plugin/fonts';
 import vue from '@vitejs/plugin-vue';
 import inertia from '@inertiajs/vite';
-import tailwindcss from '@tailwindcss/vite';
+import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
     plugins: [
@@ -23,9 +23,15 @@ export default defineConfig({
         vue(),
 
         inertia(),
-
-        tailwindcss(),
     ],
+
+    resolve: {
+        alias: {
+            '@': fileURLToPath(
+                new URL('./resources/js', import.meta.url)
+            ),
+        },
+    },
 
     server: {
         watch: {
@@ -34,6 +40,7 @@ export default defineConfig({
                 '**/.agents/**',
                 '**/.claude/**',
                 '**/.codex/**',
+                '**/template/**',
             ],
         },
     },

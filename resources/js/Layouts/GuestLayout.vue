@@ -8,9 +8,13 @@ const { theme } = useThemeSync();
 <template>
     <div class="nk-main">
         <div class="nk-wrap flex flex-col min-h-screen">
+            <!-- bottom-start: top-end is the mobile drawer toggle
+                 (IdentityPanel.vue), and the identity panel itself owns the
+                 whole end/right half of the screen from lg: up (z-[999],
+                 opaque) — end-5 would sit underneath it and be unclickable. -->
             <button
                 type="button"
-                class="fixed end-5 top-5 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-slate-500 transition-colors duration-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-400 dark:hover:text-primary-500"
+                class="fixed bottom-5 start-5 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-slate-500 transition-colors duration-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-400 dark:hover:text-primary-500"
                 :title="theme.mode === 'dark' ? 'Mode clair' : 'Mode sombre'"
                 @click="theme.updateMode"
             >

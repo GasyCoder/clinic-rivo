@@ -48,9 +48,11 @@ class Episode extends Model
 
     /**
      * PENDING_ORIENTATION → ORIENTED. The only administrative_status
-     * transition this module owns; ORIENTED → IN_SERVICE → DISCHARGED
-     * belong to whichever future module actually receives/discharges the
-     * patient (Médecine, Chirurgie, ...) and are not implemented here.
+     * transition this module owns; ORIENTED → IN_CARE → PENDING_SETTLEMENT
+     * → DISCHARGED belong to whichever future module actually receives,
+     * medically discharges (§34.1 "sortie médicale"), and then
+     * administratively closes (§34.1.2 "sortie administrative", gated on
+     * the patient's balance) the episode, and are not implemented here.
      */
     public function orient(): void
     {

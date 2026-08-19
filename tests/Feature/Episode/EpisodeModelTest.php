@@ -46,6 +46,16 @@ class EpisodeModelTest extends TestCase
         $this->assertNotNull($episode->uuid);
     }
 
+    public function test_administrative_status_covers_the_circuit_positions_named_by_the_client_cdcf(): void
+    {
+        // Client CDCF §36: "En cours de soins" and "En attente de règlement"
+        // are named states between orientation and administrative exit —
+        // regression guard against silently dropping them again.
+        $this->assertSame('IN_CARE', EpisodeAdministrativeStatus::InCare->value);
+        $this->assertSame('PENDING_SETTLEMENT', EpisodeAdministrativeStatus::PendingSettlement->value);
+        $this->assertSame('DISCHARGED', EpisodeAdministrativeStatus::Discharged->value);
+    }
+
     public function test_status_and_administrative_status_are_cast_to_their_enums(): void
     {
         $episode = $this->makeEpisode();

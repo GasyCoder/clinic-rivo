@@ -12,13 +12,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * CDC §21. Owned by Réception (AI_CONTEXT.md: "gère... l'identité
- * administrative du patient") — never carries payment/medical data itself,
- * only the administrative identity. Not on the CDC §11 critical-data list,
- * so force_delete is gated purely by the `patient.force_delete` permission
- * (ADR-008), not hard-blocked at the model level like a settled payment
- * would be.
+ * administrative du patient") — never carries payment data itself, only
+ * administrative identity plus the permanent "dossier patient" fields the
+ * client CDCF calls out (contact d'urgence, antécédents, allergies via
+ * relations below). Not on the CDC §11 critical-data list, so force_delete
+ * is gated purely by the `patients.force_delete` permission (ADR-008), not
+ * hard-blocked at the model level like a settled payment would be — but is
+ * still refused whenever dependent clinical/administrative records exist
+ * (see isForceDeleteProtected()).
  */
-#[Fillable(['patient_number', 'first_name', 'last_name', 'birth_date', 'sex', 'phone', 'address'])]
+#[Fillable([
+    'patient_number', 'first_name', 'last_name', 'birth_date', 'sex', 'phone', 'address',
+    'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship',
+])]
 class Patient extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
@@ -36,16 +42,28 @@ class Patient extends Model
         return $this->hasMany(Episode::class);
     }
 
+    public function antecedents(): HasMany
+    {
+        return $this->hasMany(PatientAntecedent::class);
+    }
+
+    public function allergies(): HasMany
+    {
+        return $this->hasMany(PatientAllergy::class);
+    }
+
     /**
-     * episodes.patient_id is a restrictOnDelete() foreign key (Episode is
-     * never orphaned) — without this override, force_delete on a patient
-     * with episodes would surface as a raw DB constraint violation instead
-     * of the clean ForceDeleteForbiddenException every other protected
-     * model produces.
+     * episodes/patient_antecedents/patient_allergies all use
+     * restrictOnDelete() foreign keys (never orphaned) — without this
+     * override, force_delete on a patient with any of these would surface
+     * as a raw DB constraint violation instead of the clean
+     * ForceDeleteForbiddenException every other protected model produces.
      */
     public function isForceDeleteProtected(): bool
     {
-        return $this->episodes()->exists();
+        return $this->episodes()->exists()
+            || $this->antecedents()->exists()
+            || $this->allergies()->exists();
     }
 
     protected function auditModule(): ?string

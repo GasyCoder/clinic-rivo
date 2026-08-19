@@ -29,6 +29,13 @@ class PermissionSeeder extends Seeder
         'patients.view_deleted' => 'Voir les patients supprimés',
         'patients.force_delete' => 'Supprimer définitivement un patient',
 
+        // module.resource.action (AI_CONTEXT.md) plutôt que patients.* :
+        // ces deux permissions doivent pouvoir être restreintes séparément
+        // du reste du dossier patient administratif (confidentialité des
+        // informations médicales, CDCF client §34.1 règle 9).
+        'patients.medical_history.view' => 'Voir les antécédents et allergies',
+        'patients.medical_history.manage' => 'Gérer les antécédents et allergies',
+
         // CDC §12 liste aussi episodes.transfer — non seedée ici : le
         // transfert inter-sites (§19, Phase 7) n'a aucune implémentation
         // dans ce module, à ajouter quand ce flux sera réellement construit.

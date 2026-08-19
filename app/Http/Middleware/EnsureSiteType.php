@@ -8,7 +8,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Restricts a route to the deployment type(s) it makes sense for
- * (`site.type:clinic,admin`, `site.type:public`, ...).
+ * (`site.type:clinic,admin`, `site.type:gateway`, ...).
  *
  * Reads `config('rivo.site.type')` at request time rather than gating at
  * route-registration time — deliberately, so tests can simulate any

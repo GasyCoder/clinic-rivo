@@ -10,9 +10,9 @@ class SiteRoutingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_public_site_shows_the_site_selection_page_with_all_three_clinics(): void
+    public function test_gateway_shows_the_site_selection_page_with_all_three_clinics(): void
     {
-        config(['rivo.site.type' => 'public']);
+        config(['rivo.site.type' => 'gateway']);
 
         $response = $this->get('/');
 
@@ -27,25 +27,26 @@ class SiteRoutingTest extends TestCase
             ->where('clinics.1.name', 'Ambondromamy')
             ->where('clinics.2.code', 'B')
             ->where('clinics.2.name', 'Boriziny')
+            ->where('adminUrl', 'https://admin.rivo.mg')
         );
     }
 
-    public function test_public_site_does_not_expose_the_login_route(): void
+    public function test_gateway_does_not_expose_the_login_route(): void
     {
-        config(['rivo.site.type' => 'public']);
+        config(['rivo.site.type' => 'gateway']);
 
         $this->get('/login')->assertNotFound();
     }
 
-    public function test_public_site_does_not_expose_the_logout_route_even_for_an_authenticated_session(): void
+    public function test_gateway_does_not_expose_the_logout_route_even_for_an_authenticated_session(): void
     {
-        config(['rivo.site.type' => 'public']);
+        config(['rivo.site.type' => 'gateway']);
 
         // Acting as a user isolates this from the 'auth' middleware's own
         // guest redirect (which would otherwise mask the 404 behind a
-        // redirect to /login) — a public deployment has no login route in
-        // the first place, so no such session could exist for real, but
-        // this confirms the site-type gate itself, independent of auth.
+        // redirect to /login) — the gateway has no login route in the
+        // first place, so no such session could exist for real, but this
+        // confirms the site-type gate itself, independent of auth.
         $user = User::factory()->create();
 
         $this->actingAs($user)->post('/logout')->assertNotFound();
@@ -90,9 +91,9 @@ class SiteRoutingTest extends TestCase
         }
     }
 
-    public function test_public_deployment_never_shows_the_dashboard_even_when_a_session_is_authenticated(): void
+    public function test_gateway_never_shows_the_dashboard_even_when_a_session_is_authenticated(): void
     {
-        config(['rivo.site.type' => 'public']);
+        config(['rivo.site.type' => 'gateway']);
 
         $user = User::factory()->create();
 

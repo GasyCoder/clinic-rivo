@@ -9,6 +9,8 @@ import InputWrap from '@/Components/UI/InputWrap.vue';
 import Input from '@/Components/UI/Input.vue';
 import CheckBox from '@/Components/UI/CheckBox.vue';
 import Button from '@/Components/UI/Button.vue';
+import Copyright from '@/Components/UI/Copyright.vue';
+import Icon from '@/Components/UI/Icon.vue';
 
 defineOptions({
     layout: GuestLayout,
@@ -28,12 +30,19 @@ const submit = () => {
     });
 };
 
-const sites = ['Mampikony', 'Ambondromamy', 'Boriziny'];
-
-const year = new Date().getFullYear();
-
 const page = usePage();
 const site = computed(() => page.props.site);
+
+const monogram = computed(() => site.value.brand
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase());
+
+const otherSites = ['Mampikony', 'Ambondromamy', 'Boriziny'].filter(
+    (name) => name.toUpperCase() !== site.value.name?.toUpperCase(),
+);
 </script>
 
 <template>
@@ -41,24 +50,28 @@ const site = computed(() => page.props.site);
 
     <div class="relative flex min-h-screen">
         <!-- Form panel -->
-        <div class="relative flex w-full flex-shrink-0 flex-col bg-white dark:bg-gray-950 lg:w-[46%]">
-            <div class="m-auto w-full max-w-[400px] p-6 sm:p-11">
-                <div class="mb-8 flex flex-col items-center text-center lg:items-start lg:text-start">
-                    <div
-                        class="mb-5 inline-flex h-14 w-14 flex-none items-center justify-center rounded-2xl bg-primary-50 text-primary-600 dark:bg-primary-950"
-                    >
-                        <em class="ni ni-plus-medi-fill text-2xl leading-none" />
+        <div class="relative flex w-full flex-shrink-0 flex-col bg-white dark:bg-gray-950 lg:w-[44%]">
+            <div class="m-auto w-full max-w-[380px] p-6 sm:p-11">
+                <div class="mb-10 flex items-center gap-3">
+                    <span class="flex h-9 w-9 flex-none items-center justify-center rounded-md bg-primary-600 font-heading text-xs font-bold text-white">
+                        {{ monogram }}
+                    </span>
+                    <div class="min-w-0 leading-tight">
+                        <div class="truncate font-heading text-sm font-bold text-slate-700 dark:text-white">{{ site.brand }}</div>
+                        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Espace professionnel</div>
                     </div>
+                </div>
 
-                    <h1 class="font-heading text-xl font-bold leading-tighter -tracking-snug text-slate-700 dark:text-white">
-                        {{ site.brand }}
+                <div class="mb-8">
+                    <h1 class="font-heading text-2xl font-bold leading-tight text-slate-700 dark:text-white">
+                        Connexion
                     </h1>
-                    <p v-if="site.name" class="mt-1 text-sm font-bold text-primary-600">
+                    <span
+                        v-if="site.name"
+                        class="mt-2 inline-flex items-center rounded border border-gray-200 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800 dark:text-slate-400"
+                    >
                         {{ site.name }}
-                    </p>
-                    <p class="mt-2 text-sm leading-6 text-slate-400">
-                        Accès réservé au personnel de la clinique.
-                    </p>
+                    </span>
                 </div>
 
                 <form @submit.prevent="submit">
@@ -124,48 +137,53 @@ const site = computed(() => page.props.site);
                         </Button>
                     </FormGroup>
                 </form>
+
+                <a
+                    v-if="site.type === 'clinic' && site.gatewayUrl"
+                    :href="site.gatewayUrl"
+                    class="mt-6 inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors duration-300 hover:text-primary-600 dark:hover:text-primary-500"
+                >
+                    <Icon name="arrow-left" class="text-sm leading-none rtl:-scale-x-100" />
+                    Choisir un autre site
+                </a>
             </div>
 
-            <div class="w-full px-6 pb-8 text-center text-xs text-slate-400 sm:px-11 lg:text-start">
-                © {{ year }} {{ site.brand }}
+            <div class="w-full px-6 pb-8 text-xs text-slate-400 sm:px-11">
+                <Copyright :brand="site.brand" />
             </div>
         </div>
 
-        <!-- Brand panel -->
-        <div
-            class="relative hidden flex-1 flex-col justify-between overflow-hidden bg-gradient-to-br from-primary-600 to-primary-800 p-11 lg:flex"
-        >
-            <div
-                class="pointer-events-none absolute inset-0 opacity-[0.07]"
-                style="background-image: radial-gradient(circle, #fff 1px, transparent 1px); background-size: 28px 28px"
-            />
-
-            <div class="relative flex flex-none items-center gap-2 text-white/90">
-                <em class="ni ni-plus-medi-fill text-2xl leading-none" />
-                <span class="font-heading text-sm font-bold tracking-wide">{{ site.brand }}</span>
+        <!-- Identity panel — deliberately the same dark surface as the app's
+             own sidebar (bg-gray-950), not a generic gradient, and always
+             dark regardless of the light/dark toggle, mirroring how the
+             sidebar itself behaves by default. -->
+        <div class="relative hidden flex-1 flex-col justify-between bg-gray-950 p-11 lg:flex">
+            <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <span class="h-1.5 w-1.5 flex-none rounded-full bg-primary-500" />
+                Système interne
             </div>
 
-            <div class="relative">
-                <h2 class="max-w-[380px] font-heading text-3xl font-bold leading-tighter -tracking-snug text-white">
-                    Plateforme de gestion clinique
-                </h2>
-                <p class="mt-4 max-w-[380px] text-sm leading-6 text-white/70">
-                    Réception, médecine, chirurgie, laboratoire et pharmacie réunis dans un même espace, pour chaque site.
-                </p>
-
-                <div class="mt-8 flex flex-wrap gap-2">
-                    <span
-                        v-for="site in sites"
-                        :key="site"
-                        class="rounded-full border border-white/25 bg-white/10 px-3.5 py-1.5 text-xs font-medium text-white/90 backdrop-blur-sm"
-                    >
-                        {{ site }}
-                    </span>
+            <div>
+                <div
+                    v-if="site.name"
+                    class="font-heading text-6xl font-bold uppercase leading-[0.95] tracking-tight text-white xl:text-7xl"
+                >
+                    {{ site.name }}
                 </div>
+                <div class="mt-6 h-px w-16 bg-primary-500" />
+                <p class="mt-6 max-w-xs text-sm leading-6 text-slate-400">
+                    {{ site.brand }} — plateforme de gestion clinique.
+                </p>
             </div>
 
-            <div class="relative flex-none text-xs text-white/50">
-                Système interne — accès réservé au personnel habilité.
+            <div v-if="otherSites.length" class="flex flex-wrap gap-x-6 gap-y-2">
+                <span
+                    v-for="name in otherSites"
+                    :key="name"
+                    class="text-xs font-bold uppercase tracking-wide text-slate-600"
+                >
+                    {{ name }}
+                </span>
             </div>
         </div>
     </div>

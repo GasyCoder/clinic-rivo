@@ -10,7 +10,9 @@ use Inertia\Response;
 /**
  * Resolves the root `/` for whichever deployment is currently running:
  *
- * - public: the "choose your site" entry point (no auth involved).
+ * - gateway (app.rivo.mg): the staff "choose your site" entry point (no
+ *   auth involved) — not to be confused with cliniquesaintgeorges.mg, the
+ *   public marketing site, which is untouched and out of scope here.
  * - clinic / admin: the dashboard, behind the same session login used by
  *   every operational deployment for now (a dedicated Super Admin auth
  *   flow is future work — this step only prepares site identity/routing).
@@ -19,9 +21,10 @@ class HomeController extends Controller
 {
     public function __invoke(Request $request): Response|RedirectResponse
     {
-        if (config('rivo.site.type') === 'public') {
+        if (config('rivo.site.type') === 'gateway') {
             return Inertia::render('SiteSelect', [
                 'clinics' => config('rivo.clinics'),
+                'adminUrl' => config('rivo.admin_url'),
             ]);
         }
 

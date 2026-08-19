@@ -56,6 +56,7 @@ class HandleInertiaRequests extends Middleware
                 'code' => config('rivo.site.code'),
                 'name' => config('rivo.site.name'),
                 'type' => config('rivo.site.type'),
+                'gatewayUrl' => config('rivo.gateway_url'),
             ],
         ];
     }

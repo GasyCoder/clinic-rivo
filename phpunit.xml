@@ -29,6 +29,16 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!--
+            Deliberately pinned regardless of the developer's local .env —
+            tests must be deterministic, never dependent on whichever site
+            type a developer last configured locally while testing the
+            gateway/admin pages in a browser. A test that needs a different
+            type overrides it explicitly via config(['rivo.site.type' => ...]).
+        -->
+        <env name="RIVO_SITE_CODE" value="M"/>
+        <env name="RIVO_SITE_NAME" value="Mampikony"/>
+        <env name="RIVO_SITE_TYPE" value="clinic"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

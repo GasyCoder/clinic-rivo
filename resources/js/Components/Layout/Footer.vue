@@ -1,11 +1,10 @@
 <script setup>
 import { computed } from 'vue';
 import { usePage } from '@inertiajs/vue3';
+import Copyright from '@/Components/UI/Copyright.vue';
 
 const page = usePage();
 const site = computed(() => page.props.site);
-
-const year = new Date().getFullYear();
 </script>
 
 <template>
@@ -13,7 +12,8 @@ const year = new Date().getFullYear();
         <div class="container max-w-none">
             <div class="flex items-center justify-between flex-wrap">
                 <div class="text-sm text-slate-500 pb-1 sm:pb-0">
-                    &copy; {{ year }} {{ site.brand }}<span v-if="site.name"> — {{ site.name }}</span>
+                    <Copyright :brand="site.brand" />
+                    <span v-if="site.name" class="uppercase tracking-wide"> — {{ site.name }}</span>
                 </div>
 
                 <div class="text-xs text-slate-400">

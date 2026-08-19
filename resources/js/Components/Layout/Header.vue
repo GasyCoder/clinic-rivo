@@ -53,7 +53,7 @@ const logout = () => {
 
                     <div class="px-1 py-2 hidden xl:flex flex-col justify-center min-w-0">
                         <span class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
-                        <span v-if="site.name" class="text-xs text-slate-400 truncate">{{ site.name }}</span>
+                        <span v-if="site.name" class="text-xs text-slate-400 truncate uppercase tracking-wide">{{ site.name }}</span>
                     </div>
 
                     <div class="px-1 py-3.5 ms-auto">

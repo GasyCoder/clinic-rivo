@@ -72,7 +72,7 @@ onMounted(() => {
                     class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
                 >
                     <span class="font-heading text-sm font-bold leading-tight text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
-                    <span v-if="site.name" class="truncate text-xxs text-slate-400">{{ site.name }}</span>
+                    <span v-if="site.name" class="truncate text-xxs text-slate-400 uppercase tracking-wide">{{ site.name }}</span>
                 </Link>
             </div>
         </div>

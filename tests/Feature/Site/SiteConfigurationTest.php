@@ -24,6 +24,7 @@ class SiteConfigurationTest extends TestCase
             ->where('site.name', 'Mampikony')
             ->where('site.type', 'clinic')
             ->where('site.brand', 'Clinique Saint Georges')
+            ->where('site.gatewayUrl', 'https://app.rivo.mg')
         );
     }
 
@@ -66,10 +67,35 @@ class SiteConfigurationTest extends TestCase
 
     public function test_an_unconfigured_site_type_falls_back_to_the_clinic_default(): void
     {
-        // config/rivo.php defaults an unset RIVO_SITE_TYPE to 'clinic' so a
-        // plain checkout without site env vars never accidentally behaves
-        // like the public picker or the admin portal.
-        $this->assertSame('clinic', config('rivo.site.type'));
+        // Exercises env('RIVO_SITE_TYPE', 'clinic')'s actual fallback, not
+        // just phpunit.xml's pinned baseline (which is 'clinic' anyway and
+        // would make this tautological) — temporarily removes the variable
+        // from the environment, re-evaluates config/rivo.php fresh, and
+        // restores it, so a plain checkout without site env vars is
+        // verified to never accidentally behave like the staff gateway or
+        // the admin portal.
+        $previous = [
+            'env' => getenv('RIVO_SITE_TYPE'),
+            'server' => $_SERVER['RIVO_SITE_TYPE'] ?? null,
+        ];
+
+        putenv('RIVO_SITE_TYPE');
+        unset($_ENV['RIVO_SITE_TYPE'], $_SERVER['RIVO_SITE_TYPE']);
+
+        try {
+            $config = require config_path('rivo.php');
+
+            $this->assertSame('clinic', $config['site']['type']);
+        } finally {
+            if ($previous['env'] !== false) {
+                putenv("RIVO_SITE_TYPE={$previous['env']}");
+                $_ENV['RIVO_SITE_TYPE'] = $previous['env'];
+            }
+
+            if ($previous['server'] !== null) {
+                $_SERVER['RIVO_SITE_TYPE'] = $previous['server'];
+            }
+        }
     }
 
     public function test_guest_pages_still_share_a_site_key_even_without_a_configured_name(): void

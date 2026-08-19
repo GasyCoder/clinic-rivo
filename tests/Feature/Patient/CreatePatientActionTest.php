@@ -78,4 +78,45 @@ class CreatePatientActionTest extends TestCase
         $this->assertSame(2, Patient::count());
         $this->assertNotNull($second->id);
     }
+
+    public function test_creates_a_patient_without_a_first_name(): void
+    {
+        $data = $this->data();
+        unset($data['first_name']);
+
+        $patient = $this->app->make(CreatePatientAction::class)->execute($data);
+
+        $this->assertNull($patient->first_name);
+    }
+
+    public function test_creates_a_patient_from_age_alone_with_an_approximate_birth_date(): void
+    {
+        $data = $this->data();
+        unset($data['birth_date']);
+        $data['age'] = 34;
+
+        $patient = $this->app->make(CreatePatientAction::class)->execute($data);
+
+        $this->assertTrue($patient->birth_date_is_approximate);
+        $this->assertSame(34, (int) $patient->birth_date->diffInYears(now()));
+    }
+
+    public function test_birth_date_given_directly_is_not_flagged_approximate(): void
+    {
+        $patient = $this->app->make(CreatePatientAction::class)->execute($this->data());
+
+        $this->assertFalse($patient->birth_date_is_approximate);
+    }
+
+    public function test_two_patients_who_both_omit_first_name_still_match_as_duplicates(): void
+    {
+        $data = $this->data();
+        unset($data['first_name']);
+        $action = $this->app->make(CreatePatientAction::class);
+        $action->execute($data);
+
+        $this->expectException(DuplicatePatientException::class);
+
+        $action->execute($data);
+    }
 }

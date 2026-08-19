@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
@@ -22,8 +23,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * (see isForceDeleteProtected()).
  */
 #[Fillable([
-    'patient_number', 'first_name', 'last_name', 'birth_date', 'sex', 'phone', 'address',
-    'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship',
+    'patient_number', 'first_name', 'last_name', 'birth_date', 'birth_date_is_approximate',
+    'sex', 'civility', 'phone', 'email', 'address',
+    'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship', 'emergency_contact_email',
 ])]
 class Patient extends Model
 {
@@ -33,7 +35,9 @@ class Patient extends Model
     {
         return [
             'birth_date' => 'date',
+            'birth_date_is_approximate' => 'boolean',
             'sex' => PatientSex::class,
+            'civility' => PatientCivility::class,
         ];
     }
 

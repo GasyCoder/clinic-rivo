@@ -13,7 +13,7 @@ const rawMenu = [
     { heading: 'Principal' },
     { icon: 'growth', text: 'Tableau de bord', link: '/' },
     { heading: 'Gestion clinique' },
-    { icon: 'card-view', text: 'Réception & Caisse' },
+    { icon: 'card-view', text: 'Réception & Caisse', link: '/reception', permission: 'episodes.create' },
     { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
     { icon: 'user-list', text: 'Médecine' },
     { icon: 'grid-alt', text: 'Chirurgie' },

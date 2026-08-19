@@ -4,6 +4,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import { formatDate, formatDateTime } from '@/utilities/date';
+import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({
     layout: AppLayout,
@@ -15,7 +17,12 @@ const props = defineProps({
 
 const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
 
-const initials = (patient) => `${patient.first_name?.[0] ?? ''}${patient.last_name?.[0] ?? ''}`.toUpperCase();
+const civilityLabels = {
+    MR: 'M.',
+    MRS: 'Mme',
+    GIRL: 'Enfant fille',
+    BOY: 'Enfant garçon',
+};
 
 const administrativeStatusLabels = {
     PENDING_ORIENTATION: 'En attente d’orientation',
@@ -45,18 +52,20 @@ const severityLabels = {
 </script>
 
 <template>
-    <Head :title="`${patient.last_name} ${patient.first_name}`" />
+    <Head :title="formatPatientName(patient)" />
 
     <div class="space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="flex items-center gap-4">
-                <Avatar size="lg" variant="primary-pale" :text="initials(patient)" />
+                <Avatar size="lg" variant="primary-pale" :text="formatPatientInitials(patient)" />
                 <div>
                     <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">
-                        {{ patient.last_name }} {{ patient.first_name }}
+                        <span v-if="patient.civility">{{ civilityLabels[patient.civility] }}</span>
+                        {{ formatPatientName(patient) }}
                     </h1>
                     <p class="mt-1 text-sm text-slate-500">
-                        {{ patient.patient_number }} · {{ sexLabel(patient.sex) }} · né(e) le {{ patient.birth_date }}
+                        {{ patient.patient_number }} · {{ sexLabel(patient.sex) }} · né(e) le {{ formatDate(patient.birth_date) }}
+                        <span v-if="patient.birth_date_is_approximate" class="text-xs text-yellow-600">(approximatif)</span>
                     </p>
                 </div>
             </div>
@@ -79,6 +88,10 @@ const severityLabels = {
                             <Icon class="text-slate-400" name="call" />
                             <span>{{ patient.phone ?? 'Non renseigné' }}</span>
                         </div>
+                        <div class="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                            <Icon class="text-slate-400" name="mail" />
+                            <span>{{ patient.email ?? 'Non renseigné' }}</span>
+                        </div>
                         <div class="flex items-start gap-2 text-slate-600 dark:text-slate-300">
                             <Icon class="mt-0.5 text-slate-400" name="map-pin" />
                             <span>{{ patient.address ?? 'Non renseignée' }}</span>
@@ -92,6 +105,7 @@ const severityLabels = {
                         <p class="font-medium text-slate-700 dark:text-white">{{ patient.emergency_contact_name }}</p>
                         <p v-if="patient.emergency_contact_relationship">{{ patient.emergency_contact_relationship }}</p>
                         <p v-if="patient.emergency_contact_phone">{{ patient.emergency_contact_phone }}</p>
+                        <p v-if="patient.emergency_contact_email">{{ patient.emergency_contact_email }}</p>
                     </div>
                     <p v-else class="text-sm text-slate-400">Non renseignée.</p>
                 </div>
@@ -143,7 +157,7 @@ const severityLabels = {
                                     </span>
                                 </p>
                                 <p class="mt-1 text-xs text-slate-400">
-                                    Démarré le {{ episode.started_at }} · {{ administrativeStatusLabels[episode.administrative_status] }}
+                                    Démarré le {{ formatDateTime(episode.started_at) }} · {{ administrativeStatusLabels[episode.administrative_status] }}
                                 </p>
                             </div>
 

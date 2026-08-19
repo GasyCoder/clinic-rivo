@@ -5,6 +5,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Input from '@/Components/UI/Input.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import { formatDate } from '@/utilities/date';
+import { formatPatientName } from '@/utilities/patient';
 
 defineOptions({
     layout: AppLayout,
@@ -34,13 +36,13 @@ const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
                     Patients
                 </h1>
                 <p class="mt-1 text-sm text-slate-500">
-                    {{ patients.total }} patient(s) enregistré(s).
+                    {{ patients.total }} patient(s) enregistré(s). Annuaire en lecture — un nouveau patient s'enregistre depuis Réception.
                 </p>
             </div>
 
-            <Button :as="Link" href="/patients/create" size="rg" variant="primary">
-                <Icon class="text-xl/4.5" name="plus" />
-                <span class="ms-2">Nouveau patient</span>
+            <Button :as="Link" href="/reception" size="rg" variant="white-outline">
+                <Icon class="text-xl/4.5" name="user" />
+                <span class="ms-2">Aller à la Réception</span>
             </Button>
         </div>
 
@@ -83,13 +85,13 @@ const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
                                 {{ patient.patient_number }}
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-600 dark:border-gray-900 dark:text-slate-300">
-                                {{ patient.last_name }} {{ patient.first_name }}
+                                {{ formatPatientName(patient) }}
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
                                 {{ sexLabel(patient.sex) }}
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ patient.birth_date }}
+                                {{ formatDate(patient.birth_date) }}
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
                                 {{ patient.phone ?? '—' }}

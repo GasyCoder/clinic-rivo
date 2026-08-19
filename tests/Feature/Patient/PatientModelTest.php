@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Patient;
 
+use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Models\AuditLog;
 use App\Models\Patient;
@@ -123,5 +124,23 @@ class PatientModelTest extends TestCase
         $this->assertSame('Marie Rakoto', $patient->emergency_contact_name);
         $this->assertSame('0341234567', $patient->emergency_contact_phone);
         $this->assertSame('Épouse', $patient->emergency_contact_relationship);
+    }
+
+    public function test_civility_is_cast_to_the_patient_civility_enum(): void
+    {
+        $patient = $this->makePatient(['civility' => 'MRS']);
+
+        $this->assertSame(PatientCivility::Mrs, $patient->civility);
+    }
+
+    public function test_email_fields_are_stored(): void
+    {
+        $patient = $this->makePatient([
+            'email' => 'jean.rakoto@example.mg',
+            'emergency_contact_email' => 'marie.rakoto@example.mg',
+        ]);
+
+        $this->assertSame('jean.rakoto@example.mg', $patient->email);
+        $this->assertSame('marie.rakoto@example.mg', $patient->emergency_contact_email);
     }
 }

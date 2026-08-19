@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Patient\CreatePatientAction;
-use App\Exceptions\DuplicatePatientException;
-use App\Http\Requests\StorePatientRequest;
 use App\Models\Patient;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
+/**
+ * Read-only référentiel patients (client CDCF §30.1 Phase 1 item 2) —
+ * search and consult. Creating a patient is Réception's job (§5.2.1), see
+ * ReceptionController: a patient is never created outside the context of
+ * an arrival/passage.
+ */
 class PatientController extends Controller
 {
     public function index(Request $request): Response
@@ -34,28 +36,6 @@ class PatientController extends Controller
             'patients' => $patients,
             'search' => $search,
         ]);
-    }
-
-    public function create(): Response
-    {
-        return Inertia::render('Patients/Create');
-    }
-
-    public function store(StorePatientRequest $request, CreatePatientAction $action): RedirectResponse
-    {
-        try {
-            $patient = $action->execute($request->validated(), confirmDuplicate: $request->boolean('confirm_duplicate'));
-        } catch (DuplicatePatientException $e) {
-            return back()->withInput()->with('duplicates', $e->matches->map(fn (Patient $p) => [
-                'id' => $p->id,
-                'patient_number' => $p->patient_number,
-                'first_name' => $p->first_name,
-                'last_name' => $p->last_name,
-                'birth_date' => $p->birth_date->toDateString(),
-            ])->all());
-        }
-
-        return redirect()->route('patients.show', $patient)->with('status', 'Patient créé.');
     }
 
     public function show(Patient $patient): Response

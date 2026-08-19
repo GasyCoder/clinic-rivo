@@ -15,11 +15,17 @@ use Illuminate\Support\Str;
  */
 class DuplicatePatientFinder
 {
-    /** @return Collection<int, Patient> */
-    public function find(string $firstName, string $lastName, string $birthDate): Collection
+    /**
+     * $firstName is nullable — first_name is optional on Patient, and NULL
+     * never equals NULL in SQL, so two patients who both omitted it must
+     * still compare as matching, hence the '' normalization below.
+     *
+     * @return Collection<int, Patient>
+     */
+    public function find(?string $firstName, string $lastName, string $birthDate): Collection
     {
         return Patient::query()
-            ->whereRaw('LOWER(first_name) = ?', [Str::lower(trim($firstName))])
+            ->whereRaw('LOWER(COALESCE(first_name, \'\')) = ?', [Str::lower(trim($firstName ?? ''))])
             ->whereRaw('LOWER(last_name) = ?', [Str::lower(trim($lastName))])
             ->whereDate('birth_date', $birthDate)
             ->get();

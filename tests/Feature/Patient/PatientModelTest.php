@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Patient;
 
+use App\Enums\IdentityDocumentType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Models\AuditLog;
@@ -131,6 +132,17 @@ class PatientModelTest extends TestCase
         $patient = $this->makePatient(['civility' => 'MRS']);
 
         $this->assertSame(PatientCivility::Mrs, $patient->civility);
+    }
+
+    public function test_identity_document_fields_are_stored_and_cast(): void
+    {
+        $patient = $this->makePatient([
+            'identity_document_type' => 'CIN',
+            'identity_document_number' => '101234567890',
+        ]);
+
+        $this->assertSame(IdentityDocumentType::Cin, $patient->identity_document_type);
+        $this->assertSame('101234567890', $patient->identity_document_number);
     }
 
     public function test_email_fields_are_stored(): void

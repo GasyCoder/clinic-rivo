@@ -13,8 +13,8 @@ const rawMenu = [
     { heading: 'Principal' },
     { icon: 'growth', text: 'Tableau de bord', link: '/' },
     { heading: 'Gestion clinique' },
-    { icon: 'card-view', text: 'Réception & Caisse', link: '/reception', permission: 'episodes.create' },
-    { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
+    { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'episodes.create' },
+    { icon: 'users', text: 'Patients & Caisse', link: '/patients', activeLinks: ['/patients', '/cash', '/receipts'], permission: 'patients.view' },
     { icon: 'user-list', text: 'Médecine' },
     { icon: 'grid-alt', text: 'Chirurgie' },
     { icon: 'table-view', text: 'Laboratoire' },
@@ -56,6 +56,10 @@ const menuData = computed(() => {
 const isActive = (item) => {
     if (!item.link) {
         return false;
+    }
+
+    if (item.activeLinks) {
+        return item.activeLinks.some((link) => page.url.startsWith(link));
     }
 
     if (item.link === '/') {

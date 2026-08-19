@@ -1,0 +1,24 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Actions\Payment\RecordPaymentAction;
+use App\Http\Requests\RecordPaymentRequest;
+use App\Models\Patient;
+use Illuminate\Http\RedirectResponse;
+
+class PaymentController extends Controller
+{
+    public function store(
+        RecordPaymentRequest $request,
+        Patient $patient,
+        RecordPaymentAction $action,
+    ): RedirectResponse {
+        $payment = $action->execute($patient, $request->validated(), $request->user());
+
+        return back()->with(
+            'status',
+            "Paiement {$payment->payment_number} enregistré. Reçu {$payment->receipt->receipt_number} disponible.",
+        );
+    }
+}

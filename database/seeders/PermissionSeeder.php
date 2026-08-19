@@ -8,8 +8,8 @@ use Illuminate\Database\Seeder;
 class PermissionSeeder extends Seeder
 {
     /**
-     * Clinical modules not yet implemented (laboratory, pharmacy, payments,
-     * ...) still have no permission invented here — each seeds its own
+     * Clinical modules not yet implemented (laboratory, pharmacy, etc.)
+     * still have no permission invented here — each seeds its own
      * when it is built, per ADR-008's action catalog.
      *
      * @var array<string, string>
@@ -44,6 +44,21 @@ class PermissionSeeder extends Seeder
         'episodes.update' => 'Modifier un épisode (orientation, ...)',
         'episodes.cancel' => 'Annuler un épisode',
 
+        // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
+        // annulations, remboursements, dettes et remises sont volontairement
+        // absents tant que leurs flux de validation distincts ne sont pas
+        // implémentés.
+        'billing.view' => 'Voir les factures et soldes',
+        'billing.create' => 'Créer une facture',
+        'billing.validate' => 'Valider une facture',
+        'payments.view' => 'Voir les paiements',
+        'payments.create' => 'Enregistrer un paiement',
+        'cash.view' => 'Voir la caisse',
+        'cash.open' => 'Ouvrir la caisse',
+        'cash.close' => 'Clôturer la caisse',
+        'receipts.view' => 'Voir les reçus',
+        'receipts.print' => 'Imprimer les reçus',
+
         // CDC GitHub §15. medical_record.view, laboratory_orders.create,
         // hospitalization.request, surgery.request, transfer.request et
         // medical_discharge.create sont aussi listées là-bas mais non
@@ -64,6 +79,31 @@ class PermissionSeeder extends Seeder
         'prescriptions.create' => 'Créer une prescription',
         'prescriptions.update' => 'Modifier une prescription',
         'prescriptions.cancel' => 'Annuler une prescription',
+
+        // CDC §15 "Soins" — seedées ici en avance du module Soins/Vitals
+        // (pas encore construit) car explicitement demandées pour le rôle
+        // NURSE (ADR-006 amendé 2026-08-19), contrairement aux autres
+        // permissions volontairement omises ci-dessus : le catalogue est
+        // entièrement défini par le CDC, rien n'est inventé.
+        'care.view' => 'Voir les soins',
+        'care.create' => 'Créer un soin',
+        'care.update' => 'Modifier un soin',
+        'care.complete' => 'Marquer un soin comme réalisé',
+        'vitals.view' => 'Voir les constantes',
+        'vitals.create' => 'Enregistrer des constantes',
+        'vitals.update' => 'Modifier des constantes',
+        'medical_orders.view' => 'Voir les ordres médicaux',
+
+        // CDC §16 "Chirurgie" — catalogue anesthésie, normalement rattaché
+        // à SURGERY mais explicitement demandé aussi pour NURSE.
+        'anesthesia.view' => 'Voir les dossiers d\'anesthésie',
+        'anesthesia.create' => 'Créer un dossier d\'anesthésie',
+        'anesthesia.update' => 'Modifier un dossier d\'anesthésie',
+        'anesthesia.validate' => 'Valider un dossier d\'anesthésie',
+
+        // Maternité : aucun catalogue de permissions n'existe dans le CDC
+        // (aucune section dédiée, seulement la mention du profil
+        // "sage-femme") — non inventé ici, à définir avec l'équipe.
     ];
 
     public function run(): void

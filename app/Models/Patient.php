@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\IdentityDocumentType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Models\Concerns\Auditable;
@@ -24,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 #[Fillable([
     'patient_number', 'first_name', 'last_name', 'birth_date', 'birth_date_is_approximate',
-    'sex', 'civility', 'phone', 'email', 'address',
+    'sex', 'civility', 'identity_document_type', 'identity_document_number', 'phone', 'email', 'address',
     'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship', 'emergency_contact_email',
 ])]
 class Patient extends Model
@@ -38,12 +39,18 @@ class Patient extends Model
             'birth_date_is_approximate' => 'boolean',
             'sex' => PatientSex::class,
             'civility' => PatientCivility::class,
+            'identity_document_type' => IdentityDocumentType::class,
         ];
     }
 
     public function episodes(): HasMany
     {
         return $this->hasMany(Episode::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 
     public function antecedents(): HasMany
@@ -66,6 +73,7 @@ class Patient extends Model
     public function isForceDeleteProtected(): bool
     {
         return $this->episodes()->exists()
+            || $this->invoices()->exists()
             || $this->antecedents()->exists()
             || $this->allergies()->exists();
     }

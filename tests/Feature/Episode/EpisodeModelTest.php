@@ -3,6 +3,7 @@
 namespace Tests\Feature\Episode;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Exceptions\InvalidEpisodeTransitionException;
 use App\Models\AuditLog;
@@ -61,6 +62,7 @@ class EpisodeModelTest extends TestCase
         $episode = $this->makeEpisode();
 
         $this->assertSame(EpisodeStatus::Open, $episode->status);
+        $this->assertSame(EpisodePriority::Normal, $episode->priority);
         $this->assertSame(EpisodeAdministrativeStatus::PendingOrientation, $episode->administrative_status);
     }
 

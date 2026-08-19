@@ -4,6 +4,8 @@ namespace App\Actions\Reception;
 
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Patient\CreatePatientAction;
+use App\Actions\Patient\UpdatePatientAction;
+use App\Enums\EpisodePriority;
 use App\Exceptions\DuplicatePatientException;
 use App\Models\Episode;
 use App\Models\Patient;
@@ -22,24 +24,37 @@ class RegisterArrivalAction
 {
     public function __construct(
         private readonly CreatePatientAction $createPatient,
+        private readonly UpdatePatientAction $updatePatient,
         private readonly CreateEpisodeAction $createEpisode,
     ) {}
 
     /**
-     * @param  array{first_name: string, last_name: string, birth_date: string, sex: string, phone?: string|null, address?: string|null}|null  $newPatientData
-     *         Required when $existingPatientId is null.
+     * Existing-patient corrections are applied before opening the episode.
      *
-     * @throws DuplicatePatientException see CreatePatientAction — only
-     *         possible when registering a genuinely new patient.
+     * @param  array<string, mixed>|null  $newPatientData
+     * @param  array<string, mixed>|null  $existingPatientData
+     *
+     * @throws DuplicatePatientException for an unconfirmed new-patient match
      */
-    public function execute(?int $existingPatientId, ?array $newPatientData, bool $confirmDuplicate = false): Episode
-    {
-        return DB::transaction(function () use ($existingPatientId, $newPatientData, $confirmDuplicate) {
-            $patient = $existingPatientId
-                ? Patient::findOrFail($existingPatientId)
-                : $this->createPatient->execute($newPatientData, $confirmDuplicate);
+    public function execute(
+        ?int $existingPatientId,
+        ?array $newPatientData,
+        ?array $existingPatientData = null,
+        bool $confirmDuplicate = false,
+        EpisodePriority $priority = EpisodePriority::Normal,
+    ): Episode {
+        return DB::transaction(function () use ($existingPatientId, $newPatientData, $existingPatientData, $confirmDuplicate, $priority) {
+            if ($existingPatientId) {
+                $patient = Patient::findOrFail($existingPatientId);
 
-            return $this->createEpisode->execute($patient);
+                if ($existingPatientData !== null) {
+                    $patient = $this->updatePatient->execute($patient, $existingPatientData);
+                }
+            } else {
+                $patient = $this->createPatient->execute($newPatientData, $confirmDuplicate);
+            }
+
+            return $this->createEpisode->execute($patient, $priority);
         });
     }
 }

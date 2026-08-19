@@ -30,4 +30,13 @@ trait HasUuid
             $model->uuid ??= (string) Str::uuid();
         });
     }
+
+    /**
+     * Public web/API routes identify distributed entities by UUID. The
+     * numeric primary key remains available only for local relationships.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
 }

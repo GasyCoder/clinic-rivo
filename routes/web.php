@@ -3,9 +3,13 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
+use App\Http\Controllers\BillingController;
+use App\Http\Controllers\CashController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\PatientController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\ReceptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,9 +38,24 @@ Route::middleware(['site.type:clinic', 'auth'])->group(function () {
     Route::get('/reception', [ReceptionController::class, 'create'])->name('reception.create')->middleware('can:episodes.create');
     Route::post('/reception', [ReceptionController::class, 'store'])->name('reception.store')->middleware('can:episodes.create');
 
-    // Référentiel patients: read-only directory, no creation here.
+    // Référentiel patients: administrative management, but no creation here.
+    // Deletion is always audited Soft Delete through Patient::SoftDeletable.
     Route::get('/patients', [PatientController::class, 'index'])->name('patients.index')->middleware('can:patients.view');
+    Route::post('/patients/bulk-delete', [PatientController::class, 'bulkDestroy'])->name('patients.bulk-destroy')->middleware('can:patients.delete');
+    Route::get('/patients/{patient}/edit', [PatientController::class, 'edit'])->name('patients.edit')->middleware('can:patients.update');
+    Route::put('/patients/{patient}', [PatientController::class, 'update'])->name('patients.update')->middleware('can:patients.update');
+    Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
+
+    // Facturation / caisse : une seule caisse fonctionnelle par site. Les
+    // prestations peuvent être facturées ici, mais seul ce module encaisse.
+    Route::get('/cash', [CashController::class, 'index'])->name('cash.index')->middleware('can:cash.view');
+    Route::post('/cash/open', [CashController::class, 'open'])->name('cash.open')->middleware('can:cash.open');
+    Route::post('/cash/close', [CashController::class, 'close'])->name('cash.close')->middleware('can:cash.close');
+    Route::post('/patients/{patient}/invoices', [BillingController::class, 'store'])->name('invoices.store')->middleware('can:billing.create');
+    Route::post('/invoices/{invoice}/validate', [BillingController::class, 'validateInvoice'])->name('invoices.validate')->middleware('can:billing.validate');
+    Route::post('/patients/{patient}/payments', [PaymentController::class, 'store'])->name('payments.store')->middleware('can:payments.create');
+    Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');
     Route::post('/episodes/{episode}/orient', [EpisodeController::class, 'orient'])->name('episodes.orient')->middleware('can:episodes.update');

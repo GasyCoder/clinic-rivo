@@ -20,8 +20,12 @@ class RolePermissionSeeder extends Seeder
      */
     private const GRANTS = [
         'ADMINISTRATION' => ['users.'],
-        'RECEPTION' => ['patients.', 'episodes.'],
+        'RECEPTION' => ['patients.', 'episodes.', 'billing.', 'payments.', 'cash.', 'receipts.'],
         'MEDICINE' => ['consultations.', 'diagnoses.', 'prescriptions.', 'patients.medical_history.', 'patients.view', 'episodes.view'],
+        // ADR-006 amendment 2026-08-19 — "Soins" (§15) + "Anesthésie" (§16)
+        // catalogs; no "Maternité" grant since no such permission catalog
+        // exists in the CDC (see PermissionSeeder).
+        'NURSE' => ['care.', 'vitals.', 'medical_orders.view', 'anesthesia.', 'patients.medical_history.', 'patients.view', 'episodes.view'],
     ];
 
     public function run(): void

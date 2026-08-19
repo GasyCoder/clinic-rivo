@@ -43,7 +43,7 @@ class EpisodeControllerTest extends TestCase
         $user = User::factory()->create(['role_id' => Role::query()->create(['code' => 'PHARMACY', 'name' => 'Pharmacie'])->id]);
         $patient = $this->makePatient();
 
-        $this->actingAs($user)->post("/patients/{$patient->id}/episodes")->assertForbidden();
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/episodes")->assertForbidden();
     }
 
     public function test_store_creates_an_episode_and_redirects_to_the_patient(): void
@@ -52,9 +52,9 @@ class EpisodeControllerTest extends TestCase
         $patient = $this->makePatient();
         config(['rivo.site.code' => 'M']);
 
-        $response = $this->actingAs($user)->post("/patients/{$patient->id}/episodes");
+        $response = $this->actingAs($user)->post("/patients/{$patient->uuid}/episodes");
 
-        $response->assertRedirect("/patients/{$patient->id}");
+        $response->assertRedirect("/patients/{$patient->uuid}");
         $this->assertSame(1, $patient->episodes()->count());
     }
 
@@ -69,7 +69,7 @@ class EpisodeControllerTest extends TestCase
             'started_at' => now(),
         ]);
 
-        $this->actingAs($user)->post("/episodes/{$episode->id}/orient")->assertForbidden();
+        $this->actingAs($user)->post("/episodes/{$episode->uuid}/orient")->assertForbidden();
     }
 
     public function test_orient_transitions_the_episode(): void
@@ -83,7 +83,7 @@ class EpisodeControllerTest extends TestCase
             'started_at' => now(),
         ]);
 
-        $this->actingAs($user)->post("/episodes/{$episode->id}/orient")->assertRedirect();
+        $this->actingAs($user)->post("/episodes/{$episode->uuid}/orient")->assertRedirect();
 
         $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->fresh()->administrative_status);
     }

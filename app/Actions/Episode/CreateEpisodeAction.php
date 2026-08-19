@@ -3,6 +3,7 @@
 namespace App\Actions\Episode;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Models\Episode;
 use App\Models\Patient;
@@ -22,13 +23,18 @@ class CreateEpisodeAction
 {
     public function __construct(private readonly EpisodeNumberGenerator $numbers) {}
 
-    public function execute(Patient $patient): Episode
+    public function execute(Patient $patient, EpisodePriority $priority = EpisodePriority::Normal): Episode
     {
         return Episode::create([
             'patient_id' => $patient->id,
             'episode_number' => $this->numbers->next(),
             'status' => EpisodeStatus::Open,
-            'administrative_status' => EpisodeAdministrativeStatus::PendingOrientation,
+            'priority' => $priority,
+            // An emergency patient goes directly to Medicine/Care while
+            // their family completes the normal reception form.
+            'administrative_status' => $priority === EpisodePriority::Emergency
+                ? EpisodeAdministrativeStatus::Oriented
+                : EpisodeAdministrativeStatus::PendingOrientation,
             'started_at' => now(),
             'created_by' => Auth::id(),
         ]);

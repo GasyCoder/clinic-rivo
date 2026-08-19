@@ -23,6 +23,7 @@ const compClass = computed(() => ({
     'text-xl h-16 w-16': props.size === 'xl',
     'text-white bg-primary-600': props.variant === 'primary',
     'bg-primary-100 dark:bg-primary-950 text-primary-600': props.variant === 'primary-pale',
+    'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300': props.variant === 'danger-pale',
     'text-white bg-slate-600': props.variant === 'slate',
     'bg-slate-100 dark:bg-slate-950 text-slate-600': props.variant === 'slate-pale',
 }));

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Exceptions\InvalidEpisodeTransitionException;
 use App\Models\Concerns\Auditable;
@@ -27,15 +28,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * deletion for critical records — an episode is cancelled via cancel(),
  * never soft-deleted.
  */
-#[Fillable(['patient_id', 'episode_number', 'status', 'medical_status', 'financial_status', 'administrative_status', 'started_at', 'ended_at', 'created_by'])]
+#[Fillable(['patient_id', 'episode_number', 'status', 'priority', 'medical_status', 'financial_status', 'administrative_status', 'started_at', 'ended_at', 'created_by'])]
 class Episode extends Model
 {
     use Auditable, HasUuid;
+
+    protected $attributes = [
+        'priority' => 'NORMAL',
+    ];
 
     protected function casts(): array
     {
         return [
             'status' => EpisodeStatus::class,
+            'priority' => EpisodePriority::class,
             'administrative_status' => EpisodeAdministrativeStatus::class,
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
@@ -50,6 +56,11 @@ class Episode extends Model
     public function consultations(): HasMany
     {
         return $this->hasMany(Consultation::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 
     /**

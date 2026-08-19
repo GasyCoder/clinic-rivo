@@ -69,6 +69,11 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('patients.view', $names);
         $this->assertContains('patients.medical_history.manage', $names);
         $this->assertContains('episodes.create', $names);
+        $this->assertContains('billing.create', $names);
+        $this->assertContains('payments.create', $names);
+        $this->assertContains('cash.open', $names);
+        $this->assertContains('cash.close', $names);
+        $this->assertContains('receipts.print', $names);
         $this->assertNotContains('consultations.view', $names);
     }
 
@@ -90,5 +95,23 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('patients.view_deleted', $names);
         $this->assertNotContains('patients.delete', $names);
         $this->assertNotContains('episodes.cancel', $names);
+    }
+
+    public function test_nurse_gets_care_vitals_and_anesthesia_permissions(): void
+    {
+        $this->seedRbac();
+
+        $names = $this->permissionNamesFor('NURSE');
+
+        $this->assertContains('care.create', $names);
+        $this->assertContains('vitals.create', $names);
+        $this->assertContains('medical_orders.view', $names);
+        $this->assertContains('anesthesia.validate', $names);
+        $this->assertContains('patients.view', $names);
+        $this->assertContains('patients.medical_history.manage', $names);
+
+        // No CDC-defined "maternité" catalog exists — nothing to grant.
+        $this->assertNotContains('consultations.create', $names);
+        $this->assertNotContains('prescriptions.create', $names);
     }
 }

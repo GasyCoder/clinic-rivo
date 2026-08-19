@@ -29,16 +29,32 @@ use Inertia\Response;
  */
 class SurgeryController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $search = trim((string) $request->query('q', ''));
+
         $surgicalRequests = SurgicalRequest::query()
             ->with(['episode.patient', 'surgeon'])
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('procedure_name', 'like', "%{$search}%")
+                        ->orWhereHas('episode', function ($episodeQuery) use ($search) {
+                            $episodeQuery->where('episode_number', 'like', "%{$search}%")
+                                ->orWhereHas('patient', function ($patientQuery) use ($search) {
+                                    $patientQuery->where('patient_number', 'like', "%{$search}%")
+                                        ->orWhere('first_name', 'like', "%{$search}%")
+                                        ->orWhere('last_name', 'like', "%{$search}%");
+                                });
+                        });
+                });
+            })
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
 
         return Inertia::render('Surgery/Index', [
             'surgicalRequests' => $surgicalRequests,
+            'search' => $search,
         ]);
     }
 

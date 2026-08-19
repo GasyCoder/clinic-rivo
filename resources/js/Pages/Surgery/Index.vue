@@ -1,10 +1,12 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { ref, watch } from 'vue';
+import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
 import Card from '@/Components/UI/Card.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
@@ -13,11 +15,33 @@ defineOptions({
     layout: AppLayout,
 });
 
-defineProps({
+const props = defineProps({
     surgicalRequests: Object,
+    search: String,
 });
 
 const { can } = usePermissions();
+
+const query = ref(props.search ?? '');
+
+const runSearch = (value) => {
+    router.get('/surgery', value ? { q: value } : {}, { preserveState: true, preserveScroll: true, replace: true });
+};
+
+// Live search: fires 350ms after the last keystroke, including when the
+// field is cleared back to empty (which resets to the unfiltered list) —
+// no need to press Enter for either case.
+let debounceTimer = null;
+watch(query, (value) => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => runSearch(value), 350);
+});
+
+// Enter still triggers an immediate search, bypassing the debounce.
+const submitSearch = () => {
+    clearTimeout(debounceTimer);
+    runSearch(query.value);
+};
 
 const STATUS_LABELS = {
     PENDING: 'En attente',
@@ -64,6 +88,15 @@ const statusVariant = (status) => STATUS_VARIANTS[status] ?? STATUS_VARIANTS.PEN
         </header>
 
         <Card class="overflow-hidden shadow-sm">
+            <div class="border-b border-gray-200 p-4 dark:border-gray-900 sm:px-5">
+                <form class="relative w-full sm:max-w-md" role="search" @submit.prevent="submitSearch">
+                    <Input v-model="query" icon="start" type="search" placeholder="Patient, n° passage ou acte" autocomplete="off" />
+                    <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400" aria-label="Rechercher">
+                        <Icon class="text-lg/4.5" name="search" />
+                    </button>
+                </form>
+            </div>
+
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[880px] border-collapse">
                     <caption class="sr-only">Liste des demandes de chirurgie</caption>

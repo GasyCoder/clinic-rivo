@@ -36,6 +36,11 @@ class SurgicalTeamMember extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function assignedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_by');
+    }
+
     protected function auditModule(): ?string
     {
         return 'surgery';

@@ -108,6 +108,11 @@ class SurgicalActionsTest extends TestCase
         $this->assertSame(SurgicalRequestStatus::Completed, $request->fresh()->status);
         $this->assertNotNull($report->fresh()->validated_at);
 
+        // ValidateSurgicalReportAction completes the request through
+        // $report->surgicalRequest — a separately loaded instance — so
+        // $request's in-memory status is now stale; re-fetch before the
+        // next transition, exactly as a fresh HTTP request would.
+        $request = $request->fresh();
         $this->app->make(DischargeSurgicalRequestAction::class)->execute($request, $doctor, 'RAS');
         $this->assertSame(SurgicalRequestStatus::Discharged, $request->fresh()->status);
 

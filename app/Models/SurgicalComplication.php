@@ -27,6 +27,11 @@ class SurgicalComplication extends Model
         return $this->belongsTo(SurgicalRequest::class);
     }
 
+    public function reportedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reported_by');
+    }
+
     protected function auditModule(): ?string
     {
         return 'surgery';

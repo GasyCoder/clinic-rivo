@@ -62,6 +62,21 @@ class SurgicalRequest extends Model
         return $this->belongsTo(User::class, 'surgeon_id');
     }
 
+    public function preoperativeAssessedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'preoperative_assessed_by');
+    }
+
+    public function preoperativeValidatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'preoperative_validated_by');
+    }
+
+    public function dischargedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'discharged_by');
+    }
+
     public function intervention(): HasOne
     {
         return $this->hasOne(SurgicalIntervention::class);

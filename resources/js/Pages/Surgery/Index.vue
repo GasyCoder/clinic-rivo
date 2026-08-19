@@ -1,9 +1,13 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import Avatar from '@/Components/UI/Avatar.vue';
+import Button from '@/Components/UI/Button.vue';
+import Card from '@/Components/UI/Card.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
-import { formatPatientName } from '@/utilities/patient';
+import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({
     layout: AppLayout,
@@ -12,6 +16,8 @@ defineOptions({
 defineProps({
     surgicalRequests: Object,
 });
+
+const { can } = usePermissions();
 
 const STATUS_LABELS = {
     PENDING: 'En attente',
@@ -38,20 +44,31 @@ const statusVariant = (status) => STATUS_VARIANTS[status] ?? STATUS_VARIANTS.PEN
 <template>
     <Head title="Chirurgie" />
 
-    <div class="w-full space-y-5">
-        <div>
-            <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Chirurgie</h1>
-            <p class="mt-1 text-sm text-slate-500">
-                {{ surgicalRequests.total }} demande{{ surgicalRequests.total > 1 ? 's' : '' }} de chirurgie enregistrée{{ surgicalRequests.total > 1 ? 's' : '' }}.
-            </p>
-        </div>
+    <div class="mx-auto w-full max-w-screen-2xl space-y-6 lg:space-y-8">
+        <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-start gap-3">
+                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
+                    <Icon class="text-2xl" name="grid-alt" />
+                </span>
+                <div>
+                    <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Chirurgie</h1>
+                    <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
+                        {{ surgicalRequests.total }} demande{{ surgicalRequests.total > 1 ? 's' : '' }} de chirurgie enregistrée{{ surgicalRequests.total > 1 ? 's' : '' }}.
+                    </p>
+                </div>
+            </div>
+            <Button v-if="can('surgery.create')" :as="Link" href="/surgery/create" size="rg" variant="primary">
+                <Icon class="text-xl/4.5" name="plus" />
+                <span class="ms-2">Nouvelle demande</span>
+            </Button>
+        </header>
 
-        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
+        <Card class="overflow-hidden shadow-sm">
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[880px] border-collapse">
                     <caption class="sr-only">Liste des demandes de chirurgie</caption>
-                    <thead>
-                        <tr class="bg-gray-50/70 dark:bg-gray-1000/40">
+                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40">
+                        <tr>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Acte</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Chirurgien</th>
@@ -59,33 +76,46 @@ const statusVariant = (status) => STATUS_VARIANTS[status] ?? STATUS_VARIANTS.PEN
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Statut</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
                         <tr
                             v-for="request in surgicalRequests.data"
                             :key="request.uuid"
                             class="transition-colors hover:bg-gray-50 dark:hover:bg-gray-1000"
                         >
-                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <Link
-                                    v-if="request.episode?.patient"
-                                    :href="`/patients/${request.episode.patient.uuid}`"
-                                    class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
-                                >
-                                    {{ formatPatientName(request.episode.patient) }}
-                                </Link>
+                            <td class="px-5 py-3">
+                                <div v-if="request.episode?.patient" class="flex min-w-[220px] items-center gap-3">
+                                    <Avatar rounded size="sm" variant="primary-pale" :text="formatPatientInitials(request.episode.patient)" aria-hidden="true" />
+                                    <div class="min-w-0">
+                                        <Link :href="`/patients/${request.episode.patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">
+                                            {{ formatPatientName(request.episode.patient) }}
+                                        </Link>
+                                        <span class="mt-0.5 block text-xs text-slate-400">{{ request.episode.episode_number }}</span>
+                                    </div>
+                                </div>
                                 <span v-else class="text-sm text-slate-400">—</span>
                             </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-600 dark:border-gray-900 dark:text-slate-300">
-                                {{ request.procedure_name }}
+                            <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                <Link :href="`/surgery/${request.uuid}`" class="font-medium hover:text-primary-600 dark:hover:text-primary-400">
+                                    {{ request.procedure_name }}
+                                </Link>
                             </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ request.surgeon?.name ?? '—' }}
+                            <td class="px-5 py-3">
+                                <div v-if="request.surgeon" class="flex items-center gap-2 text-sm text-slate-500">
+                                    <Icon class="text-base text-slate-400" name="user-check" />
+                                    {{ request.surgeon.name }}
+                                </div>
+                                <span v-else class="text-sm text-slate-400">—</span>
                             </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ formatDateTime(request.scheduled_at) ?? '—' }}
+                            <td class="px-5 py-3">
+                                <div v-if="request.scheduled_at" class="flex items-center gap-2 text-sm text-slate-500">
+                                    <Icon class="text-base text-slate-400" name="calendar" />
+                                    {{ formatDateTime(request.scheduled_at) }}
+                                </div>
+                                <span v-else class="text-sm text-slate-400">—</span>
                             </td>
-                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <span :class="['inline-flex rounded px-2 py-1 text-xs font-medium', statusVariant(request.status)]">
+                            <td class="px-5 py-3">
+                                <span :class="['inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-bold', statusVariant(request.status)]">
+                                    <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-current"></span>
                                     {{ statusLabel(request.status) }}
                                 </span>
                             </td>
@@ -121,6 +151,6 @@ const statusVariant = (status) => STATUS_VARIANTS[status] ?? STATUS_VARIANTS.PEN
                     </template>
                 </div>
             </div>
-        </div>
+        </Card>
     </div>
 </template>

@@ -29,6 +29,11 @@ class SurgicalConsumable extends Model
         return $this->belongsTo(SurgicalRequest::class);
     }
 
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by');
+    }
+
     protected function auditModule(): ?string
     {
         return 'surgery';

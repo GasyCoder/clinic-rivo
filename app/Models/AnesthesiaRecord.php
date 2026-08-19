@@ -38,6 +38,11 @@ class AnesthesiaRecord extends Model
         return $this->belongsTo(User::class, 'anesthetist_id');
     }
 
+    public function validator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'validated_by');
+    }
+
     protected function auditModule(): ?string
     {
         return 'surgery';

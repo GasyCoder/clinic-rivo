@@ -39,6 +39,11 @@ class SurgicalReport extends Model
         return $this->belongsTo(User::class, 'authored_by');
     }
 
+    public function validator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'validated_by');
+    }
+
     protected function auditModule(): ?string
     {
         return 'surgery';

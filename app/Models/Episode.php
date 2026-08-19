@@ -11,6 +11,7 @@ use App\Services\Audit\Auditor;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * CDC §21. Represents one patient visit/passage, opened at Réception and
@@ -46,13 +47,17 @@ class Episode extends Model
         return $this->belongsTo(Patient::class);
     }
 
+    public function consultations(): HasMany
+    {
+        return $this->hasMany(Consultation::class);
+    }
+
     /**
      * PENDING_ORIENTATION → ORIENTED. The only administrative_status
-     * transition this module owns; ORIENTED → IN_CARE → PENDING_SETTLEMENT
-     * → DISCHARGED belong to whichever future module actually receives,
-     * medically discharges (§34.1 "sortie médicale"), and then
-     * administratively closes (§34.1.2 "sortie administrative", gated on
-     * the patient's balance) the episode, and are not implemented here.
+     * transition Réception owns; see startCare() for the next one.
+     * PENDING_SETTLEMENT → DISCHARGED belong to whichever future module
+     * administratively closes the episode (§34.1.2 "sortie administrative",
+     * gated on the patient's balance) and are not implemented here.
      */
     public function orient(): void
     {
@@ -65,6 +70,27 @@ class Episode extends Model
         }
 
         $this->administrative_status = EpisodeAdministrativeStatus::Oriented;
+        $this->save();
+    }
+
+    /**
+     * ORIENTED (or still PENDING_ORIENTATION) → IN_CARE. Called by
+     * CreateConsultationAction — a consultation actually happening is
+     * itself the evidence care has started. Unlike orient()/cancel(), this
+     * is deliberately a silent no-op once already IN_CARE or past it
+     * (PENDING_SETTLEMENT/DISCHARGED): a second or third consultation
+     * within the same episode is completely normal and must not throw.
+     */
+    public function startCare(): void
+    {
+        if (! in_array($this->administrative_status, [
+            EpisodeAdministrativeStatus::PendingOrientation,
+            EpisodeAdministrativeStatus::Oriented,
+        ], true)) {
+            return;
+        }
+
+        $this->administrative_status = EpisodeAdministrativeStatus::InCare;
         $this->save();
     }
 

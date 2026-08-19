@@ -119,6 +119,24 @@ class EpisodeModelTest extends TestCase
         $this->assertSame(['medical_status' => 'EN_CONSULTATION'], $log->new_values);
     }
 
+    public function test_start_care_transitions_oriented_to_in_care(): void
+    {
+        $episode = $this->makeEpisode(['administrative_status' => EpisodeAdministrativeStatus::Oriented]);
+
+        $episode->startCare();
+
+        $this->assertSame(EpisodeAdministrativeStatus::InCare, $episode->fresh()->administrative_status);
+    }
+
+    public function test_start_care_is_a_silent_no_op_once_already_past_in_care(): void
+    {
+        $episode = $this->makeEpisode(['administrative_status' => EpisodeAdministrativeStatus::PendingSettlement]);
+
+        $episode->startCare();
+
+        $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->fresh()->administrative_status);
+    }
+
     public function test_orient_transitions_from_pending_orientation_to_oriented(): void
     {
         $episode = $this->makeEpisode();

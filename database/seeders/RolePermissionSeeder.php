@@ -5,9 +5,25 @@ namespace Database\Seeders;
 use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 
 class RolePermissionSeeder extends Seeder
 {
+    /**
+     * Exact permission names or "prefix." globs per role — explicit,
+     * because the naive "grant every permission that exists" this used to
+     * do (before Patient/Episode/Médecine permissions existed) would now
+     * leak medical records and episodes to ADMINISTRATION, a role CDCF
+     * §21's profile table scopes to "paramétrage autorisé" only.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private const GRANTS = [
+        'ADMINISTRATION' => ['users.'],
+        'RECEPTION' => ['patients.', 'episodes.'],
+        'MEDICINE' => ['consultations.', 'diagnoses.', 'prescriptions.', 'patients.medical_history.', 'patients.view', 'episodes.view'],
+    ];
+
     public function run(): void
     {
         $allPermissionIds = Permission::query()->pluck('id');
@@ -15,11 +31,34 @@ class RolePermissionSeeder extends Seeder
         Role::query()->where('code', 'SUPER_ADMIN')->first()
             ?->permissions()->sync($allPermissionIds);
 
-        $userManagementIds = Permission::query()
-            ->whereIn('name', array_keys(PermissionSeeder::PERMISSIONS))
-            ->pluck('id');
+        foreach (self::GRANTS as $code => $matchers) {
+            $ids = $this->matchingPermissionIds($matchers);
 
-        Role::query()->where('code', 'ADMINISTRATION')->first()
-            ?->permissions()->sync($userManagementIds);
+            Role::query()->where('code', $code)->first()
+                ?->permissions()->sync($ids);
+        }
+    }
+
+    /**
+     * A matcher ending in "." is a prefix glob (e.g. "patients." matches
+     * "patients.view", "patients.medical_history.manage", ...). Anything
+     * else must match exactly — "patients.view" must not also pull in
+     * "patients.view_deleted" through a loose LIKE.
+     *
+     * @param  array<int, string>  $matchers
+     */
+    private function matchingPermissionIds(array $matchers): Collection
+    {
+        return Permission::query()
+            ->where(function ($query) use ($matchers) {
+                foreach ($matchers as $matcher) {
+                    if (str_ends_with($matcher, '.')) {
+                        $query->orWhere('name', 'like', $matcher.'%');
+                    } else {
+                        $query->orWhere('name', $matcher);
+                    }
+                }
+            })
+            ->pluck('id');
     }
 }

@@ -43,6 +43,27 @@ class PermissionSeeder extends Seeder
         'episodes.create' => 'Créer un épisode',
         'episodes.update' => 'Modifier un épisode (orientation, ...)',
         'episodes.cancel' => 'Annuler un épisode',
+
+        // CDC GitHub §15. medical_record.view, laboratory_orders.create,
+        // hospitalization.request, surgery.request, transfer.request et
+        // medical_discharge.create sont aussi listées là-bas mais non
+        // seedées ici : aucune de ces capacités n'est implémentée tant que
+        // Laboratoire/Hospitalisation/Chirurgie/Transfert/Sortie médicale
+        // (§34) n'existent pas.
+        'consultations.view' => 'Voir les consultations',
+        'consultations.create' => 'Créer une consultation',
+        'consultations.update' => 'Modifier une consultation',
+        'consultations.delete' => 'Supprimer une consultation',
+        'consultations.restore' => 'Restaurer une consultation',
+
+        'diagnoses.view' => 'Voir les diagnostics',
+        'diagnoses.create' => 'Créer un diagnostic',
+        'diagnoses.update' => 'Modifier un diagnostic',
+
+        'prescriptions.view' => 'Voir les prescriptions',
+        'prescriptions.create' => 'Créer une prescription',
+        'prescriptions.update' => 'Modifier une prescription',
+        'prescriptions.cancel' => 'Annuler une prescription',
     ];
 
     public function run(): void

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -24,8 +24,22 @@ const props = defineProps({
 const query = ref(props.search ?? '');
 const selectedEpisode = ref(null);
 
+const runSearch = (value) => {
+    router.get('/surgery/create', value ? { q: value } : {}, { preserveState: true, preserveScroll: true, replace: true });
+};
+
+// Live search: fires 350ms after the last keystroke, including when the
+// field is cleared back to empty — no need to press Enter for either case.
+let debounceTimer = null;
+watch(query, (value) => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => runSearch(value), 350);
+});
+
+// Enter still triggers an immediate search, bypassing the debounce.
 const submitSearch = () => {
-    router.get('/surgery/create', { q: query.value }, { preserveState: true, replace: true });
+    clearTimeout(debounceTimer);
+    runSearch(query.value);
 };
 
 const selectEpisode = (episode) => {

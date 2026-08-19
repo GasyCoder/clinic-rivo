@@ -24,7 +24,7 @@ return new class extends Migration
             $table->timestamp('assigned_at');
             $table->timestamps();
 
-            $table->unique(['surgical_request_id', 'user_id', 'function']);
+            $table->unique(['surgical_request_id', 'user_id', 'function'], 'surgical_team_members_request_user_function_unique');
             $table->index('surgical_request_id');
         });
     }

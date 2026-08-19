@@ -16,7 +16,7 @@ const rawMenu = [
     { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'episodes.create' },
     { icon: 'users', text: 'Patients & Caisse', link: '/patients', activeLinks: ['/patients', '/cash', '/receipts'], permission: 'patients.view' },
     { icon: 'user-list', text: 'Médecine' },
-    { icon: 'grid-alt', text: 'Chirurgie' },
+    { icon: 'grid-alt', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
     { icon: 'table-view', text: 'Laboratoire' },
     { icon: 'cart', text: 'Pharmacie' },
     { heading: 'Gestion' },

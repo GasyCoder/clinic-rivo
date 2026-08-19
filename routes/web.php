@@ -11,6 +11,7 @@ use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\ReceptionController;
+use App\Http\Controllers\SurgeryController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('dashboard');
@@ -59,4 +60,8 @@ Route::middleware(['site.type:clinic', 'auth'])->group(function () {
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');
     Route::post('/episodes/{episode}/orient', [EpisodeController::class, 'orient'])->name('episodes.orient')->middleware('can:episodes.update');
+
+    // Chirurgie (CDC GitHub §15/16) — read-only entry point for now; see
+    // SurgeryController's own doc comment.
+    Route::get('/surgery', [SurgeryController::class, 'index'])->name('surgery.index')->middleware('can:surgery.view');
 });

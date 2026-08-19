@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Permission;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,6 +23,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // ADR-009 / CDC §11: the three columns every SoftDeletable model
+        // needs, declared once so they can never drift between migrations.
+        Blueprint::macro('softDeletesWithReason', function () {
+            /** @var Blueprint $this */
+            $this->softDeletes();
+            $this->foreignId('deleted_by')->nullable()->constrained('users')->nullOnDelete();
+            $this->text('delete_reason')->nullable();
+        });
+
         // Every dynamic "resource.action" permission resolves through this
         // callback without needing a Gate::define() per permission — adding
         // a new Permission row makes it immediately checkable everywhere

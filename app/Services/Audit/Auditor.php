@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 /**
@@ -32,7 +33,13 @@ class Auditor
         ?string $module = null,
         ?Authenticatable $actor = null,
     ): AuditLog {
-        $actor ??= $this->request->user();
+        // Auth::user() rather than $this->request->user(): the latter only
+        // resolves correctly once a real HTTP request has passed through
+        // the kernel's auth middleware. Called from a queued job, a console
+        // command, or a test that sets the actor via actingAs() without
+        // dispatching a real request, the request's own resolver was never
+        // wired — the auth guard is the one source that's always correct.
+        $actor ??= Auth::user();
 
         return AuditLog::create([
             'user_id' => $actor?->getAuthIdentifier(),

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Builders\ImmutableBuilder;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,9 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * Append-only. Nothing in this codebase may update or delete an audit
  * entry — see the `updating`/`deleting` guards below — matching CDC §22
  * and CLAUDE.md's audit rule: sensitive operations must be traceable,
- * including SUPER_ADMIN's own actions.
+ * including SUPER_ADMIN's own actions. Both the per-instance events below
+ * AND the query builder (newEloquentBuilder()) are guarded — see
+ * ImmutableBuilder for why the builder-level guard is also necessary.
  */
 #[Fillable([
     'user_id', 'action', 'module', 'entity_type', 'entity_id', 'entity_uuid',
@@ -51,5 +54,10 @@ class AuditLog extends Model
     public function entity(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function newEloquentBuilder($query): ImmutableBuilder
+    {
+        return new ImmutableBuilder($query);
     }
 }

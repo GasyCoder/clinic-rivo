@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Auth;
  */
 trait SoftDeletable
 {
-    use SoftDeletes;
+    use HasAuditModule, SoftDeletes;
 
     public static function bootSoftDeletable(): void
     {
@@ -101,14 +101,5 @@ trait SoftDeletable
     protected function deletionActorId(): ?int
     {
         return Auth::id();
-    }
-
-    /**
-     * CDC module name for the audit entry (e.g. "pharmacy", "reception").
-     * Override per model — null is fine until a real module claims it.
-     */
-    protected function auditModule(): ?string
-    {
-        return null;
     }
 }

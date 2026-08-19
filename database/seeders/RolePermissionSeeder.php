@@ -26,6 +26,10 @@ class RolePermissionSeeder extends Seeder
         // catalogs; no "Maternité" grant since no such permission catalog
         // exists in the CDC (see PermissionSeeder).
         'NURSE' => ['care.', 'vitals.', 'medical_orders.view', 'anesthesia.', 'patients.medical_history.', 'patients.view', 'episodes.view'],
+        // anesthesia. is intentionally granted to both NURSE and SURGERY —
+        // see the same ADR-006 amendment ("normalement rattaché à SURGERY
+        // mais explicitement demandé aussi pour NURSE").
+        'SURGERY' => ['surgery.', 'anesthesia.', 'episodes.view'],
     ];
 
     public function run(): void

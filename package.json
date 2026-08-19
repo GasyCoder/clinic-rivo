@@ -27,7 +27,7 @@
         "@popperjs/core": "^2.11.8",
         "@vitejs/plugin-vue": "^6.0.8",
         "@vueuse/core": "^13.1.0",
-        "pinia": "^3.0.2",
+        "pinia": "^3.0.4",
         "simplebar-vue": "^2.4.2",
         "vue": "^3.5.41"
     }

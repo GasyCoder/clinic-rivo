@@ -95,7 +95,9 @@ class PermissionSeeder extends Seeder
         'medical_orders.view' => 'Voir les ordres médicaux',
 
         // CDC §16 "Chirurgie" — catalogue anesthésie, normalement rattaché
-        // à SURGERY mais explicitement demandé aussi pour NURSE.
+        // à SURGERY mais explicitement demandé aussi pour NURSE (ADR-006
+        // amendé 2026-08-19) : une seule définition ici, référencée par les
+        // deux rôles dans RolePermissionSeeder.
         'anesthesia.view' => 'Voir les dossiers d\'anesthésie',
         'anesthesia.create' => 'Créer un dossier d\'anesthésie',
         'anesthesia.update' => 'Modifier un dossier d\'anesthésie',
@@ -104,6 +106,32 @@ class PermissionSeeder extends Seeder
         // Maternité : aucun catalogue de permissions n'existe dans le CDC
         // (aucune section dédiée, seulement la mention du profil
         // "sage-femme") — non inventé ici, à définir avec l'équipe.
+
+        // CDC GitHub §15/16 — transcrit tel quel. Contrairement à
+        // consultations (delete/restore) et prescriptions (cancel), ce
+        // module n'a AUCUNE permission delete/restore/force_delete/cancel
+        // listée pour surgery.*, alors que §11 exige explicitement le
+        // refus du force_delete sur un "acte chirurgical validé". Conflit
+        // documentaire signalé ici plutôt que résolu silencieusement :
+        // aucune permission de suppression/annulation n'est inventée pour
+        // combler ce vide tant que le CDC ou DECISIONS.md ne le précise pas.
+        'surgery.view' => 'Voir les dossiers de chirurgie',
+        'surgery.create' => 'Créer une demande de chirurgie',
+        'surgery.update' => 'Modifier une demande de chirurgie',
+        'surgery.schedule' => 'Programmer une intervention',
+        'surgery.preoperative.view' => 'Voir le bilan préopératoire',
+        'surgery.preoperative.validate' => 'Valider le bilan préopératoire',
+        'surgery.intervention.create' => 'Créer une intervention',
+        'surgery.intervention.update' => 'Modifier une intervention',
+        'surgery.report.create' => 'Créer un compte rendu opératoire',
+        'surgery.report.update' => 'Modifier un compte rendu opératoire',
+        'surgery.report.validate' => 'Valider un compte rendu opératoire',
+        'surgery.complications.create' => 'Enregistrer une complication',
+        'surgery.discharge.create' => 'Enregistrer une sortie de chirurgie',
+        'surgery.preparation.update' => 'Mettre à jour la préparation du bloc',
+        'surgery.consumables.create' => 'Enregistrer un consommable utilisé',
+        'surgery.care.create' => 'Enregistrer un soin peropératoire',
+        'surgery.postoperative_care.create' => 'Enregistrer un soin postopératoire',
     ];
 
     public function run(): void

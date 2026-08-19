@@ -114,4 +114,33 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('consultations.create', $names);
         $this->assertNotContains('prescriptions.create', $names);
     }
+
+    public function test_surgery_gets_surgery_and_anesthesia_permissions_and_read_only_episode_access(): void
+    {
+        $this->seedRbac();
+
+        $names = $this->permissionNamesFor('SURGERY');
+
+        $this->assertContains('surgery.create', $names);
+        $this->assertContains('surgery.report.validate', $names);
+        $this->assertContains('anesthesia.validate', $names);
+        $this->assertContains('episodes.view', $names);
+
+        $this->assertNotContains('consultations.view', $names);
+        $this->assertNotContains('prescriptions.create', $names);
+        $this->assertNotContains('episodes.create', $names);
+    }
+
+    public function test_anesthesia_is_shared_between_nurse_and_surgery(): void
+    {
+        $this->seedRbac();
+
+        $nurse = $this->permissionNamesFor('NURSE');
+        $surgery = $this->permissionNamesFor('SURGERY');
+
+        // ADR-006 amendment 2026-08-19: anesthesia.* is deliberately
+        // granted to both roles, not a duplicate permission definition.
+        $this->assertContains('anesthesia.validate', $nurse);
+        $this->assertContains('anesthesia.validate', $surgery);
+    }
 }

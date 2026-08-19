@@ -63,6 +63,11 @@ class Episode extends Model
         return $this->hasMany(Invoice::class);
     }
 
+    public function surgicalRequests(): HasMany
+    {
+        return $this->hasMany(SurgicalRequest::class);
+    }
+
     /**
      * PENDING_ORIENTATION → ORIENTED. The only administrative_status
      * transition Réception owns; see startCare() for the next one.

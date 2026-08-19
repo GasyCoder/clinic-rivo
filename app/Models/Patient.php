@@ -8,6 +8,7 @@ use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * CDC §21. Owned by Réception (AI_CONTEXT.md: "gère... l'identité
@@ -28,6 +29,23 @@ class Patient extends Model
             'birth_date' => 'date',
             'sex' => PatientSex::class,
         ];
+    }
+
+    public function episodes(): HasMany
+    {
+        return $this->hasMany(Episode::class);
+    }
+
+    /**
+     * episodes.patient_id is a restrictOnDelete() foreign key (Episode is
+     * never orphaned) — without this override, force_delete on a patient
+     * with episodes would surface as a raw DB constraint violation instead
+     * of the clean ForceDeleteForbiddenException every other protected
+     * model produces.
+     */
+    public function isForceDeleteProtected(): bool
+    {
+        return $this->episodes()->exists();
     }
 
     protected function auditModule(): ?string

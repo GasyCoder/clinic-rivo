@@ -20,7 +20,7 @@ const rawMenu = [
     { icon: 'table-view', text: 'Laboratoire' },
     { icon: 'cart', text: 'Pharmacie' },
     { heading: 'Gestion' },
-    { icon: 'file-docs', text: 'Administration', permission: 'user.manage' },
+    { icon: 'file-docs', text: 'Administration', permission: 'users.manage' },
     { icon: 'setting-alt', text: 'Super Administration' },
 ];
 

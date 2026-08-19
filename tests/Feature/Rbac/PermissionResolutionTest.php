@@ -26,47 +26,47 @@ class PermissionResolutionTest extends TestCase
     {
         $user = User::factory()->create(['role_id' => null]);
 
-        $this->assertFalse($user->hasPermissionTo('user.view'));
+        $this->assertFalse($user->hasPermissionTo('users.view'));
     }
 
     public function test_user_inherits_permission_granted_to_their_role(): void
     {
         $role = $this->role('ADMINISTRATION');
-        $permission = $this->permission('user.view');
+        $permission = $this->permission('users.view');
         $role->permissions()->attach($permission);
 
         $user = User::factory()->create(['role_id' => $role->id]);
 
-        $this->assertTrue($user->hasPermissionTo('user.view'));
+        $this->assertTrue($user->hasPermissionTo('users.view'));
     }
 
     public function test_user_does_not_have_a_permission_their_role_lacks(): void
     {
         $role = $this->role('RECEPTION');
-        $this->permission('user.view');
+        $this->permission('users.view');
 
         $user = User::factory()->create(['role_id' => $role->id]);
 
-        $this->assertFalse($user->hasPermissionTo('user.view'));
+        $this->assertFalse($user->hasPermissionTo('users.view'));
     }
 
     public function test_explicit_user_allow_grants_a_permission_the_role_does_not_have(): void
     {
         $role = $this->role('RECEPTION');
-        $permission = $this->permission('user.view');
+        $permission = $this->permission('users.view');
 
         $user = User::factory()->create(['role_id' => $role->id]);
         $user->permissions()->attach($permission->id, ['effect' => 'allow']);
 
         $fresh = User::find($user->id);
 
-        $this->assertTrue($fresh->hasPermissionTo('user.view'));
+        $this->assertTrue($fresh->hasPermissionTo('users.view'));
     }
 
     public function test_explicit_user_deny_overrides_a_permission_granted_by_the_role(): void
     {
         $role = $this->role('ADMINISTRATION');
-        $permission = $this->permission('user.view');
+        $permission = $this->permission('users.view');
         $role->permissions()->attach($permission);
 
         $user = User::factory()->create(['role_id' => $role->id]);
@@ -74,19 +74,19 @@ class PermissionResolutionTest extends TestCase
 
         $fresh = User::find($user->id);
 
-        $this->assertFalse($fresh->hasPermissionTo('user.view'));
+        $this->assertFalse($fresh->hasPermissionTo('users.view'));
     }
 
     public function test_super_admin_holds_every_known_permission(): void
     {
         $role = $this->role('SUPER_ADMIN');
-        $this->permission('user.view');
-        $this->permission('user.manage');
+        $this->permission('users.view');
+        $this->permission('users.manage');
 
         $user = User::factory()->create(['role_id' => $role->id]);
 
-        $this->assertTrue($user->hasPermissionTo('user.view'));
-        $this->assertTrue($user->hasPermissionTo('user.manage'));
+        $this->assertTrue($user->hasPermissionTo('users.view'));
+        $this->assertTrue($user->hasPermissionTo('users.manage'));
     }
 
     public function test_a_permission_created_after_the_user_still_applies_without_code_changes(): void

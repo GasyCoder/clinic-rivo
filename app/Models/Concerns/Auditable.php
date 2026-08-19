@@ -41,6 +41,10 @@ trait Auditable
                 return;
             }
 
+            if ($model->auditableSkipsChange($changes)) {
+                return;
+            }
+
             $old = collect($changes)->keys()
                 ->mapWithKeys(fn ($key) => [$key => $model->getOriginal($key)])
                 ->all();

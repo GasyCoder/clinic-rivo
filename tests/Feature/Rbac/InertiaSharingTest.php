@@ -15,7 +15,7 @@ class InertiaSharingTest extends TestCase
     public function test_effective_permissions_and_role_are_shared_with_the_frontend(): void
     {
         $role = Role::query()->create(['code' => 'ADMINISTRATION', 'name' => 'Administration']);
-        $permission = Permission::query()->create(['name' => 'user.view', 'label' => 'Voir les utilisateurs']);
+        $permission = Permission::query()->create(['name' => 'users.view', 'label' => 'Voir les utilisateurs']);
         $role->permissions()->attach($permission);
 
         $user = User::factory()->create(['role_id' => $role->id]);
@@ -24,7 +24,7 @@ class InertiaSharingTest extends TestCase
 
         $response->assertInertia(fn ($page) => $page
             ->where('auth.user.role.code', 'ADMINISTRATION')
-            ->where('permissions', ['user.view'])
+            ->where('permissions', ['users.view'])
         );
     }
 

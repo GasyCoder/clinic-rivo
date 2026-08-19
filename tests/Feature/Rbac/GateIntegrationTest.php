@@ -17,10 +17,10 @@ class GateIntegrationTest extends TestCase
     {
         Route::middleware(['web', 'auth'])
             ->get('/_test/user-view', fn () => 'ok')
-            ->middleware('can:user.view');
+            ->middleware('can:users.view');
 
         $role = Role::query()->create(['code' => 'ADMINISTRATION', 'name' => 'Administration']);
-        $permission = Permission::query()->create(['name' => 'user.view', 'label' => 'Voir les utilisateurs']);
+        $permission = Permission::query()->create(['name' => 'users.view', 'label' => 'Voir les utilisateurs']);
         $role->permissions()->attach($permission);
 
         $allowed = User::factory()->create(['role_id' => $role->id]);
@@ -55,9 +55,9 @@ class GateIntegrationTest extends TestCase
     {
         Route::middleware(['web', 'auth'])
             ->get('/_test/guest-check', fn () => 'ok')
-            ->middleware('can:user.view');
+            ->middleware('can:users.view');
 
-        Permission::query()->create(['name' => 'user.view']);
+        Permission::query()->create(['name' => 'users.view']);
 
         $this->get('/_test/guest-check')->assertRedirect('/login');
     }

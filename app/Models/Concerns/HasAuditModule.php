@@ -18,4 +18,19 @@ trait HasAuditModule
     {
         return null;
     }
+
+    /**
+     * Lets a model suppress Auditable's generic 'update' entry for a save()
+     * it already audited itself under a more specific action name (e.g.
+     * Episode::cancel() records its own 'cancel' entry with a reason, so
+     * the generic 'update' entry for that same save would just be noise).
+     * Default: never skip — everything gets audited unless a model opts out
+     * for a change it explicitly handles elsewhere.
+     *
+     * @param  array<string, mixed>  $changes
+     */
+    protected function auditableSkipsChange(array $changes): bool
+    {
+        return false;
+    }
 }

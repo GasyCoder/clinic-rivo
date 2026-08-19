@@ -14,7 +14,7 @@ const rawMenu = [
     { icon: 'growth', text: 'Tableau de bord', link: '/' },
     { heading: 'Gestion clinique' },
     { icon: 'card-view', text: 'Réception & Caisse' },
-    { icon: 'users', text: 'Patients' },
+    { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
     { icon: 'user-list', text: 'Médecine' },
     { icon: 'grid-alt', text: 'Chirurgie' },
     { icon: 'table-view', text: 'Laboratoire' },

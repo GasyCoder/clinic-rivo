@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Support\Str;
 
 /**
  * Append-only. Nothing in this codebase may update or delete an audit
@@ -20,6 +20,8 @@ use Illuminate\Support\Str;
 ])]
 class AuditLog extends Model
 {
+    use HasUuid;
+
     const UPDATED_AT = null;
 
     protected function casts(): array
@@ -32,10 +34,6 @@ class AuditLog extends Model
 
     protected static function booted(): void
     {
-        static::creating(function (self $log) {
-            $log->uuid ??= (string) Str::uuid();
-        });
-
         static::updating(function () {
             throw new \LogicException('Audit log entries are immutable and cannot be updated.');
         });

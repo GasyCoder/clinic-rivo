@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Audit;
 
+use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\Auditor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -59,15 +60,27 @@ class AuditorTest extends TestCase
         $this->assertSame('Correction orthographe', $log->reason);
     }
 
-    public function test_entity_uuid_stays_null_when_the_entity_model_has_no_uuid_column(): void
+    public function test_entity_uuid_is_captured_from_the_entity_when_it_has_one(): void
     {
-        // Users don't have a uuid column yet (Phase 0 "UUID" item, not
-        // built) — documents that entity_uuid degrades to null instead of
-        // erroring when the entity model has no such attribute.
         $user = User::factory()->create();
         $auditor = $this->auditorForFakeRequest($user);
 
         $log = $auditor->record('update', entity: $user);
+
+        $this->assertSame($user->uuid, $log->entity_uuid);
+    }
+
+    public function test_entity_uuid_stays_null_when_the_entity_model_has_no_uuid_column(): void
+    {
+        // Role has no uuid column (nothing in the CDC lists roles as
+        // API-exchangeable) — documents that entity_uuid degrades to null
+        // instead of erroring when the entity model has no such attribute.
+        $user = User::factory()->create();
+        $auditor = $this->auditorForFakeRequest($user);
+
+        $role = Role::query()->create(['code' => 'TEST_ROLE', 'name' => 'Test Role']);
+
+        $log = $auditor->record('update', entity: $role);
 
         $this->assertNull($log->entity_uuid);
     }

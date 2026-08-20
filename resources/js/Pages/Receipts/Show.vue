@@ -36,6 +36,11 @@ const printReceipt = () => window.print();
         </div>
 
         <article class="receipt-paper rounded-lg border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:p-10">
+            <div v-if="payment.status === 'CANCELLED'" class="mb-6 border border-red-200 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:text-red-300">
+                <p class="font-bold uppercase tracking-wide">Paiement annulé</p>
+                <p class="mt-1 text-xs">Annulé le {{ formatDateTime(payment.cancelled_at) }}. Ce reçu est conservé uniquement comme trace historique.</p>
+                <p v-if="payment.cancellation_reason" class="mt-1 text-xs">Motif : {{ payment.cancellation_reason }}</p>
+            </div>
             <header class="flex flex-col gap-5 border-b border-gray-200 pb-6 dark:border-gray-900 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <p class="text-xs font-bold uppercase tracking-[0.18em] text-primary-600">{{ siteName }}</p>
@@ -62,10 +67,10 @@ const printReceipt = () => window.print();
             </section>
 
             <section class="py-7">
-                <div class="rounded-lg bg-primary-50 px-5 py-6 text-center dark:bg-primary-950/30">
-                    <p class="text-xs font-bold uppercase tracking-wide text-primary-500">Montant reçu</p>
-                    <p class="mt-2 text-3xl font-bold text-primary-700 dark:text-primary-300">{{ formatMoney(payment.amount) }}</p>
-                    <p class="mt-2 text-sm text-primary-600/80 dark:text-primary-300/80">{{ payment.method.name }}</p>
+                <div class="rounded-lg border border-gray-200 bg-gray-50 px-5 py-6 text-center dark:border-gray-800 dark:bg-gray-900/50">
+                    <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Montant reçu</p>
+                    <p :class="['mt-2 text-3xl font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-white']">{{ formatMoney(payment.amount) }}</p>
+                    <p class="mt-2 text-sm text-slate-500">{{ payment.method.name }}</p>
                 </div>
 
                 <dl class="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 text-sm">

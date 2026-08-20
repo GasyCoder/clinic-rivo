@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -21,7 +21,6 @@ const props = defineProps({
     account: Object,
     paymentMethods: Array,
     openCashSession: Object,
-    billableSuggestions: Object,
 });
 
 const page = usePage();
@@ -29,6 +28,7 @@ const { can } = usePermissions();
 const status = computed(() => page.props.flash?.status);
 const showInvoiceForm = ref(false);
 const paymentTarget = ref(null);
+const cancellationTarget = ref(null);
 const validatingInvoice = ref(null);
 
 const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
@@ -36,32 +36,11 @@ const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
 ));
 
 const defaultEpisodeUuid = props.patient.episodes.find((episode) => episode.status !== 'CANCELLED')?.uuid ?? '';
-const blankLine = () => ({ description: '', quantity: 1, unit_price: '' });
 const invoiceForm = useForm({
     episode_uuid: defaultEpisodeUuid,
-    lines: [blankLine()],
+    billable_item_uuids: [],
+    lines: [],
 });
-
-// Chirurgie (and later other modules) generate billable items but never
-// touch the invoice themselves — Réception discovers them here the moment
-// it picks the episode, no hand-off button anywhere else needed. Only
-// applies while the form is still untouched, so it never overwrites lines
-// the user already started typing.
-const isPristine = () => invoiceForm.lines.length === 1 && !invoiceForm.lines[0].description;
-const applySuggestionFor = (episodeUuid) => {
-    const suggestion = props.billableSuggestions?.[episodeUuid];
-    if (suggestion?.length && isPristine()) {
-        invoiceForm.lines = suggestion.map((line) => ({ description: line.description, quantity: line.quantity, unit_price: '' }));
-    }
-};
-watch(() => invoiceForm.episode_uuid, (episodeUuid) => applySuggestionFor(episodeUuid));
-
-const toggleInvoiceForm = () => {
-    showInvoiceForm.value = !showInvoiceForm.value;
-    if (showInvoiceForm.value) {
-        applySuggestionFor(invoiceForm.episode_uuid);
-    }
-};
 
 const paymentForm = useForm({
     invoice_uuid: '',
@@ -71,22 +50,46 @@ const paymentForm = useForm({
     notes: '',
 });
 
-const invoiceDraftTotal = computed(() => invoiceForm.lines.reduce(
-    (total, line) => total + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0),
-    0,
+const cancellationForm = useForm({ reason: '' });
+
+const pendingItemsForEpisode = computed(() => (props.account?.billable_items ?? []).filter(
+    (item) => item.status === 'PENDING' && item.episode.uuid === invoiceForm.episode_uuid,
 ));
+const cancelledBillableItems = computed(() => (props.account?.billable_items ?? []).filter(
+    (item) => item.status === 'CANCELLED',
+));
+
+const invoiceDraftTotal = computed(() => {
+    const selectedItemsTotal = pendingItemsForEpisode.value
+        .filter((item) => invoiceForm.billable_item_uuids.includes(item.uuid))
+        .reduce((total, item) => total + Number(item.total_amount), 0);
+    const manualLinesTotal = invoiceForm.lines.reduce(
+        (total, line) => total + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0),
+        0,
+    );
+
+    return selectedItemsTotal + manualLinesTotal;
+});
 
 const addInvoiceLine = () => invoiceForm.lines.push({ description: '', quantity: 1, unit_price: '' });
 const removeInvoiceLine = (index) => {
-    if (invoiceForm.lines.length > 1) invoiceForm.lines.splice(index, 1);
+    invoiceForm.lines.splice(index, 1);
 };
 
 const createInvoice = () => {
+    invoiceForm.transform((data) => ({
+        ...data,
+        billable_item_uuids: data.billable_item_uuids.filter((uuid) => (
+            pendingItemsForEpisode.value.some((item) => item.uuid === uuid)
+        )),
+        lines: data.lines.filter((line) => line.description || line.unit_price),
+    }));
     invoiceForm.post(`/patients/${props.patient.uuid}/invoices`, {
         preserveScroll: true,
         onSuccess: () => {
             showInvoiceForm.value = false;
-            invoiceForm.lines = [{ description: '', quantity: 1, unit_price: '' }];
+            invoiceForm.billable_item_uuids = [];
+            invoiceForm.lines = [];
         },
     });
 };
@@ -120,6 +123,23 @@ const recordPayment = () => {
     });
 };
 
+const openCancellationDialog = (payment) => {
+    cancellationTarget.value = payment;
+    cancellationForm.clearErrors();
+    cancellationForm.reason = '';
+};
+
+const closeCancellationDialog = () => {
+    if (!cancellationForm.processing) cancellationTarget.value = null;
+};
+
+const cancelPayment = () => {
+    cancellationForm.post(`/payments/${cancellationTarget.value.uuid}/cancel`, {
+        preserveScroll: true,
+        onSuccess: () => { cancellationTarget.value = null; },
+    });
+};
+
 const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
 const civilityLabels = { MR: 'M.', MRS: 'Mme', GIRL: 'Enfant fille', BOY: 'Enfant garçon' };
 const administrativeStatusLabels = {
@@ -140,18 +160,18 @@ const invoiceStatusLabels = {
 const severityLabels = { MILD: 'Légère', MODERATE: 'Modérée', SEVERE: 'Sévère' };
 
 const episodeStatusBadgeClass = (statusValue) => ({
-    OPEN: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400',
-    CLOSED: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400',
-    CANCELLED: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400',
-}[statusValue] ?? 'bg-slate-100 text-slate-600');
+    OPEN: 'border-gray-200 text-slate-600 dark:border-gray-800 dark:text-slate-300',
+    CLOSED: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
+    CANCELLED: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-300',
+}[statusValue] ?? 'border-gray-200 text-slate-600');
 
 const invoiceStatusBadgeClass = (statusValue) => ({
-    DRAFT: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300',
-    VALIDATED: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300',
-    PARTIALLY_PAID: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-    PAID: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
-    CANCELLED: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
-}[statusValue] ?? 'bg-slate-100 text-slate-600');
+    DRAFT: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
+    VALIDATED: 'border-gray-300 text-slate-700 dark:border-gray-700 dark:text-slate-200',
+    PARTIALLY_PAID: 'border-gray-300 text-slate-700 dark:border-gray-700 dark:text-slate-200',
+    PAID: 'border-gray-200 text-slate-600 dark:border-gray-800 dark:text-slate-300',
+    CANCELLED: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-300',
+}[statusValue] ?? 'border-gray-200 text-slate-600');
 </script>
 
 <template>
@@ -160,7 +180,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
     <div class="w-full space-y-5">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div class="flex min-w-0 items-center gap-4">
-                <Avatar rounded size="lg" variant="primary-pale" :text="formatPatientInitials(patient)" />
+                <Avatar rounded size="lg" variant="slate-pale" :text="formatPatientInitials(patient)" />
                 <div class="min-w-0">
                     <h1 class="truncate font-heading text-2xl font-bold text-slate-700 dark:text-white">
                         <span v-if="patient.civility">{{ civilityLabels[patient.civility] }}</span>
@@ -168,7 +188,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     </h1>
                     <p class="mt-1 text-sm text-slate-500">
                         {{ patient.patient_number }} · {{ sexLabel(patient.sex) }} · né(e) le {{ formatDate(patient.birth_date) }}
-                        <span v-if="patient.birth_date_is_approximate" class="text-xs text-yellow-600">(approximatif)</span>
+                        <span v-if="patient.birth_date_is_approximate" class="text-xs text-slate-400">(date estimée)</span>
                     </p>
                 </div>
             </div>
@@ -176,39 +196,40 @@ const invoiceStatusBadgeClass = (statusValue) => ({
             <div class="flex flex-wrap items-center gap-2">
                 <Button :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Patients</span></Button>
                 <Button v-if="can('patients.update')" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="rg" variant="white-outline"><Icon class="text-lg" name="edit" /><span class="ms-2">Modifier</span></Button>
-                <Button v-if="can('cash.view')" :as="Link" href="/cash" size="rg" variant="primary"><Icon class="text-lg" name="wallet" /><span class="ms-2">Caisse</span></Button>
+                <Button v-if="can('cash.view')" :as="Link" href="/cash" size="rg" variant="white-outline"><Icon class="text-lg" name="wallet" /><span class="ms-2">Caisse</span></Button>
             </div>
         </div>
 
-        <div v-if="status" class="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300" role="status"><Icon class="text-lg" name="check-circle" /><span>{{ status }}</span></div>
+        <div v-if="status" class="flex items-center gap-3 rounded border border-gray-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" role="status"><Icon class="text-lg text-green-600" name="check-circle" /><span>{{ status }}</span></div>
 
-        <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded-md border border-red-300 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200" role="status">
-            <Icon class="mt-0.5 shrink-0 text-xl" name="alert-circle" />
-            <div><p class="text-sm font-bold uppercase tracking-wide">Patient en urgence</p><p class="mt-0.5 text-xs leading-5 opacity-80">Passage {{ activeEmergencyEpisode.episode_number }} — les soins urgents restent prioritaires et ne sont jamais bloqués par le paiement.</p></div>
+        <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded border border-gray-200 border-s-4 border-s-red-500 bg-white p-4 dark:border-gray-800 dark:border-s-red-500 dark:bg-gray-950" role="status">
+            <Icon class="mt-0.5 shrink-0 text-xl text-red-600 dark:text-red-400" name="alert-circle" />
+            <div><p class="text-sm font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Patient en urgence</p><p class="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">Passage {{ activeEmergencyEpisode.episode_number }} — les soins urgents restent prioritaires et ne sont jamais bloqués par le paiement.</p></div>
         </div>
 
-        <section v-if="account" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
+        <section v-if="account" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
-                    <span class="flex h-9 w-9 items-center justify-center rounded bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
+                    <span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon class="text-lg" name="wallet" /></span>
                     <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Compte patient</h2><p class="mt-0.5 text-xs text-slate-400">Factures, paiements successifs et reçus.</p></div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <span v-if="openCashSession" class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700 dark:bg-green-950 dark:text-green-300"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Caisse ouverte</span>
-                    <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300">Caisse fermée</span>
-                    <Button v-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="toggleInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
+                    <span v-if="openCashSession" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Caisse ouverte</span>
+                    <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400"><span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Caisse fermée</span>
+                    <Button v-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="showInvoiceForm = !showInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 divide-y divide-gray-200 border-b border-gray-200 dark:divide-gray-900 dark:border-gray-900 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div class="grid grid-cols-2 divide-x divide-y divide-gray-200 border-b border-gray-200 dark:divide-gray-900 dark:border-gray-900 lg:grid-cols-4 lg:divide-y-0">
+                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">À facturer</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.unbilled_amount) }}</p></div>
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total facturé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-green-600">Total payé</p><p class="mt-1.5 text-xl font-bold text-green-600">{{ formatMoney(account.paid_amount) }}</p></div>
-                <div class="bg-yellow-50/50 px-5 py-4 dark:bg-yellow-950/10"><p class="text-xs font-medium uppercase tracking-wide text-yellow-600">Reste à payer</p><p class="mt-1.5 text-xl font-bold text-yellow-700 dark:text-yellow-300">{{ formatMoney(account.balance_amount) }}</p></div>
+                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total payé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.paid_amount) }}</p></div>
+                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500">Reste à payer</p><p class="mt-1.5 text-xl font-bold text-slate-800 dark:text-white">{{ formatMoney(account.balance_amount) }}</p></div>
             </div>
 
             <form v-if="showInvoiceForm" class="border-b border-gray-200 bg-gray-50/60 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="createInvoice">
                 <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Créer une facture</h3><p class="mt-0.5 text-xs text-slate-400">Ajoutez les prestations réalisées. Le total est recalculé et contrôlé par le serveur.</p></div>
+                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Créer une facture</h3><p class="mt-0.5 text-xs text-slate-400">Sélectionnez les prestations transmises par les services. Une ligne manuelle reste possible à la Réception.</p></div>
                     <p class="text-sm font-bold text-primary-600">Total : {{ formatMoney(invoiceDraftTotal) }}</p>
                 </div>
 
@@ -221,24 +242,48 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <FormError v-if="invoiceForm.errors.episode_uuid">{{ invoiceForm.errors.episode_uuid }}</FormError>
                 </FormGroup>
 
-                <p v-if="billableSuggestions?.[invoiceForm.episode_uuid]?.length" class="mb-4 flex items-center gap-2 rounded bg-primary-50 px-3 py-2 text-xs text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                    <Icon name="check-circle" /> Prestations de la Chirurgie ajoutées automatiquement — vérifiez et complétez les prix.
-                </p>
+                <div v-if="pendingItemsForEpisode.length" class="mb-4 overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                    <div class="border-b border-gray-200 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800">Prestations en attente de facturation</div>
+                    <label v-for="item in pendingItemsForEpisode" :key="item.uuid" class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-900/50">
+                        <input v-model="invoiceForm.billable_item_uuids" :value="item.uuid" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                        <span class="min-w-0 flex-1">
+                            <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                                {{ item.description }}
+                                <span class="text-xs font-normal text-slate-400">{{ item.source_module }}</span>
+                                <span v-if="item.payment_required_before_fulfillment" class="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:border-gray-700 dark:text-slate-400">Paiement préalable requis</span>
+                            </span>
+                            <span class="mt-0.5 block text-xs text-slate-400">{{ item.quantity }} × {{ formatMoney(item.unit_price) }}</span>
+                        </span>
+                        <span class="shrink-0 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.total_amount) }}</span>
+                    </label>
+                </div>
+
+                <p v-else class="mb-4 rounded border border-dashed border-gray-300 px-4 py-3 text-xs text-slate-400 dark:border-gray-700">Aucune prestation métier en attente pour ce passage.</p>
 
                 <div class="space-y-2">
                     <div v-for="(line, index) in invoiceForm.lines" :key="index" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_180px_36px]">
                         <Input v-model="line.description" :aria-label="`Prestation ${index + 1}`" placeholder="Prestation ou acte" required />
                         <Input v-model="line.quantity" type="number" min="0.01" step="0.01" aria-label="Quantité" placeholder="Quantité" required />
                         <Input v-model="line.unit_price" type="number" min="0.01" step="0.01" aria-label="Prix unitaire" placeholder="Prix unitaire (Ar)" required />
-                        <Button icon size="rg" variant="danger-outline" type="button" aria-label="Retirer cette ligne" :disabled="invoiceForm.lines.length === 1" @click="removeInvoiceLine(index)"><Icon class="text-base" name="trash" /></Button>
+                        <Button icon size="rg" variant="danger-outline" type="button" aria-label="Retirer cette ligne" @click="removeInvoiceLine(index)"><Icon class="text-base" name="trash" /></Button>
                     </div>
                 </div>
                 <FormError v-if="invoiceForm.errors.lines" class="mt-2">{{ invoiceForm.errors.lines }}</FormError>
                 <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <button type="button" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700" @click="addInvoiceLine"><Icon name="plus" /> Ajouter une prestation</button>
+                    <button type="button" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700" @click="addInvoiceLine"><Icon name="plus" /> Ajouter une ligne manuelle</button>
                     <Button size="rg" variant="primary" type="submit" :disabled="invoiceForm.processing"><Icon class="text-lg" name="file-text" /><span class="ms-2">{{ invoiceForm.processing ? 'Création…' : 'Créer le brouillon' }}</span></Button>
                 </div>
             </form>
+
+            <details v-if="cancelledBillableItems.length" class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                <summary class="cursor-pointer text-xs font-medium text-slate-500">Prestations annulées ({{ cancelledBillableItems.length }})</summary>
+                <ul class="mt-3 space-y-2">
+                    <li v-for="item in cancelledBillableItems" :key="item.uuid" class="flex flex-col justify-between gap-1 text-xs text-slate-400 sm:flex-row">
+                        <span><span class="line-through">{{ item.description }} · {{ formatMoney(item.total_amount) }}</span> · {{ item.source_module }} · passage {{ item.episode.episode_number }}</span>
+                        <span :title="item.cancellation_reason">Annulée le {{ formatDateTime(item.cancelled_at) }}</span>
+                    </li>
+                </ul>
+            </details>
 
             <div v-if="account.invoices.length === 0" class="px-5 py-10 text-center">
                 <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="file-text" /></span>
@@ -251,19 +296,19 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
                                 <h3 class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</h3>
-                                <span :class="['rounded px-2 py-0.5 text-xs font-bold', invoiceStatusBadgeClass(invoice.status)]">{{ invoiceStatusLabels[invoice.status] }}</span>
+                                <span :class="['rounded border px-2 py-0.5 text-xs font-medium', invoiceStatusBadgeClass(invoice.status)]">{{ invoiceStatusLabels[invoice.status] }}</span>
                                 <span class="text-xs text-slate-400">Passage {{ invoice.episode.episode_number }} · {{ formatDateTime(invoice.created_at) }}</span>
                             </div>
                             <ul class="mt-2 space-y-1 text-xs text-slate-500">
-                                <li v-for="line in invoice.lines" :key="line.id" class="flex flex-wrap gap-x-2"><span>{{ line.description }}</span><span class="text-slate-400">{{ line.quantity }} × {{ formatMoney(line.unit_price) }} = {{ formatMoney(line.line_total) }}</span></li>
+                                <li v-for="line in invoice.lines" :key="line.id" class="flex flex-wrap gap-x-2"><span>{{ line.description }}</span><span class="text-slate-400">{{ line.source_module }} · {{ line.quantity }} × {{ formatMoney(line.unit_price) }} = {{ formatMoney(line.line_total) }}</span></li>
                             </ul>
                         </div>
 
                         <div class="flex shrink-0 flex-wrap items-center gap-4 lg:justify-end">
                             <dl class="grid grid-cols-3 gap-4 text-end text-xs">
                                 <div><dt class="text-slate-400">Total</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
-                                <div><dt class="text-slate-400">Payé</dt><dd class="mt-1 font-bold text-green-600">{{ formatMoney(invoice.paid_amount) }}</dd></div>
-                                <div><dt class="text-slate-400">Solde</dt><dd class="mt-1 font-bold text-yellow-700 dark:text-yellow-300">{{ formatMoney(invoice.balance_amount) }}</dd></div>
+                                <div><dt class="text-slate-400">Payé</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</dd></div>
+                                <div><dt class="text-slate-400">Solde</dt><dd class="mt-1 font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</dd></div>
                             </dl>
                             <Button v-if="invoice.status === 'DRAFT' && can('billing.validate')" size="sm" variant="white-outline" type="button" :disabled="validatingInvoice === invoice.uuid" @click="validateInvoice(invoice)"><Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span></Button>
                             <Button v-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && openCashSession" size="sm" variant="primary" type="button" @click="openPaymentDialog(invoice)"><Icon class="text-base" name="money" /><span class="ms-1.5">Encaisser</span></Button>
@@ -273,8 +318,16 @@ const invoiceStatusBadgeClass = (statusValue) => ({
 
                     <div v-if="invoice.payments.length" class="mt-4 overflow-hidden rounded border border-gray-200 dark:border-gray-900">
                         <div v-for="payment in invoice.payments" :key="payment.uuid" class="flex flex-col gap-2 border-b border-gray-200 px-3 py-2.5 last:border-0 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                            <div class="text-xs text-slate-500"><span class="font-bold text-green-600">{{ formatMoney(payment.amount) }}</span><span> · {{ payment.method }} · {{ formatDateTime(payment.paid_at) }}</span><span class="block text-slate-400 sm:ms-2 sm:inline">par {{ payment.cashier }}</span></div>
-                            <Link v-if="payment.receipt" :href="`/receipts/${payment.receipt.uuid}`" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:underline"><Icon name="file-text" /> {{ payment.receipt.receipt_number }}</Link>
+                            <div class="text-xs text-slate-500">
+                                <span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-200']">{{ formatMoney(payment.amount) }}</span>
+                                <span> · {{ payment.method }} · {{ formatDateTime(payment.paid_at) }}</span>
+                                <span class="block text-slate-400 sm:ms-2 sm:inline">par {{ payment.cashier }}</span>
+                                <span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 font-medium text-red-600 dark:border-red-900 dark:text-red-300" :title="payment.cancellation_reason">Annulé</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button v-if="payment.status === 'COMPLETED' && can('payments.cancel') && openCashSession?.uuid === payment.cash_session_uuid" type="button" class="text-xs font-medium text-red-600 hover:underline" @click="openCancellationDialog(payment)">Annuler</button>
+                                <Link v-if="payment.receipt" :href="`/receipts/${payment.receipt.uuid}`" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:underline"><Icon name="file-text" /> {{ payment.receipt.receipt_number }}</Link>
+                            </div>
                         </div>
                     </div>
                 </article>
@@ -300,7 +353,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </section>
 
                 <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><Icon class="text-red-500" name="alert-circle" />Allergies</h2>
+                    <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><Icon class="text-slate-400" name="alert-circle" />Allergies</h2>
                     <ul v-if="patient.allergies.length" class="space-y-2 text-sm"><li v-for="allergy in patient.allergies" :key="allergy.id" class="text-slate-600 dark:text-slate-300"><span class="font-medium text-slate-700 dark:text-white">{{ allergy.substance }}</span><span v-if="allergy.severity" class="ms-1 text-xs text-red-500">({{ severityLabels[allergy.severity] }})</span><p v-if="allergy.reaction" class="text-xs text-slate-400">{{ allergy.reaction }}</p></li></ul>
                     <p v-else class="text-sm text-slate-400">Aucune allergie connue.</p>
                 </section>
@@ -317,7 +370,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <div v-if="patient.episodes.length === 0" class="p-10 text-center text-sm text-slate-400">Aucun passage enregistré.</div>
                 <ul v-else class="divide-y divide-gray-200 dark:divide-gray-900">
                     <li v-for="episode in patient.episodes" :key="episode.uuid" class="flex flex-wrap items-center justify-between gap-3 p-5">
-                        <div><p class="text-sm font-medium text-slate-700 dark:text-white">{{ episode.episode_number }}<span :class="['ms-2 rounded px-2 py-0.5 text-xs font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span><span v-if="episode.priority === 'EMERGENCY'" class="ms-2 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-950 dark:text-red-300"><Icon name="alert-circle" /> Urgence</span></p><p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }} · {{ administrativeStatusLabels[episode.administrative_status] }}</p></div>
+                        <div><p class="text-sm font-medium text-slate-700 dark:text-white">{{ episode.episode_number }}<span :class="['ms-2 rounded border px-2 py-0.5 text-xs font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span><span v-if="episode.priority === 'EMERGENCY'" class="ms-2 inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></p><p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }} · {{ administrativeStatusLabels[episode.administrative_status] }}</p></div>
                         <Link v-if="episode.status === 'OPEN' && episode.administrative_status === 'PENDING_ORIENTATION' && can('episodes.update')" :href="`/episodes/${episode.uuid}/orient`" method="post" as="button"><Button size="sm" variant="white-outline">Orienter</Button></Link>
                     </li>
                 </ul>
@@ -327,7 +380,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
         <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closePaymentDialog">
             <section class="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="payment-dialog-title">
                 <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-300"><Icon class="text-xl" name="money" /></span><div><h2 id="payment-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Encaisser un paiement</h2><p class="mt-1 text-sm text-slate-400">{{ paymentTarget.invoice_number }} · solde {{ formatMoney(paymentTarget.balance_amount) }}</p></div></div>
+                    <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-xl" name="money" /></span><div><h2 id="payment-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Encaisser un paiement</h2><p class="mt-1 text-sm text-slate-400">{{ paymentTarget.invoice_number }} · solde {{ formatMoney(paymentTarget.balance_amount) }}</p></div></div>
                     <button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closePaymentDialog"><Icon class="text-xl" name="cross" /></button>
                 </div>
 
@@ -342,6 +395,32 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:justify-end">
                         <Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button>
                         <Button size="rg" variant="primary" type="submit" :disabled="paymentForm.processing"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : 'Confirmer et générer le reçu' }}</span></Button>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+        <div v-if="cancellationTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closeCancellationDialog">
+            <section class="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cancellation-dialog-title">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 id="cancellation-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Annuler le paiement</h2>
+                        <p class="mt-1 text-sm text-slate-400">{{ cancellationTarget.payment_number }} · {{ formatMoney(cancellationTarget.amount) }}</p>
+                    </div>
+                    <button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closeCancellationDialog"><Icon class="text-xl" name="cross" /></button>
+                </div>
+
+                <form class="mt-6" @submit.prevent="cancelPayment">
+                    <FormGroup class="!mb-0">
+                        <FormLabel class="mb-1.5" for="payment_cancellation_reason">Motif <span class="text-red-500">*</span></FormLabel>
+                        <textarea id="payment_cancellation_reason" v-model="cancellationForm.reason" rows="4" maxlength="1000" required class="block w-full rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" placeholder="Expliquez la correction à apporter…"></textarea>
+                        <FormError v-if="cancellationForm.errors.reason">{{ cancellationForm.errors.reason }}</FormError>
+                        <FormError v-if="cancellationForm.errors.payment">{{ cancellationForm.errors.payment }}</FormError>
+                    </FormGroup>
+                    <p class="mt-3 text-xs leading-5 text-slate-400">Le paiement, son reçu et la trace d’origine resteront visibles. Un mouvement inverse sera ajouté à la caisse ouverte.</p>
+                    <div class="mt-5 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:justify-end">
+                        <Button size="rg" variant="white-outline" type="button" :disabled="cancellationForm.processing" @click="closeCancellationDialog">Retour</Button>
+                        <Button size="rg" variant="danger-outline" type="submit" :disabled="cancellationForm.processing">{{ cancellationForm.processing ? 'Annulation…' : 'Confirmer l’annulation' }}</Button>
                     </div>
                 </form>
             </section>

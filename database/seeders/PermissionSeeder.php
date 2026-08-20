@@ -45,14 +45,16 @@ class PermissionSeeder extends Seeder
         'episodes.cancel' => 'Annuler un épisode',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
-        // annulations, remboursements, dettes et remises sont volontairement
-        // absents tant que leurs flux de validation distincts ne sont pas
-        // implémentés.
+        // L'annulation contrôlée d'un paiement reste dans la session de
+        // caisse ouverte qui l'a reçu. Remboursements, dettes et remises
+        // restent absents tant que leurs validations distinctes ne sont pas
+        // définies et implémentées.
         'billing.view' => 'Voir les factures et soldes',
         'billing.create' => 'Créer une facture',
         'billing.validate' => 'Valider une facture',
         'payments.view' => 'Voir les paiements',
         'payments.create' => 'Enregistrer un paiement',
+        'payments.cancel' => 'Annuler un paiement',
         'cash.view' => 'Voir la caisse',
         'cash.open' => 'Ouvrir la caisse',
         'cash.close' => 'Clôturer la caisse',

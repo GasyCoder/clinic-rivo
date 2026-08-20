@@ -45,6 +45,8 @@ class Auditor
             'user_id' => $actor?->getAuthIdentifier(),
             'action' => $action,
             'module' => $module,
+            'site_code' => config('rivo.site.code'),
+            'site_name' => config('rivo.site.name'),
             'entity_type' => $entity?->getMorphClass(),
             'entity_id' => $entity?->getKey(),
             'entity_uuid' => $entity?->uuid ?? null,

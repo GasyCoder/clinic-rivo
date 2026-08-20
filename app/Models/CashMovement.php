@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'cash_session_id', 'payment_id', 'payment_method_id', 'type', 'direction',
+    'cash_session_id', 'payment_id', 'reversal_payment_id', 'payment_method_id', 'type', 'direction',
     'amount', 'affects_cash_balance', 'description', 'recorded_by', 'occurred_at',
 ])]
 class CashMovement extends Model
@@ -33,5 +33,10 @@ class CashMovement extends Model
     public function payment(): BelongsTo
     {
         return $this->belongsTo(Payment::class);
+    }
+
+    public function reversedPayment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class, 'reversal_payment_id');
     }
 }

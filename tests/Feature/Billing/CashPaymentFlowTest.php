@@ -270,4 +270,130 @@ class CashPaymentFlowTest extends TestCase
         $this->expectException(LogicException::class);
         Invoice::query()->delete();
     }
+
+    public function test_payment_cancellation_reverses_the_open_cash_and_preserves_history(): void
+    {
+        config()->set('rivo.site.code', 'MAMPIKONY');
+        config()->set('rivo.site.name', 'Clinique Saint Georges — Mampikony');
+        $user = $this->userWithPermissions([
+            'patients.view', 'billing.view', 'billing.create', 'billing.validate',
+            'payments.view', 'payments.create', 'payments.cancel', 'cash.open',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $cashMethod = PaymentMethod::query()->where('code', 'CASH')->sole();
+        $invoice = $this->createInvoice($user, $patient, $episode);
+
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '10000.00'])->assertRedirect();
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cashMethod->id,
+            'amount' => '1500.50',
+        ])->assertRedirect();
+
+        $payment = Payment::query()->sole();
+        $receipt = $payment->receipt()->sole();
+
+        $this->actingAs($user)->post("/payments/{$payment->uuid}/cancel", [
+            'reason' => 'Montant saisi par erreur',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('payments', [
+            'id' => $payment->id,
+            'status' => 'CANCELLED',
+            'cancelled_by' => $user->id,
+            'cancellation_reason' => 'Montant saisi par erreur',
+        ]);
+        $this->assertDatabaseHas('receipts', ['id' => $receipt->id, 'payment_id' => $payment->id]);
+        $this->assertDatabaseHas('cash_movements', [
+            'reversal_payment_id' => $payment->id,
+            'type' => 'PAYMENT_CANCELLATION',
+            'direction' => 'OUT',
+            'amount' => '1500.50',
+        ]);
+        $this->assertSame('VALIDATED', $invoice->fresh()->status->value);
+        $this->assertSame('0.00', $invoice->fresh()->paid_amount);
+        $this->assertSame('4001.00', $invoice->fresh()->balance_amount);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'payment.cancel',
+            'module' => 'cash',
+            'entity_id' => $payment->id,
+            'site_code' => 'MAMPIKONY',
+            'reason' => 'Montant saisi par erreur',
+        ]);
+
+        $this->actingAs($user)->get("/patients/{$patient->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('account.invoices.0.payments.0.status', 'CANCELLED')
+                ->where('account.invoices.0.payments.0.receipt.uuid', $receipt->uuid));
+
+        $this->actingAs($user)->post("/payments/{$payment->uuid}/cancel", [
+            'reason' => 'Deuxième tentative',
+        ])->assertSessionHasErrors('payment');
+
+        $this->assertDatabaseCount('payments', 1);
+        $this->assertDatabaseCount('receipts', 1);
+        $this->assertDatabaseCount('cash_movements', 2);
+    }
+
+    public function test_payment_from_a_closed_cash_cannot_be_cancelled_by_the_simple_flow(): void
+    {
+        $user = $this->userWithPermissions([
+            'billing.create', 'billing.validate', 'payments.create', 'payments.cancel',
+            'cash.open', 'cash.close',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $method = PaymentMethod::query()->where('code', 'CASH')->sole();
+        $invoice = $this->createInvoice($user, $patient, $episode);
+
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $method->id,
+            'amount' => '1000',
+        ])->assertRedirect();
+        $this->actingAs($user)->post('/cash/close', ['actual_closing_amount' => '1000'])->assertRedirect();
+
+        $payment = Payment::query()->sole();
+        $this->actingAs($user)->post("/payments/{$payment->uuid}/cancel", [
+            'reason' => 'Erreur tardive',
+        ])->assertSessionHasErrors('payment');
+
+        $this->assertSame('COMPLETED', $payment->fresh()->status->value);
+        $this->assertDatabaseCount('cash_movements', 1);
+    }
+
+    public function test_completed_payment_cannot_be_deleted(): void
+    {
+        $user = $this->userWithPermissions([
+            'billing.create', 'billing.validate', 'payments.create', 'cash.open',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $method = PaymentMethod::query()->where('code', 'CASH')->sole();
+        $invoice = $this->createInvoice($user, $patient, $episode);
+
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $method->id,
+            'amount' => '1000',
+        ])->assertRedirect();
+
+        $payment = Payment::query()->sole();
+
+        try {
+            $payment->forceDelete();
+            $this->fail('A completed payment must not be force-deletable.');
+        } catch (LogicException) {
+            $this->assertDatabaseHas('payments', ['id' => $payment->id]);
+        }
+
+        $this->expectException(LogicException::class);
+        Payment::query()->forceDelete();
+    }
 }

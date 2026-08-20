@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Actions\Cash\CloseCashSessionAction;
 use App\Actions\Cash\OpenCashSessionAction;
-use App\Enums\PaymentStatus;
 use App\Http\Requests\CloseCashSessionRequest;
 use App\Http\Requests\OpenCashSessionRequest;
 use App\Models\CashSession;
@@ -45,7 +44,6 @@ class CashController extends Controller
 
         $recentPayments = $request->user()->can('payments.view')
             ? Payment::query()
-                ->where('status', PaymentStatus::Completed->value)
                 ->with([
                     'invoice:id,uuid,patient_id,invoice_number',
                     'invoice.patient:id,uuid,patient_number,first_name,last_name',

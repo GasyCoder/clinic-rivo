@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * ImmutableBuilder for why the builder-level guard is also necessary.
  */
 #[Fillable([
-    'user_id', 'action', 'module', 'entity_type', 'entity_id', 'entity_uuid',
+    'user_id', 'action', 'module', 'site_code', 'site_name', 'entity_type', 'entity_id', 'entity_uuid',
     'old_values', 'new_values', 'reason', 'ip_address', 'user_agent', 'request_uuid',
 ])]
 class AuditLog extends Model

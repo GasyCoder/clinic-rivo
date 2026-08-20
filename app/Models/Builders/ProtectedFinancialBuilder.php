@@ -15,4 +15,9 @@ class ProtectedFinancialBuilder extends Builder
     {
         throw new LogicException('Protected financial records cannot be deleted.');
     }
+
+    public function forceDelete(): mixed
+    {
+        throw new LogicException('Protected financial records cannot be force-deleted.');
+    }
 }

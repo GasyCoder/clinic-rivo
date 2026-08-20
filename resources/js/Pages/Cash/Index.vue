@@ -59,7 +59,7 @@ const closeCash = () => closeForm.post('/cash/close', { preserveScroll: true });
 
             <Button :as="Link" href="/patients" size="rg" variant="white-outline">
                 <Icon class="text-lg" name="arrow-left" />
-                <span class="ms-2">Patients & Caisse</span>
+                <span class="ms-2">Patients</span>
             </Button>
         </div>
 

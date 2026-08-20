@@ -127,12 +127,12 @@ watch(
 </script>
 
 <template>
-    <Head title="Patients & Caisse" />
+    <Head title="Patients" />
 
     <div class="w-full space-y-5">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-                <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Patients & Caisse</h1>
+                <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Patients</h1>
                 <p class="mt-1 text-sm text-slate-500">
                     {{ patients.total }} dossier{{ patients.total > 1 ? 's' : '' }} patient{{ patients.total > 1 ? 's' : '' }} enregistré{{ patients.total > 1 ? 's' : '' }}.
                 </p>

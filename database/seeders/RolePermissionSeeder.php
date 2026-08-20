@@ -25,6 +25,8 @@ class RolePermissionSeeder extends Seeder
             'permissions.view',
         ],
         'RECEPTION' => [
+            'reception.view',
+            'visitors.view', 'visitors.create', 'visitors.close',
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
             'patients.restore', 'patients.view_deleted',
             'patients.medical_history.view', 'patients.medical_history.manage',

@@ -37,15 +37,15 @@ class RegisterArrivalAction
      * @throws DuplicatePatientException for an unconfirmed new-patient match
      */
     public function execute(
-        ?int $existingPatientId,
+        ?string $existingPatientUuid,
         ?array $newPatientData,
         ?array $existingPatientData = null,
         bool $confirmDuplicate = false,
         EpisodePriority $priority = EpisodePriority::Normal,
     ): Episode {
-        return DB::transaction(function () use ($existingPatientId, $newPatientData, $existingPatientData, $confirmDuplicate, $priority) {
-            if ($existingPatientId) {
-                $patient = Patient::findOrFail($existingPatientId);
+        return DB::transaction(function () use ($existingPatientUuid, $newPatientData, $existingPatientData, $confirmDuplicate, $priority) {
+            if ($existingPatientUuid) {
+                $patient = Patient::query()->where('uuid', $existingPatientUuid)->firstOrFail();
 
                 if ($existingPatientData !== null) {
                     $patient = $this->updatePatient->execute($patient, $existingPatientData);

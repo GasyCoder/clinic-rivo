@@ -8,19 +8,44 @@ use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\VisitorVisit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * CDC §5.2.1 "Réception" — the single working screen for the front desk:
- * search-or-create a patient, then always create their passage. See
- * RegisterArrivalAction for why these aren't separate actions.
+ * Reception entry point. The operational desk now has two deliberately
+ * separate paths: clinical patient arrivals and non-clinical visitors.
  */
 class ReceptionController extends Controller
 {
-    public function create(Request $request): Response
+    public function index(Request $request): Response
+    {
+        $recentEpisodes = $request->user()->can('episodes.view')
+            ? Episode::query()
+                ->with('patient:id,uuid,patient_number,first_name,last_name')
+                ->latest('started_at')
+                ->limit(8)
+                ->get(['id', 'patient_id', 'episode_number', 'status', 'priority', 'administrative_status', 'started_at'])
+            : collect();
+
+        $presentVisitors = $request->user()->can('visitors.view')
+            ? VisitorVisit::query()
+                ->with('patient:id,uuid,patient_number,first_name,last_name')
+                ->whereNull('checked_out_at')
+                ->latest('checked_in_at')
+                ->limit(8)
+                ->get()
+            : collect();
+
+        return Inertia::render('Reception/Index', [
+            'recentEpisodes' => $recentEpisodes,
+            'presentVisitors' => $presentVisitors,
+        ]);
+    }
+
+    public function patients(Request $request): Response
     {
         $search = trim((string) $request->query('q', ''));
 
@@ -35,7 +60,6 @@ class ReceptionController extends Controller
                 ->limit(10)
                 ->get()
                 ->map(fn (Patient $patient) => [
-                    'id' => $patient->id,
                     'uuid' => $patient->uuid,
                     'patient_number' => $patient->patient_number,
                     'first_name' => $patient->first_name,
@@ -74,16 +98,16 @@ class ReceptionController extends Controller
         ]);
     }
 
-    public function store(StoreArrivalRequest $request, RegisterArrivalAction $action): RedirectResponse
+    public function storePatient(StoreArrivalRequest $request, RegisterArrivalAction $action): RedirectResponse
     {
         try {
             $episode = $action->execute(
-                existingPatientId: $request->input('patient_id'),
-                newPatientData: $request->filled('patient_id')
+                existingPatientUuid: $request->input('patient_uuid'),
+                newPatientData: $request->filled('patient_uuid')
                     ? null
                     : $request->safe()->except(['is_emergency']),
-                existingPatientData: $request->filled('patient_id') && $request->boolean('update_patient')
-                    ? $request->safe()->except(['patient_id', 'is_emergency', 'update_patient'])
+                existingPatientData: $request->filled('patient_uuid') && $request->boolean('update_patient')
+                    ? $request->safe()->except(['patient_uuid', 'is_emergency', 'update_patient'])
                     : null,
                 confirmDuplicate: $request->boolean('confirm_duplicate'),
                 priority: $request->boolean('is_emergency')
@@ -92,7 +116,7 @@ class ReceptionController extends Controller
             );
         } catch (DuplicatePatientException $e) {
             return back()->withInput()->with('duplicates', $e->matches->map(fn (Patient $p) => [
-                'id' => $p->id,
+                'uuid' => $p->uuid,
                 'patient_number' => $p->patient_number,
                 'first_name' => $p->first_name,
                 'last_name' => $p->last_name,

@@ -101,7 +101,7 @@ const goBack = () => {
 const query = ref(props.search ?? '');
 
 const submitSearch = () => {
-    router.get('/reception', { q: query.value }, { preserveState: true, preserveScroll: true, replace: true });
+    router.get('/reception/patients', { q: query.value }, { preserveState: true, preserveScroll: true, replace: true });
 };
 
 const pickExistingPatient = (patient) => {
@@ -166,7 +166,7 @@ const showRecentPassages = () => {
 
     if (query.value || props.search) {
         query.value = '';
-        router.get('/reception', {}, { preserveState: true, preserveScroll: true, replace: true });
+        router.get('/reception/patients', {}, { preserveState: true, preserveScroll: true, replace: true });
     }
 };
 
@@ -241,14 +241,14 @@ const confirmArrival = () => {
         form.transform((data) => canUpdatePatient.value
             ? {
                 ...data,
-                patient_id: selectedPatient.value.id,
+                patient_uuid: selectedPatient.value.uuid,
                 update_patient: true,
             }
             : {
-                patient_id: selectedPatient.value.id,
+                patient_uuid: selectedPatient.value.uuid,
                 is_emergency: data.is_emergency,
             }
-        ).post('/reception', {
+        ).post('/reception/patients', {
             preserveState: true,
             preserveScroll: true,
             onError: (errors) => {
@@ -265,12 +265,12 @@ const confirmArrival = () => {
         return;
     }
 
-    form.transform((data) => data).post('/reception', { preserveState: true, preserveScroll: true });
+    form.transform((data) => data).post('/reception/patients', { preserveState: true, preserveScroll: true });
 };
 
 const confirmDespiteDuplicate = () => {
     form.confirm_duplicate = true;
-    form.transform((data) => data).post('/reception', { preserveState: true, preserveScroll: true });
+    form.transform((data) => data).post('/reception/patients', { preserveState: true, preserveScroll: true });
 };
 
 const statusLabels = {
@@ -297,7 +297,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
 </script>
 
 <template>
-    <Head title="Réception" />
+    <Head title="Réception patient" />
 
     <div
         :class="[
@@ -312,14 +312,18 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                 </span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">
-                        Réception
+                        Réception patient
                     </h1>
                     <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
-                        Retrouvez un patient ou créez son dossier, puis enregistrez son nouveau passage.
+                        Retrouvez un patient ou créez son dossier, puis enregistrez son passage.
                     </p>
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-3">
+                <Button :as="Link" href="/reception" class="justify-center" size="rg" variant="white-outline">
+                    <Icon class="text-lg/4.5" name="arrow-left" />
+                    <span class="ms-2">Accueil réception</span>
+                </Button>
                 <span class="inline-flex w-fit items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-slate-500 dark:bg-gray-900 dark:text-slate-300">
                     <Icon class="text-base text-primary-500" name="activity" />
                     {{ recentEpisodes.length }} passage{{ recentEpisodes.length > 1 ? 's' : '' }} récent{{ recentEpisodes.length > 1 ? 's' : '' }}
@@ -489,7 +493,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                     {{ matches.length }} résultat{{ matches.length > 1 ? 's' : '' }} trouvé{{ matches.length > 1 ? 's' : '' }}
                                 </p>
                                 <ul class="divide-y divide-gray-200 overflow-hidden rounded-md border border-gray-200 dark:divide-gray-900 dark:border-gray-800">
-                                    <li v-for="match in matches" :key="match.id" class="flex flex-col gap-3 bg-white p-4 transition-colors hover:bg-gray-50 dark:bg-gray-950 dark:hover:bg-gray-1000 sm:flex-row sm:items-center sm:justify-between">
+                                    <li v-for="match in matches" :key="match.uuid" class="flex flex-col gap-3 bg-white p-4 transition-colors hover:bg-gray-50 dark:bg-gray-950 dark:hover:bg-gray-1000 sm:flex-row sm:items-center sm:justify-between">
                                         <div class="min-w-0">
                                         <p class="text-sm font-medium text-slate-700 dark:text-white">
                                             {{ formatPatientName(match) }}
@@ -1063,7 +1067,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                             Un ou plusieurs patients correspondent déjà à ce nom et cette date de naissance :
                                         </p>
                                         <ul class="mt-2 space-y-1 text-sm text-yellow-700 dark:text-yellow-300">
-                                            <li v-for="match in duplicates" :key="match.id">
+                                            <li v-for="match in duplicates" :key="match.uuid">
                                                 {{ match.patient_number }} — {{ formatPatientName(match) }} ({{ formatDate(match.birth_date) }})
                                             </li>
                                         </ul>

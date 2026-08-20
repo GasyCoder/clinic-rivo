@@ -34,6 +34,12 @@ class PermissionSeeder extends Seeder
         'permissions.view' => 'Voir les permissions',
         'permissions.assign' => 'Attribuer des permissions individuelles',
 
+        'reception.view' => 'Accéder à la réception',
+
+        'visitors.view' => 'Voir le registre des visiteurs',
+        'visitors.create' => 'Enregistrer l’entrée d’un visiteur',
+        'visitors.close' => 'Enregistrer la sortie d’un visiteur',
+
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',
         'patients.update' => 'Modifier un patient',

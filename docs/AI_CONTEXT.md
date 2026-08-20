@@ -391,6 +391,8 @@ episodes
 reception
 orientation
 appointments
+visitor entries and departures
+up to four private professional visitor attachments (JPEG, PNG, WebP or PDF)
 
 billable items
 invoices

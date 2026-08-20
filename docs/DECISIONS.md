@@ -534,3 +534,61 @@ démonstration. Le premier vrai Super Admin est provisionné par une commande
 sécurisée avec saisie masquée du mot de passe. Les anciens comptes démo sont
 désactivés seulement après la création vérifiée de leur remplaçant réel, afin de
 ne jamais verrouiller le site.
+
+---
+
+# ADR-023 — Séparation Réception Patient / Réception Visiteur
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+La Réception possède deux parcours opérationnels séparés :
+
+```text
+Réception Patient
+Réception Visiteur
+```
+
+Le parcours Patient conserve la recherche ou création du dossier patient et la
+création d’un épisode normal ou urgent.
+
+Le parcours Visiteur est strictement non clinique. Il ne crée jamais :
+
+```text
+patient
+épisode
+facture
+paiement
+```
+
+Les catégories initiales confirmées sont :
+
+```text
+PROFESSIONAL
+PATIENT_OR_FAMILY_VISIT
+```
+
+Le registre contient le nom complet, le téléphone, la catégorie, l’organisme
+pour un professionnel, un patient concerné facultatif pour une visite patient ou
+famille, le motif détaillé, l’heure d’entrée automatique et l’heure de sortie.
+Une visite professionnelle peut également joindre jusqu’à quatre documents
+facultatifs (brochure, carte ou autre support). Les fichiers sont stockés hors
+du répertoire public, leurs chemins internes ne sont jamais exposés au frontend
+et leur consultation exige `visitors.view`. Les formats initiaux sont JPEG,
+PNG, WebP et PDF, avec une limite technique de 5 Mo par fichier. L’interface
+n’affiche qu’un aperçu compact accompagné de `+N` lorsqu’il existe plusieurs
+documents ; la galerie complète s’ouvre uniquement à la demande.
+Les entrées, sorties et corrections sont auditées. Les URLs publiques utilisent
+le UUID de la visite ; l’identifiant SQL reste local.
+
+Permissions initiales :
+
+```text
+reception.view
+visitors.view
+visitors.create
+visitors.close
+```
+
+La saisie appartient à Réception. Les futurs rapports administratifs ou besoins
+de gardiennage pourront lire ces données avec des permissions dédiées, sans
+déplacer la responsabilité de l’accueil opérationnel.

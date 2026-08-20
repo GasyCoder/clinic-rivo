@@ -40,11 +40,19 @@ class ReceptionControllerTest extends TestCase
         ];
     }
 
-    public function test_create_requires_the_episodes_create_permission(): void
+    public function test_reception_index_requires_the_reception_view_permission(): void
     {
         $user = User::factory()->create(['role_id' => Role::query()->create(['code' => 'PHARMACY', 'name' => 'Pharmacie'])->id]);
 
         $this->actingAs($user)->get('/reception')->assertForbidden();
+    }
+
+    public function test_patient_reception_requires_the_episodes_create_permission(): void
+    {
+        $user = $this->userWithPermissions(['reception.view']);
+
+        $this->actingAs($user)->get('/reception')->assertOk();
+        $this->actingAs($user)->get('/reception/patients')->assertForbidden();
     }
 
     public function test_search_returns_matching_patients(): void
@@ -53,7 +61,7 @@ class ReceptionControllerTest extends TestCase
         Patient::create(['patient_number' => 'M-000001', ...$this->patientData(['last_name' => 'Rakoto'])]);
         Patient::create(['patient_number' => 'M-000002', ...$this->patientData(['first_name' => 'Marie', 'last_name' => 'Rasoa'])]);
 
-        $this->actingAs($user)->get('/reception?q=Rakoto')
+        $this->actingAs($user)->get('/reception/patients?q=Rakoto')
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
                 ->has('matches', 1)
@@ -73,7 +81,7 @@ class ReceptionControllerTest extends TestCase
             'started_at' => now()->subDays(7),
         ]);
 
-        $this->actingAs($user)->get('/reception')
+        $this->actingAs($user)->get('/reception/patients')
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
                 ->has('recentEpisodes', 1)
@@ -83,13 +91,13 @@ class ReceptionControllerTest extends TestCase
             );
     }
 
-    public function test_store_with_an_existing_patient_id_only_creates_an_episode(): void
+    public function test_store_with_an_existing_patient_uuid_only_creates_an_episode(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
         config(['rivo.site.code' => 'M']);
 
-        $response = $this->actingAs($user)->post('/reception', ['patient_id' => $patient->id]);
+        $response = $this->actingAs($user)->post('/reception/patients', ['patient_uuid' => $patient->uuid]);
 
         $response->assertRedirect("/patients/{$patient->uuid}");
         $this->assertSame(1, Patient::count());
@@ -104,8 +112,8 @@ class ReceptionControllerTest extends TestCase
         ])]);
         config(['rivo.site.code' => 'M']);
 
-        $response = $this->actingAs($user)->post('/reception', [
-            'patient_id' => $patient->id,
+        $response = $this->actingAs($user)->post('/reception/patients', [
+            'patient_uuid' => $patient->uuid,
             'update_patient' => true,
             'first_name' => 'Jeanne',
             'last_name' => 'Rakoto',
@@ -142,8 +150,8 @@ class ReceptionControllerTest extends TestCase
         $user = $this->userWithPermissions(['episodes.create']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
-        $this->actingAs($user)->post('/reception', [
-            'patient_id' => $patient->id,
+        $this->actingAs($user)->post('/reception/patients', [
+            'patient_uuid' => $patient->uuid,
             'update_patient' => true,
             ...$this->patientData(['last_name' => 'Changed']),
         ])->assertForbidden();
@@ -157,8 +165,8 @@ class ReceptionControllerTest extends TestCase
         $user = $this->userWithPermissions(['episodes.create', 'patients.update']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
-        $response = $this->actingAs($user)->post('/reception', [
-            'patient_id' => $patient->id,
+        $response = $this->actingAs($user)->post('/reception/patients', [
+            'patient_uuid' => $patient->uuid,
             'update_patient' => true,
             ...$this->patientData([
                 'last_name' => '',
@@ -177,7 +185,7 @@ class ReceptionControllerTest extends TestCase
         $user = $this->userWithPermissions(['episodes.create']);
         config(['rivo.site.code' => 'M']);
 
-        $response = $this->actingAs($user)->post('/reception', $this->patientData());
+        $response = $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
         $patient = Patient::first();
         $response->assertRedirect("/patients/{$patient->uuid}");
@@ -190,7 +198,7 @@ class ReceptionControllerTest extends TestCase
         $user = $this->userWithPermissions(['episodes.create']);
         config(['rivo.site.code' => 'M']);
 
-        $response = $this->actingAs($user)->post('/reception', [
+        $response = $this->actingAs($user)->post('/reception/patients', [
             ...$this->patientData(),
             'is_emergency' => true,
         ]);
@@ -207,8 +215,8 @@ class ReceptionControllerTest extends TestCase
         $user = $this->userWithPermissions(['episodes.create']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
-        $this->actingAs($user)->post('/reception', [
-            'patient_id' => $patient->id,
+        $this->actingAs($user)->post('/reception/patients', [
+            'patient_uuid' => $patient->uuid,
             'is_emergency' => true,
         ]);
 
@@ -221,7 +229,7 @@ class ReceptionControllerTest extends TestCase
     {
         $user = $this->userWithPermissions(['episodes.create']);
 
-        $response = $this->actingAs($user)->post('/reception', [
+        $response = $this->actingAs($user)->post('/reception/patients', [
             ...$this->patientData(),
             'is_emergency' => 'not-a-boolean',
         ]);
@@ -233,9 +241,9 @@ class ReceptionControllerTest extends TestCase
     public function test_store_flashes_duplicates_and_creates_nothing(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);
-        $this->actingAs($user)->post('/reception', $this->patientData());
+        $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
-        $response = $this->actingAs($user)->post('/reception', $this->patientData());
+        $response = $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
         $response->assertRedirect();
         $this->assertSame(1, Patient::count());
@@ -246,9 +254,9 @@ class ReceptionControllerTest extends TestCase
     public function test_store_creates_anyway_when_confirm_duplicate_is_sent(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);
-        $this->actingAs($user)->post('/reception', $this->patientData());
+        $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
-        $this->actingAs($user)->post('/reception', [...$this->patientData(), 'confirm_duplicate' => true]);
+        $this->actingAs($user)->post('/reception/patients', [...$this->patientData(), 'confirm_duplicate' => true]);
 
         $this->assertSame(2, Patient::count());
         $this->assertSame(2, Episode::count());
@@ -258,7 +266,7 @@ class ReceptionControllerTest extends TestCase
     {
         $user = $this->userWithPermissions(['episodes.create']);
 
-        $response = $this->actingAs($user)->post('/reception', []);
+        $response = $this->actingAs($user)->post('/reception/patients', []);
 
         $response->assertSessionHasErrors(['last_name', 'birth_date', 'sex']);
         $response->assertSessionDoesntHaveErrors('first_name');
@@ -268,7 +276,7 @@ class ReceptionControllerTest extends TestCase
     {
         $user = $this->userWithPermissions(['episodes.create']);
 
-        $this->actingAs($user)->post('/reception', $this->patientData([
+        $this->actingAs($user)->post('/reception/patients', $this->patientData([
             'identity_document_type' => 'CIN',
             'identity_document_number' => '101234567890',
         ]));
@@ -282,19 +290,19 @@ class ReceptionControllerTest extends TestCase
     {
         $user = $this->userWithPermissions(['episodes.create']);
 
-        $response = $this->actingAs($user)->post('/reception', $this->patientData([
+        $response = $this->actingAs($user)->post('/reception/patients', $this->patientData([
             'identity_document_type' => 'CIN',
         ]));
 
         $response->assertSessionHasErrors(['identity_document_number']);
     }
 
-    public function test_store_rejects_an_existing_patient_id_that_does_not_exist(): void
+    public function test_store_rejects_an_existing_patient_uuid_that_does_not_exist(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);
 
-        $response = $this->actingAs($user)->post('/reception', ['patient_id' => 999]);
+        $response = $this->actingAs($user)->post('/reception/patients', ['patient_uuid' => '8c6ac11e-ece1-44b3-b73b-f61a12268d7f']);
 
-        $response->assertSessionHasErrors(['patient_id']);
+        $response->assertSessionHasErrors(['patient_uuid']);
     }
 }

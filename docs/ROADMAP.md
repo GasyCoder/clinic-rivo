@@ -38,6 +38,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Détection des doublons
 - [ ] Episode de soins
 - [ ] Réception
+- [x] Réception visiteur (entrées, sorties, motifs, patient facultatif et pièces jointes privées)
 - [ ] Orientation
 - [ ] Rendez-vous
 - [ ] Prestations facturables
@@ -171,7 +172,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Planning
 - [ ] Logistique
 - [ ] Stock administratif
-- [ ] Visiteurs
+- [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
 - [ ] Gardiennage
 - [ ] Rapports RH
 

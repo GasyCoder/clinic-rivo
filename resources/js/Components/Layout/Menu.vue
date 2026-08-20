@@ -13,22 +13,22 @@ const rawMenu = [
     { heading: 'Principal' },
     { icon: 'growth', text: 'Tableau de bord', link: '/' },
     { heading: 'Gestion clinique' },
-    { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'episodes.create' },
+    { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'reception.view' },
     { icon: 'wallet', text: 'Caisse', link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view' },
     { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
-    { icon: 'user-list', text: 'Médecine' },
+    { icon: 'user-list', text: 'Médecine', permission: 'consultations.view' },
+    { icon: 'user-check', text: 'Soins', permission: 'care.view' },
     { icon: 'grid-alt', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
-    { icon: 'table-view', text: 'Laboratoire' },
-    { icon: 'cart', text: 'Pharmacie' },
     { heading: 'Gestion' },
     { icon: 'file-docs', text: 'Administration', link: '/administration/users', activeLinks: ['/administration'], permission: 'users.view' },
-    { icon: 'setting-alt', text: 'Super Administration' },
+    { icon: 'setting-alt', text: 'Super Administration', permission: 'users.assign_super_admin' },
 ];
 
 // A heading is only rendered when at least one item under it is visible —
-// items gated by a `permission` the user does not hold are dropped entirely
-// (not just disabled), items with no `permission` requirement are always
-// shown (visually present but inactive until their module/route exists).
+// Every operational item is gated by a dynamic permission. The only item
+// intentionally shared by all active accounts is the dashboard. Modules that
+// have no implemented permission catalog yet (Laboratoire, Pharmacie) are not
+// shown at all; they will be added when their routes and permissions exist.
 const menuData = computed(() => {
     const visible = [];
     let pendingHeading = null;

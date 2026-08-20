@@ -21,6 +21,7 @@ use App\Http\Controllers\SurgicalInterventionController;
 use App\Http\Controllers\SurgicalPreoperativeController;
 use App\Http\Controllers\SurgicalReportController;
 use App\Http\Controllers\SurgicalTeamMemberController;
+use App\Http\Controllers\VisitorReceptionController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('dashboard');
@@ -51,10 +52,15 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active'])->group(functio
     Route::post('/administration/users/{user}/deactivate', [AdministrationUserController::class, 'deactivate'])->name('administration.users.deactivate')->middleware('can:users.deactivate');
     Route::post('/administration/users/{user}/activate', [AdministrationUserController::class, 'activate'])->name('administration.users.activate')->middleware('can:users.activate');
 
-    // Réception & Caisse (CDC §5.2.1): the only place a patient/passage is
-    // created — see RegisterArrivalAction for why these aren't split.
-    Route::get('/reception', [ReceptionController::class, 'create'])->name('reception.create')->middleware('can:episodes.create');
-    Route::post('/reception', [ReceptionController::class, 'store'])->name('reception.store')->middleware('can:episodes.create');
+    // Réception: one operational entry point, with isolated patient and
+    // non-clinical visitor workflows. A visitor never creates an episode.
+    Route::get('/reception', [ReceptionController::class, 'index'])->name('reception.index')->middleware('can:reception.view');
+    Route::get('/reception/patients', [ReceptionController::class, 'patients'])->name('reception.patients.create')->middleware('can:episodes.create');
+    Route::post('/reception/patients', [ReceptionController::class, 'storePatient'])->name('reception.patients.store')->middleware('can:episodes.create');
+    Route::get('/reception/visitors', [VisitorReceptionController::class, 'index'])->name('reception.visitors.index')->middleware('can:visitors.view');
+    Route::post('/reception/visitors', [VisitorReceptionController::class, 'store'])->name('reception.visitors.store')->middleware('can:visitors.create');
+    Route::get('/reception/visitors/{visitorVisit}/attachments/{attachment}', [VisitorReceptionController::class, 'professionalAttachment'])->name('reception.visitors.attachments.show')->middleware('can:visitors.view');
+    Route::post('/reception/visitors/{visitorVisit}/close', [VisitorReceptionController::class, 'close'])->name('reception.visitors.close')->middleware('can:visitors.close');
 
     // Référentiel patients: administrative management, but no creation here.
     // Deletion is always audited Soft Delete through Patient::SoftDeletable.

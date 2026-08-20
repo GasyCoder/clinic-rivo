@@ -6,6 +6,7 @@ use App\Enums\IdentityDocumentType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 
 class StoreArrivalRequest extends FormRequest
@@ -15,7 +16,7 @@ class StoreArrivalRequest extends FormRequest
         // Opening a passage is enforced by the route middleware. Updating
         // the permanent record is a distinct capability and is required
         // only when the receptionist submits administrative corrections.
-        if ($this->filled('patient_id') && $this->boolean('update_patient')) {
+        if ($this->filled('patient_uuid') && $this->boolean('update_patient')) {
             return $this->user()?->can('patients.update') ?? false;
         }
 
@@ -23,16 +24,20 @@ class StoreArrivalRequest extends FormRequest
     }
 
     /**
-     * Either `patient_id` (an existing patient the receptionist found and
+     * Either `patient_uuid` (an existing patient the receptionist found and
      * picked) or the identity fields (a genuinely new patient) — never
      * both, never neither. first_name/civility/email are all optional —
      * only last_name, sex, and one of birth_date/age are required.
      */
     public function rules(): array
     {
-        if ($this->filled('patient_id')) {
+        if ($this->filled('patient_uuid')) {
             $rules = [
-                'patient_id' => ['required', 'integer', 'exists:patients,id'],
+                'patient_uuid' => [
+                    'required',
+                    'uuid',
+                    Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
+                ],
                 'is_emergency' => ['sometimes', 'boolean'],
                 'update_patient' => ['sometimes', 'boolean'],
             ];

@@ -70,6 +70,10 @@ class RolePermissionSeederTest extends TestCase
 
         $names = $this->permissionNamesFor('RECEPTION');
 
+        $this->assertContains('reception.view', $names);
+        $this->assertContains('visitors.view', $names);
+        $this->assertContains('visitors.create', $names);
+        $this->assertContains('visitors.close', $names);
         $this->assertContains('patients.view', $names);
         $this->assertContains('patients.medical_history.manage', $names);
         $this->assertContains('episodes.create', $names);

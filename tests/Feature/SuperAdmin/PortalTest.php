@@ -19,12 +19,12 @@ class PortalTest extends TestCase
     {
         parent::setUp();
 
-        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
         config([
             'rivo.site.type' => 'admin',
             'rivo.site.code' => 'ADMIN',
             'rivo.site.name' => 'Super Administration',
         ]);
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
     }
 
     private function user(string $roleCode): User

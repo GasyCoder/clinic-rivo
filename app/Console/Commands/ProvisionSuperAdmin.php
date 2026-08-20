@@ -14,12 +14,12 @@ class ProvisionSuperAdmin extends Command
 {
     /** @var string */
     protected $signature = 'rivo:provision-super-admin
-        {email : Adresse email professionnelle unique sur ce site}
+        {email : Adresse email professionnelle unique sur le portail central}
         {--name= : Nom complet du responsable}
         {--replace-demo-users : Désactiver les anciens comptes de démonstration après création}';
 
     /** @var string */
-    protected $description = 'Créer de façon sécurisée le premier vrai Super Administrateur du site';
+    protected $description = 'Créer de façon sécurisée un Super Administrateur du portail central';
 
     /** @var array<int, string> */
     private const DEMO_EMAILS = [
@@ -32,6 +32,12 @@ class ProvisionSuperAdmin extends Command
 
     public function handle(Auditor $auditor): int
     {
+        if (config('rivo.site.type') !== 'admin') {
+            $this->error('Cette commande est réservée au déploiement central RIVO_SITE_TYPE=admin.');
+
+            return self::FAILURE;
+        }
+
         if (! config('rivo.site.code') || ! config('rivo.site.name')) {
             $this->error('RIVO_SITE_CODE et RIVO_SITE_NAME doivent identifier ce site avant le provisionnement.');
 
@@ -106,7 +112,7 @@ class ProvisionSuperAdmin extends Command
             return $user;
         });
 
-        $this->info("Super Administrateur {$user->email} créé pour ".config('rivo.site.name').'.');
+        $this->info("Super Administrateur {$user->email} créé pour le portail central ".config('rivo.site.name').'.');
 
         if (! $this->option('replace-demo-users')) {
             $this->warn('Les éventuels comptes de démonstration n’ont pas été désactivés. Relancez avec --replace-demo-users après vérification du nouveau compte.');

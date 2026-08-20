@@ -77,7 +77,7 @@ class PermissionResolutionTest extends TestCase
         $this->assertFalse($fresh->hasPermissionTo('users.view'));
     }
 
-    public function test_super_admin_holds_every_known_permission(): void
+    public function test_super_admin_role_name_does_not_bypass_persisted_permissions(): void
     {
         $role = $this->role('SUPER_ADMIN');
         $this->permission('users.view');
@@ -85,17 +85,21 @@ class PermissionResolutionTest extends TestCase
 
         $user = User::factory()->create(['role_id' => $role->id]);
 
-        $this->assertTrue($user->hasPermissionTo('users.view'));
-        $this->assertTrue($user->hasPermissionTo('users.manage'));
+        $this->assertFalse($user->hasPermissionTo('users.view'));
+        $this->assertFalse($user->hasPermissionTo('users.manage'));
     }
 
-    public function test_a_permission_created_after_the_user_still_applies_without_code_changes(): void
+    public function test_a_new_permission_must_be_explicitly_granted_even_to_super_admin(): void
     {
         $role = $this->role('SUPER_ADMIN');
         $user = User::factory()->create(['role_id' => $role->id]);
 
-        $this->permission('laboratory.validate');
+        $permission = $this->permission('laboratory.validate');
 
+        $fresh = User::find($user->id);
+        $this->assertFalse($fresh->hasPermissionTo('laboratory.validate'));
+
+        $role->permissions()->attach($permission);
         $fresh = User::find($user->id);
 
         $this->assertTrue($fresh->hasPermissionTo('laboratory.validate'));
@@ -105,6 +109,7 @@ class PermissionResolutionTest extends TestCase
     {
         $role = $this->role('SUPER_ADMIN');
         $permission = $this->permission('settings.update');
+        $role->permissions()->attach($permission);
         $user = User::factory()->create(['role_id' => $role->id]);
         $user->permissions()->attach($permission->id, ['effect' => 'deny']);
 

@@ -814,3 +814,51 @@ Le rôle `GUARD` utilise le registre des entrées et sorties. Il peut enregistre
 une entrée, ajouter une observation, consulter les personnes présentes et
 enregistrer leur sortie. Ce registre ne crée ni patient, ni épisode clinique,
 ni facture, ni paiement.
+
+---
+
+# ADR-027 — Séparation stricte des identités centrales et opérationnelles
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+Un compte `SUPER_ADMIN` est une identité exclusivement centrale. Il peut se
+connecter uniquement au portail :
+
+```text
+admin.rivo.mg
+```
+
+Il ne peut jamais ouvrir une session directe sur Mampikony, Ambondromamy ou
+Boriziny, même si une permission individuelle lui a été ajoutée. Son accès
+global aux informations et commandes des sites passe uniquement par leurs API
+REST authentifiées, autorisées et auditées.
+
+Si la même personne doit exercer une fonction opérationnelle dans un site, un
+compte local distinct doit être créé dans la base de ce site avec le rôle métier
+cohérent :
+
+```text
+RECEPTION
+ADMINISTRATION
+LOGISTICS
+GUARD
+MEDICINE
+NURSE
+SURGERY
+PHARMACY
+LABORATORY
+```
+
+Le compte local possède ses propres identifiants, son propre rôle et uniquement
+les permissions de ce rôle, complétées si nécessaire par une exception
+individuelle explicite et auditée. Il ne reçoit jamais le rôle `SUPER_ADMIN`.
+
+Réciproquement, un compte opérationnel ne peut pas ouvrir une session sur
+`admin.rivo.mg`, même si la permission `super_admin.portal.view` lui est ajoutée
+par erreur. Le portail exige simultanément le rôle `SUPER_ADMIN` et cette
+permission. Les sessions déjà ouvertes qui deviennent incohérentes avec le type
+de déploiement sont révoquées à la requête suivante.
+
+Les bases des sites peuvent conserver la définition technique du rôle
+`SUPER_ADMIN` pour partager le même schéma, mais ce rôle n’y reçoit aucune
+permission par défaut, ne peut pas y être attribué et ne peut pas s’y connecter.

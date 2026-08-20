@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Services\Authorization\DeploymentAccountPolicy;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
@@ -70,12 +71,14 @@ class LoginRequest extends FormRequest
             ]);
         }
 
-        if (config('rivo.site.type') === 'admin' && $user->cannot('super_admin.portal.view')) {
+        $deploymentPolicy = app(DeploymentAccountPolicy::class);
+
+        if (! $deploymentPolicy->allows($user)) {
             Auth::logout();
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
-                'email' => 'Ce compte n’est pas autorisé sur le portail Super Administration.',
+                'email' => $deploymentPolicy->denialMessage(),
             ]);
         }
 

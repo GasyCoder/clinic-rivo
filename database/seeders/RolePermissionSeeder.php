@@ -108,10 +108,12 @@ class RolePermissionSeeder extends Seeder
 
     public function run(): void
     {
-        $allPermissionIds = Permission::query()->pluck('id');
+        $superAdminPermissionIds = config('rivo.site.type') === 'admin'
+            ? Permission::query()->pluck('id')
+            : collect();
 
         Role::query()->where('code', 'SUPER_ADMIN')->first()
-            ?->permissions()->sync($allPermissionIds);
+            ?->permissions()->sync($superAdminPermissionIds);
 
         foreach (self::GRANTS as $code => $matchers) {
             $ids = $this->matchingPermissionIds($matchers);

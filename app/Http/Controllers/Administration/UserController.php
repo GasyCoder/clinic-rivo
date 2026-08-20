@@ -30,6 +30,7 @@ class UserController extends Controller
 
         $users = User::query()
             ->with(['role:id,code,name', 'permissions:id,name'])
+            ->whereHas('role', fn ($role) => $role->where('code', '!=', 'SUPER_ADMIN'))
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($nested) use ($search) {
                     $nested->where('name', 'like', "%{$search}%")
@@ -66,7 +67,7 @@ class UserController extends Controller
 
         $roles = Role::query()
             ->with('permissions:id,name')
-            ->when(! $request->user()->can('users.assign_super_admin'), fn ($query) => $query->where('code', '!=', 'SUPER_ADMIN'))
+            ->where('code', '!=', 'SUPER_ADMIN')
             ->orderBy('name')
             ->get()
             ->map(fn (Role $role) => [

@@ -27,14 +27,23 @@ class RolePermissionSeederTest extends TestCase
             ->permissions()->pluck('name')->sort()->values()->all();
     }
 
-    public function test_super_admin_gets_every_permission(): void
+    public function test_super_admin_gets_every_permission_only_on_the_admin_deployment(): void
     {
+        config(['rivo.site.type' => 'admin']);
         $this->seedRbac();
 
         $this->assertSame(
             Permission::query()->pluck('name')->sort()->values()->all(),
             $this->permissionNamesFor('SUPER_ADMIN'),
         );
+    }
+
+    public function test_super_admin_gets_no_site_permission_on_a_clinic_deployment(): void
+    {
+        config(['rivo.site.type' => 'clinic']);
+        $this->seedRbac();
+
+        $this->assertSame([], $this->permissionNamesFor('SUPER_ADMIN'));
     }
 
     public function test_administration_gets_hr_permissions_only_without_logistics_guarding_or_access_management(): void
@@ -189,6 +198,7 @@ class RolePermissionSeederTest extends TestCase
 
     public function test_only_super_admin_receives_catalog_and_tariff_management_by_default(): void
     {
+        config(['rivo.site.type' => 'admin']);
         $this->seedRbac();
 
         foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {

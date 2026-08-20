@@ -171,6 +171,12 @@ modules, les rapports financiers, les espaces Administration, utilisateurs,
 rôles/permissions, paramètres et audit. Son accès exige
 `super_admin.portal.view`. Voir ADR-025.
 
+Un compte `SUPER_ADMIN` est exclusivement central et ne peut jamais se connecter
+directement à un site. Une personne qui exerce aussi une fonction opérationnelle
+doit posséder un compte local distinct avec le rôle métier correspondant. Un
+compte opérationnel ne peut réciproquement pas se connecter au portail central,
+même avec une permission ajoutée par erreur. Voir ADR-027.
+
 Les responsabilités administratives sont séparées : `ADMINISTRATION` couvre les
 RH, contrats, présences, congés, planning et rapports RH ; `LOGISTICS` couvre
 l’inventaire et le suivi des équipements ainsi que le stock administratif ;
@@ -203,6 +209,10 @@ un rôle valide. Les comptes ne sont jamais supprimés physiquement : ils sont
 désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
 Les seeders ne doivent créer aucun compte ou mot de passe de démonstration.
 Voir ADR-022.
+
+La compatibilité compte/déploiement est contrôlée à la connexion et sur chaque
+session : `SUPER_ADMIN` uniquement sur `admin`, tout rôle opérationnel uniquement
+sur `clinic`. Le rôle et la permission sont tous deux nécessaires au portail.
 
 ---
 

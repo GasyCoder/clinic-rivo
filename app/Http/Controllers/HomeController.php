@@ -56,7 +56,11 @@ class HomeController extends Controller
         }
 
         if ($deploymentType === 'admin') {
-            abort_unless($request->user()->can('super_admin.portal.view'), 403);
+            abort_unless(
+                $request->user()->hasRole('SUPER_ADMIN')
+                && $request->user()->can('super_admin.portal.view'),
+                403,
+            );
 
             return Inertia::render('SuperAdmin/Dashboard', [
                 'sites' => $directory->sites(),

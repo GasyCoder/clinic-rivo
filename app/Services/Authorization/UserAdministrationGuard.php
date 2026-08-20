@@ -10,6 +10,12 @@ class UserAdministrationGuard
 {
     public function assertCanManageTarget(User $actor, User $target): void
     {
+        if (config('rivo.site.type') !== 'admin' && $target->hasRole('SUPER_ADMIN')) {
+            throw ValidationException::withMessages([
+                'user' => 'Un compte Super Administration ne peut pas être géré depuis un site opérationnel.',
+            ]);
+        }
+
         if ($target->hasRole('SUPER_ADMIN') && ! $actor->can('users.assign_super_admin')) {
             throw ValidationException::withMessages([
                 'user' => 'Seul un Super Administrateur peut gérer un compte Super Administrateur.',
@@ -19,6 +25,12 @@ class UserAdministrationGuard
 
     public function assertCanAssignRole(User $actor, Role $role): void
     {
+        if (config('rivo.site.type') !== 'admin' && $role->code === 'SUPER_ADMIN') {
+            throw ValidationException::withMessages([
+                'role_id' => 'Le rôle Super Administrateur est réservé au portail central.',
+            ]);
+        }
+
         if ($role->code === 'SUPER_ADMIN' && ! $actor->can('users.assign_super_admin')) {
             throw ValidationException::withMessages([
                 'role_id' => 'Vous ne pouvez pas attribuer le rôle Super Administrateur.',

@@ -56,6 +56,21 @@ class UserAdministrationTest extends TestCase
         return $user->fresh();
     }
 
+    private function siteUserManager(bool $canAssignPermissionOverrides = true): User
+    {
+        $permissions = [
+            'users.view', 'users.create', 'users.update',
+            'users.activate', 'users.deactivate', 'roles.assign',
+            'permissions.view',
+        ];
+
+        if ($canAssignPermissionOverrides) {
+            $permissions[] = 'permissions.assign';
+        }
+
+        return $this->allow($this->userWithRole('ADMINISTRATION'), $permissions);
+    }
+
     public function test_administration_user_is_confined_to_its_hr_space(): void
     {
         $actor = $this->userWithRole('ADMINISTRATION');
@@ -69,18 +84,22 @@ class UserAdministrationTest extends TestCase
         $this->actingAs($actor)->get('/reception/visitors')->assertForbidden();
     }
 
-    public function test_super_admin_can_open_the_local_user_directory(): void
+    public function test_super_admin_is_rejected_and_an_authorized_operational_account_can_open_the_local_user_directory(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $superAdmin = $this->userWithRole('SUPER_ADMIN');
+
+        $this->actingAs($superAdmin)->get('/administration/users')
+            ->assertRedirect('/login');
+
+        $actor = $this->siteUserManager();
 
         $this->actingAs($actor)->get('/administration/users')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Administration/Users/Index')
                 ->has('users.data', 1)
-                ->where('users.data.0.email', $actor->email)
-                ->where('users.data.0.role.code', 'SUPER_ADMIN')
-                ->has('roles')
+                ->where('users.data', fn ($users) => collect($users)->contains('email', $actor->email))
+                ->where('roles', fn ($roles) => collect($roles)->doesntContain('code', 'SUPER_ADMIN'))
                 ->has('permissionCatalog'));
     }
 
@@ -91,9 +110,9 @@ class UserAdministrationTest extends TestCase
         $this->actingAs($actor)->get('/administration/users')->assertForbidden();
     }
 
-    public function test_super_admin_can_create_a_normal_role_account_and_the_operation_is_audited(): void
+    public function test_authorized_operational_account_can_create_a_normal_role_account_and_the_operation_is_audited(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $actor = $this->siteUserManager();
 
         $this->actingAs($actor)
             ->post('/administration/users', $this->validPayload())
@@ -131,7 +150,7 @@ class UserAdministrationTest extends TestCase
         $this->assertDatabaseMissing('users', ['email' => $payload['email']]);
     }
 
-    public function test_only_super_admin_can_assign_individual_permission_overrides(): void
+    public function test_permission_overrides_require_the_dedicated_permission(): void
     {
         $permission = Permission::query()->where('name', 'patients.view')->firstOrFail();
         $payload = [
@@ -149,10 +168,10 @@ class UserAdministrationTest extends TestCase
             ->post('/administration/users', $payload)
             ->assertSessionHasErrors('permission_overrides');
 
-        $superAdmin = $this->userWithRole('SUPER_ADMIN');
+        $siteManager = $this->siteUserManager();
         $payload['email'] = 'avec-exception@clinic.test';
 
-        $this->actingAs($superAdmin)
+        $this->actingAs($siteManager)
             ->post('/administration/users', $payload)
             ->assertSessionHasNoErrors();
 
@@ -163,7 +182,7 @@ class UserAdministrationTest extends TestCase
             'effect' => 'deny',
         ]);
         $this->assertDatabaseHas('audit_logs', [
-            'user_id' => $superAdmin->id,
+            'user_id' => $siteManager->id,
             'entity_id' => $created->id,
             'action' => 'user.permissions.assign',
         ]);
@@ -171,11 +190,11 @@ class UserAdministrationTest extends TestCase
 
     public function test_user_cannot_change_their_own_role_or_individual_permissions(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $actor = $this->siteUserManager();
         $payload = [
             'name' => $actor->name,
             'email' => $actor->email,
-            'role_id' => Role::query()->where('code', 'ADMINISTRATION')->value('id'),
+            'role_id' => Role::query()->where('code', 'RECEPTION')->value('id'),
             'password' => null,
             'password_confirmation' => null,
         ];
@@ -198,7 +217,7 @@ class UserAdministrationTest extends TestCase
 
     public function test_deactivation_revokes_access_sessions_and_keeps_an_audited_user_record(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $actor = $this->siteUserManager();
         $target = $this->userWithRole('RECEPTION');
         DB::table('sessions')->insert([
             'id' => 'target-session',
@@ -228,7 +247,7 @@ class UserAdministrationTest extends TestCase
 
     public function test_user_cannot_deactivate_their_own_account(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $actor = $this->siteUserManager();
 
         $this->actingAs($actor)
             ->post("/administration/users/{$actor->uuid}/deactivate", ['reason' => 'Erreur'])
@@ -237,7 +256,7 @@ class UserAdministrationTest extends TestCase
         $this->assertTrue($actor->fresh()->active);
     }
 
-    public function test_last_active_super_admin_cannot_be_deactivated_by_an_authorized_delegate(): void
+    public function test_site_account_manager_cannot_manage_a_central_super_admin_account(): void
     {
         $target = $this->userWithRole('SUPER_ADMIN');
         $delegate = $this->userWithRole('ADMINISTRATION');
@@ -252,7 +271,7 @@ class UserAdministrationTest extends TestCase
 
     public function test_deactivated_user_can_be_reactivated_without_losing_identity_or_role(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $actor = $this->siteUserManager();
         $target = $this->userWithRole('RECEPTION', [
             'active' => false,
             'deactivated_at' => now(),
@@ -276,7 +295,7 @@ class UserAdministrationTest extends TestCase
 
     public function test_admin_password_reset_revokes_existing_sessions_and_is_audited_without_logging_the_password(): void
     {
-        $actor = $this->userWithRole('SUPER_ADMIN');
+        $actor = $this->siteUserManager();
         $target = $this->userWithRole('RECEPTION');
         DB::table('sessions')->insert([
             'id' => 'password-reset-session',

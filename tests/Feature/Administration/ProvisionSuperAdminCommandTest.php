@@ -18,7 +18,28 @@ class ProvisionSuperAdminCommandTest extends TestCase
     {
         parent::setUp();
 
+        config([
+            'rivo.site.type' => 'admin',
+            'rivo.site.code' => 'ADMIN',
+            'rivo.site.name' => 'Super Administration',
+        ]);
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
+    }
+
+    public function test_command_is_rejected_on_an_operational_site(): void
+    {
+        config([
+            'rivo.site.type' => 'clinic',
+            'rivo.site.code' => 'M',
+            'rivo.site.name' => 'Mampikony',
+        ]);
+
+        $this->artisan('rivo:provision-super-admin', [
+            'email' => 'interdit@clinic.test',
+            '--name' => 'Compte interdit',
+        ])->assertFailed();
+
+        $this->assertDatabaseMissing('users', ['email' => 'interdit@clinic.test']);
     }
 
     public function test_secure_command_provisions_a_real_super_admin_without_hardcoded_password(): void

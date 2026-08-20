@@ -29,7 +29,7 @@ use App\Http\Controllers\SurgicalTeamMemberController;
 use App\Http\Controllers\VisitorReceptionController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', HomeController::class)->name('dashboard');
+Route::get('/', HomeController::class)->name('dashboard')->middleware('account.deployment');
 
 Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
@@ -41,13 +41,13 @@ Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
     Route::post('/reset-password', [NewPasswordController::class, 'store'])->name('password.update');
 });
 
-Route::middleware(['site.type:clinic,admin', 'auth', 'account.active'])->group(function () {
+Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.deployment'])->group(function () {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 });
 
 // Portail central : navigation et vues de supervision uniquement. Les données
 // métier seront lues/écrites via les API des sites, jamais via leurs bases.
-Route::middleware(['site.type:admin', 'auth', 'account.active', 'can:super_admin.portal.view'])
+Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deployment', 'can:super_admin.portal.view'])
     ->prefix('super-admin')
     ->name('super-admin.')
     ->group(function () {
@@ -58,7 +58,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'can:super_admin
 // Patients/Episodes are per-site clinical data (ADR-004: admin.rivo.mg never
 // reaches a site's own data directly, only via API) — clinic-only, unlike
 // auth which the gateway/admin deployments also use.
-Route::middleware(['site.type:clinic', 'auth', 'account.active'])->group(function () {
+Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deployment'])->group(function () {
     Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
     Route::get('/pharmacy', PharmacyController::class)->name('pharmacy.index')->middleware('can:pharmacy.view');

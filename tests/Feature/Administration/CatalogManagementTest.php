@@ -26,11 +26,21 @@ class CatalogManagementTest extends TestCase
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
     }
 
-    private function user(string $roleCode = 'SUPER_ADMIN'): User
+    private function user(string $roleCode): User
     {
         return User::factory()->create([
             'role_id' => Role::query()->where('code', $roleCode)->value('id'),
         ]);
+    }
+
+    private function catalogManager(): User
+    {
+        $role = Role::query()->where('code', 'ADMINISTRATION')->firstOrFail();
+        $role->permissions()->syncWithoutDetaching(
+            Permission::query()->where('name', 'like', 'catalog.%')->pluck('id'),
+        );
+
+        return User::factory()->create(['role_id' => $role->id]);
     }
 
     /** @return array<string, mixed> */
@@ -50,24 +60,27 @@ class CatalogManagementTest extends TestCase
         ], $overrides);
     }
 
-    public function test_only_super_admin_receives_catalog_permissions_by_default(): void
+    public function test_super_admin_cannot_open_the_site_catalog_and_access_requires_an_operational_account(): void
     {
-        $superAdmin = $this->user();
+        $superAdmin = $this->user('SUPER_ADMIN');
 
         $this->actingAs($superAdmin)->get('/administration/catalog')
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page->component('Administration/Catalog/Index'));
+            ->assertRedirect('/login');
 
         foreach (['ADMINISTRATION', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             $this->actingAs($this->user($roleCode))
                 ->get('/administration/catalog')
                 ->assertForbidden();
         }
+
+        $this->actingAs($this->catalogManager())->get('/administration/catalog')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Administration/Catalog/Index'));
     }
 
-    public function test_super_admin_creates_a_service_with_an_audited_initial_tariff(): void
+    public function test_authorized_operational_account_creates_a_service_with_an_audited_initial_tariff(): void
     {
-        $actor = $this->user();
+        $actor = $this->catalogManager();
 
         $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())
             ->assertRedirect()
@@ -100,7 +113,7 @@ class CatalogManagementTest extends TestCase
 
     public function test_catalog_type_rules_are_enforced_by_the_domain_action(): void
     {
-        $actor = $this->user();
+        $actor = $this->catalogManager();
 
         $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload([
             'billable' => false,
@@ -121,7 +134,7 @@ class CatalogManagementTest extends TestCase
 
     public function test_tariff_change_closes_the_old_version_and_never_overwrites_it(): void
     {
-        $actor = $this->user();
+        $actor = $this->catalogManager();
         $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
         $item = CatalogItem::query()->sole();
         $oldTariff = CatalogTariff::query()->sole();
@@ -144,7 +157,7 @@ class CatalogManagementTest extends TestCase
 
     public function test_tariff_and_item_can_be_suspended_archived_and_restored_with_reasons(): void
     {
-        $actor = $this->user();
+        $actor = $this->catalogManager();
         $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
         $item = CatalogItem::query()->sole();
 
@@ -181,8 +194,8 @@ class CatalogManagementTest extends TestCase
 
     public function test_item_view_permission_does_not_expose_tariff_data_without_tariff_view(): void
     {
-        $superAdmin = $this->user();
-        $this->actingAs($superAdmin)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
+        $catalogManager = $this->catalogManager();
+        $this->actingAs($catalogManager)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
 
         $role = Role::query()->create(['code' => 'CATALOG_VIEWER', 'name' => 'Lecteur catalogue']);
         $role->permissions()->attach(Permission::query()->where('name', 'catalog.items.view')->value('id'));
@@ -199,7 +212,7 @@ class CatalogManagementTest extends TestCase
 
     public function test_catalog_routes_use_uuid_not_local_numeric_ids(): void
     {
-        $actor = $this->user();
+        $actor = $this->catalogManager();
         $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
         $item = CatalogItem::query()->sole();
 

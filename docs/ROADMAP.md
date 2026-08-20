@@ -23,6 +23,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] RBAC dynamique
 - [x] Permissions et exceptions individuelles auditées
 - [x] Rôles autonomes Administration/RH, Logistique et Gardien
+- [x] Séparation stricte des comptes Super Admin et des comptes opérationnels
 - [ ] Soft Delete
 - [ ] Audit
 - [ ] UUID

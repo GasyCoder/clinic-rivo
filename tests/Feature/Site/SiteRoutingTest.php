@@ -95,6 +95,7 @@ class SiteRoutingTest extends TestCase
 
     public function test_clinic_user_and_super_admin_reach_their_distinct_dashboards(): void
     {
+        config(['rivo.site.type' => 'admin']);
         $this->seedRbac();
         $clinicUser = $this->user('RECEPTION');
         $superAdmin = $this->user('SUPER_ADMIN');
@@ -116,10 +117,14 @@ class SiteRoutingTest extends TestCase
 
     public function test_non_super_admin_permission_holder_cannot_enter_the_admin_portal_by_default(): void
     {
-        $this->seedRbac();
         config(['rivo.site.type' => 'admin']);
+        $this->seedRbac();
 
-        $this->actingAs($this->user('ADMINISTRATION'))->get('/')->assertForbidden();
+        $this->actingAs($this->user('ADMINISTRATION'))
+            ->get('/')
+            ->assertRedirect('/login');
+
+        $this->assertGuest();
     }
 
     public function test_gateway_never_shows_the_dashboard_even_when_a_session_is_authenticated(): void

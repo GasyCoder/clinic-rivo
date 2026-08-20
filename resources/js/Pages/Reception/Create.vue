@@ -299,7 +299,12 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
 <template>
     <Head title="Réception" />
 
-    <div class="mx-auto w-full max-w-screen-2xl space-y-6 lg:space-y-8">
+    <div
+        :class="[
+            'mx-auto w-full space-y-6 lg:space-y-8',
+            showArrivalFlow ? 'max-w-screen-xl' : 'max-w-screen-2xl',
+        ]"
+    >
         <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-start gap-3">
                 <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">

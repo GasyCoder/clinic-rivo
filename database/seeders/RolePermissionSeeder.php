@@ -20,9 +20,16 @@ class RolePermissionSeeder extends Seeder
      */
     private const GRANTS = [
         'ADMINISTRATION' => [
-            'users.view', 'users.create', 'users.update', 'users.activate',
-            'users.deactivate', 'users.manage', 'roles.view', 'roles.assign',
-            'permissions.view',
+            'employees.view', 'employees.create', 'employees.update',
+            'employees.delete', 'employees.restore',
+            'contracts.view', 'contracts.create', 'contracts.update', 'contracts.archive',
+            'attendance.view', 'attendance.create', 'attendance.update',
+            'leave.view', 'leave.create', 'leave.approve', 'leave.cancel',
+            'planning.view', 'planning.create', 'planning.update',
+            'logistics.view', 'logistics.manage',
+            'administrative_stock.view', 'administrative_stock.entry',
+            'administrative_stock.exit', 'administrative_stock.inventory',
+            'visitors.view', 'hr_reports.view', 'hr_reports.export',
         ],
         'RECEPTION' => [
             'reception.view',

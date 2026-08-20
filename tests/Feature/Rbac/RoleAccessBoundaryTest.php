@@ -33,23 +33,23 @@ class RoleAccessBoundaryTest extends TestCase
         $boundaries = [
             'RECEPTION' => [
                 'allowed' => ['/reception', '/cash', '/patients'],
-                'denied' => ['/surgery', '/administration/users'],
+                'denied' => ['/surgery', '/administration/users', '/administration/catalog'],
             ],
             'MEDICINE' => [
                 'allowed' => ['/patients'],
-                'denied' => ['/reception', '/cash', '/surgery', '/administration/users'],
+                'denied' => ['/reception', '/cash', '/surgery', '/administration/users', '/administration/catalog'],
             ],
             'NURSE' => [
                 'allowed' => ['/patients'],
-                'denied' => ['/reception', '/cash', '/surgery', '/administration/users'],
+                'denied' => ['/reception', '/cash', '/surgery', '/administration/users', '/administration/catalog'],
             ],
             'SURGERY' => [
                 'allowed' => ['/surgery'],
-                'denied' => ['/reception', '/cash', '/patients', '/administration/users'],
+                'denied' => ['/reception', '/cash', '/patients', '/administration/users', '/administration/catalog'],
             ],
             'ADMINISTRATION' => [
-                'allowed' => ['/administration/users'],
-                'denied' => ['/reception', '/cash', '/patients', '/surgery'],
+                'allowed' => ['/administration'],
+                'denied' => ['/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
             ],
         ];
 

@@ -22,7 +22,7 @@ class CreateInvoiceAction
     ) {}
 
     /**
-     * @param  array{episode_uuid: string, billable_item_uuids?: array<int, string>, lines?: array<int, array{description: string, quantity: int|string, unit_price: int|string}>}  $data
+     * @param  array{episode_uuid: string, billable_item_uuids?: array<int, string>, catalog_lines?: array<int, array{catalog_item_uuid: string, quantity: int|string}>}  $data
      */
     public function execute(Patient $patient, array $data, User $actor): Invoice
     {
@@ -40,19 +40,17 @@ class CreateInvoiceAction
 
             $items = $this->selectedItems($episode->id, $data['billable_item_uuids'] ?? []);
 
-            foreach ($data['lines'] ?? [] as $line) {
+            foreach ($data['catalog_lines'] ?? [] as $line) {
                 $items->push($this->recordBillableItem->execute($episode, [
-                    'source_module' => 'RECEPTION',
-                    'description' => $line['description'],
+                    'catalog_item_uuid' => $line['catalog_item_uuid'],
                     'quantity' => $line['quantity'],
-                    'unit_price' => $line['unit_price'],
                     'payment_required_before_fulfillment' => false,
                 ], $actor));
             }
 
             if ($items->isEmpty()) {
                 throw ValidationException::withMessages([
-                    'lines' => 'Ajoutez ou sélectionnez au moins une prestation facturable.',
+                    'catalog_lines' => 'Ajoutez ou sélectionnez au moins une prestation facturable.',
                 ]);
             }
 
@@ -60,7 +58,7 @@ class CreateInvoiceAction
 
             if ($subtotalMinor <= 0 || $subtotalMinor > 999_999_999_999_999) {
                 throw ValidationException::withMessages([
-                    'lines' => 'Le montant total de la facture est invalide ou dépasse la limite autorisée.',
+                    'catalog_lines' => 'Le montant total de la facture est invalide ou dépasse la limite autorisée.',
                 ]);
             }
 

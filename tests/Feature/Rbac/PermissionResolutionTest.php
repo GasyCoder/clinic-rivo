@@ -100,4 +100,17 @@ class PermissionResolutionTest extends TestCase
 
         $this->assertTrue($fresh->hasPermissionTo('laboratory.validate'));
     }
+
+    public function test_explicit_deny_remains_prioritary_for_super_admin(): void
+    {
+        $role = $this->role('SUPER_ADMIN');
+        $permission = $this->permission('settings.update');
+        $user = User::factory()->create(['role_id' => $role->id]);
+        $user->permissions()->attach($permission->id, ['effect' => 'deny']);
+
+        $fresh = User::find($user->id);
+
+        $this->assertFalse($fresh->hasPermissionTo('settings.update'));
+        $this->assertFalse($fresh->can('settings.update'));
+    }
 }

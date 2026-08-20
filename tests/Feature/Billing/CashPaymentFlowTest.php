@@ -2,8 +2,12 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Models\CashMovement;
 use App\Models\CashSession;
+use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
 use App\Models\Episode;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -65,15 +69,44 @@ class CashPaymentFlowTest extends TestCase
 
     private function createInvoice(User $user, Patient $patient, Episode $episode): Invoice
     {
+        $consultation = $this->catalogItem($user, 'Consultation', '1500.50');
+        $dressing = $this->catalogItem($user, 'Pansement', '1000.00');
+
         $this->actingAs($user)->post("/patients/{$patient->uuid}/invoices", [
             'episode_uuid' => $episode->uuid,
-            'lines' => [
-                ['description' => 'Consultation', 'quantity' => 2, 'unit_price' => '1500.50'],
-                ['description' => 'Pansement', 'quantity' => 1, 'unit_price' => '1000'],
+            'catalog_lines' => [
+                ['catalog_item_uuid' => $consultation->uuid, 'quantity' => 2],
+                ['catalog_item_uuid' => $dressing->uuid, 'quantity' => 1],
             ],
         ])->assertRedirect();
 
         return Invoice::query()->sole();
+    }
+
+    private function catalogItem(User $actor, string $name = 'Acte', string $amount = '1000.00'): CatalogItem
+    {
+        $item = CatalogItem::create([
+            'code' => 'BILL-'.str_pad((string) (CatalogItem::withTrashed()->count() + 1), 4, '0', STR_PAD_LEFT),
+            'name' => $name,
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Reception,
+            'unit' => 'acte',
+            'billable' => true,
+            'stockable' => false,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        CatalogTariff::create([
+            'catalog_item_id' => $item->id,
+            'amount' => $amount,
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif de test',
+            'created_by' => $actor->id,
+        ]);
+
+        return $item;
     }
 
     public function test_financial_data_and_routes_are_hidden_without_their_permissions(): void
@@ -86,12 +119,13 @@ class CashPaymentFlowTest extends TestCase
                 ->component('Patients/Show')
                 ->where('account', null)
                 ->has('paymentMethods', 0)
+                ->has('billingCatalog', 0)
                 ->where('openCashSession', null));
 
         $this->actingAs($viewer)->get('/cash')->assertForbidden();
         $this->actingAs($viewer)->post("/patients/{$patient->uuid}/invoices", [
             'episode_uuid' => $episode->uuid,
-            'lines' => [['description' => 'Acte', 'quantity' => 1, 'unit_price' => 1000]],
+            'catalog_lines' => [['catalog_item_uuid' => fake()->uuid(), 'quantity' => 1]],
         ])->assertForbidden();
         $this->actingAs($viewer)->post("/patients/{$patient->uuid}/payments", [])->assertForbidden();
     }
@@ -138,10 +172,11 @@ class CashPaymentFlowTest extends TestCase
         $user = $this->userWithPermissions(['billing.create']);
         [$patient] = $this->patientWithEpisode($user);
         [, $otherEpisode] = $this->patientWithEpisode($user, 'M-000002', 'ME-000002');
+        $catalogItem = $this->catalogItem($user);
 
         $this->actingAs($user)->post("/patients/{$patient->uuid}/invoices", [
             'episode_uuid' => $otherEpisode->uuid,
-            'lines' => [['description' => 'Acte', 'quantity' => 1, 'unit_price' => 1000]],
+            'catalog_lines' => [['catalog_item_uuid' => $catalogItem->uuid, 'quantity' => 1]],
         ])->assertSessionHasErrors('episode_uuid');
 
         $this->assertDatabaseCount('invoices', 0);

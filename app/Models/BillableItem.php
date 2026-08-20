@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 #[Fillable([
     'episode_id', 'source_module', 'source_type', 'source_id', 'source_uuid',
+    'catalog_item_id', 'catalog_tariff_id',
     'description', 'quantity', 'unit_price', 'total_amount', 'currency',
     'payment_required_before_fulfillment', 'status', 'created_by',
     'cancelled_by', 'cancelled_at', 'cancellation_reason',
@@ -42,6 +43,16 @@ class BillableItem extends Model
     public function source(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function catalogItem(): BelongsTo
+    {
+        return $this->belongsTo(CatalogItem::class);
+    }
+
+    public function catalogTariff(): BelongsTo
+    {
+        return $this->belongsTo(CatalogTariff::class);
     }
 
     public function creator(): BelongsTo

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -51,6 +52,11 @@ class HandleInertiaRequests extends Middleware
                 ] : null,
             ],
             'permissions' => $user ? $user->effectivePermissionNames()->values()->all() : [],
+            'adminNavigation' => fn () => $user
+                && config('rivo.site.type') === 'admin'
+                && $user->can('super_admin.portal.view')
+                    ? app(PortalDirectory::class)->navigation()
+                    : [],
             'site' => [
                 'brand' => config('rivo.brand'),
                 'code' => config('rivo.site.code'),

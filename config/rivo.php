@@ -72,9 +72,9 @@ return [
     | Clinic directory
     |--------------------------------------------------------------------------
     |
-    | Consulted only by the staff gateway (site.type = gateway, app.rivo.mg)
-    | to build its redirect links. A clinic or admin deployment never reads
-    | this list — it only knows its own identity above.
+    | Consulted by the staff gateway for login links and by the central
+    | Super Administration for its API directory. `api_url` is never a DB
+    | connection and may remain null until the secured site API is deployed.
     |
     */
 
@@ -83,16 +83,19 @@ return [
             'code' => 'M',
             'name' => 'Mampikony',
             'url' => env('RIVO_SITE_MAMPIKONY_URL', 'https://clinique-m.rivo.mg'),
+            'api_url' => env('RIVO_API_MAMPIKONY_URL'),
         ],
         [
             'code' => 'A',
             'name' => 'Ambondromamy',
             'url' => env('RIVO_SITE_AMBONDROMAMY_URL', 'https://clinique-a.rivo.mg'),
+            'api_url' => env('RIVO_API_AMBONDROMAMY_URL'),
         ],
         [
             'code' => 'B',
             'name' => 'Boriziny',
             'url' => env('RIVO_SITE_BORIZINY_URL', 'https://clinique-b.rivo.mg'),
+            'api_url' => env('RIVO_API_BORIZINY_URL'),
         ],
     ],
 

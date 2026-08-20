@@ -70,6 +70,15 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        if (config('rivo.site.type') === 'admin' && $user->cannot('super_admin.portal.view')) {
+            Auth::logout();
+            RateLimiter::hit($this->throttleKey());
+
+            throw ValidationException::withMessages([
+                'email' => 'Ce compte n’est pas autorisé sur le portail Super Administration.',
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

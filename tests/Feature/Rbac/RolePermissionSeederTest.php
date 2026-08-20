@@ -37,18 +37,23 @@ class RolePermissionSeederTest extends TestCase
         );
     }
 
-    public function test_administration_gets_account_management_without_individual_permission_or_super_admin_assignment(): void
+    public function test_administration_gets_hr_logistics_and_guarding_without_access_management(): void
     {
         $this->seedRbac();
 
         $names = $this->permissionNamesFor('ADMINISTRATION');
 
-        $this->assertContains('users.view', $names);
-        $this->assertContains('users.create', $names);
-        $this->assertContains('users.deactivate', $names);
-        $this->assertContains('roles.view', $names);
-        $this->assertContains('roles.assign', $names);
-        $this->assertContains('permissions.view', $names);
+        $this->assertContains('employees.view', $names);
+        $this->assertContains('contracts.create', $names);
+        $this->assertContains('attendance.update', $names);
+        $this->assertContains('leave.approve', $names);
+        $this->assertContains('planning.update', $names);
+        $this->assertContains('logistics.manage', $names);
+        $this->assertContains('administrative_stock.inventory', $names);
+        $this->assertContains('visitors.view', $names);
+        $this->assertContains('hr_reports.export', $names);
+        $this->assertNotContains('users.view', $names);
+        $this->assertNotContains('roles.view', $names);
         $this->assertNotContains('permissions.assign', $names);
         $this->assertNotContains('users.assign_super_admin', $names);
     }
@@ -62,6 +67,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('patients.view', $names);
         $this->assertNotContains('consultations.view', $names);
         $this->assertNotContains('patients.medical_history.manage', $names);
+        $this->assertNotContains('super_admin.portal.view', $names);
     }
 
     public function test_reception_gets_patient_and_episode_permissions_including_medical_history(): void
@@ -142,6 +148,23 @@ class RolePermissionSeederTest extends TestCase
                 );
             }
         }
+    }
+
+    public function test_only_super_admin_receives_catalog_and_tariff_management_by_default(): void
+    {
+        $this->seedRbac();
+
+        foreach (['ADMINISTRATION', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+            foreach ($this->permissionNamesFor($roleCode) as $permission) {
+                $this->assertFalse(
+                    str_starts_with($permission, 'catalog.'),
+                    "Le rôle {$roleCode} ne doit pas configurer le référentiel par défaut ({$permission}).",
+                );
+            }
+        }
+
+        $this->assertContains('catalog.items.view', $this->permissionNamesFor('SUPER_ADMIN'));
+        $this->assertContains('catalog.tariffs.archive', $this->permissionNamesFor('SUPER_ADMIN'));
     }
 
     public function test_surgery_gets_surgery_and_anesthesia_permissions_and_read_only_episode_access(): void

@@ -2,13 +2,29 @@
 
 namespace Tests\Feature\Site;
 
+use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class SiteRoutingTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function seedRbac(): void
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
+    }
+
+    private function user(string $roleCode): User
+    {
+        return User::factory()->create([
+            'role_id' => Role::query()->where('code', $roleCode)->value('id'),
+        ]);
+    }
 
     public function test_gateway_shows_the_site_selection_page_with_all_three_clinics(): void
     {
@@ -77,18 +93,33 @@ class SiteRoutingTest extends TestCase
         }
     }
 
-    public function test_authenticated_users_reach_the_dashboard_on_both_clinic_and_admin_deployments(): void
+    public function test_clinic_user_and_super_admin_reach_their_distinct_dashboards(): void
     {
-        $user = User::factory()->withRole()->create();
+        $this->seedRbac();
+        $clinicUser = $this->user('RECEPTION');
+        $superAdmin = $this->user('SUPER_ADMIN');
 
-        foreach (['clinic', 'admin'] as $type) {
-            config(['rivo.site.type' => $type]);
+        config(['rivo.site.type' => 'clinic']);
+        $this->actingAs($clinicUser)
+            ->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Home'));
 
-            $this->actingAs($user)
-                ->get('/')
-                ->assertOk()
-                ->assertInertia(fn ($page) => $page->component('Home'));
-        }
+        config(['rivo.site.type' => 'admin']);
+        $this->actingAs($superAdmin)
+            ->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Dashboard')
+                ->has('sites', 3));
+    }
+
+    public function test_non_super_admin_permission_holder_cannot_enter_the_admin_portal_by_default(): void
+    {
+        $this->seedRbac();
+        config(['rivo.site.type' => 'admin']);
+
+        $this->actingAs($this->user('ADMINISTRATION'))->get('/')->assertForbidden();
     }
 
     public function test_gateway_never_shows_the_dashboard_even_when_a_session_is_authenticated(): void

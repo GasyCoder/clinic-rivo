@@ -42,6 +42,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Orientation
 - [ ] Rendez-vous
 - [ ] Prestations facturables
+- [x] Référentiel des prestations et produits facturables
+- [x] Tarifs historisés propres à chaque site
+- [x] Résolution backend du tarif sans saisie libre par Réception
 - [ ] Factures
 - [ ] Facture lignes
 - [ ] Caisse unique
@@ -172,6 +175,9 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Planning
 - [ ] Logistique
 - [ ] Stock administratif
+- [ ] Catalogue des équipements
+- [ ] Affectations et localisations des équipements
+- [ ] Maintenance et mise hors service des équipements
 - [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
 - [ ] Gardiennage
 - [ ] Rapports RH
@@ -197,6 +203,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Réception transfert
 - [ ] Accusé réception
 - [ ] Transfert stock
+- [ ] Synchronisation référentiel et tarifs par UUID
+- [ ] Idempotence des commandes de catalogue multi-site
 - [ ] Autres échanges métier
 
 ---
@@ -212,8 +220,10 @@ admin.rivo.mg
 - [ ] Auth Super Admin
 - [ ] API Mampikony
 - [ ] API Ambondromamy
+- [ ] API Boriziny
 - [ ] Vue Mampikony
 - [ ] Vue Ambondromamy
+- [ ] Vue Boriziny
 - [ ] Vue consolidée
 - [ ] Patients
 - [ ] Activités
@@ -222,6 +232,9 @@ admin.rivo.mg
 - [ ] Laboratoire
 - [ ] Pharmacie
 - [ ] Stocks
+- [ ] Référentiels et tarifs propres à chaque site
+- [ ] Action « appliquer aux deux sites »
+- [ ] Résultat et reprise séparés en cas d’échec partiel
 - [ ] Chirurgie
 - [ ] Utilisateurs
 - [ ] Rôles
@@ -249,6 +262,7 @@ admin.rivo.mg
 - [ ] Logs
 - [ ] Production Mampikony
 - [ ] Production Ambondromamy
+- [ ] Production Boriziny
 - [ ] Production Admin
 - [ ] Recette client
 

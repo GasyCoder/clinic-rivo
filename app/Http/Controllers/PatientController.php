@@ -13,7 +13,7 @@ use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
 use App\Models\BillableItem;
 use App\Models\CashSession;
-use App\Models\Invoice;
+use App\Models\CatalogItem;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
 use App\Support\Money;
@@ -68,6 +68,7 @@ class PatientController extends Controller
         $account = null;
         $paymentMethods = [];
         $openCashSession = null;
+        $billingCatalog = [];
 
         if ($request->user()->can('billing.view')) {
             $canViewPayments = $request->user()->can('payments.view');
@@ -180,11 +181,33 @@ class PatientController extends Controller
                 ->first(['uuid', 'session_number', 'opened_at']);
         }
 
+        if ($request->user()->can('billing.create')) {
+            $billingCatalog = CatalogItem::query()
+                ->where('billable', true)
+                ->whereHas('currentTariff')
+                ->with('currentTariff:id,catalog_item_id,amount,currency')
+                ->orderBy('module')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (CatalogItem $item) => [
+                    'uuid' => $item->uuid,
+                    'code' => $item->code,
+                    'name' => $item->name,
+                    'module' => $item->module->value,
+                    'module_label' => $item->module->label(),
+                    'unit' => $item->unit,
+                    'tariff_amount' => $item->currentTariff->amount,
+                    'currency' => $item->currentTariff->currency,
+                ])
+                ->values();
+        }
+
         return Inertia::render('Patients/Show', [
             'patient' => $patient,
             'account' => $account,
             'paymentMethods' => $paymentMethods,
             'openCashSession' => $openCashSession,
+            'billingCatalog' => $billingCatalog,
         ]);
     }
 

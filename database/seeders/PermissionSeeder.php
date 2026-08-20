@@ -34,10 +34,65 @@ class PermissionSeeder extends Seeder
         'permissions.view' => 'Voir les permissions',
         'permissions.assign' => 'Attribuer des permissions individuelles',
 
+        // ADR-025 — portail central. Ces droits n'accordent aucun accès
+        // direct aux bases locales : chaque lecture/écriture distante reste
+        // soumise à l'API et aux permissions du site cible.
+        'super_admin.portal.view' => 'Accéder au portail Super Administration',
+        'sites.view' => 'Voir les sites et leurs modules',
+        'reports.financial.view' => 'Voir les rapports financiers par site',
+        'settings.view' => 'Voir les paramètres globaux',
+        'settings.update' => 'Modifier les paramètres globaux',
+        'audit.view' => 'Voir le journal d’audit',
+        'api.view' => 'Voir l’état des intégrations API',
+
+        // CDC officiel §17 + ADR-025. ADMINISTRATION est un rôle métier
+        // RH/logistique/gardiennage, distinct de la gestion des comptes.
+        'employees.view' => 'Voir les employés',
+        'employees.create' => 'Créer un employé',
+        'employees.update' => 'Modifier un employé',
+        'employees.delete' => 'Archiver un employé',
+        'employees.restore' => 'Restaurer un employé',
+        'contracts.view' => 'Voir les contrats',
+        'contracts.create' => 'Créer un contrat',
+        'contracts.update' => 'Modifier un contrat',
+        'contracts.archive' => 'Archiver un contrat',
+        'attendance.view' => 'Voir les présences',
+        'attendance.create' => 'Enregistrer une présence',
+        'attendance.update' => 'Modifier une présence',
+        'leave.view' => 'Voir les congés',
+        'leave.create' => 'Créer une demande de congé',
+        'leave.approve' => 'Approuver une demande de congé',
+        'leave.cancel' => 'Annuler une demande de congé',
+        'planning.view' => 'Voir les plannings',
+        'planning.create' => 'Créer un planning',
+        'planning.update' => 'Modifier un planning',
+        'logistics.view' => 'Voir la logistique',
+        'logistics.manage' => 'Gérer la logistique',
+        'administrative_stock.view' => 'Voir le stock administratif',
+        'administrative_stock.entry' => 'Enregistrer une entrée de stock administratif',
+        'administrative_stock.exit' => 'Enregistrer une sortie de stock administratif',
+        'administrative_stock.inventory' => 'Réaliser un inventaire administratif',
+        'hr_reports.view' => 'Voir les rapports RH',
+        'hr_reports.export' => 'Exporter les rapports RH',
+
+        // ADR-024 — référentiel partagé localement par chaque site. Ces
+        // permissions restent dynamiques, mais ne sont attribuées par
+        // défaut qu'au SUPER_ADMIN dans RolePermissionSeeder.
+        'catalog.items.view' => 'Voir le référentiel des produits et prestations',
+        'catalog.items.create' => 'Créer un élément du référentiel',
+        'catalog.items.update' => 'Modifier un élément du référentiel',
+        'catalog.items.delete' => 'Archiver un élément du référentiel',
+        'catalog.items.restore' => 'Restaurer un élément du référentiel',
+        'catalog.tariffs.view' => 'Voir les tarifs et leur historique',
+        'catalog.tariffs.create' => 'Créer un tarif',
+        'catalog.tariffs.update' => 'Modifier un tarif',
+        'catalog.tariffs.archive' => 'Suspendre un tarif',
+
         'reception.view' => 'Accéder à la réception',
 
         'visitors.view' => 'Voir le registre des visiteurs',
         'visitors.create' => 'Enregistrer l’entrée d’un visiteur',
+        'visitors.update' => 'Corriger une visite',
         'visitors.close' => 'Enregistrer la sortie d’un visiteur',
 
         'patients.view' => 'Voir les patients',

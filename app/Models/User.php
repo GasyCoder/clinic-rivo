@@ -89,9 +89,10 @@ class User extends Authenticatable
      * The full set of permission names this user currently holds, resolved as:
      * explicit user DENY > explicit user ALLOW > role permission > deny by default.
      *
-     * SUPER_ADMIN holds every known permission. This does not exempt critical
-     * business invariants (e.g. payments restricted to Reception) from being
-     * enforced explicitly in Actions/Services — see AppServiceProvider::boot().
+     * SUPER_ADMIN holds every known permission unless an explicit individual
+     * DENY is present. This does not exempt critical business invariants (e.g.
+     * payments restricted to Reception) from being enforced explicitly in
+     * Actions/Services — see AppServiceProvider::boot().
      *
      * Memoized per object instance via once(): correct for the normal request
      * lifecycle (one $request->user() instance, checked from several places),
@@ -101,16 +102,19 @@ class User extends Authenticatable
     public function effectivePermissionNames(): Collection
     {
         return once(function () {
+            $allowed = $this->permissions()->wherePivot('effect', 'allow')->pluck('permissions.name');
+            $denied = $this->permissions()->wherePivot('effect', 'deny')->pluck('permissions.name');
+
             if ($this->hasRole('SUPER_ADMIN')) {
-                return Permission::allNames();
+                // Le rôle reçoit automatiquement toutes les permissions
+                // connues, y compris celles ajoutées dynamiquement, mais un
+                // DENY individuel explicite reste prioritaire (ADR-007/025).
+                return Permission::allNames()->merge($allowed)->unique()->diff($denied)->values();
             }
 
             $rolePermissions = $this->role
                 ? $this->role->permissions()->pluck('permissions.name')
                 : collect();
-
-            $allowed = $this->permissions()->wherePivot('effect', 'allow')->pluck('permissions.name');
-            $denied = $this->permissions()->wherePivot('effect', 'deny')->pluck('permissions.name');
 
             return $rolePermissions->merge($allowed)->unique()->diff($denied)->values();
         });

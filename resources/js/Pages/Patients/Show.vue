@@ -21,6 +21,7 @@ const props = defineProps({
     account: Object,
     paymentMethods: Array,
     openCashSession: Object,
+    billingCatalog: Array,
 });
 
 const page = usePage();
@@ -39,7 +40,7 @@ const defaultEpisodeUuid = props.patient.episodes.find((episode) => episode.stat
 const invoiceForm = useForm({
     episode_uuid: defaultEpisodeUuid,
     billable_item_uuids: [],
-    lines: [],
+    catalog_lines: [],
 });
 
 const paymentForm = useForm({
@@ -58,22 +59,26 @@ const pendingItemsForEpisode = computed(() => (props.account?.billable_items ?? 
 const cancelledBillableItems = computed(() => (props.account?.billable_items ?? []).filter(
     (item) => item.status === 'CANCELLED',
 ));
+const catalogByUuid = computed(() => new Map(
+    (props.billingCatalog ?? []).map((item) => [item.uuid, item]),
+));
 
 const invoiceDraftTotal = computed(() => {
     const selectedItemsTotal = pendingItemsForEpisode.value
         .filter((item) => invoiceForm.billable_item_uuids.includes(item.uuid))
         .reduce((total, item) => total + Number(item.total_amount), 0);
-    const manualLinesTotal = invoiceForm.lines.reduce(
-        (total, line) => total + (Number(line.quantity) || 0) * (Number(line.unit_price) || 0),
+    const catalogLinesTotal = invoiceForm.catalog_lines.reduce(
+        (total, line) => total
+            + (Number(line.quantity) || 0) * Number(catalogByUuid.value.get(line.catalog_item_uuid)?.tariff_amount ?? 0),
         0,
     );
 
-    return selectedItemsTotal + manualLinesTotal;
+    return selectedItemsTotal + catalogLinesTotal;
 });
 
-const addInvoiceLine = () => invoiceForm.lines.push({ description: '', quantity: 1, unit_price: '' });
+const addInvoiceLine = () => invoiceForm.catalog_lines.push({ catalog_item_uuid: '', quantity: 1 });
 const removeInvoiceLine = (index) => {
-    invoiceForm.lines.splice(index, 1);
+    invoiceForm.catalog_lines.splice(index, 1);
 };
 
 const createInvoice = () => {
@@ -82,14 +87,14 @@ const createInvoice = () => {
         billable_item_uuids: data.billable_item_uuids.filter((uuid) => (
             pendingItemsForEpisode.value.some((item) => item.uuid === uuid)
         )),
-        lines: data.lines.filter((line) => line.description || line.unit_price),
+        catalog_lines: data.catalog_lines.filter((line) => line.catalog_item_uuid),
     }));
     invoiceForm.post(`/patients/${props.patient.uuid}/invoices`, {
         preserveScroll: true,
         onSuccess: () => {
             showInvoiceForm.value = false;
             invoiceForm.billable_item_uuids = [];
-            invoiceForm.lines = [];
+            invoiceForm.catalog_lines = [];
         },
     });
 };
@@ -229,7 +234,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
 
             <form v-if="showInvoiceForm" class="border-b border-gray-200 bg-gray-50/60 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="createInvoice">
                 <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Créer une facture</h3><p class="mt-0.5 text-xs text-slate-400">Sélectionnez les prestations transmises par les services. Une ligne manuelle reste possible à la Réception.</p></div>
+                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Créer une facture</h3><p class="mt-0.5 text-xs text-slate-400">Sélectionnez les prestations transmises par les services ou ajoutez une désignation du référentiel.</p></div>
                     <p class="text-sm font-bold text-primary-600">Total : {{ formatMoney(invoiceDraftTotal) }}</p>
                 </div>
 
@@ -261,16 +266,23 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <p v-else class="mb-4 rounded border border-dashed border-gray-300 px-4 py-3 text-xs text-slate-400 dark:border-gray-700">Aucune prestation métier en attente pour ce passage.</p>
 
                 <div class="space-y-2">
-                    <div v-for="(line, index) in invoiceForm.lines" :key="index" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_180px_36px]">
-                        <Input v-model="line.description" :aria-label="`Prestation ${index + 1}`" placeholder="Prestation ou acte" required />
+                    <div v-for="(line, index) in invoiceForm.catalog_lines" :key="index" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_170px_36px]">
+                        <select v-model="line.catalog_item_uuid" :aria-label="`Désignation ${index + 1}`" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
+                            <option value="" disabled>Choisir une prestation</option>
+                            <option v-for="catalogItem in billingCatalog" :key="catalogItem.uuid" :value="catalogItem.uuid">{{ catalogItem.code }} · {{ catalogItem.name }} — {{ formatMoney(catalogItem.tariff_amount) }}</option>
+                        </select>
                         <Input v-model="line.quantity" type="number" min="0.01" step="0.01" aria-label="Quantité" placeholder="Quantité" required />
-                        <Input v-model="line.unit_price" type="number" min="0.01" step="0.01" aria-label="Prix unitaire" placeholder="Prix unitaire (Ar)" required />
+                        <div class="flex h-9 items-center justify-end rounded border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">
+                            {{ formatMoney((Number(line.quantity) || 0) * Number(catalogByUuid.get(line.catalog_item_uuid)?.tariff_amount ?? 0)) }}
+                        </div>
                         <Button icon size="rg" variant="danger-outline" type="button" aria-label="Retirer cette ligne" @click="removeInvoiceLine(index)"><Icon class="text-base" name="trash" /></Button>
                     </div>
                 </div>
-                <FormError v-if="invoiceForm.errors.lines" class="mt-2">{{ invoiceForm.errors.lines }}</FormError>
+                <FormError v-if="invoiceForm.errors.catalog_lines" class="mt-2">{{ invoiceForm.errors.catalog_lines }}</FormError>
+                <FormError v-if="invoiceForm.errors['catalog_lines.0.catalog_item_uuid']" class="mt-2">{{ invoiceForm.errors['catalog_lines.0.catalog_item_uuid'] }}</FormError>
                 <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <button type="button" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700" @click="addInvoiceLine"><Icon name="plus" /> Ajouter une ligne manuelle</button>
+                    <button v-if="billingCatalog?.length" type="button" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700" @click="addInvoiceLine"><Icon name="plus" /> Ajouter depuis le référentiel</button>
+                    <span v-else class="text-xs text-slate-400">Aucune prestation avec tarif actif. Le Super Administrateur doit compléter le référentiel.</span>
                     <Button size="rg" variant="primary" type="submit" :disabled="invoiceForm.processing"><Icon class="text-lg" name="file-text" /><span class="ms-2">{{ invoiceForm.processing ? 'Création…' : 'Créer le brouillon' }}</span></Button>
                 </div>
             </form>

@@ -10,9 +10,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * surgery.consumables.create — records what was used, for traceability.
  * Never touches Pharmacy stock (ADR-013, module isolation) and carries no
- * price: no tariff catalog exists anywhere (CDC or codebase). Billing goes
- * through the manual hand-off to Réception's invoice form instead (see
- * SurgeryController's billingHref) — Réception sets the price.
+ * price: ADR-024's catalog and versioned tariffs are now available to
+ * Réception. Automatic mapping between a surgical consumable and its catalog
+ * item remains a later stock-module step; until then Reception selects the
+ * catalog item and Laravel resolves its tariff (see SurgeryController's
+ * billingHref).
  *
  * No dedicated CDC permission for deletion either — gated behind
  * surgery.consumables.create itself (the closest matching permission,

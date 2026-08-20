@@ -592,3 +592,192 @@ visitors.close
 La saisie appartient à Réception. Les futurs rapports administratifs ou besoins
 de gardiennage pourront lire ces données avec des permissions dédiées, sans
 déplacer la responsabilité de l’accueil opérationnel.
+
+---
+
+# ADR-024 — Référentiels, tarifs par site, stocks et équipements
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+Les notions suivantes sont trois domaines différents et ne doivent jamais être
+confondues dans une unique table de stock :
+
+```text
+prestations facturables : consultation, ECG, échographie, analyse, acte
+produits stockables      : médicament, consommable médical, fourniture
+équipements durables     : échographe, appareil ECG, lit, ordinateur
+```
+
+## Référentiel commun
+
+Un référentiel identifie les prestations et produits par UUID, code stable,
+libellé, type, module propriétaire, unité, caractère facturable ou stockable et
+état actif/archivé. Les détails propres aux médicaments et aux équipements
+restent dans des tables spécialisées ; le référentiel commun ne doit pas devenir
+une table générique contenant toutes les colonnes métier.
+
+Types initiaux :
+
+```text
+SERVICE
+MEDICINE
+CONSUMABLE
+EQUIPMENT
+```
+
+## Tarifs locaux et historisés
+
+Les tarifs sont propres à chaque site opérationnel. Un même élément, identifié
+par le même UUID distribué, peut donc avoir un tarif différent à Mampikony,
+Ambondromamy et Boriziny.
+
+Une modification de tarif ferme la version précédente et crée une nouvelle
+version avec date d’effet, auteur et motif. Elle ne modifie jamais les factures
+ni les prestations déjà enregistrées. `billable_items` et `invoice_lines`
+conservent la description, le tarif unitaire et le total utilisés au moment de
+la facturation, même si le référentiel évolue ensuite.
+
+La création, la modification, l’archivage et la restauration du référentiel et
+des tarifs nécessitent des permissions granulaires dédiées, attribuées par
+défaut uniquement au `SUPER_ADMIN` :
+
+```text
+catalog.items.view
+catalog.items.create
+catalog.items.update
+catalog.items.delete
+catalog.items.restore
+catalog.tariffs.view
+catalog.tariffs.create
+catalog.tariffs.update
+catalog.tariffs.archive
+```
+
+Le rôle seul n’est pas une autorisation : Laravel vérifie toujours la permission.
+Réception, Médecine, Laboratoire, Pharmacie, Chirurgie et Soins peuvent utiliser
+les éléments autorisés du référentiel, mais ne modifient pas les tarifs. La
+saisie libre d’un prix à la Réception est interdite : Laravel résout le tarif
+actif du site et en conserve un instantané sur la prestation facturable.
+
+Le CDC officiel liste `medicines.create`, `medicines.update`,
+`medicines.delete` et `medicines.restore` dans le catalogue Pharmacie. La
+présente exigence, plus récente, réserve désormais la gestion du référentiel au
+Super Admin. Ces permissions ne seront donc pas accordées par défaut au rôle
+`PHARMACY` : celui-ci reçoit `medicines.view` et les permissions opérationnelles
+de stock nécessaires. Une exception individuelle future restera possible par le
+RBAC dynamique, sans donner le droit de modifier un tarif.
+
+## Responsabilités opérationnelles
+
+Le paramétrage est réservé au Super Admin, mais les opérations physiques restent
+réparties conformément au CDC :
+
+```text
+SUPER_ADMIN    référentiels, tarifs, catégories, paramètres, vue globale
+PHARMACY       lots, péremptions, entrées/sorties, inventaires, délivrances
+ADMINISTRATION stock administratif, affectations et suivi des équipements
+RECEPTION      sélection des prestations, facturation et encaissement
+```
+
+Un équipement durable est suivi individuellement par numéro d’inventaire, numéro
+de série, localisation, état, affectations et maintenances. Un consommable est
+suivi en quantité par mouvements de stock.
+
+Un mouvement de stock validé, un tarif utilisé ou un équipement sorti du service
+ne sont pas physiquement supprimés. Utiliser selon le cas Soft Delete, archivage,
+correction, mouvement inverse ou mise hors service, avec motif et audit.
+
+## Super Administration et multi-site
+
+`admin.rivo.mg` ne lit ni n’écrit directement dans les bases locales. Le Super
+Admin choisit une cible :
+
+```text
+Mampikony
+Ambondromamy
+Boriziny
+Plusieurs sites sélectionnés
+```
+
+Une action multi-site envoie la même définition UUID séparément aux APIs
+sélectionnées, mais chaque site conserve son propre tarif local et son propre état de
+stock. Les commandes distribuées utilisent authentification, autorisation,
+request UUID, idempotency key, audit, queue, retry, backoff et timeout. Une panne
+d’un site ne doit ni annuler l’écriture réussie sur l’autre ni corrompre son état ;
+le portail affiche le résultat par site et permet la reprise contrôlée.
+
+---
+
+# ADR-025 — Trois sites et séparation du portail Super Administration
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+Cette décision étend et remplace, pour le nombre de sites, ADR-001, ADR-002,
+ADR-004 et les passages du CDC officiel qui ne décrivent encore que Mampikony
+et Ambondromamy. Le troisième site opérationnel confirmé est :
+
+```text
+Boriziny
+```
+
+L’architecture devient :
+
+```text
+Mampikony     -> application + DB_MAMPIKONY
+Ambondromamy  -> application + DB_AMBONDROMAMY
+Boriziny      -> application + DB_BORIZINY
+admin.rivo.mg -> portail central, aucune connexion SQL vers ces trois bases
+```
+
+La codebase reste commune. Chaque site possède son déploiement, sa base, ses
+utilisateurs locaux, sa caisse unique et ses données opérationnelles. Tout accès
+du portail central aux données d’un site passe exclusivement par l’API REST
+sécurisée de ce site, avec UUID, autorisation, audit et résilience.
+
+## Portail Super Administration
+
+Un compte du portail central doit posséder la permission :
+
+```text
+super_admin.portal.view
+```
+
+Elle est attribuée par défaut uniquement au rôle `SUPER_ADMIN`. Les permissions
+restent la source d’autorisation ; le nom du rôle ne contourne ni un `DENY`
+individuel explicite, ni les règles d’intégrité métier.
+
+Après connexion, le portail présente :
+
+```text
+tableau de bord consolidé
+Mampikony et ses modules
+Ambondromamy et ses modules
+Boriziny et ses modules
+rapports financiers par site
+Administration : RH, logistique, gardiennage
+gestion des utilisateurs
+gestion des rôles et permissions
+paramètres globaux, dont le nom de l’application
+audit et supervision API
+```
+
+La présence d’un menu central ne constitue pas une autorisation distante. Chaque
+API cible valide à nouveau la permission et les règles métier. Une API non encore
+configurée est affichée comme indisponible ; le portail ne remplace jamais cette
+absence par une lecture directe de base de données.
+
+## Rôle Administration
+
+`ADMINISTRATION` représente désormais les fonctions administratives internes :
+
+```text
+RH et employés
+contrats, présence, congés et planning
+logistique et stock administratif
+gardiennage et consultation des visiteurs autorisée
+rapports RH
+```
+
+La gestion des utilisateurs, rôles et permissions n’est plus accordée par
+défaut à `ADMINISTRATION`. Elle appartient au `SUPER_ADMIN`; une délégation
+exceptionnelle reste possible par permission individuelle auditée.

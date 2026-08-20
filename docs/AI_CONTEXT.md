@@ -4,11 +4,12 @@
 
 RIVO est l'application de gestion de la Clinique Saint Georges.
 
-Sites :
+Sites opérationnels :
 
 ```text
 Mampikony
 Ambondromamy
+Boriziny
 ```
 
 CDC officiel :
@@ -36,7 +37,7 @@ Laravel Queue / Jobs
 
 # Architecture générale
 
-Les deux établissements sont indépendants.
+Les trois établissements sont indépendants.
 
 ```text
 clinique-m.rivo.mg
@@ -58,11 +59,21 @@ Laravel
 DB_AMBONDROMAMY
 ```
 
+```text
+clinique-b.rivo.mg
+        │
+        ▼
+Laravel
+        │
+        ▼
+DB_BORIZINY
+```
+
 Une seule codebase.
 
-Deux déploiements.
+Trois déploiements.
 
-Deux bases indépendantes.
+Trois bases indépendantes.
 
 Aucun accès SQL direct entre les bases.
 
@@ -118,11 +129,51 @@ admin.rivo.mg
       ├── API Mampikony
       │       └── DB_MAMPIKONY
       │
-      └── API Ambondromamy
+      ├── API Ambondromamy
               └── DB_AMBONDROMAMY
+      └── API Boriziny
+              └── DB_BORIZINY
 ```
 
 Le Super Admin n'accède jamais directement aux bases de données locales.
+
+## Référentiels, tarifs et stocks
+
+Les prestations, produits stockables et équipements durables sont des domaines
+distincts :
+
+```text
+prestations : consultation, ECG, échographie, analyse, acte
+stocks       : médicaments, consommables médicaux, fournitures
+équipements  : actifs identifiés, affectés et maintenus individuellement
+```
+
+Le référentiel utilise des UUID distribués. Les tarifs sont historisés et propres
+à chaque site ; une modification ne change jamais une facturation antérieure.
+Le paramétrage du référentiel et des tarifs est attribué par défaut uniquement au
+`SUPER_ADMIN`, via permissions granulaires `catalog.items.*` et
+`catalog.tariffs.*`. Les modules opérationnels utilisent le catalogue sans
+modifier les tarifs.
+
+Pharmacie réalise les mouvements de médicaments et consommables autorisés.
+Administration réalise le stock administratif et le suivi des équipements.
+Réception sélectionne les prestations et demeure l’unique module d’encaissement.
+Elle ne saisit pas de prix libre : le backend résout le tarif actif et conserve
+le montant historique sur la prestation facturable et la facture.
+
+Depuis `admin.rivo.mg`, une action multi-site appelle séparément les APIs de
+Mampikony, Ambondromamy et Boriziny avec UUID, idempotence, audit et reprise sur
+échec partiel. Aucun accès SQL inter-site n’est autorisé. Voir ADR-024.
+
+Le portail Super Administration possède une navigation distincte des sites
+opérationnels. Il présente le tableau de bord consolidé, chaque site et ses
+modules, les rapports financiers, les espaces Administration, utilisateurs,
+rôles/permissions, paramètres et audit. Son accès exige
+`super_admin.portal.view`. Voir ADR-025.
+
+Le rôle `ADMINISTRATION` couvre les RH, contrats, présences, congés, planning,
+logistique, stock administratif, gardiennage/visiteurs autorisés et rapports RH.
+Il ne gère plus les utilisateurs, rôles ou permissions par défaut.
 
 ---
 

@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
+use App\Http\Controllers\AdministrationController;
 use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
@@ -13,6 +15,7 @@ use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\ReceptionController;
+use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SurgeryController;
 use App\Http\Controllers\SurgicalCareNoteController;
 use App\Http\Controllers\SurgicalComplicationController;
@@ -40,10 +43,22 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active'])->group(f
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 });
 
+// Portail central : navigation et vues de supervision uniquement. Les données
+// métier seront lues/écrites via les API des sites, jamais via leurs bases.
+Route::middleware(['site.type:admin', 'auth', 'account.active', 'can:super_admin.portal.view'])
+    ->prefix('super-admin')
+    ->name('super-admin.')
+    ->group(function () {
+        Route::get('/sites/{site}', [SuperAdminController::class, 'site'])->name('sites.show')->middleware('can:sites.view');
+        Route::get('/workspaces/{workspace}', [SuperAdminController::class, 'workspace'])->name('workspaces.show');
+    });
+
 // Patients/Episodes are per-site clinical data (ADR-004: admin.rivo.mg never
 // reaches a site's own data directly, only via API) — clinic-only, unlike
 // auth which the gateway/admin deployments also use.
 Route::middleware(['site.type:clinic', 'auth', 'account.active'])->group(function () {
+    Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
+
     // Administration locale des comptes de ce site. Les comptes sont
     // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.
     Route::get('/administration/users', [AdministrationUserController::class, 'index'])->name('administration.users.index')->middleware('can:users.view');
@@ -51,6 +66,19 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active'])->group(functio
     Route::put('/administration/users/{user}', [AdministrationUserController::class, 'update'])->name('administration.users.update')->middleware('can:users.update');
     Route::post('/administration/users/{user}/deactivate', [AdministrationUserController::class, 'deactivate'])->name('administration.users.deactivate')->middleware('can:users.deactivate');
     Route::post('/administration/users/{user}/activate', [AdministrationUserController::class, 'activate'])->name('administration.users.activate')->middleware('can:users.activate');
+
+    // ADR-024 — catalogue et tarifs propres au site. Le serveur central
+    // appliquera ultérieurement ces opérations aux sites via leurs API,
+    // jamais par accès direct aux bases locales.
+    Route::get('/administration/catalog', [AdministrationCatalogController::class, 'index'])->name('administration.catalog.index')->middleware('can:catalog.items.view');
+    Route::post('/administration/catalog', [AdministrationCatalogController::class, 'store'])->name('administration.catalog.store')->middleware('can:catalog.items.create');
+    Route::put('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'update'])->name('administration.catalog.update')->middleware('can:catalog.items.update');
+    // Le tarif exige create lorsqu'il n'existe pas encore, update sinon :
+    // le FormRequest puis l'Action vérifient précisément ce cas atomique.
+    Route::post('/administration/catalog/{catalogItem}/tariff', [AdministrationCatalogController::class, 'setTariff'])->name('administration.catalog.tariff.store');
+    Route::post('/administration/catalog/{catalogItem}/tariff/archive', [AdministrationCatalogController::class, 'archiveTariff'])->name('administration.catalog.tariff.archive')->middleware('can:catalog.tariffs.archive');
+    Route::delete('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'destroy'])->name('administration.catalog.destroy')->middleware('can:catalog.items.delete');
+    Route::post('/administration/catalog/{catalogItem}/restore', [AdministrationCatalogController::class, 'restore'])->name('administration.catalog.restore')->middleware('can:catalog.items.restore');
 
     // Réception: one operational entry point, with isolated patient and
     // non-clinical visitor workflows. A visitor never creates an episode.

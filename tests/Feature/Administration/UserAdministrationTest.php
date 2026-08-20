@@ -45,9 +45,31 @@ class UserAdministrationTest extends TestCase
         ];
     }
 
-    public function test_authorized_administration_user_can_open_the_local_user_directory(): void
+    private function allow(User $user, array $permissionNames): User
+    {
+        $permissionIds = Permission::query()->whereIn('name', $permissionNames)->pluck('id');
+
+        $user->permissions()->syncWithoutDetaching(
+            $permissionIds->mapWithKeys(fn (int $id) => [$id => ['effect' => 'allow']])->all(),
+        );
+
+        return $user->fresh();
+    }
+
+    public function test_administration_user_is_confined_to_its_hr_and_logistics_space(): void
     {
         $actor = $this->userWithRole('ADMINISTRATION');
+
+        $this->actingAs($actor)->get('/administration')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Administration/Index'));
+
+        $this->actingAs($actor)->get('/administration/users')->assertForbidden();
+    }
+
+    public function test_super_admin_can_open_the_local_user_directory(): void
+    {
+        $actor = $this->userWithRole('SUPER_ADMIN');
 
         $this->actingAs($actor)->get('/administration/users')
             ->assertOk()
@@ -55,11 +77,9 @@ class UserAdministrationTest extends TestCase
                 ->component('Administration/Users/Index')
                 ->has('users.data', 1)
                 ->where('users.data.0.email', $actor->email)
-                ->where('users.data.0.active', true)
-                ->where('users.data.0.role.code', 'ADMINISTRATION')
+                ->where('users.data.0.role.code', 'SUPER_ADMIN')
                 ->has('roles')
-                ->has('permissionCatalog')
-            );
+                ->has('permissionCatalog'));
     }
 
     public function test_unprivileged_role_cannot_open_user_administration(): void
@@ -69,9 +89,9 @@ class UserAdministrationTest extends TestCase
         $this->actingAs($actor)->get('/administration/users')->assertForbidden();
     }
 
-    public function test_administration_can_create_a_normal_role_account_and_the_operation_is_audited(): void
+    public function test_super_admin_can_create_a_normal_role_account_and_the_operation_is_audited(): void
     {
-        $actor = $this->userWithRole('ADMINISTRATION');
+        $actor = $this->userWithRole('SUPER_ADMIN');
 
         $this->actingAs($actor)
             ->post('/administration/users', $this->validPayload())
@@ -96,7 +116,9 @@ class UserAdministrationTest extends TestCase
 
     public function test_administration_cannot_assign_the_super_admin_role(): void
     {
-        $actor = $this->userWithRole('ADMINISTRATION');
+        $actor = $this->allow($this->userWithRole('ADMINISTRATION'), [
+            'users.create', 'roles.assign',
+        ]);
         $payload = $this->validPayload();
         $payload['role_id'] = Role::query()->where('code', 'SUPER_ADMIN')->value('id');
 
@@ -118,7 +140,9 @@ class UserAdministrationTest extends TestCase
             ]],
         ];
 
-        $administration = $this->userWithRole('ADMINISTRATION');
+        $administration = $this->allow($this->userWithRole('ADMINISTRATION'), [
+            'users.create', 'roles.assign',
+        ]);
         $this->actingAs($administration)
             ->post('/administration/users', $payload)
             ->assertSessionHasErrors('permission_overrides');
@@ -215,8 +239,7 @@ class UserAdministrationTest extends TestCase
     {
         $target = $this->userWithRole('SUPER_ADMIN');
         $delegate = $this->userWithRole('ADMINISTRATION');
-        $permission = Permission::query()->where('name', 'users.assign_super_admin')->firstOrFail();
-        $delegate->permissions()->attach($permission, ['effect' => 'allow']);
+        $delegate = $this->allow($delegate, ['users.deactivate', 'users.assign_super_admin']);
 
         $this->actingAs($delegate->fresh())
             ->post("/administration/users/{$target->uuid}/deactivate", ['reason' => 'Test de garde'])

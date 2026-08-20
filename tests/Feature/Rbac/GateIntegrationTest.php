@@ -31,7 +31,7 @@ class GateIntegrationTest extends TestCase
         $this->actingAs($forbidden)->get('/_test/user-view')->assertForbidden();
     }
 
-    public function test_super_admin_passes_the_can_middleware_for_any_permission(): void
+    public function test_super_admin_is_denied_an_undefined_permission(): void
     {
         Route::middleware(['web', 'auth'])
             ->get('/_test/anything', fn () => 'ok')
@@ -40,7 +40,7 @@ class GateIntegrationTest extends TestCase
         $role = Role::query()->create(['code' => 'SUPER_ADMIN', 'name' => 'Super Administrateur']);
         $user = User::factory()->create(['role_id' => $role->id]);
 
-        $this->actingAs($user)->get('/_test/anything')->assertOk();
+        $this->actingAs($user)->get('/_test/anything')->assertForbidden();
     }
 
     public function test_an_undefined_ability_is_denied_by_default_instead_of_erroring(): void

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,11 +20,15 @@ use Inertia\Response;
  */
 class HomeController extends Controller
 {
-    public function __invoke(Request $request): Response|RedirectResponse
+    public function __invoke(Request $request, PortalDirectory $directory): Response|RedirectResponse
     {
         if (config('rivo.site.type') === 'gateway') {
             return Inertia::render('SiteSelect', [
-                'clinics' => config('rivo.clinics'),
+                'clinics' => collect(config('rivo.clinics'))->map(fn (array $clinic) => [
+                    'code' => $clinic['code'],
+                    'name' => $clinic['name'],
+                    'url' => $clinic['url'],
+                ]),
                 'adminUrl' => config('rivo.admin_url'),
             ]);
         }
@@ -39,6 +44,15 @@ class HomeController extends Controller
 
             return redirect()->route('login')->withErrors([
                 'email' => "Ce compte n'est pas actif ou ne possède aucun rôle valide.",
+            ]);
+        }
+
+        if (config('rivo.site.type') === 'admin') {
+            abort_unless($request->user()->can('super_admin.portal.view'), 403);
+
+            return Inertia::render('SuperAdmin/Dashboard', [
+                'sites' => $directory->sites(),
+                'modules' => $directory->modules(),
             ]);
         }
 

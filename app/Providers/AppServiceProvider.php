@@ -44,6 +44,12 @@ class AppServiceProvider extends ServiceProvider
         // invariants (e.g. "only Reception/Cash collects payments") which
         // belong in the relevant Actions/Services regardless of role.
         Gate::before(function (User $user, string $ability) {
+            // role_id is protected by a foreign key; a non-null value is a
+            // valid local role, without an extra query on every Gate check.
+            if (! $user->isActive() || ! $user->role_id) {
+                return false;
+            }
+
             if ($user->hasRole('SUPER_ADMIN')) {
                 return true;
             }

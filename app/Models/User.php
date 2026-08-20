@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Builders\ProtectedUserBuilder;
 use App\Models\Concerns\HasUuid;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,8 +14,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection;
+use LogicException;
 
-#[Fillable(['name', 'email', 'password', 'role_id'])]
+#[Fillable([
+    'name',
+    'email',
+    'password',
+    'role_id',
+    'email_verified_at',
+])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -31,12 +39,32 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'active' => 'boolean',
+            'last_login_at' => 'datetime',
+            'deactivated_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function () {
+            throw new LogicException('User accounts cannot be deleted. Deactivate the account instead.');
+        });
+    }
+
+    public function newEloquentBuilder($query): ProtectedUserBuilder
+    {
+        return new ProtectedUserBuilder($query);
     }
 
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
+    }
+
+    public function deactivator(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'deactivated_by');
     }
 
     /**
@@ -50,6 +78,11 @@ class User extends Authenticatable
     public function hasRole(string $code): bool
     {
         return $this->role?->code === $code;
+    }
+
+    public function isActive(): bool
+    {
+        return $this->active && $this->deactivated_at === null;
     }
 
     /**

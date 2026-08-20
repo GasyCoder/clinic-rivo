@@ -7,6 +7,12 @@ use Illuminate\Database\Seeder;
 
 class PermissionSeeder extends Seeder
 {
+    /** @var array<int, string> */
+    private const OBSOLETE_PERMISSIONS = [
+        // Users are historical actors and are now deactivated, never deleted.
+        'users.delete',
+    ];
+
     /**
      * Clinical modules not yet implemented (laboratory, pharmacy, etc.)
      * still have no permission invented here — each seeds its own
@@ -18,8 +24,15 @@ class PermissionSeeder extends Seeder
         'users.view' => 'Voir les utilisateurs',
         'users.create' => 'Créer un utilisateur',
         'users.update' => 'Modifier un utilisateur',
-        'users.delete' => 'Supprimer un utilisateur',
+        'users.activate' => 'Réactiver un utilisateur',
+        'users.deactivate' => 'Désactiver un utilisateur',
+        'users.assign_super_admin' => 'Attribuer ou gérer le rôle Super Administrateur',
         'users.manage' => 'Gérer les comptes, rôles et permissions',
+
+        'roles.view' => 'Voir les rôles',
+        'roles.assign' => 'Attribuer un rôle',
+        'permissions.view' => 'Voir les permissions',
+        'permissions.assign' => 'Attribuer des permissions individuelles',
 
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',
@@ -138,6 +151,8 @@ class PermissionSeeder extends Seeder
 
     public function run(): void
     {
+        Permission::query()->whereIn('name', self::OBSOLETE_PERMISSIONS)->delete();
+
         foreach (self::PERMISSIONS as $name => $label) {
             Permission::query()->updateOrCreate(['name' => $name], ['label' => $label]);
         }

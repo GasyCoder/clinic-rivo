@@ -491,3 +491,46 @@ Un passage `EMERGENCY` :
 
 Cette décision complète le CDC officiel, qui définit le passage et ses statuts
 mais ne précise pas encore le parcours d’admission en urgence.
+
+---
+
+# ADR-022 — Comptes utilisateurs locaux et cycle d’accès
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+Chaque site opérationnel gère ses propres utilisateurs dans sa propre base.
+Un compte local ne devient pas automatiquement utilisable sur un autre site.
+Le futur portail Super Administration continue de communiquer avec les sites
+uniquement par API, conformément à ADR-004.
+
+Tout compte autorisé à se connecter doit être :
+
+```text
+nominatif
+actif
+rattaché à exactement un rôle valide
+protégé par un mot de passe conforme à la politique commune
+```
+
+Le rôle fournit les permissions métier par défaut. Les permissions individuelles
+`allow` / `deny` sont des exceptions explicites ; `deny` reste prioritaire. Leur
+attribution est réservée à `permissions.assign` et auditée. L’attribution ou la
+gestion du rôle `SUPER_ADMIN` exige `users.assign_super_admin`.
+
+Un utilisateur est un acteur historique des données cliniques, financières et
+d’audit. Par conséquent :
+
+```text
+aucune suppression physique d’un utilisateur
+désactivation avec date, auteur et motif obligatoires
+révocation des sessions lors de la désactivation
+interdiction de s’auto-désactiver
+interdiction de modifier son propre rôle ou ses propres exceptions
+interdiction de désactiver ou rétrograder le dernier Super Admin actif
+```
+
+Les seeders standards ne créent aucun compte de connexion ni mot de passe de
+démonstration. Le premier vrai Super Admin est provisionné par une commande
+sécurisée avec saisie masquée du mot de passe. Les anciens comptes démo sont
+désactivés seulement après la création vérifiée de leur remplaçant réel, afin de
+ne jamais verrouiller le site.

@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,6 +30,16 @@ class HomeController extends Controller
 
         if (! $request->user()) {
             return redirect()->route('login');
+        }
+
+        if (! $request->user()->isActive() || ! $request->user()->role_id || ! $request->user()->role()->exists()) {
+            auth('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect()->route('login')->withErrors([
+                'email' => "Ce compte n'est pas actif ou ne possède aucun rôle valide.",
+            ]);
         }
 
         return Inertia::render('Home');

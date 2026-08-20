@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Administration\UserController as AdministrationUserController;
+use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
@@ -10,7 +12,6 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ReceiptController;
-use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SurgeryController;
 use App\Http\Controllers\SurgicalCareNoteController;
@@ -34,14 +35,22 @@ Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
     Route::post('/reset-password', [NewPasswordController::class, 'store'])->name('password.update');
 });
 
-Route::middleware(['site.type:clinic,admin', 'auth'])->group(function () {
+Route::middleware(['site.type:clinic,admin', 'auth', 'account.active'])->group(function () {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 });
 
 // Patients/Episodes are per-site clinical data (ADR-004: admin.rivo.mg never
 // reaches a site's own data directly, only via API) — clinic-only, unlike
 // auth which the gateway/admin deployments also use.
-Route::middleware(['site.type:clinic', 'auth'])->group(function () {
+Route::middleware(['site.type:clinic', 'auth', 'account.active'])->group(function () {
+    // Administration locale des comptes de ce site. Les comptes sont
+    // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.
+    Route::get('/administration/users', [AdministrationUserController::class, 'index'])->name('administration.users.index')->middleware('can:users.view');
+    Route::post('/administration/users', [AdministrationUserController::class, 'store'])->name('administration.users.store')->middleware('can:users.create');
+    Route::put('/administration/users/{user}', [AdministrationUserController::class, 'update'])->name('administration.users.update')->middleware('can:users.update');
+    Route::post('/administration/users/{user}/deactivate', [AdministrationUserController::class, 'deactivate'])->name('administration.users.deactivate')->middleware('can:users.deactivate');
+    Route::post('/administration/users/{user}/activate', [AdministrationUserController::class, 'activate'])->name('administration.users.activate')->middleware('can:users.activate');
+
     // Réception & Caisse (CDC §5.2.1): the only place a patient/passage is
     // created — see RegisterArrivalAction for why these aren't split.
     Route::get('/reception', [ReceptionController::class, 'create'])->name('reception.create')->middleware('can:episodes.create');

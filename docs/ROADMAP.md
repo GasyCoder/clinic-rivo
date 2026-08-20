@@ -19,9 +19,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Configuration frontend
 - [x] Configuration base locale
 - [ ] DashWind
-- [ ] Authentification
-- [ ] RBAC dynamique
-- [ ] Permissions
+- [x] Authentification locale avec comptes actifs et rôle obligatoire
+- [x] RBAC dynamique
+- [x] Permissions et exceptions individuelles auditées
 - [ ] Soft Delete
 - [ ] Audit
 - [ ] UUID
@@ -158,6 +158,10 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 
 # Phase 6 — Administration
 
+- [x] Utilisateurs locaux
+- [x] Attribution des rôles
+- [x] Activation / désactivation des comptes
+- [x] Exceptions de permissions individuelles
 - [ ] Employés
 - [ ] RH
 - [ ] Contrats

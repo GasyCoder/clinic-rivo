@@ -19,17 +19,57 @@ class RolePermissionSeeder extends Seeder
      * @var array<string, array<int, string>>
      */
     private const GRANTS = [
-        'ADMINISTRATION' => ['users.'],
-        'RECEPTION' => ['patients.', 'episodes.', 'billing.', 'payments.', 'cash.', 'receipts.'],
-        'MEDICINE' => ['consultations.', 'diagnoses.', 'prescriptions.', 'patients.medical_history.', 'patients.view', 'episodes.view'],
+        'ADMINISTRATION' => [
+            'users.view', 'users.create', 'users.update', 'users.activate',
+            'users.deactivate', 'users.manage', 'roles.view', 'roles.assign',
+            'permissions.view',
+        ],
+        'RECEPTION' => [
+            'patients.view', 'patients.create', 'patients.update', 'patients.delete',
+            'patients.restore', 'patients.view_deleted',
+            'patients.medical_history.view', 'patients.medical_history.manage',
+            'episodes.view', 'episodes.create', 'episodes.update', 'episodes.cancel',
+            'billing.view', 'billing.create', 'billing.validate',
+            'payments.view', 'payments.create', 'payments.cancel',
+            'cash.view', 'cash.open', 'cash.close',
+            'receipts.view', 'receipts.print',
+        ],
+        'MEDICINE' => [
+            'consultations.view', 'consultations.create', 'consultations.update',
+            'consultations.delete', 'consultations.restore',
+            'diagnoses.view', 'diagnoses.create', 'diagnoses.update',
+            'prescriptions.view', 'prescriptions.create', 'prescriptions.update',
+            'prescriptions.cancel', 'patients.medical_history.view',
+            'patients.medical_history.manage', 'patients.view', 'episodes.view',
+        ],
         // ADR-006 amendment 2026-08-19 — "Soins" (§15) + "Anesthésie" (§16)
         // catalogs; no "Maternité" grant since no such permission catalog
         // exists in the CDC (see PermissionSeeder).
-        'NURSE' => ['care.', 'vitals.', 'medical_orders.view', 'anesthesia.', 'patients.medical_history.', 'patients.view', 'episodes.view'],
+        'NURSE' => [
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
+            'anesthesia.view', 'anesthesia.create', 'anesthesia.update',
+            'anesthesia.validate', 'patients.medical_history.view',
+            'patients.medical_history.manage', 'patients.view', 'episodes.view',
+        ],
         // anesthesia. is intentionally granted to both NURSE and SURGERY —
         // see the same ADR-006 amendment ("normalement rattaché à SURGERY
         // mais explicitement demandé aussi pour NURSE").
-        'SURGERY' => ['surgery.', 'anesthesia.', 'episodes.view'],
+        'SURGERY' => [
+            'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule',
+            'surgery.preoperative.view', 'surgery.preoperative.validate',
+            'surgery.intervention.create', 'surgery.intervention.update',
+            'surgery.report.create', 'surgery.report.update', 'surgery.report.validate',
+            'surgery.complications.create', 'surgery.discharge.create',
+            'surgery.preparation.update', 'surgery.consumables.create',
+            'surgery.care.create', 'surgery.postoperative_care.create',
+            'anesthesia.view', 'anesthesia.create', 'anesthesia.update',
+            'anesthesia.validate', 'episodes.view',
+        ],
+        // Their business modules are not implemented yet. Keeping these
+        // arrays explicit also removes any stale grants left by old seeds.
+        'PHARMACY' => [],
+        'LABORATORY' => [],
     ];
 
     public function run(): void
@@ -57,6 +97,10 @@ class RolePermissionSeeder extends Seeder
      */
     private function matchingPermissionIds(array $matchers): Collection
     {
+        if ($matchers === []) {
+            return collect();
+        }
+
         return Permission::query()
             ->where(function ($query) use ($matchers) {
                 foreach ($matchers as $matcher) {

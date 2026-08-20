@@ -13,7 +13,7 @@ class AuthenticationAuditTest extends TestCase
 
     public function test_a_successful_login_is_audited(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->withRole()->create();
 
         $this->post('/login', [
             'email' => $user->email,
@@ -36,7 +36,7 @@ class AuthenticationAuditTest extends TestCase
 
     public function test_a_logout_is_audited_with_the_correct_actor_despite_the_session_being_destroyed_first(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->withRole()->create();
 
         $this->actingAs($user)->post('/logout');
 
@@ -53,7 +53,7 @@ class AuthenticationAuditTest extends TestCase
 
     public function test_a_failed_login_attempt_is_not_audited(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->withRole()->create();
 
         $this->post('/login', [
             'email' => $user->email,
@@ -65,7 +65,7 @@ class AuthenticationAuditTest extends TestCase
 
     public function test_login_then_logout_in_separate_requests_get_different_request_uuids(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->withRole()->create();
 
         $this->post('/login', [
             'email' => $user->email,

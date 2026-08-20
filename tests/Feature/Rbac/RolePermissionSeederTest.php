@@ -37,16 +37,20 @@ class RolePermissionSeederTest extends TestCase
         );
     }
 
-    public function test_administration_only_gets_user_permissions(): void
+    public function test_administration_gets_account_management_without_individual_permission_or_super_admin_assignment(): void
     {
         $this->seedRbac();
 
         $names = $this->permissionNamesFor('ADMINISTRATION');
 
-        $this->assertNotEmpty($names);
-        foreach ($names as $name) {
-            $this->assertStringStartsWith('users.', $name);
-        }
+        $this->assertContains('users.view', $names);
+        $this->assertContains('users.create', $names);
+        $this->assertContains('users.deactivate', $names);
+        $this->assertContains('roles.view', $names);
+        $this->assertContains('roles.assign', $names);
+        $this->assertContains('permissions.view', $names);
+        $this->assertNotContains('permissions.assign', $names);
+        $this->assertNotContains('users.assign_super_admin', $names);
     }
 
     public function test_administration_does_not_leak_medical_or_patient_permissions(): void
@@ -75,6 +79,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('cash.open', $names);
         $this->assertContains('cash.close', $names);
         $this->assertContains('receipts.print', $names);
+        $this->assertNotContains('patients.force_delete', $names);
         $this->assertNotContains('consultations.view', $names);
     }
 
@@ -162,5 +167,22 @@ class RolePermissionSeederTest extends TestCase
             $this->assertContains($permission, $nurseNames);
             $this->assertContains($permission, $surgeryNames);
         }
+    }
+
+    public function test_unimplemented_pharmacy_and_laboratory_roles_have_no_stale_grants(): void
+    {
+        $this->seedRbac();
+
+        $this->assertSame([], $this->permissionNamesFor('PHARMACY'));
+        $this->assertSame([], $this->permissionNamesFor('LABORATORY'));
+    }
+
+    public function test_obsolete_physical_user_delete_permission_is_removed(): void
+    {
+        Permission::query()->create(['name' => 'users.delete']);
+
+        $this->seedRbac();
+
+        $this->assertDatabaseMissing('permissions', ['name' => 'users.delete']);
     }
 }

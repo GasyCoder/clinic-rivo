@@ -133,6 +133,7 @@ SUPER_ADMIN
 ADMINISTRATION
 RECEPTION
 MEDICINE
+NURSE
 SURGERY
 PHARMACY
 LABORATORY
@@ -141,6 +142,12 @@ LABORATORY
 Les rôles représentent des domaines principaux.
 
 Les permissions déterminent réellement les actions autorisées.
+
+Les utilisateurs sont locaux à chaque base/site. Un compte actif doit posséder
+un rôle valide. Les comptes ne sont jamais supprimés physiquement : ils sont
+désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
+Les seeders ne doivent créer aucun compte ou mot de passe de démonstration.
+Voir ADR-022.
 
 ---
 

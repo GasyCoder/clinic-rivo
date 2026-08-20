@@ -47,7 +47,7 @@ class SiteRoutingTest extends TestCase
         // redirect to /login) — the gateway has no login route in the
         // first place, so no such session could exist for real, but this
         // confirms the site-type gate itself, independent of auth.
-        $user = User::factory()->create();
+        $user = User::factory()->withRole()->create();
 
         $this->actingAs($user)->post('/logout')->assertNotFound();
     }
@@ -79,7 +79,7 @@ class SiteRoutingTest extends TestCase
 
     public function test_authenticated_users_reach_the_dashboard_on_both_clinic_and_admin_deployments(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->withRole()->create();
 
         foreach (['clinic', 'admin'] as $type) {
             config(['rivo.site.type' => $type]);

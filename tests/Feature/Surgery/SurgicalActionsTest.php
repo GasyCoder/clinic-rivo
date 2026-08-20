@@ -11,6 +11,8 @@ use App\Actions\Surgery\DischargeSurgicalRequestAction;
 use App\Actions\Surgery\RecordSurgicalCareNoteAction;
 use App\Actions\Surgery\RecordSurgicalComplicationAction;
 use App\Actions\Surgery\RecordSurgicalConsumableAction;
+use App\Actions\Surgery\RemoveSurgicalConsumableAction;
+use App\Actions\Surgery\RemoveSurgicalTeamMemberAction;
 use App\Actions\Surgery\ScheduleSurgicalRequestAction;
 use App\Actions\Surgery\UpdateSurgicalPreparationAction;
 use App\Actions\Surgery\UpdateSurgicalRequestAction;
@@ -20,8 +22,11 @@ use App\Actions\Surgery\ValidateSurgicalReportAction;
 use App\Enums\SurgicalCarePhase;
 use App\Enums\SurgicalRequestStatus;
 use App\Enums\SurgicalTeamFunction;
+use App\Models\AuditLog;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\SurgicalConsumable;
+use App\Models\SurgicalTeamMember;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -120,5 +125,40 @@ class SurgicalActionsTest extends TestCase
         $this->assertSame(1, $request->complications()->count());
         $this->assertSame(1, $request->careNotes()->count());
         $this->assertNotNull($intervention->id);
+    }
+
+    public function test_remove_team_member_action_deletes_and_audits_the_removal(): void
+    {
+        $doctor = User::factory()->create();
+        $this->actingAs($doctor);
+        $episode = $this->makeEpisode();
+        $request = $this->app->make(CreateSurgicalRequestAction::class)->execute($episode, ['procedure_name' => 'Appendicectomie']);
+        $member = $this->app->make(AssignSurgicalTeamMemberAction::class)->execute($request, $doctor, SurgicalTeamFunction::Surgeon);
+
+        $this->app->make(RemoveSurgicalTeamMemberAction::class)->execute($member);
+
+        $this->assertSame(0, SurgicalTeamMember::query()->whereKey($member->id)->count());
+        $this->assertSame(1, AuditLog::where('action', 'delete')
+            ->where('entity_type', SurgicalTeamMember::class)
+            ->where('entity_id', $member->id)
+            ->count());
+    }
+
+    public function test_remove_consumable_action_deletes_and_audits_the_removal(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $episode = $this->makeEpisode();
+        $request = $this->app->make(CreateSurgicalRequestAction::class)->execute($episode, ['procedure_name' => 'Appendicectomie']);
+        $consumable = $this->app->make(RecordSurgicalConsumableAction::class)
+            ->execute($request, 'Compresses stériles', 10, 'unités');
+
+        $this->app->make(RemoveSurgicalConsumableAction::class)->execute($consumable);
+
+        $this->assertSame(0, SurgicalConsumable::query()->whereKey($consumable->id)->count());
+        $this->assertSame(1, AuditLog::where('action', 'delete')
+            ->where('entity_type', SurgicalConsumable::class)
+            ->where('entity_id', $consumable->id)
+            ->count());
     }
 }

@@ -116,10 +116,23 @@ class SurgicalRequest extends Model
      * PENDING → SCHEDULED (surgery.schedule). Sets the lead surgeon and the
      * planned date/time in one step — the CDC does not separate "assign a
      * surgeon" from "pick a date" into two permissions.
+     *
+     * Also usable to CORRECT a scheduling mistake (wrong surgeon/date typed)
+     * as long as the intervention hasn't started yet: called again while
+     * already SCHEDULED or PREOPERATIVE_VALIDATED just updates the two
+     * fields without a further status change. surgery.schedule is the only
+     * CDC permission covering this data, so re-using it for corrections
+     * (rather than inventing a separate "correct" permission) matches
+     * ADR-010's spirit — once IN_PROGRESS the case is no longer just
+     * "planned data" and correction is out of scope here.
      */
     public function schedule(User $surgeon, string $scheduledAt): void
     {
-        if ($this->status !== SurgicalRequestStatus::Pending) {
+        if (! in_array($this->status, [
+            SurgicalRequestStatus::Pending,
+            SurgicalRequestStatus::Scheduled,
+            SurgicalRequestStatus::PreoperativeValidated,
+        ], true)) {
             throw new InvalidSurgicalRequestTransitionException(
                 $this,
                 SurgicalRequestStatus::Scheduled->value,
@@ -129,7 +142,11 @@ class SurgicalRequest extends Model
 
         $this->surgeon_id = $surgeon->getKey();
         $this->scheduled_at = $scheduledAt;
-        $this->status = SurgicalRequestStatus::Scheduled;
+
+        if ($this->status === SurgicalRequestStatus::Pending) {
+            $this->status = SurgicalRequestStatus::Scheduled;
+        }
+
         $this->save();
     }
 

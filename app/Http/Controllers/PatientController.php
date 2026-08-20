@@ -12,8 +12,10 @@ use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
 use App\Models\CashSession;
+use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
+use App\Models\SurgicalRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -148,7 +150,57 @@ class PatientController extends Controller
             'account' => $account,
             'paymentMethods' => $paymentMethods,
             'openCashSession' => $openCashSession,
+            'billableSuggestions' => $request->user()->can('billing.create')
+                ? $this->surgicalBillableSuggestions($patient)
+                : [],
         ]);
+    }
+
+    /**
+     * Chirurgie generates billable items but has no billing authority of
+     * its own (CDC: "seul ce module encaisse/facture") — no button there,
+     * Réception discovers them automatically the moment it opens "Nouvelle
+     * facture" for the episode here. Description + quantity only, never a
+     * price: only Réception sets that. Keyed by episode uuid; an episode
+     * that already has at least one invoice is no longer suggested — there
+     * is no per-item "already billed" flag to avoid re-suggesting the same
+     * lines forever otherwise.
+     *
+     * @return array<string, array<int, array{description: string, quantity: float}>>
+     */
+    private function surgicalBillableSuggestions(Patient $patient): array
+    {
+        $episodeIds = $patient->episodes->pluck('id');
+
+        $invoicedEpisodeIds = Invoice::query()
+            ->whereIn('episode_id', $episodeIds)
+            ->pluck('episode_id');
+
+        $requests = SurgicalRequest::query()
+            ->whereIn('episode_id', $episodeIds->diff($invoicedEpisodeIds))
+            ->whereIn('status', ['COMPLETED', 'DISCHARGED'])
+            ->with('consumables')
+            ->get();
+
+        $suggestions = [];
+
+        foreach ($requests as $surgicalRequest) {
+            $episode = $patient->episodes->firstWhere('id', $surgicalRequest->episode_id);
+
+            if (! $episode) {
+                continue;
+            }
+
+            $suggestions[$episode->uuid] = [
+                ['description' => "Acte chirurgical — {$surgicalRequest->procedure_name}", 'quantity' => 1],
+                ...$surgicalRequest->consumables->map(fn ($item) => [
+                    'description' => $item->unit ? "{$item->label} ({$item->unit})" : $item->label,
+                    'quantity' => (float) $item->quantity,
+                ])->all(),
+            ];
+        }
+
+        return $suggestions;
     }
 
     public function edit(Patient $patient): Response

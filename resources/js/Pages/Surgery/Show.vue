@@ -52,21 +52,32 @@ const TEAM_FUNCTION_LABELS = {
 const statusLabel = (s) => STATUS_LABELS[s] ?? s;
 const statusVariant = (s) => STATUS_VARIANTS[s] ?? STATUS_VARIANTS.PENDING;
 
-// --- En-tête : acte, notes, bilan préopératoire (surgery.update) ---
+// `datetime-local` inputs need "YYYY-MM-DDTHH:mm" — used to pre-fill a
+// correction form with the value already saved server-side.
+const toDatetimeLocal = (value) => (value ? value.slice(0, 16).replace(' ', 'T') : '');
+
+// --- En-tête : acte, notes (surgery.update) ---
 const showEditForm = ref(false);
 const editForm = useForm({
     procedure_name: props.surgicalRequest.procedure_name,
     notes: props.surgicalRequest.notes ?? '',
-    preoperative_notes: props.surgicalRequest.preoperative_notes ?? '',
 });
 const submitEdit = () => editForm.put(base.value, {
     preserveScroll: true,
     onSuccess: () => { showEditForm.value = false; },
 });
 
-// --- Programmation (surgery.schedule) ---
+// --- Programmation (surgery.schedule) — also used to CORRECT a scheduling
+// mistake (wrong surgeon/date) as long as the intervention hasn't started;
+// see SurgicalRequest::schedule()'s own doc comment for why the same
+// permission covers both. ---
+const canEditSchedule = computed(() => ['PENDING', 'SCHEDULED', 'PREOPERATIVE_VALIDATED'].includes(props.surgicalRequest.status));
+const isAlreadyScheduled = computed(() => Boolean(props.surgicalRequest.surgeon));
 const showScheduleForm = ref(false);
-const scheduleForm = useForm({ surgeon_id: '', scheduled_at: '' });
+const scheduleForm = useForm({
+    surgeon_id: props.surgicalRequest.surgeon?.id ?? '',
+    scheduled_at: toDatetimeLocal(props.surgicalRequest.scheduled_at),
+});
 const submitSchedule = () => scheduleForm.post(`${base.value}/schedule`, {
     preserveScroll: true,
     onSuccess: () => { showScheduleForm.value = false; },
@@ -83,7 +94,17 @@ const submitPreparation = () => preparationForm.post(`${base.value}/preparation`
     onSuccess: () => { showPreparationForm.value = false; },
 });
 
-// --- Validation du bilan préopératoire (surgery.preoperative.validate) ---
+// --- Bilan préopératoire : le contenu (surgery.update, pas de permission
+// dédiée .create/.update — seules .view/.validate existent) et sa
+// validation (surgery.preoperative.validate) ---
+const editingPreop = ref(false);
+const preopForm = useForm({ preoperative_notes: props.surgicalRequest.preoperative_notes ?? '' });
+const submitPreop = () => {
+    preopForm.transform((data) => ({ ...data, _method: 'put' })).post(base.value, {
+        preserveScroll: true,
+        onSuccess: () => { editingPreop.value = false; },
+    });
+};
 const validatingPreoperative = ref(false);
 const validatePreoperative = () => {
     validatingPreoperative.value = true;
@@ -100,6 +121,14 @@ const submitTeam = () => teamForm.post(`${base.value}/team`, {
     preserveScroll: true,
     onSuccess: () => { showTeamForm.value = false; teamForm.reset(); },
 });
+const removingMemberId = ref(null);
+const removeMember = (member) => {
+    removingMemberId.value = member.id;
+    router.delete(`${base.value}/team/${member.id}`, {
+        preserveScroll: true,
+        onFinish: () => { removingMemberId.value = null; },
+    });
+};
 
 // --- Anesthésie (anesthesia.create / update / validate) ---
 const showAnesthesiaForm = ref(!props.surgicalRequest.anesthesia_record);
@@ -150,13 +179,25 @@ const submitInterventionUpdate = () => {
     );
 };
 
-// --- Consommables (surgery.consumables.create) ---
+// --- Consommables (surgery.consumables.create) — traçabilité seule, sans
+// prix. Chirurgie n'a aucune action de facturation : la Réception voit ces
+// éléments automatiquement dès qu'elle ouvre "Nouvelle facture" pour ce
+// passage (PatientController::surgicalBillableSuggestions), sans bouton
+// ici — seule la Réception facture (CDC). ---
 const showConsumableForm = ref(false);
 const consumableForm = useForm({ label: '', quantity: 1, unit: '' });
 const submitConsumable = () => consumableForm.post(`${base.value}/consumables`, {
     preserveScroll: true,
     onSuccess: () => { consumableForm.reset(); },
 });
+const removingConsumableId = ref(null);
+const removeConsumable = (item) => {
+    removingConsumableId.value = item.id;
+    router.delete(`${base.value}/consumables/${item.id}`, {
+        preserveScroll: true,
+        onFinish: () => { removingConsumableId.value = null; },
+    });
+};
 
 // --- Complications (surgery.complications.create) ---
 const showComplicationForm = ref(false);
@@ -249,7 +290,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <Card class="shadow-sm">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="file-text" /></span>Demande</h2>
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="file-text" /></span>1. Demande</h2>
                     <Button v-if="can('surgery.update') && !showEditForm" size="sm" variant="white-outline" type="button" @click="showEditForm = true"><Icon class="text-base" name="edit" /><span class="ms-1.5">Modifier</span></Button>
                 </div>
 
@@ -262,10 +303,6 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                     <FormGroup class="!mb-0">
                         <FormLabel class="mb-1.5" for="notes">Notes</FormLabel>
                         <textarea id="notes" v-model="editForm.notes" rows="2" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
-                    </FormGroup>
-                    <FormGroup class="!mb-0">
-                        <FormLabel class="mb-1.5" for="preoperative_notes">Bilan préopératoire</FormLabel>
-                        <textarea id="preoperative_notes" v-model="editForm.preoperative_notes" rows="3" placeholder="ASA, à jeun, allergies, bilan biologique…" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
                     </FormGroup>
                     <div class="flex justify-end gap-2">
                         <Button size="sm" variant="white-outline" type="button" @click="showEditForm = false">Annuler</Button>
@@ -282,10 +319,17 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <!-- Programmation & préparation -->
             <Card class="shadow-sm">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="calendar" /></span>Programmation</h2>
+                <div class="mb-4 flex items-center justify-between">
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="calendar" /></span>2. Programmation</h2>
+                    <Button v-if="isAlreadyScheduled && canEditSchedule && can('surgery.schedule') && !showScheduleForm" size="sm" variant="white-outline" type="button" @click="showScheduleForm = true"><Icon class="text-base" name="edit" /><span class="ms-1.5">Corriger</span></Button>
+                </div>
 
-                <template v-if="surgicalRequest.status === 'PENDING' && can('surgery.schedule')">
+                <template v-if="canEditSchedule && can('surgery.schedule')">
                     <form v-if="showScheduleForm" class="space-y-3" @submit.prevent="submitSchedule">
+                        <p v-if="isAlreadyScheduled" class="flex items-start gap-2 rounded border border-gray-200 bg-gray-50/70 p-2.5 text-xs leading-5 text-slate-400 dark:border-gray-900 dark:bg-gray-1000/40">
+                            <Icon class="mt-0.5 shrink-0 text-sm" name="info" />
+                            Erreur de saisie ? Vous pouvez corriger le chirurgien ou la date tant que l'intervention n'a pas démarré.
+                        </p>
                         <FormGroup class="!mb-0">
                             <FormLabel class="mb-1.5" for="surgeon_id">Chirurgien <span class="text-red-500">*</span></FormLabel>
                             <select id="surgeon_id" v-model="scheduleForm.surgeon_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
@@ -301,12 +345,15 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                         </FormGroup>
                         <div class="flex justify-end gap-2">
                             <Button size="sm" variant="white-outline" type="button" @click="showScheduleForm = false">Annuler</Button>
-                            <Button size="sm" variant="primary" type="submit" :disabled="scheduleForm.processing">Programmer</Button>
+                            <Button size="sm" variant="primary" type="submit" :disabled="scheduleForm.processing">{{ isAlreadyScheduled ? 'Corriger' : 'Programmer' }}</Button>
                         </div>
                     </form>
-                    <Button v-else size="sm" variant="primary" type="button" @click="showScheduleForm = true"><Icon class="text-base" name="calendar" /><span class="ms-1.5">Programmer l'intervention</span></Button>
+                    <Button v-else-if="!isAlreadyScheduled" size="sm" variant="primary" type="button" @click="showScheduleForm = true"><Icon class="text-base" name="calendar" /><span class="ms-1.5">Programmer l'intervention</span></Button>
+                    <dl v-else class="mb-4 space-y-2 text-sm">
+                        <div><dt class="text-xs text-slate-400">Chirurgien</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.surgeon?.name ?? '—' }}</dd></div>
+                        <div><dt class="text-xs text-slate-400">Programmée le</dt><dd class="text-slate-600 dark:text-slate-300">{{ formatDateTime(surgicalRequest.scheduled_at) ?? '—' }}</dd></div>
+                    </dl>
                 </template>
-
                 <dl v-else class="mb-4 space-y-2 text-sm">
                     <div><dt class="text-xs text-slate-400">Chirurgien</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.surgeon?.name ?? '—' }}</dd></div>
                     <div><dt class="text-xs text-slate-400">Programmée le</dt><dd class="text-slate-600 dark:text-slate-300">{{ formatDateTime(surgicalRequest.scheduled_at) ?? '—' }}</dd></div>
@@ -337,17 +384,27 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <Card class="shadow-sm">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="check-circle" /></span>Bilan préopératoire</h2>
-                    <Button
-                        v-if="surgicalRequest.status === 'SCHEDULED' && can('surgery.preoperative.validate')"
-                        size="sm" variant="primary" type="button" :disabled="validatingPreoperative"
-                        @click="validatePreoperative"
-                    >
-                        <Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span>
-                    </Button>
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="check-circle" /></span>3. Bilan préopératoire</h2>
+                    <div class="flex gap-2">
+                        <Button v-if="can('surgery.update') && !surgicalRequest.preoperative_validated_by && !editingPreop" size="sm" variant="white-outline" type="button" @click="editingPreop = true"><Icon class="text-base" name="edit" /><span class="ms-1.5">Modifier</span></Button>
+                        <Button
+                            v-if="surgicalRequest.status === 'SCHEDULED' && can('surgery.preoperative.validate')"
+                            size="sm" variant="primary" type="button" :disabled="validatingPreoperative"
+                            @click="validatePreoperative"
+                        >
+                            <Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span>
+                        </Button>
+                    </div>
                 </div>
-                <dl class="space-y-2 text-sm">
-                    <div><dt class="text-xs text-slate-400">Bilan</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.preoperative_notes ?? 'Non renseigné (voir « Demande » ci-dessus)' }}</dd></div>
+                <form v-if="editingPreop" class="space-y-3" @submit.prevent="submitPreop">
+                    <textarea v-model="preopForm.preoperative_notes" rows="3" placeholder="ASA, à jeun, allergies, bilan biologique…" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
+                    <div class="flex justify-end gap-2">
+                        <Button size="sm" variant="white-outline" type="button" @click="editingPreop = false">Annuler</Button>
+                        <Button size="sm" variant="primary" type="submit" :disabled="preopForm.processing">Enregistrer</Button>
+                    </div>
+                </form>
+                <dl v-else class="space-y-2 text-sm">
+                    <div><dt class="text-xs text-slate-400">Bilan</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.preoperative_notes ?? 'Non renseigné' }}</dd></div>
                     <div v-if="surgicalRequest.preoperative_assessed_by"><dt class="text-xs text-slate-400">Évalué par</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.preoperative_assessed_by.name }} · {{ formatDateTime(surgicalRequest.preoperative_assessed_at) }}</dd></div>
                     <div v-if="surgicalRequest.preoperative_validated_by"><dt class="text-xs font-bold text-green-600">Validé par</dt><dd class="text-green-700 dark:text-green-300">{{ surgicalRequest.preoperative_validated_by.name }} · {{ formatDateTime(surgicalRequest.preoperative_validated_at) }}</dd></div>
                 </dl>
@@ -358,7 +415,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <Card class="shadow-sm">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="users" /></span>Équipe de bloc</h2>
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="users" /></span>4. Équipe de bloc</h2>
                     <Button v-if="can('surgery.update') && !showTeamForm" size="sm" variant="white-outline" type="button" @click="showTeamForm = true"><Icon class="text-base" name="plus" /><span class="ms-1.5">Ajouter</span></Button>
                 </div>
                 <form v-if="showTeamForm" class="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto]" @submit.prevent="submitTeam">
@@ -372,9 +429,22 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                     <Button size="sm" variant="primary" type="submit" :disabled="teamForm.processing">Ajouter</Button>
                 </form>
                 <ul v-if="surgicalRequest.team_members?.length" class="space-y-2">
-                    <li v-for="member in surgicalRequest.team_members" :key="member.id" class="flex items-center justify-between rounded border border-gray-200 px-3 py-2 text-sm dark:border-gray-900">
+                    <li v-for="member in surgicalRequest.team_members" :key="member.id" class="flex items-center justify-between gap-2 rounded border border-gray-200 px-3 py-2 text-sm dark:border-gray-900">
                         <span class="text-slate-700 dark:text-white">{{ member.user?.name }}</span>
-                        <span class="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-900 dark:text-slate-400">{{ TEAM_FUNCTION_LABELS[member.function] ?? member.function }}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-900 dark:text-slate-400">{{ TEAM_FUNCTION_LABELS[member.function] ?? member.function }}</span>
+                            <button
+                                v-if="can('surgery.update')"
+                                type="button"
+                                class="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                                :disabled="removingMemberId === member.id"
+                                :aria-label="`Retirer ${member.user?.name}`"
+                                title="Retirer (erreur d'assignation)"
+                                @click="removeMember(member)"
+                            >
+                                <Icon class="text-base" name="cross" />
+                            </button>
+                        </div>
                     </li>
                 </ul>
                 <p v-else class="text-sm text-slate-400">Aucun membre assigné.</p>
@@ -384,7 +454,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <!-- Anesthésie -->
             <Card class="shadow-sm">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="shield-check" /></span>Anesthésie</h2>
+                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="shield-check" /></span>5. Anesthésie</h2>
 
                 <form v-if="!surgicalRequest.anesthesia_record && can('anesthesia.create')" class="space-y-3" @submit.prevent="submitAnesthesiaCreate">
                     <select v-model="anesthesiaCreateForm.anesthetist_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
@@ -423,7 +493,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <!-- Intervention -->
             <Card class="shadow-sm">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="activity" /></span>Intervention</h2>
+                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="activity" /></span>6. Intervention</h2>
 
                 <template v-if="!surgicalRequest.intervention">
                     <form v-if="can('surgery.intervention.create')" class="space-y-3" @submit.prevent="submitInterventionCreate">
@@ -467,7 +537,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <Card class="shadow-sm">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="cards" /></span>Consommables</h2>
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="cards" /></span>7. Consommables</h2>
                     <Button v-if="can('surgery.consumables.create') && !showConsumableForm" size="sm" variant="white-outline" type="button" @click="showConsumableForm = true"><Icon class="text-base" name="plus" /><span class="ms-1.5">Ajouter</span></Button>
                 </div>
                 <form v-if="showConsumableForm" class="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_90px_110px_auto]" @submit.prevent="submitConsumable">
@@ -477,12 +547,29 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                     <Button size="sm" variant="primary" type="submit" :disabled="consumableForm.processing">Ajouter</Button>
                 </form>
                 <ul v-if="surgicalRequest.consumables?.length" class="space-y-1.5 text-sm">
-                    <li v-for="item in surgicalRequest.consumables" :key="item.id" class="flex items-center justify-between border-b border-gray-100 py-1.5 last:border-0 dark:border-gray-900">
+                    <li v-for="item in surgicalRequest.consumables" :key="item.id" class="flex items-center justify-between gap-2 border-b border-gray-100 py-1.5 last:border-0 dark:border-gray-900">
                         <span class="text-slate-600 dark:text-slate-300">{{ item.label }}</span>
-                        <span class="text-slate-400">{{ item.quantity }} {{ item.unit ?? '' }}</span>
+                        <div class="flex shrink-0 items-center gap-2">
+                            <span class="text-slate-400">{{ item.quantity }} {{ item.unit ?? '' }}</span>
+                            <button
+                                v-if="can('surgery.consumables.create')"
+                                type="button"
+                                class="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                                :disabled="removingConsumableId === item.id"
+                                :aria-label="`Retirer ${item.label}`"
+                                title="Retirer (erreur de saisie)"
+                                @click="removeConsumable(item)"
+                            >
+                                <Icon class="text-base" name="cross" />
+                            </button>
+                        </div>
                     </li>
                 </ul>
                 <p v-else class="text-sm text-slate-400">Aucun consommable enregistré.</p>
+                <p class="mt-3 flex items-start gap-2 rounded border border-gray-200 bg-gray-50/70 p-2.5 text-xs leading-5 text-slate-400 dark:border-gray-900 dark:bg-gray-1000/40">
+                    <Icon class="mt-0.5 shrink-0 text-sm" name="info" />
+                    La Réception voit automatiquement ces éléments dans « Nouvelle facture » une fois le dossier terminé — elle seule fixe le prix et facture.
+                </p>
                 </CardBody>
             </Card>
 
@@ -490,7 +577,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <Card class="shadow-sm">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300"><Icon class="text-base" name="alert-circle" /></span>Complications</h2>
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300"><Icon class="text-base" name="alert-circle" /></span>8. Complications</h2>
                     <Button v-if="can('surgery.complications.create') && !showComplicationForm" size="sm" variant="white-outline" type="button" @click="showComplicationForm = true"><Icon class="text-base" name="plus" /><span class="ms-1.5">Ajouter</span></Button>
                 </div>
                 <form v-if="showComplicationForm" class="mb-4 space-y-2" @submit.prevent="submitComplication">
@@ -507,13 +594,17 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                     </li>
                 </ul>
                 <p v-else class="text-sm text-slate-400">Aucune complication signalée.</p>
+                <p class="mt-3 flex items-start gap-2 rounded border border-gray-200 bg-gray-50/70 p-2.5 text-xs leading-5 text-slate-400 dark:border-gray-900 dark:bg-gray-1000/40">
+                    <Icon class="mt-0.5 shrink-0 text-sm" name="info" />
+                    Historique non modifiable, comme un diagnostic : une correction s'ajoute en nouvelle entrée plutôt que d'écraser la précédente.
+                </p>
                 </CardBody>
             </Card>
 
             <!-- Soins -->
             <Card class="shadow-sm xl:col-span-2">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="user-check" /></span>Soins</h2>
+                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="user-check" /></span>9. Soins</h2>
                 <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                         <div class="mb-2 flex items-center justify-between">
@@ -554,6 +645,10 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                         <p v-else class="text-sm text-slate-400">Aucun soin postopératoire.</p>
                     </div>
                 </div>
+                <p class="mt-4 flex items-start gap-2 rounded border border-gray-200 bg-gray-50/70 p-2.5 text-xs leading-5 text-slate-400 dark:border-gray-900 dark:bg-gray-1000/40">
+                    <Icon class="mt-0.5 shrink-0 text-sm" name="info" />
+                    Historique non modifiable : une erreur de saisie se corrige en ajoutant une nouvelle note.
+                </p>
                 </CardBody>
             </Card>
 
@@ -561,7 +656,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <Card class="shadow-sm xl:col-span-2">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="file-text" /></span>Compte rendu opératoire</h2>
+                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="file-text" /></span>10. Compte rendu opératoire</h2>
                     <div v-if="surgicalRequest.report" class="flex gap-2">
                         <Button v-if="can('surgery.report.update') && !surgicalRequest.report.validated_at && !editingReport" size="sm" variant="white-outline" type="button" @click="editingReport = true"><Icon class="text-base" name="edit" /><span class="ms-1.5">Modifier</span></Button>
                         <Button v-if="can('surgery.report.validate') && !surgicalRequest.report.validated_at" size="sm" variant="primary" type="button" :disabled="validatingReport" @click="validateReport"><Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span></Button>
@@ -596,7 +691,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <!-- Sortie -->
             <Card v-if="['COMPLETED', 'DISCHARGED'].includes(surgicalRequest.status)" class="shadow-sm xl:col-span-2">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="signout" /></span>Sortie</h2>
+                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="signout" /></span>11. Sortie</h2>
 
                 <form v-if="surgicalRequest.status === 'COMPLETED' && can('surgery.discharge.create')" class="space-y-3" @submit.prevent="submitDischarge">
                     <textarea v-model="dischargeForm.notes" rows="2" placeholder="Consignes de sortie…" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>

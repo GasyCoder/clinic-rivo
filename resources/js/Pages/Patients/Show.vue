@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -21,6 +21,7 @@ const props = defineProps({
     account: Object,
     paymentMethods: Array,
     openCashSession: Object,
+    billableSuggestions: Object,
 });
 
 const page = usePage();
@@ -35,10 +36,32 @@ const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
 ));
 
 const defaultEpisodeUuid = props.patient.episodes.find((episode) => episode.status !== 'CANCELLED')?.uuid ?? '';
+const blankLine = () => ({ description: '', quantity: 1, unit_price: '' });
 const invoiceForm = useForm({
     episode_uuid: defaultEpisodeUuid,
-    lines: [{ description: '', quantity: 1, unit_price: '' }],
+    lines: [blankLine()],
 });
+
+// Chirurgie (and later other modules) generate billable items but never
+// touch the invoice themselves — Réception discovers them here the moment
+// it picks the episode, no hand-off button anywhere else needed. Only
+// applies while the form is still untouched, so it never overwrites lines
+// the user already started typing.
+const isPristine = () => invoiceForm.lines.length === 1 && !invoiceForm.lines[0].description;
+const applySuggestionFor = (episodeUuid) => {
+    const suggestion = props.billableSuggestions?.[episodeUuid];
+    if (suggestion?.length && isPristine()) {
+        invoiceForm.lines = suggestion.map((line) => ({ description: line.description, quantity: line.quantity, unit_price: '' }));
+    }
+};
+watch(() => invoiceForm.episode_uuid, (episodeUuid) => applySuggestionFor(episodeUuid));
+
+const toggleInvoiceForm = () => {
+    showInvoiceForm.value = !showInvoiceForm.value;
+    if (showInvoiceForm.value) {
+        applySuggestionFor(invoiceForm.episode_uuid);
+    }
+};
 
 const paymentForm = useForm({
     invoice_uuid: '',
@@ -173,7 +196,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <div class="flex flex-wrap items-center gap-2">
                     <span v-if="openCashSession" class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700 dark:bg-green-950 dark:text-green-300"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Caisse ouverte</span>
                     <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300">Caisse fermée</span>
-                    <Button v-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="showInvoiceForm = !showInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
+                    <Button v-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="toggleInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
                 </div>
             </div>
 
@@ -197,6 +220,10 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     </select>
                     <FormError v-if="invoiceForm.errors.episode_uuid">{{ invoiceForm.errors.episode_uuid }}</FormError>
                 </FormGroup>
+
+                <p v-if="billableSuggestions?.[invoiceForm.episode_uuid]?.length" class="mb-4 flex items-center gap-2 rounded bg-primary-50 px-3 py-2 text-xs text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                    <Icon name="check-circle" /> Prestations de la Chirurgie ajoutées automatiquement — vérifiez et complétez les prix.
+                </p>
 
                 <div class="space-y-2">
                     <div v-for="(line, index) in invoiceForm.lines" :key="index" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px_180px_36px]">

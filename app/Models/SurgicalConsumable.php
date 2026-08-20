@@ -8,9 +8,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Append-only (see migration) — surgery.consumables.create only. Records
- * what was used for billing/traceability; never touches Pharmacy stock
- * (ADR-013, module isolation).
+ * surgery.consumables.create — records what was used, for traceability.
+ * Never touches Pharmacy stock (ADR-013, module isolation) and carries no
+ * price: no tariff catalog exists anywhere (CDC or codebase). Billing goes
+ * through the manual hand-off to Réception's invoice form instead (see
+ * SurgeryController's billingHref) — Réception sets the price.
+ *
+ * No dedicated CDC permission for deletion either — gated behind
+ * surgery.consumables.create itself (the closest matching permission,
+ * same reasoning as team-member removal's use of surgery.update). A real
+ * delete (no SoftDeletable — this isn't critical/financial data), audited
+ * explicitly since Auditable only covers create/update.
  */
 #[Fillable(['surgical_request_id', 'label', 'quantity', 'unit', 'recorded_by'])]
 class SurgicalConsumable extends Model

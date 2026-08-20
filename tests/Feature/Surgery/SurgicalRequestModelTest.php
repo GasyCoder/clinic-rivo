@@ -93,11 +93,40 @@ class SurgicalRequestModelTest extends TestCase
         $this->assertSame($surgeon->id, $request->fresh()->surgeon_id);
     }
 
-    public function test_schedule_cannot_be_called_twice(): void
+    public function test_schedule_called_again_corrects_surgeon_and_date_without_changing_status(): void
+    {
+        $request = $this->makeSurgicalRequest();
+        $surgeon = User::factory()->create();
+        $correctedSurgeon = User::factory()->create();
+        $request->schedule($surgeon, '2026-09-01 08:00:00');
+
+        $request->schedule($correctedSurgeon, '2026-09-02 09:00:00');
+
+        $this->assertSame(SurgicalRequestStatus::Scheduled, $request->fresh()->status);
+        $this->assertSame($correctedSurgeon->id, $request->fresh()->surgeon_id);
+    }
+
+    public function test_schedule_still_works_as_a_correction_once_preoperative_validated(): void
+    {
+        $request = $this->makeSurgicalRequest();
+        $surgeon = User::factory()->create();
+        $correctedSurgeon = User::factory()->create();
+        $request->schedule($surgeon, '2026-09-01 08:00:00');
+        $request->validatePreoperative($surgeon);
+
+        $request->schedule($correctedSurgeon, '2026-09-02 09:00:00');
+
+        $this->assertSame(SurgicalRequestStatus::PreoperativeValidated, $request->fresh()->status);
+        $this->assertSame($correctedSurgeon->id, $request->fresh()->surgeon_id);
+    }
+
+    public function test_schedule_is_rejected_once_the_intervention_has_started(): void
     {
         $request = $this->makeSurgicalRequest();
         $surgeon = User::factory()->create();
         $request->schedule($surgeon, '2026-09-01 08:00:00');
+        $request->validatePreoperative($surgeon);
+        $request->startIntervention();
 
         $this->expectException(InvalidSurgicalRequestTransitionException::class);
 

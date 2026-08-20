@@ -4,16 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Actions\Patient\DeletePatientsAction;
 use App\Actions\Patient\UpdatePatientAction;
+use App\Enums\BillableItemStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
-use App\Enums\PaymentStatus;
 use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
+use App\Models\BillableItem;
 use App\Models\CashSession;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
+use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -71,23 +73,49 @@ class PatientController extends Controller
             $patient->load([
                 'invoices' => fn ($query) => $query->latest(),
                 'invoices.episode:id,uuid,episode_number',
-                'invoices.lines',
+                'invoices.lines.billableItem:id,source_module',
                 ...($canViewPayments ? [
                     'invoices.payments' => fn ($query) => $query
-                        ->where('status', PaymentStatus::Completed->value)
                         ->latest('paid_at'),
                     'invoices.payments.method:id,name',
                     'invoices.payments.receipt:id,uuid,payment_id,receipt_number',
                     'invoices.payments.cashier:id,name',
+                    'invoices.payments.canceller:id,name',
+                    'invoices.payments.cashSession:id,uuid',
                 ] : []),
             ]);
 
             $activeInvoices = $patient->invoices->where('status', '!=', InvoiceStatus::Cancelled);
+            $billableItems = BillableItem::query()
+                ->whereIn('episode_id', $patient->episodes->pluck('id'))
+                ->with('episode:id,uuid,episode_number')
+                ->latest()
+                ->get();
+            $pendingItems = $billableItems->where('status', BillableItemStatus::Pending);
 
             $account = [
-                'total_amount' => number_format((float) $activeInvoices->sum('total_amount'), 2, '.', ''),
-                'paid_amount' => number_format((float) $activeInvoices->sum('paid_amount'), 2, '.', ''),
-                'balance_amount' => number_format((float) $activeInvoices->sum('balance_amount'), 2, '.', ''),
+                'total_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->total_amount))),
+                'paid_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->paid_amount))),
+                'balance_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->balance_amount))),
+                'unbilled_amount' => Money::fromMinor($pendingItems->sum(fn ($item) => Money::toMinor($item->total_amount))),
+                'billable_items' => $billableItems->map(fn ($item) => [
+                    'uuid' => $item->uuid,
+                    'source_module' => $item->source_module,
+                    'description' => $item->description,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'total_amount' => $item->total_amount,
+                    'currency' => $item->currency,
+                    'payment_required_before_fulfillment' => $item->payment_required_before_fulfillment,
+                    'status' => $item->status->value,
+                    'created_at' => $item->created_at,
+                    'cancelled_at' => $item->cancelled_at,
+                    'cancellation_reason' => $item->cancellation_reason,
+                    'episode' => [
+                        'uuid' => $item->episode->uuid,
+                        'episode_number' => $item->episode->episode_number,
+                    ],
+                ])->values(),
                 'invoices' => $patient->invoices->map(fn ($invoice) => [
                     'uuid' => $invoice->uuid,
                     'invoice_number' => $invoice->invoice_number,
@@ -110,6 +138,7 @@ class PatientController extends Controller
                         'quantity' => $line->quantity,
                         'unit_price' => $line->unit_price,
                         'line_total' => $line->line_total,
+                        'source_module' => $line->billableItem?->source_module ?? 'RECEPTION',
                         'status' => $line->status,
                     ])->values(),
                     'payments' => $canViewPayments
@@ -119,9 +148,14 @@ class PatientController extends Controller
                             'amount' => $payment->amount,
                             'currency' => $payment->currency,
                             'reference' => $payment->reference,
+                            'status' => $payment->status->value,
                             'paid_at' => $payment->paid_at,
+                            'cancelled_at' => $payment->cancelled_at,
+                            'cancellation_reason' => $payment->cancellation_reason,
                             'method' => $payment->method->name,
                             'cashier' => $payment->cashier->name,
+                            'canceller' => $payment->canceller?->name,
+                            'cash_session_uuid' => $payment->cashSession->uuid,
                             'receipt' => $payment->receipt ? [
                                 'uuid' => $payment->receipt->uuid,
                                 'receipt_number' => $payment->receipt->receipt_number,
@@ -137,7 +171,9 @@ class PatientController extends Controller
                 ->where('active', true)
                 ->orderBy('id')
                 ->get(['id', 'code', 'name']);
+        }
 
+        if ($request->user()->can('payments.create') || $request->user()->can('payments.cancel')) {
             $openCashSession = CashSession::query()
                 ->where('active_key', 'SINGLE_OPEN_CASH')
                 ->first(['uuid', 'session_number', 'opened_at']);

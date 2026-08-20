@@ -161,8 +161,8 @@ const closeCash = () => closeForm.post('/cash/close', { preserveScroll: true });
         <Card class="overflow-hidden shadow-sm">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-gray-900">
                 <div>
-                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Derniers encaissements</h2>
-                    <p class="mt-0.5 text-xs text-slate-400">Paiements enregistrés par la réception.</p>
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Dernières opérations de paiement</h2>
+                    <p class="mt-0.5 text-xs text-slate-400">Paiements et annulations conservés dans l’historique.</p>
                 </div>
                 <Icon class="text-xl text-primary-500" name="money" />
             </div>
@@ -187,7 +187,10 @@ const closeCash = () => closeForm.post('/cash/close', { preserveScroll: true });
                             <td class="px-5 py-3 text-sm text-slate-500">{{ payment.invoice.invoice_number }}</td>
                             <td class="px-5 py-3 text-sm text-slate-500">{{ formatDateTime(payment.paid_at) }}</td>
                             <td class="px-5 py-3 text-sm text-slate-500">{{ payment.method.name }}</td>
-                            <td class="px-5 py-3 text-end text-sm font-bold text-green-600">{{ formatMoney(payment.amount) }}</td>
+                            <td class="px-5 py-3 text-end text-sm">
+                                <span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-white']">{{ formatMoney(payment.amount) }}</span>
+                                <span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 text-[11px] font-medium text-red-600 dark:border-red-900 dark:text-red-300">Annulé</span>
+                            </td>
                             <td class="px-5 py-3 text-end">
                                 <Link v-if="payment.receipt" :href="`/receipts/${payment.receipt.uuid}`" class="text-sm font-medium text-primary-600 hover:underline">{{ payment.receipt.receipt_number }}</Link>
                             </td>

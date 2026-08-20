@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'invoice_id', 'description', 'quantity', 'unit_price', 'line_total',
+    'invoice_id', 'billable_item_id', 'description', 'quantity', 'unit_price', 'line_total',
     'source_type', 'source_uuid', 'status', 'created_by',
 ])]
 class InvoiceLine extends Model
@@ -28,6 +28,11 @@ class InvoiceLine extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function billableItem(): BelongsTo
+    {
+        return $this->belongsTo(BillableItem::class);
     }
 
     protected function auditModule(): ?string

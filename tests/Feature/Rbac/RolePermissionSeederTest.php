@@ -71,6 +71,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('episodes.create', $names);
         $this->assertContains('billing.create', $names);
         $this->assertContains('payments.create', $names);
+        $this->assertContains('payments.cancel', $names);
         $this->assertContains('cash.open', $names);
         $this->assertContains('cash.close', $names);
         $this->assertContains('receipts.print', $names);
@@ -115,32 +116,22 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('prescriptions.create', $names);
     }
 
-    public function test_surgery_gets_surgery_and_anesthesia_permissions_and_read_only_episode_access(): void
+    public function test_no_business_or_administration_role_can_collect_money(): void
     {
         $this->seedRbac();
 
-        $names = $this->permissionNamesFor('SURGERY');
+        foreach (['ADMINISTRATION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+            $names = $this->permissionNamesFor($roleCode);
 
-        $this->assertContains('surgery.create', $names);
-        $this->assertContains('surgery.report.validate', $names);
-        $this->assertContains('anesthesia.validate', $names);
-        $this->assertContains('episodes.view', $names);
-
-        $this->assertNotContains('consultations.view', $names);
-        $this->assertNotContains('prescriptions.create', $names);
-        $this->assertNotContains('episodes.create', $names);
-    }
-
-    public function test_anesthesia_is_shared_between_nurse_and_surgery(): void
-    {
-        $this->seedRbac();
-
-        $nurse = $this->permissionNamesFor('NURSE');
-        $surgery = $this->permissionNamesFor('SURGERY');
-
-        // ADR-006 amendment 2026-08-19: anesthesia.* is deliberately
-        // granted to both roles, not a duplicate permission definition.
-        $this->assertContains('anesthesia.validate', $nurse);
-        $this->assertContains('anesthesia.validate', $surgery);
+            foreach ($names as $name) {
+                $this->assertFalse(
+                    str_starts_with($name, 'payments.')
+                    || str_starts_with($name, 'cash.')
+                    || str_starts_with($name, 'receipts.')
+                    || str_starts_with($name, 'refunds.'),
+                    "Le rôle {$roleCode} ne doit pas recevoir la permission financière {$name}.",
+                );
+            }
+        }
     }
 }

@@ -15,7 +15,9 @@ class StoreInvoiceRequest extends FormRequest
     {
         return [
             'episode_uuid' => ['required', 'uuid'],
-            'lines' => ['required', 'array', 'min:1', 'max:50'],
+            'billable_item_uuids' => ['nullable', 'array', 'max:100', 'required_without:lines'],
+            'billable_item_uuids.*' => ['required', 'uuid', 'distinct'],
+            'lines' => ['nullable', 'array', 'max:50', 'required_without:billable_item_uuids'],
             'lines.*.description' => ['required', 'string', 'max:255'],
             'lines.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999.99', 'decimal:0,2'],
             'lines.*.unit_price' => ['required', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],

@@ -150,7 +150,7 @@ watch(
             </div>
         </div>
 
-        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
+        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                 <form class="relative w-full sm:max-w-md" role="search" @submit.prevent="submitSearch">
                     <Input v-model="query" icon="start" type="search" placeholder="Nom, numéro patient ou téléphone" autocomplete="off" />
@@ -159,8 +159,8 @@ watch(
                     </button>
                 </form>
 
-                <div v-if="canDeletePatient && selectedUuids.length" class="flex items-center justify-between gap-3 rounded-md bg-primary-50 px-3 py-2 dark:bg-primary-950/40">
-                    <span class="text-xs font-bold text-primary-700 dark:text-primary-300">
+                <div v-if="canDeletePatient && selectedUuids.length" class="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2 dark:border-gray-800">
+                    <span class="text-xs font-bold text-slate-600 dark:text-slate-300">
                         {{ selectedUuids.length }} sélectionné{{ selectedUuids.length > 1 ? 's' : '' }}
                     </span>
                     <Button size="sm" variant="danger" type="button" @click="openBulkDeleteDialog">
@@ -196,10 +196,7 @@ watch(
                         <tr
                             v-for="patient in patients.data"
                             :key="patient.uuid"
-                            :class="[
-                                'transition-colors hover:bg-gray-50 dark:hover:bg-gray-1000',
-                                patient.active_emergency_episodes_count > 0 ? 'bg-red-50/60 dark:bg-red-950/20' : '',
-                            ]"
+                            class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000"
                         >
                             <td v-if="canDeletePatient" class="border-b border-gray-200 px-4 py-3 text-center dark:border-gray-900">
                                 <CheckBox
@@ -215,7 +212,7 @@ watch(
                                     <Avatar
                                         rounded
                                         size="sm"
-                                        :variant="patient.active_emergency_episodes_count > 0 ? 'danger-pale' : 'primary-pale'"
+                                        variant="slate-pale"
                                         :text="formatPatientInitials(patient)"
                                         aria-hidden="true"
                                     />
@@ -230,14 +227,16 @@ watch(
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ sexLabel(patient.sex) }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
                                 {{ formatDate(patient.birth_date) }}
-                                <span v-if="patient.birth_date_is_approximate" class="ms-1 text-xs text-yellow-600">Approx.</span>
+                                <span v-if="patient.birth_date_is_approximate" class="ms-1 text-xs text-slate-400">Estimée</span>
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ patient.phone ?? '—' }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <span v-if="patient.active_emergency_episodes_count > 0" class="inline-flex items-center gap-1 rounded bg-red-100 px-2 py-1 text-xs font-bold uppercase text-red-700 dark:bg-red-950 dark:text-red-300">
-                                    <Icon name="alert-circle" /> Urgence
+                                <span v-if="patient.active_emergency_episodes_count > 0" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-1 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence
                                 </span>
-                                <span v-else class="inline-flex rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500 dark:bg-slate-900 dark:text-slate-400">Normal</span>
+                                <span v-else class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Normal
+                                </span>
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-end dark:border-gray-900">
                                 <div class="inline-flex items-center gap-1.5">

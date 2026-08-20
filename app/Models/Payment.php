@@ -49,8 +49,18 @@ class Payment extends Model
         return $this->belongsTo(User::class, 'received_by');
     }
 
+    public function canceller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
     public function receipt(): HasOne
     {
         return $this->hasOne(Receipt::class);
+    }
+
+    public function reversalMovement(): HasOne
+    {
+        return $this->hasOne(CashMovement::class, 'reversal_payment_id');
     }
 }

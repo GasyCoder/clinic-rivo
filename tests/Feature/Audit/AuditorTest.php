@@ -96,4 +96,16 @@ class AuditorTest extends TestCase
 
         $this->assertSame($explicitActor->id, $log->user_id);
     }
+
+    public function test_record_identifies_the_current_operational_site(): void
+    {
+        config()->set('rivo.site.code', 'MAMPIKONY');
+        config()->set('rivo.site.name', 'Clinique Saint Georges — Mampikony');
+
+        $log = $this->auditorForFakeRequest(User::factory()->create())
+            ->record('payment.create', module: 'cash');
+
+        $this->assertSame('MAMPIKONY', $log->site_code);
+        $this->assertSame('Clinique Saint Georges — Mampikony', $log->site_name);
+    }
 }

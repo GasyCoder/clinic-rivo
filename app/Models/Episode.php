@@ -63,9 +63,9 @@ class Episode extends Model
         return $this->hasMany(Invoice::class);
     }
 
-    public function surgicalRequests(): HasMany
+    public function billableItems(): HasMany
     {
-        return $this->hasMany(SurgicalRequest::class);
+        return $this->hasMany(BillableItem::class);
     }
 
     /**

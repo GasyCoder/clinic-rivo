@@ -1,0 +1,34 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Actions\Billing\CreateInvoiceAction;
+use App\Actions\Billing\ValidateInvoiceAction;
+use App\Http\Requests\StoreInvoiceRequest;
+use App\Models\Invoice;
+use App\Models\Patient;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+
+class BillingController extends Controller
+{
+    public function store(
+        StoreInvoiceRequest $request,
+        Patient $patient,
+        CreateInvoiceAction $action,
+    ): RedirectResponse {
+        $invoice = $action->execute($patient, $request->validated(), $request->user());
+
+        return back()->with('status', "Facture {$invoice->invoice_number} créée en brouillon.");
+    }
+
+    public function validateInvoice(
+        Request $request,
+        Invoice $invoice,
+        ValidateInvoiceAction $action,
+    ): RedirectResponse {
+        $action->execute($invoice, $request->user());
+
+        return back()->with('status', "Facture {$invoice->invoice_number} validée et prête à encaisser.");
+    }
+}

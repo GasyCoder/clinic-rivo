@@ -35,9 +35,33 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+
         return [
             ...parent::share($request),
-            //
+            'auth' => [
+                'user' => $user ? [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role ? [
+                        'code' => $user->role->code,
+                        'name' => $user->role->name,
+                    ] : null,
+                ] : null,
+            ],
+            'permissions' => $user ? $user->effectivePermissionNames()->values()->all() : [],
+            'site' => [
+                'brand' => config('rivo.brand'),
+                'code' => config('rivo.site.code'),
+                'name' => config('rivo.site.name'),
+                'type' => config('rivo.site.type'),
+                'gatewayUrl' => config('rivo.gateway_url'),
+            ],
+            'flash' => [
+                'status' => fn () => $request->session()->get('status'),
+                'duplicates' => fn () => $request->session()->get('duplicates'),
+            ],
         ];
     }
 }

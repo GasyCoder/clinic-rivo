@@ -128,7 +128,7 @@ identifiant distribué/inter-site
 
 # ADR-006 — Rôles
 
-**Status:** ACCEPTED
+**Status:** ACCEPTED (amendé 2026-08-19 — ajout de NURSE)
 
 Les rôles principaux sont :
 
@@ -137,10 +137,23 @@ SUPER_ADMIN
 ADMINISTRATION
 RECEPTION
 MEDICINE
+NURSE
 SURGERY
 PHARMACY
 LABORATORY
 ```
+
+`NURSE` (Infirmier / Sage-femme) a été ajouté sur demande explicite de
+l'équipe : le CDC (§9) mentionne "infirmier, sage-femme, soins" comme
+profils rattachés au rôle MEDICINE, mais sans rôle RBAC dédié — un
+infirmier n'a pas besoin du même périmètre qu'un médecin (diagnostics,
+prescriptions), d'où un rôle séparé plutôt qu'un sous-ensemble de
+permissions MEDICINE. Permissions couvertes (voir ADR-007bis) : catalogue
+"Soins" du CDC §15 (`care.*`, `vitals.*`) et catalogue "Anesthésie" du CDC
+§16 (`anesthesia.*`, normalement rattaché à SURGERY mais explicitement
+demandé ici aussi). Il n'existe aucun catalogue de permissions "Maternité"
+dans le CDC — non inventé, à définir avec l'équipe le jour où ce module
+sera construit.
 
 ---
 
@@ -445,3 +458,36 @@ En cas de conflit entre une ancienne partie du CDC et une décision récente pr�
 1. signaler le conflit ;
 2. appliquer la décision `ACCEPTED` la plus récente ;
 3. ne jamais masquer la divergence documentaire.
+
+---
+
+# ADR-021 — Admission en urgence
+
+**Status:** ACCEPTED (2026-08-19 — exigence explicite de l’équipe)
+
+L’urgence est une priorité du passage (`episode`), jamais un statut permanent
+du patient.
+
+Valeurs initiales :
+
+```text
+NORMAL
+EMERGENCY
+```
+
+Le patient urgent est enregistré avec le même dossier administratif, les mêmes
+validations et le même contrôle anti-doublon qu’un patient normal. Pendant que
+sa famille complète ce dossier à la Réception, le patient peut partir directement
+vers Médecine / Soins.
+
+Un passage `EMERGENCY` :
+
+```text
+- est visiblement marqué Urgence ;
+- est immédiatement placé au statut administratif ORIENTED ;
+- ne dépend d’aucun paiement pour commencer les soins ;
+- reste audité comme tout autre passage.
+```
+
+Cette décision complète le CDC officiel, qui définit le passage et ses statuts
+mais ne précise pas encore le parcours d’admission en urgence.

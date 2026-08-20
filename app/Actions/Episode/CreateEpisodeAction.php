@@ -1,0 +1,42 @@
+<?php
+
+namespace App\Actions\Episode;
+
+use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodePriority;
+use App\Enums\EpisodeStatus;
+use App\Models\Episode;
+use App\Models\Patient;
+use App\Services\Episode\EpisodeNumberGenerator;
+use Illuminate\Support\Facades\Auth;
+
+/**
+ * The only place an Episode gets created — mirrors CreatePatientAction's
+ * role for Patient, so episode_number generation can never be bypassed.
+ *
+ * Deliberately does not check for an already-OPEN episode on the same
+ * patient: the CDC does not state whether concurrent episodes are allowed,
+ * and blocking them would be an invented business rule. Flagged for the
+ * team to confirm if it turns out to matter in practice.
+ */
+class CreateEpisodeAction
+{
+    public function __construct(private readonly EpisodeNumberGenerator $numbers) {}
+
+    public function execute(Patient $patient, EpisodePriority $priority = EpisodePriority::Normal): Episode
+    {
+        return Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => $this->numbers->next(),
+            'status' => EpisodeStatus::Open,
+            'priority' => $priority,
+            // An emergency patient goes directly to Medicine/Care while
+            // their family completes the normal reception form.
+            'administrative_status' => $priority === EpisodePriority::Emergency
+                ? EpisodeAdministrativeStatus::Oriented
+                : EpisodeAdministrativeStatus::PendingOrientation,
+            'started_at' => now(),
+            'created_by' => Auth::id(),
+        ]);
+    }
+}

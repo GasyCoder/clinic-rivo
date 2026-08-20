@@ -1,29 +1,106 @@
 <script setup>
-import { Head } from '@inertiajs/vue3'
+import { Head } from '@inertiajs/vue3';
+import AppLayout from '@/Layouts/AppLayout.vue';
+
+defineOptions({
+    layout: AppLayout,
+});
 </script>
 
 <template>
-    <Head title="Accueil" />
+    <Head title="Tableau de bord" />
 
-    <div class="min-h-screen bg-gray-50">
-        <main class="mx-auto max-w-7xl px-6 py-16">
-            <div class="rounded-lg bg-white p-8 shadow-sm">
-                <h1 class="text-3xl font-bold text-gray-900">
-                    Clinique Saint Georges
-                </h1>
+    <div class="space-y-6">
+        <!-- Page heading -->
+        <div>
+            <h1
+                class="font-heading text-2xl font-bold
+                       text-slate-700 dark:text-white"
+            >
+                Tableau de bord
+            </h1>
 
-                <p class="mt-4 text-gray-600">
-                    Laravel 13 + Vue 3 + Inertia 3
-                </p>
+            <p class="mt-1 text-sm text-slate-500">
+                Vue générale de la Clinique Saint Georges
+            </p>
+        </div>
 
-                <div class="mt-6">
-                    <span
-                        class="inline-flex rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700"
-                    >
-                        Frontend opérationnel
-                    </span>
+        <!-- Cards -->
+        <div
+            class="grid grid-cols-1 gap-5
+                   sm:grid-cols-2 xl:grid-cols-4"
+        >
+            <div
+                class="rounded-lg border border-gray-200
+                       bg-white p-5 dark:border-gray-900
+                       dark:bg-gray-950"
+            >
+                <div class="text-sm text-slate-500">
+                    Patients aujourd'hui
+                </div>
+
+                <div
+                    class="mt-2 font-heading text-2xl
+                           font-bold text-slate-700
+                           dark:text-white"
+                >
+                    —
                 </div>
             </div>
-        </main>
+
+            <div
+                class="rounded-lg border border-gray-200
+                       bg-white p-5 dark:border-gray-900
+                       dark:bg-gray-950"
+            >
+                <div class="text-sm text-slate-500">
+                    Consultations
+                </div>
+
+                <div
+                    class="mt-2 font-heading text-2xl
+                           font-bold text-slate-700
+                           dark:text-white"
+                >
+                    —
+                </div>
+            </div>
+
+            <div
+                class="rounded-lg border border-gray-200
+                       bg-white p-5 dark:border-gray-900
+                       dark:bg-gray-950"
+            >
+                <div class="text-sm text-slate-500">
+                    Analyses laboratoire
+                </div>
+
+                <div
+                    class="mt-2 font-heading text-2xl
+                           font-bold text-slate-700
+                           dark:text-white"
+                >
+                    —
+                </div>
+            </div>
+
+            <div
+                class="rounded-lg border border-gray-200
+                       bg-white p-5 dark:border-gray-900
+                       dark:bg-gray-950"
+            >
+                <div class="text-sm text-slate-500">
+                    Recettes du jour
+                </div>
+
+                <div
+                    class="mt-2 font-heading text-2xl
+                           font-bold text-slate-700
+                           dark:text-white"
+                >
+                    —
+                </div>
+            </div>
+        </div>
     </div>
 </template>

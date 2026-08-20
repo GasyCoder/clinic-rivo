@@ -171,9 +171,11 @@ modules, les rapports financiers, les espaces Administration, utilisateurs,
 rôles/permissions, paramètres et audit. Son accès exige
 `super_admin.portal.view`. Voir ADR-025.
 
-Le rôle `ADMINISTRATION` couvre les RH, contrats, présences, congés, planning,
-logistique, stock administratif, gardiennage/visiteurs autorisés et rapports RH.
-Il ne gère plus les utilisateurs, rôles ou permissions par défaut.
+Les responsabilités administratives sont séparées : `ADMINISTRATION` couvre les
+RH, contrats, présences, congés, planning et rapports RH ; `LOGISTICS` couvre
+l’inventaire et le suivi des équipements ainsi que le stock administratif ;
+`GUARD` couvre le registre et le suivi des entrées/sorties. Aucun de ces rôles
+ne gère les utilisateurs, rôles ou permissions par défaut. Voir ADR-026.
 
 ---
 
@@ -185,6 +187,8 @@ ADMINISTRATION
 RECEPTION
 MEDICINE
 NURSE
+LOGISTICS
+GUARD
 SURGERY
 PHARMACY
 LABORATORY

@@ -19,8 +19,11 @@ const clinicMenu = [
     { icon: 'user-list', text: 'Médecine', permission: 'consultations.view' },
     { icon: 'user-check', text: 'Soins', permission: 'care.view' },
     { icon: 'grid-alt', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
+    { icon: 'bag', text: 'Pharmacie', link: '/pharmacy', permission: 'pharmacy.view' },
     { heading: 'Gestion' },
-    { icon: 'briefcase', text: 'Administration', link: '/administration', exact: true, permission: 'employees.view' },
+    { icon: 'briefcase', text: 'Ressources humaines', link: '/administration', exact: true, permission: 'employees.view' },
+    { icon: 'package', text: 'Logistique', link: '/logistics', permission: 'logistics.view' },
+    { icon: 'shield-check', text: 'Gardiennage', link: '/reception/visitors', permission: 'guarding.view' },
     { icon: 'users', text: 'Utilisateurs & accès', link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view' },
     { icon: 'setting-alt', text: 'Référentiels & tarifs', link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view' },
 ];
@@ -37,9 +40,13 @@ const adminMenu = computed(() => [
         children: site.modules,
         integrationStatus: site.integration_status,
     })),
-    { heading: 'Pilotage' },
+    { heading: 'Finance' },
     { icon: 'wallet', text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
-    { icon: 'briefcase', text: 'Administration', link: '/super-admin/workspaces/administration', permission: 'employees.view' },
+    { heading: 'Administration' },
+    { icon: 'briefcase', text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
+    { icon: 'package', text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
+    { icon: 'shield-check', text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
+    { heading: 'Accès & système' },
     { icon: 'users', text: 'Gestion utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
     { icon: 'shield-check', text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: 'setting-alt', text: 'Paramètres', link: '/super-admin/workspaces/settings', permission: 'settings.view' },
@@ -79,12 +86,12 @@ const menuData = computed(() => {
 });
 
 const isActive = (item) => {
-    if (!item.link) {
-        return false;
-    }
-
     if (item.activeLinks) {
         return item.activeLinks.some((link) => page.url.startsWith(link));
+    }
+
+    if (!item.link) {
+        return false;
     }
 
     if (item.exact) {

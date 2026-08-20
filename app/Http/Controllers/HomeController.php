@@ -22,7 +22,15 @@ class HomeController extends Controller
 {
     public function __invoke(Request $request, PortalDirectory $directory): Response|RedirectResponse
     {
-        if (config('rivo.site.type') === 'gateway') {
+        $deploymentType = config('rivo.site.type');
+
+        abort_unless(
+            in_array($deploymentType, ['clinic', 'admin', 'gateway'], true),
+            500,
+            'RIVO_SITE_TYPE doit être clinic, admin ou gateway.',
+        );
+
+        if ($deploymentType === 'gateway') {
             return Inertia::render('SiteSelect', [
                 'clinics' => collect(config('rivo.clinics'))->map(fn (array $clinic) => [
                     'code' => $clinic['code'],
@@ -47,7 +55,7 @@ class HomeController extends Controller
             ]);
         }
 
-        if (config('rivo.site.type') === 'admin') {
+        if ($deploymentType === 'admin') {
             abort_unless($request->user()->can('super_admin.portal.view'), 403);
 
             return Inertia::render('SuperAdmin/Dashboard', [

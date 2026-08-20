@@ -133,4 +133,11 @@ class SiteRoutingTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('SiteSelect'));
     }
+
+    public function test_invalid_deployment_type_fails_instead_of_showing_the_clinic_interface(): void
+    {
+        config(['rivo.site.type' => 'admin.']);
+
+        $this->get('/')->assertInternalServerError();
+    }
 }

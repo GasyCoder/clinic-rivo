@@ -37,7 +37,7 @@ class RolePermissionSeederTest extends TestCase
         );
     }
 
-    public function test_administration_gets_hr_logistics_and_guarding_without_access_management(): void
+    public function test_administration_gets_hr_permissions_only_without_logistics_guarding_or_access_management(): void
     {
         $this->seedRbac();
 
@@ -48,14 +48,51 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('attendance.update', $names);
         $this->assertContains('leave.approve', $names);
         $this->assertContains('planning.update', $names);
-        $this->assertContains('logistics.manage', $names);
-        $this->assertContains('administrative_stock.inventory', $names);
-        $this->assertContains('visitors.view', $names);
         $this->assertContains('hr_reports.export', $names);
+        $this->assertNotContains('logistics.manage', $names);
+        $this->assertNotContains('administrative_stock.inventory', $names);
+        $this->assertNotContains('guarding.view', $names);
+        $this->assertNotContains('visitors.view', $names);
         $this->assertNotContains('users.view', $names);
         $this->assertNotContains('roles.view', $names);
         $this->assertNotContains('permissions.assign', $names);
         $this->assertNotContains('users.assign_super_admin', $names);
+    }
+
+    public function test_logistics_gets_equipment_and_administrative_stock_permissions_only(): void
+    {
+        $this->seedRbac();
+
+        $names = $this->permissionNamesFor('LOGISTICS');
+
+        $this->assertContains('logistics.manage', $names);
+        $this->assertContains('equipment.inventory', $names);
+        $this->assertContains('equipment.assign', $names);
+        $this->assertContains('equipment.maintenance.manage', $names);
+        $this->assertContains('equipment.decommission', $names);
+        $this->assertContains('administrative_stock.inventory', $names);
+        $this->assertNotContains('stock.inventory', $names);
+        $this->assertNotContains('medicines.view', $names);
+        $this->assertNotContains('visitors.create', $names);
+        $this->assertNotContains('employees.update', $names);
+    }
+
+    public function test_guard_gets_entry_and_exit_register_permissions_only(): void
+    {
+        $this->seedRbac();
+
+        $names = $this->permissionNamesFor('GUARD');
+
+        $this->assertContains('guarding.view', $names);
+        $this->assertContains('guarding.entries.create', $names);
+        $this->assertContains('guarding.entries.close', $names);
+        $this->assertContains('visitors.view', $names);
+        $this->assertContains('visitors.create', $names);
+        $this->assertContains('visitors.close', $names);
+        $this->assertNotContains('patients.view', $names);
+        $this->assertNotContains('employees.view', $names);
+        $this->assertNotContains('logistics.view', $names);
+        $this->assertNotContains('cash.view', $names);
     }
 
     public function test_administration_does_not_leak_medical_or_patient_permissions(): void
@@ -135,7 +172,7 @@ class RolePermissionSeederTest extends TestCase
     {
         $this->seedRbac();
 
-        foreach (['ADMINISTRATION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+        foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             $names = $this->permissionNamesFor($roleCode);
 
             foreach ($names as $name) {
@@ -154,7 +191,7 @@ class RolePermissionSeederTest extends TestCase
     {
         $this->seedRbac();
 
-        foreach (['ADMINISTRATION', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+        foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             foreach ($this->permissionNamesFor($roleCode) as $permission) {
                 $this->assertFalse(
                     str_starts_with($permission, 'catalog.'),
@@ -196,11 +233,26 @@ class RolePermissionSeederTest extends TestCase
         }
     }
 
-    public function test_unimplemented_pharmacy_and_laboratory_roles_have_no_stale_grants(): void
+    public function test_pharmacy_gets_its_stock_permissions_without_catalog_mutation_or_cash(): void
     {
         $this->seedRbac();
 
-        $this->assertSame([], $this->permissionNamesFor('PHARMACY'));
+        $names = $this->permissionNamesFor('PHARMACY');
+
+        $this->assertContains('pharmacy.view', $names);
+        $this->assertContains('medicines.view', $names);
+        $this->assertContains('stock.inventory', $names);
+        $this->assertContains('stock.lots.create', $names);
+        $this->assertContains('stock.expiration.view', $names);
+        $this->assertNotContains('catalog.items.update', $names);
+        $this->assertNotContains('payments.create', $names);
+        $this->assertNotContains('cash.view', $names);
+    }
+
+    public function test_unimplemented_laboratory_role_has_no_stale_grants(): void
+    {
+        $this->seedRbac();
+
         $this->assertSame([], $this->permissionNamesFor('LABORATORY'));
     }
 

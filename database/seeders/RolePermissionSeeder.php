@@ -26,10 +26,23 @@ class RolePermissionSeeder extends Seeder
             'attendance.view', 'attendance.create', 'attendance.update',
             'leave.view', 'leave.create', 'leave.approve', 'leave.cancel',
             'planning.view', 'planning.create', 'planning.update',
+            'hr_reports.view', 'hr_reports.export',
+        ],
+        'LOGISTICS' => [
             'logistics.view', 'logistics.manage',
             'administrative_stock.view', 'administrative_stock.entry',
             'administrative_stock.exit', 'administrative_stock.inventory',
-            'visitors.view', 'hr_reports.view', 'hr_reports.export',
+            'equipment.view', 'equipment.create', 'equipment.update',
+            'equipment.delete', 'equipment.restore', 'equipment.assign',
+            'equipment.inventory', 'equipment.maintenance.manage',
+            'equipment.decommission',
+        ],
+        'GUARD' => [
+            'guarding.view',
+            'guarding.entries.view', 'guarding.entries.create',
+            'guarding.entries.update', 'guarding.entries.close',
+            'guarding.reports.view', 'guarding.reports.export',
+            'visitors.view', 'visitors.create', 'visitors.update', 'visitors.close',
         ],
         'RECEPTION' => [
             'reception.view',
@@ -75,9 +88,21 @@ class RolePermissionSeeder extends Seeder
             'anesthesia.view', 'anesthesia.create', 'anesthesia.update',
             'anesthesia.validate', 'episodes.view',
         ],
-        // Their business modules are not implemented yet. Keeping these
-        // arrays explicit also removes any stale grants left by old seeds.
-        'PHARMACY' => [],
+        // Pharmacy owns medication stock operations, never cash or payment.
+        // medicines.create/update and every catalog/tariff mutation remain
+        // reserved to Super Admin by ADR-024.
+        'PHARMACY' => [
+            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.return',
+            'pharmacy.reports.view', 'pharmacy.reports.export',
+            'prescriptions.view', 'medicines.view',
+            'stock.view', 'stock.entry', 'stock.exit', 'stock.adjust',
+            'stock.inventory', 'stock.validate', 'stock.transfer',
+            'stock.approve', 'stock.import', 'stock.export',
+            'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
+            'stock.expiration.view',
+        ],
+        // The laboratory interface is not implemented yet. Keeping this
+        // array explicit removes any stale grant left by older seeds.
         'LABORATORY' => [],
     ];
 

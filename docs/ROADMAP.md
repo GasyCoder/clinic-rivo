@@ -22,6 +22,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
 - [x] Permissions et exceptions individuelles auditées
+- [x] Rôles autonomes Administration/RH, Logistique et Gardien
 - [ ] Soft Delete
 - [ ] Audit
 - [ ] UUID

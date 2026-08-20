@@ -128,7 +128,7 @@ identifiant distribué/inter-site
 
 # ADR-006 — Rôles
 
-**Status:** ACCEPTED (amendé 2026-08-19 — ajout de NURSE)
+**Status:** ACCEPTED (amendé 2026-08-20 — ajout de NURSE, LOGISTICS et GUARD)
 
 Les rôles principaux sont :
 
@@ -138,6 +138,8 @@ ADMINISTRATION
 RECEPTION
 MEDICINE
 NURSE
+LOGISTICS
+GUARD
 SURGERY
 PHARMACY
 LABORATORY
@@ -768,7 +770,8 @@ absence par une lecture directe de base de données.
 
 ## Rôle Administration
 
-`ADMINISTRATION` représente désormais les fonctions administratives internes :
+`ADMINISTRATION` représentait initialement l’ensemble des fonctions
+administratives internes :
 
 ```text
 RH et employés
@@ -781,3 +784,33 @@ rapports RH
 La gestion des utilisateurs, rôles et permissions n’est plus accordée par
 défaut à `ADMINISTRATION`. Elle appartient au `SUPER_ADMIN`; une délégation
 exceptionnelle reste possible par permission individuelle auditée.
+
+---
+
+# ADR-026 — Rôles Logistique et Gardien indépendants
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+Cette décision affine le CDC officiel et remplace la partie d’ADR-025 qui
+rattachait encore logistique et gardiennage au rôle `ADMINISTRATION`. Trois
+responsabilités autonomes sont désormais définies :
+
+```text
+ADMINISTRATION  ressources humaines, employés, contrats, présence, congés, planning
+LOGISTICS       inventaire, affectation, localisation, état et maintenance des équipements
+GUARD           enregistrement et suivi des entrées/sorties, observations et incidents
+```
+
+Chaque rôle possède ses permissions propres. Il ne voit pas les menus des deux
+autres responsabilités, sauf délégation individuelle explicite et auditée. Le
+`SUPER_ADMIN` conserve la vue de l’ensemble.
+
+Le stock de médicaments, les lots, péremptions, entrées/sorties et inventaires
+pharmaceutiques restent exclusivement dans le menu `PHARMACY`. La Logistique
+ne gère que les équipements durables et le stock administratif ; elle ne gère
+ni médicament, ni délivrance, ni paiement.
+
+Le rôle `GUARD` utilise le registre des entrées et sorties. Il peut enregistrer
+une entrée, ajouter une observation, consulter les personnes présentes et
+enregistrer leur sortie. Ce registre ne crée ni patient, ni épisode clinique,
+ni facture, ni paiement.

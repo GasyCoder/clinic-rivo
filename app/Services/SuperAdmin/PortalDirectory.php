@@ -31,22 +31,76 @@ class PortalDirectory
         return $site;
     }
 
-    /** @return array<int, array{code: string, label: string, icon: string}> */
+    /** @return array<int, array<string, mixed>> */
     public function modules(): array
     {
         return [
-            ['code' => 'OVERVIEW', 'label' => 'Vue du site', 'icon' => 'growth'],
-            ['code' => 'RECEPTION', 'label' => 'Réception', 'icon' => 'card-view'],
-            ['code' => 'CASH', 'label' => 'Caisse', 'icon' => 'wallet'],
-            ['code' => 'PATIENTS', 'label' => 'Patients', 'icon' => 'users'],
-            ['code' => 'MEDICINE', 'label' => 'Médecine', 'icon' => 'user-list'],
-            ['code' => 'CARE', 'label' => 'Soins', 'icon' => 'user-check'],
-            ['code' => 'SURGERY', 'label' => 'Chirurgie', 'icon' => 'grid-alt'],
-            ['code' => 'LABORATORY', 'label' => 'Laboratoire', 'icon' => 'activity'],
-            ['code' => 'PHARMACY', 'label' => 'Pharmacie', 'icon' => 'bag'],
-            ['code' => 'STOCK', 'label' => 'Stocks', 'icon' => 'package'],
-            ['code' => 'ADMINISTRATION', 'label' => 'Administration', 'icon' => 'briefcase'],
-            ['code' => 'REPORTS', 'label' => 'Rapports', 'icon' => 'reports'],
+            [
+                'code' => 'OVERVIEW', 'label' => 'Vue du site', 'icon' => 'growth',
+                'description' => 'Activité et indicateurs du site.',
+                'areas' => ['Activité du jour', 'Alertes', 'Services ouverts', 'État de l’API'],
+            ],
+            [
+                'code' => 'RECEPTION', 'label' => 'Réception', 'icon' => 'card-view',
+                'description' => 'Admissions patient et registre des visiteurs.',
+                'areas' => ['Arrivées patient', 'Passages urgents', 'Visiteurs', 'Orientations'],
+            ],
+            [
+                'code' => 'CASH', 'label' => 'Caisse', 'icon' => 'wallet',
+                'description' => 'Unique point d’encaissement du site.',
+                'areas' => ['Session de caisse', 'Factures', 'Paiements', 'Reçus et clôtures'],
+            ],
+            [
+                'code' => 'PATIENTS', 'label' => 'Patients', 'icon' => 'users',
+                'description' => 'Dossiers administratifs et passages.',
+                'areas' => ['Patients', 'Épisodes', 'Doublons', 'Transferts autorisés'],
+            ],
+            [
+                'code' => 'MEDICINE', 'label' => 'Médecine', 'icon' => 'user-list',
+                'description' => 'Consultations, diagnostics et prescriptions.',
+                'areas' => ['Consultations', 'Diagnostics', 'Prescriptions', 'Décisions médicales'],
+            ],
+            [
+                'code' => 'CARE', 'label' => 'Soins', 'icon' => 'user-check',
+                'description' => 'Soins infirmiers et constantes.',
+                'areas' => ['Ordres de soins', 'Constantes', 'Soins en cours', 'Soins réalisés'],
+            ],
+            [
+                'code' => 'SURGERY', 'label' => 'Chirurgie', 'icon' => 'grid-alt',
+                'description' => 'Programmation, intervention et suivi opératoire.',
+                'areas' => ['Programmation', 'Préopératoire', 'Interventions', 'Postopératoire'],
+            ],
+            [
+                'code' => 'LABORATORY', 'label' => 'Laboratoire', 'icon' => 'activity',
+                'description' => 'Demandes, prélèvements, analyses et résultats.',
+                'areas' => ['Demandes', 'Prélèvements', 'Analyses', 'Résultats validés'],
+            ],
+            [
+                'code' => 'PHARMACY', 'label' => 'Pharmacie', 'icon' => 'bag',
+                'description' => 'Délivrance et gestion du stock de médicaments.',
+                'areas' => ['Médicaments', 'Lots et péremptions', 'Entrées et sorties', 'Inventaires', 'Délivrances', 'Retours et transferts'],
+                'notice' => 'Le stock de médicaments appartient à la Pharmacie. Aucun paiement ni encaissement n’est autorisé ici.',
+            ],
+            [
+                'code' => 'HR', 'label' => 'Ressources humaines', 'icon' => 'briefcase',
+                'description' => 'Employés, contrats, présence et organisation.',
+                'areas' => ['Employés', 'Contrats', 'Présences et congés', 'Planning'],
+            ],
+            [
+                'code' => 'LOGISTICS', 'label' => 'Logistique', 'icon' => 'package',
+                'description' => 'Inventaire et suivi des équipements du site.',
+                'areas' => ['Inventaire des équipements', 'Affectations et localisations', 'État et suivi', 'Maintenances', 'Mises hors service', 'Stock administratif'],
+            ],
+            [
+                'code' => 'GUARDING', 'label' => 'Gardiennage', 'icon' => 'shield-check',
+                'description' => 'Traçabilité des entrées et sorties du site.',
+                'areas' => ['Nouvelle entrée', 'Présences en cours', 'Sorties', 'Observations et incidents', 'Historique'],
+            ],
+            [
+                'code' => 'REPORTS', 'label' => 'Rapports', 'icon' => 'reports',
+                'description' => 'Rapports autorisés du site.',
+                'areas' => ['Activité', 'Finance', 'Stocks', 'Administration'],
+            ],
         ];
     }
 
@@ -74,11 +128,23 @@ class PortalDirectory
                 'icon' => 'wallet',
                 'areas' => ['Synthèse consolidée', 'Recettes par site', 'Paiements et créances', 'Clôtures de caisse', 'Exports autorisés'],
             ],
-            'ADMINISTRATION' => [
-                'title' => 'Administration',
-                'description' => 'Fonctions internes de la clinique, distinctes de la gestion des accès informatiques.',
+            'HR' => [
+                'title' => 'Ressources humaines',
+                'description' => 'Gestion administrative des employés, distincte de la gestion des accès informatiques.',
                 'icon' => 'briefcase',
-                'areas' => ['Employés et RH', 'Contrats', 'Présences et congés', 'Planning', 'Logistique', 'Stock administratif', 'Gardiennage et visiteurs', 'Rapports RH'],
+                'areas' => ['Employés', 'Contrats', 'Présences et congés', 'Planning', 'Rapports RH'],
+            ],
+            'LOGISTICS' => [
+                'title' => 'Logistique & équipements',
+                'description' => 'Inventaire, affectation, localisation, état et maintenance des équipements.',
+                'icon' => 'package',
+                'areas' => ['Inventaire des équipements', 'Affectations et localisations', 'Suivi de l’état', 'Maintenances', 'Mises hors service', 'Stock administratif'],
+            ],
+            'GUARDING' => [
+                'title' => 'Gardiennage',
+                'description' => 'Enregistrement et suivi de toutes les entrées et sorties autorisées.',
+                'icon' => 'shield-check',
+                'areas' => ['Nouvelle entrée', 'Personnes présentes', 'Enregistrement des sorties', 'Observations et incidents', 'Historique et rapports'],
             ],
             'USERS' => [
                 'title' => 'Gestion des utilisateurs',

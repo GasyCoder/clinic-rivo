@@ -13,9 +13,6 @@ const areas = [
     { title: 'Contrats', description: 'Contrats et archivage administratif.', icon: 'file-docs', permission: 'contracts.view' },
     { title: 'Présences & congés', description: 'Présences, absences et demandes de congé.', icon: 'calendar', permission: 'attendance.view' },
     { title: 'Planning', description: 'Organisation des équipes et services.', icon: 'calender-date', permission: 'planning.view' },
-    { title: 'Logistique', description: 'Besoins, affectations et suivi logistique.', icon: 'package', permission: 'logistics.view' },
-    { title: 'Stock administratif', description: 'Entrées, sorties et inventaires hors pharmacie.', icon: 'archive', permission: 'administrative_stock.view' },
-    { title: 'Gardiennage & visiteurs', description: 'Suivi autorisé des entrées et sorties non cliniques.', icon: 'shield-check', permission: 'visitors.view', link: '/reception/visitors' },
     { title: 'Rapports RH', description: 'Indicateurs et exports administratifs.', icon: 'reports', permission: 'hr_reports.view' },
 ];
 </script>
@@ -23,7 +20,7 @@ const areas = [
 <template>
     <Head title="Administration" />
     <div class="w-full space-y-5">
-        <header><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Gestion interne</p><h1 class="mt-1 font-heading text-2xl font-bold text-slate-700 dark:text-white">Administration</h1><p class="mt-1 text-sm text-slate-500">Ressources humaines, logistique et gardiennage. La gestion des comptes reste séparée.</p></header>
+        <header><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Gestion interne</p><h1 class="mt-1 font-heading text-2xl font-bold text-slate-700 dark:text-white">Ressources humaines</h1><p class="mt-1 text-sm text-slate-500">Employés, contrats, présences, congés et planning. Logistique et Gardiennage disposent de leurs propres espaces.</p></header>
         <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <template v-for="area in areas" :key="area.title">
                 <Link v-if="can(area.permission) && area.link" :href="area.link" class="rounded-lg border border-gray-200 bg-white p-5 transition-colors hover:border-slate-300 dark:border-gray-900 dark:bg-gray-950 dark:hover:border-gray-700"><Icon class="text-xl text-slate-400" :name="area.icon" /><h2 class="mt-4 text-sm font-bold text-slate-700 dark:text-white">{{ area.title }}</h2><p class="mt-1 text-xs leading-5 text-slate-500">{{ area.description }}</p></Link>

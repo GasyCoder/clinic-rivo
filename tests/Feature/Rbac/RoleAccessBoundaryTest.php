@@ -49,7 +49,19 @@ class RoleAccessBoundaryTest extends TestCase
             ],
             'ADMINISTRATION' => [
                 'allowed' => ['/administration'],
-                'denied' => ['/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+                'denied' => ['/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+            ],
+            'LOGISTICS' => [
+                'allowed' => ['/logistics'],
+                'denied' => ['/administration', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+            ],
+            'GUARD' => [
+                'allowed' => ['/reception/visitors'],
+                'denied' => ['/administration', '/logistics', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+            ],
+            'PHARMACY' => [
+                'allowed' => ['/pharmacy'],
+                'denied' => ['/administration', '/logistics', '/reception/visitors', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
             ],
         ];
 

@@ -11,8 +11,10 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PharmacyController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdminController;
@@ -58,6 +60,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'can:super_admin
 // auth which the gateway/admin deployments also use.
 Route::middleware(['site.type:clinic', 'auth', 'account.active'])->group(function () {
     Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
+    Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
+    Route::get('/pharmacy', PharmacyController::class)->name('pharmacy.index')->middleware('can:pharmacy.view');
 
     // Administration locale des comptes de ce site. Les comptes sont
     // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.

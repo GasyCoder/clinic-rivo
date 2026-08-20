@@ -28,7 +28,9 @@ class SuperAdminController extends Controller
         $code = mb_strtoupper($workspace);
         $permission = match ($code) {
             'FINANCE' => 'reports.financial.view',
-            'ADMINISTRATION' => 'employees.view',
+            'HR' => 'employees.view',
+            'LOGISTICS' => 'logistics.view',
+            'GUARDING' => 'guarding.view',
             'USERS' => 'users.view',
             'ROLES' => 'roles.view',
             'SETTINGS' => 'settings.view',

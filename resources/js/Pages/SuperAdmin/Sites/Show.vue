@@ -28,12 +28,20 @@ defineProps({
         </nav>
 
         <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon class="text-lg" :name="selectedModule.icon" /></span><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">{{ selectedModule.label }}</h2><p class="mt-0.5 text-xs text-slate-400">Vue centrale de {{ clinic.name }}</p></div></div></div>
-            <div class="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
-                <span class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="server" /></span>
-                <h3 class="mt-4 text-sm font-bold text-slate-700 dark:text-white">Connexion API requise</h3>
-                <p class="mt-2 max-w-lg text-xs leading-5 text-slate-500">Ce module apparaîtra ici après activation de l’API sécurisée de {{ clinic.name }}. Les permissions seront contrôlées une deuxième fois par le site cible et toutes les opérations sensibles seront auditées.</p>
+            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon class="text-lg" :name="selectedModule.icon" /></span><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">{{ selectedModule.label }}</h2><p class="mt-0.5 text-xs text-slate-400">{{ selectedModule.description }}</p></div></div>
+                <span class="inline-flex items-center gap-2 self-start text-xs font-medium text-slate-400 sm:self-auto"><Icon name="server" />Données fournies par l’API de {{ clinic.name }}</span>
             </div>
+
+            <div class="grid gap-px bg-gray-200 dark:bg-gray-900 sm:grid-cols-2 xl:grid-cols-3">
+                <article v-for="area in selectedModule.areas" :key="area" class="min-h-28 bg-white p-5 dark:bg-gray-950">
+                    <div class="flex items-start justify-between gap-3"><Icon class="text-lg text-slate-400" :name="selectedModule.icon" /><span class="text-[10px] font-medium uppercase tracking-wide text-slate-400">API requise</span></div>
+                    <h3 class="mt-4 text-sm font-bold text-slate-700 dark:text-white">{{ area }}</h3>
+                </article>
+            </div>
+
+            <div v-if="selectedModule.notice" class="flex items-start gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30"><Icon class="mt-0.5 text-base text-slate-400" name="info" /><p class="text-xs leading-5 text-slate-500">{{ selectedModule.notice }}</p></div>
+            <div v-else class="flex items-start gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-900"><Icon class="mt-0.5 text-base text-slate-400" name="info" /><p class="text-xs leading-5 text-slate-500">Les permissions sont contrôlées par le portail puis par l’API du site. Toutes les actions sensibles sont auditées.</p></div>
         </section>
     </div>
 </template>

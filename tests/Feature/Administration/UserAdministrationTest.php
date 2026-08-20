@@ -56,7 +56,7 @@ class UserAdministrationTest extends TestCase
         return $user->fresh();
     }
 
-    public function test_administration_user_is_confined_to_its_hr_and_logistics_space(): void
+    public function test_administration_user_is_confined_to_its_hr_space(): void
     {
         $actor = $this->userWithRole('ADMINISTRATION');
 
@@ -65,6 +65,8 @@ class UserAdministrationTest extends TestCase
             ->assertInertia(fn ($page) => $page->component('Administration/Index'));
 
         $this->actingAs($actor)->get('/administration/users')->assertForbidden();
+        $this->actingAs($actor)->get('/logistics')->assertForbidden();
+        $this->actingAs($actor)->get('/reception/visitors')->assertForbidden();
     }
 
     public function test_super_admin_can_open_the_local_user_directory(): void

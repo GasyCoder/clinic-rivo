@@ -45,8 +45,8 @@ class PermissionSeeder extends Seeder
         'audit.view' => 'Voir le journal d’audit',
         'api.view' => 'Voir l’état des intégrations API',
 
-        // CDC officiel §17 + ADR-025. ADMINISTRATION est un rôle métier
-        // RH/logistique/gardiennage, distinct de la gestion des comptes.
+        // CDC officiel §17, affiné par la décision projet qui sépare RH,
+        // Logistique et Gardiennage en responsabilités autonomes.
         'employees.view' => 'Voir les employés',
         'employees.create' => 'Créer un employé',
         'employees.update' => 'Modifier un employé',
@@ -72,6 +72,22 @@ class PermissionSeeder extends Seeder
         'administrative_stock.entry' => 'Enregistrer une entrée de stock administratif',
         'administrative_stock.exit' => 'Enregistrer une sortie de stock administratif',
         'administrative_stock.inventory' => 'Réaliser un inventaire administratif',
+        'equipment.view' => 'Voir les équipements',
+        'equipment.create' => 'Enregistrer un équipement',
+        'equipment.update' => 'Modifier un équipement',
+        'equipment.delete' => 'Archiver un équipement',
+        'equipment.restore' => 'Restaurer un équipement',
+        'equipment.assign' => 'Affecter ou déplacer un équipement',
+        'equipment.inventory' => 'Réaliser l’inventaire des équipements',
+        'equipment.maintenance.manage' => 'Suivre la maintenance des équipements',
+        'equipment.decommission' => 'Mettre un équipement hors service',
+        'guarding.view' => 'Accéder au poste de gardiennage',
+        'guarding.entries.view' => 'Voir le journal des entrées et sorties',
+        'guarding.entries.create' => 'Enregistrer une entrée',
+        'guarding.entries.update' => 'Corriger une entrée ou une observation',
+        'guarding.entries.close' => 'Enregistrer une sortie',
+        'guarding.reports.view' => 'Voir les rapports de gardiennage',
+        'guarding.reports.export' => 'Exporter les rapports de gardiennage',
         'hr_reports.view' => 'Voir les rapports RH',
         'hr_reports.export' => 'Exporter les rapports RH',
 
@@ -94,6 +110,29 @@ class PermissionSeeder extends Seeder
         'visitors.create' => 'Enregistrer l’entrée d’un visiteur',
         'visitors.update' => 'Corriger une visite',
         'visitors.close' => 'Enregistrer la sortie d’un visiteur',
+
+        // CDC §13 + ADR-024. Le stock de médicaments reste dans Pharmacie.
+        // Les prix et le référentiel sont gérés séparément par le Super Admin.
+        'pharmacy.view' => 'Accéder à la pharmacie',
+        'pharmacy.dispense' => 'Délivrer les médicaments autorisés',
+        'pharmacy.return' => 'Enregistrer un retour de pharmacie',
+        'pharmacy.reports.view' => 'Voir les rapports de pharmacie',
+        'pharmacy.reports.export' => 'Exporter les rapports de pharmacie',
+        'medicines.view' => 'Voir le référentiel des médicaments',
+        'stock.view' => 'Voir le stock de médicaments et consommables',
+        'stock.entry' => 'Enregistrer une entrée en stock pharmacie',
+        'stock.exit' => 'Enregistrer une sortie de stock pharmacie',
+        'stock.adjust' => 'Ajuster le stock pharmacie',
+        'stock.inventory' => 'Réaliser un inventaire du stock pharmacie',
+        'stock.validate' => 'Valider un mouvement de stock pharmacie',
+        'stock.transfer' => 'Transférer un stock pharmacie',
+        'stock.approve' => 'Approuver un transfert de stock pharmacie',
+        'stock.import' => 'Importer le stock pharmacie',
+        'stock.export' => 'Exporter le stock pharmacie',
+        'stock.lots.view' => 'Voir les lots de médicaments',
+        'stock.lots.create' => 'Créer un lot de médicaments',
+        'stock.lots.update' => 'Modifier un lot de médicaments',
+        'stock.expiration.view' => 'Voir les péremptions',
 
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',

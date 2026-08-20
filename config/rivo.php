@@ -45,7 +45,7 @@ return [
     'site' => [
         'code' => env('RIVO_SITE_CODE'),
         'name' => env('RIVO_SITE_NAME'),
-        'type' => env('RIVO_SITE_TYPE', 'clinic'),
+        'type' => strtolower(trim((string) env('RIVO_SITE_TYPE', 'clinic'))),
     ],
 
     /*

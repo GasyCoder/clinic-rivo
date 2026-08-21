@@ -143,7 +143,7 @@ watch(
                     <Icon class="text-xl/4.5" name="wallet" />
                     <span class="ms-2">Gérer la caisse</span>
                 </Button>
-                <Button v-if="can('episodes.create')" :as="Link" href="/reception/patients" size="rg" variant="primary">
+                <Button v-if="can('episodes.create')" :as="Link" href="/reception/patients/type" size="rg" variant="primary">
                     <Icon class="text-xl/4.5" name="user-add" />
                     <span class="ms-2">Nouvelle arrivée</span>
                 </Button>

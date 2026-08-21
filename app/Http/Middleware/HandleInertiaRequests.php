@@ -63,6 +63,8 @@ class HandleInertiaRequests extends Middleware
                 'name' => config('rivo.site.name'),
                 'type' => config('rivo.site.type'),
                 'gatewayUrl' => config('rivo.gateway_url'),
+                'publicUrl' => config('rivo.public_url'),
+                'documents' => config('rivo.documents'),
             ],
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),

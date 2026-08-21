@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref } from 'vue';
-import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { computed, reactive, ref, toRef } from 'vue';
+import { Head, Link, router, useForm, usePage, useRemember } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Card from '@/Components/UI/Card.vue';
@@ -29,6 +29,7 @@ defineOptions({
 });
 
 const props = defineProps({
+    step: String,
     search: String,
     matches: Array,
     recentEpisodes: Array,
@@ -43,19 +44,29 @@ const { can } = usePermissions();
 const canUpdatePatient = computed(() => can('patients.update'));
 
 const steps = [
-    { key: 'type', label: 'Type' },
-    { key: 'identity', label: 'Identité' },
-    { key: 'contact', label: 'Contact' },
-    { key: 'services', label: 'Prestations' },
-    { key: 'confirm', label: 'Confirmation' },
+    { key: 'type', slug: 'type', label: 'Type', href: '/reception/patients/type' },
+    { key: 'identity', slug: 'identite', label: 'Identité', href: '/reception/patients/identite' },
+    { key: 'contact', slug: 'contact', label: 'Contact', href: '/reception/patients/contact' },
+    { key: 'services', slug: 'prestations', label: 'Prestations', href: '/reception/patients/prestations' },
+    { key: 'confirm', slug: 'confirmation', label: 'Confirmation', href: '/reception/patients/confirmation' },
 ];
-const stepIndex = ref(0);
+const initialStepIndex = Math.max(steps.findIndex((step) => step.slug === props.step), 0);
+const stepIndex = computed(() => Math.max(steps.findIndex((step) => step.slug === props.step), 0));
 const currentStep = computed(() => steps[stepIndex.value].key);
 
-const patientType = ref(null); // 'existing' | 'new'
-const selectedPatient = ref(null);
-const showArrivalFlow = ref(Boolean(props.search) || Boolean(duplicates.value?.length));
+const workflow = useRemember(reactive({
+    patientType: props.search ? 'existing' : (initialStepIndex > 0 ? 'new' : null),
+    selectedPatient: null,
+    birthDateMode: 'date',
+    furthestStepIndex: initialStepIndex,
+}), 'ReceptionPatientArrivalWorkflow');
+const patientType = toRef(workflow, 'patientType'); // 'existing' | 'new'
+const selectedPatient = toRef(workflow, 'selectedPatient');
+const birthDateMode = toRef(workflow, 'birthDateMode'); // 'date' | 'age'
+const furthestStepIndex = toRef(workflow, 'furthestStepIndex');
+const showArrivalFlow = computed(() => Boolean(props.step) || Boolean(duplicates.value?.length));
 const recentTab = ref('normal'); // 'normal' | 'emergency'
+const query = ref(props.search ?? '');
 
 const normalRecentEpisodes = computed(() => props.recentEpisodes.filter((episode) => episode.priority !== 'EMERGENCY'));
 const emergencyRecentEpisodes = computed(() => props.recentEpisodes.filter((episode) => episode.priority === 'EMERGENCY'));
@@ -66,28 +77,61 @@ const filteredRecentEpisodes = computed(() => recentTab.value === 'emergency'
 
 if (props.search) {
     patientType.value = 'existing';
-    stepIndex.value = 1;
+    furthestStepIndex.value = Math.max(furthestStepIndex.value, 1);
 }
 
 // Only matters on a fresh mount (e.g. a hard refresh while duplicates are
 // flashed) — the normal duplicate round-trip uses preserveState on the
 // form.post() below, so the wizard's own state survives without this.
 if (duplicates.value?.length > 0) {
-    stepIndex.value = 4;
+    furthestStepIndex.value = 4;
     patientType.value = 'new';
 }
+
+furthestStepIndex.value = Math.max(furthestStepIndex.value, stepIndex.value);
+
+const stepRequestData = (step) => (
+    step.key === 'identity' && patientType.value === 'existing' && query.value
+        ? { q: query.value }
+        : {}
+);
+
+const stepHref = (step) => {
+    const params = new URLSearchParams(stepRequestData(step));
+
+    return params.size ? `${step.href}?${params.toString()}` : step.href;
+};
+
+const navigateToStep = (index, { replace = false } = {}) => {
+    const step = steps[index];
+    if (!step) return;
+
+    furthestStepIndex.value = Math.max(furthestStepIndex.value, index);
+    router.get(step.href, stepRequestData(step), {
+        preserveState: true,
+        preserveScroll: true,
+        replace,
+    });
+};
+
+const openStepperStep = (index) => {
+    if (index > furthestStepIndex.value) return;
+
+    navigateToStep(index);
+};
 
 const chooseType = (type) => {
     resetPatientForm();
     selectedPatient.value = null;
     patientType.value = type;
-    stepIndex.value = 1;
+    query.value = '';
+    navigateToStep(1);
 };
 
 const goBack = () => {
     if (currentStep.value === 'services' && patientType.value === 'existing' && !canUpdatePatient.value) {
         selectedPatient.value = null;
-        stepIndex.value = 1;
+        navigateToStep(1);
         return;
     }
 
@@ -98,15 +142,14 @@ const goBack = () => {
     }
 
     if (stepIndex.value > 0) {
-        stepIndex.value -= 1;
+        navigateToStep(stepIndex.value - 1);
     }
 };
 
 // --- Existing patient search ---
-const query = ref(props.search ?? '');
-
 const submitSearch = () => {
-    router.get('/reception/patients', { q: query.value }, { preserveState: true, preserveScroll: true, replace: true });
+    furthestStepIndex.value = Math.max(furthestStepIndex.value, 1);
+    router.get('/reception/patients/identite', { q: query.value }, { preserveState: true, preserveScroll: true, replace: true });
 };
 
 const pickExistingPatient = (patient) => {
@@ -117,11 +160,11 @@ const pickExistingPatient = (patient) => {
         return;
     }
 
-    stepIndex.value = 3;
+    navigateToStep(3);
 };
 
 // --- New patient form ---
-const form = useForm({
+const form = useForm('ReceptionPatientArrivalForm', {
     first_name: '',
     last_name: '',
     birth_date: '',
@@ -146,10 +189,6 @@ const form = useForm({
     payment_reference: '',
 });
 
-// Some patients don't know their exact birth date, only their age — the
-// two inputs are mutually exclusive, switching modes clears the other.
-const birthDateMode = ref('date'); // 'date' | 'age'
-
 const resetPatientForm = () => {
     const isEmergency = form.is_emergency;
 
@@ -159,25 +198,25 @@ const resetPatientForm = () => {
     birthDateMode.value = 'date';
 };
 
-const startArrivalFlow = () => {
-    resetPatientForm();
-    selectedPatient.value = null;
+const clearArrivalDraft = () => {
+    form.reset();
+    form.clearErrors();
+    form.is_emergency = false;
     patientType.value = null;
-    stepIndex.value = 0;
-    showArrivalFlow.value = true;
+    selectedPatient.value = null;
+    birthDateMode.value = 'date';
+    furthestStepIndex.value = 0;
+    query.value = '';
+};
+
+const startArrivalFlow = () => {
+    clearArrivalDraft();
+    navigateToStep(0);
 };
 
 const showRecentPassages = () => {
-    resetPatientForm();
-    selectedPatient.value = null;
-    patientType.value = null;
-    stepIndex.value = 0;
-    showArrivalFlow.value = false;
-
-    if (query.value || props.search) {
-        query.value = '';
-        router.get('/reception/patients', {}, { preserveState: true, preserveScroll: true, replace: true });
-    }
+    clearArrivalDraft();
+    router.get('/reception/patients', {}, { preserveState: true, preserveScroll: true });
 };
 
 const hydratePatientForm = (patient) => {
@@ -235,14 +274,32 @@ const identityComplete = computed(() => form.last_name && form.sex && (form.birt
 
 const civilityLabel = computed(() => civilityOptions.find((option) => option.value === form.civility)?.label);
 
-const birthSummary = computed(() => {
-    if (form.birth_date) {
-        return `né(e) le ${formatDate(form.birth_date)}`;
+const recapUsesDeclaredAge = computed(() => {
+    if (patientType.value === 'existing' && selectedPatient.value && !canUpdatePatient.value) {
+        return Boolean(selectedPatient.value.birth_date_is_approximate);
     }
-    if (form.age) {
-        return `${form.age} ans (âge déclaré, date de naissance approximative)`;
+
+    return Boolean(form.age) && !form.birth_date;
+});
+
+const birthRecapLabel = computed(() => recapUsesDeclaredAge.value ? 'Âge' : 'Date de naissance');
+
+const birthRecapValue = computed(() => {
+    if (patientType.value === 'existing' && selectedPatient.value && !canUpdatePatient.value) {
+        if (recapUsesDeclaredAge.value) {
+            return selectedPatient.value.age ? `${selectedPatient.value.age} ans` : 'Non renseigné';
+        }
+
+        return selectedPatient.value.birth_date
+            ? formatDate(selectedPatient.value.birth_date)
+            : 'Non renseignée';
     }
-    return null;
+
+    if (recapUsesDeclaredAge.value) {
+        return form.age ? `${form.age} ans` : 'Non renseigné';
+    }
+
+    return form.birth_date ? formatDate(form.birth_date) : 'Non renseignée';
 });
 
 // --- Services and settlement intent ---
@@ -303,7 +360,7 @@ const continueToConfirmation = () => {
         form.payment_choice = 'LATER';
     }
 
-    stepIndex.value = 4;
+    navigateToStep(4);
 };
 
 const arrivalBillingPayload = (data) => ({
@@ -315,6 +372,23 @@ const arrivalBillingPayload = (data) => ({
 });
 
 // --- Final submission (step 5) ---
+const returnToInvalidStep = (errors) => {
+    const contactFields = [
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'emergency_contact_email',
+        'emergency_contact_relationship',
+    ];
+    const fields = Object.keys(errors);
+
+    if (fields.some((field) => field.startsWith('catalog_lines') || field.startsWith('payment_'))) {
+        navigateToStep(3, { replace: true });
+        return;
+    }
+
+    navigateToStep(fields.some((field) => contactFields.includes(field)) ? 2 : 1, { replace: true });
+};
+
 const confirmArrival = () => {
     if (patientType.value === 'existing') {
         form.transform((data) => canUpdatePatient.value
@@ -331,31 +405,27 @@ const confirmArrival = () => {
         ).post('/reception/patients', {
             preserveState: true,
             preserveScroll: true,
-            onError: (errors) => {
-                const contactFields = [
-                    'emergency_contact_name',
-                    'emergency_contact_phone',
-                    'emergency_contact_email',
-                    'emergency_contact_relationship',
-                ];
-
-                const fields = Object.keys(errors);
-                if (fields.some((field) => field.startsWith('catalog_lines') || field.startsWith('payment_'))) {
-                    stepIndex.value = 3;
-                } else {
-                    stepIndex.value = fields.some((field) => contactFields.includes(field)) ? 2 : 1;
-                }
-            },
+            onError: returnToInvalidStep,
+            onSuccess: clearArrivalDraft,
         });
         return;
     }
 
-    form.transform((data) => data).post('/reception/patients', { preserveState: true, preserveScroll: true });
+    form.transform((data) => data).post('/reception/patients', {
+        preserveState: true,
+        preserveScroll: true,
+        onError: returnToInvalidStep,
+        onSuccess: clearArrivalDraft,
+    });
 };
 
 const confirmDespiteDuplicate = () => {
     form.confirm_duplicate = true;
-    form.transform((data) => data).post('/reception/patients', { preserveState: true, preserveScroll: true });
+    form.transform((data) => data).post('/reception/patients', {
+        preserveState: true,
+        preserveScroll: true,
+        onSuccess: clearArrivalDraft,
+    });
 };
 
 const statusLabels = {
@@ -431,9 +501,18 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
             <nav aria-label="Progression de l'enregistrement" class="border-b border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-900 dark:bg-gray-1000/40 sm:px-6">
                 <ol class="flex items-center" role="list">
                     <li v-for="(step, index) in steps" :key="step.key" class="flex flex-1 items-center last:flex-none">
-                        <div class="flex items-center gap-3">
+                        <a
+                            :href="stepHref(step)"
+                            :aria-current="index === stepIndex ? 'step' : undefined"
+                            :aria-disabled="index > furthestStepIndex ? 'true' : undefined"
+                            :tabindex="index > furthestStepIndex ? -1 : undefined"
+                            :class="[
+                                'flex items-center gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300',
+                                index > furthestStepIndex ? 'cursor-not-allowed' : 'cursor-pointer',
+                            ]"
+                            @click.prevent="openStepperStep(index)"
+                        >
                             <span
-                                :aria-current="index === stepIndex ? 'step' : undefined"
                                 :class="[
                                     'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold transition-all duration-300',
                                     index < stepIndex ? 'bg-primary-600 text-white' : '',
@@ -452,7 +531,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                             >
                                 {{ step.label }}
                             </span>
-                        </div>
+                        </a>
                         <div
                             v-if="index < steps.length - 1"
                             :class="[
@@ -620,7 +699,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                     <form
                         v-else-if="currentStep === 'identity' && (patientType === 'new' || (patientType === 'existing' && selectedPatient && canUpdatePatient))"
                         :key="patientType === 'existing' ? 'existing-identity' : 'new-identity'"
-                        @submit.prevent="stepIndex = 2"
+                        @submit.prevent="navigateToStep(2)"
                     >
                         <BlockHead>
                             <BlockTitle as="h2">{{ patientType === 'existing' ? 'Mettre à jour le patient' : 'Identité du patient' }}</BlockTitle>
@@ -912,7 +991,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                     <form
                         v-else-if="currentStep === 'contact' && (patientType === 'new' || (patientType === 'existing' && canUpdatePatient))"
                         key="contact"
-                        @submit.prevent="stepIndex = 3"
+                        @submit.prevent="navigateToStep(3)"
                     >
                         <BlockHead>
                             <div class="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
@@ -1040,9 +1119,42 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                             <p class="mt-1 text-xs text-slate-400">Vérifiez la recherche ou le référentiel tarifé.</p>
                                         </div>
                                     </div>
+
+                                    <section v-if="selectedServices.length" class="mt-5 rounded-md border border-gray-200 p-4 dark:border-gray-800">
+                                        <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                            <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Règlement</h3><p class="mt-0.5 text-xs text-slate-400">La facture sera créée et validée à la confirmation.</p></div>
+                                            <span :class="['inline-flex w-fit items-center gap-1.5 text-xs font-medium', openCashSession ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400']"><span :class="['h-1.5 w-1.5 rounded-full', openCashSession ? 'bg-green-500' : 'bg-slate-300']"></span>{{ openCashSession ? `Caisse ${openCashSession.session_number} ouverte` : 'Caisse fermée' }}</span>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                            <button type="button" :class="['rounded-md border p-4 text-start transition-colors', form.payment_choice === 'NOW' ? 'border-primary-500 bg-primary-50/50 dark:border-primary-700 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800', !canPayNow ? 'cursor-not-allowed opacity-50' : 'hover:border-primary-300']" :disabled="!canPayNow" @click="choosePayment('NOW')">
+                                                <span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="wallet" /> Payer maintenant</span>
+                                                <span class="mt-1.5 block text-xs leading-5 text-slate-400">Encaissement intégral et reçu de paiement immédiat.</span>
+                                            </button>
+                                            <button type="button" :class="['rounded-md border p-4 text-start transition-colors hover:border-primary-300', form.payment_choice === 'LATER' ? 'border-primary-500 bg-primary-50/50 dark:border-primary-700 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800']" @click="choosePayment('LATER')">
+                                                <span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="clock" /> Payer plus tard</span>
+                                                <span class="mt-1.5 block text-xs leading-5 text-slate-400">Facture à payer, sans reçu tant qu’aucun paiement n’est encaissé.</span>
+                                            </button>
+                                        </div>
+
+                                        <div v-if="form.payment_choice === 'NOW'" class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <FormGroup class="!mb-0">
+                                                <FormLabel class="mb-1.5" for="arrival_payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel>
+                                                <select id="arrival_payment_method" v-model="form.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
+                                                    <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
+                                                </select>
+                                                <FormError v-if="form.errors.payment_method_id">{{ form.errors.payment_method_id }}</FormError>
+                                            </FormGroup>
+                                            <FormGroup class="!mb-0">
+                                                <FormLabel class="mb-1.5" for="arrival_payment_reference">Référence <span class="font-normal text-slate-400">(facultatif)</span></FormLabel>
+                                                <InputWrap><Input id="arrival_payment_reference" v-model="form.payment_reference" autocomplete="off" placeholder="N° transaction ou référence" /></InputWrap>
+                                                <FormError v-if="form.errors.payment_reference">{{ form.errors.payment_reference }}</FormError>
+                                            </FormGroup>
+                                        </div>
+                                    </section>
                                 </section>
 
-                                <aside class="rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-gray-1000/40">
+                                <aside class="self-start rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-gray-1000/40">
                                     <div class="flex items-center justify-between gap-3">
                                         <div>
                                             <h3 class="text-sm font-bold text-slate-700 dark:text-white">Prestations retenues</h3>
@@ -1051,7 +1163,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                         <p class="text-base font-bold text-slate-800 dark:text-white">{{ formatMoney(arrivalTotal) }}</p>
                                     </div>
 
-                                    <div v-if="selectedServices.length" class="mt-4 space-y-2">
+                                    <div v-if="selectedServices.length" class="mt-4 max-h-80 space-y-2 overflow-y-auto pe-1">
                                         <div v-for="line in selectedServices" :key="line.item.uuid" class="rounded border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950">
                                             <div class="flex items-start justify-between gap-3">
                                                 <div class="min-w-0"><p class="truncate text-sm font-medium text-slate-700 dark:text-white">{{ line.item.name }}</p><p class="mt-0.5 text-xs text-slate-400">{{ formatMoney(line.item.tariff_amount) }} / {{ line.item.unit }}</p></div>
@@ -1073,39 +1185,6 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                     </div>
                                 </aside>
                             </div>
-
-                            <section v-if="selectedServices.length" class="mt-5 rounded-md border border-gray-200 p-4 dark:border-gray-800">
-                                <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Règlement</h3><p class="mt-0.5 text-xs text-slate-400">La facture sera créée et validée à la confirmation.</p></div>
-                                    <span :class="['inline-flex w-fit items-center gap-1.5 text-xs font-medium', openCashSession ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400']"><span :class="['h-1.5 w-1.5 rounded-full', openCashSession ? 'bg-green-500' : 'bg-slate-300']"></span>{{ openCashSession ? `Caisse ${openCashSession.session_number} ouverte` : 'Caisse fermée' }}</span>
-                                </div>
-
-                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                    <button type="button" :class="['rounded-md border p-4 text-start transition-colors', form.payment_choice === 'NOW' ? 'border-primary-500 bg-primary-50/50 dark:border-primary-700 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800', !canPayNow ? 'cursor-not-allowed opacity-50' : 'hover:border-primary-300']" :disabled="!canPayNow" @click="choosePayment('NOW')">
-                                        <span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="wallet" /> Payer maintenant</span>
-                                        <span class="mt-1.5 block text-xs leading-5 text-slate-400">Encaissement intégral et reçu de paiement immédiat.</span>
-                                    </button>
-                                    <button type="button" :class="['rounded-md border p-4 text-start transition-colors hover:border-primary-300', form.payment_choice === 'LATER' ? 'border-primary-500 bg-primary-50/50 dark:border-primary-700 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800']" @click="choosePayment('LATER')">
-                                        <span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="clock" /> Payer plus tard</span>
-                                        <span class="mt-1.5 block text-xs leading-5 text-slate-400">Facture à payer, sans reçu tant qu’aucun paiement n’est encaissé.</span>
-                                    </button>
-                                </div>
-
-                                <div v-if="form.payment_choice === 'NOW'" class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                    <FormGroup class="!mb-0">
-                                        <FormLabel class="mb-1.5" for="arrival_payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel>
-                                        <select id="arrival_payment_method" v-model="form.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
-                                            <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
-                                        </select>
-                                        <FormError v-if="form.errors.payment_method_id">{{ form.errors.payment_method_id }}</FormError>
-                                    </FormGroup>
-                                    <FormGroup class="!mb-0">
-                                        <FormLabel class="mb-1.5" for="arrival_payment_reference">Référence <span class="font-normal text-slate-400">(facultatif)</span></FormLabel>
-                                        <InputWrap><Input id="arrival_payment_reference" v-model="form.payment_reference" autocomplete="off" placeholder="N° transaction ou référence" /></InputWrap>
-                                        <FormError v-if="form.errors.payment_reference">{{ form.errors.payment_reference }}</FormError>
-                                    </FormGroup>
-                                </div>
-                            </section>
 
                             <FormError v-if="form.errors.catalog_lines" class="mt-3">{{ form.errors.catalog_lines }}</FormError>
                             <FormError v-if="form.errors.payment_choice" class="mt-3">{{ form.errors.payment_choice }}</FormError>
@@ -1163,10 +1242,8 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                                     <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">{{ selectedPatient.patient_number }}</dd>
                                                 </div>
                                                 <div>
-                                                    <dt class="text-xs text-slate-400">Naissance</dt>
-                                                    <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">
-                                                        {{ canUpdatePatient ? birthSummary : formatDate(selectedPatient.birth_date) }}
-                                                    </dd>
+                                                    <dt class="text-xs text-slate-400">{{ birthRecapLabel }}</dt>
+                                                    <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">{{ birthRecapValue }}</dd>
                                                 </div>
                                                 <div>
                                                     <dt class="text-xs text-slate-400">Sexe</dt>
@@ -1231,8 +1308,8 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                                             </div>
                                             <dl class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                                                 <div>
-                                                    <dt class="text-xs text-slate-400">Naissance</dt>
-                                                    <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">{{ birthSummary }}</dd>
+                                                    <dt class="text-xs text-slate-400">{{ birthRecapLabel }}</dt>
+                                                    <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">{{ birthRecapValue }}</dd>
                                                 </div>
                                                 <div>
                                                     <dt class="text-xs text-slate-400">Sexe</dt>

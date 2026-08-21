@@ -4,6 +4,7 @@ namespace Tests\Feature\Http;
 
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodePriority;
+use App\Enums\ReceptionPatientStep;
 use App\Models\AuditLog;
 use App\Models\Episode;
 use App\Models\Patient;
@@ -53,6 +54,7 @@ class ReceptionControllerTest extends TestCase
 
         $this->actingAs($user)->get('/reception')->assertOk();
         $this->actingAs($user)->get('/reception/patients')->assertForbidden();
+        $this->actingAs($user)->get('/reception/patients/type')->assertForbidden();
     }
 
     public function test_search_returns_matching_patients(): void
@@ -62,11 +64,33 @@ class ReceptionControllerTest extends TestCase
         Patient::create(['patient_number' => 'M-000002', ...$this->patientData(['first_name' => 'Marie', 'last_name' => 'Rasoa'])]);
 
         $this->actingAs($user)->get('/reception/patients?q=Rakoto')
+            ->assertRedirect('/reception/patients/identite?q=Rakoto');
+
+        $this->actingAs($user)->get('/reception/patients/identite?q=Rakoto')
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
+                ->where('step', ReceptionPatientStep::Identity->value)
                 ->has('matches', 1)
                 ->where('matches.0.last_name', 'Rakoto')
             );
+    }
+
+    public function test_each_patient_reception_step_has_a_stable_refreshable_url(): void
+    {
+        $user = $this->userWithPermissions(['episodes.create']);
+
+        foreach (ReceptionPatientStep::cases() as $step) {
+            $this->actingAs($user)
+                ->get("/reception/patients/{$step->value}")
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->component('Reception/Create')
+                    ->where('step', $step->value));
+        }
+
+        $this->actingAs($user)
+            ->get('/reception/patients/etape-inconnue')
+            ->assertNotFound();
     }
 
     public function test_create_lists_recent_episodes_with_their_patient(): void
@@ -84,6 +108,7 @@ class ReceptionControllerTest extends TestCase
         $this->actingAs($user)->get('/reception/patients')
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
+                ->where('step', null)
                 ->has('recentEpisodes', 1)
                 ->where('recentEpisodes.0.id', $episode->id)
                 ->where('recentEpisodes.0.priority', EpisodePriority::Normal->value)

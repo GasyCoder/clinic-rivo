@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ReceptionPatientStep;
 use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;
@@ -88,6 +89,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // non-clinical visitor workflows. A visitor never creates an episode.
     Route::get('/reception', [ReceptionController::class, 'index'])->name('reception.index')->middleware('can:reception.view');
     Route::get('/reception/patients', [ReceptionController::class, 'patients'])->name('reception.patients.create')->middleware('can:episodes.create');
+    Route::get('/reception/patients/{step}', [ReceptionController::class, 'patientStep'])
+        ->name('reception.patients.step')
+        ->whereIn('step', ReceptionPatientStep::values())
+        ->middleware('can:episodes.create');
     Route::post('/reception/patients', [ReceptionController::class, 'storePatient'])->name('reception.patients.store')->middleware('can:episodes.create');
     Route::get('/reception/visitors', [VisitorReceptionController::class, 'index'])->name('reception.visitors.index')->middleware('can:visitors.view');
     Route::post('/reception/visitors', [VisitorReceptionController::class, 'store'])->name('reception.visitors.store')->middleware('can:visitors.create');

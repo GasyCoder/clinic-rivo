@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Actions\Reception\CompletePatientArrivalAction;
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\EpisodePriority;
+use App\Enums\ReceptionPatientStep;
 use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
 use App\Models\CashSession;
@@ -49,8 +50,37 @@ class ReceptionController extends Controller
         ]);
     }
 
-    public function patients(Request $request, BillableCatalogDirectory $catalog): Response
+    public function patients(Request $request, BillableCatalogDirectory $catalog): Response|RedirectResponse
     {
+        $search = trim((string) $request->query('q', ''));
+
+        if ($search !== '') {
+            return redirect()->route('reception.patients.step', [
+                'step' => ReceptionPatientStep::Identity->value,
+                'q' => $search,
+            ]);
+        }
+
+        return $this->renderPatientReception($request, $catalog);
+    }
+
+    public function patientStep(
+        Request $request,
+        BillableCatalogDirectory $catalog,
+        string $step,
+    ): Response {
+        return $this->renderPatientReception(
+            $request,
+            $catalog,
+            ReceptionPatientStep::from($step),
+        );
+    }
+
+    private function renderPatientReception(
+        Request $request,
+        BillableCatalogDirectory $catalog,
+        ?ReceptionPatientStep $step = null,
+    ): Response {
         $search = trim((string) $request->query('q', ''));
 
         $matches = $search !== ''
@@ -96,6 +126,7 @@ class ReceptionController extends Controller
             ->get(['id', 'patient_id', 'episode_number', 'status', 'priority', 'administrative_status', 'started_at']);
 
         return Inertia::render('Reception/Create', [
+            'step' => $step?->value,
             'search' => $search,
             'matches' => $matches,
             'recentEpisodes' => $recentEpisodes,

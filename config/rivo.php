@@ -69,6 +69,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Printed document identity
+    |--------------------------------------------------------------------------
+    |
+    | Legal and contact details shown on invoices and other official documents.
+    | They vary by operational site and must be configured with verified values
+    | at deployment time. No legal identifier is guessed by the application.
+    |
+    */
+
+    'documents' => [
+        'logo_url' => env('RIVO_DOCUMENT_LOGO_URL'),
+        'nif' => env('RIVO_LEGAL_NIF'),
+        'stat' => env('RIVO_LEGAL_STAT'),
+        'address' => env('RIVO_LEGAL_ADDRESS'),
+        'phone' => env('RIVO_LEGAL_PHONE'),
+        'email' => env('RIVO_LEGAL_EMAIL'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Local provisioning
     |--------------------------------------------------------------------------
     |

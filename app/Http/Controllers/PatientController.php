@@ -13,9 +13,9 @@ use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
 use App\Models\BillableItem;
 use App\Models\CashSession;
-use App\Models\CatalogItem;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
+use App\Services\Billing\BillableCatalogDirectory;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -57,7 +57,7 @@ class PatientController extends Controller
         ]);
     }
 
-    public function show(Request $request, Patient $patient): Response
+    public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog): Response
     {
         $patient->load([
             'antecedents',
@@ -182,24 +182,7 @@ class PatientController extends Controller
         }
 
         if ($request->user()->can('billing.create')) {
-            $billingCatalog = CatalogItem::query()
-                ->where('billable', true)
-                ->whereHas('currentTariff')
-                ->with('currentTariff:id,catalog_item_id,amount,currency')
-                ->orderBy('module')
-                ->orderBy('name')
-                ->get()
-                ->map(fn (CatalogItem $item) => [
-                    'uuid' => $item->uuid,
-                    'code' => $item->code,
-                    'name' => $item->name,
-                    'module' => $item->module->value,
-                    'module_label' => $item->module->label(),
-                    'unit' => $item->unit,
-                    'tariff_amount' => $item->currentTariff->amount,
-                    'currency' => $item->currentTariff->currency,
-                ])
-                ->values();
+            $billingCatalog = $catalog->services();
         }
 
         return Inertia::render('Patients/Show', [

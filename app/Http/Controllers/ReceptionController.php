@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Reception\RegisterArrivalAction;
+use App\Actions\Reception\CompletePatientArrivalAction;
+use App\Enums\ArrivalPaymentChoice;
 use App\Enums\EpisodePriority;
 use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
+use App\Models\CashSession;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\PaymentMethod;
 use App\Models\VisitorVisit;
+use App\Services\Billing\BillableCatalogDirectory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -45,7 +49,7 @@ class ReceptionController extends Controller
         ]);
     }
 
-    public function patients(Request $request): Response
+    public function patients(Request $request, BillableCatalogDirectory $catalog): Response
     {
         $search = trim((string) $request->query('q', ''));
 
@@ -95,24 +99,62 @@ class ReceptionController extends Controller
             'search' => $search,
             'matches' => $matches,
             'recentEpisodes' => $recentEpisodes,
+            'billingCatalog' => $request->user()->can('billing.create')
+                ? $catalog->services()
+                : [],
+            'paymentMethods' => $request->user()->can('payments.create')
+                ? PaymentMethod::query()
+                    ->where('active', true)
+                    ->orderBy('id')
+                    ->get(['id', 'code', 'name'])
+                : [],
+            'openCashSession' => $request->user()->can('payments.create')
+                ? CashSession::query()
+                    ->where('active_key', 'SINGLE_OPEN_CASH')
+                    ->first(['uuid', 'session_number', 'opened_at'])
+                : null,
         ]);
     }
 
-    public function storePatient(StoreArrivalRequest $request, RegisterArrivalAction $action): RedirectResponse
+    public function storePatient(StoreArrivalRequest $request, CompletePatientArrivalAction $action): RedirectResponse
     {
         try {
-            $episode = $action->execute(
+            $patientData = $request->safe()->only([
+                'first_name',
+                'last_name',
+                'birth_date',
+                'age',
+                'sex',
+                'civility',
+                'identity_document_type',
+                'identity_document_number',
+                'phone',
+                'email',
+                'address',
+                'emergency_contact_name',
+                'emergency_contact_phone',
+                'emergency_contact_email',
+                'emergency_contact_relationship',
+            ]);
+
+            $result = $action->execute(
+                actor: $request->user(),
                 existingPatientUuid: $request->input('patient_uuid'),
                 newPatientData: $request->filled('patient_uuid')
                     ? null
-                    : $request->safe()->except(['is_emergency']),
+                    : $patientData,
                 existingPatientData: $request->filled('patient_uuid') && $request->boolean('update_patient')
-                    ? $request->safe()->except(['patient_uuid', 'is_emergency', 'update_patient'])
+                    ? $patientData
                     : null,
                 confirmDuplicate: $request->boolean('confirm_duplicate'),
                 priority: $request->boolean('is_emergency')
                     ? EpisodePriority::Emergency
                     : EpisodePriority::Normal,
+                catalogLines: $request->validated('catalog_lines', []),
+                paymentChoice: ArrivalPaymentChoice::tryFrom((string) $request->validated('payment_choice'))
+                    ?? ArrivalPaymentChoice::Later,
+                paymentMethodId: $request->integer('payment_method_id') ?: null,
+                paymentReference: $request->validated('payment_reference'),
             );
         } catch (DuplicatePatientException $e) {
             return back()->withInput()->with('duplicates', $e->matches->map(fn (Patient $p) => [
@@ -124,9 +166,30 @@ class ReceptionController extends Controller
             ])->all());
         }
 
+        $episode = $result->episode;
         $message = $episode->priority === EpisodePriority::Emergency
             ? "Passage urgence {$episode->episode_number} créé et orienté vers Médecine / Soins."
             : "Passage {$episode->episode_number} créé.";
+
+        if ($result->billingWarning) {
+            $message .= " Admission conservée, mais la facturation n’a pas abouti : {$result->billingWarning}";
+        }
+
+        if ($result->payment) {
+            $message .= " Facture {$result->invoice->invoice_number} réglée. Reçu {$result->payment->receipt->receipt_number} disponible.";
+
+            if ($request->user()->can('receipts.view')) {
+                return redirect()->route('receipts.show', $result->payment->receipt)
+                    ->with('status', $message);
+            }
+        } elseif ($result->invoice) {
+            $message .= " Facture {$result->invoice->invoice_number} créée avec un solde de {$result->invoice->balance_amount} MGA à payer.";
+
+            if ($request->user()->can('billing.print')) {
+                return redirect()->route('invoices.show', $result->invoice)
+                    ->with('status', $message);
+            }
+        }
 
         return redirect()->route('patients.show', $episode->patient)
             ->with('status', $message);

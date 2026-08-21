@@ -47,6 +47,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Référentiel des prestations et produits facturables
 - [x] Tarifs historisés propres à chaque site
 - [x] Résolution backend du tarif sans saisie libre par Réception
+- [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
+- [x] Facture imprimable sans faux reçu pour un règlement ultérieur
 - [ ] Factures
 - [ ] Facture lignes
 - [ ] Caisse unique

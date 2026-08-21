@@ -52,6 +52,7 @@ class RolePermissionSeeder extends Seeder
             'patients.medical_history.view', 'patients.medical_history.manage',
             'episodes.view', 'episodes.create', 'episodes.update', 'episodes.cancel',
             'billing.view', 'billing.create', 'billing.validate',
+            'billing.print',
             'payments.view', 'payments.create', 'payments.cancel',
             'cash.view', 'cash.open', 'cash.close',
             'receipts.view', 'receipts.print',

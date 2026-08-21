@@ -323,6 +323,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                                 <div><dt class="text-slate-400">Solde</dt><dd class="mt-1 font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</dd></div>
                             </dl>
                             <Button v-if="invoice.status === 'DRAFT' && can('billing.validate')" size="sm" variant="white-outline" type="button" :disabled="validatingInvoice === invoice.uuid" @click="validateInvoice(invoice)"><Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span></Button>
+                            <Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" name="printer" /><span class="ms-1.5">Facture</span></Button>
                             <Button v-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && openCashSession" size="sm" variant="primary" type="button" @click="openPaymentDialog(invoice)"><Icon class="text-base" name="money" /><span class="ms-1.5">Encaisser</span></Button>
                             <Button v-else-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && !openCashSession" :as="Link" href="/cash" size="sm" variant="white-outline">Ouvrir la caisse</Button>
                         </div>

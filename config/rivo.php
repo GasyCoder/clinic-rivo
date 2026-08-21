@@ -69,6 +69,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Local provisioning
+    |--------------------------------------------------------------------------
+    |
+    | Optional UUID or email of the real, active account recorded as the
+    | provisioning author when the explicit local clinical-service seeder is
+    | run. This does not grant that account any catalog permission. The seeder
+    | is never part of DatabaseSeeder and is refused outside local/testing.
+    |
+    */
+
+    'seeders' => [
+        'catalog_actor' => env('RIVO_CATALOG_SEED_ACTOR'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Clinic directory
     |--------------------------------------------------------------------------
     |

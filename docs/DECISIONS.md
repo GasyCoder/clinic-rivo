@@ -862,3 +862,64 @@ de déploiement sont révoquées à la requête suivante.
 Les bases des sites peuvent conserver la définition technique du rôle
 `SUPER_ADMIN` pour partager le même schéma, mais ce rôle n’y reçoit aucune
 permission par défaut, ne peut pas y être attribué et ne peut pas s’y connecter.
+
+---
+
+# ADR-028 — Prestations et choix de règlement à l’arrivée
+
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+
+Dans le parcours Réception Patient, la réceptionniste demande la raison de la
+venue et sélectionne une ou plusieurs prestations disponibles dans le
+référentiel tarifé du site, par exemple consultation, ECG ou échographie.
+
+La sélection à la Réception est limitée aux éléments :
+
+```text
+type = SERVICE
+billable = true
+non archivés
+avec un tarif actif
+```
+
+Elle ne permet pas de vendre directement un médicament, un consommable ou un
+équipement. La Réception voit le tarif et le total prévisionnel, mais ne saisit
+jamais le prix. À la confirmation, Laravel relit et verrouille le tarif actif,
+puis conserve son instantané dans la prestation et la facture. Le montant envoyé
+par le navigateur n’est jamais une source de vérité.
+
+Avant la confirmation, deux choix sont proposés :
+
+```text
+PAYER MAINTENANT
+PAYER PLUS TARD
+```
+
+`PAYER MAINTENANT` exige une caisse ouverte, `payments.create` et un mode de
+paiement actif. La confirmation crée et valide la facture, encaisse exactement
+son solde, enregistre le mouvement de caisse et génère le reçu de paiement dans
+une transaction unique.
+
+`PAYER PLUS TARD` crée et valide la facture avec son solde restant dû. Il ne crée
+ni paiement, ni mouvement de caisse, ni reçu. La facture imprimable sert de
+document remis au patient jusqu’à l’encaissement. Une facture impayée ne devient
+une créance formelle qu’au moment du futur circuit de sortie/dette validée prévu
+par le CDC.
+
+Un reçu atteste exclusivement un paiement réellement encaissé. Le système ne
+doit jamais produire un « reçu impayé ».
+
+Lorsqu’aucune prestation n’est encore connue, la Réception peut indiquer
+« prestation à définir après orientation ». Une urgence peut toujours poursuivre
+son admission sans prestation ni paiement préalable, conformément à ADR-021.
+
+Permissions :
+
+```text
+episodes.create
+billing.create
+billing.validate
+billing.print
+payments.create       seulement pour PAYER MAINTENANT
+receipts.view/print   consultation et impression du reçu réel
+```

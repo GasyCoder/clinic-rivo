@@ -21,6 +21,7 @@ import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDate, formatDateTime, formatRelativeTime } from '@/utilities/date';
+import { formatMoney } from '@/utilities/money';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({
@@ -31,6 +32,9 @@ const props = defineProps({
     search: String,
     matches: Array,
     recentEpisodes: Array,
+    billingCatalog: Array,
+    paymentMethods: Array,
+    openCashSession: Object,
 });
 
 const page = usePage();
@@ -42,6 +46,7 @@ const steps = [
     { key: 'type', label: 'Type' },
     { key: 'identity', label: 'Identité' },
     { key: 'contact', label: 'Contact' },
+    { key: 'services', label: 'Prestations' },
     { key: 'confirm', label: 'Confirmation' },
 ];
 const stepIndex = ref(0);
@@ -68,7 +73,7 @@ if (props.search) {
 // flashed) — the normal duplicate round-trip uses preserveState on the
 // form.post() below, so the wizard's own state survives without this.
 if (duplicates.value?.length > 0) {
-    stepIndex.value = 3;
+    stepIndex.value = 4;
     patientType.value = 'new';
 }
 
@@ -80,7 +85,7 @@ const chooseType = (type) => {
 };
 
 const goBack = () => {
-    if (currentStep.value === 'confirm' && patientType.value === 'existing' && !canUpdatePatient.value) {
+    if (currentStep.value === 'services' && patientType.value === 'existing' && !canUpdatePatient.value) {
         selectedPatient.value = null;
         stepIndex.value = 1;
         return;
@@ -134,6 +139,11 @@ const form = useForm({
     emergency_contact_relationship: '',
     is_emergency: false,
     confirm_duplicate: false,
+    defer_designation: false,
+    catalog_lines: [],
+    payment_choice: 'LATER',
+    payment_method_id: props.paymentMethods?.[0]?.id ?? '',
+    payment_reference: '',
 });
 
 // Some patients don't know their exact birth date, only their age — the
@@ -235,7 +245,76 @@ const birthSummary = computed(() => {
     return null;
 });
 
-// --- Final submission (step 4) ---
+// --- Services and settlement intent ---
+const serviceQuery = ref('');
+const normalizedServiceQuery = computed(() => serviceQuery.value.trim().toLocaleLowerCase('fr'));
+const selectedServiceUuids = computed(() => new Set(form.catalog_lines.map((line) => line.catalog_item_uuid)));
+const catalogByUuid = computed(() => new Map((props.billingCatalog ?? []).map((item) => [item.uuid, item])));
+const filteredCatalog = computed(() => (props.billingCatalog ?? [])
+    .filter((item) => {
+        if (selectedServiceUuids.value.has(item.uuid)) return false;
+        if (!normalizedServiceQuery.value) return true;
+
+        return `${item.code} ${item.name} ${item.module_label}`
+            .toLocaleLowerCase('fr')
+            .includes(normalizedServiceQuery.value);
+    })
+    .slice(0, 12));
+const selectedServices = computed(() => form.catalog_lines.map((line, index) => ({
+    formLine: line,
+    index,
+    item: catalogByUuid.value.get(line.catalog_item_uuid),
+})).filter((line) => line.item));
+const arrivalTotal = computed(() => selectedServices.value.reduce(
+    (total, line) => total + Number(line.formLine.quantity || 0) * Number(line.item.tariff_amount || 0),
+    0,
+));
+const canPrepareBilling = computed(() => can('billing.create') && can('billing.validate'));
+const canPayNow = computed(() => can('payments.create') && Boolean(props.openCashSession) && (props.paymentMethods?.length ?? 0) > 0);
+const servicesComplete = computed(() => selectedServices.value.length > 0
+    || form.defer_designation
+    || form.is_emergency
+    || !canPrepareBilling.value);
+
+const addService = (item) => {
+    if (selectedServiceUuids.value.has(item.uuid)) return;
+
+    form.catalog_lines.push({ catalog_item_uuid: item.uuid, quantity: 1 });
+    form.defer_designation = false;
+    serviceQuery.value = '';
+};
+
+const removeService = (index) => form.catalog_lines.splice(index, 1);
+
+const choosePayment = (choice) => {
+    if (choice === 'NOW' && !canPayNow.value) return;
+
+    form.payment_choice = choice;
+};
+
+const continueToConfirmation = () => {
+    if (!servicesComplete.value) return;
+
+    if (!selectedServices.value.length) {
+        form.payment_choice = 'LATER';
+        form.payment_method_id = '';
+        form.payment_reference = '';
+    } else if (form.payment_choice === 'NOW' && !canPayNow.value) {
+        form.payment_choice = 'LATER';
+    }
+
+    stepIndex.value = 4;
+};
+
+const arrivalBillingPayload = (data) => ({
+    defer_designation: data.defer_designation,
+    catalog_lines: data.catalog_lines,
+    payment_choice: data.catalog_lines.length ? data.payment_choice : null,
+    payment_method_id: data.catalog_lines.length && data.payment_choice === 'NOW' ? data.payment_method_id : null,
+    payment_reference: data.catalog_lines.length && data.payment_choice === 'NOW' ? data.payment_reference : null,
+});
+
+// --- Final submission (step 5) ---
 const confirmArrival = () => {
     if (patientType.value === 'existing') {
         form.transform((data) => canUpdatePatient.value
@@ -247,6 +326,7 @@ const confirmArrival = () => {
             : {
                 patient_uuid: selectedPatient.value.uuid,
                 is_emergency: data.is_emergency,
+                ...arrivalBillingPayload(data),
             }
         ).post('/reception/patients', {
             preserveState: true,
@@ -259,7 +339,12 @@ const confirmArrival = () => {
                     'emergency_contact_relationship',
                 ];
 
-                stepIndex.value = Object.keys(errors).some((field) => contactFields.includes(field)) ? 2 : 1;
+                const fields = Object.keys(errors);
+                if (fields.some((field) => field.startsWith('catalog_lines') || field.startsWith('payment_'))) {
+                    stepIndex.value = 3;
+                } else {
+                    stepIndex.value = fields.some((field) => contactFields.includes(field)) ? 2 : 1;
+                }
             },
         });
         return;
@@ -911,7 +996,134 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                         </div>
                     </form>
 
-                    <!-- Step 4: confirm -->
+                    <!-- Step 4: services and payment choice -->
+                    <div v-else-if="currentStep === 'services'" key="services">
+                        <BlockHead class="!pb-4">
+                            <BlockTitle as="h2">Que vient faire le patient ?</BlockTitle>
+                            <BlockText>Sélectionnez les prestations demandées. Le tarif affiché vient directement du référentiel du site.</BlockText>
+                        </BlockHead>
+
+                        <template v-if="canPrepareBilling">
+                            <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+                                <section class="min-w-0">
+                                    <FormGroup class="!mb-3">
+                                        <FormLabel class="mb-1.5" for="service_search">Rechercher une désignation</FormLabel>
+                                        <IconInput
+                                            id="service_search"
+                                            v-model="serviceQuery"
+                                            icon="search"
+                                            autocomplete="off"
+                                            placeholder="Ex. échographie, ECG, consultation…"
+                                        />
+                                    </FormGroup>
+
+                                    <div class="max-h-72 overflow-y-auto rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                                        <button
+                                            v-for="item in filteredCatalog"
+                                            :key="item.uuid"
+                                            type="button"
+                                            class="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3 text-start transition-colors last:border-0 hover:bg-gray-50 focus-visible:bg-gray-50 focus-visible:outline-none dark:border-gray-900 dark:hover:bg-gray-900/60"
+                                            @click="addService(item)"
+                                        >
+                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-300">
+                                                <Icon class="text-base" name="plus" />
+                                            </span>
+                                            <span class="min-w-0 flex-1">
+                                                <span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span>
+                                                <span class="mt-0.5 block text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.unit }}</span>
+                                            </span>
+                                            <span class="shrink-0 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.tariff_amount) }}</span>
+                                        </button>
+
+                                        <div v-if="filteredCatalog.length === 0" class="px-4 py-8 text-center">
+                                            <p class="text-sm font-medium text-slate-500">Aucune prestation trouvée</p>
+                                            <p class="mt-1 text-xs text-slate-400">Vérifiez la recherche ou le référentiel tarifé.</p>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <aside class="rounded-md border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-gray-1000/40">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="text-sm font-bold text-slate-700 dark:text-white">Prestations retenues</h3>
+                                            <p class="mt-0.5 text-xs text-slate-400">{{ selectedServices.length }} désignation{{ selectedServices.length > 1 ? 's' : '' }}</p>
+                                        </div>
+                                        <p class="text-base font-bold text-slate-800 dark:text-white">{{ formatMoney(arrivalTotal) }}</p>
+                                    </div>
+
+                                    <div v-if="selectedServices.length" class="mt-4 space-y-2">
+                                        <div v-for="line in selectedServices" :key="line.item.uuid" class="rounded border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0"><p class="truncate text-sm font-medium text-slate-700 dark:text-white">{{ line.item.name }}</p><p class="mt-0.5 text-xs text-slate-400">{{ formatMoney(line.item.tariff_amount) }} / {{ line.item.unit }}</p></div>
+                                                <button type="button" class="shrink-0 text-slate-400 hover:text-red-600" :aria-label="`Retirer ${line.item.name}`" @click="removeService(line.index)"><Icon name="cross" /></button>
+                                            </div>
+                                            <div class="mt-2 flex items-center justify-between gap-3">
+                                                <label :for="`service_quantity_${line.index}`" class="text-xs text-slate-400">Quantité</label>
+                                                <Input :id="`service_quantity_${line.index}`" v-model="line.formLine.quantity" class="!w-24 text-end" type="number" min="0.01" max="9999.99" step="0.01" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p v-else class="mt-4 rounded border border-dashed border-gray-300 px-3 py-5 text-center text-xs leading-5 text-slate-400 dark:border-gray-700">Ajoutez une prestation depuis la liste.</p>
+
+                                    <div class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-800">
+                                        <CheckBox id="defer_designation" v-model="form.defer_designation" name="defer_designation" size="sm" :disabled="selectedServices.length > 0">
+                                            Prestation à définir après orientation
+                                        </CheckBox>
+                                        <p v-if="form.is_emergency" class="mt-2 text-xs leading-5 text-red-600 dark:text-red-300">Une urgence peut continuer sans prestation ni paiement préalable.</p>
+                                    </div>
+                                </aside>
+                            </div>
+
+                            <section v-if="selectedServices.length" class="mt-5 rounded-md border border-gray-200 p-4 dark:border-gray-800">
+                                <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Règlement</h3><p class="mt-0.5 text-xs text-slate-400">La facture sera créée et validée à la confirmation.</p></div>
+                                    <span :class="['inline-flex w-fit items-center gap-1.5 text-xs font-medium', openCashSession ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400']"><span :class="['h-1.5 w-1.5 rounded-full', openCashSession ? 'bg-green-500' : 'bg-slate-300']"></span>{{ openCashSession ? `Caisse ${openCashSession.session_number} ouverte` : 'Caisse fermée' }}</span>
+                                </div>
+
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <button type="button" :class="['rounded-md border p-4 text-start transition-colors', form.payment_choice === 'NOW' ? 'border-primary-500 bg-primary-50/50 dark:border-primary-700 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800', !canPayNow ? 'cursor-not-allowed opacity-50' : 'hover:border-primary-300']" :disabled="!canPayNow" @click="choosePayment('NOW')">
+                                        <span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="wallet" /> Payer maintenant</span>
+                                        <span class="mt-1.5 block text-xs leading-5 text-slate-400">Encaissement intégral et reçu de paiement immédiat.</span>
+                                    </button>
+                                    <button type="button" :class="['rounded-md border p-4 text-start transition-colors hover:border-primary-300', form.payment_choice === 'LATER' ? 'border-primary-500 bg-primary-50/50 dark:border-primary-700 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800']" @click="choosePayment('LATER')">
+                                        <span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="clock" /> Payer plus tard</span>
+                                        <span class="mt-1.5 block text-xs leading-5 text-slate-400">Facture à payer, sans reçu tant qu’aucun paiement n’est encaissé.</span>
+                                    </button>
+                                </div>
+
+                                <div v-if="form.payment_choice === 'NOW'" class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                    <FormGroup class="!mb-0">
+                                        <FormLabel class="mb-1.5" for="arrival_payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel>
+                                        <select id="arrival_payment_method" v-model="form.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
+                                            <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
+                                        </select>
+                                        <FormError v-if="form.errors.payment_method_id">{{ form.errors.payment_method_id }}</FormError>
+                                    </FormGroup>
+                                    <FormGroup class="!mb-0">
+                                        <FormLabel class="mb-1.5" for="arrival_payment_reference">Référence <span class="font-normal text-slate-400">(facultatif)</span></FormLabel>
+                                        <InputWrap><Input id="arrival_payment_reference" v-model="form.payment_reference" autocomplete="off" placeholder="N° transaction ou référence" /></InputWrap>
+                                        <FormError v-if="form.errors.payment_reference">{{ form.errors.payment_reference }}</FormError>
+                                    </FormGroup>
+                                </div>
+                            </section>
+
+                            <FormError v-if="form.errors.catalog_lines" class="mt-3">{{ form.errors.catalog_lines }}</FormError>
+                            <FormError v-if="form.errors.payment_choice" class="mt-3">{{ form.errors.payment_choice }}</FormError>
+                        </template>
+
+                        <div v-else class="rounded-md border border-dashed border-gray-300 px-5 py-8 text-center dark:border-gray-700">
+                            <Icon class="text-2xl text-slate-400" name="file-text" />
+                            <p class="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">Création de facture non autorisée</p>
+                            <p class="mt-1 text-xs text-slate-400">Le passage peut être enregistré ; la prestation sera définie par un utilisateur habilité.</p>
+                        </div>
+
+                        <div class="mt-7 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:justify-between">
+                            <Button class="w-full justify-center sm:w-auto" size="rg" variant="white-outline" type="button" @click="goBack"><Icon class="text-lg/4.5" name="arrow-left" /><span class="ms-2">Retour</span></Button>
+                            <Button class="w-full justify-center sm:w-auto" size="rg" variant="primary" type="button" :disabled="!servicesComplete" @click="continueToConfirmation"><span class="me-2">Continuer</span><Icon class="text-lg/4.5" name="arrow-right" /></Button>
+                        </div>
+                    </div>
+
+                    <!-- Step 5: confirm -->
                     <div v-else-if="currentStep === 'confirm'" key="confirm">
                         <BlockHead>
                             <BlockTitle as="h2">Confirmer l'arrivée</BlockTitle>
@@ -1055,6 +1267,26 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                             </CardBody>
                         </Card>
 
+                        <Card v-if="selectedServices.length" class="mt-4 overflow-hidden">
+                            <div class="flex flex-col gap-2 border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                                <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Prestations et règlement</h3><p class="mt-0.5 text-xs text-slate-400">Les tarifs seront vérifiés une dernière fois par le serveur.</p></div>
+                                <div class="text-start sm:text-end"><p class="text-base font-bold text-slate-800 dark:text-white">{{ formatMoney(arrivalTotal) }}</p><p class="text-xs font-medium text-slate-500">{{ form.payment_choice === 'NOW' ? 'Paiement immédiat' : 'Paiement ultérieur' }}</p></div>
+                            </div>
+                            <div class="divide-y divide-gray-100 dark:divide-gray-900">
+                                <div v-for="line in selectedServices" :key="line.item.uuid" class="flex items-center justify-between gap-4 px-5 py-2.5 text-sm">
+                                    <span class="min-w-0 truncate text-slate-600 dark:text-slate-300">{{ line.item.name }} <span class="text-xs text-slate-400">· {{ line.formLine.quantity }} × {{ formatMoney(line.item.tariff_amount) }}</span></span>
+                                    <span class="shrink-0 font-bold text-slate-700 dark:text-white">{{ formatMoney(Number(line.formLine.quantity) * Number(line.item.tariff_amount)) }}</span>
+                                </div>
+                            </div>
+                            <div class="border-t border-gray-200 bg-gray-50 px-5 py-3 text-xs leading-5 text-slate-500 dark:border-gray-900 dark:bg-gray-1000/40 dark:text-slate-400">
+                                {{ form.payment_choice === 'NOW' ? 'La confirmation créera la facture, enregistrera le paiement intégral et générera le reçu.' : 'La confirmation créera une facture à payer. Aucun reçu ne sera généré avant l’encaissement.' }}
+                            </div>
+                        </Card>
+
+                        <div v-else class="mt-4 rounded-md border border-dashed border-gray-300 px-4 py-3 text-xs text-slate-500 dark:border-gray-700 dark:text-slate-400">
+                            Prestation à définir après orientation : aucun montant ne sera facturé à cette étape.
+                        </div>
+
                         <Card
                             v-if="duplicates && duplicates.length > 0"
                             class="mt-5 !border-yellow-300 bg-yellow-50 dark:!border-yellow-900 dark:bg-yellow-950"
@@ -1082,7 +1314,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                         <div class="mt-8 flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 dark:border-gray-900 sm:flex-row sm:justify-between">
                             <Button class="w-full justify-center sm:w-auto" size="rg" variant="white-outline" type="button" @click="goBack">
                                 <Icon class="text-lg/4.5" name="arrow-left" />
-                                <span class="ms-2">{{ patientType === 'existing' && !canUpdatePatient ? 'Changer de patient' : 'Modifier' }}</span>
+                                <span class="ms-2">Modifier</span>
                             </Button>
                             <Button class="w-full justify-center sm:w-auto" size="rg" variant="primary" type="button" :disabled="form.processing" @click="confirmArrival">
                                 <Icon class="text-lg/4.5" name="check" />

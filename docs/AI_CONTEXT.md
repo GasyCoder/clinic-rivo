@@ -471,6 +471,14 @@ cash closing
 financial reports
 ```
 
+À l’arrivée, Réception peut sélectionner les prestations `SERVICE` possédant un
+tarif actif. Le navigateur affiche un total prévisionnel, mais Laravel résout à
+nouveau le tarif et crée son instantané. `PAYER PLUS TARD` produit une facture
+validée avec solde dû ; `PAYER MAINTENANT` exige une caisse ouverte et produit
+facture, paiement, mouvement de caisse et reçu. Aucun reçu n’existe sans
+encaissement réel. Une urgence ne dépend jamais de cette sélection ou du
+paiement. Voir ADR-028.
+
 ---
 
 # UI

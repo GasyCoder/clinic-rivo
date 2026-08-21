@@ -109,6 +109,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/cash/open', [CashController::class, 'open'])->name('cash.open')->middleware('can:cash.open');
     Route::post('/cash/close', [CashController::class, 'close'])->name('cash.close')->middleware('can:cash.close');
     Route::post('/patients/{patient}/invoices', [BillingController::class, 'store'])->name('invoices.store')->middleware('can:billing.create');
+    Route::get('/invoices/{invoice}', [BillingController::class, 'show'])->name('invoices.show')->middleware('can:billing.print');
     Route::post('/invoices/{invoice}/validate', [BillingController::class, 'validateInvoice'])->name('invoices.validate')->middleware('can:billing.validate');
     Route::post('/patients/{patient}/payments', [PaymentController::class, 'store'])->name('payments.store')->middleware('can:payments.create');
     Route::post('/payments/{payment}/cancel', [PaymentController::class, 'cancel'])->name('payments.cancel')->middleware('can:payments.cancel');

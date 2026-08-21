@@ -15,6 +15,7 @@ const props = defineProps({ receipt: Object });
 const page = usePage();
 const { can } = usePermissions();
 const siteName = computed(() => page.props.site?.name ?? page.props.site?.brand ?? 'Clinique Saint Georges');
+const status = computed(() => page.props.flash?.status);
 const payment = computed(() => props.receipt.payment);
 const invoice = computed(() => payment.value.invoice);
 const printReceipt = () => window.print();
@@ -24,6 +25,7 @@ const printReceipt = () => window.print();
     <Head :title="`Reçu ${receipt.receipt_number}`" />
 
     <div class="receipt-page mx-auto w-full max-w-3xl space-y-4">
+        <div v-if="status" class="receipt-actions flex items-center gap-3 rounded border border-gray-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" role="status"><Icon class="text-lg text-green-600" name="check-circle" /><span>{{ status }}</span></div>
         <div class="receipt-actions flex flex-wrap items-center justify-between gap-3">
             <Button :as="Link" :href="`/patients/${invoice.patient.uuid}`" size="rg" variant="white-outline">
                 <Icon class="text-lg" name="arrow-left" />

@@ -165,6 +165,7 @@ class PermissionSeeder extends Seeder
         'billing.view' => 'Voir les factures et soldes',
         'billing.create' => 'Créer une facture',
         'billing.validate' => 'Valider une facture',
+        'billing.print' => 'Voir et imprimer une facture',
         'payments.view' => 'Voir les paiements',
         'payments.create' => 'Enregistrer un paiement',
         'payments.cancel' => 'Annuler un paiement',

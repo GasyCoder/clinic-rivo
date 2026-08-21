@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Actions\Cash\CloseCashSessionAction;
 use App\Actions\Cash\OpenCashSessionAction;
+use App\Enums\InvoiceStatus;
 use App\Http\Requests\CloseCashSessionRequest;
 use App\Http\Requests\OpenCashSessionRequest;
 use App\Models\CashSession;
+use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -56,6 +59,38 @@ class CashController extends Controller
                 ->get()
             : collect();
 
+        $outstandingInvoices = $request->user()->can('billing.view')
+            ? Invoice::query()
+                ->whereIn('status', [
+                    InvoiceStatus::Validated->value,
+                    InvoiceStatus::PartiallyPaid->value,
+                ])
+                ->where('balance_amount', '>', 0)
+                ->with([
+                    'patient:id,uuid,patient_number,first_name,last_name',
+                    'episode:id,uuid,episode_number',
+                ])
+                ->withCount('lines')
+                ->orderByRaw('COALESCE(validated_at, created_at) ASC')
+                ->limit(50)
+                ->get([
+                    'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
+                    'status', 'total_amount', 'paid_amount', 'balance_amount',
+                    'created_at', 'validated_at',
+                ])
+            : collect();
+
+        $outstandingBalanceMinor = $outstandingInvoices->sum(
+            fn (Invoice $invoice): int => Money::toMinor($invoice->balance_amount),
+        );
+
+        $paymentMethods = $request->user()->can('payments.create')
+            ? PaymentMethod::query()
+                ->where('active', true)
+                ->orderBy('id')
+                ->get(['id', 'code', 'name'])
+            : collect();
+
         $recentSessions = CashSession::query()
             ->with(['opener:id,name', 'closer:id,name'])
             ->latest('opened_at')
@@ -65,6 +100,14 @@ class CashController extends Controller
         return Inertia::render('Cash/Index', [
             'cashSession' => $session,
             'summary' => $summary,
+            'outstandingInvoices' => $outstandingInvoices,
+            'outstandingSummary' => $request->user()->can('billing.view')
+                ? [
+                    'count' => $outstandingInvoices->count(),
+                    'balance_amount' => Money::fromMinor($outstandingBalanceMinor),
+                ]
+                : null,
+            'paymentMethods' => $paymentMethods,
             'recentPayments' => $recentPayments,
             'recentSessions' => $recentSessions,
         ]);

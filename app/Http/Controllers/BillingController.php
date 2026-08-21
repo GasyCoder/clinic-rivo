@@ -14,7 +14,7 @@ use Inertia\Response;
 
 class BillingController extends Controller
 {
-    public function show(Invoice $invoice): Response
+    public function show(Request $request, Invoice $invoice): Response
     {
         $invoice->load([
             'patient:id,uuid,patient_number,first_name,last_name',
@@ -26,6 +26,8 @@ class BillingController extends Controller
 
         return Inertia::render('Invoices/Show', [
             'invoice' => $invoice,
+            'returnToCash' => $request->query('from') === 'cash'
+                && $request->user()->can('cash.view'),
         ]);
     }
 

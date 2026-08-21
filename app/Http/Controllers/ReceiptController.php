@@ -3,12 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Receipt;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ReceiptController extends Controller
 {
-    public function show(Receipt $receipt): Response
+    public function show(Request $request, Receipt $receipt): Response
     {
         $receipt->load([
             'issuer:id,name',
@@ -21,6 +22,8 @@ class ReceiptController extends Controller
 
         return Inertia::render('Receipts/Show', [
             'receipt' => $receipt,
+            'returnToCash' => $request->query('from') === 'cash'
+                && $request->user()->can('cash.view'),
         ]);
     }
 }

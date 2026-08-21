@@ -11,7 +11,10 @@ import { formatPatientName } from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
 
-const props = defineProps({ invoice: Object });
+const props = defineProps({
+    invoice: Object,
+    returnToCash: Boolean,
+});
 const page = usePage();
 const brandName = computed(() => page.props.site?.brand ?? 'Clinique Saint Georges');
 const siteName = computed(() => page.props.site?.name ?? brandName.value);
@@ -20,6 +23,8 @@ const publicUrl = computed(() => page.props.site?.publicUrl ?? 'https://clinique
 const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''));
 const status = computed(() => page.props.flash?.status);
 const hasDiscount = computed(() => Number(props.invoice.discount_amount ?? 0) > 0);
+const returnHref = computed(() => (props.returnToCash ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
+const returnLabel = computed(() => (props.returnToCash ? 'Retour à la caisse' : 'Retour au patient'));
 const qrCodeDataUrl = ref('');
 const ticketRef = ref(null);
 const printPageStyleId = 'invoice-print-page-size';
@@ -110,9 +115,9 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="invoice-actions flex flex-wrap items-center justify-between gap-3">
-            <Button :as="Link" :href="`/patients/${invoice.patient.uuid}`" size="rg" variant="white-outline">
+            <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">
                 <Icon class="text-lg" name="arrow-left" />
-                <span class="ms-2">Retour au patient</span>
+                <span class="ms-2">{{ returnLabel }}</span>
             </Button>
             <div class="flex flex-wrap items-center justify-end gap-2">
                 <Button size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">

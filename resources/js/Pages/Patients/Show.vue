@@ -40,8 +40,8 @@ const latestEpisode = computed(() => props.patient.episodes[0] ?? null);
 const birthSummary = computed(() => {
     if (props.patient.birth_date_is_approximate) {
         return props.patient.age !== null && props.patient.age !== undefined
-            ? `${props.patient.age} ans (âge déclaré)`
-            : 'Âge déclaré';
+            ? `${props.patient.age} ans`
+            : 'Non renseigné';
     }
 
     return props.patient.birth_date ? formatDate(props.patient.birth_date) : 'Non renseignée';
@@ -174,6 +174,17 @@ const invoiceStatusLabels = {
     CANCELLED: 'Annulée',
 };
 const severityLabels = { MILD: 'Légère', MODERATE: 'Modérée', SEVERE: 'Sévère' };
+const moduleLabels = {
+    RECEPTION: 'Réception',
+    CARE: 'Soins',
+    MEDICINE: 'Médecine',
+    LABORATORY: 'Laboratoire',
+    SURGERY: 'Chirurgie',
+    PHARMACY: 'Pharmacie',
+};
+const formatQuantity = (quantity) => Number(quantity).toLocaleString('fr-FR', {
+    maximumFractionDigits: 2,
+});
 
 const episodeStatusBadgeClass = (statusValue) => ({
     OPEN: 'border-gray-200 text-slate-600 dark:border-gray-800 dark:text-slate-300',
@@ -220,7 +231,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
             </div>
 
             <dl class="grid grid-cols-2 border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30 sm:grid-cols-4">
-                <div class="border-e border-gray-200 px-5 py-3 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">{{ patient.birth_date_is_approximate ? 'Âge' : 'Naissance' }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ birthSummary }}</dd></div>
+                <div class="border-e border-gray-200 px-5 py-3 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">{{ patient.birth_date_is_approximate ? 'Âge' : 'Date de naissance' }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ birthSummary }}</dd></div>
                 <div class="px-5 py-3 sm:border-e sm:border-gray-200 sm:dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Sexe</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ sexLabel(patient.sex) }}</dd></div>
                 <div class="border-e border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Téléphone</dt><dd class="mt-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
                 <div class="border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Dernier passage</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ latestEpisode?.episode_number ?? 'Aucun passage' }}</dd></div>
@@ -293,7 +304,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <span class="min-w-0 flex-1">
                             <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                                 {{ item.description }}
-                                <span class="text-xs font-normal text-slate-400">{{ item.source_module }}</span>
+                                <span class="text-xs font-normal text-slate-400">{{ moduleLabels[item.source_module] ?? item.source_module }}</span>
                                 <span v-if="item.payment_required_before_fulfillment" class="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:border-gray-700 dark:text-slate-400">Paiement préalable requis</span>
                             </span>
                             <span class="mt-0.5 block text-xs text-slate-400">{{ item.quantity }} × {{ formatMoney(item.unit_price) }}</span>
@@ -330,7 +341,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <summary class="cursor-pointer text-xs font-medium text-slate-500">Prestations annulées ({{ cancelledBillableItems.length }})</summary>
                 <ul class="mt-3 space-y-2">
                     <li v-for="item in cancelledBillableItems" :key="item.uuid" class="flex flex-col justify-between gap-1 text-xs text-slate-400 sm:flex-row">
-                        <span><span class="line-through">{{ item.description }} · {{ formatMoney(item.total_amount) }}</span> · {{ item.source_module }} · passage {{ item.episode.episode_number }}</span>
+                        <span><span class="line-through">{{ item.description }} · {{ formatMoney(item.total_amount) }}</span> · {{ moduleLabels[item.source_module] ?? item.source_module }} · passage {{ item.episode.episode_number }}</span>
                         <span :title="item.cancellation_reason">Annulée le {{ formatDateTime(item.cancelled_at) }}</span>
                     </li>
                 </ul>
@@ -357,20 +368,42 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         </div>
                     </div>
 
-                    <ul class="divide-y divide-gray-100 px-4 dark:divide-gray-900">
-                        <li v-for="line in invoice.lines" :key="line.id" class="flex items-center justify-between gap-4 py-2.5 text-sm">
-                            <div class="min-w-0">
-                                <p class="truncate font-medium text-slate-700 dark:text-slate-200">{{ line.description }}</p>
-                                <p class="mt-0.5 text-xs text-slate-400">{{ line.source_module }} · {{ line.quantity }} × {{ formatMoney(line.unit_price) }}</p>
-                            </div>
-                            <span class="shrink-0 font-semibold text-slate-600 dark:text-slate-300">{{ formatMoney(line.line_total) }}</span>
-                        </li>
-                    </ul>
-
-                    <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-1 border-t border-gray-100 bg-gray-50/60 px-4 py-2.5 text-xs dark:border-gray-900 dark:bg-gray-1000/30">
-                        <span class="text-slate-400">Total <b class="font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.total_amount) }}</b></span>
-                        <span class="text-slate-400">Payé <b class="font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</b></span>
-                        <span class="text-slate-400">Solde <b :class="['font-bold', invoice.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400']">{{ formatMoney(invoice.balance_amount) }}</b></span>
+                    <div class="overflow-x-auto">
+                        <table class="w-full min-w-[760px] border-collapse">
+                            <caption class="sr-only">Désignations de la facture {{ invoice.invoice_number }}</caption>
+                            <thead>
+                                <tr class="border-b border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+                                    <th class="px-4 py-2.5 text-start text-[11px] font-bold uppercase tracking-wide text-slate-400">Désignation</th>
+                                    <th class="w-40 px-4 py-2.5 text-start text-[11px] font-bold uppercase tracking-wide text-slate-400">Service</th>
+                                    <th class="w-24 px-4 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-400">Qté</th>
+                                    <th class="w-40 px-4 py-2.5 text-end text-[11px] font-bold uppercase tracking-wide text-slate-400">Tarif unitaire</th>
+                                    <th class="w-40 px-4 py-2.5 text-end text-[11px] font-bold uppercase tracking-wide text-slate-400">Montant</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
+                                <tr v-for="line in invoice.lines" :key="line.id">
+                                    <td class="px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ line.description }}</td>
+                                    <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ moduleLabels[line.source_module] ?? line.source_module }}</td>
+                                    <td class="px-4 py-3 text-center text-sm tabular-nums text-slate-600 dark:text-slate-300">{{ formatQuantity(line.quantity) }}</td>
+                                    <td class="px-4 py-3 text-end text-sm tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(line.unit_price) }}</td>
+                                    <td class="px-4 py-3 text-end text-sm font-bold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</td>
+                                </tr>
+                            </tbody>
+                            <tfoot class="border-t border-gray-200 bg-gray-50/60 dark:border-gray-900 dark:bg-gray-1000/30">
+                                <tr>
+                                    <th colspan="4" class="px-4 pt-3 pb-1 text-end text-xs font-medium text-slate-500">Total de la facture</th>
+                                    <td class="px-4 pt-3 pb-1 text-end text-sm font-bold tabular-nums text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</td>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="px-4 py-1 text-end text-xs font-medium text-slate-500">Montant payé</th>
+                                    <td class="px-4 py-1 text-end text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{{ formatMoney(invoice.paid_amount) }}</td>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="px-4 pt-1 pb-3 text-end text-xs font-bold text-slate-700 dark:text-slate-200">Reste à payer</th>
+                                    <td :class="['px-4 pt-1 pb-3 text-end text-base font-bold tabular-nums', invoice.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400']">{{ formatMoney(invoice.balance_amount) }}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
                     </div>
 
                     <div v-if="invoice.payments.length" class="border-t border-gray-100 dark:border-gray-900">

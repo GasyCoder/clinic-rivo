@@ -27,6 +27,7 @@ const props = defineProps({
 const page = usePage();
 const { can } = usePermissions();
 const status = computed(() => page.props.flash?.status);
+const activeSection = ref('overview');
 const showInvoiceForm = ref(false);
 const paymentTarget = ref(null);
 const cancellationTarget = ref(null);
@@ -35,6 +36,16 @@ const validatingInvoice = ref(null);
 const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
     (episode) => episode.status === 'OPEN' && episode.priority === 'EMERGENCY',
 ));
+const latestEpisode = computed(() => props.patient.episodes[0] ?? null);
+const birthSummary = computed(() => {
+    if (props.patient.birth_date_is_approximate) {
+        return props.patient.age !== null && props.patient.age !== undefined
+            ? `${props.patient.age} ans (âge déclaré)`
+            : 'Âge déclaré';
+    }
+
+    return props.patient.birth_date ? formatDate(props.patient.birth_date) : 'Non renseignée';
+});
 
 const defaultEpisodeUuid = props.patient.episodes.find((episode) => episode.status !== 'CANCELLED')?.uuid ?? '';
 const invoiceForm = useForm({
@@ -172,9 +183,9 @@ const episodeStatusBadgeClass = (statusValue) => ({
 
 const invoiceStatusBadgeClass = (statusValue) => ({
     DRAFT: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
-    VALIDATED: 'border-gray-300 text-slate-700 dark:border-gray-700 dark:text-slate-200',
-    PARTIALLY_PAID: 'border-gray-300 text-slate-700 dark:border-gray-700 dark:text-slate-200',
-    PAID: 'border-gray-200 text-slate-600 dark:border-gray-800 dark:text-slate-300',
+    VALIDATED: 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
+    PARTIALLY_PAID: 'border-orange-200 text-orange-700 dark:border-orange-900 dark:text-orange-300',
+    PAID: 'border-green-200 text-green-700 dark:border-green-900 dark:text-green-300',
     CANCELLED: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-300',
 }[statusValue] ?? 'border-gray-200 text-slate-600');
 </script>
@@ -182,37 +193,65 @@ const invoiceStatusBadgeClass = (statusValue) => ({
 <template>
     <Head :title="formatPatientName(patient)" />
 
-    <div class="w-full space-y-5">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div class="flex min-w-0 items-center gap-4">
-                <Avatar rounded size="lg" variant="slate-pale" :text="formatPatientInitials(patient)" />
-                <div class="min-w-0">
-                    <h1 class="truncate font-heading text-2xl font-bold text-slate-700 dark:text-white">
-                        <span v-if="patient.civility">{{ civilityLabels[patient.civility] }}</span>
-                        {{ formatPatientName(patient) }}
-                    </h1>
-                    <p class="mt-1 text-sm text-slate-500">
-                        {{ patient.patient_number }} · {{ sexLabel(patient.sex) }} · né(e) le {{ formatDate(patient.birth_date) }}
-                        <span v-if="patient.birth_date_is_approximate" class="text-xs text-slate-400">(date estimée)</span>
-                    </p>
+    <div class="mx-auto w-full max-w-[1480px] space-y-4">
+        <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+            <div class="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex min-w-0 items-center gap-4">
+                    <Avatar rounded size="lg" variant="slate-pale" :text="formatPatientInitials(patient)" aria-hidden="true" />
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{{ patient.patient_number }}</span>
+                            <span v-if="activeEmergencyEpisode" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-[11px] font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
+                                <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence en cours
+                            </span>
+                        </div>
+                        <h1 class="mt-1 truncate font-heading text-2xl font-bold text-slate-800 dark:text-white">
+                            <span v-if="patient.civility">{{ civilityLabels[patient.civility] }}</span>
+                            {{ formatPatientName(patient) }}
+                        </h1>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <Button :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Liste des patients</span></Button>
+                    <Button v-if="can('patients.update')" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="rg" variant="white-outline"><Icon class="text-lg" name="edit" /><span class="ms-2">Modifier</span></Button>
+                    <Button v-if="can('cash.view')" :as="Link" href="/cash" size="rg" variant="white-outline"><Icon class="text-lg" name="wallet" /><span class="ms-2">Caisse</span></Button>
                 </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2">
-                <Button :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Patients</span></Button>
-                <Button v-if="can('patients.update')" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="rg" variant="white-outline"><Icon class="text-lg" name="edit" /><span class="ms-2">Modifier</span></Button>
-                <Button v-if="can('cash.view')" :as="Link" href="/cash" size="rg" variant="white-outline"><Icon class="text-lg" name="wallet" /><span class="ms-2">Caisse</span></Button>
-            </div>
-        </div>
+            <dl class="grid grid-cols-2 border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30 sm:grid-cols-4">
+                <div class="border-e border-gray-200 px-5 py-3 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">{{ patient.birth_date_is_approximate ? 'Âge' : 'Naissance' }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ birthSummary }}</dd></div>
+                <div class="px-5 py-3 sm:border-e sm:border-gray-200 sm:dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Sexe</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ sexLabel(patient.sex) }}</dd></div>
+                <div class="border-e border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Téléphone</dt><dd class="mt-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
+                <div class="border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Dernier passage</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ latestEpisode?.episode_number ?? 'Aucun passage' }}</dd></div>
+            </dl>
+
+            <nav class="flex overflow-x-auto border-t border-gray-200 px-2 dark:border-gray-900" role="tablist" aria-label="Sections du dossier patient">
+                <button type="button" :class="['relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors', activeSection === 'overview' ? 'text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" role="tab" :aria-selected="activeSection === 'overview'" @click="activeSection = 'overview'">
+                    <Icon class="text-base" name="user" /> Aperçu
+                    <span v-if="activeSection === 'overview'" class="absolute inset-x-4 bottom-0 h-0.5 bg-primary-600"></span>
+                </button>
+                <button v-if="account" type="button" :class="['relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors', activeSection === 'billing' ? 'text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" role="tab" :aria-selected="activeSection === 'billing'" @click="activeSection = 'billing'">
+                    <Icon class="text-base" name="wallet" /> Facturation
+                    <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ account.invoices.length }}</span>
+                    <span v-if="activeSection === 'billing'" class="absolute inset-x-4 bottom-0 h-0.5 bg-primary-600"></span>
+                </button>
+                <button type="button" :class="['relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors', activeSection === 'episodes' ? 'text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" role="tab" :aria-selected="activeSection === 'episodes'" @click="activeSection = 'episodes'">
+                    <Icon class="text-base" name="clock" /> Passages
+                    <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ patient.episodes.length }}</span>
+                    <span v-if="activeSection === 'episodes'" class="absolute inset-x-4 bottom-0 h-0.5 bg-primary-600"></span>
+                </button>
+            </nav>
+        </section>
 
         <div v-if="status" class="flex items-center gap-3 rounded border border-gray-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" role="status"><Icon class="text-lg text-green-600" name="check-circle" /><span>{{ status }}</span></div>
 
-        <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded border border-gray-200 border-s-4 border-s-red-500 bg-white p-4 dark:border-gray-800 dark:border-s-red-500 dark:bg-gray-950" role="status">
-            <Icon class="mt-0.5 shrink-0 text-xl text-red-600 dark:text-red-400" name="alert-circle" />
-            <div><p class="text-sm font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Patient en urgence</p><p class="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">Passage {{ activeEmergencyEpisode.episode_number }} — les soins urgents restent prioritaires et ne sont jamais bloqués par le paiement.</p></div>
+        <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded border border-gray-200 border-s-4 border-s-red-500 bg-white px-4 py-3 dark:border-gray-800 dark:border-s-red-500 dark:bg-gray-950" role="status">
+            <Icon class="mt-0.5 shrink-0 text-lg text-red-600 dark:text-red-400" name="alert-circle" />
+            <div><p class="text-xs font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Passage prioritaire — {{ activeEmergencyEpisode.episode_number }}</p><p class="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">Les soins urgents restent prioritaires et ne sont jamais bloqués par le paiement.</p></div>
         </div>
 
-        <section v-if="account" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+        <section v-if="account && activeSection === 'billing'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
                     <span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon class="text-lg" name="wallet" /></span>
@@ -229,7 +268,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">À facturer</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.unbilled_amount) }}</p></div>
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total facturé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total payé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.paid_amount) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500">Reste à payer</p><p class="mt-1.5 text-xl font-bold text-slate-800 dark:text-white">{{ formatMoney(account.balance_amount) }}</p></div>
+                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500">Reste à payer</p><p :class="['mt-1.5 text-xl font-bold', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white']">{{ formatMoney(account.balance_amount) }}</p></div>
             </div>
 
             <form v-if="showInvoiceForm" class="border-b border-gray-200 bg-gray-50/60 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="createInvoice">
@@ -302,26 +341,15 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucune facture</p><p class="mt-1 text-xs text-slate-400">Les factures liées aux passages apparaîtront ici.</p>
             </div>
 
-            <div v-else class="divide-y divide-gray-200 dark:divide-gray-900">
-                <article v-for="invoice in account.invoices" :key="invoice.uuid" class="p-5">
-                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div class="min-w-0">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</h3>
-                                <span :class="['rounded border px-2 py-0.5 text-xs font-medium', invoiceStatusBadgeClass(invoice.status)]">{{ invoiceStatusLabels[invoice.status] }}</span>
-                                <span class="text-xs text-slate-400">Passage {{ invoice.episode.episode_number }} · {{ formatDateTime(invoice.created_at) }}</span>
-                            </div>
-                            <ul class="mt-2 space-y-1 text-xs text-slate-500">
-                                <li v-for="line in invoice.lines" :key="line.id" class="flex flex-wrap gap-x-2"><span>{{ line.description }}</span><span class="text-slate-400">{{ line.source_module }} · {{ line.quantity }} × {{ formatMoney(line.unit_price) }} = {{ formatMoney(line.line_total) }}</span></li>
-                            </ul>
+            <div v-else class="space-y-3 p-5">
+                <article v-for="invoice in account.invoices" :key="invoice.uuid" class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-900">
+                    <div class="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-3 dark:border-gray-900 dark:bg-gray-1000/30 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</h3>
+                            <span :class="['rounded border px-2 py-0.5 text-xs font-medium', invoiceStatusBadgeClass(invoice.status)]">{{ invoiceStatusLabels[invoice.status] }}</span>
+                            <span class="text-xs text-slate-400">Passage {{ invoice.episode.episode_number }} · {{ formatDateTime(invoice.created_at) }}</span>
                         </div>
-
-                        <div class="flex shrink-0 flex-wrap items-center gap-4 lg:justify-end">
-                            <dl class="grid grid-cols-3 gap-4 text-end text-xs">
-                                <div><dt class="text-slate-400">Total</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
-                                <div><dt class="text-slate-400">Payé</dt><dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</dd></div>
-                                <div><dt class="text-slate-400">Solde</dt><dd class="mt-1 font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</dd></div>
-                            </dl>
+                        <div class="flex flex-wrap items-center gap-2">
                             <Button v-if="invoice.status === 'DRAFT' && can('billing.validate')" size="sm" variant="white-outline" type="button" :disabled="validatingInvoice === invoice.uuid" @click="validateInvoice(invoice)"><Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span></Button>
                             <Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" name="printer" /><span class="ms-1.5">Facture</span></Button>
                             <Button v-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && openCashSession" size="sm" variant="primary" type="button" @click="openPaymentDialog(invoice)"><Icon class="text-base" name="money" /><span class="ms-1.5">Encaisser</span></Button>
@@ -329,15 +357,35 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         </div>
                     </div>
 
-                    <div v-if="invoice.payments.length" class="mt-4 overflow-hidden rounded border border-gray-200 dark:border-gray-900">
-                        <div v-for="payment in invoice.payments" :key="payment.uuid" class="flex flex-col gap-2 border-b border-gray-200 px-3 py-2.5 last:border-0 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                            <div class="text-xs text-slate-500">
-                                <span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-200']">{{ formatMoney(payment.amount) }}</span>
-                                <span> · {{ payment.method }} · {{ formatDateTime(payment.paid_at) }}</span>
-                                <span class="block text-slate-400 sm:ms-2 sm:inline">par {{ payment.cashier }}</span>
-                                <span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 font-medium text-red-600 dark:border-red-900 dark:text-red-300" :title="payment.cancellation_reason">Annulé</span>
+                    <ul class="divide-y divide-gray-100 px-4 dark:divide-gray-900">
+                        <li v-for="line in invoice.lines" :key="line.id" class="flex items-center justify-between gap-4 py-2.5 text-sm">
+                            <div class="min-w-0">
+                                <p class="truncate font-medium text-slate-700 dark:text-slate-200">{{ line.description }}</p>
+                                <p class="mt-0.5 text-xs text-slate-400">{{ line.source_module }} · {{ line.quantity }} × {{ formatMoney(line.unit_price) }}</p>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <span class="shrink-0 font-semibold text-slate-600 dark:text-slate-300">{{ formatMoney(line.line_total) }}</span>
+                        </li>
+                    </ul>
+
+                    <div class="flex flex-wrap items-center justify-end gap-x-6 gap-y-1 border-t border-gray-100 bg-gray-50/60 px-4 py-2.5 text-xs dark:border-gray-900 dark:bg-gray-1000/30">
+                        <span class="text-slate-400">Total <b class="font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.total_amount) }}</b></span>
+                        <span class="text-slate-400">Payé <b class="font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</b></span>
+                        <span class="text-slate-400">Solde <b :class="['font-bold', invoice.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400']">{{ formatMoney(invoice.balance_amount) }}</b></span>
+                    </div>
+
+                    <div v-if="invoice.payments.length" class="border-t border-gray-100 dark:border-gray-900">
+                        <div class="px-4 pt-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">Paiements</div>
+                        <div v-for="payment in invoice.payments" :key="payment.uuid" class="flex flex-col gap-2 border-b border-gray-100 px-4 py-2.5 last:border-0 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="flex items-start gap-2 text-xs text-slate-500">
+                                <Icon :class="['mt-0.5 shrink-0 text-base', payment.status === 'CANCELLED' ? 'text-slate-300 dark:text-slate-700' : 'text-green-500']" name="check-circle" />
+                                <span>
+                                    <span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-200']">{{ formatMoney(payment.amount) }}</span>
+                                    <span> · {{ payment.method }} · {{ formatDateTime(payment.paid_at) }}</span>
+                                    <span class="block text-slate-400 sm:ms-2 sm:inline">par {{ payment.cashier }}</span>
+                                    <span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 font-medium text-red-600 dark:border-red-900 dark:text-red-300" :title="payment.cancellation_reason">Annulé</span>
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-3 ps-6 sm:ps-0">
                                 <button v-if="payment.status === 'COMPLETED' && can('payments.cancel') && openCashSession?.uuid === payment.cash_session_uuid" type="button" class="text-xs font-medium text-red-600 hover:underline" @click="openCancellationDialog(payment)">Annuler</button>
                                 <Link v-if="payment.receipt" :href="`/receipts/${payment.receipt.uuid}`" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:underline"><Icon name="file-text" /> {{ payment.receipt.receipt_number }}</Link>
                             </div>
@@ -347,48 +395,76 @@ const invoiceStatusBadgeClass = (statusValue) => ({
             </div>
         </section>
 
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
-            <div class="space-y-5 xl:col-span-1">
-                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Identité et contact</h2>
-                    <dl class="space-y-3 text-sm">
-                        <div class="flex items-center gap-2 text-slate-600 dark:text-slate-300"><Icon class="text-slate-400" name="call" /><span>{{ patient.phone ?? 'Non renseigné' }}</span></div>
-                        <div class="flex items-center gap-2 text-slate-600 dark:text-slate-300"><Icon class="text-slate-400" name="mail" /><span>{{ patient.email ?? 'Non renseigné' }}</span></div>
-                        <div class="flex items-start gap-2 text-slate-600 dark:text-slate-300"><Icon class="mt-0.5 text-slate-400" name="map-pin" /><span>{{ patient.address ?? 'Non renseignée' }}</span></div>
-                        <div v-if="patient.identity_document_type" class="flex items-center gap-2 text-slate-600 dark:text-slate-300"><Icon class="text-slate-400" name="cards" /><span>{{ patient.identity_document_type === 'CIN' ? 'CIN' : 'Passeport' }} {{ patient.identity_document_number }}</span></div>
+        <div v-if="activeSection === 'overview'" class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <div class="space-y-4 xl:col-span-2">
+                <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+                    <div class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="user" /></span>
+                        <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Informations administratives</h2><p class="mt-0.5 text-xs text-slate-400">Coordonnées et document d’identité du patient.</p></div>
+                    </div>
+                    <dl class="grid grid-cols-1 sm:grid-cols-2">
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-e"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="call" /> Téléphone</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="mail" /> Email</dt><dd class="mt-1.5 break-all text-sm font-medium text-slate-700 dark:text-slate-200">{{ patient.email ?? 'Non renseigné' }}</dd></div>
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-b-0 sm:border-e"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="map-pin" /> Adresse</dt><dd class="mt-1.5 text-sm font-medium leading-5 text-slate-700 dark:text-slate-200">{{ patient.address ?? 'Non renseignée' }}</dd></div>
+                        <div class="px-5 py-3.5"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="cards" /> Pièce d’identité</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200"><template v-if="patient.identity_document_type">{{ patient.identity_document_type === 'CIN' ? 'CIN' : 'Passeport' }} · {{ patient.identity_document_number }}</template><template v-else>Non renseignée</template></dd></div>
                     </dl>
                 </section>
 
-                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Personne à contacter</h2>
-                    <div v-if="patient.emergency_contact_name" class="space-y-1 text-sm text-slate-600 dark:text-slate-300"><p class="font-medium text-slate-700 dark:text-white">{{ patient.emergency_contact_name }}</p><p v-if="patient.emergency_contact_relationship">{{ patient.emergency_contact_relationship }}</p><p v-if="patient.emergency_contact_phone">{{ patient.emergency_contact_phone }}</p><p v-if="patient.emergency_contact_email">{{ patient.emergency_contact_email }}</p></div>
-                    <p v-else class="text-sm text-slate-400">Non renseignée.</p>
-                </section>
-
-                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><Icon class="text-slate-400" name="alert-circle" />Allergies</h2>
-                    <ul v-if="patient.allergies.length" class="space-y-2 text-sm"><li v-for="allergy in patient.allergies" :key="allergy.id" class="text-slate-600 dark:text-slate-300"><span class="font-medium text-slate-700 dark:text-white">{{ allergy.substance }}</span><span v-if="allergy.severity" class="ms-1 text-xs text-red-500">({{ severityLabels[allergy.severity] }})</span><p v-if="allergy.reaction" class="text-xs text-slate-400">{{ allergy.reaction }}</p></li></ul>
-                    <p v-else class="text-sm text-slate-400">Aucune allergie connue.</p>
-                </section>
-
-                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Antécédents médicaux</h2>
-                    <ul v-if="patient.antecedents.length" class="space-y-2 text-sm text-slate-600 dark:text-slate-300"><li v-for="antecedent in patient.antecedents" :key="antecedent.id">{{ antecedent.description }}</li></ul>
-                    <p v-else class="text-sm text-slate-400">Aucun antécédent connu.</p>
+                <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Repères médicaux déclarés</h2><p class="mt-0.5 text-xs text-slate-400">Informations signalées dans le dossier administratif.</p></div>
+                    <div class="grid grid-cols-1 divide-y divide-gray-200 dark:divide-gray-900 md:grid-cols-2 md:divide-x md:divide-y-0">
+                        <div class="px-5 py-4">
+                            <h3 class="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Icon class="text-slate-400" name="alert-circle" /> Allergies</h3>
+                            <ul v-if="patient.allergies.length" class="mt-3 space-y-2.5 text-sm"><li v-for="allergy in patient.allergies" :key="allergy.id" class="text-slate-600 dark:text-slate-300"><span class="font-semibold text-slate-700 dark:text-white">{{ allergy.substance }}</span><span v-if="allergy.severity" class="ms-1.5 text-xs text-red-600 dark:text-red-300">{{ severityLabels[allergy.severity] }}</span><p v-if="allergy.reaction" class="mt-0.5 text-xs text-slate-400">{{ allergy.reaction }}</p></li></ul>
+                            <p v-else class="mt-3 text-sm text-slate-400">Aucune allergie connue.</p>
+                        </div>
+                        <div class="px-5 py-4">
+                            <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500">Antécédents médicaux</h3>
+                            <ul v-if="patient.antecedents.length" class="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300"><li v-for="antecedent in patient.antecedents" :key="antecedent.id" class="flex gap-2"><span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-400"></span><span>{{ antecedent.description }}</span></li></ul>
+                            <p v-else class="mt-3 text-sm text-slate-400">Aucun antécédent connu.</p>
+                        </div>
+                    </div>
                 </section>
             </div>
 
-            <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:col-span-2">
-                <div class="border-b border-gray-200 p-5 dark:border-gray-900"><h2 class="text-sm font-bold uppercase tracking-wide text-slate-500">Historique des passages</h2><p class="mt-1 text-xs text-slate-400">Un nouveau passage se crée uniquement depuis la Réception.</p></div>
-                <div v-if="patient.episodes.length === 0" class="p-10 text-center text-sm text-slate-400">Aucun passage enregistré.</div>
-                <ul v-else class="divide-y divide-gray-200 dark:divide-gray-900">
-                    <li v-for="episode in patient.episodes" :key="episode.uuid" class="flex flex-wrap items-center justify-between gap-3 p-5">
-                        <div><p class="text-sm font-medium text-slate-700 dark:text-white">{{ episode.episode_number }}<span :class="['ms-2 rounded border px-2 py-0.5 text-xs font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span><span v-if="episode.priority === 'EMERGENCY'" class="ms-2 inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></p><p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }} · {{ administrativeStatusLabels[episode.administrative_status] }}</p></div>
-                        <Link v-if="episode.status === 'OPEN' && episode.administrative_status === 'PENDING_ORIENTATION' && can('episodes.update')" :href="`/episodes/${episode.uuid}/orient`" method="post" as="button"><Button size="sm" variant="white-outline">Orienter</Button></Link>
-                    </li>
-                </ul>
-            </section>
+            <aside class="space-y-4">
+                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                    <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Dernier passage</h2><button v-if="patient.episodes.length" type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="activeSection = 'episodes'">Voir l’historique</button></div>
+                    <div v-if="latestEpisode" class="mt-4">
+                        <div class="flex flex-wrap items-center gap-2"><span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ latestEpisode.episode_number }}</span><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(latestEpisode.status)]">{{ statusLabels[latestEpisode.status] }}</span><span v-if="latestEpisode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></div>
+                        <p class="mt-2 text-xs leading-5 text-slate-500">{{ administrativeStatusLabels[latestEpisode.administrative_status] }}<br>{{ formatDateTime(latestEpisode.started_at) }}</p>
+                    </div>
+                    <p v-else class="mt-3 text-sm text-slate-400">Aucun passage enregistré.</p>
+                </section>
+
+                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Personne à contacter</h2>
+                    <div v-if="patient.emergency_contact_name" class="mt-3 space-y-1.5 text-sm text-slate-500 dark:text-slate-300"><p class="font-semibold text-slate-700 dark:text-white">{{ patient.emergency_contact_name }}</p><p v-if="patient.emergency_contact_relationship">{{ patient.emergency_contact_relationship }}</p><p v-if="patient.emergency_contact_phone" class="flex items-center gap-2"><Icon class="text-slate-400" name="call" />{{ patient.emergency_contact_phone }}</p><p v-if="patient.emergency_contact_email" class="flex items-start gap-2 break-all"><Icon class="mt-0.5 text-slate-400" name="mail" />{{ patient.emergency_contact_email }}</p></div>
+                    <p v-else class="mt-3 text-sm text-slate-400">Non renseignée.</p>
+                </section>
+
+                <section v-if="account" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                    <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Situation financière</h2><button type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="activeSection = 'billing'">Détails</button></div>
+                    <p class="mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-400">Reste à payer</p><p class="mt-1 text-2xl font-bold text-slate-800 dark:text-white">{{ formatMoney(account.balance_amount) }}</p>
+                    <div class="mt-4 grid grid-cols-2 gap-4 border-t border-gray-200 pt-3 text-xs dark:border-gray-900"><div><p class="text-slate-400">Facturé</p><p class="mt-1 font-bold text-slate-700 dark:text-slate-200">{{ formatMoney(account.total_amount) }}</p></div><div><p class="text-slate-400">Payé</p><p class="mt-1 font-bold text-slate-700 dark:text-slate-200">{{ formatMoney(account.paid_amount) }}</p></div></div>
+                </section>
+            </aside>
         </div>
+
+        <section v-else-if="activeSection === 'episodes'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+            <div class="flex flex-col gap-2 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des passages</h2><p class="mt-0.5 text-xs text-slate-400">Les arrivées sont créées depuis la Réception patient.</p></div>
+                <span class="text-xs font-medium text-slate-400">{{ patient.episodes.length }} passage{{ patient.episodes.length > 1 ? 's' : '' }}</span>
+            </div>
+            <div v-if="patient.episodes.length === 0" class="px-5 py-12 text-center"><span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="clock" /></span><p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun passage enregistré</p><p class="mt-1 text-xs text-slate-400">Le premier passage sera créé depuis la Réception.</p></div>
+            <ul v-else class="divide-y divide-gray-200 dark:divide-gray-900">
+                <li v-for="episode in patient.episodes" :key="episode.uuid" class="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                    <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</span><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span><span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></div><p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }}</p></div>
+                    <div><p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Situation administrative</p><p class="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">{{ administrativeStatusLabels[episode.administrative_status] }}</p></div>
+                    <div class="md:text-end"><Link v-if="episode.status === 'OPEN' && episode.administrative_status === 'PENDING_ORIENTATION' && can('episodes.update')" :href="`/episodes/${episode.uuid}/orient`" method="post" as="button"><Button size="sm" variant="white-outline">Orienter</Button></Link><span v-else class="text-xs text-slate-400">{{ episode.status === 'OPEN' ? 'Passage actif' : 'Passage terminé' }}</span></div>
+                </li>
+            </ul>
+        </section>
 
         <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closePaymentDialog">
             <section class="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="payment-dialog-title">

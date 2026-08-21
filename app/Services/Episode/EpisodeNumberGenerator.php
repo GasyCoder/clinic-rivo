@@ -5,11 +5,12 @@ namespace App\Services\Episode;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Site-prefixed, sequential episode identifier — ME-000001, AE-000001, ...
- * Same shape and safety properties as PatientNumberGenerator (row-locked
- * counter, gaps acceptable, uniqueness under concurrency is not) but with
- * an 'E' marker so an episode number is never visually confused with a
- * patient number when the two are shown side by side.
+ * Site-prefixed, sequential episode (passage) identifier — MP-000001,
+ * AP-000001, ... Same shape and safety properties as PatientNumberGenerator
+ * (row-locked counter, gaps acceptable, uniqueness under concurrency is
+ * not) but with a 'P' marker (Passage) so an episode number is never
+ * visually confused with a patient number when the two are shown side by
+ * side.
  */
 class EpisodeNumberGenerator
 {
@@ -30,7 +31,7 @@ class EpisodeNumberGenerator
 
             $siteCode = config('rivo.site.code') ?: 'X';
 
-            return sprintf('%sE-%06d', $siteCode, $number);
+            return sprintf('%sP-%06d', $siteCode, $number);
         });
     }
 }

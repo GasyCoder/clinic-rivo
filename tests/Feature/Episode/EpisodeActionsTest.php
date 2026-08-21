@@ -36,7 +36,7 @@ class EpisodeActionsTest extends TestCase
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($patient);
 
         $this->assertInstanceOf(Episode::class, $episode);
-        $this->assertSame('ME-000001', $episode->episode_number);
+        $this->assertSame('MP-000001', $episode->episode_number);
         $this->assertSame(EpisodeStatus::Open, $episode->status);
         $this->assertSame(EpisodePriority::Normal, $episode->priority);
         $this->assertSame(EpisodeAdministrativeStatus::PendingOrientation, $episode->administrative_status);

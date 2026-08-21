@@ -152,6 +152,7 @@ onBeforeUnmount(() => {
                             <div class="shrink-0 text-end">
                                 <p class="receipt-title font-heading text-xl font-black uppercase tracking-[0.12em] text-slate-800 dark:text-white">Reçu de paiement</p>
                                 <p class="receipt-number font-mono text-sm font-bold text-slate-700 dark:text-slate-200">{{ receipt.receipt_number }}</p>
+                                <p class="receipt-invoice-ref text-[10px] font-medium text-slate-400">Facture {{ invoice.invoice_number }}</p>
                                 <div class="mt-1 flex items-center justify-end gap-2">
                                     <p class="receipt-date text-[10px] text-slate-500">{{ formatDateTime(receipt.issued_at) }}</p>
                                     <span :class="['receipt-status inline-flex rounded-sm border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide', isCancelled ? 'border-red-300 text-red-700 dark:border-red-900 dark:text-red-300' : 'border-gray-300 text-slate-600 dark:border-gray-700 dark:text-slate-300']">{{ isCancelled ? 'Annulé' : 'Encaissé' }}</span>
@@ -211,6 +212,7 @@ onBeforeUnmount(() => {
                                 <p v-if="siteName !== brandName" class="text-[9px] font-bold uppercase tracking-[0.12em]">Site {{ siteName }}</p>
                                 <h1 class="mt-2 text-base font-black uppercase tracking-wide">Reçu de paiement</h1>
                                 <p class="font-mono text-sm font-bold">{{ receipt.receipt_number }}</p>
+                                <p class="text-[9px] text-slate-500">Facture {{ invoice.invoice_number }}</p>
                                 <p class="text-[9px]">{{ formatDateTime(receipt.issued_at) }}</p>
                                 <span :class="['mt-1 inline-flex border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide', isCancelled ? 'border-red-700 text-red-700' : 'border-slate-700']">{{ isCancelled ? 'Annulé' : 'Encaissé' }}</span>
                             </header>
@@ -385,6 +387,11 @@ onBeforeUnmount(() => {
     body[data-receipt-print="receipt"] .receipt-number {
         margin-top: 1mm !important;
         font-size: 10pt !important;
+    }
+
+    body[data-receipt-print="receipt"] .receipt-invoice-ref {
+        margin-top: 0.5mm !important;
+        font-size: 6.5pt !important;
     }
 
     body[data-receipt-print="receipt"] .receipt-date,

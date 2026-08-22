@@ -12,6 +12,7 @@ use App\Enums\PatientType;
 use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
+use App\Models\AddressEntry;
 use App\Models\BillableItem;
 use App\Models\CashSession;
 use App\Models\Patient;
@@ -232,7 +233,7 @@ class PatientController extends Controller
         ]);
     }
 
-    public function edit(Patient $patient): Response
+    public function edit(Request $request, Patient $patient): Response
     {
         abort_if(
             $patient->patient_type === PatientType::Staff,
@@ -241,6 +242,29 @@ class PatientController extends Controller
         );
 
         $patient->load('addressEntry:id,uuid,label');
+
+        $canViewCoverage = $request->user()->can('patient_coverages.view');
+        $canViewCoverageDocuments = $canViewCoverage
+            && $request->user()->can('patients.view')
+            && $request->user()->can('patient_coverage_documents.view');
+
+        if ($patient->patient_type === PatientType::Mutual && $canViewCoverage) {
+            $patient->load([
+                'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from,effective_until',
+                'activeMutualCoverage.organization:id,uuid,name',
+            ]);
+
+            if ($canViewCoverageDocuments) {
+                $patient->load([
+                    'activeMutualCoverage.attachments' => fn ($query) => $query
+                        ->oldest('created_at'),
+                ]);
+            }
+        }
+
+        $coverage = $patient->relationLoaded('activeMutualCoverage')
+            ? $patient->activeMutualCoverage
+            : null;
 
         return Inertia::render('Patients/Edit', [
             'patient' => [
@@ -262,11 +286,51 @@ class PatientController extends Controller
                 'profession' => $patient->profession,
                 'phone' => $patient->phone,
                 'email' => $patient->email,
+                'address_entry_uuid' => $patient->addressEntry?->uuid,
                 'address' => $patient->addressEntry?->label ?? $patient->address,
                 'emergency_contact_name' => $patient->emergency_contact_name,
                 'emergency_contact_phone' => $patient->emergency_contact_phone,
                 'emergency_contact_relationship' => $patient->emergency_contact_relationship,
                 'emergency_contact_email' => $patient->emergency_contact_email,
+                'active_mutual_coverage' => $coverage ? [
+                    'uuid' => $coverage->uuid,
+                    'organization' => $coverage->organization ? [
+                        'uuid' => $coverage->organization->uuid,
+                        'name' => $coverage->organization->name,
+                    ] : null,
+                    'employer_name' => $coverage->employer_name,
+                    'beneficiary_type' => $coverage->beneficiary_type?->value,
+                    'membership_number' => $coverage->membership_number,
+                    'effective_from' => $coverage->effective_from?->toIso8601String(),
+                    ...($canViewCoverageDocuments ? [
+                        'attachments_count' => $coverage->attachments->count(),
+                        'attachments' => $coverage->attachments->map(fn ($attachment) => [
+                            'uuid' => $attachment->uuid,
+                            'original_name' => $attachment->original_name,
+                            'mime_type' => $attachment->mime_type,
+                            'size' => $attachment->size,
+                            'is_image' => $attachment->is_image,
+                            'url' => route('reception.mutual-coverages.attachments.show', [
+                                'coverage' => $coverage,
+                                'attachment' => $attachment,
+                            ], false),
+                        ])->values(),
+                    ] : []),
+                ] : null,
+            ],
+            'addressEntries' => $request->user()->can('address_entries.view')
+                ? AddressEntry::query()
+                    ->where('active', true)
+                    ->orderBy('label')
+                    ->limit(250)
+                    ->get(['uuid', 'label'])
+                : [],
+            'capabilities' => [
+                'can_view_coverage' => $canViewCoverage,
+                'can_view_coverage_documents' => $canViewCoverageDocuments,
+                'can_add_coverage_documents' => $canViewCoverage
+                    && $request->user()->can('patient_coverage_documents.create'),
+                'can_create_address_entry' => $request->user()->can('address_entries.create'),
             ],
         ]);
     }
@@ -276,7 +340,7 @@ class PatientController extends Controller
         Patient $patient,
         UpdatePatientAction $action,
     ): RedirectResponse {
-        $action->execute($patient, $request->validated());
+        $action->execute($patient, $request->validated(), $request->user());
 
         return redirect()->route('patients.show', $patient)
             ->with('status', "Dossier {$patient->patient_number} mis à jour.");

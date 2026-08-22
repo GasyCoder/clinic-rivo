@@ -1,5 +1,6 @@
 <script setup>
-import { computed, reactive, ref, toRef } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, toRef } from 'vue';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
 import { Head, Link, router, useForm, usePage, useRemember } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -36,6 +37,13 @@ const query = ref(props.search ?? '');
 const employeeQuery = ref('');
 const showNewAddress = ref(false);
 const fileInput = ref(null);
+const mutualAttachmentPreviews = ref([]);
+const activeMutualAttachment = ref(null);
+const mutualAttachmentClientError = ref('');
+
+const acceptedMutualAttachmentTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const maxMutualAttachmentSize = 5 * 1024 * 1024;
+const maxMutualAttachments = 5;
 
 const workflow = useRemember(reactive({
     arrivalMode: props.search ? 'existing' : null,
@@ -120,7 +128,43 @@ const form = useForm('ReceptionPatientAdministrativeForm', {
     confirm_duplicate: false,
 });
 
+const mutualAttachmentServerError = computed(() => {
+    const error = Object.entries(form.errors)
+        .find(([key]) => key === 'mutual_attachments' || key.startsWith('mutual_attachments.'));
+
+    return error?.[1] ?? '';
+});
+
+const syncMutualAttachments = () => {
+    form.mutual_attachments = mutualAttachmentPreviews.value.map((attachment) => attachment.file);
+};
+
+const resetMutualAttachmentInput = () => {
+    if (fileInput.value) fileInput.value.value = '';
+};
+
+const clearMutualAttachmentErrors = () => {
+    mutualAttachmentClientError.value = '';
+    Object.keys(form.errors)
+        .filter((key) => key === 'mutual_attachments' || key.startsWith('mutual_attachments.'))
+        .forEach((key) => form.clearErrors(key));
+};
+
+const revokeMutualAttachmentUrl = (attachment) => {
+    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+};
+
+const clearMutualAttachments = () => {
+    mutualAttachmentPreviews.value.forEach(revokeMutualAttachmentUrl);
+    mutualAttachmentPreviews.value = [];
+    activeMutualAttachment.value = null;
+    syncMutualAttachments();
+    clearMutualAttachmentErrors();
+    resetMutualAttachmentInput();
+};
+
 const resetDraft = () => {
+    clearMutualAttachments();
     form.reset();
     form.clearErrors();
     workflow.arrivalMode = null;
@@ -276,17 +320,80 @@ const toggleNewAddress = () => {
     else form.new_address_label = '';
 };
 
-const selectAttachments = (event) => {
-    const files = Array.from(event.target.files ?? []);
-    form.mutual_attachments = files.slice(0, 5);
-    if (files.length > 5) form.setError('mutual_attachments', 'Vous pouvez joindre au maximum 5 fichiers.');
-    else form.clearErrors('mutual_attachments');
+const addMutualAttachments = (fileList) => {
+    clearMutualAttachmentErrors();
+
+    const files = Array.from(fileList ?? []);
+    const errors = [];
+    let ignoredCount = 0;
+
+    files.forEach((file) => {
+        if (mutualAttachmentPreviews.value.length >= maxMutualAttachments) {
+            ignoredCount++;
+            return;
+        }
+
+        if (!acceptedMutualAttachmentTypes.includes(file.type)) {
+            errors.push(`${file.name} : format non accepté.`);
+            return;
+        }
+
+        if (file.size > maxMutualAttachmentSize) {
+            errors.push(`${file.name} dépasse 5 Mo.`);
+            return;
+        }
+
+        const duplicate = mutualAttachmentPreviews.value.some((attachment) => (
+            attachment.file.name === file.name
+            && attachment.file.size === file.size
+            && attachment.file.lastModified === file.lastModified
+        ));
+
+        if (duplicate) {
+            errors.push(`${file.name} est déjà sélectionné.`);
+            return;
+        }
+
+        mutualAttachmentPreviews.value.push({
+            file,
+            isImage: file.type.startsWith('image/'),
+            previewUrl: URL.createObjectURL(file),
+        });
+    });
+
+    if (ignoredCount > 0) {
+        errors.push(`${ignoredCount} fichier${ignoredCount > 1 ? 's ont' : ' a'} été ignoré${ignoredCount > 1 ? 's' : ''} : 5 fichiers maximum.`);
+    }
+
+    mutualAttachmentClientError.value = errors.join(' ');
+    syncMutualAttachments();
+    resetMutualAttachmentInput();
 };
 
+const selectAttachments = (event) => addMutualAttachments(event.target.files);
+const dropMutualAttachments = (event) => addMutualAttachments(event.dataTransfer?.files);
+
 const removeAttachment = (index) => {
-    form.mutual_attachments.splice(index, 1);
-    if (fileInput.value) fileInput.value.value = '';
+    const [removed] = mutualAttachmentPreviews.value.splice(index, 1);
+
+    if (activeMutualAttachment.value === removed) activeMutualAttachment.value = null;
+    revokeMutualAttachmentUrl(removed);
+    syncMutualAttachments();
+    clearMutualAttachmentErrors();
+    resetMutualAttachmentInput();
 };
+
+const formatFileSize = (bytes) => {
+    if (!bytes) return '0 Ko';
+
+    return bytes >= 1024 * 1024
+        ? `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
+        : `${Math.max(1, Math.round(bytes / 1024))} Ko`;
+};
+
+onBeforeUnmount(() => {
+    mutualAttachmentPreviews.value.forEach(revokeMutualAttachmentUrl);
+});
 
 const categoryLabels = {
     STANDARD: 'Patient standard',
@@ -536,7 +643,98 @@ const selectClass = 'block h-9 w-full appearance-none rounded border border-gray
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Entreprise du patient *</span><IconInput v-model="form.mutual_employer_name" icon="building" /><FormError v-if="form.errors.mutual_employer_name" class="mt-1">{{ form.errors.mutual_employer_name }}</FormError></label>
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Bénéficiaire *</span><span class="relative block"><select v-model="form.mutual_beneficiary_type" :class="selectClass"><option value="PRINCIPAL">Principal</option><option value="FAMILY_MEMBER">Membre de famille</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span><FormError v-if="form.errors.mutual_beneficiary_type" class="mt-1">{{ form.errors.mutual_beneficiary_type }}</FormError></label>
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Numéro matricule *</span><IconInput v-model="form.mutual_membership_number" icon="card-view" /><FormError v-if="form.errors.mutual_membership_number" class="mt-1">{{ form.errors.mutual_membership_number }}</FormError></label>
-                        <div class="md:col-span-2"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Carte, pièce d’identité ou justificatif <span class="font-normal text-slate-400">(5 fichiers max.)</span></span><label class="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-gray-300 px-4 py-5 text-sm font-semibold text-slate-500 hover:border-primary-400 hover:text-primary-600 dark:border-gray-700"><Icon name="upload-cloud" />Ajouter des images ou PDF<input ref="fileInput" type="file" class="sr-only" multiple accept="image/jpeg,image/png,image/webp,application/pdf" @change="selectAttachments" /></label><FormError v-if="form.errors.mutual_attachments" class="mt-1">{{ form.errors.mutual_attachments }}</FormError><div v-if="form.mutual_attachments.length" class="mt-3 flex flex-wrap gap-2"><span v-for="(file, index) in form.mutual_attachments.slice(0, 2)" :key="`${file.name}-${index}`" class="inline-flex max-w-xs items-center gap-2 rounded bg-gray-100 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon name="file" /><span class="truncate">{{ file.name }}</span><button type="button" class="text-slate-400 hover:text-red-500" @click="removeAttachment(index)"><Icon name="cross" /></button></span><span v-if="form.mutual_attachments.length > 2" class="rounded bg-gray-100 px-2.5 py-1.5 text-xs font-semibold text-slate-500 dark:bg-gray-900">+{{ form.mutual_attachments.length - 2 }}</span></div></div>
+                        <div class="md:col-span-2">
+                            <div class="mb-2 flex flex-wrap items-end justify-between gap-2">
+                                <div>
+                                    <span class="block text-sm font-medium text-slate-700 dark:text-white">Justificatifs <span class="font-normal text-slate-400">(facultatif)</span></span>
+                                    <span class="mt-0.5 block text-xs text-slate-400">Carte de mutuelle, pièce d’identité ou autre justificatif privé.</span>
+                                </div>
+                                <span class="text-xs font-medium text-slate-400">{{ mutualAttachmentPreviews.length }} / 5 fichiers</span>
+                            </div>
+
+                            <div
+                                :class="[
+                                    'overflow-hidden rounded-md border border-dashed transition-colors',
+                                    mutualAttachmentClientError || mutualAttachmentServerError
+                                        ? 'border-red-400 bg-red-50/40 dark:border-red-900 dark:bg-red-950/20'
+                                        : 'border-gray-300 bg-gray-50/60 hover:border-primary-400 dark:border-gray-800 dark:bg-gray-1000/30 dark:hover:border-primary-700',
+                                ]"
+                                @dragover.prevent
+                                @drop.prevent="dropMutualAttachments"
+                            >
+                                <input
+                                    id="mutual_attachments"
+                                    ref="fileInput"
+                                    type="file"
+                                    class="sr-only"
+                                    multiple
+                                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                                    :aria-invalid="Boolean(mutualAttachmentClientError || mutualAttachmentServerError)"
+                                    @change="selectAttachments"
+                                />
+
+                                <label v-if="!mutualAttachmentPreviews.length" for="mutual_attachments" class="flex cursor-pointer flex-col items-center px-4 py-6 text-center">
+                                    <span class="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm dark:bg-gray-900 dark:text-slate-300">
+                                        <Icon class="text-xl" name="upload-cloud" />
+                                    </span>
+                                    <span class="mt-2 text-sm font-bold text-slate-700 dark:text-white">Ajouter les justificatifs</span>
+                                    <span class="mt-1 text-xs leading-5 text-slate-400">Images JPEG, PNG, WebP ou PDF · 5 Mo par fichier</span>
+                                    <span class="text-[11px] leading-5 text-slate-400">Cliquez ou déposez jusqu’à 5 fichiers ici.</span>
+                                </label>
+
+                                <div v-else class="p-3">
+                                    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                        <article
+                                            v-for="(attachment, index) in mutualAttachmentPreviews"
+                                            :key="`${attachment.file.name}-${attachment.file.lastModified}-${index}`"
+                                            class="group overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
+                                        >
+                                            <div class="relative">
+                                                <button
+                                                    type="button"
+                                                    class="flex h-24 w-full items-center justify-center overflow-hidden bg-gray-100 text-slate-500 transition hover:bg-gray-200 dark:bg-gray-900 dark:text-slate-300 dark:hover:bg-gray-800"
+                                                    :aria-label="`Aperçu de ${attachment.file.name}`"
+                                                    @click="activeMutualAttachment = attachment"
+                                                >
+                                                    <img v-if="attachment.isImage" :src="attachment.previewUrl" :alt="attachment.file.name" class="h-full w-full object-cover" />
+                                                    <span v-else class="flex flex-col items-center">
+                                                        <Icon class="text-3xl" name="file-text" />
+                                                        <span class="mt-1 text-[10px] font-bold uppercase tracking-wide">PDF</span>
+                                                    </span>
+                                                    <span class="absolute inset-x-0 bottom-0 bg-slate-950/65 px-2 py-1 text-[10px] font-semibold text-white opacity-0 transition group-hover:opacity-100">Voir l’aperçu</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="absolute end-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-sm transition hover:text-red-600 dark:bg-gray-950/95 dark:text-slate-300"
+                                                    :aria-label="`Retirer ${attachment.file.name}`"
+                                                    @click="removeAttachment(index)"
+                                                >
+                                                    <Icon name="cross" />
+                                                </button>
+                                            </div>
+                                            <div class="min-w-0 px-3 py-2.5">
+                                                <p class="truncate text-xs font-bold text-slate-700 dark:text-white" :title="attachment.file.name">{{ attachment.file.name }}</p>
+                                                <p class="mt-0.5 text-[11px] text-slate-400">{{ attachment.isImage ? 'Image' : 'Document PDF' }} · {{ formatFileSize(attachment.file.size) }}</p>
+                                            </div>
+                                        </article>
+
+                                        <label v-if="mutualAttachmentPreviews.length < maxMutualAttachments" for="mutual_attachments" class="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-gray-300 bg-white px-4 py-3 text-center transition hover:border-primary-400 dark:border-gray-800 dark:bg-gray-950">
+                                            <Icon class="text-xl text-slate-400" name="plus" />
+                                            <span class="mt-1.5 text-xs font-bold text-slate-600 dark:text-slate-200">Ajouter</span>
+                                            <span class="mt-0.5 text-[11px] text-slate-400">{{ maxMutualAttachments - mutualAttachmentPreviews.length }} place{{ maxMutualAttachments - mutualAttachmentPreviews.length > 1 ? 's' : '' }} restante{{ maxMutualAttachments - mutualAttachmentPreviews.length > 1 ? 's' : '' }}</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-800">
+                                        <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-400"><Icon name="lock" />Stockage privé, réservé aux utilisateurs autorisés.</span>
+                                        <button type="button" class="text-xs font-semibold text-red-600 hover:underline dark:text-red-300" @click="clearMutualAttachments">Tout retirer</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <FormError v-if="mutualAttachmentClientError" class="mt-1">{{ mutualAttachmentClientError }}</FormError>
+                            <FormError v-else-if="mutualAttachmentServerError" class="mt-1">{{ mutualAttachmentServerError }}</FormError>
+                        </div>
                     </div>
                     <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button><Button size="rg" :disabled="!coverageComplete" @click="continueCoverage">Continuer<Icon class="ms-2" name="arrow-right" /></Button></div>
                 </section>
@@ -571,4 +769,37 @@ const selectClass = 'block h-9 w-full appearance-none rounded border border-gray
             <div v-else class="overflow-x-auto"><table class="w-full min-w-[920px]"><thead><tr class="bg-gray-50/60 text-start text-xs uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40"><th class="px-5 py-2.5 text-start">Patient</th><th class="px-5 py-2.5 text-start">Passage</th><th class="px-5 py-2.5 text-start">Arrivée</th><th class="px-5 py-2.5 text-start">Priorité</th><th class="px-5 py-2.5 text-start">Parcours</th><th class="px-5 py-2.5 text-end">Action</th></tr></thead><tbody><tr v-for="episode in recentEpisodes" :key="episode.uuid" class="border-t border-gray-200 hover:bg-gray-50/50 dark:border-gray-900 dark:hover:bg-gray-1000/30"><td class="px-5 py-3"><div class="flex items-center gap-3"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" /><div><Link v-if="can('patients.view')" :href="`/patients/${episode.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(episode.patient) }}</Link><p class="mt-0.5 text-xs text-slate-400">{{ episode.patient.patient_number }}</p></div></div></td><td class="px-5 py-3 font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ episode.episode_number }}</td><td class="px-5 py-3"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ formatDateTime(episode.started_at) }}</span><span class="text-xs text-slate-400">{{ formatRelativeTime(episode.started_at) }}</span></td><td class="px-5 py-3"><span :class="['text-xs font-semibold', episode.priority === 'EMERGENCY' ? 'text-red-600' : 'text-slate-500']">{{ episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normale' }}</span></td><td class="px-5 py-3"><span class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800">{{ pathwayStatus(episode) }}</span></td><td class="px-5 py-3 text-end"><Button v-if="can('episodes.update') && !episode.service_plan_finalized_at" :as="Link" :href="`/reception/passages/${episode.uuid}/prestations`" size="sm" variant="white-outline">Préparer</Button><Button v-else-if="can('patients.view')" :as="Link" :href="`/patients/${episode.patient.uuid}`" icon size="sm" variant="white-outline"><Icon name="eye" /></Button></td></tr></tbody></table></div>
         </Card>
     </div>
+
+    <Dialog :open="Boolean(activeMutualAttachment)" as="div" class="relative z-[1200]" @close="activeMutualAttachment = null">
+        <div class="fixed inset-0 bg-slate-950/70" aria-hidden="true"></div>
+        <div class="fixed inset-0 overflow-y-auto p-4">
+            <div class="flex min-h-full items-center justify-center">
+                <DialogPanel v-if="activeMutualAttachment" class="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
+                <header class="flex items-center justify-between gap-4 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                    <div class="min-w-0">
+                        <DialogTitle class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ activeMutualAttachment.file.name }}</DialogTitle>
+                        <p class="mt-0.5 text-xs text-slate-400">{{ activeMutualAttachment.isImage ? 'Image' : 'Document PDF' }} · {{ formatFileSize(activeMutualAttachment.file.size) }}</p>
+                    </div>
+                    <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-gray-100 hover:text-slate-700 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer l’aperçu" @click="activeMutualAttachment = null">
+                        <Icon class="text-xl" name="cross" />
+                    </button>
+                </header>
+
+                <div class="flex min-h-64 flex-1 items-center justify-center overflow-auto bg-gray-100 p-4 dark:bg-gray-1000/60 sm:min-h-[28rem]">
+                    <img v-if="activeMutualAttachment.isImage" :src="activeMutualAttachment.previewUrl" :alt="activeMutualAttachment.file.name" class="max-h-[72vh] max-w-full object-contain" />
+                    <div v-else class="flex flex-col items-center text-center">
+                        <span class="flex h-20 w-20 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm dark:bg-gray-900 dark:text-slate-300">
+                            <Icon class="text-4xl" name="file-text" />
+                        </span>
+                        <p class="mt-4 text-sm font-bold text-slate-700 dark:text-white">Document PDF prêt à être joint</p>
+                        <p class="mt-1 text-xs text-slate-400">Ouvrez-le dans un nouvel onglet pour vérifier son contenu.</p>
+                        <a :href="activeMutualAttachment.previewUrl" target="_blank" rel="noopener" class="mt-4 inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">
+                            <Icon name="eye" />Ouvrir le PDF
+                        </a>
+                    </div>
+                </div>
+                </DialogPanel>
+            </div>
+        </div>
+    </Dialog>
 </template>

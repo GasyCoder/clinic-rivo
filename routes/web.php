@@ -113,7 +113,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->middleware('can:episodes.update');
     Route::get('/reception/mutual-coverages/{coverage}/attachments/{attachment}', PatientMutualCoverageAttachmentController::class)
         ->name('reception.mutual-coverages.attachments.show')
-        ->middleware('can:patient_coverage_documents.view');
+        ->scopeBindings()
+        ->middleware(['can:patients.view', 'can:patient_coverage_documents.view']);
     Route::get('/reception/visitors', [VisitorReceptionController::class, 'index'])->name('reception.visitors.index')->middleware('can:visitors.view');
     Route::post('/reception/visitors', [VisitorReceptionController::class, 'store'])->name('reception.visitors.store')->middleware('can:visitors.create');
     Route::get('/reception/visitors/{visitorVisit}/attachments/{attachment}', [VisitorReceptionController::class, 'professionalAttachment'])->name('reception.visitors.attachments.show')->middleware('can:visitors.view');
@@ -125,6 +126,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/patients/bulk-delete', [PatientController::class, 'bulkDestroy'])->name('patients.bulk-destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}/edit', [PatientController::class, 'edit'])->name('patients.edit')->middleware('can:patients.update');
     Route::put('/patients/{patient}', [PatientController::class, 'update'])->name('patients.update')->middleware('can:patients.update');
+    Route::post('/patients/{patient}/mutual-coverages/{mutualCoverage}/attachments', [PatientMutualCoverageAttachmentController::class, 'store'])
+        ->name('patients.mutual-coverages.attachments.store')
+        ->scopeBindings()
+        ->middleware([
+            'can:patients.update',
+            'can:patient_coverages.view',
+            'can:patient_coverage_documents.create',
+        ]);
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
 

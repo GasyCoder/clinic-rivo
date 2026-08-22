@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -32,6 +33,7 @@ const showInvoiceForm = ref(false);
 const paymentTarget = ref(null);
 const cancellationTarget = ref(null);
 const validatingInvoice = ref(null);
+const mutualAttachmentsOpen = ref(false);
 
 const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
     (episode) => episode.status === 'OPEN' && episode.priority === 'EMERGENCY',
@@ -225,6 +227,15 @@ const moduleLabels = {
 const formatQuantity = (quantity) => Number(quantity).toLocaleString('fr-FR', {
     maximumFractionDigits: 2,
 });
+const formatFileSize = (bytes) => {
+    if (!bytes) return '';
+
+    return bytes >= 1024 * 1024
+        ? `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
+        : `${Math.max(1, Math.round(bytes / 1024))} Ko`;
+};
+const mutualAttachmentUrl = (attachment) => attachment.url
+    ?? `/reception/mutual-coverages/${activeMutualCoverage.value.uuid}/attachments/${attachment.uuid}`;
 
 const episodeStatusBadgeClass = (statusValue) => ({
     OPEN: 'border-gray-200 text-slate-600 dark:border-gray-800 dark:text-slate-300',
@@ -528,11 +539,38 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     </dl>
                     <p v-else class="mt-3 text-sm text-slate-400">Aucune couverture active.</p>
                     <div v-if="activeMutualCoverage?.attachments?.length && can('patient_coverage_documents.view')" class="mt-4 border-t border-gray-100 pt-3 dark:border-gray-900">
-                        <p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Justificatifs</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <a v-for="attachment in activeMutualCoverage.attachments.slice(0, 2)" :key="attachment.uuid" :href="`/reception/mutual-coverages/${activeMutualCoverage.uuid}/attachments/${attachment.uuid}`" target="_blank" rel="noopener" class="inline-flex max-w-[180px] items-center gap-1.5 rounded border border-gray-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-gray-300 dark:border-gray-800 dark:text-slate-300"><Icon name="file-text" /><span class="truncate">{{ attachment.original_name }}</span></a>
-                            <span v-if="activeMutualCoverage.attachments.length > 2" class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800">+{{ activeMutualCoverage.attachments.length - 2 }}</span>
+                        <div class="flex items-center justify-between gap-3">
+                            <p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Justificatifs</p>
+                            <span class="text-[11px] text-slate-400">{{ activeMutualCoverage.attachments.length }}/5</span>
                         </div>
+                        <button
+                            type="button"
+                            class="mt-2 flex w-full items-center gap-3 rounded-md border border-gray-200 p-2.5 text-start transition-colors hover:border-slate-300 hover:bg-gray-50/60 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:hover:border-gray-700 dark:hover:bg-gray-1000/40 dark:focus:ring-primary-950"
+                            :aria-label="`Voir les ${activeMutualCoverage.attachments.length} justificatifs de mutuelle`"
+                            @click="mutualAttachmentsOpen = true"
+                        >
+                            <span class="relative flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
+                                <img
+                                    v-if="activeMutualCoverage.attachments[0].is_image"
+                                    :src="mutualAttachmentUrl(activeMutualCoverage.attachments[0])"
+                                    :alt="activeMutualCoverage.attachments[0].original_name"
+                                    loading="lazy"
+                                    class="h-full w-full object-cover"
+                                />
+                                <span v-else class="flex flex-col items-center text-slate-500 dark:text-slate-300">
+                                    <Icon class="text-xl" name="file-text" />
+                                    <span class="mt-0.5 text-[9px] font-bold">PDF</span>
+                                </span>
+                                <span v-if="activeMutualCoverage.attachments.length > 1" class="absolute inset-0 flex items-center justify-center bg-slate-900/65 text-sm font-bold text-white">
+                                    +{{ activeMutualCoverage.attachments.length - 1 }}
+                                </span>
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ activeMutualCoverage.attachments[0].original_name }}</span>
+                                <span class="mt-1 block text-[11px] text-slate-400">{{ activeMutualCoverage.attachments.length }} fichier{{ activeMutualCoverage.attachments.length > 1 ? 's' : '' }} · Voir les justificatifs</span>
+                            </span>
+                            <Icon class="shrink-0 text-lg text-slate-400" name="eye" />
+                        </button>
                     </div>
                 </section>
 
@@ -625,4 +663,49 @@ const invoiceStatusBadgeClass = (statusValue) => ({
             </section>
         </div>
     </div>
+
+    <Dialog :open="mutualAttachmentsOpen" as="div" class="relative z-[1200]" @close="mutualAttachmentsOpen = false">
+        <div class="fixed inset-0 bg-slate-950/60" aria-hidden="true"></div>
+        <div class="fixed inset-0 overflow-y-auto p-4">
+            <div class="flex min-h-full items-center justify-center">
+                <DialogPanel v-if="activeMutualCoverage?.attachments?.length" class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950">
+                <header class="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-4 dark:border-gray-800 dark:bg-gray-950">
+                    <div class="min-w-0">
+                        <DialogTitle class="text-sm font-bold text-slate-700 dark:text-white">Justificatifs de mutuelle</DialogTitle>
+                        <p class="mt-0.5 text-xs text-slate-400">{{ activeMutualCoverage.organization?.name }} · {{ activeMutualCoverage.attachments.length }} fichier{{ activeMutualCoverage.attachments.length > 1 ? 's' : '' }}</p>
+                    </div>
+                    <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-gray-100 hover:text-slate-700 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer" @click="mutualAttachmentsOpen = false">
+                        <Icon class="text-xl" name="cross" />
+                    </button>
+                </header>
+
+                <div class="grid gap-3 p-5 sm:grid-cols-2">
+                    <a
+                        v-for="attachment in activeMutualCoverage.attachments"
+                        :key="attachment.uuid"
+                        :href="mutualAttachmentUrl(attachment)"
+                        target="_blank"
+                        rel="noopener"
+                        class="overflow-hidden rounded-md border border-gray-200 transition-colors hover:border-primary-300 dark:border-gray-800 dark:hover:border-primary-800"
+                    >
+                        <span class="flex h-48 items-center justify-center bg-gray-50 dark:bg-gray-1000/40">
+                            <img v-if="attachment.is_image" :src="mutualAttachmentUrl(attachment)" :alt="attachment.original_name" loading="lazy" class="h-full w-full object-contain" />
+                            <span v-else class="flex flex-col items-center text-slate-500 dark:text-slate-300">
+                                <Icon class="text-4xl" name="file-text" />
+                                <span class="mt-2 text-xs font-bold">Document PDF</span>
+                            </span>
+                        </span>
+                        <span class="flex items-center gap-3 border-t border-gray-100 p-3 dark:border-gray-900">
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ attachment.original_name }}</span>
+                                <span class="mt-0.5 block text-[11px] text-slate-400">{{ formatFileSize(attachment.size) }} · Ouvrir</span>
+                            </span>
+                            <Icon class="shrink-0 text-base text-slate-400" name="external" />
+                        </span>
+                    </a>
+                </div>
+                </DialogPanel>
+            </div>
+        </div>
+    </Dialog>
 </template>

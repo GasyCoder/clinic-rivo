@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\PatientType;
 use App\Enums\ReceptionRoutingMode;
+use App\Models\AddressEntry;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Employee;
@@ -218,6 +219,44 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertDatabaseCount('patients', 1);
         $this->assertDatabaseCount('patient_staff_links', 1);
         $this->assertDatabaseCount('episodes', 2);
+    }
+
+    public function test_a_linked_staff_patient_moves_to_the_employees_new_controlled_address_at_resync(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'employees.patient_lookup',
+            'patient_staff_links.create',
+        ]);
+        $originalAddress = AddressEntry::query()->create(['label' => 'Lot RH 12', 'active' => true]);
+        $newAddress = AddressEntry::query()->create(['label' => 'Lot RH 27', 'active' => true]);
+        $employee = Employee::query()->create([
+            'employee_number' => 'EMP-0011',
+            'first_name' => 'Tovo',
+            'last_name' => 'Andria',
+            'sex' => 'M',
+            'birth_date' => '1985-01-20',
+            'profession' => 'Aide-soignant',
+            'phone' => '0340000001',
+            'address_entry_id' => $originalAddress->id,
+            'active' => true,
+        ]);
+
+        $this->actingAs($actor)->post('/reception/patients', [
+            'patient_type' => PatientType::Staff->value,
+            'employee_uuid' => $employee->uuid,
+        ])->assertRedirect();
+        $patient = Patient::query()->sole();
+        $this->assertSame($originalAddress->id, $patient->address_entry_id);
+
+        $employee->update(['address_entry_id' => $newAddress->id]);
+
+        $this->actingAs($actor)->post('/reception/patients', [
+            'patient_uuid' => $patient->uuid,
+        ])->assertRedirect();
+
+        $patient->refresh();
+        $this->assertSame($newAddress->id, $patient->address_entry_id);
+        $this->assertSame('Lot RH 27', $patient->address);
     }
 
     public function test_staff_services_keep_the_clinical_route_but_wait_for_the_hr_finance_coverage(): void

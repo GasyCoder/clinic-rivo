@@ -3,8 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Reception\RegisterArrivalAction;
-use App\Enums\CatalogModule;
-use App\Enums\EpisodeOrientationStatus;
+use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
 use App\Enums\ReceptionPatientStep;
@@ -102,40 +101,20 @@ class ReceptionController extends Controller
                 ->where('priority', EpisodePriority::Normal->value))
             ->when($recentFilter === 'emergency', fn ($query) => $query
                 ->where('priority', EpisodePriority::Emergency->value))
+            // administrative_status already tracks exactly what these two
+            // tabs mean (has Réception finalized this passage's routing
+            // yet?) and flips PENDING_ORIENTATION -> ORIENTED uniformly for
+            // every ADR-030 path — MEDICINE_DIRECT, CARE_THEN_MEDICINE, and
+            // CARE_ONLY alike (see PlanEpisodeRoutingAction). A prior
+            // version of this filter re-derived the same thing from raw
+            // Care/Medicine orientation rows, tied to the pre-ADR-030 model
+            // where Médecine was always the destination: it missed
+            // CARE_ONLY passages that finish entirely inside Soins, which
+            // matched neither bucket once their Care orientation completed.
             ->when($recentFilter === 'pending', fn ($query) => $query
-                ->where(function ($pending) {
-                    $pending->where(function ($unplanned) {
-                        $unplanned->whereNull('service_plan_finalized_at')
-                            // An emergency is clinically oriented as soon as
-                            // the passage is created, even while the family
-                            // still completes its designation afterwards.
-                            ->whereDoesntHave('orientations', fn ($orientation) => $orientation
-                                ->where('destination_module', CatalogModule::Medicine->value));
-                    })
-                        ->orWhere(function ($carePath) {
-                            $carePath->whereHas('orientations', fn ($orientation) => $orientation
-                                ->where('destination_module', CatalogModule::Care->value)
-                                ->whereIn('status', [
-                                    EpisodeOrientationStatus::Pending->value,
-                                    EpisodeOrientationStatus::InProgress->value,
-                                ]))
-                                ->whereDoesntHave('orientations', fn ($orientation) => $orientation
-                                    ->where('destination_module', CatalogModule::Medicine->value)
-                                    ->whereIn('status', [
-                                        EpisodeOrientationStatus::Pending->value,
-                                        EpisodeOrientationStatus::InProgress->value,
-                                        EpisodeOrientationStatus::Completed->value,
-                                    ]));
-                        });
-                }))
+                ->where('administrative_status', EpisodeAdministrativeStatus::PendingOrientation->value))
             ->when($recentFilter === 'oriented', fn ($query) => $query
-                ->whereHas('orientations', fn ($orientation) => $orientation
-                    ->where('destination_module', CatalogModule::Medicine->value)
-                    ->whereIn('status', [
-                        EpisodeOrientationStatus::Pending->value,
-                        EpisodeOrientationStatus::InProgress->value,
-                        EpisodeOrientationStatus::Completed->value,
-                    ])))
+                ->where('administrative_status', '!=', EpisodeAdministrativeStatus::PendingOrientation->value))
             ->latest('started_at')
             ->limit(20)
             ->get([

@@ -171,6 +171,38 @@ class ReceptionControllerTest extends TestCase
             );
     }
 
+    public function test_a_care_only_passage_finished_at_soins_counts_as_oriented(): void
+    {
+        // ADR-030: CARE_ONLY never reaches Médecine — its Care orientation
+        // is created, then completed, with no Medicine orientation ever
+        // created. It must still land in "Orientés", not disappear from
+        // both tabs once Soins marks it done.
+        $user = $this->userWithPermissions(['episodes.create']);
+        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
+        config(['rivo.site.code' => 'M']);
+
+        $episode = $this->app->make(CreateEpisodeAction::class)->execute($patient);
+        $orientation = $this->app->make(CreateEpisodeOrientationAction::class)->execute(
+            $episode,
+            CatalogModule::Reception,
+            CatalogModule::Care,
+            $user,
+        );
+        $orientation->update(['status' => \App\Enums\EpisodeOrientationStatus::Completed]);
+        $episode->update([
+            'administrative_status' => EpisodeAdministrativeStatus::Oriented,
+            'service_plan_finalized_at' => now(),
+        ]);
+
+        $this->actingAs($user)->get('/reception/patients?filter=oriented')
+            ->assertInertia(fn ($page) => $page
+                ->has('recentEpisodes', 1)
+                ->where('recentEpisodes.0.uuid', $episode->uuid));
+
+        $this->actingAs($user)->get('/reception/patients?filter=pending')
+            ->assertInertia(fn ($page) => $page->has('recentEpisodes', 0));
+    }
+
     public function test_store_with_an_existing_patient_uuid_only_creates_an_episode(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Catalog;
 
+use App\Enums\CatalogTariffCategory;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Services\Audit\Auditor;
@@ -13,19 +14,23 @@ class ArchiveCatalogTariffAction
 {
     public function __construct(private readonly Auditor $auditor) {}
 
-    public function execute(CatalogItem $item, string $reason, User $actor): void
-    {
+    public function execute(
+        CatalogItem $item,
+        CatalogTariffCategory $category,
+        string $reason,
+        User $actor,
+    ): void {
         if ($actor->cannot('catalog.tariffs.archive')) {
             throw new AuthorizationException('Vous ne pouvez pas suspendre ce tarif.');
         }
 
-        DB::transaction(function () use ($item, $reason, $actor) {
+        DB::transaction(function () use ($item, $category, $reason, $actor) {
             $item = CatalogItem::query()->lockForUpdate()->findOrFail($item->id);
-            $current = $item->currentTariff()->lockForUpdate()->first();
+            $current = $item->currentTariffFor($category)->lockForUpdate()->first();
 
             if (! $current) {
                 throw ValidationException::withMessages([
-                    'tariff' => 'Aucun tarif actif à suspendre.',
+                    'tariff' => "Aucun tarif {$category->label()} actif à suspendre.",
                 ]);
             }
 

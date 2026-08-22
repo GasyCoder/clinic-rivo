@@ -2,6 +2,7 @@
 
 namespace App\Actions\Catalog;
 
+use App\Enums\CatalogTariffCategory;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\User;
@@ -12,9 +13,14 @@ use Illuminate\Validation\ValidationException;
 
 class SetCatalogTariffAction
 {
-    public function execute(CatalogItem $item, string|int $amount, string $reason, User $actor): CatalogTariff
-    {
-        return DB::transaction(function () use ($item, $amount, $reason, $actor) {
+    public function execute(
+        CatalogItem $item,
+        CatalogTariffCategory $category,
+        string|int $amount,
+        string $reason,
+        User $actor,
+    ): CatalogTariff {
+        return DB::transaction(function () use ($item, $category, $amount, $reason, $actor) {
             $item = CatalogItem::query()->lockForUpdate()->findOrFail($item->id);
 
             if (! $item->billable) {
@@ -23,7 +29,7 @@ class SetCatalogTariffAction
                 ]);
             }
 
-            $current = $item->currentTariff()->lockForUpdate()->first();
+            $current = $item->currentTariffFor($category)->lockForUpdate()->first();
             $permission = $current ? 'catalog.tariffs.update' : 'catalog.tariffs.create';
 
             if ($actor->cannot($permission)) {
@@ -55,6 +61,7 @@ class SetCatalogTariffAction
             }
 
             return $item->tariffs()->create([
+                'tariff_category' => $category,
                 'amount' => Money::fromMinor($amountMinor),
                 'currency' => 'MGA',
                 'effective_from' => $effectiveAt,

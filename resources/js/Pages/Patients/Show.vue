@@ -37,15 +37,19 @@ const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
     (episode) => episode.status === 'OPEN' && episode.priority === 'EMERGENCY',
 ));
 const latestEpisode = computed(() => props.patient.episodes[0] ?? null);
+const activeMutualCoverage = computed(() => props.patient.active_mutual_coverage ?? null);
+const activeStaffLink = computed(() => props.patient.active_staff_link ?? null);
+const displayedAge = computed(() => props.patient.declared_age ?? props.patient.age ?? null);
 const birthSummary = computed(() => {
-    if (props.patient.birth_date_is_approximate) {
-        return props.patient.age !== null && props.patient.age !== undefined
-            ? `${props.patient.age} ans`
-            : 'Non renseigné';
+    if (props.patient.birth_date) {
+        return formatDate(props.patient.birth_date);
     }
 
-    return props.patient.birth_date ? formatDate(props.patient.birth_date) : 'Non renseignée';
+    return displayedAge.value !== null && displayedAge.value !== undefined
+        ? `${displayedAge.value} ans`
+        : 'Non renseigné';
 });
+const birthLabel = computed(() => (props.patient.birth_date ? 'Date de naissance' : 'Âge'));
 
 const defaultEpisodeUuid = props.patient.episodes.find((episode) => episode.status !== 'CANCELLED')?.uuid ?? '';
 const invoiceForm = useForm({
@@ -158,6 +162,28 @@ const cancelPayment = () => {
 
 const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
 const civilityLabels = { MR: 'M.', MRS: 'Mme', GIRL: 'Enfant fille', BOY: 'Enfant garçon' };
+const patientTypeLabels = {
+    STANDARD: 'Patient standard',
+    MUTUAL: 'Patient avec mutuelle',
+    STAFF: 'Personnel de la clinique',
+};
+const maritalStatusLabels = {
+    SINGLE: 'Célibataire',
+    MARRIED: 'Marié(e)',
+    DIVORCED: 'Divorcé(e)',
+    WIDOWED: 'Veuf / Veuve',
+};
+const patientTypeLabel = computed(() => patientTypeLabels[props.patient.patient_type] ?? 'Patient standard');
+const maritalStatusLabel = computed(() => maritalStatusLabels[props.patient.marital_status] ?? 'Non renseignée');
+const childrenCountLabel = computed(() => (
+    props.patient.children_count !== null && props.patient.children_count !== undefined
+        ? props.patient.children_count
+        : 'Non renseigné'
+));
+const beneficiaryTypeLabels = {
+    PRINCIPAL: 'Principal',
+    FAMILY_MEMBER: 'Membre de famille',
+};
 const administrativeStatusLabels = {
     PENDING_ORIENTATION: 'En attente aux Soins',
     ORIENTED: 'Orienté',
@@ -226,6 +252,9 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{{ patient.patient_number }}</span>
+                            <span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                                {{ patientTypeLabel }}
+                            </span>
                             <span v-if="activeEmergencyEpisode" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-[11px] font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
                                 <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence en cours
                             </span>
@@ -239,13 +268,13 @@ const invoiceStatusBadgeClass = (statusValue) => ({
 
                 <div class="flex flex-wrap items-center gap-2">
                     <Button :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Liste des patients</span></Button>
-                    <Button v-if="can('patients.update')" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="rg" variant="white-outline"><Icon class="text-lg" name="edit" /><span class="ms-2">Modifier</span></Button>
+                    <Button v-if="can('patients.update') && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="rg" variant="white-outline"><Icon class="text-lg" name="edit" /><span class="ms-2">Modifier</span></Button>
                     <Button v-if="can('cash.view')" :as="Link" href="/cash" size="rg" variant="white-outline"><Icon class="text-lg" name="wallet" /><span class="ms-2">Caisse</span></Button>
                 </div>
             </div>
 
             <dl class="grid grid-cols-2 border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30 sm:grid-cols-4">
-                <div class="border-e border-gray-200 px-5 py-3 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">{{ patient.birth_date_is_approximate ? 'Âge' : 'Date de naissance' }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ birthSummary }}</dd></div>
+                <div class="border-e border-gray-200 px-5 py-3 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">{{ birthLabel }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ birthSummary }}</dd></div>
                 <div class="px-5 py-3 sm:border-e sm:border-gray-200 sm:dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Sexe</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ sexLabel(patient.sex) }}</dd></div>
                 <div class="border-e border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Téléphone</dt><dd class="mt-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
                 <div class="border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Dernier passage</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ latestEpisode?.episode_number ?? 'Aucun passage' }}</dd></div>
@@ -285,7 +314,8 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 <div class="flex flex-wrap items-center gap-2">
                     <span v-if="openCashSession" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Caisse ouverte</span>
                     <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400"><span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Caisse fermée</span>
-                    <Button v-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="showInvoiceForm = !showInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
+                    <span v-if="patient.patient_type === 'STAFF'" class="text-xs font-medium text-slate-500">Couverture RH / Finance à calculer</span>
+                    <Button v-else-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="showInvoiceForm = !showInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
                 </div>
             </div>
 
@@ -450,9 +480,13 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Informations administratives</h2><p class="mt-0.5 text-xs text-slate-400">Coordonnées et document d’identité du patient.</p></div>
                     </div>
                     <dl class="grid grid-cols-1 sm:grid-cols-2">
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-e"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Type de patient</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ patientTypeLabel }}</dd></div>
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Situation maritale</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ maritalStatusLabel }}</dd></div>
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-e"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Nombre d’enfants</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ childrenCountLabel }}</dd></div>
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Profession</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ patient.profession || 'Non renseignée' }}</dd></div>
                         <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-e"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="call" /> Téléphone</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
                         <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="mail" /> Email</dt><dd class="mt-1.5 break-all text-sm font-medium text-slate-700 dark:text-slate-200">{{ patient.email ?? 'Non renseigné' }}</dd></div>
-                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-b-0 sm:border-e"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="map-pin" /> Adresse</dt><dd class="mt-1.5 text-sm font-medium leading-5 text-slate-700 dark:text-slate-200">{{ patient.address ?? 'Non renseignée' }}</dd></div>
+                        <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-b-0 sm:border-e"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="map-pin" /> Adresse</dt><dd class="mt-1.5 text-sm font-medium leading-5 text-slate-700 dark:text-slate-200">{{ patient.address_entry?.label ?? patient.address ?? 'Non renseignée' }}</dd></div>
                         <div class="px-5 py-3.5"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="cards" /> Pièce d’identité</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200"><template v-if="patient.identity_document_type">{{ patient.identity_document_type === 'CIN' ? 'CIN' : 'Passeport' }} · {{ patient.identity_document_number }}</template><template v-else>Non renseignée</template></dd></div>
                     </dl>
                 </section>
@@ -482,6 +516,35 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <p class="mt-2 text-xs leading-5 text-slate-500">{{ pathwayStatus(latestEpisode) }}<br>{{ formatDateTime(latestEpisode.started_at) }}</p>
                     </div>
                     <p v-else class="mt-3 text-sm text-slate-400">Aucun passage enregistré.</p>
+                </section>
+
+                <section v-if="patient.patient_type === 'MUTUAL' && can('patient_coverages.view')" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Couverture mutuelle</h2>
+                    <dl v-if="activeMutualCoverage" class="mt-3 space-y-2.5 text-xs">
+                        <div class="flex justify-between gap-4"><dt class="text-slate-400">Organisme</dt><dd class="text-end font-semibold text-slate-700 dark:text-slate-200">{{ activeMutualCoverage.organization?.name }}</dd></div>
+                        <div class="flex justify-between gap-4"><dt class="text-slate-400">Bénéficiaire</dt><dd class="text-end font-semibold text-slate-700 dark:text-slate-200">{{ beneficiaryTypeLabels[activeMutualCoverage.beneficiary_type] ?? activeMutualCoverage.beneficiary_type }}</dd></div>
+                        <div class="flex justify-between gap-4"><dt class="text-slate-400">Matricule</dt><dd class="text-end font-mono font-semibold text-slate-700 dark:text-slate-200">{{ activeMutualCoverage.membership_number }}</dd></div>
+                        <div class="flex justify-between gap-4"><dt class="text-slate-400">Entreprise</dt><dd class="text-end font-semibold text-slate-700 dark:text-slate-200">{{ activeMutualCoverage.employer_name }}</dd></div>
+                    </dl>
+                    <p v-else class="mt-3 text-sm text-slate-400">Aucune couverture active.</p>
+                    <div v-if="activeMutualCoverage?.attachments?.length && can('patient_coverage_documents.view')" class="mt-4 border-t border-gray-100 pt-3 dark:border-gray-900">
+                        <p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Justificatifs</p>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <a v-for="attachment in activeMutualCoverage.attachments.slice(0, 2)" :key="attachment.uuid" :href="`/reception/mutual-coverages/${activeMutualCoverage.uuid}/attachments/${attachment.uuid}`" target="_blank" rel="noopener" class="inline-flex max-w-[180px] items-center gap-1.5 rounded border border-gray-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-gray-300 dark:border-gray-800 dark:text-slate-300"><Icon name="file-text" /><span class="truncate">{{ attachment.original_name }}</span></a>
+                            <span v-if="activeMutualCoverage.attachments.length > 2" class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800">+{{ activeMutualCoverage.attachments.length - 2 }}</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section v-if="patient.patient_type === 'STAFF' && can('patient_staff_links.view')" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Dossier personnel lié</h2>
+                    <template v-if="activeStaffLink?.employee">
+                        <p class="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ formatPatientName(activeStaffLink.employee) }}</p>
+                        <p class="mt-1 font-mono text-xs text-slate-400">{{ activeStaffLink.employee.employee_number }}</p>
+                        <p class="mt-2 text-xs text-slate-500">{{ activeStaffLink.employee.profession || 'Fonction non renseignée' }}</p>
+                        <p class="mt-3 border-t border-gray-100 pt-3 text-xs leading-5 text-slate-400 dark:border-gray-900">Prise en charge hors bloc et crédit bloc calculés par RH / Finance avant facturation.</p>
+                    </template>
+                    <p v-else class="mt-3 text-sm text-slate-400">Aucun lien actif avec un dossier RH.</p>
                 </section>
 
                 <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">

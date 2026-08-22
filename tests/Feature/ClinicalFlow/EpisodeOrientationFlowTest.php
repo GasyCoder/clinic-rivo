@@ -6,6 +6,7 @@ use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
+use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
@@ -34,19 +35,12 @@ class EpisodeOrientationFlowTest extends TestCase
         ]);
     }
 
-    public function test_normal_arrival_enters_care_but_not_medicine(): void
+    public function test_normal_episode_waits_for_its_explicit_service_plan(): void
     {
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
 
-        $this->assertDatabaseHas('episode_orientations', [
-            'episode_id' => $episode->id,
-            'destination_module' => CatalogModule::Care->value,
-            'status' => EpisodeOrientationStatus::Pending->value,
-        ]);
-        $this->assertDatabaseMissing('episode_orientations', [
-            'episode_id' => $episode->id,
-            'destination_module' => CatalogModule::Medicine->value,
-        ]);
+        $this->assertDatabaseMissing('episode_orientations', ['episode_id' => $episode->id]);
+        $this->assertNull($episode->service_plan_finalized_at);
     }
 
     public function test_emergency_arrival_enters_care_and_medicine_immediately(): void
@@ -71,7 +65,8 @@ class EpisodeOrientationFlowTest extends TestCase
     {
         $actor = User::factory()->create();
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
-        $care = $episode->orientations->sole();
+        $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
+        $care = $episode->orientations()->sole();
 
         $this->expectException(InvalidEpisodeOrientationTransitionException::class);
 
@@ -84,13 +79,14 @@ class EpisodeOrientationFlowTest extends TestCase
         $actor = User::factory()->create();
         $this->actingAs($actor);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
-        $care = $episode->orientations->sole();
+        $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
+        $care = $episode->orientations()->sole();
 
         $this->app->make(AcceptCareOrientationAction::class)->execute($care, $actor);
         $this->assertSame(EpisodeAdministrativeStatus::InCare, $episode->fresh()->administrative_status);
 
         $completed = $this->app->make(CompleteCareAndOrientToMedicineAction::class)
-            ->execute($care, $actor);
+            ->executeForUnknownNeed($care, $actor);
 
         $this->assertSame(EpisodeOrientationStatus::Completed, $completed->status);
         $this->assertNull($completed->active_key);

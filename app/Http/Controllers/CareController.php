@@ -40,6 +40,7 @@ class CareController extends Controller
             ->with([
                 'episode.patient',
                 'episode.billableItems',
+                'episode.serviceRequests',
                 'acceptedBy:id,name',
             ])
             ->when(
@@ -89,8 +90,24 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
         CompleteCareAndOrientToMedicineAction $action,
     ): RedirectResponse {
-        $action->execute($episodeOrientation, $request->user());
+        $completed = $action->execute($episodeOrientation, $request->user());
 
-        return back()->with('status', 'Soins terminés. Le patient est maintenant en attente en Médecine.');
+        $sentToMedicine = $completed->episode->orientations()
+            ->where('destination_module', CatalogModule::Medicine->value)
+            ->exists();
+
+        return back()->with('status', $sentToMedicine
+            ? 'Soins terminés. Le patient est maintenant en attente en Médecine.'
+            : 'Soins terminés. Aucune consultation médicale n’est prévue pour ce parcours.');
+    }
+
+    public function completeAndOrient(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+        CompleteCareAndOrientToMedicineAction $action,
+    ): RedirectResponse {
+        $action->executeForUnknownNeed($episodeOrientation, $request->user());
+
+        return back()->with('status', 'Évaluation terminée. Le patient est orienté vers Médecine.');
     }
 }

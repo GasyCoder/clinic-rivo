@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Support\Money;
@@ -18,7 +19,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      * Provisional local data used to validate the Reception billing workflow.
      * Amounts are MGA and must be confirmed by the clinic before production.
      *
-     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: int, description: string}>
+     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode}>
      */
     private const SERVICES = [
         [
@@ -28,6 +29,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'consultation',
             'amount' => 20000,
             'description' => 'Consultation médicale générale.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareThenMedicine,
         ],
         [
             'code' => 'CONSULT-SPEC',
@@ -36,6 +39,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'consultation',
             'amount' => 30000,
             'description' => 'Consultation auprès d’un médecin spécialiste.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareThenMedicine,
         ],
         [
             'code' => 'ECG',
@@ -44,6 +49,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'examen',
             'amount' => 25000,
             'description' => 'Enregistrement de l’activité électrique du cœur.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MedicineDirect,
         ],
         [
             'code' => 'ECHO-ABD',
@@ -52,6 +59,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'examen',
             'amount' => 50000,
             'description' => 'Examen échographique de la région abdominale.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MedicineDirect,
         ],
         [
             'code' => 'ECHO-OBS',
@@ -60,6 +69,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'examen',
             'amount' => 50000,
             'description' => 'Suivi échographique de la grossesse.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MedicineDirect,
         ],
         [
             'code' => 'ECHO-PEL',
@@ -68,6 +79,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'examen',
             'amount' => 50000,
             'description' => 'Examen échographique de la région pelvienne.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::MedicineDirect,
         ],
         [
             'code' => 'PANSEMENT-S',
@@ -76,6 +89,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'soin',
             'amount' => 10000,
             'description' => 'Nettoyage et pansement d’une plaie simple.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareOnly,
         ],
         [
             'code' => 'PANSEMENT-C',
@@ -84,6 +99,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'soin',
             'amount' => 20000,
             'description' => 'Prise en charge et pansement d’une plaie complexe.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareOnly,
         ],
         [
             'code' => 'INJECTION-IM',
@@ -92,6 +109,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'soin',
             'amount' => 5000,
             'description' => 'Réalisation d’une injection par voie intramusculaire.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareOnly,
         ],
         [
             'code' => 'PERFUSION',
@@ -100,6 +119,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'soin',
             'amount' => 10000,
             'description' => 'Pose et surveillance initiale d’une perfusion.',
+            'reception_selectable' => true,
+            'routing_mode' => ReceptionRoutingMode::CareOnly,
         ],
         [
             'code' => 'LAB-NFS',
@@ -108,6 +129,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 15000,
             'description' => 'Analyse hématologique de type NFS.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
         ],
         [
             'code' => 'LAB-GLYC',
@@ -116,6 +139,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 10000,
             'description' => 'Dosage du glucose sanguin.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
         ],
         [
             'code' => 'LAB-GROUP-RH',
@@ -124,6 +149,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 15000,
             'description' => 'Détermination du groupe sanguin et du facteur rhésus.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
         ],
         [
             'code' => 'LAB-TDR-PALU',
@@ -132,6 +159,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'analyse',
             'amount' => 10000,
             'description' => 'Test de diagnostic rapide du paludisme.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
         ],
         [
             'code' => 'CONSULT-CHIR',
@@ -140,6 +169,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'consultation',
             'amount' => 30000,
             'description' => 'Évaluation clinique par l’équipe de chirurgie.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
         ],
         [
             'code' => 'PETITE-CHIR',
@@ -148,6 +179,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'unit' => 'acte',
             'amount' => 50000,
             'description' => 'Acte chirurgical mineur réalisé selon indication médicale.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
         ],
     ];
 
@@ -188,6 +221,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
                     if ($existing) {
                         $this->assertCompatible($existing);
+                        $this->applyInitialReceptionRouteIfUnset($existing, $service);
 
                         if ($existing->currentTariff()->exists()) {
                             $preserved++;
@@ -209,6 +243,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         'unit' => $service['unit'],
                         'billable' => true,
                         'stockable' => false,
+                        'reception_selectable' => $service['reception_selectable'],
+                        'reception_routing_mode' => $service['routing_mode'],
                         'description' => $service['description'],
                         'created_by' => $actor->id,
                         'updated_by' => $actor->id,
@@ -299,6 +335,27 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 "Le code {$item->code} existe avec une configuration incompatible ; aucune donnée n’a été écrasée.",
             );
         }
+    }
+
+    /**
+     * Existing local seed data predates reception routing. Backfill only an
+     * entirely unconfigured route; never overwrite a route already chosen by
+     * an administrator.
+     *
+     * @param  array{reception_selectable: bool, routing_mode: ?ReceptionRoutingMode}  $service
+     */
+    private function applyInitialReceptionRouteIfUnset(CatalogItem $item, array $service): void
+    {
+        if (! $service['reception_selectable']
+            || $item->reception_selectable
+            || $item->reception_routing_mode !== null) {
+            return;
+        }
+
+        $item->forceFill([
+            'reception_selectable' => true,
+            'reception_routing_mode' => $service['routing_mode'],
+        ])->save();
     }
 
     private function createTariff(CatalogItem $item, int $amount, User $actor): void

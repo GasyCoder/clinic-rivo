@@ -2,7 +2,6 @@
 
 namespace App\Services\Patient;
 
-use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 
 /**
@@ -19,6 +18,8 @@ class PatientBirthDateResolver
     {
         if (! empty($data['birth_date'])) {
             $data['birth_date_is_approximate'] = false;
+            $data['declared_age'] = null;
+            $data['declared_age_at'] = null;
             unset($data['age']);
 
             return $data;
@@ -28,8 +29,13 @@ class PatientBirthDateResolver
             throw new InvalidArgumentException('A birth date or a declared age is required.');
         }
 
-        $data['birth_date'] = Carbon::today()->subYears((int) $data['age'])->toDateString();
+        // An age is not a date of birth. Keep exactly what the family
+        // declared, together with its date, rather than manufacturing a
+        // misleading day/month that could later appear on clinical papers.
+        $data['birth_date'] = null;
         $data['birth_date_is_approximate'] = true;
+        $data['declared_age'] = (int) $data['age'];
+        $data['declared_age_at'] = now();
         unset($data['age']);
 
         return $data;

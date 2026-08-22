@@ -3,8 +3,13 @@
 namespace Tests\Feature\Http;
 
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\PlanEpisodeRoutingAction;
+use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodePriority;
+use App\Enums\ReceptionRoutingMode;
+use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -44,7 +49,14 @@ class ClinicalQueueControllerTest extends TestCase
         $nurse = $this->user('NURSE', ['care.view', 'care.update', 'care.complete']);
         $doctor = $this->user('MEDICINE', ['consultations.view', 'consultations.create']);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
-        $care = $episode->orientations->sole('destination_module', CatalogModule::Care);
+        $service = $this->service($nurse, ReceptionRoutingMode::CareThenMedicine);
+        $this->app->make(PlanEpisodeRoutingAction::class)->execute($episode, [[
+            'catalog_item_uuid' => $service->uuid,
+            'quantity' => 1,
+        ]], $nurse);
+        $care = $episode->orientations()
+            ->where('destination_module', CatalogModule::Care->value)
+            ->sole();
 
         $this->actingAs($nurse)->get('/care')
             ->assertInertia(fn ($page) => $page
@@ -93,10 +105,40 @@ class ClinicalQueueControllerTest extends TestCase
     {
         $unauthorized = $this->user('PHARMACY', []);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
-        $care = $episode->orientations->sole();
+        $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $unauthorized);
+        $care = $episode->orientations()->sole();
 
         $this->actingAs($unauthorized)->get('/care')->assertForbidden();
         $this->actingAs($unauthorized)->get('/medicine')->assertForbidden();
         $this->actingAs($unauthorized)->post("/care/orientations/{$care->uuid}/accept")->assertForbidden();
+    }
+
+    private function service(User $actor, ReceptionRoutingMode $route): CatalogItem
+    {
+        $item = CatalogItem::query()->create([
+            'code' => fake()->unique()->bothify('SRV-###'),
+            'name' => 'Consultation',
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Medicine,
+            'unit' => 'consultation',
+            'billable' => true,
+            'stockable' => false,
+            'reception_selectable' => true,
+            'reception_routing_mode' => $route,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+
+        CatalogTariff::query()->create([
+            'catalog_item_id' => $item->id,
+            'amount' => '10000.00',
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif de test',
+            'created_by' => $actor->id,
+        ]);
+
+        return $item;
     }
 }

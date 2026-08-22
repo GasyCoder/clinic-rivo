@@ -51,6 +51,35 @@ class DuplicatePatientFinderTest extends TestCase
         $this->assertCount(0, $matches);
     }
 
+    public function test_finds_a_match_from_the_same_declared_age_when_birth_is_unknown(): void
+    {
+        $patient = $this->makePatient([
+            'birth_date' => null,
+            'birth_date_is_approximate' => true,
+            'declared_age' => 34,
+            'declared_age_at' => now(),
+        ]);
+
+        $matches = (new DuplicatePatientFinder)->find('Jean', 'Rakoto', null, 34);
+
+        $this->assertCount(1, $matches);
+        $this->assertTrue($matches->first()->is($patient));
+    }
+
+    public function test_does_not_match_a_different_declared_age(): void
+    {
+        $this->makePatient([
+            'birth_date' => null,
+            'birth_date_is_approximate' => true,
+            'declared_age' => 34,
+            'declared_age_at' => now(),
+        ]);
+
+        $matches = (new DuplicatePatientFinder)->find('Jean', 'Rakoto', null, 35);
+
+        $this->assertCount(0, $matches);
+    }
+
     public function test_does_not_match_a_different_name(): void
     {
         $this->makePatient();

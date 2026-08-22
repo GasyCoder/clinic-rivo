@@ -4,10 +4,13 @@ namespace Tests\Feature\Reception;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\PatientType;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\BillableItem;
 use App\Models\CashSession;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
+use App\Models\Episode;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Permission;
@@ -42,6 +45,8 @@ class ReceptionBillingFlowTest extends TestCase
             'unit' => 'acte',
             'billable' => true,
             'stockable' => false,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect,
             'created_by' => $actor->id,
             'updated_by' => $actor->id,
         ]);
@@ -62,6 +67,7 @@ class ReceptionBillingFlowTest extends TestCase
     private function patientData(array $extra = []): array
     {
         return [
+            'patient_type' => PatientType::Standard->value,
             'first_name' => 'Soa',
             'last_name' => 'Rakoto',
             'birth_date' => '1992-04-14',
@@ -70,9 +76,26 @@ class ReceptionBillingFlowTest extends TestCase
         ];
     }
 
+    private function registerArrival(User $actor, array $extra = []): Episode
+    {
+        config(['rivo.site.code' => 'M']);
+
+        $response = $this->actingAs($actor)->post(
+            '/reception/patients',
+            $this->patientData($extra),
+        );
+
+        $episode = Episode::query()->latest('id')->firstOrFail();
+        $response->assertRedirect(route('reception.passages.services.show', $episode));
+
+        return $episode;
+    }
+
     public function test_reception_lists_only_billable_services_with_an_active_tariff(): void
     {
-        $actor = $this->userWithPermissions(['episodes.create', 'billing.create', 'billing.validate']);
+        $actor = $this->userWithPermissions([
+            'patients.create', 'episodes.create', 'episodes.update',
+        ]);
         $service = $this->service($actor, 'Échographie', '45000.00');
 
         $medicine = CatalogItem::create([
@@ -96,10 +119,12 @@ class ReceptionBillingFlowTest extends TestCase
             'created_by' => $actor->id,
         ]);
 
-        $this->actingAs($actor)->get('/reception/patients')
+        $episode = $this->registerArrival($actor);
+
+        $this->actingAs($actor)->get(route('reception.passages.services.show', $episode))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Reception/Create')
+                ->component('Reception/EpisodeServices')
                 ->has('billingCatalog', 1)
                 ->where('billingCatalog.0.uuid', $service->uuid)
                 ->where('billingCatalog.0.tariff_amount', '45000.00'));
@@ -108,19 +133,20 @@ class ReceptionBillingFlowTest extends TestCase
     public function test_pay_later_creates_a_validated_invoice_without_payment_or_receipt(): void
     {
         $actor = $this->userWithPermissions([
-            'episodes.create', 'billing.create', 'billing.validate', 'billing.print',
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate', 'billing.print',
         ]);
         $service = $this->service($actor);
-        config(['rivo.site.code' => 'M']);
+        $episode = $this->registerArrival($actor);
 
-        $response = $this->actingAs($actor)->post('/reception/patients', $this->patientData([
+        $response = $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [[
                 'catalog_item_uuid' => $service->uuid,
                 'quantity' => 2,
                 'unit_price' => '1.00', // ignored: prices are never client-owned
             ]],
             'payment_choice' => 'LATER',
-        ]));
+        ]);
 
         $invoice = Invoice::query()->sole();
         $response->assertRedirect("/invoices/{$invoice->uuid}");
@@ -138,29 +164,33 @@ class ReceptionBillingFlowTest extends TestCase
     public function test_authorized_reception_must_select_a_service_or_explicitly_defer_it(): void
     {
         $actor = $this->userWithPermissions([
-            'episodes.create', 'billing.create', 'billing.validate',
+            'patients.create', 'episodes.create', 'episodes.update',
         ]);
+        $episode = $this->registerArrival($actor);
 
-        $this->actingAs($actor)->post('/reception/patients', $this->patientData())
+        $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [])
             ->assertSessionHasErrors('catalog_lines');
 
-        $this->assertDatabaseCount('patients', 0);
-        $this->assertDatabaseCount('episodes', 0);
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseCount('episodes', 1);
+        $this->assertNull($episode->fresh()->service_plan_finalized_at);
 
-        config(['rivo.site.code' => 'M']);
-        $this->actingAs($actor)->post('/reception/patients', $this->patientData([
+        $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'defer_designation' => true,
-        ]))->assertRedirect();
+        ])->assertRedirect(route('patients.show', $episode->patient));
 
         $this->assertDatabaseCount('patients', 1);
         $this->assertDatabaseCount('episodes', 1);
         $this->assertDatabaseCount('invoices', 0);
+        $this->assertTrue($episode->fresh()->designation_deferred);
+        $this->assertNotNull($episode->fresh()->service_plan_finalized_at);
     }
 
     public function test_pay_now_atomically_creates_paid_invoice_cash_movement_and_receipt(): void
     {
         $actor = $this->userWithPermissions([
-            'episodes.create', 'billing.create', 'billing.validate',
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate',
             'payments.create', 'receipts.view',
         ]);
         $service = $this->service($actor, 'Consultation', '30000.00');
@@ -178,14 +208,14 @@ class ReceptionBillingFlowTest extends TestCase
             'opened_by' => $actor->id,
             'opened_at' => now(),
         ]);
-        config(['rivo.site.code' => 'M']);
+        $episode = $this->registerArrival($actor);
 
-        $response = $this->actingAs($actor)->post('/reception/patients', $this->patientData([
+        $response = $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
             'payment_choice' => 'NOW',
             'payment_method_id' => $method->id,
             'payment_reference' => 'ARRIVEE-001',
-        ]));
+        ]);
 
         $invoice = Invoice::query()->sole();
         $receipt = $invoice->payments()->sole()->receipt()->sole();
@@ -203,10 +233,11 @@ class ReceptionBillingFlowTest extends TestCase
         ]);
     }
 
-    public function test_pay_now_with_a_closed_cash_rolls_back_the_entire_arrival(): void
+    public function test_pay_now_with_a_closed_cash_keeps_the_arrival_and_clinical_plan(): void
     {
         $actor = $this->userWithPermissions([
-            'episodes.create', 'billing.create', 'billing.validate', 'payments.create',
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate', 'payments.create',
         ]);
         $service = $this->service($actor);
         $method = PaymentMethod::create([
@@ -215,16 +246,20 @@ class ReceptionBillingFlowTest extends TestCase
             'active' => true,
             'affects_cash_balance' => true,
         ]);
-        config(['rivo.site.code' => 'M']);
+        $episode = $this->registerArrival($actor);
 
-        $this->actingAs($actor)->post('/reception/patients', $this->patientData([
+        $response = $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
             'payment_choice' => 'NOW',
             'payment_method_id' => $method->id,
-        ]))->assertSessionHasErrors('cash_session');
+        ]);
 
-        $this->assertDatabaseCount('patients', 0);
-        $this->assertDatabaseCount('episodes', 0);
+        $response->assertRedirect(route('patients.show', $episode->patient));
+        $response->assertSessionHas('status', fn (string $status) => str_contains($status, 'Parcours du passage'));
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseCount('episodes', 1);
+        $this->assertDatabaseCount('episode_service_requests', 1);
+        $this->assertNotNull($episode->fresh()->service_plan_finalized_at);
         $this->assertDatabaseCount('billable_items', 0);
         $this->assertDatabaseCount('invoices', 0);
         $this->assertDatabaseCount('payments', 0);
@@ -233,7 +268,8 @@ class ReceptionBillingFlowTest extends TestCase
     public function test_financial_failure_never_rolls_back_an_emergency_arrival(): void
     {
         $actor = $this->userWithPermissions([
-            'episodes.create', 'billing.create', 'billing.validate', 'payments.create',
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate', 'payments.create',
         ]);
         $service = $this->service($actor);
         $method = PaymentMethod::create([
@@ -242,17 +278,16 @@ class ReceptionBillingFlowTest extends TestCase
             'active' => true,
             'affects_cash_balance' => true,
         ]);
-        config(['rivo.site.code' => 'M']);
+        $episode = $this->registerArrival($actor, ['is_emergency' => true]);
 
-        $response = $this->actingAs($actor)->post('/reception/patients', $this->patientData([
-            'is_emergency' => true,
+        $response = $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
             'payment_choice' => 'NOW',
             'payment_method_id' => $method->id,
-        ]));
+        ]);
 
         $response->assertRedirect();
-        $response->assertSessionHas('status', fn (string $status) => str_contains($status, 'Admission conservée'));
+        $response->assertSessionHas('status', fn (string $status) => str_contains($status, 'Parcours du passage'));
         $this->assertDatabaseCount('patients', 1);
         $this->assertDatabaseHas('episodes', [
             'priority' => 'EMERGENCY',
@@ -266,29 +301,35 @@ class ReceptionBillingFlowTest extends TestCase
     {
         $actor = $this->userWithPermissions(['episodes.create']);
         $service = $this->service($actor);
+        $patientPermission = Permission::query()->create(['name' => 'patients.create']);
+        $episodeUpdatePermission = Permission::query()->create(['name' => 'episodes.update']);
+        $actor->role->permissions()->attach([$patientPermission->id, $episodeUpdatePermission->id]);
+        $episode = $this->registerArrival($actor->fresh());
 
-        $this->actingAs($actor)->post('/reception/patients', $this->patientData([
+        $this->actingAs($actor->fresh())->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
             'payment_choice' => 'LATER',
-        ]))->assertForbidden();
+        ])->assertForbidden();
 
-        $this->assertDatabaseCount('patients', 0);
-        $this->assertDatabaseCount('episodes', 0);
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseCount('episodes', 1);
         $this->assertDatabaseCount('invoices', 0);
+        $this->assertNull($episode->fresh()->service_plan_finalized_at);
     }
 
     public function test_printable_invoice_requires_its_specific_permission(): void
     {
         $actor = $this->userWithPermissions([
-            'episodes.create', 'billing.create', 'billing.validate',
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate',
         ]);
         $service = $this->service($actor);
-        config(['rivo.site.code' => 'M']);
+        $episode = $this->registerArrival($actor);
 
-        $this->actingAs($actor)->post('/reception/patients', $this->patientData([
+        $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
             'payment_choice' => 'LATER',
-        ]));
+        ]);
 
         $invoice = Invoice::query()->sole();
         $this->actingAs($actor)->get("/invoices/{$invoice->uuid}")->assertForbidden();

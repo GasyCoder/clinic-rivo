@@ -16,6 +16,8 @@ const props = defineProps({
     filters: Object,
     types: Array,
     modules: Array,
+    receptionRoutingModes: Array,
+    tariffCategories: Array,
     summary: Object,
 });
 
@@ -30,6 +32,7 @@ const editingItem = ref(null);
 const tariffTarget = ref(null);
 const archiveTarget = ref(null);
 const archiveMode = ref('item');
+const archiveTariffCategory = ref('STANDARD');
 
 const itemForm = useForm({
     code: '',
@@ -39,17 +42,31 @@ const itemForm = useForm({
     unit: 'acte',
     billable: true,
     stockable: false,
+    reception_selectable: false,
+    reception_routing_mode: null,
     description: '',
     tariff_amount: '',
+    mutual_tariff_amount: '',
     tariff_reason: '',
 });
-const tariffForm = useForm({ tariff_amount: '', reason: '' });
+const tariffForm = useForm({ tariff_category: 'STANDARD', tariff_amount: '', reason: '' });
 const archiveForm = useForm({ reason: '' });
 
 const flashStatus = computed(() => page.props.flash?.status);
 const isEditing = computed(() => editingItem.value !== null);
 const selectedType = computed(() => props.types.find((type) => type.value === itemForm.type));
 const canSeeTariffs = computed(() => can('catalog.tariffs.view'));
+const selectedCurrentTariff = computed(() => {
+    if (!tariffTarget.value) return null;
+
+    return tariffForm.tariff_category === 'MUTUAL'
+        ? tariffTarget.value.current_mutual_tariff
+        : tariffTarget.value.current_standard_tariff;
+});
+const selectedTariffHistory = computed(() => tariffTarget.value?.tariffs
+    ?.filter((tariff) => tariff.tariff_category === tariffForm.tariff_category) ?? []);
+const archiveTariffLabel = computed(() => props.tariffCategories
+    .find((category) => category.value === archiveTariffCategory.value)?.label ?? 'sélectionné');
 
 watch(() => itemForm.type, (value) => {
     if (isEditing.value) return;
@@ -59,10 +76,14 @@ watch(() => itemForm.type, (value) => {
         itemForm.stockable = false;
         itemForm.unit = itemForm.unit || 'acte';
     } else if (value === 'MEDICINE' || value === 'CONSUMABLE') {
+        itemForm.reception_selectable = false;
+        itemForm.reception_routing_mode = null;
         itemForm.billable = true;
         itemForm.stockable = true;
         itemForm.unit = itemForm.unit === 'acte' ? 'unité' : itemForm.unit;
     } else {
+        itemForm.reception_selectable = false;
+        itemForm.reception_routing_mode = null;
         itemForm.billable = false;
         itemForm.stockable = false;
         itemForm.unit = itemForm.unit === 'acte' ? 'unité' : itemForm.unit;
@@ -87,6 +108,8 @@ const openCreate = () => {
     itemForm.unit = 'acte';
     itemForm.billable = true;
     itemForm.stockable = false;
+    itemForm.reception_selectable = false;
+    itemForm.reception_routing_mode = null;
     formOpen.value = true;
 };
 
@@ -100,8 +123,11 @@ const openEdit = (item) => {
     itemForm.unit = item.unit;
     itemForm.billable = item.billable;
     itemForm.stockable = item.stockable;
+    itemForm.reception_selectable = item.reception_selectable;
+    itemForm.reception_routing_mode = item.reception_routing_mode;
     itemForm.description = item.description ?? '';
     itemForm.tariff_amount = '';
+    itemForm.mutual_tariff_amount = '';
     itemForm.tariff_reason = '';
     formOpen.value = true;
 };
@@ -121,6 +147,8 @@ const submitItem = () => {
             module: data.module,
             unit: data.unit,
             description: data.description || null,
+            reception_selectable: data.reception_selectable,
+            reception_routing_mode: data.reception_selectable ? data.reception_routing_mode : null,
         })).put(`/administration/catalog/${editingItem.value.uuid}`, {
             preserveScroll: true,
             onSuccess: closeItemForm,
@@ -134,11 +162,19 @@ const submitItem = () => {
     });
 };
 
-const openTariff = (item) => {
+const chooseTariffCategory = (category) => {
+    tariffForm.tariff_category = category;
+    tariffForm.tariff_amount = category === 'MUTUAL'
+        ? (tariffTarget.value?.current_mutual_tariff?.amount ?? '')
+        : (tariffTarget.value?.current_standard_tariff?.amount ?? '');
+    tariffForm.clearErrors();
+};
+
+const openTariff = (item, category = 'STANDARD') => {
     tariffTarget.value = item;
     tariffForm.reset();
     tariffForm.clearErrors();
-    tariffForm.tariff_amount = item.current_tariff?.amount ?? '';
+    chooseTariffCategory(category);
 };
 
 const closeTariff = () => {
@@ -155,9 +191,11 @@ const submitTariff = () => {
     });
 };
 
-const openArchive = (item, mode = 'item') => {
+const openArchive = (item, mode = 'item', tariffCategory = 'STANDARD') => {
+    if (mode === 'tariff') tariffTarget.value = null;
     archiveTarget.value = item;
     archiveMode.value = mode;
+    archiveTariffCategory.value = tariffCategory;
     archiveForm.reset();
     archiveForm.clearErrors();
 };
@@ -173,7 +211,10 @@ const submitArchive = () => {
     const options = { preserveScroll: true, onSuccess: closeArchive };
 
     if (archiveMode.value === 'tariff') {
-        archiveForm.post(`/administration/catalog/${archiveTarget.value.uuid}/tariff/archive`, options);
+        archiveForm.transform((data) => ({
+            ...data,
+            tariff_category: archiveTariffCategory.value,
+        })).post(`/administration/catalog/${archiveTarget.value.uuid}/tariff/archive`, options);
         return;
     }
 
@@ -215,7 +256,7 @@ const formatDateTime = (value) => value
             <span>{{ flashStatus }}</span>
         </div>
 
-        <section class="grid overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-2 xl:grid-cols-4">
+        <section class="grid overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-2 xl:grid-cols-5">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:border-e xl:border-b-0">
                 <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Éléments actifs</p>
                 <p class="mt-1 text-xl font-bold text-slate-700 dark:text-white">{{ summary.active }}</p>
@@ -224,11 +265,18 @@ const formatDateTime = (value) => value
                 <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Facturables</p>
                 <p class="mt-1 text-xl font-bold text-slate-700 dark:text-white">{{ summary.billable }}</p>
             </div>
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:border-e sm:border-b-0">
-                <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Sans tarif actif</p>
+            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:border-e xl:border-b-0">
+                <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Sans tarif standard</p>
                 <p class="mt-1 flex items-center gap-2 text-xl font-bold text-slate-700 dark:text-white">
-                    {{ summary.without_tariff ?? '—' }}
-                    <span v-if="summary.without_tariff" class="h-2 w-2 rounded-full bg-amber-500" aria-label="Attention requise"></span>
+                    {{ summary.without_standard_tariff ?? '—' }}
+                    <span v-if="summary.without_standard_tariff" class="h-2 w-2 rounded-full bg-amber-500" aria-label="Attention requise"></span>
+                </p>
+            </div>
+            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:border-e sm:border-b-0 xl:border-b-0">
+                <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Sans tarif mutuelle</p>
+                <p class="mt-1 flex items-center gap-2 text-xl font-bold text-slate-700 dark:text-white">
+                    {{ summary.without_mutual_tariff ?? '—' }}
+                    <span v-if="summary.without_mutual_tariff" class="h-2 w-2 rounded-full bg-amber-500" aria-label="Attention requise"></span>
                 </p>
             </div>
             <div class="px-5 py-4">
@@ -265,14 +313,15 @@ const formatDateTime = (value) => value
             </div>
 
             <div class="overflow-x-auto">
-                <table class="w-full min-w-[980px] border-collapse">
+                <table class="w-full min-w-[1120px] border-collapse">
                     <caption class="sr-only">Référentiel des produits et prestations du site</caption>
                     <thead>
                         <tr class="bg-gray-50/70 dark:bg-gray-1000/40">
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Code / désignation</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Type</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Module</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Tarif actif</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Sans mutuelle</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Mutuelle</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">État</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Actions</th>
                         </tr>
@@ -286,6 +335,7 @@ const formatDateTime = (value) => value
                                         <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-gray-900">{{ item.code }}</span>
                                     </div>
                                     <p class="mt-1 line-clamp-1 text-xs text-slate-400">{{ item.description || `Unité : ${item.unit}` }}</p>
+                                    <p v-if="item.reception_selectable" class="mt-1 text-[11px] font-semibold text-primary-600">Réception · {{ item.reception_routing_label }}</p>
                                 </div>
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
@@ -295,10 +345,18 @@ const formatDateTime = (value) => value
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ item.module_label }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
                                 <template v-if="canSeeTariffs">
-                                    <p v-if="item.current_tariff" class="text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.current_tariff.amount, item.current_tariff.currency) }}</p>
+                                    <p v-if="item.current_standard_tariff" class="text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.current_standard_tariff.amount, item.current_standard_tariff.currency) }}</p>
                                     <p v-else-if="item.billable" class="text-xs font-medium text-amber-700 dark:text-amber-300">Tarif suspendu</p>
                                     <p v-else class="text-xs text-slate-400">Non facturable</p>
-                                    <p v-if="item.tariffs_count" class="mt-0.5 text-xs text-slate-400">{{ item.tariffs_count }} version{{ item.tariffs_count > 1 ? 's' : '' }}</p>
+                                </template>
+                                <span v-else class="text-xs text-slate-400">Accès restreint</span>
+                            </td>
+                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                                <template v-if="canSeeTariffs">
+                                    <p v-if="item.current_mutual_tariff" class="text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.current_mutual_tariff.amount, item.current_mutual_tariff.currency) }}</p>
+                                    <button v-else-if="item.billable && !item.archived && (can('catalog.tariffs.create') || can('catalog.tariffs.update'))" type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="openTariff(item, 'MUTUAL')">À configurer</button>
+                                    <p v-else-if="item.billable" class="text-xs font-medium text-amber-700 dark:text-amber-300">Non configuré</p>
+                                    <p v-else class="text-xs text-slate-400">Non facturable</p>
                                 </template>
                                 <span v-else class="text-xs text-slate-400">Accès restreint</span>
                             </td>
@@ -310,7 +368,6 @@ const formatDateTime = (value) => value
                                 <div class="inline-flex items-center gap-1">
                                     <button v-if="!item.archived && can('catalog.items.update')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:hover:text-white" title="Modifier" :aria-label="`Modifier ${item.name}`" @click="openEdit(item)"><Icon class="text-base" name="edit" /></button>
                                     <button v-if="!item.archived && item.billable && canSeeTariffs && (can('catalog.tariffs.create') || can('catalog.tariffs.update'))" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:hover:text-white" title="Tarif et historique" :aria-label="`Gérer le tarif de ${item.name}`" @click="openTariff(item)"><Icon class="text-base" name="history" /></button>
-                                    <button v-if="!item.archived && item.current_tariff && can('catalog.tariffs.archive')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-amber-300 hover:text-amber-700 dark:border-gray-800" title="Suspendre le tarif" :aria-label="`Suspendre le tarif de ${item.name}`" @click="openArchive(item, 'tariff')"><Icon class="text-base" name="pause" /></button>
                                     <button v-if="!item.archived && can('catalog.items.delete')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-red-300 hover:text-red-600 dark:border-gray-800" title="Archiver" :aria-label="`Archiver ${item.name}`" @click="openArchive(item)"><Icon class="text-base" name="archive" /></button>
                                     <button v-if="item.archived && can('catalog.items.restore')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:hover:text-white" title="Restaurer" :aria-label="`Restaurer ${item.name}`" @click="restoreItem(item)"><Icon class="text-base" name="reload" /></button>
                                 </div>
@@ -318,7 +375,7 @@ const formatDateTime = (value) => value
                         </tr>
 
                         <tr v-if="items.data.length === 0">
-                            <td colspan="6" class="px-5 py-12 text-center">
+                            <td colspan="7" class="px-5 py-12 text-center">
                                 <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="file-text" /></span>
                                 <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun élément trouvé</p>
                                 <p class="mt-1 text-xs text-slate-400">Modifiez les filtres ou créez la première désignation.</p>
@@ -397,6 +454,19 @@ const formatDateTime = (value) => value
                                 <FormError v-if="itemForm.errors.billable">{{ itemForm.errors.billable }}</FormError>
                                 <FormError v-if="itemForm.errors.stockable">{{ itemForm.errors.stockable }}</FormError>
                             </div>
+                            <div v-if="itemForm.type === 'SERVICE'" class="rounded border border-gray-200 p-3 dark:border-gray-800 sm:col-span-2">
+                                <label class="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200"><input v-model="itemForm.reception_selectable" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" /> Disponible à la Réception</label>
+                                <p class="mt-1 text-xs text-slate-400">Autorise la sélection lors d’un passage et impose un parcours clinique côté serveur.</p>
+                                <div v-if="itemForm.reception_selectable" class="mt-3 max-w-md">
+                                    <label for="catalog_reception_route" class="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">Parcours du patient <span class="text-red-500">*</span></label>
+                                    <select id="catalog_reception_route" v-model="itemForm.reception_routing_mode" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                                        <option :value="null">Choisir le parcours</option>
+                                        <option v-for="mode in receptionRoutingModes" :key="mode.value" :value="mode.value">{{ mode.label }}</option>
+                                    </select>
+                                    <FormError v-if="itemForm.errors.reception_routing_mode">{{ itemForm.errors.reception_routing_mode }}</FormError>
+                                </div>
+                                <FormError v-if="itemForm.errors.reception_selectable">{{ itemForm.errors.reception_selectable }}</FormError>
+                            </div>
                         </div>
 
                         <div>
@@ -406,15 +476,20 @@ const formatDateTime = (value) => value
                         </div>
 
                         <div v-if="!isEditing && itemForm.billable" class="border-t border-gray-200 pt-5 dark:border-gray-900">
-                            <h3 class="text-sm font-bold text-slate-700 dark:text-white">Tarif initial</h3>
-                            <p class="mt-1 text-xs text-slate-400">Ce tarif sera appliqué par la caisse dès la création.</p>
+                            <h3 class="text-sm font-bold text-slate-700 dark:text-white">Barèmes initiaux</h3>
+                            <p class="mt-1 text-xs text-slate-400">Les deux tarifs sont indépendants et restent historisés. Le tarif mutuelle peut être complété après création.</p>
                             <div class="mt-3 grid gap-4 sm:grid-cols-2">
                                 <div>
-                                    <label for="catalog_tariff" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Montant (Ar) <span class="text-red-500">*</span></label>
+                                    <label for="catalog_tariff" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Tarif sans mutuelle (Ar) <span class="text-red-500">*</span></label>
                                     <Input id="catalog_tariff" v-model="itemForm.tariff_amount" type="number" min="0.01" step="0.01" :aria-invalid="Boolean(itemForm.errors.tariff_amount)" />
                                     <FormError v-if="itemForm.errors.tariff_amount">{{ itemForm.errors.tariff_amount }}</FormError>
                                 </div>
                                 <div>
+                                    <label for="catalog_mutual_tariff" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Tarif mutuelle (Ar) <span class="font-normal text-slate-400">(facultatif)</span></label>
+                                    <Input id="catalog_mutual_tariff" v-model="itemForm.mutual_tariff_amount" type="number" min="0.01" step="0.01" :aria-invalid="Boolean(itemForm.errors.mutual_tariff_amount)" />
+                                    <FormError v-if="itemForm.errors.mutual_tariff_amount">{{ itemForm.errors.mutual_tariff_amount }}</FormError>
+                                </div>
+                                <div class="sm:col-span-2">
                                     <label for="catalog_tariff_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label>
                                     <Input id="catalog_tariff_reason" v-model="itemForm.tariff_reason" placeholder="Tarif initial validé" :aria-invalid="Boolean(itemForm.errors.tariff_reason)" />
                                     <FormError v-if="itemForm.errors.tariff_reason">{{ itemForm.errors.tariff_reason }}</FormError>
@@ -434,18 +509,45 @@ const formatDateTime = (value) => value
         <div v-if="tariffTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closeTariff">
             <section class="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="tariff-form-title">
                 <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                    <div><h2 id="tariff-form-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Tarif — {{ tariffTarget.name }}</h2><p class="mt-1 text-xs text-slate-500">Le nouveau montant prend effet immédiatement. La version précédente reste conservée.</p></div>
+                    <div><h2 id="tariff-form-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Barèmes — {{ tariffTarget.name }}</h2><p class="mt-1 text-xs text-slate-500">Chaque grille possède son montant actif et son propre historique.</p></div>
                     <button type="button" class="text-slate-400 hover:text-slate-600 dark:hover:text-white" aria-label="Fermer" @click="closeTariff"><Icon class="text-xl" name="cross" /></button>
                 </header>
                 <form class="overflow-y-auto" @submit.prevent="submitTariff">
                     <div class="space-y-5 p-5">
+                        <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Choisir le barème">
+                            <button
+                                v-for="category in tariffCategories"
+                                :key="category.value"
+                                type="button"
+                                role="radio"
+                                :aria-checked="tariffForm.tariff_category === category.value"
+                                :class="['rounded-md border p-3 text-start transition-colors', tariffForm.tariff_category === category.value ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20' : 'border-gray-200 hover:border-slate-300 dark:border-gray-800']"
+                                @click="chooseTariffCategory(category.value)"
+                            >
+                                <span class="flex items-center justify-between gap-3">
+                                    <span class="text-sm font-bold text-slate-700 dark:text-white">{{ category.label }}</span>
+                                    <Icon v-if="tariffForm.tariff_category === category.value" class="text-primary-600" name="check-circle" />
+                                </span>
+                                <span class="mt-2 block text-base font-bold text-slate-800 dark:text-white">
+                                    {{ (category.value === 'MUTUAL' ? tariffTarget.current_mutual_tariff : tariffTarget.current_standard_tariff)
+                                        ? formatMoney(category.value === 'MUTUAL' ? tariffTarget.current_mutual_tariff.amount : tariffTarget.current_standard_tariff.amount)
+                                        : 'Non configuré' }}
+                                </span>
+                                <span class="mt-0.5 block text-[11px] text-slate-400">{{ (category.value === 'MUTUAL' ? tariffTarget.current_mutual_tariff : tariffTarget.current_standard_tariff) ? 'Tarif actif' : 'À configurer' }}</span>
+                            </button>
+                        </div>
+
+                        <div class="flex items-center justify-between gap-3 border-t border-gray-200 pt-4 dark:border-gray-900">
+                            <div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ tariffCategories.find((category) => category.value === tariffForm.tariff_category)?.label }}</p><p class="mt-0.5 text-xs text-slate-400">Le montant prend effet immédiatement ; l’ancienne version reste conservée.</p></div>
+                            <button v-if="selectedCurrentTariff && can('catalog.tariffs.archive')" type="button" class="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-amber-700" @click="openArchive(tariffTarget, 'tariff', tariffForm.tariff_category)"><Icon name="pause" />Suspendre</button>
+                        </div>
                         <div class="grid gap-4 sm:grid-cols-2">
                             <div><label for="new_tariff" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nouveau montant (Ar) <span class="text-red-500">*</span></label><Input id="new_tariff" v-model="tariffForm.tariff_amount" type="number" min="0.01" step="0.01" :aria-invalid="Boolean(tariffForm.errors.tariff_amount)" /><FormError v-if="tariffForm.errors.tariff_amount">{{ tariffForm.errors.tariff_amount }}</FormError></div>
                             <div><label for="new_tariff_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif du changement <span class="text-red-500">*</span></label><Input id="new_tariff_reason" v-model="tariffForm.reason" placeholder="Décision tarifaire du…" :aria-invalid="Boolean(tariffForm.errors.reason)" /><FormError v-if="tariffForm.errors.reason">{{ tariffForm.errors.reason }}</FormError></div>
                         </div>
-                        <div v-if="tariffTarget.tariffs.length" class="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
-                            <div class="border-b border-gray-200 bg-gray-50/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800 dark:bg-gray-900/40">Historique récent</div>
-                            <div v-for="tariff in tariffTarget.tariffs" :key="tariff.uuid" class="grid gap-1 border-b border-gray-100 px-4 py-3 last:border-0 dark:border-gray-900 sm:grid-cols-[150px_1fr_auto] sm:items-center">
+                        <div v-if="selectedTariffHistory.length" class="overflow-hidden rounded border border-gray-200 dark:border-gray-800">
+                            <div class="border-b border-gray-200 bg-gray-50/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800 dark:bg-gray-900/40">Historique — {{ tariffCategories.find((category) => category.value === tariffForm.tariff_category)?.label }}</div>
+                            <div v-for="tariff in selectedTariffHistory" :key="tariff.uuid" class="grid gap-1 border-b border-gray-100 px-4 py-3 last:border-0 dark:border-gray-900 sm:grid-cols-[150px_1fr_auto] sm:items-center">
                                 <div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(tariff.amount, tariff.currency) }}</p><span v-if="tariff.current" class="text-[11px] font-medium text-emerald-600">Actuel</span></div>
                                 <div><p class="text-xs text-slate-500">{{ tariff.change_reason }}</p><p class="mt-0.5 text-[11px] text-slate-400">par {{ tariff.creator || 'Utilisateur' }}</p></div>
                                 <div class="text-end text-[11px] text-slate-400"><p>{{ formatDateTime(tariff.effective_from) }}</p><p v-if="tariff.effective_until">au {{ formatDateTime(tariff.effective_until) }}</p></div>
@@ -461,7 +563,7 @@ const formatDateTime = (value) => value
             <section class="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="archive-catalog-title">
                 <div class="flex items-start gap-3">
                     <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-xl" :name="archiveMode === 'tariff' ? 'pause' : 'archive'" /></span>
-                    <div><h2 id="archive-catalog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">{{ archiveMode === 'tariff' ? 'Suspendre ce tarif ?' : 'Archiver cet élément ?' }}</h2><p class="mt-1 text-sm leading-5 text-slate-500">{{ archiveMode === 'tariff' ? 'La prestation ne pourra plus être ajoutée à une nouvelle facture jusqu’à la création d’un tarif actif.' : 'Il disparaîtra des sélections opérationnelles, sans effacer son historique.' }}</p></div>
+                    <div><h2 id="archive-catalog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">{{ archiveMode === 'tariff' ? `Suspendre le tarif ${archiveTariffLabel} ?` : 'Archiver cet élément ?' }}</h2><p class="mt-1 text-sm leading-5 text-slate-500">{{ archiveMode === 'tariff' ? `Seule la grille ${archiveTariffLabel} sera suspendue. L’autre tarif et tout l’historique restent inchangés.` : 'Il disparaîtra des sélections opérationnelles, sans effacer son historique.' }}</p></div>
                 </div>
                 <div class="mt-5"><label for="catalog_archive_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label><textarea id="catalog_archive_reason" v-model="archiveForm.reason" rows="3" autofocus class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" placeholder="Décision et référence utiles"></textarea><FormError v-if="archiveForm.errors.reason">{{ archiveForm.errors.reason }}</FormError></div>
                 <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button size="rg" variant="white-outline" type="button" :disabled="archiveForm.processing" @click="closeArchive">Annuler</Button><Button size="rg" variant="secondary" type="button" :disabled="archiveForm.processing" @click="submitArchive"><Icon class="text-lg" :name="archiveMode === 'tariff' ? 'pause' : 'archive'" /><span class="ms-2">{{ archiveForm.processing ? 'Enregistrement…' : 'Confirmer' }}</span></Button></div>

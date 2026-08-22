@@ -5,33 +5,45 @@ namespace App\Services\Patient;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Site-prefixed, sequential, human-readable patient identifier — M-000001,
- * A-000001, B-000001, ... (chosen over a plain global sequence so a number
- * stays unambiguous even viewed from the Super Admin portal, which
- * aggregates across sites). Gaps are acceptable (this is a display
- * identifier, not a legal/accounting sequence); uniqueness and safety
- * under concurrent requests are not — hence the row lock.
+ * Site/year-prefixed patient identifier — M-26-0001, A-26-0001, ...
+ *
+ * Each operational site still has its own database, while the full year is
+ * stored on the sequence row so a new calendar year safely restarts at 1.
+ * Existing identifiers are immutable. Gaps are acceptable; duplicates under
+ * concurrent requests are not, hence the unique year and row lock.
  */
 class PatientNumberGenerator
 {
     public function next(): string
     {
         return DB::transaction(function () {
-            $row = DB::table('patient_number_sequences')->lockForUpdate()->first();
+            $year = now()->year;
+
+            // Atomic even when two requests allocate the first number of a
+            // year simultaneously: the unique year lets only one row win.
+            DB::table('patient_number_sequences')->insertOrIgnore([
+                'year' => $year,
+                'next_number' => 1,
+            ]);
+
+            $row = DB::table('patient_number_sequences')
+                ->where('year', $year)
+                ->lockForUpdate()
+                ->first();
 
             if (! $row) {
-                $id = DB::table('patient_number_sequences')->insertGetId(['next_number' => 1]);
-                $number = 1;
-            } else {
-                $id = $row->id;
-                $number = $row->next_number;
+                throw new \RuntimeException("La séquence patient {$year} n’a pas pu être initialisée.");
             }
 
-            DB::table('patient_number_sequences')->where('id', $id)->update(['next_number' => $number + 1]);
+            $number = (int) $row->next_number;
 
-            $siteCode = config('rivo.site.code') ?: 'X';
+            DB::table('patient_number_sequences')
+                ->where('id', $row->id)
+                ->update(['next_number' => $number + 1]);
 
-            return sprintf('%s-%06d', $siteCode, $number);
+            $siteCode = strtoupper(trim((string) config('rivo.site.code'))) ?: 'X';
+
+            return sprintf('%s-%02d-%04d', $siteCode, $year % 100, $number);
         });
     }
 }

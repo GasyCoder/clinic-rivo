@@ -3,6 +3,8 @@
 namespace App\Actions\Catalog;
 
 use App\Enums\CatalogItemType;
+use App\Enums\CatalogTariffCategory;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Support\Money;
@@ -23,12 +25,13 @@ class CreateCatalogItemAction
         $billable = (bool) $data['billable'];
         $stockable = (bool) $data['stockable'];
         $this->assertTypeRules($type, $billable, $stockable);
+        [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
 
         if ($billable && $actor->cannot('catalog.tariffs.create')) {
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $receptionSelectable, $routingMode) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
@@ -37,6 +40,8 @@ class CreateCatalogItemAction
                 'unit' => trim($data['unit']),
                 'billable' => $billable,
                 'stockable' => $stockable,
+                'reception_selectable' => $receptionSelectable,
+                'reception_routing_mode' => $routingMode,
                 'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
                 'created_by' => $actor->id,
                 'updated_by' => $actor->id,
@@ -52,6 +57,7 @@ class CreateCatalogItemAction
                 }
 
                 $item->tariffs()->create([
+                    'tariff_category' => CatalogTariffCategory::Standard,
                     'amount' => Money::fromMinor($amountMinor),
                     'currency' => 'MGA',
                     'effective_from' => now(),
@@ -59,9 +65,29 @@ class CreateCatalogItemAction
                     'change_reason' => trim($data['tariff_reason']),
                     'created_by' => $actor->id,
                 ]);
+
+                if (filled($data['mutual_tariff_amount'] ?? null)) {
+                    $mutualAmountMinor = Money::toMinor($data['mutual_tariff_amount']);
+
+                    if ($mutualAmountMinor <= 0) {
+                        throw ValidationException::withMessages([
+                            'mutual_tariff_amount' => 'Le tarif mutuelle doit être supérieur à zéro.',
+                        ]);
+                    }
+
+                    $item->tariffs()->create([
+                        'tariff_category' => CatalogTariffCategory::Mutual,
+                        'amount' => Money::fromMinor($mutualAmountMinor),
+                        'currency' => 'MGA',
+                        'effective_from' => now(),
+                        'active_key' => 'CURRENT',
+                        'change_reason' => trim($data['tariff_reason']),
+                        'created_by' => $actor->id,
+                    ]);
+                }
             }
 
-            return $item->load('currentTariff');
+            return $item->load('currentStandardTariff', 'currentMutualTariff');
         });
     }
 
@@ -84,5 +110,37 @@ class CreateCatalogItemAction
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{0: bool, 1: ?ReceptionRoutingMode}
+     */
+    private function receptionRouting(CatalogItemType $type, bool $billable, array $data): array
+    {
+        $selectable = (bool) ($data['reception_selectable'] ?? false);
+        $route = filled($data['reception_routing_mode'] ?? null)
+            ? ReceptionRoutingMode::from((string) $data['reception_routing_mode'])
+            : null;
+
+        if (! $selectable && $route !== null) {
+            throw ValidationException::withMessages([
+                'reception_routing_mode' => 'Un parcours ne peut être défini que pour une prestation disponible à la Réception.',
+            ]);
+        }
+
+        if ($selectable && ($type !== CatalogItemType::Service || ! $billable)) {
+            throw ValidationException::withMessages([
+                'reception_selectable' => 'Seule une prestation facturable peut être proposée à la Réception.',
+            ]);
+        }
+
+        if ($selectable && $route === null) {
+            throw ValidationException::withMessages([
+                'reception_routing_mode' => 'Le parcours clinique est obligatoire pour une prestation proposée à la Réception.',
+            ]);
+        }
+
+        return [$selectable, $route];
     }
 }

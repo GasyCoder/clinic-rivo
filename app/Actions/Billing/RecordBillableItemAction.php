@@ -5,8 +5,11 @@ namespace App\Actions\Billing;
 use App\Enums\BillableItemStatus;
 use App\Models\BillableItem;
 use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
 use App\Models\Episode;
+use App\Models\EpisodeServiceRequest;
 use App\Models\User;
+use App\Services\Billing\CatalogTariffResolver;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -19,12 +22,16 @@ use Illuminate\Validation\ValidationException;
  */
 class RecordBillableItemAction
 {
+    public function __construct(private readonly CatalogTariffResolver $tariffs) {}
+
     /**
      * @param  array{catalog_item_uuid: string, quantity: int|string, payment_required_before_fulfillment?: bool}  $data
      */
     public function execute(Episode $episode, array $data, User $actor, ?Model $source = null): BillableItem
     {
         return DB::transaction(function () use ($episode, $data, $actor, $source) {
+            $episode->loadMissing('patient');
+            $this->tariffs->assertPatientCanBeBilled($episode->patient);
             $item = CatalogItem::query()
                 ->where('uuid', $data['catalog_item_uuid'] ?? '')
                 ->where('billable', true)
@@ -37,17 +44,29 @@ class RecordBillableItemAction
                 ]);
             }
 
-            $tariff = $item->currentTariff()->lockForUpdate()->first();
+            $plannedRequest = EpisodeServiceRequest::query()
+                ->where('episode_id', $episode->getKey())
+                ->where('catalog_item_id', $item->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            $tariff = $plannedRequest?->catalog_tariff_id
+                ? CatalogTariff::query()->lockForUpdate()->find($plannedRequest->catalog_tariff_id)
+                : $this->tariffs->current($item, $episode->patient, lockForUpdate: true);
 
             if (! $tariff) {
+                $category = $plannedRequest?->tariff_category
+                    ?? $this->tariffs->categoryFor($episode->patient);
+
                 throw ValidationException::withMessages([
-                    'catalog_item_uuid' => 'Cette prestation ne possède aucun tarif actif.',
+                    'catalog_item_uuid' => "Le tarif {$category->label()} de cette prestation n’est pas configuré.",
                 ]);
             }
 
             $quantityMinor = Money::toMinor($data['quantity']);
-            $unitPriceMinor = Money::toMinor($tariff->amount);
-            $totalMinor = Money::multiply($data['quantity'], $tariff->amount);
+            $unitPrice = $plannedRequest?->unit_price ?? $tariff->amount;
+            $unitPriceMinor = Money::toMinor($unitPrice);
+            $totalMinor = Money::multiply($data['quantity'], $unitPrice);
 
             if ($quantityMinor <= 0 || $unitPriceMinor <= 0 || $totalMinor > 999_999_999_999_999) {
                 throw ValidationException::withMessages([
@@ -63,6 +82,7 @@ class RecordBillableItemAction
                 'source_uuid' => $source?->getAttribute('uuid'),
                 'catalog_item_id' => $item->id,
                 'catalog_tariff_id' => $tariff->id,
+                'tariff_category' => $plannedRequest?->tariff_category ?? $tariff->tariff_category,
                 // Snapshot obligatoire : les changements de tarif futurs ne
                 // modifient jamais une prestation/facture déjà créée.
                 'description' => $item->name,

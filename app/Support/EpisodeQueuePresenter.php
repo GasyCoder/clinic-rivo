@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\ReceptionRoutingMode;
 use App\Models\EpisodeOrientation;
 
 class EpisodeQueuePresenter
@@ -11,6 +12,15 @@ class EpisodeQueuePresenter
     {
         $episode = $orientation->episode;
         $patient = $episode->patient;
+        $serviceRequests = $episode->relationLoaded('serviceRequests')
+            ? $episode->serviceRequests
+            : collect();
+        $careCompletionMode = $episode->designation_deferred
+            ? 'CHOICE'
+            : ($serviceRequests->contains(fn ($request) => in_array($request->routing_mode, [
+                ReceptionRoutingMode::MedicineDirect,
+                ReceptionRoutingMode::CareThenMedicine,
+            ], true)) ? 'MEDICINE' : 'FINISH');
 
         return [
             'uuid' => $orientation->uuid,
@@ -30,27 +40,42 @@ class EpisodeQueuePresenter
                 'priority' => $episode->priority->value,
                 'started_at' => $episode->started_at,
                 'administrative_status' => $episode->administrative_status->value,
+                'designation_deferred' => $episode->designation_deferred,
+                'care_completion_mode' => $careCompletionMode,
                 'patient' => [
                     'uuid' => $patient->uuid,
                     'patient_number' => $patient->patient_number,
+                    'patient_type' => $patient->patient_type->value,
                     'first_name' => $patient->first_name,
                     'last_name' => $patient->last_name,
                     'sex' => $patient->sex->value,
                     'birth_date' => $patient->birth_date?->toDateString(),
                     'birth_date_is_approximate' => $patient->birth_date_is_approximate,
+                    'declared_age' => $patient->declared_age,
+                    'age' => $patient->birth_date?->age ?? $patient->declared_age,
                 ],
-                'designations' => $episode->billableItems
-                    ->filter(fn ($item) => $item->status->value !== 'CANCELLED')
-                    ->map(fn ($item) => [
-                        'uuid' => $item->uuid,
-                        'description' => $item->description,
-                        'module' => $item->source_module,
-                        'quantity' => $item->quantity,
-                        'total_amount' => $item->total_amount,
-                        'currency' => $item->currency,
-                    ])
-                    ->values()
-                    ->all(),
+                'designations' => $serviceRequests->isNotEmpty()
+                    ? $serviceRequests->map(fn ($request) => [
+                        'uuid' => $request->uuid,
+                        'description' => $request->designation,
+                        'module' => $request->module->value,
+                        'quantity' => $request->quantity,
+                        'total_amount' => Money::fromMinor(Money::multiply($request->quantity, $request->unit_price)),
+                        'currency' => $request->currency,
+                        'routing_mode' => $request->routing_mode->value,
+                    ])->values()->all()
+                    : $episode->billableItems
+                        ->filter(fn ($item) => $item->status->value !== 'CANCELLED')
+                        ->map(fn ($item) => [
+                            'uuid' => $item->uuid,
+                            'description' => $item->description,
+                            'module' => $item->source_module,
+                            'quantity' => $item->quantity,
+                            'total_amount' => $item->total_amount,
+                            'currency' => $item->currency,
+                        ])
+                        ->values()
+                        ->all(),
             ],
         ];
     }

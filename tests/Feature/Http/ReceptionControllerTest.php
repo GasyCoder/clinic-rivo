@@ -2,12 +2,12 @@
 
 namespace Tests\Feature\Http;
 
-use App\Actions\Care\AcceptCareOrientationAction;
-use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodePriority;
+use App\Enums\PatientType;
 use App\Enums\ReceptionPatientStep;
 use App\Models\AuditLog;
 use App\Models\Episode;
@@ -37,6 +37,7 @@ class ReceptionControllerTest extends TestCase
     private function patientData(array $overrides = []): array
     {
         return [
+            'patient_type' => PatientType::Standard->value,
             'first_name' => 'Jean',
             'last_name' => 'Rakoto',
             'birth_date' => '1990-05-12',
@@ -131,9 +132,16 @@ class ReceptionControllerTest extends TestCase
         $pending->update(['started_at' => now()->subMinutes(30)]);
         $oriented = $createEpisode->execute($patient);
         $oriented->update(['started_at' => now()->subMinutes(20)]);
-        $careOrientation = $oriented->orientations->sole('destination_module', CatalogModule::Care);
-        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $user);
-        $this->app->make(CompleteCareAndOrientToMedicineAction::class)->execute($careOrientation, $user);
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute(
+            $oriented,
+            CatalogModule::Reception,
+            CatalogModule::Medicine,
+            $user,
+        );
+        $oriented->update([
+            'administrative_status' => EpisodeAdministrativeStatus::Oriented,
+            'service_plan_finalized_at' => now(),
+        ]);
         $orientedEmergency = $createEpisode->execute($patient, EpisodePriority::Emergency);
         $orientedEmergency->update(['started_at' => now()->subMinutes(10)]);
 
@@ -171,12 +179,13 @@ class ReceptionControllerTest extends TestCase
 
         $response = $this->actingAs($user)->post('/reception/patients', ['patient_uuid' => $patient->uuid]);
 
-        $response->assertRedirect("/patients/{$patient->uuid}");
+        $episode = $patient->episodes()->sole();
+        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
         $this->assertSame(1, Patient::count());
         $this->assertSame(1, $patient->episodes()->count());
     }
 
-    public function test_store_can_update_an_existing_patient_before_creating_the_episode(): void
+    public function test_existing_patient_arrival_does_not_silently_mutate_the_permanent_record(): void
     {
         $user = $this->userWithPermissions(['episodes.create', 'patients.update']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData([
@@ -199,75 +208,83 @@ class ReceptionControllerTest extends TestCase
             'emergency_contact_phone' => '0331234567',
         ]);
 
-        $response->assertRedirect("/patients/{$patient->uuid}");
+        $episode = $patient->episodes()->sole();
+        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
 
         $patient->refresh();
-        $this->assertSame('Jeanne', $patient->first_name);
-        $this->assertSame('0341234567', $patient->phone);
-        $this->assertSame('jeanne@example.mg', $patient->email);
-        $this->assertTrue($patient->birth_date_is_approximate);
-        $this->assertSame(36, (int) $patient->birth_date->diffInYears(now()));
+        $this->assertSame('Jean', $patient->first_name);
+        $this->assertSame('0320000000', $patient->phone);
+        $this->assertNull($patient->email);
+        $this->assertFalse($patient->birth_date_is_approximate);
+        $this->assertSame('1990-05-12', $patient->birth_date->toDateString());
         $this->assertSame(1, $patient->episodes()->count());
-        $this->assertDatabaseHas('audit_logs', [
-            'action' => 'update',
-            'module' => 'reception',
-            'entity_type' => Patient::class,
-            'entity_id' => $patient->id,
-            'user_id' => $user->id,
-        ]);
+        $this->assertSame(0, AuditLog::query()->where('action', 'update')->count());
     }
 
-    public function test_store_refuses_patient_changes_without_the_patients_update_permission(): void
+    public function test_existing_patient_arrival_needs_only_the_episode_create_permission(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);
-        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
-
-        $this->actingAs($user)->post('/reception/patients', [
-            'patient_uuid' => $patient->uuid,
-            'update_patient' => true,
-            ...$this->patientData(['last_name' => 'Changed']),
-        ])->assertForbidden();
-
-        $this->assertSame('Rakoto', $patient->fresh()->last_name);
-        $this->assertSame(0, Episode::count());
-    }
-
-    public function test_invalid_existing_patient_changes_create_neither_update_nor_episode(): void
-    {
-        $user = $this->userWithPermissions(['episodes.create', 'patients.update']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
         $response = $this->actingAs($user)->post('/reception/patients', [
             'patient_uuid' => $patient->uuid,
             'update_patient' => true,
-            ...$this->patientData([
-                'last_name' => '',
-                'birth_date' => now()->addDay()->toDateString(),
-            ]),
+            ...$this->patientData(['last_name' => 'Changed']),
         ]);
 
-        $response->assertSessionHasErrors(['last_name', 'birth_date']);
+        $response->assertRedirect(route('reception.passages.services.show', Episode::query()->sole()));
         $this->assertSame('Rakoto', $patient->fresh()->last_name);
+        $this->assertSame(1, Episode::count());
+    }
+
+    public function test_new_patient_arrival_requires_the_patient_create_permission(): void
+    {
+        $user = $this->userWithPermissions(['episodes.create']);
+
+        $this->actingAs($user)
+            ->post('/reception/patients', $this->patientData())
+            ->assertForbidden();
+
+        $this->assertSame(0, Patient::count());
         $this->assertSame(0, Episode::count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'update')->count());
     }
 
     public function test_store_with_new_patient_data_creates_both_patient_and_episode(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         config(['rivo.site.code' => 'M']);
 
         $response = $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
         $patient = Patient::first();
-        $response->assertRedirect("/patients/{$patient->uuid}");
+        $episode = $patient->episodes()->sole();
+        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
         $this->assertSame('Jean', $patient->first_name);
+        $this->assertSame('M-'.now()->format('y').'-0001', $patient->patient_number);
+        $this->assertSame("{$patient->patient_number}-01", $episode->episode_number);
         $this->assertSame(1, $patient->episodes()->count());
+    }
+
+    public function test_store_keeps_a_declared_age_without_creating_a_false_birth_date(): void
+    {
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
+        config(['rivo.site.code' => 'M']);
+
+        $data = $this->patientData(['age' => 36]);
+        unset($data['birth_date']);
+
+        $this->actingAs($user)->post('/reception/patients', $data)->assertRedirect();
+
+        $patient = Patient::query()->sole();
+        $this->assertNull($patient->birth_date);
+        $this->assertTrue($patient->birth_date_is_approximate);
+        $this->assertSame(36, $patient->declared_age);
+        $this->assertNotNull($patient->declared_age_at);
     }
 
     public function test_store_marks_an_emergency_arrival_and_orients_it_immediately(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         config(['rivo.site.code' => 'M']);
 
         $response = $this->actingAs($user)->post('/reception/patients', [
@@ -276,15 +293,15 @@ class ReceptionControllerTest extends TestCase
         ]);
 
         $episode = Episode::first();
-        $response->assertRedirect("/patients/{$episode->patient->uuid}");
-        $response->assertSessionHas('status', "Passage urgence {$episode->episode_number} créé et orienté vers Médecine / Soins.");
+        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
+        $response->assertSessionHas('status', "Passage urgence {$episode->episode_number} créé ; Soins et Médecine sont déjà alertés.");
         $this->assertSame(EpisodePriority::Emergency, $episode->priority);
         $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
     }
 
     public function test_store_can_mark_an_existing_patient_arrival_as_emergency(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
         $this->actingAs($user)->post('/reception/patients', [
@@ -299,7 +316,7 @@ class ReceptionControllerTest extends TestCase
 
     public function test_store_rejects_an_invalid_emergency_flag(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
 
         $response = $this->actingAs($user)->post('/reception/patients', [
             ...$this->patientData(),
@@ -312,7 +329,7 @@ class ReceptionControllerTest extends TestCase
 
     public function test_store_flashes_duplicates_and_creates_nothing(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
         $response = $this->actingAs($user)->post('/reception/patients', $this->patientData());
@@ -325,7 +342,7 @@ class ReceptionControllerTest extends TestCase
 
     public function test_store_creates_anyway_when_confirm_duplicate_is_sent(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         $this->actingAs($user)->post('/reception/patients', $this->patientData());
 
         $this->actingAs($user)->post('/reception/patients', [...$this->patientData(), 'confirm_duplicate' => true]);
@@ -336,17 +353,17 @@ class ReceptionControllerTest extends TestCase
 
     public function test_store_validates_required_fields_when_creating_a_new_patient(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
 
         $response = $this->actingAs($user)->post('/reception/patients', []);
 
-        $response->assertSessionHasErrors(['last_name', 'birth_date', 'sex']);
+        $response->assertSessionHasErrors(['patient_type', 'last_name', 'birth_date', 'sex']);
         $response->assertSessionDoesntHaveErrors('first_name');
     }
 
     public function test_store_creates_a_patient_with_a_cin(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
 
         $this->actingAs($user)->post('/reception/patients', $this->patientData([
             'identity_document_type' => 'CIN',
@@ -360,7 +377,7 @@ class ReceptionControllerTest extends TestCase
 
     public function test_store_requires_a_document_number_when_a_document_type_is_given(): void
     {
-        $user = $this->userWithPermissions(['episodes.create']);
+        $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
 
         $response = $this->actingAs($user)->post('/reception/patients', $this->patientData([
             'identity_document_type' => 'CIN',

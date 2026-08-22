@@ -1,0 +1,319 @@
+<?php
+
+namespace App\Actions\Episode;
+
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
+use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeOrientationStatus;
+use App\Enums\EpisodePriority;
+use App\Enums\EpisodeStatus;
+use App\Models\CatalogItem;
+use App\Models\Episode;
+use App\Models\EpisodeServiceRequest;
+use App\Models\User;
+use App\Services\Billing\CatalogTariffResolver;
+use App\Support\Money;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
+use OverflowException;
+
+/**
+ * Records the immutable routing snapshot for known arrival designations and
+ * opens the first operational queue(s). Unknown need is intentionally not
+ * represented here by a fake designation; its Care orientation is created by
+ * the caller through CreateEpisodeOrientationAction.
+ */
+class PlanEpisodeRoutingAction
+{
+    public function __construct(
+        private readonly CreateEpisodeOrientationAction $createOrientation,
+        private readonly CatalogTariffResolver $tariffs,
+    ) {}
+
+    /**
+     * @param  array<int, array{catalog_item_uuid: string, quantity: int|string}>  $catalogLines
+     * @return Collection<int, EpisodeServiceRequest>
+     */
+    public function execute(Episode $episode, array $catalogLines, User $actor): Collection
+    {
+        if ($catalogLines === []) {
+            throw ValidationException::withMessages([
+                'catalog_lines' => 'Utilisez la planification « besoin à définir » lorsqu’aucune désignation n’est connue.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($episode, $catalogLines, $actor): Collection {
+            $lockedEpisode = Episode::query()->lockForUpdate()->findOrFail($episode->getKey());
+            $lockedEpisode->loadMissing('patient');
+
+            if ($lockedEpisode->status !== EpisodeStatus::Open) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'Les prestations ne peuvent être planifiées que sur un passage ouvert.',
+                ]);
+            }
+
+            $normalized = $this->normalizeLines($catalogLines);
+
+            if ($lockedEpisode->service_plan_finalized_at !== null) {
+                return $this->replayFinalizedPlan($lockedEpisode, $normalized);
+            }
+
+            $items = CatalogItem::query()
+                ->whereIn('uuid', $normalized->keys())
+                ->where('type', CatalogItemType::Service->value)
+                ->where('billable', true)
+                ->where('reception_selectable', true)
+                ->whereNotNull('reception_routing_mode')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('uuid');
+
+            if ($items->count() !== $normalized->count()) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'Une désignation est indisponible ou sans parcours Réception configuré.',
+                ]);
+            }
+
+            foreach ($normalized as $uuid => $quantity) {
+                /** @var CatalogItem $item */
+                $item = $items->get($uuid);
+                $tariff = $this->tariffs->current(
+                    $item,
+                    $lockedEpisode->patient,
+                    lockForUpdate: true,
+                );
+                $existing = EpisodeServiceRequest::query()
+                    ->where('episode_id', $lockedEpisode->getKey())
+                    ->where('catalog_item_id', $item->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existing) {
+                    if ($existing->quantity !== $quantity) {
+                        throw ValidationException::withMessages([
+                            'catalog_lines' => "La désignation {$item->code} est déjà planifiée avec une quantité différente.",
+                        ]);
+                    }
+
+                    continue;
+                }
+
+                EpisodeServiceRequest::query()->create([
+                    'episode_id' => $lockedEpisode->getKey(),
+                    'catalog_item_id' => $item->getKey(),
+                    'catalog_tariff_id' => $tariff?->getKey(),
+                    'tariff_category' => $this->tariffs->categoryFor($lockedEpisode->patient),
+                    'catalog_item_uuid' => $item->uuid,
+                    'catalog_code' => $item->code,
+                    'designation' => $item->name,
+                    'module' => $item->module,
+                    'routing_mode' => $item->reception_routing_mode,
+                    'unit' => $item->unit,
+                    'unit_price' => $tariff?->amount,
+                    'currency' => $tariff?->currency ?? 'MGA',
+                    'quantity' => $quantity,
+                    'created_by' => $actor->getKey(),
+                ]);
+            }
+
+            /** @var Collection<int, EpisodeServiceRequest> $requests */
+            $requests = $lockedEpisode->serviceRequests()->lockForUpdate()->get();
+            $this->openInitialQueues($lockedEpisode, $requests, $actor);
+
+            $updates = [
+                'designation_deferred' => false,
+                'service_plan_finalized_at' => now(),
+            ];
+
+            if ($lockedEpisode->administrative_status === EpisodeAdministrativeStatus::PendingOrientation) {
+                $updates['administrative_status'] = EpisodeAdministrativeStatus::Oriented;
+            }
+
+            $lockedEpisode->forceFill($updates)->save();
+
+            return $requests;
+        });
+    }
+
+    /**
+     * Finalize an arrival whose clinical designation is not yet known.
+     * No catalog item, billable item or amount is fabricated.
+     */
+    public function planUnknownNeed(Episode $episode, User $actor): Episode
+    {
+        return DB::transaction(function () use ($episode, $actor): Episode {
+            $lockedEpisode = Episode::query()->lockForUpdate()->findOrFail($episode->getKey());
+
+            if ($lockedEpisode->status !== EpisodeStatus::Open) {
+                throw ValidationException::withMessages([
+                    'defer_designation' => 'Le besoin ne peut être planifié que sur un passage ouvert.',
+                ]);
+            }
+
+            if ($lockedEpisode->service_plan_finalized_at !== null) {
+                if ($lockedEpisode->designation_deferred) {
+                    return $lockedEpisode->load('orientations', 'serviceRequests');
+                }
+
+                throw ValidationException::withMessages([
+                    'defer_designation' => 'Le parcours de ce passage est déjà finalisé avec des désignations.',
+                ]);
+            }
+
+            $this->createOrientation->execute(
+                $lockedEpisode,
+                CatalogModule::Reception,
+                CatalogModule::Care,
+                $actor,
+                'Besoin à définir après évaluation aux Soins.',
+            );
+
+            $updates = [
+                'designation_deferred' => true,
+                'service_plan_finalized_at' => now(),
+            ];
+
+            if ($lockedEpisode->administrative_status === EpisodeAdministrativeStatus::PendingOrientation) {
+                $updates['administrative_status'] = EpisodeAdministrativeStatus::Oriented;
+            }
+
+            $lockedEpisode->forceFill($updates)->save();
+
+            return $lockedEpisode->fresh(['orientations', 'serviceRequests']);
+        });
+    }
+
+    /**
+     * @param  array<int, array{catalog_item_uuid: string, quantity: int|string}>  $lines
+     * @return Collection<string, string>
+     */
+    private function normalizeLines(array $lines): Collection
+    {
+        $normalized = collect();
+
+        foreach ($lines as $line) {
+            $uuid = trim((string) ($line['catalog_item_uuid'] ?? ''));
+
+            if ($uuid === '' || $normalized->has($uuid)) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'Chaque désignation doit être fournie une seule fois avec un UUID valide.',
+                ]);
+            }
+
+            try {
+                $quantity = Money::normalize($line['quantity'] ?? '');
+            } catch (InvalidArgumentException|OverflowException) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'La quantité d’une désignation est invalide.',
+                ]);
+            }
+
+            if (Money::toMinor($quantity) <= 0 || Money::toMinor($quantity) > 999_999) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'La quantité doit être supérieure à zéro et ne pas dépasser 9 999,99.',
+                ]);
+            }
+
+            $normalized->put($uuid, $quantity);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  Collection<string, string>  $normalized
+     * @return Collection<int, EpisodeServiceRequest>
+     */
+    private function replayFinalizedPlan(Episode $episode, Collection $normalized): Collection
+    {
+        if ($episode->designation_deferred) {
+            throw ValidationException::withMessages([
+                'catalog_lines' => 'Le parcours de ce passage est déjà finalisé avec un besoin à définir.',
+            ]);
+        }
+
+        /** @var Collection<int, EpisodeServiceRequest> $requests */
+        $requests = $episode->serviceRequests()->lockForUpdate()->get();
+        $planned = $requests
+            ->mapWithKeys(fn (EpisodeServiceRequest $request) => [
+                $request->catalog_item_uuid => $request->quantity,
+            ])
+            ->sortKeys();
+
+        if ($planned->all() !== $normalized->sortKeys()->all()) {
+            throw ValidationException::withMessages([
+                'catalog_lines' => 'Le parcours de ce passage est déjà finalisé avec une autre sélection.',
+            ]);
+        }
+
+        return $requests;
+    }
+
+    /** @param Collection<int, EpisodeServiceRequest> $requests */
+    private function openInitialQueues(Episode $episode, Collection $requests, User $actor): void
+    {
+        if ($episode->priority === EpisodePriority::Emergency) {
+            $this->createOrientation->execute(
+                $episode,
+                CatalogModule::Reception,
+                CatalogModule::Care,
+                $actor,
+                'Admission en urgence.',
+            );
+            $this->createOrientation->execute(
+                $episode,
+                CatalogModule::Reception,
+                CatalogModule::Medicine,
+                $actor,
+                'Admission en urgence.',
+            );
+
+            return;
+        }
+
+        $requiresCare = $requests->contains(
+            fn (EpisodeServiceRequest $request) => $request->routing_mode->startsWithCare(),
+        );
+        $requiresMedicine = $requests->contains(
+            fn (EpisodeServiceRequest $request) => $request->routing_mode->requiresMedicine(),
+        );
+
+        // Safe aggregation for a physical patient: if any selected service
+        // needs Care, only Care is opened first. Medicine is handed off when
+        // Care completes, including the CARE_ONLY + MEDICINE_DIRECT mix.
+        if ($requiresCare) {
+            $this->createOrientation->execute(
+                $episode,
+                CatalogModule::Reception,
+                CatalogModule::Care,
+                $actor,
+                'Parcours calculé depuis les désignations d’arrivée.',
+            );
+
+            return;
+        }
+
+        if ($requiresMedicine) {
+            $activeCare = $episode->orientations()
+                ->where('destination_module', CatalogModule::Care->value)
+                ->whereIn('status', [
+                    EpisodeOrientationStatus::Pending->value,
+                    EpisodeOrientationStatus::InProgress->value,
+                ])
+                ->exists();
+
+            if (! $activeCare) {
+                $this->createOrientation->execute(
+                    $episode,
+                    CatalogModule::Reception,
+                    CatalogModule::Medicine,
+                    $actor,
+                    'Accès direct selon les désignations d’arrivée.',
+                );
+            }
+        }
+    }
+}

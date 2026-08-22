@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Http;
 
+use App\Enums\PatientType;
 use App\Models\AuditLog;
 use App\Models\Episode;
 use App\Models\Patient;
@@ -157,6 +158,28 @@ class PatientControllerTest extends TestCase
             'entity_type' => Patient::class,
             'entity_id' => $patient->id,
         ]);
+    }
+
+    public function test_a_staff_patient_cannot_be_edited_outside_the_hr_record(): void
+    {
+        $user = $this->userWithPermissions(['patients.update']);
+        $patient = Patient::create([
+            'patient_number' => 'M-26-0001',
+            'patient_type' => PatientType::Staff,
+            ...$this->patientData(),
+        ]);
+
+        $this->actingAs($user)
+            ->get("/patients/{$patient->uuid}/edit")
+            ->assertForbidden();
+
+        $this->actingAs($user)
+            ->put("/patients/{$patient->uuid}", [
+                ...$this->patientData(['first_name' => 'Modification interdite']),
+            ])
+            ->assertForbidden();
+
+        $this->assertSame('Jean', $patient->fresh()->first_name);
     }
 
     public function test_patient_update_rejects_an_invalid_administrative_identity(): void

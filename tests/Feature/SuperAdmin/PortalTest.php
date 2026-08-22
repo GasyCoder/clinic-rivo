@@ -46,11 +46,12 @@ class PortalTest extends TestCase
                 ->where('sites.0.name', 'Mampikony')
                 ->where('sites.1.name', 'Ambondromamy')
                 ->where('sites.2.name', 'Boriziny')
-                ->has('modules', 13)
+                ->has('modules', 14)
                 ->where('modules.8.code', 'PHARMACY')
                 ->where('modules.9.code', 'HR')
                 ->where('modules.10.code', 'LOGISTICS')
                 ->where('modules.11.code', 'GUARDING')
+                ->where('modules.13.code', 'CATALOG')
                 ->has('adminNavigation', 3));
     }
 
@@ -64,7 +65,7 @@ class PortalTest extends TestCase
                 ->assertInertia(fn ($page) => $page
                     ->component('SuperAdmin/Sites/Show')
                     ->where('clinic.code', $siteCode)
-                    ->has('clinic.modules', 13)
+                    ->has('clinic.modules', 14)
                     ->where('selectedModule.code', 'PHARMACY')
                     ->where('selectedModule.areas.1', 'Lots et péremptions')
                     ->where('selectedModule.areas.3', 'Inventaires'));
@@ -75,7 +76,7 @@ class PortalTest extends TestCase
     {
         $actor = $this->user('SUPER_ADMIN');
 
-        foreach (['finance', 'hr', 'logistics', 'guarding', 'users', 'roles', 'settings', 'audit'] as $workspace) {
+        foreach (['finance', 'hr', 'logistics', 'guarding', 'tariffs', 'users', 'roles', 'settings', 'audit'] as $workspace) {
             $this->actingAs($actor)->get("/super-admin/workspaces/{$workspace}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component('SuperAdmin/Workspace'));

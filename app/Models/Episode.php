@@ -28,7 +28,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * deletion for critical records — an episode is cancelled via cancel(),
  * never soft-deleted.
  */
-#[Fillable(['patient_id', 'episode_number', 'status', 'priority', 'medical_status', 'financial_status', 'administrative_status', 'started_at', 'ended_at', 'created_by'])]
+#[Fillable([
+    'patient_id', 'visit_sequence', 'episode_number', 'status', 'priority', 'medical_status',
+    'financial_status', 'administrative_status', 'designation_deferred',
+    'service_plan_finalized_at', 'started_at', 'ended_at', 'created_by',
+])]
 class Episode extends Model
 {
     use Auditable, HasUuid;
@@ -43,6 +47,8 @@ class Episode extends Model
             'status' => EpisodeStatus::class,
             'priority' => EpisodePriority::class,
             'administrative_status' => EpisodeAdministrativeStatus::class,
+            'designation_deferred' => 'boolean',
+            'service_plan_finalized_at' => 'datetime',
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
         ];
@@ -71,6 +77,11 @@ class Episode extends Model
     public function billableItems(): HasMany
     {
         return $this->hasMany(BillableItem::class);
+    }
+
+    public function serviceRequests(): HasMany
+    {
+        return $this->hasMany(EpisodeServiceRequest::class);
     }
 
     public function surgicalRequests(): HasMany

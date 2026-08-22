@@ -2,6 +2,7 @@
 
 namespace App\Actions\Patient;
 
+use App\Models\AddressEntry;
 use App\Models\Patient;
 use App\Services\Patient\PatientBirthDateResolver;
 
@@ -18,6 +19,19 @@ class UpdatePatientAction
      */
     public function execute(Patient $patient, array $data): Patient
     {
+        // The legacy edit screen still submits a free-text address. Do not
+        // keep a stale reference to a different entry from the controlled
+        // address directory when that text is changed or cleared.
+        if (array_key_exists('address', $data) && $patient->address_entry_id !== null) {
+            $linkedLabel = $patient->addressEntry()->value('label');
+            $submitted = (string) ($data['address'] ?? '');
+
+            if ($linkedLabel === null
+                || AddressEntry::normalize($submitted) !== AddressEntry::normalize($linkedLabel)) {
+                $data['address_entry_id'] = null;
+            }
+        }
+
         $patient->fill($this->birthDateResolver->resolve($data));
         $patient->save();
 

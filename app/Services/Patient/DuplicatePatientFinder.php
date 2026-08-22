@@ -22,12 +22,20 @@ class DuplicatePatientFinder
      *
      * @return Collection<int, Patient>
      */
-    public function find(?string $firstName, string $lastName, string $birthDate): Collection
-    {
+    public function find(
+        ?string $firstName,
+        string $lastName,
+        ?string $birthDate,
+        ?int $declaredAge = null,
+    ): Collection {
         return Patient::query()
-            ->whereRaw('LOWER(COALESCE(first_name, \'\')) = ?', [Str::lower(trim($firstName ?? ''))])
-            ->whereRaw('LOWER(last_name) = ?', [Str::lower(trim($lastName))])
-            ->whereDate('birth_date', $birthDate)
+            ->whereRaw('LOWER(TRIM(COALESCE(first_name, \'\'))) = ?', [Str::lower(trim($firstName ?? ''))])
+            ->whereRaw('LOWER(TRIM(last_name)) = ?', [Str::lower(trim($lastName))])
+            ->when(
+                $birthDate,
+                fn ($query) => $query->whereDate('birth_date', $birthDate),
+                fn ($query) => $query->whereNull('birth_date')->where('declared_age', $declaredAge),
+            )
             ->get();
     }
 }

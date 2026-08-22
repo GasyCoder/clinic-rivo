@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CatalogTariffCategory;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\ProtectsFinancialRecord;
@@ -10,16 +11,21 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'catalog_item_id', 'amount', 'currency', 'effective_from', 'effective_until',
+    'catalog_item_id', 'tariff_category', 'amount', 'currency', 'effective_from', 'effective_until',
     'active_key', 'change_reason', 'created_by', 'ended_by',
 ])]
 class CatalogTariff extends Model
 {
     use Auditable, HasUuid, ProtectsFinancialRecord;
 
+    protected $attributes = [
+        'tariff_category' => CatalogTariffCategory::Standard->value,
+    ];
+
     protected function casts(): array
     {
         return [
+            'tariff_category' => CatalogTariffCategory::class,
             'amount' => 'decimal:2',
             'effective_from' => 'datetime',
             'effective_until' => 'datetime',
@@ -44,6 +50,11 @@ class CatalogTariff extends Model
     public function isCurrent(): bool
     {
         return $this->active_key === 'CURRENT' && $this->effective_until === null;
+    }
+
+    public function isFor(CatalogTariffCategory $category): bool
+    {
+        return $this->tariff_category === $category;
     }
 
     protected function auditModule(): ?string

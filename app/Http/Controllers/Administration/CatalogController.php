@@ -10,7 +10,10 @@ use App\Actions\Catalog\SetCatalogTariffAction;
 use App\Actions\Catalog\UpdateCatalogItemAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\CatalogTariffCategory;
+use App\Enums\ReceptionRoutingMode;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Administration\ArchiveCatalogTariffRequest;
 use App\Http\Requests\Administration\CatalogReasonRequest;
 use App\Http\Requests\Administration\SetCatalogTariffRequest;
 use App\Http\Requests\Administration\StoreCatalogItemRequest;
@@ -37,7 +40,9 @@ class CatalogController extends Controller
         $query = CatalogItem::query()
             ->when($canViewTariffs, fn ($query) => $query
                 ->with([
-                    'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(8),
+                    'currentStandardTariff.creator:id,name',
+                    'currentMutualTariff.creator:id,name',
+                    'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(16),
                 ])
                 ->withCount('tariffs'))
             ->when($status === 'archived', fn ($query) => $query->onlyTrashed())
@@ -72,12 +77,26 @@ class CatalogController extends Controller
                 'value' => $module->value,
                 'label' => $module->label(),
             ]),
+            'receptionRoutingModes' => collect(ReceptionRoutingMode::cases())->map(fn ($mode) => [
+                'value' => $mode->value,
+                'label' => $mode->label(),
+            ]),
+            'tariffCategories' => collect(CatalogTariffCategory::cases())->map(fn ($category) => [
+                'value' => $category->value,
+                'label' => $category->label(),
+            ]),
             'summary' => [
                 'active' => CatalogItem::query()->count(),
                 'archived' => CatalogItem::onlyTrashed()->count(),
                 'billable' => CatalogItem::query()->where('billable', true)->count(),
                 'without_tariff' => $canViewTariffs
-                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentTariff')->count()
+                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentStandardTariff')->count()
+                    : null,
+                'without_standard_tariff' => $canViewTariffs
+                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentStandardTariff')->count()
+                    : null,
+                'without_mutual_tariff' => $canViewTariffs
+                    ? CatalogItem::query()->where('billable', true)->whereDoesntHave('currentMutualTariff')->count()
                     : null,
             ],
         ]);
@@ -105,24 +124,27 @@ class CatalogController extends Controller
         CatalogItem $catalogItem,
         SetCatalogTariffAction $action,
     ): RedirectResponse {
+        $category = CatalogTariffCategory::from($request->validated('tariff_category'));
         $action->execute(
             $catalogItem,
+            $category,
             $request->validated('tariff_amount'),
             $request->validated('reason'),
             $request->user(),
         );
 
-        return back()->with('status', "Nouveau tarif enregistré pour {$catalogItem->code}.");
+        return back()->with('status', "Tarif {$category->label()} enregistré pour {$catalogItem->code}.");
     }
 
     public function archiveTariff(
-        CatalogReasonRequest $request,
+        ArchiveCatalogTariffRequest $request,
         CatalogItem $catalogItem,
         ArchiveCatalogTariffAction $action,
     ): RedirectResponse {
-        $action->execute($catalogItem, $request->validated('reason'), $request->user());
+        $category = CatalogTariffCategory::from($request->validated('tariff_category'));
+        $action->execute($catalogItem, $category, $request->validated('reason'), $request->user());
 
-        return back()->with('status', "Tarif de {$catalogItem->code} suspendu.");
+        return back()->with('status', "Tarif {$category->label()} de {$catalogItem->code} suspendu.");
     }
 
     public function destroy(
@@ -146,9 +168,8 @@ class CatalogController extends Controller
     /** @return array<string, mixed> */
     private function serializeItem(CatalogItem $item, bool $canViewTariffs): array
     {
-        $currentTariff = $canViewTariffs
-            ? $item->tariffs->first(fn (CatalogTariff $tariff) => $tariff->isCurrent())
-            : null;
+        $currentStandardTariff = $canViewTariffs ? $item->currentStandardTariff : null;
+        $currentMutualTariff = $canViewTariffs ? $item->currentMutualTariff : null;
 
         return [
             'uuid' => $item->uuid,
@@ -161,11 +182,18 @@ class CatalogController extends Controller
             'unit' => $item->unit,
             'billable' => $item->billable,
             'stockable' => $item->stockable,
+            'reception_selectable' => $item->reception_selectable,
+            'reception_routing_mode' => $item->reception_routing_mode?->value,
+            'reception_routing_label' => $item->reception_routing_mode?->label(),
             'description' => $item->description,
             'archived' => $item->trashed(),
             'archived_at' => $item->deleted_at,
             'archive_reason' => $item->delete_reason,
-            'current_tariff' => $currentTariff ? $this->serializeTariff($currentTariff) : null,
+            // `current_tariff` remains as a compatibility alias for the
+            // former single tariff representation.
+            'current_tariff' => $currentStandardTariff ? $this->serializeTariff($currentStandardTariff) : null,
+            'current_standard_tariff' => $currentStandardTariff ? $this->serializeTariff($currentStandardTariff) : null,
+            'current_mutual_tariff' => $currentMutualTariff ? $this->serializeTariff($currentMutualTariff) : null,
             'tariffs_count' => $canViewTariffs ? $item->tariffs_count : null,
             'tariffs' => $canViewTariffs
                 ? $item->tariffs->map(fn (CatalogTariff $tariff) => $this->serializeTariff($tariff))->values()
@@ -178,6 +206,8 @@ class CatalogController extends Controller
     {
         return [
             'uuid' => $tariff->uuid,
+            'tariff_category' => $tariff->tariff_category->value,
+            'tariff_category_label' => $tariff->tariff_category->label(),
             'amount' => $tariff->amount,
             'currency' => $tariff->currency,
             'effective_from' => $tariff->effective_from,

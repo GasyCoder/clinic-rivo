@@ -8,6 +8,7 @@ use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\User;
 use App\Services\Episode\EpisodeNumberGenerator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -28,12 +29,17 @@ class CreateEpisodeAction
         private readonly CreateEpisodeOrientationAction $createOrientation,
     ) {}
 
-    public function execute(Patient $patient, EpisodePriority $priority = EpisodePriority::Normal): Episode
-    {
-        return DB::transaction(function () use ($patient, $priority): Episode {
+    public function execute(
+        Patient $patient,
+        EpisodePriority $priority = EpisodePriority::Normal,
+        ?User $actor = null,
+    ): Episode {
+        return DB::transaction(function () use ($patient, $priority, $actor): Episode {
+            $episodeNumber = $this->numbers->next($patient);
             $episode = Episode::create([
                 'patient_id' => $patient->id,
-                'episode_number' => $this->numbers->next(),
+                'episode_number' => $episodeNumber,
+                'visit_sequence' => $this->numbers->sequenceFromNumber($patient, $episodeNumber),
                 'status' => EpisodeStatus::Open,
                 'priority' => $priority,
                 // Emergency care starts operationally at once. The detailed
@@ -42,24 +48,29 @@ class CreateEpisodeAction
                     ? EpisodeAdministrativeStatus::Oriented
                     : EpisodeAdministrativeStatus::PendingOrientation,
                 'started_at' => now(),
-                'created_by' => Auth::id(),
+                'created_by' => $actor?->getKey() ?? Auth::id(),
             ]);
 
-            // Every normal passage first enters the nursing/care queue.
-            $this->createOrientation->execute(
-                $episode,
-                CatalogModule::Reception,
-                CatalogModule::Care,
-            );
-
-            // Emergency is the only admission that also becomes visible to
-            // Medicine immediately; dossier completion and payment never
-            // block these two operational queues.
+            // A normal passage has no default queue: its known designations
+            // are resolved by PlanEpisodeRoutingAction. Unknown need is an
+            // explicit Reception choice and is handled by that caller, never
+            // represented by a fictitious catalog item.
+            //
+            // Emergency bypasses this planning wait and is immediately
+            // visible to both clinical services.
             if ($priority === EpisodePriority::Emergency) {
                 $this->createOrientation->execute(
                     $episode,
                     CatalogModule::Reception,
+                    CatalogModule::Care,
+                    $actor,
+                    reason: 'Admission en urgence.',
+                );
+                $this->createOrientation->execute(
+                    $episode,
+                    CatalogModule::Reception,
                     CatalogModule::Medicine,
+                    $actor,
                     reason: 'Admission en urgence.',
                 );
             }

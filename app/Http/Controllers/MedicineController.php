@@ -43,6 +43,7 @@ class MedicineController extends Controller
             ->with([
                 'episode.patient',
                 'episode.billableItems',
+                'episode.serviceRequests',
                 'acceptedBy:id,name',
             ])
             ->when(

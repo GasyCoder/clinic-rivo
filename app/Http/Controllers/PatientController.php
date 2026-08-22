@@ -8,6 +8,7 @@ use App\Enums\BillableItemStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
+use App\Enums\PatientType;
 use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
@@ -34,6 +35,11 @@ class PatientController extends Controller
         $search = trim((string) $request->query('q', ''));
 
         $patients = Patient::query()
+            ->select([
+                'id', 'uuid', 'patient_number', 'patient_type', 'first_name',
+                'last_name', 'birth_date', 'birth_date_is_approximate',
+                'declared_age', 'sex', 'phone',
+            ])
             ->withCount([
                 'episodes as active_emergency_episodes_count' => fn ($query) => $query
                     ->where('priority', EpisodePriority::Emergency->value)
@@ -51,6 +57,10 @@ class PatientController extends Controller
             ->paginate(20)
             ->withQueryString();
 
+        $patients->getCollection()->each(
+            fn (Patient $patient) => $this->appendAdministrativePresentation($patient),
+        );
+
         return Inertia::render('Patients/Index', [
             'patients' => $patients,
             'search' => $search,
@@ -60,12 +70,33 @@ class PatientController extends Controller
     public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog): Response
     {
         $patient->load([
+            'addressEntry:id,uuid,label',
             'antecedents',
             'allergies',
             'episodes' => fn ($query) => $query
                 ->with('orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at')
                 ->orderByDesc('started_at'),
         ]);
+
+        if ($request->user()->can('patient_staff_links.view')) {
+            $patient->load([
+                'activeStaffLink:id,uuid,patient_id,employee_id,linked_at',
+                'activeStaffLink.employee:id,uuid,employee_number,first_name,last_name,profession,active',
+            ]);
+        }
+
+        if ($request->user()->can('patient_coverages.view')) {
+            $patient->load([
+                'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from',
+                'activeMutualCoverage.organization:id,uuid,name',
+            ]);
+
+            if ($request->user()->can('patient_coverage_documents.view')) {
+                $patient->load('activeMutualCoverage.attachments');
+            }
+        }
+
+        $this->appendAdministrativePresentation($patient);
 
         $account = null;
         $paymentMethods = [];
@@ -184,7 +215,12 @@ class PatientController extends Controller
         }
 
         if ($request->user()->can('billing.create')) {
-            $billingCatalog = $catalog->services();
+            // The account screen creates a financial document directly. In
+            // contrast with Reception routing, an unpriced service cannot be
+            // offered here because there is no clinical-plan fallback.
+            $billingCatalog = $catalog->services($patient)
+                ->where('tariff_available', true)
+                ->values();
         }
 
         return Inertia::render('Patients/Show', [
@@ -198,22 +234,35 @@ class PatientController extends Controller
 
     public function edit(Patient $patient): Response
     {
+        abort_if(
+            $patient->patient_type === PatientType::Staff,
+            403,
+            'Les informations d’un patient Personnel se modifient depuis son dossier RH.',
+        );
+
+        $patient->load('addressEntry:id,uuid,label');
+
         return Inertia::render('Patients/Edit', [
             'patient' => [
                 'uuid' => $patient->uuid,
                 'patient_number' => $patient->patient_number,
+                'patient_type' => $patient->patient_type->value,
                 'first_name' => $patient->first_name,
                 'last_name' => $patient->last_name,
                 'birth_date' => $patient->birth_date?->toDateString(),
                 'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-                'age' => $patient->birth_date?->age,
+                'declared_age' => $patient->declared_age,
+                'age' => $patient->birth_date?->age ?? $patient->declared_age,
                 'sex' => $patient->sex->value,
                 'civility' => $patient->civility?->value,
                 'identity_document_type' => $patient->identity_document_type?->value,
                 'identity_document_number' => $patient->identity_document_number,
+                'marital_status' => $patient->marital_status?->value,
+                'children_count' => $patient->children_count,
+                'profession' => $patient->profession,
                 'phone' => $patient->phone,
                 'email' => $patient->email,
-                'address' => $patient->address,
+                'address' => $patient->addressEntry?->label ?? $patient->address,
                 'emergency_contact_name' => $patient->emergency_contact_name,
                 'emergency_contact_phone' => $patient->emergency_contact_phone,
                 'emergency_contact_relationship' => $patient->emergency_contact_relationship,
@@ -254,5 +303,13 @@ class PatientController extends Controller
 
         return back()
             ->with('status', "{$deleted} dossier(s) patient archivé(s).");
+    }
+
+    private function appendAdministrativePresentation(Patient $patient): Patient
+    {
+        $patient->setAttribute('age', $patient->birth_date?->age ?? $patient->declared_age);
+        $patient->setAttribute('patient_type_label', $patient->patient_type->label());
+
+        return $patient;
     }
 }

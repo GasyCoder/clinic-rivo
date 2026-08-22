@@ -7,7 +7,7 @@ enum ReceptionPatientStep: string
     case Type = 'type';
     case Identity = 'identite';
     case Contact = 'contact';
-    case Services = 'prestations';
+    case Coverage = 'couverture';
     case Confirmation = 'confirmation';
 
     /** @return array<int, string> */

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Administration;
 
 use App\Enums\CatalogItemType;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Permission;
@@ -48,11 +49,28 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'ECG',
             'name' => 'Électrocardiogramme (ECG)',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect->value,
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'ECHO-ABD',
             'name' => 'Échographie abdominale',
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect->value,
         ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'CONSULT-GEN',
+            'reception_routing_mode' => ReceptionRoutingMode::CareThenMedicine->value,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'INJECTION-IM',
+            'reception_routing_mode' => ReceptionRoutingMode::CareOnly->value,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'LAB-NFS',
+            'reception_selectable' => false,
+            'reception_routing_mode' => null,
+        ]);
+        $this->assertSame(10, CatalogItem::query()->where('reception_selectable', true)->count());
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'create',
             'module' => 'catalog',

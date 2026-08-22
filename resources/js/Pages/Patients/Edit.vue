@@ -30,17 +30,35 @@ const civilityOptions = [
     { value: 'BOY', label: 'Enfant garçon', sex: 'M' },
 ];
 
-const birthDateMode = ref(props.patient.birth_date_is_approximate ? 'age' : 'date');
+const patientTypeLabels = {
+    STANDARD: 'Patient standard',
+    MUTUAL: 'Patient avec mutuelle',
+    STAFF: 'Personnel de la clinique',
+};
+
+const maritalStatusOptions = [
+    { value: 'SINGLE', label: 'Célibataire' },
+    { value: 'MARRIED', label: 'Marié(e)' },
+    { value: 'DIVORCED', label: 'Divorcé(e)' },
+    { value: 'WIDOWED', label: 'Veuf / Veuve' },
+];
+
+const patientTypeLabel = computed(() => patientTypeLabels[props.patient.patient_type] ?? 'Patient standard');
+const isStaffPatient = computed(() => props.patient.patient_type === 'STAFF');
+const birthDateMode = ref(props.patient.birth_date ? 'date' : 'age');
 
 const form = useForm({
     first_name: props.patient.first_name ?? '',
     last_name: props.patient.last_name ?? '',
-    birth_date: props.patient.birth_date_is_approximate ? '' : (props.patient.birth_date ?? ''),
-    age: props.patient.birth_date_is_approximate ? (props.patient.age ?? '') : '',
+    birth_date: props.patient.birth_date ?? '',
+    age: props.patient.birth_date ? '' : (props.patient.declared_age ?? props.patient.age ?? ''),
     sex: props.patient.sex,
     civility: props.patient.civility ?? null,
     identity_document_type: props.patient.identity_document_type ?? null,
     identity_document_number: props.patient.identity_document_number ?? '',
+    marital_status: props.patient.marital_status ?? null,
+    children_count: props.patient.children_count ?? '',
+    profession: props.patient.profession ?? '',
     phone: props.patient.phone ?? '',
     email: props.patient.email ?? '',
     address: props.patient.address ?? '',
@@ -75,17 +93,20 @@ const submit = () => {
 </script>
 
 <template>
-    <Head :title="`Modifier ${formatPatientName(patient)}`" />
+    <Head :title="isStaffPatient ? `Dossier ${formatPatientName(patient)}` : `Modifier ${formatPatientName(patient)}`" />
 
     <div class="mx-auto w-full max-w-screen-xl space-y-5">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex min-w-0 items-center gap-3">
                 <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(patient)" />
                 <div class="min-w-0">
-                    <h1 class="truncate font-heading text-2xl font-bold text-slate-700 dark:text-white">Modifier le patient</h1>
+                    <h1 class="truncate font-heading text-2xl font-bold text-slate-700 dark:text-white">{{ isStaffPatient ? 'Dossier du personnel' : 'Modifier le patient' }}</h1>
                     <p class="mt-0.5 truncate text-sm text-slate-400">
                         {{ formatPatientName(patient) }} · {{ patient.patient_number }}
                     </p>
+                    <span class="mt-1.5 inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                        {{ patientTypeLabel }}
+                    </span>
                 </div>
             </div>
 
@@ -95,7 +116,21 @@ const submit = () => {
             </Button>
         </div>
 
-        <form @submit.prevent="submit">
+        <section v-if="isStaffPatient" class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-900 dark:bg-gray-950">
+            <div class="flex items-start gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300">
+                    <Icon class="text-xl" name="briefcase" />
+                </span>
+                <div>
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Informations gérées par les Ressources humaines</h2>
+                    <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+                        Ce dossier patient est lié à un employé de la clinique. Son identité et ses coordonnées doivent être corrigées dans le dossier du personnel afin de conserver une source unique et cohérente.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <form v-else @submit.prevent="submit">
             <Card class="shadow-sm">
                 <CardBody class="space-y-7 p-5 sm:p-7">
                     <section>
@@ -147,6 +182,33 @@ const submit = () => {
                             <FormError v-if="form.errors.sex">{{ form.errors.sex }}</FormError>
                         </fieldset>
 
+                        <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                            <FormGroup class="!mb-0">
+                                <FormLabel class="mb-1.5" for="marital_status">Situation maritale</FormLabel>
+                                <select
+                                    id="marital_status"
+                                    v-model="form.marital_status"
+                                    class="block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:border-primary-600 dark:focus:ring-primary-950"
+                                >
+                                    <option :value="null">Non renseignée</option>
+                                    <option v-for="option in maritalStatusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                                </select>
+                                <FormError v-if="form.errors.marital_status">{{ form.errors.marital_status }}</FormError>
+                            </FormGroup>
+
+                            <FormGroup class="!mb-0">
+                                <FormLabel class="mb-1.5" for="children_count">Nombre d’enfants</FormLabel>
+                                <Input id="children_count" v-model="form.children_count" type="number" min="0" max="30" />
+                                <FormError v-if="form.errors.children_count">{{ form.errors.children_count }}</FormError>
+                            </FormGroup>
+
+                            <FormGroup class="!mb-0 sm:col-span-2">
+                                <FormLabel class="mb-1.5" for="profession">Profession</FormLabel>
+                                <IconInput id="profession" v-model="form.profession" icon="briefcase" placeholder="Métier ou activité" />
+                                <FormError v-if="form.errors.profession">{{ form.errors.profession }}</FormError>
+                            </FormGroup>
+                        </div>
+
                         <div class="mt-6 grid grid-cols-1 gap-6 border-t border-gray-200 pt-6 dark:border-gray-900 lg:grid-cols-2">
                             <fieldset class="min-w-0">
                                 <legend class="mb-3 text-sm font-bold text-slate-700 dark:text-white">Pièce d’identité <span class="font-normal text-slate-400">(facultatif)</span></legend>
@@ -182,9 +244,10 @@ const submit = () => {
                                     <RadioButton id="edit-birth-age" nocontrol name="birth_mode" :model-value="birthDateMode" value="age" @update:model-value="setBirthDateMode">Âge</RadioButton>
                                     <div class="min-w-[180px] flex-1">
                                         <IconInput v-if="birthDateMode === 'date'" id="birth_date" v-model="form.birth_date" icon="calendar" type="date" />
-                                        <IconInput v-else id="age" v-model="form.age" icon="calendar" type="number" min="0" max="130" placeholder="Âge déclaré" />
+                                        <IconInput v-else id="age" v-model="form.age" icon="calendar" type="number" min="0" max="130" placeholder="Âge en années" />
                                     </div>
                                 </div>
+                                <p v-if="birthDateMode === 'age'" class="mt-1.5 text-xs text-slate-400">Utilisez l’âge seulement lorsque la date de naissance est inconnue.</p>
                                 <FormError v-if="form.errors.birth_date">{{ form.errors.birth_date }}</FormError>
                                 <FormError v-if="form.errors.age">{{ form.errors.age }}</FormError>
                             </fieldset>

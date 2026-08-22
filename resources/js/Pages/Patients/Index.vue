@@ -122,6 +122,21 @@ const confirmDelete = () => {
 };
 
 const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
+const patientTypeLabels = {
+    STANDARD: 'Standard',
+    MUTUAL: 'Mutuelle',
+    STAFF: 'Personnel',
+};
+const patientTypeLabel = (patient) => patientTypeLabels[patient.patient_type] ?? 'Standard';
+const patientBirthSummary = (patient) => {
+    if (patient.birth_date) {
+        return formatDate(patient.birth_date);
+    }
+
+    const age = patient.declared_age ?? patient.age;
+
+    return age !== null && age !== undefined && age !== '' ? `${age} ans` : 'Non renseigné';
+};
 
 watch(
     () => currentPageUuids.value.join(','),
@@ -176,7 +191,7 @@ watch(
             </div>
 
             <div class="overflow-x-auto">
-                <table class="w-full min-w-[980px] border-collapse">
+                <table class="w-full min-w-[1080px] border-collapse">
                     <caption class="sr-only">Liste des patients</caption>
                     <thead>
                         <tr class="bg-gray-50/70 dark:bg-gray-1000/40">
@@ -190,8 +205,9 @@ watch(
                                 />
                             </th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Type</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Sexe</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Naissance</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Naissance / âge</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Téléphone</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Priorité</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Actions</th>
@@ -232,10 +248,14 @@ watch(
                                     </div>
                                 </div>
                             </td>
+                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                                <span class="inline-flex rounded border border-gray-200 px-2 py-1 text-xs font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                                    {{ patientTypeLabel(patient) }}
+                                </span>
+                            </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ sexLabel(patient.sex) }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ formatDate(patient.birth_date) }}
-                                <span v-if="patient.birth_date_is_approximate" class="ms-1 text-xs text-slate-400">Estimée</span>
+                                {{ patientBirthSummary(patient) }}
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ patient.phone ?? '—' }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
@@ -261,7 +281,7 @@ watch(
                                         <Icon class="text-base" name="eye" />
                                     </Button>
                                     <Button
-                                        v-if="canUpdatePatient"
+                                        v-if="canUpdatePatient && patient.patient_type !== 'STAFF'"
                                         :as="Link"
                                         :href="`/patients/${patient.uuid}/edit`"
                                         icon
@@ -289,7 +309,7 @@ watch(
                         </tr>
 
                         <tr v-if="patients.data.length === 0">
-                            <td :colspan="canDeletePatient ? 7 : 6" class="px-5 py-12 text-center">
+                            <td :colspan="canDeletePatient ? 8 : 7" class="px-5 py-12 text-center">
                                 <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900">
                                     <Icon class="text-xl" name="users" />
                                 </span>

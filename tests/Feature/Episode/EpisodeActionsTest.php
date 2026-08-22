@@ -6,7 +6,6 @@ use App\Actions\Episode\CancelEpisodeAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
-use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Models\Episode;
@@ -37,14 +36,14 @@ class EpisodeActionsTest extends TestCase
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($patient);
 
         $this->assertInstanceOf(Episode::class, $episode);
-        $this->assertSame('MP-000001', $episode->episode_number);
+        $this->assertSame('M-000001-01', $episode->episode_number);
+        $this->assertSame(1, $episode->visit_sequence);
         $this->assertSame(EpisodeStatus::Open, $episode->status);
         $this->assertSame(EpisodePriority::Normal, $episode->priority);
         $this->assertSame(EpisodeAdministrativeStatus::PendingOrientation, $episode->administrative_status);
         $this->assertTrue($episode->patient->is($patient));
-        $this->assertCount(1, $episode->orientations);
-        $this->assertSame(CatalogModule::Care, $episode->orientations->first()->destination_module);
-        $this->assertSame(EpisodeOrientationStatus::Pending, $episode->orientations->first()->status);
+        $this->assertCount(0, $episode->orientations);
+        $this->assertNull($episode->service_plan_finalized_at);
     }
 
     public function test_emergency_episode_is_marked_and_immediately_oriented(): void

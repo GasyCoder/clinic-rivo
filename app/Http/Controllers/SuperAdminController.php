@@ -31,6 +31,7 @@ class SuperAdminController extends Controller
             'HR' => 'employees.view',
             'LOGISTICS' => 'logistics.view',
             'GUARDING' => 'guarding.view',
+            'TARIFFS' => 'catalog.items.view',
             'USERS' => 'users.view',
             'ROLES' => 'roles.view',
             'SETTINGS' => 'settings.view',

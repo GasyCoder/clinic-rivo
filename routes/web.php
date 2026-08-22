@@ -9,16 +9,19 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\BillingController;
-use App\Http\Controllers\CashController;
 use App\Http\Controllers\CareController;
+use App\Http\Controllers\CashController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
+use App\Http\Controllers\PatientMutualCoverageAttachmentController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PharmacyController;
 use App\Http\Controllers\ReceiptController;
+use App\Http\Controllers\Reception\EmployeePatientLookupController;
+use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SurgeryController;
@@ -91,11 +94,26 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // non-clinical visitor workflows. A visitor never creates an episode.
     Route::get('/reception', [ReceptionController::class, 'index'])->name('reception.index')->middleware('can:reception.view');
     Route::get('/reception/patients', [ReceptionController::class, 'patients'])->name('reception.patients.create')->middleware('can:episodes.create');
+    // Legacy wizard URL kept as a safe redirect after ADR-030 moved service
+    // selection to the newly created passage itself.
+    Route::get('/reception/patients/prestations', fn () => redirect()->route('reception.patients.create'));
     Route::get('/reception/patients/{step}', [ReceptionController::class, 'patientStep'])
         ->name('reception.patients.step')
         ->whereIn('step', ReceptionPatientStep::values())
         ->middleware('can:episodes.create');
     Route::post('/reception/patients', [ReceptionController::class, 'storePatient'])->name('reception.patients.store')->middleware('can:episodes.create');
+    Route::get('/reception/employees/patient-lookup', EmployeePatientLookupController::class)
+        ->name('reception.employees.patient-lookup')
+        ->middleware('can:employees.patient_lookup');
+    Route::get('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'show'])
+        ->name('reception.passages.services.show')
+        ->middleware('can:episodes.update');
+    Route::post('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'store'])
+        ->name('reception.passages.services.store')
+        ->middleware('can:episodes.update');
+    Route::get('/reception/mutual-coverages/{coverage}/attachments/{attachment}', PatientMutualCoverageAttachmentController::class)
+        ->name('reception.mutual-coverages.attachments.show')
+        ->middleware('can:patient_coverage_documents.view');
     Route::get('/reception/visitors', [VisitorReceptionController::class, 'index'])->name('reception.visitors.index')->middleware('can:visitors.view');
     Route::post('/reception/visitors', [VisitorReceptionController::class, 'store'])->name('reception.visitors.store')->middleware('can:visitors.create');
     Route::get('/reception/visitors/{visitorVisit}/attachments/{attachment}', [VisitorReceptionController::class, 'professionalAttachment'])->name('reception.visitors.attachments.show')->middleware('can:visitors.view');
@@ -124,12 +142,13 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');
 
-    // ADR-029 — operational queues are isolated by destination. A normal
-    // patient exists in Medicine only after Soins explicitly completes its
-    // hand-off; an emergency receives both orientations at admission.
+    // ADR-030 — operational queues are isolated by destination and opened
+    // from the route configured on each selected designation. Unknown needs
+    // start in Soins; an emergency receives both queues at admission.
     Route::get('/care', [CareController::class, 'index'])->name('care.index')->middleware('can:care.view');
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
+    Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
 
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');

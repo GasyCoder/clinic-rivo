@@ -35,17 +35,29 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 1 — Réception / Patients / Caisse
 
 - [ ] Patient
+- [x] Typologie patient Standard / Mutuelle / Personnel
+- [x] Profil administratif enrichi (situation maritale, enfants, profession, adresse référencée)
+- [x] Couverture mutuelle et cinq justificatifs privés maximum
+- [x] Lien patient-personnel vers un véritable dossier Employé
 - [ ] Identification patient
 - [ ] Recherche patient
 - [ ] Détection des doublons
 - [ ] Episode de soins
+- [x] Numéro patient annuel `SITE-YY-NNNN`
+- [x] Numéro de passage ordinal `PATIENT-NN`
 - [ ] Réception
 - [x] Réception visiteur (entrées, sorties, motifs, patient facultatif et pièces jointes privées)
 - [ ] Orientation
+- [x] Parcours Réception piloté par la désignation (Médecine directe / Soins puis Médecine / Soins seuls)
+- [x] Besoin inconnu sans désignation ni montant fictif
 - [ ] Rendez-vous
 - [ ] Prestations facturables
 - [x] Référentiel des prestations et produits facturables
 - [x] Tarifs historisés propres à chaque site
+- [x] Barèmes historisés séparés Sans mutuelle / Mutuelle
+- [x] Résolution du barème par type patient et snapshot sur le passage
+- [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
+- [ ] Répartition contractuelle part mutuelle / part patient
 - [x] Résolution backend du tarif sans saisie libre par Réception
 - [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
 - [x] Facture imprimable sans faux reçu pour un règlement ultérieur
@@ -171,6 +183,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Activation / désactivation des comptes
 - [x] Exceptions de permissions individuelles
 - [ ] Employés
+- [x] Socle Employé et lien sécurisé avec le dossier patient
+- [ ] Règles d'éligibilité du personnel et registre immuable du crédit bloc
 - [ ] RH
 - [ ] Contrats
 - [ ] Présences
@@ -237,6 +251,8 @@ admin.rivo.mg
 - [ ] Pharmacie
 - [ ] Stocks
 - [ ] Référentiels et tarifs propres à chaque site
+- [x] Navigation Super Admin vers les désignations et deux grilles par site
+- [ ] Commandes distantes de tarifs via API sécurisée des sites
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel
 - [ ] Chirurgie

@@ -471,13 +471,16 @@ cash closing
 financial reports
 ```
 
-À l’arrivée, Réception peut sélectionner les prestations `SERVICE` possédant un
-tarif actif. Le navigateur affiche un total prévisionnel, mais Laravel résout à
-nouveau le tarif et crée son instantané. `PAYER PLUS TARD` produit une facture
+À l’arrivée, Réception peut sélectionner les prestations `SERVICE`. Laravel
+résout le barème `STANDARD` ou `MUTUAL` selon le type du patient et crée son
+instantané ; le navigateur ne fournit jamais un prix fiable. Les deux grilles
+sont historisées indépendamment. Un tarif mutuelle manquant ne reprend jamais
+le tarif standard : la demande clinique et l’orientation sont conservées, mais
+la facturation reste en attente. `PAYER PLUS TARD` produit une facture
 validée avec solde dû ; `PAYER MAINTENANT` exige une caisse ouverte et produit
 facture, paiement, mouvement de caisse et reçu. Aucun reçu n’existe sans
 encaissement réel. Une urgence ne dépend jamais de cette sélection ou du
-paiement. Voir ADR-028.
+paiement. Voir ADR-028 et ADR-031.
 
 ---
 
@@ -510,6 +513,37 @@ Tailwind CSS
 DashWind constitue la base visuelle.
 
 Ne pas introduire un autre design system sans validation.
+
+---
+
+# Décision client du 22/08/2026 — accueil patient
+
+ADR-030 remplace le parcours uniforme de l'ADR-029 : le type administratif du
+patient est `STANDARD`, `MUTUAL` ou `STAFF`, puis les désignations configurées
+pilotent le parcours clinique (`MEDICINE_DIRECT`, `CARE_THEN_MEDICINE` ou
+`CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.
+
+Les nouveaux numéros humains sont annuels pour le patient (`M-26-0001`) et
+ordinaux par patient pour les passages (`M-26-0001-01`). Les UUID restent les
+identifiants publics. Le dossier Employé est distinct de `users`; la Réception
+ne fait qu'une recherche minimale et un lien patient-employé. Les pièces de
+mutuelle sont privées et limitées à cinq.
+
+La demande clinique doit être conservée indépendamment de la facturation. Pour
+un employé actif et éligible, les prestations sont prises en charge à 100 % hors
+bloc ; les actes du bloc consomment un crédit configurable et l'excédent reste à
+la charge du patient. Le montant brut demeure historisé : la couverture/crédit
+RH/Finance ne peut jamais être simulé par un tarif nul, une remise arbitraire ou
+un faux paiement. Tant que la période du crédit et le périmètre exact des actes
+du bloc ne sont pas configurés, la facturation `STAFF` reste en attente sans
+bloquer le parcours clinique.
+
+Les tarifs `STANDARD` (« Sans mutuelle ») et `MUTUAL` sont des montants bruts
+propres à chaque site. `STAFF` n'est pas une grille tarifaire : son avantage est
+calculé séparément. Le PDF Ambondromamy de juin 2023 confirme les deux grilles,
+mais reste une référence historique non importée automatiquement car plusieurs
+lignes sont ambiguës ou variables. La part payée par une mutuelle et la part du
+patient ne sont pas encore définies par le client.
 
 ---
 

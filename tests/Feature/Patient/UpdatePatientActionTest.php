@@ -38,7 +38,7 @@ class UpdatePatientActionTest extends TestCase
         $this->assertSame('0341234567', $patient->phone);
     }
 
-    public function test_it_updates_the_birth_date_from_a_declared_age(): void
+    public function test_it_records_a_declared_age_without_inventing_a_birth_date(): void
     {
         $patient = $this->app->make(UpdatePatientAction::class)->execute($this->patient(), [
             'first_name' => 'Jean',
@@ -48,6 +48,8 @@ class UpdatePatientActionTest extends TestCase
         ]);
 
         $this->assertTrue($patient->birth_date_is_approximate);
-        $this->assertSame(48, (int) $patient->birth_date->diffInYears(now()));
+        $this->assertNull($patient->birth_date);
+        $this->assertSame(48, $patient->declared_age);
+        $this->assertNotNull($patient->declared_age_at);
     }
 }

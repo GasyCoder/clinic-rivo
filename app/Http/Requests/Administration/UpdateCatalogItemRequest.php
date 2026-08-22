@@ -3,7 +3,9 @@
 namespace App\Http\Requests\Administration;
 
 use App\Enums\CatalogModule;
+use App\Enums\ReceptionRoutingMode;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 
 class UpdateCatalogItemRequest extends FormRequest
@@ -27,6 +29,12 @@ class UpdateCatalogItemRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'module' => ['required', new Enum(CatalogModule::class)],
             'unit' => ['required', 'string', 'max:50'],
+            'reception_selectable' => ['sometimes', 'boolean'],
+            'reception_routing_mode' => [
+                'nullable',
+                Rule::requiredIf($this->boolean('reception_selectable')),
+                new Enum(ReceptionRoutingMode::class),
+            ],
             'description' => ['nullable', 'string', 'max:2000'],
         ];
     }

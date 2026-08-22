@@ -101,6 +101,12 @@ class PortalDirectory
                 'description' => 'Rapports autorisés du site.',
                 'areas' => ['Activité', 'Finance', 'Stocks', 'Administration'],
             ],
+            [
+                'code' => 'CATALOG', 'label' => 'Référentiels & tarifs', 'icon' => 'setting-alt',
+                'description' => 'Prestations et grilles tarifaires propres au site.',
+                'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Historique tarifaire'],
+                'notice' => 'Les montants restent propres au site. Le portail central les administre uniquement via l’API sécurisée du site sélectionné.',
+            ],
         ];
     }
 
@@ -157,6 +163,12 @@ class PortalDirectory
                 'description' => 'Droits dynamiques par métier, avec exceptions individuelles et DENY prioritaire.',
                 'icon' => 'shield-check',
                 'areas' => ['Rôles principaux', 'Permissions par module', 'Affectations par site', 'Exceptions individuelles', 'Historique des changements'],
+            ],
+            'TARIFFS' => [
+                'title' => 'Désignations & tarifs',
+                'description' => 'Pilotage par site des prestations, tarifs sans mutuelle et tarifs mutuelle historisés.',
+                'icon' => 'list-index',
+                'areas' => ['Désignations par site', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Historique et écarts', 'Publication contrôlée via API'],
             ],
             'SETTINGS' => [
                 'title' => 'Paramètres',

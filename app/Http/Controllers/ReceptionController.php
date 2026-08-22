@@ -2,29 +2,26 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Reception\CompletePatientArrivalAction;
-use App\Enums\ArrivalPaymentChoice;
+use App\Actions\Reception\RegisterArrivalAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
+use App\Enums\PatientType;
 use App\Enums\ReceptionPatientStep;
 use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
-use App\Models\CashSession;
+use App\Models\AddressEntry;
+use App\Models\Employee;
 use App\Models\Episode;
+use App\Models\MutualOrganization;
 use App\Models\Patient;
-use App\Models\PaymentMethod;
 use App\Models\VisitorVisit;
-use App\Services\Billing\BillableCatalogDirectory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
-/**
- * Reception entry point. The operational desk now has two deliberately
- * separate paths: clinical patient arrivals and non-clinical visitors.
- */
+/** Reception entry point for patient arrivals and the recent passage board. */
 class ReceptionController extends Controller
 {
     public function index(Request $request): Response
@@ -34,7 +31,10 @@ class ReceptionController extends Controller
                 ->with('patient:id,uuid,patient_number,first_name,last_name')
                 ->latest('started_at')
                 ->limit(8)
-                ->get(['id', 'patient_id', 'episode_number', 'status', 'priority', 'administrative_status', 'started_at'])
+                ->get([
+                    'id', 'uuid', 'patient_id', 'episode_number', 'status', 'priority',
+                    'administrative_status', 'service_plan_finalized_at', 'started_at',
+                ])
             : collect();
 
         $presentVisitors = $request->user()->can('visitors.view')
@@ -52,7 +52,7 @@ class ReceptionController extends Controller
         ]);
     }
 
-    public function patients(Request $request, BillableCatalogDirectory $catalog): Response|RedirectResponse
+    public function patients(Request $request): Response|RedirectResponse
     {
         $search = trim((string) $request->query('q', ''));
 
@@ -63,30 +63,22 @@ class ReceptionController extends Controller
             ]);
         }
 
-        return $this->renderPatientReception($request, $catalog);
+        return $this->renderPatientReception($request);
     }
 
-    public function patientStep(
-        Request $request,
-        BillableCatalogDirectory $catalog,
-        string $step,
-    ): Response {
-        return $this->renderPatientReception(
-            $request,
-            $catalog,
-            ReceptionPatientStep::from($step),
-        );
+    public function patientStep(Request $request, string $step): Response
+    {
+        return $this->renderPatientReception($request, ReceptionPatientStep::from($step));
     }
 
     private function renderPatientReception(
         Request $request,
-        BillableCatalogDirectory $catalog,
         ?ReceptionPatientStep $step = null,
     ): Response {
         $search = trim((string) $request->query('q', ''));
-        $recentFilter = in_array($request->query('filter'), ['normal', 'emergency', 'pending', 'oriented'], true)
-            ? $request->query('filter')
-            : 'all';
+        $recentFilter = in_array($request->query('filter'), [
+            'normal', 'emergency', 'pending', 'oriented',
+        ], true) ? $request->query('filter') : 'all';
 
         $matches = $search !== ''
             ? Patient::query()
@@ -98,73 +90,59 @@ class ReceptionController extends Controller
                 })
                 ->limit(10)
                 ->get()
-                ->map(fn (Patient $patient) => [
-                    'uuid' => $patient->uuid,
-                    'patient_number' => $patient->patient_number,
-                    'first_name' => $patient->first_name,
-                    'last_name' => $patient->last_name,
-                    'birth_date' => $patient->birth_date?->toDateString(),
-                    'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-                    'age' => $patient->birth_date?->age,
-                    'sex' => $patient->sex->value,
-                    'civility' => $patient->civility?->value,
-                    'identity_document_type' => $patient->identity_document_type?->value,
-                    'identity_document_number' => $patient->identity_document_number,
-                    'phone' => $patient->phone,
-                    'email' => $patient->email,
-                    'address' => $patient->address,
-                    'emergency_contact_name' => $patient->emergency_contact_name,
-                    'emergency_contact_phone' => $patient->emergency_contact_phone,
-                    'emergency_contact_relationship' => $patient->emergency_contact_relationship,
-                    'emergency_contact_email' => $patient->emergency_contact_email,
-                ])
+                ->map(fn (Patient $patient) => $this->patientSearchPayload($patient))
             : collect();
 
-        // "identifier les patients présents" / "consulter le statut du
-        // parcours patient" (CDC §5.2.1) — recent activity, not filtered to
-        // today only: the receptionist also needs to see who's still mid-
-        // passage from a day or two ago.
         $recentEpisodes = Episode::query()
             ->with([
-                'patient:id,uuid,patient_number,first_name,last_name',
+                'patient:id,uuid,patient_number,patient_type,first_name,last_name',
                 'orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at',
             ])
-            ->when(
-                $recentFilter === 'normal',
-                fn ($query) => $query->where('priority', EpisodePriority::Normal->value),
-            )
-            ->when(
-                $recentFilter === 'emergency',
-                fn ($query) => $query->where('priority', EpisodePriority::Emergency->value),
-            )
-            ->when(
-                $recentFilter === 'pending',
-                fn ($query) => $query->whereHas('orientations', fn ($orientation) => $orientation
-                    ->where('destination_module', CatalogModule::Care->value)
-                    ->whereIn('status', [
-                        EpisodeOrientationStatus::Pending->value,
-                        EpisodeOrientationStatus::InProgress->value,
-                    ]))->whereDoesntHave('orientations', fn ($orientation) => $orientation
+            ->when($recentFilter === 'normal', fn ($query) => $query
+                ->where('priority', EpisodePriority::Normal->value))
+            ->when($recentFilter === 'emergency', fn ($query) => $query
+                ->where('priority', EpisodePriority::Emergency->value))
+            ->when($recentFilter === 'pending', fn ($query) => $query
+                ->where(function ($pending) {
+                    $pending->where(function ($unplanned) {
+                        $unplanned->whereNull('service_plan_finalized_at')
+                            // An emergency is clinically oriented as soon as
+                            // the passage is created, even while the family
+                            // still completes its designation afterwards.
+                            ->whereDoesntHave('orientations', fn ($orientation) => $orientation
+                                ->where('destination_module', CatalogModule::Medicine->value));
+                    })
+                        ->orWhere(function ($carePath) {
+                            $carePath->whereHas('orientations', fn ($orientation) => $orientation
+                                ->where('destination_module', CatalogModule::Care->value)
+                                ->whereIn('status', [
+                                    EpisodeOrientationStatus::Pending->value,
+                                    EpisodeOrientationStatus::InProgress->value,
+                                ]))
+                                ->whereDoesntHave('orientations', fn ($orientation) => $orientation
+                                    ->where('destination_module', CatalogModule::Medicine->value)
+                                    ->whereIn('status', [
+                                        EpisodeOrientationStatus::Pending->value,
+                                        EpisodeOrientationStatus::InProgress->value,
+                                        EpisodeOrientationStatus::Completed->value,
+                                    ]));
+                        });
+                }))
+            ->when($recentFilter === 'oriented', fn ($query) => $query
+                ->whereHas('orientations', fn ($orientation) => $orientation
                     ->where('destination_module', CatalogModule::Medicine->value)
                     ->whereIn('status', [
                         EpisodeOrientationStatus::Pending->value,
                         EpisodeOrientationStatus::InProgress->value,
                         EpisodeOrientationStatus::Completed->value,
-                    ])),
-            )
-            ->when(
-                $recentFilter === 'oriented',
-                fn ($query) => $query->whereHas('orientations', fn ($orientation) => $orientation
-                    ->where('destination_module', CatalogModule::Medicine->value)
-                    ->whereIn('status', [
-                        EpisodeOrientationStatus::Pending->value,
-                        EpisodeOrientationStatus::InProgress->value,
-                        EpisodeOrientationStatus::Completed->value,
-                    ])),
-            )
-            ->orderByDesc('started_at')
+                    ])))
+            ->latest('started_at')
             ->limit(20)
-            ->get(['id', 'uuid', 'patient_id', 'episode_number', 'status', 'priority', 'administrative_status', 'started_at']);
+            ->get([
+                'id', 'uuid', 'patient_id', 'episode_number', 'status', 'priority',
+                'administrative_status', 'designation_deferred',
+                'service_plan_finalized_at', 'started_at',
+            ]);
 
         return Inertia::render('Reception/Create', [
             'step' => $step?->value,
@@ -172,99 +150,115 @@ class ReceptionController extends Controller
             'matches' => $matches,
             'recentEpisodes' => $recentEpisodes,
             'recentEpisodeFilter' => $recentFilter,
-            'billingCatalog' => $request->user()->can('billing.create')
-                ? $catalog->services()
+            'addressEntries' => $request->user()->can('address_entries.view')
+                ? AddressEntry::query()->where('active', true)->orderBy('label')->limit(250)->get(['uuid', 'label'])
                 : [],
-            'paymentMethods' => $request->user()->can('payments.create')
-                ? PaymentMethod::query()
+            'staffEmployees' => $request->user()->can('employees.patient_lookup')
+                ? Employee::query()
+                    ->with([
+                        'addressEntry:id,uuid,label',
+                        'activePatientLink.patient:id,uuid,patient_number,first_name,last_name',
+                    ])
                     ->where('active', true)
-                    ->orderBy('id')
-                    ->get(['id', 'code', 'name'])
+                    ->orderBy('last_name')
+                    ->orderBy('first_name')
+                    ->limit(100)
+                    ->get()
+                    ->map(fn (Employee $employee) => $this->employeeLookupPayload($employee))
                 : [],
-            'openCashSession' => $request->user()->can('payments.create')
-                ? CashSession::query()
-                    ->where('active_key', 'SINGLE_OPEN_CASH')
-                    ->first(['uuid', 'session_number', 'opened_at'])
-                : null,
+            'mutualOrganizations' => $request->user()->can('mutual_organizations.view')
+                ? MutualOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name'])
+                : [],
         ]);
     }
 
-    public function storePatient(StoreArrivalRequest $request, CompletePatientArrivalAction $action): RedirectResponse
-    {
+    public function storePatient(
+        StoreArrivalRequest $request,
+        RegisterArrivalAction $action,
+    ): RedirectResponse {
         try {
             $patientData = $request->safe()->only([
-                'first_name',
-                'last_name',
-                'birth_date',
-                'age',
-                'sex',
-                'civility',
-                'identity_document_type',
-                'identity_document_number',
-                'phone',
-                'email',
-                'address',
-                'emergency_contact_name',
-                'emergency_contact_phone',
-                'emergency_contact_email',
-                'emergency_contact_relationship',
+                'patient_type', 'first_name', 'last_name', 'birth_date', 'age',
+                'sex', 'civility', 'identity_document_type', 'identity_document_number',
+                'marital_status', 'children_count', 'profession', 'phone', 'email',
+                'address_entry_uuid', 'new_address_label',
+                'emergency_contact_name', 'emergency_contact_phone',
+                'emergency_contact_email', 'emergency_contact_relationship',
             ]);
 
-            $result = $action->execute(
-                actor: $request->user(),
-                existingPatientUuid: $request->input('patient_uuid'),
-                newPatientData: $request->filled('patient_uuid')
-                    ? null
-                    : $patientData,
-                existingPatientData: $request->filled('patient_uuid') && $request->boolean('update_patient')
-                    ? $patientData
-                    : null,
+            $episode = $action->execute(
+                existingPatientUuid: $request->validated('patient_uuid'),
+                newPatientData: $request->filled('patient_uuid') ? null : $patientData,
                 confirmDuplicate: $request->boolean('confirm_duplicate'),
                 priority: $request->boolean('is_emergency')
                     ? EpisodePriority::Emergency
                     : EpisodePriority::Normal,
-                catalogLines: $request->validated('catalog_lines', []),
-                paymentChoice: ArrivalPaymentChoice::tryFrom((string) $request->validated('payment_choice'))
-                    ?? ArrivalPaymentChoice::Later,
-                paymentMethodId: $request->integer('payment_method_id') ?: null,
-                paymentReference: $request->validated('payment_reference'),
+                actor: $request->user(),
+                employeeUuid: $request->validated('employee_uuid'),
+                mutualData: $request->input('patient_type') === PatientType::Mutual->value ? [
+                    'organization_name' => $request->validated('mutual_organization_name'),
+                    'employer_name' => $request->validated('mutual_employer_name'),
+                    'beneficiary_type' => $request->validated('mutual_beneficiary_type'),
+                    'membership_number' => $request->validated('mutual_membership_number'),
+                ] : null,
+                mutualAttachments: $request->file('mutual_attachments', []),
             );
-        } catch (DuplicatePatientException $e) {
-            return back()->withInput()->with('duplicates', $e->matches->map(fn (Patient $p) => [
-                'uuid' => $p->uuid,
-                'patient_number' => $p->patient_number,
-                'first_name' => $p->first_name,
-                'last_name' => $p->last_name,
-                'birth_date' => $p->birth_date->toDateString(),
+        } catch (DuplicatePatientException $exception) {
+            return back()->withInput()->with('duplicates', $exception->matches->map(fn (Patient $patient) => [
+                'uuid' => $patient->uuid,
+                'patient_number' => $patient->patient_number,
+                'first_name' => $patient->first_name,
+                'last_name' => $patient->last_name,
+                'birth_date' => $patient->birth_date?->toDateString(),
+                'declared_age' => $patient->declared_age,
             ])->all());
         }
 
-        $episode = $result->episode;
         $message = $episode->priority === EpisodePriority::Emergency
-            ? "Passage urgence {$episode->episode_number} créé et orienté vers Médecine / Soins."
-            : "Passage {$episode->episode_number} créé.";
+            ? "Passage urgence {$episode->episode_number} créé ; Soins et Médecine sont déjà alertés."
+            : "Passage {$episode->episode_number} créé. Sélectionnez maintenant les prestations demandées.";
 
-        if ($result->billingWarning) {
-            $message .= " Admission conservée, mais la facturation n’a pas abouti : {$result->billingWarning}";
-        }
-
-        if ($result->payment) {
-            $message .= " Facture {$result->invoice->invoice_number} réglée. Reçu {$result->payment->receipt->receipt_number} disponible.";
-
-            if ($request->user()->can('receipts.view')) {
-                return redirect()->route('receipts.show', $result->payment->receipt)
-                    ->with('status', $message);
-            }
-        } elseif ($result->invoice) {
-            $message .= " Facture {$result->invoice->invoice_number} créée avec un solde de {$result->invoice->balance_amount} MGA à payer.";
-
-            if ($request->user()->can('billing.print')) {
-                return redirect()->route('invoices.show', $result->invoice)
-                    ->with('status', $message);
-            }
-        }
-
-        return redirect()->route('patients.show', $episode->patient)
+        return redirect()->route('reception.passages.services.show', $episode)
             ->with('status', $message);
+    }
+
+    /** @return array<string, mixed> */
+    private function patientSearchPayload(Patient $patient): array
+    {
+        return [
+            'uuid' => $patient->uuid,
+            'patient_number' => $patient->patient_number,
+            'patient_type' => $patient->patient_type->value,
+            'first_name' => $patient->first_name,
+            'last_name' => $patient->last_name,
+            'birth_date' => $patient->birth_date?->toDateString(),
+            'birth_date_is_approximate' => $patient->birth_date_is_approximate,
+            'declared_age' => $patient->declared_age,
+            'age' => $patient->birth_date?->age ?? $patient->declared_age,
+            'sex' => $patient->sex->value,
+            'phone' => $patient->phone,
+            'email' => $patient->email,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function employeeLookupPayload(Employee $employee): array
+    {
+        return [
+            'uuid' => $employee->uuid,
+            'employee_number' => $employee->employee_number,
+            'first_name' => $employee->first_name,
+            'last_name' => $employee->last_name,
+            'birth_date' => $employee->birth_date?->toDateString(),
+            'sex' => $employee->sex->value,
+            'profession' => $employee->profession,
+            'phone' => $employee->phone,
+            'email' => $employee->email,
+            'address' => $employee->addressEntry?->label ?? $employee->address,
+            'linked_patient' => $employee->activePatientLink?->patient ? [
+                'uuid' => $employee->activePatientLink->patient->uuid,
+                'patient_number' => $employee->activePatientLink->patient->patient_number,
+            ] : null,
+        ];
     }
 }

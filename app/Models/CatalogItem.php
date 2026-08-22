@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\CatalogTariffCategory;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
@@ -15,7 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'code', 'name', 'type', 'module', 'unit', 'billable', 'stockable',
-    'description', 'created_by', 'updated_by',
+    'reception_selectable', 'reception_routing_mode', 'description',
+    'created_by', 'updated_by',
 ])]
 class CatalogItem extends Model
 {
@@ -28,6 +31,8 @@ class CatalogItem extends Model
             'module' => CatalogModule::class,
             'billable' => 'boolean',
             'stockable' => 'boolean',
+            'reception_selectable' => 'boolean',
+            'reception_routing_mode' => ReceptionRoutingMode::class,
         ];
     }
 
@@ -38,12 +43,34 @@ class CatalogItem extends Model
 
     public function currentTariff(): HasOne
     {
-        return $this->hasOne(CatalogTariff::class)->where('active_key', 'CURRENT');
+        return $this->currentTariffFor(CatalogTariffCategory::Standard);
+    }
+
+    public function currentStandardTariff(): HasOne
+    {
+        return $this->currentTariffFor(CatalogTariffCategory::Standard);
+    }
+
+    public function currentMutualTariff(): HasOne
+    {
+        return $this->currentTariffFor(CatalogTariffCategory::Mutual);
+    }
+
+    public function currentTariffFor(CatalogTariffCategory $category): HasOne
+    {
+        return $this->hasOne(CatalogTariff::class)
+            ->where('tariff_category', $category->value)
+            ->where('active_key', 'CURRENT');
     }
 
     public function billableItems(): HasMany
     {
         return $this->hasMany(BillableItem::class);
+    }
+
+    public function episodeServiceRequests(): HasMany
+    {
+        return $this->hasMany(EpisodeServiceRequest::class);
     }
 
     public function creator(): BelongsTo
@@ -58,7 +85,9 @@ class CatalogItem extends Model
 
     public function isForceDeleteProtected(): bool
     {
-        return $this->tariffs()->exists() || $this->billableItems()->exists();
+        return $this->tariffs()->exists()
+            || $this->billableItems()->exists()
+            || $this->episodeServiceRequests()->exists();
     }
 
     protected function auditModule(): ?string

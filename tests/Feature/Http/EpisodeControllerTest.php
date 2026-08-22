@@ -44,7 +44,7 @@ class EpisodeControllerTest extends TestCase
         $this->actingAs($user)->post("/patients/{$patient->uuid}/episodes")->assertForbidden();
     }
 
-    public function test_store_creates_an_episode_and_redirects_to_the_patient(): void
+    public function test_store_creates_an_episode_and_redirects_to_service_selection(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);
         $patient = $this->makePatient();
@@ -52,7 +52,8 @@ class EpisodeControllerTest extends TestCase
 
         $response = $this->actingAs($user)->post("/patients/{$patient->uuid}/episodes");
 
-        $response->assertRedirect("/patients/{$patient->uuid}");
-        $this->assertSame(1, $patient->episodes()->count());
+        $episode = $patient->episodes()->sole();
+
+        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
     }
 }

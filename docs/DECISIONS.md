@@ -928,7 +928,7 @@ receipts.view/print   consultation et impression du reçu réel
 
 # ADR-029 — Passage obligatoire par les Soins avant la Médecine
 
-**Status:** ACCEPTED (2026-08-22 — exigence explicite de l’équipe)
+**Status:** SUPERSEDED by ADR-030 (2026-08-22)
 
 Chaque arrivée crée un épisode. Le dossier patient permanent et les files
 opérationnelles des services restent deux choses distinctes : un professionnel
@@ -978,3 +978,142 @@ care.complete
 consultations.view
 consultations.create
 ```
+
+---
+
+# ADR-030 — Typologie patient et parcours piloté par les désignations
+
+**Status:** ACCEPTED (2026-08-22 — réunion client du 22/08/2026)
+
+Cette décision remplace la règle de parcours uniforme décrite par ADR-029.
+Elle ne modifie pas l'exception d'urgence : une urgence reste immédiatement
+visible aux Soins et en Médecine, sans dépendre de la complétude administrative
+ou financière du dossier.
+
+Le dossier patient permanent porte désormais une classification administrative :
+
+```text
+STANDARD
+MUTUAL
+STAFF
+```
+
+`STANDARD` contient les informations d'identité, de naissance ou d'âge déclaré,
+la situation maritale, le nombre d'enfants, la profession et les coordonnées.
+`MUTUAL` ajoute une adhésion à une mutuelle, l'entreprise, la qualité de
+bénéficiaire, le matricule et au plus cinq pièces privées. `STAFF` est relié à
+un véritable dossier Employé local, distinct du compte de connexion `users`.
+La Réception ne reçoit qu'un droit de recherche limité sur ces employés.
+
+La saisie est séparée en blocs courts : type, identité, contact, couverture et
+confirmation. Après l'enregistrement administratif, un épisode distinct est
+créé et la Réception poursuit sur la sélection des prestations de cet épisode.
+
+Les nouveaux identifiants humains sont :
+
+```text
+patient : SITE-YY-NNNN       exemple M-26-0001
+passage : PATIENT-NN         exemple M-26-0001-01
+```
+
+La séquence patient est annuelle et verrouillée. La séquence passage est propre
+au patient et verrouillée. Les UUID restent les identifiants d'URL et d'échange.
+Les anciens numéros déjà émis ne sont jamais renumérotés.
+
+Chaque désignation sélectionnable à la Réception possède un parcours serveur,
+conservé en snapshot sur la demande clinique de l'épisode :
+
+```text
+MEDICINE_DIRECT      ECG, échographie
+CARE_THEN_MEDICINE   consultation générale ou évaluation clinique
+CARE_ONLY            injection, pansement, prise de tension
+```
+
+Une prestation connue `MEDICINE_DIRECT` ne passe pas artificiellement par les
+Soins. Une prestation `CARE_ONLY` peut se terminer aux Soins. Une prestation
+`CARE_THEN_MEDICINE` ne devient visible en Médecine qu'après la fin des Soins.
+Un besoin encore inconnu n'est ni une fausse désignation ni un montant : il est
+orienté vers les Soins, qui décide explicitement de la suite. Pour plusieurs
+prestations normales, toute étape Soins nécessaire est réalisée avant la
+transmission vers Médecine afin d'éviter deux files concurrentes pour le même
+patient. Le serveur recharge toujours le parcours depuis le référentiel ; Vue
+ne peut pas imposer une destination.
+
+Les demandes de prestations et leur parcours clinique sont indépendants de la
+facture. Un échec de caisse ou de facturation ne doit jamais effacer une demande
+clinique ni une orientation déjà créée.
+
+Pour un patient `STAFF` dont le lien avec un employé actif et son éligibilité RH
+sont valides, les prestations de la clinique sont prises en charge à 100 %, hors
+opérations au bloc. Les opérations au bloc consomment d'abord le crédit accordé
+au personnel ; lorsque le crédit disponible est insuffisant ou épuisé, le solde
+devient la part à payer du patient. Le montant de 500 000 MGA cité en réunion est
+un exemple : il doit rester configurable par RH / Finance et ne doit jamais être
+codé en dur.
+
+Cette prise en charge ne remplace pas le tarif de la prestation par zéro. Le
+système conserve le montant brut, puis le répartit entre « prise en charge
+personnel » et « part patient ». L'avantage et le crédit bloc sont portés par un
+registre immuable RH / Finance (allocation, consommation, annulation/réversion).
+La Réception consulte le résultat mais ne modifie jamais ce crédit ; seule la
+Réception / Caisse encaisse une éventuelle part patient. Aucun faux paiement,
+reçu ou remise arbitraire ne peut simuler l'avantage.
+
+La période du crédit, ses dates d'effet et la liste exacte des actes considérés
+comme « bloc » restent des paramètres RH / Finance à valider avant l'activation
+de la facturation automatique du personnel. Tant que ces paramètres ne sont pas
+configurés, les prestations du personnel sont enregistrées et leur facturation
+est mise en attente, sans bloquer le parcours clinique.
+
+---
+
+# ADR-031 — Barèmes séparés Sans mutuelle et Mutuelle
+
+**Status:** ACCEPTED (2026-08-22 — exigence explicite du client)
+
+Le catalogue de chaque site possède deux catégories de tarif brut indépendantes :
+
+```text
+STANDARD   affiché comme « Sans mutuelle »
+MUTUAL     affiché comme « Mutuelle »
+```
+
+Un élément peut posséder simultanément un tarif actif dans chaque catégorie.
+Chaque changement ferme uniquement la version active de sa catégorie et crée
+une nouvelle version datée, auditée et non destructive. Un tarif Mutuelle ne
+remplace jamais silencieusement un tarif Standard, et inversement.
+
+La catégorie est résolue exclusivement par Laravel :
+
+```text
+patient STANDARD -> tarif STANDARD
+patient MUTUAL   -> tarif MUTUAL, avec couverture mutuelle active
+patient STAFF    -> tarif brut STANDARD, puis couverture RH / Finance séparée
+```
+
+Vue transmet toujours uniquement l'UUID de la désignation et la quantité. La
+demande clinique du passage conserve l'UUID du tarif, sa catégorie, le montant
+et la devise. La prestation facturable reprend ce snapshot exact ; un changement
+tarifaire ultérieur ne modifie ni le passage, ni la facture, ni l'historique.
+
+Si le tarif de la catégorie attendue ou la couverture mutuelle active manque,
+le système ne reprend pas l'autre grille. La demande et l'orientation clinique
+restent conservées, notamment en urgence, tandis que la facturation est mise en
+attente avec un message explicite. Cette règle précise l'exigence « avec un tarif
+actif » de l'ADR-028 : l'absence de prix peut empêcher la facture, jamais le
+parcours clinique.
+
+Le document `Prestations et Tarifs_Clinique Saint Georges_AMB_Juin_2023_avec
+comparaison.pdf` confirme deux colonnes distinctes et de nombreux écarts. Il est
+daté du 25/06/2023, propre à Ambondromamy et contient des doublons, montants
+ambigus et tarifs variables. Il n'est donc pas importé ni activé automatiquement
+en 2026. Toute reprise exige une validation client par site et par désignation.
+
+La version présente applique un barème Mutuelle commun au site. Une future
+convention différente par organisme nécessitera une décision explicite et un
+profil tarifaire lié à la mutuelle ; aucune règle de répartition entre part
+mutuelle et part patient n'est inventée ici.
+
+Le portail Super Administration présente cet espace par site, mais toute lecture
+ou commande distante doit passer par l'API sécurisée du site conformément aux
+ADR-003, ADR-004 et ADR-027. Il ne reçoit jamais un accès SQL direct aux bases.

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Actions\Reception\CompletePatientArrivalAction;
 use App\Enums\ArrivalPaymentChoice;
+use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionPatientStep;
 use App\Exceptions\DuplicatePatientException;
@@ -82,6 +84,9 @@ class ReceptionController extends Controller
         ?ReceptionPatientStep $step = null,
     ): Response {
         $search = trim((string) $request->query('q', ''));
+        $recentFilter = in_array($request->query('filter'), ['normal', 'emergency', 'pending', 'oriented'], true)
+            ? $request->query('filter')
+            : 'all';
 
         $matches = $search !== ''
             ? Patient::query()
@@ -120,16 +125,53 @@ class ReceptionController extends Controller
         // today only: the receptionist also needs to see who's still mid-
         // passage from a day or two ago.
         $recentEpisodes = Episode::query()
-            ->with('patient:id,uuid,patient_number,first_name,last_name')
+            ->with([
+                'patient:id,uuid,patient_number,first_name,last_name',
+                'orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at',
+            ])
+            ->when(
+                $recentFilter === 'normal',
+                fn ($query) => $query->where('priority', EpisodePriority::Normal->value),
+            )
+            ->when(
+                $recentFilter === 'emergency',
+                fn ($query) => $query->where('priority', EpisodePriority::Emergency->value),
+            )
+            ->when(
+                $recentFilter === 'pending',
+                fn ($query) => $query->whereHas('orientations', fn ($orientation) => $orientation
+                    ->where('destination_module', CatalogModule::Care->value)
+                    ->whereIn('status', [
+                        EpisodeOrientationStatus::Pending->value,
+                        EpisodeOrientationStatus::InProgress->value,
+                    ]))->whereDoesntHave('orientations', fn ($orientation) => $orientation
+                    ->where('destination_module', CatalogModule::Medicine->value)
+                    ->whereIn('status', [
+                        EpisodeOrientationStatus::Pending->value,
+                        EpisodeOrientationStatus::InProgress->value,
+                        EpisodeOrientationStatus::Completed->value,
+                    ])),
+            )
+            ->when(
+                $recentFilter === 'oriented',
+                fn ($query) => $query->whereHas('orientations', fn ($orientation) => $orientation
+                    ->where('destination_module', CatalogModule::Medicine->value)
+                    ->whereIn('status', [
+                        EpisodeOrientationStatus::Pending->value,
+                        EpisodeOrientationStatus::InProgress->value,
+                        EpisodeOrientationStatus::Completed->value,
+                    ])),
+            )
             ->orderByDesc('started_at')
             ->limit(20)
-            ->get(['id', 'patient_id', 'episode_number', 'status', 'priority', 'administrative_status', 'started_at']);
+            ->get(['id', 'uuid', 'patient_id', 'episode_number', 'status', 'priority', 'administrative_status', 'started_at']);
 
         return Inertia::render('Reception/Create', [
             'step' => $step?->value,
             'search' => $search,
             'matches' => $matches,
             'recentEpisodes' => $recentEpisodes,
+            'recentEpisodeFilter' => $recentFilter,
             'billingCatalog' => $request->user()->can('billing.create')
                 ? $catalog->services()
                 : [],

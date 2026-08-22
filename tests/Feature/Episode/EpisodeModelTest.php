@@ -139,24 +139,6 @@ class EpisodeModelTest extends TestCase
         $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->fresh()->administrative_status);
     }
 
-    public function test_orient_transitions_from_pending_orientation_to_oriented(): void
-    {
-        $episode = $this->makeEpisode();
-
-        $episode->orient();
-
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->fresh()->administrative_status);
-    }
-
-    public function test_orient_refuses_when_not_pending_orientation(): void
-    {
-        $episode = $this->makeEpisode(['administrative_status' => EpisodeAdministrativeStatus::Oriented]);
-
-        $this->expectException(InvalidEpisodeTransitionException::class);
-
-        $episode->orient();
-    }
-
     public function test_cancel_sets_status_and_ended_at_and_is_audited_once_with_the_reason(): void
     {
         $episode = $this->makeEpisode();

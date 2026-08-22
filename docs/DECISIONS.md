@@ -923,3 +923,58 @@ billing.print
 payments.create       seulement pour PAYER MAINTENANT
 receipts.view/print   consultation et impression du reçu réel
 ```
+
+---
+
+# ADR-029 — Passage obligatoire par les Soins avant la Médecine
+
+**Status:** ACCEPTED (2026-08-22 — exigence explicite de l’équipe)
+
+Chaque arrivée crée un épisode. Le dossier patient permanent et les files
+opérationnelles des services restent deux choses distinctes : un professionnel
+autorisé peut consulter un dossier sans que le patient apparaisse pour autant
+dans sa file de prise en charge.
+
+Pour un passage normal, le parcours initial est strictement :
+
+```text
+Réception -> En attente aux Soins -> Pris en charge aux Soins
+          -> Soins terminés / orienté vers Médecine
+          -> En attente en Médecine -> Pris en charge par un médecin
+```
+
+La création du passage place automatiquement le patient dans la file Soins.
+Elle ne le place pas dans la file Médecine. Seule l’action explicite
+`Terminer et orienter vers Médecine`, exécutée par un compte autorisé aux
+Soins, crée cette seconde orientation. L’interface ne constitue pas la
+protection : les transitions et la destination sont validées par Laravel,
+verrouillées en base et auditées.
+
+Une urgence constitue l’exception : dès l’admission, elle est visible
+simultanément dans les files Soins et Médecine. La famille peut compléter le
+dossier administratif ensuite. Aucune prestation, facture ou paiement ne peut
+bloquer cette visibilité ni la prise en charge clinique.
+
+Les désignations déjà connues à l’arrivée restent sélectionnées depuis le
+référentiel tarifé et visibles dans les files. Si le besoin est inconnu, la
+Réception ne crée ni désignation fictive ni montant : il sera précisé après
+l’évaluation clinique. Dans les deux cas, un passage normal reste soumis au
+passage initial par les Soins.
+
+Les orientations sont historiques : elles ne sont pas supprimées. Une seule
+orientation active par épisode et service cible est permise. Les statuts
+opérationnels sont :
+
+```text
+PENDING -> IN_PROGRESS -> COMPLETED
+```
+
+Permissions utilisées :
+
+```text
+care.view
+care.update
+care.complete
+consultations.view
+consultations.create
+```

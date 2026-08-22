@@ -62,7 +62,9 @@ class PatientController extends Controller
         $patient->load([
             'antecedents',
             'allergies',
-            'episodes' => fn ($query) => $query->orderByDesc('started_at'),
+            'episodes' => fn ($query) => $query
+                ->with('orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at')
+                ->orderByDesc('started_at'),
         ]);
 
         $account = null;

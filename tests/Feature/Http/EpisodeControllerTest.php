@@ -2,8 +2,6 @@
 
 namespace Tests\Feature\Http;
 
-use App\Enums\EpisodeAdministrativeStatus;
-use App\Models\Episode;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -56,35 +54,5 @@ class EpisodeControllerTest extends TestCase
 
         $response->assertRedirect("/patients/{$patient->uuid}");
         $this->assertSame(1, $patient->episodes()->count());
-    }
-
-    public function test_orient_requires_the_episodes_update_permission(): void
-    {
-        $user = User::factory()->create(['role_id' => Role::query()->create(['code' => 'PHARMACY', 'name' => 'Pharmacie'])->id]);
-        $episode = Episode::create([
-            'patient_id' => $this->makePatient()->id,
-            'episode_number' => 'ME-000001',
-            'status' => 'OPEN',
-            'administrative_status' => EpisodeAdministrativeStatus::PendingOrientation,
-            'started_at' => now(),
-        ]);
-
-        $this->actingAs($user)->post("/episodes/{$episode->uuid}/orient")->assertForbidden();
-    }
-
-    public function test_orient_transitions_the_episode(): void
-    {
-        $user = $this->userWithPermissions(['episodes.update']);
-        $episode = Episode::create([
-            'patient_id' => $this->makePatient()->id,
-            'episode_number' => 'ME-000001',
-            'status' => 'OPEN',
-            'administrative_status' => EpisodeAdministrativeStatus::PendingOrientation,
-            'started_at' => now(),
-        ]);
-
-        $this->actingAs($user)->post("/episodes/{$episode->uuid}/orient")->assertRedirect();
-
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->fresh()->administrative_status);
     }
 }

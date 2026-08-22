@@ -10,9 +10,11 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CashController;
+use App\Http\Controllers\CareController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LogisticsController;
+use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PharmacyController;
@@ -121,7 +123,16 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');
-    Route::post('/episodes/{episode}/orient', [EpisodeController::class, 'orient'])->name('episodes.orient')->middleware('can:episodes.update');
+
+    // ADR-029 — operational queues are isolated by destination. A normal
+    // patient exists in Medicine only after Soins explicitly completes its
+    // hand-off; an emergency receives both orientations at admission.
+    Route::get('/care', [CareController::class, 'index'])->name('care.index')->middleware('can:care.view');
+    Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
+    Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
+
+    Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
+    Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
 
     // Chirurgie (CDC GitHub §15/16). Each middleware name matches exactly
     // one seeded permission (PermissionSeeder) — see SurgeryController's

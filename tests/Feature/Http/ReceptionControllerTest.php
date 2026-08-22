@@ -2,6 +2,10 @@
 
 namespace Tests\Feature\Http;
 
+use App\Actions\Care\AcceptCareOrientationAction;
+use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
+use App\Actions\Episode\CreateEpisodeAction;
+use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionPatientStep;
@@ -113,6 +117,49 @@ class ReceptionControllerTest extends TestCase
                 ->where('recentEpisodes.0.id', $episode->id)
                 ->where('recentEpisodes.0.priority', EpisodePriority::Normal->value)
                 ->where('recentEpisodes.0.patient.last_name', 'Rakoto')
+            );
+    }
+
+    public function test_create_uses_one_filter_for_priority_or_orientation(): void
+    {
+        $user = $this->userWithPermissions(['episodes.create']);
+        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
+
+        config(['rivo.site.code' => 'M']);
+        $createEpisode = $this->app->make(CreateEpisodeAction::class);
+        $pending = $createEpisode->execute($patient);
+        $pending->update(['started_at' => now()->subMinutes(30)]);
+        $oriented = $createEpisode->execute($patient);
+        $oriented->update(['started_at' => now()->subMinutes(20)]);
+        $careOrientation = $oriented->orientations->sole('destination_module', CatalogModule::Care);
+        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $user);
+        $this->app->make(CompleteCareAndOrientToMedicineAction::class)->execute($careOrientation, $user);
+        $orientedEmergency = $createEpisode->execute($patient, EpisodePriority::Emergency);
+        $orientedEmergency->update(['started_at' => now()->subMinutes(10)]);
+
+        $this->actingAs($user)->get('/reception/patients?filter=emergency')
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Create')
+                ->where('recentEpisodeFilter', 'emergency')
+                ->has('recentEpisodes', 1)
+                ->where('recentEpisodes.0.uuid', $orientedEmergency->uuid)
+                ->where('recentEpisodes.0.priority', EpisodePriority::Emergency->value)
+            );
+
+        $this->actingAs($user)->get('/reception/patients?filter=oriented')
+            ->assertInertia(fn ($page) => $page
+                ->where('recentEpisodeFilter', 'oriented')
+                ->has('recentEpisodes', 2)
+                ->where('recentEpisodes.0.uuid', $orientedEmergency->uuid)
+                ->where('recentEpisodes.0.administrative_status', EpisodeAdministrativeStatus::Oriented->value)
+                ->where('recentEpisodes.1.uuid', $oriented->uuid)
+            );
+
+        $this->actingAs($user)->get('/reception/patients?filter=pending')
+            ->assertInertia(fn ($page) => $page
+                ->where('recentEpisodeFilter', 'pending')
+                ->has('recentEpisodes', 1)
+                ->where('recentEpisodes.0.uuid', $pending->uuid)
             );
     }
 

@@ -159,11 +159,25 @@ const cancelPayment = () => {
 const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
 const civilityLabels = { MR: 'M.', MRS: 'Mme', GIRL: 'Enfant fille', BOY: 'Enfant garçon' };
 const administrativeStatusLabels = {
-    PENDING_ORIENTATION: 'En attente d’orientation',
+    PENDING_ORIENTATION: 'En attente aux Soins',
     ORIENTED: 'Orienté',
     IN_CARE: 'En cours de soins',
     PENDING_SETTLEMENT: 'En attente de règlement',
     DISCHARGED: 'Sorti',
+};
+const pathwayStatus = (episode) => {
+    const orientations = episode.orientations ?? [];
+    const medicine = orientations.find((orientation) => orientation.destination_module === 'MEDICINE'
+        && ['PENDING', 'IN_PROGRESS'].includes(orientation.status));
+    const care = orientations.find((orientation) => orientation.destination_module === 'CARE'
+        && ['PENDING', 'IN_PROGRESS'].includes(orientation.status));
+
+    if (medicine?.status === 'IN_PROGRESS') return 'En consultation';
+    if (medicine) return 'En attente en Médecine';
+    if (care?.status === 'IN_PROGRESS') return 'Pris en charge aux Soins';
+    if (care) return 'En attente aux Soins';
+
+    return administrativeStatusLabels[episode.administrative_status] ?? episode.administrative_status;
 };
 const statusLabels = { OPEN: 'Ouvert', CLOSED: 'Clos', CANCELLED: 'Annulé' };
 const invoiceStatusLabels = {
@@ -465,7 +479,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Dernier passage</h2><button v-if="patient.episodes.length" type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="activeSection = 'episodes'">Voir l’historique</button></div>
                     <div v-if="latestEpisode" class="mt-4">
                         <div class="flex flex-wrap items-center gap-2"><span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ latestEpisode.episode_number }}</span><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(latestEpisode.status)]">{{ statusLabels[latestEpisode.status] }}</span><span v-if="latestEpisode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></div>
-                        <p class="mt-2 text-xs leading-5 text-slate-500">{{ administrativeStatusLabels[latestEpisode.administrative_status] }}<br>{{ formatDateTime(latestEpisode.started_at) }}</p>
+                        <p class="mt-2 text-xs leading-5 text-slate-500">{{ pathwayStatus(latestEpisode) }}<br>{{ formatDateTime(latestEpisode.started_at) }}</p>
                     </div>
                     <p v-else class="mt-3 text-sm text-slate-400">Aucun passage enregistré.</p>
                 </section>
@@ -493,8 +507,8 @@ const invoiceStatusBadgeClass = (statusValue) => ({
             <ul v-else class="divide-y divide-gray-200 dark:divide-gray-900">
                 <li v-for="episode in patient.episodes" :key="episode.uuid" class="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
                     <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</span><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span><span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></div><p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }}</p></div>
-                    <div><p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Situation administrative</p><p class="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">{{ administrativeStatusLabels[episode.administrative_status] }}</p></div>
-                    <div class="md:text-end"><Link v-if="episode.status === 'OPEN' && episode.administrative_status === 'PENDING_ORIENTATION' && can('episodes.update')" :href="`/episodes/${episode.uuid}/orient`" method="post" as="button"><Button size="sm" variant="white-outline">Orienter</Button></Link><span v-else class="text-xs text-slate-400">{{ episode.status === 'OPEN' ? 'Passage actif' : 'Passage terminé' }}</span></div>
+                    <div><p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parcours clinique</p><p class="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">{{ pathwayStatus(episode) }}</p></div>
+                    <div class="md:text-end"><span class="text-xs text-slate-400">{{ episode.status === 'OPEN' ? 'Passage actif' : 'Passage terminé' }}</span></div>
                 </li>
             </ul>
         </section>

@@ -21,6 +21,7 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
+const canViewPatient = computed(() => can('patients.view'));
 const canUpdatePatient = computed(() => can('patients.update'));
 const canDeletePatient = computed(() => can('patients.delete'));
 
@@ -57,6 +58,10 @@ const togglePatient = (uuid, checked) => {
 };
 
 const openDeleteDialog = (patients) => {
+    if (!canDeletePatient.value) {
+        return;
+    }
+
     deleteTargets.value = patients;
     deleteReason.value = '';
     deleteError.value = '';
@@ -217,9 +222,12 @@ watch(
                                         aria-hidden="true"
                                     />
                                     <div class="min-w-0">
-                                        <Link :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">
+                                        <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">
                                             {{ formatPatientName(patient) }}
                                         </Link>
+                                        <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">
+                                            {{ formatPatientName(patient) }}
+                                        </span>
                                         <span class="mt-0.5 block text-xs text-slate-400">{{ patient.patient_number }}</span>
                                     </div>
                                 </div>
@@ -241,6 +249,7 @@ watch(
                             <td class="border-b border-gray-200 px-5 py-3 text-end dark:border-gray-900">
                                 <div class="inline-flex items-center gap-1.5">
                                     <Button
+                                        v-if="canViewPatient"
                                         :as="Link"
                                         :href="`/patients/${patient.uuid}`"
                                         icon

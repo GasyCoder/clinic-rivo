@@ -154,7 +154,7 @@ class PermissionSeeder extends Seeder
         // dans ce module, à ajouter quand ce flux sera réellement construit.
         'episodes.view' => 'Voir les épisodes',
         'episodes.create' => 'Créer un épisode',
-        'episodes.update' => 'Modifier un épisode (orientation, ...)',
+        'episodes.update' => 'Modifier un épisode',
         'episodes.cancel' => 'Annuler un épisode',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les

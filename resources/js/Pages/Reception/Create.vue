@@ -33,6 +33,7 @@ const props = defineProps({
     search: String,
     matches: Array,
     recentEpisodes: Array,
+    recentEpisodeFilter: String,
     billingCatalog: Array,
     paymentMethods: Array,
     openCashSession: Object,
@@ -65,15 +66,20 @@ const selectedPatient = toRef(workflow, 'selectedPatient');
 const birthDateMode = toRef(workflow, 'birthDateMode'); // 'date' | 'age'
 const furthestStepIndex = toRef(workflow, 'furthestStepIndex');
 const showArrivalFlow = computed(() => Boolean(props.step) || Boolean(duplicates.value?.length));
-const recentTab = ref('normal'); // 'normal' | 'emergency'
 const query = ref(props.search ?? '');
 
-const normalRecentEpisodes = computed(() => props.recentEpisodes.filter((episode) => episode.priority !== 'EMERGENCY'));
-const emergencyRecentEpisodes = computed(() => props.recentEpisodes.filter((episode) => episode.priority === 'EMERGENCY'));
-const filteredRecentEpisodes = computed(() => recentTab.value === 'emergency'
-    ? emergencyRecentEpisodes.value
-    : normalRecentEpisodes.value
-);
+const recentFilterOptions = [
+    { value: 'all', label: 'Tous', icon: 'list' },
+    { value: 'normal', label: 'Normal', icon: 'user-check' },
+    { value: 'emergency', label: 'Urgence', icon: 'alert-circle' },
+    { value: 'pending', label: 'À orienter', icon: 'clock' },
+    { value: 'oriented', label: 'Orientés', icon: 'check-circle' },
+];
+const activeRecentFilter = computed(() => props.recentEpisodeFilter ?? 'all');
+const hasActiveRecentFilter = computed(() => activeRecentFilter.value !== 'all');
+const recentFilterHref = (value) => value === 'all'
+    ? '/reception/patients'
+    : `/reception/patients?filter=${value}`;
 
 if (props.search) {
     patientType.value = 'existing';
@@ -435,7 +441,7 @@ const statusLabels = {
 };
 
 const administrativeStatusLabels = {
-    PENDING_ORIENTATION: 'En attente d’orientation',
+    PENDING_ORIENTATION: 'En attente aux Soins',
     ORIENTED: 'Orienté',
     IN_CARE: 'En cours de soins',
     PENDING_SETTLEMENT: 'En attente de règlement',
@@ -449,6 +455,27 @@ const statusBadgeClasses = {
 };
 
 const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeClasses.CLOSED;
+const pathwayStatus = (episode) => {
+    const orientations = episode.orientations ?? [];
+    const medicine = orientations.find((orientation) => orientation.destination_module === 'MEDICINE'
+        && ['PENDING', 'IN_PROGRESS'].includes(orientation.status));
+    const care = orientations.find((orientation) => orientation.destination_module === 'CARE'
+        && ['PENDING', 'IN_PROGRESS'].includes(orientation.status));
+
+    if (medicine?.status === 'IN_PROGRESS') return 'En consultation';
+    if (medicine) return 'En attente en Médecine';
+    if (care?.status === 'IN_PROGRESS') return 'Pris en charge aux Soins';
+    if (care) return 'En attente aux Soins';
+
+    return administrativeStatusLabels[episode.administrative_status] ?? episode.administrative_status;
+};
+const administrativeStatusBadgeClass = (status) => ({
+    PENDING_ORIENTATION: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+    ORIENTED: 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300',
+    IN_CARE: 'border-gray-200 bg-gray-50 text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-300',
+    PENDING_SETTLEMENT: 'border-gray-200 bg-gray-50 text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-300',
+    DISCHARGED: 'border-gray-200 bg-gray-50 text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-400',
+}[status] ?? 'border-gray-200 bg-gray-50 text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-400');
 </script>
 
 <template>
@@ -456,8 +483,8 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
 
     <div
         :class="[
-            'mx-auto w-full space-y-6 lg:space-y-8',
-            showArrivalFlow ? 'max-w-screen-xl' : 'max-w-screen-2xl',
+            'mx-auto w-full',
+            showArrivalFlow ? 'max-w-screen-xl space-y-6 lg:space-y-8' : 'max-w-screen-2xl space-y-4',
         ]"
     >
         <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -481,7 +508,7 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
                 </Button>
                 <span class="inline-flex w-fit items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-slate-500 dark:bg-gray-900 dark:text-slate-300">
                     <Icon class="text-base text-primary-500" name="activity" />
-                    {{ recentEpisodes.length }} passage{{ recentEpisodes.length > 1 ? 's' : '' }} récent{{ recentEpisodes.length > 1 ? 's' : '' }}
+                    {{ recentEpisodes.length }} passage{{ recentEpisodes.length > 1 ? 's' : '' }} affiché{{ recentEpisodes.length > 1 ? 's' : '' }}
                 </span>
                 <Button
                     class="justify-center"
@@ -1403,180 +1430,117 @@ const statusBadgeClass = (status) => statusBadgeClasses[status] ?? statusBadgeCl
             </CardBody>
         </Card>
 
-        <!-- Recent passages: "identifier les patients présents" / "consulter
-             le statut du parcours patient" (CDC §5.2.1) -->
+        <!-- Recent passages: one patient may have several episodes. Filters
+             therefore target the episode priority and administrative status. -->
         <Card v-if="!showArrivalFlow" class="overflow-hidden shadow-sm">
-            <div class="flex flex-col gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <div class="flex items-center gap-3">
-                    <span class="flex h-9 w-9 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300">
                         <Icon class="text-lg" name="clock" />
                     </span>
                     <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Passages récents</h2>
-                        <p class="mt-0.5 text-xs text-slate-400">Dernières arrivées enregistrées à la réception.</p>
+                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Passages patients</h2>
+                        <p class="mt-0.5 text-xs text-slate-400">Suivez les arrivées et leur état d’orientation.</p>
                     </div>
                 </div>
+                <span class="w-fit rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-slate-500 dark:bg-gray-900 dark:text-slate-300">
+                    {{ recentEpisodes.length }} affiché{{ recentEpisodes.length > 1 ? 's' : '' }}
+                </span>
+            </div>
 
-                <div class="inline-flex w-full rounded-md bg-gray-100 p-1 dark:bg-gray-900 sm:w-auto" role="tablist" aria-label="Type de passages récents">
-                    <button
-                        type="button"
-                        role="tab"
-                        :aria-selected="recentTab === 'normal'"
+            <div class="flex min-w-0 items-center gap-3 border-b border-gray-200 bg-gray-50/50 px-5 py-3 dark:border-gray-900 dark:bg-gray-1000/30 sm:px-6">
+                <span class="shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-400">Afficher</span>
+                <div class="inline-flex min-w-0 overflow-x-auto rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950" role="group" aria-label="Filtrer les passages patients">
+                    <Link
+                        v-for="option in recentFilterOptions"
+                        :key="option.value"
+                        :href="recentFilterHref(option.value)"
+                        replace
+                        preserve-scroll
+                        :aria-current="activeRecentFilter === option.value ? 'true' : undefined"
                         :class="[
-                            'flex flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-xs font-bold transition-all sm:flex-none',
-                            recentTab === 'normal'
-                                ? 'bg-white text-primary-700 shadow-sm dark:bg-gray-950 dark:text-primary-300'
-                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white',
+                            'inline-flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors',
+                            activeRecentFilter === option.value
+                                ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white'
+                                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200',
                         ]"
-                        @click="recentTab = 'normal'"
                     >
-                        <Icon class="text-base" name="user-check" />
-                        Normal
-                        <span class="rounded-full bg-primary-100 px-1.5 py-0.5 text-[10px] text-primary-700 dark:bg-primary-950 dark:text-primary-300">
-                            {{ normalRecentEpisodes.length }}
-                        </span>
-                    </button>
-                    <button
-                        type="button"
-                        role="tab"
-                        :aria-selected="recentTab === 'emergency'"
-                        :class="[
-                            'flex flex-1 items-center justify-center gap-2 rounded px-3 py-2 text-xs font-bold transition-all sm:flex-none',
-                            recentTab === 'emergency'
-                                ? 'bg-white text-red-700 shadow-sm dark:bg-gray-950 dark:text-red-300'
-                                : 'text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-300',
-                        ]"
-                        @click="recentTab = 'emergency'"
-                    >
-                        <Icon class="text-base" name="alert-circle" />
-                        Urgence
-                        <span class="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700 dark:bg-red-950 dark:text-red-300">
-                            {{ emergencyRecentEpisodes.length }}
-                        </span>
-                    </button>
+                        <Icon :class="['text-sm', option.value === 'emergency' && activeRecentFilter === option.value ? 'text-red-500' : '']" :name="option.icon" />
+                        {{ option.label }}
+                    </Link>
                 </div>
             </div>
 
-            <div v-if="filteredRecentEpisodes.length === 0" class="px-5 py-12 text-center">
-                <span class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900">
-                    <Icon class="text-2xl" :name="recentTab === 'emergency' ? 'alert-circle' : 'activity'" />
+            <div v-if="recentEpisodes.length === 0" class="px-5 py-12 text-center">
+                <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900">
+                    <Icon class="text-xl" name="filter" />
                 </span>
-                <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">
-                    {{ recentTab === 'emergency' ? 'Aucun passage en urgence récent' : 'Aucun passage normal récent' }}
-                </p>
-                <p class="mt-1 text-xs text-slate-400">Le prochain passage de cette catégorie apparaîtra ici.</p>
+                <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun passage ne correspond aux filtres</p>
+                <p class="mt-1 text-xs text-slate-400">Choisissez un autre filtre pour élargir la liste.</p>
+                <Button v-if="hasActiveRecentFilter" :as="Link" href="/reception/patients" class="mt-4" size="sm" variant="white-outline">Afficher tous les passages</Button>
             </div>
 
             <template v-else>
                 <div class="divide-y divide-gray-200 dark:divide-gray-900 md:hidden">
-                    <article
-                        v-for="episode in filteredRecentEpisodes"
-                        :key="episode.id"
-                        :class="['p-5', episode.priority === 'EMERGENCY' ? 'bg-red-50/60 dark:bg-red-950/20' : '']"
-                    >
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="flex min-w-0 items-center gap-3">
-                            <Avatar
-                                rounded
-                                size="sm"
-                                variant="primary-pale"
-                                :text="formatPatientInitials(episode.patient)"
-                                aria-hidden="true"
-                            />
-                            <div class="min-w-0">
-                                <Link :href="`/patients/${episode.patient.uuid}`" class="block truncate text-sm font-bold text-primary-600 hover:text-primary-700">
-                                    {{ formatPatientName(episode.patient) }}
-                                </Link>
-                                <p class="mt-0.5 text-xs text-slate-400">{{ episode.patient.patient_number }} · {{ episode.episode_number }}</p>
+                    <article v-for="episode in recentEpisodes" :key="episode.id" class="p-5">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="flex min-w-0 items-center gap-3">
+                                <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" aria-hidden="true" />
+                                <div class="min-w-0">
+                                    <Link v-if="can('patients.view')" :href="`/patients/${episode.patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(episode.patient) }}</Link>
+                                    <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(episode.patient) }}</span>
+                                    <p class="mt-0.5 text-xs text-slate-400">{{ episode.patient.patient_number }} · {{ episode.episode_number }}</p>
+                                </div>
                             </div>
-                        </div>
-                        <div class="flex shrink-0 flex-col items-end gap-1.5">
-                            <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-950 dark:text-red-300">
-                                <Icon name="alert-circle" /> Urgence
-                            </span>
-                            <span :class="['rounded px-2 py-0.5 text-xs font-medium', statusBadgeClass(episode.status)]">
-                                {{ statusLabels[episode.status] ?? episode.status }}
+                            <span :class="['shrink-0 rounded border px-2 py-1 text-[11px] font-semibold', administrativeStatusBadgeClass(episode.administrative_status)]">
+                                {{ pathwayStatus(episode) }}
                             </span>
                         </div>
-                    </div>
-                    <dl class="mt-4 grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                            <dt class="text-slate-400">Date / heure</dt>
-                            <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">{{ formatDateTime(episode.started_at) }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-slate-400">Enregistré</dt>
-                            <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">{{ formatRelativeTime(episode.started_at) }}</dd>
-                        </div>
-                        <div class="col-span-2">
-                            <dt class="text-slate-400">Parcours administratif</dt>
-                            <dd class="mt-0.5 font-medium text-slate-600 dark:text-slate-200">
-                                {{ administrativeStatusLabels[episode.administrative_status] ?? episode.administrative_status }}
-                            </dd>
-                        </div>
-                    </dl>
+
+                        <dl class="mt-4 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 text-xs dark:border-gray-900">
+                            <div><dt class="text-slate-400">Arrivée</dt><dd class="mt-1 font-medium text-slate-600 dark:text-slate-200">{{ formatDateTime(episode.started_at) }}</dd></div>
+                            <div><dt class="text-slate-400">Priorité</dt><dd class="mt-1"><span :class="['inline-flex items-center gap-1.5 font-semibold', episode.priority === 'EMERGENCY' ? 'text-red-600 dark:text-red-300' : 'text-slate-600 dark:text-slate-300']"><span :class="['h-1.5 w-1.5 rounded-full', episode.priority === 'EMERGENCY' ? 'bg-red-500' : 'bg-slate-300 dark:bg-slate-600']"></span>{{ episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normale' }}</span></dd></div>
+                        </dl>
+
                     </article>
                 </div>
 
                 <div class="hidden overflow-x-auto md:block">
-                    <table class="w-full border-collapse">
-                    <caption class="sr-only">Liste des passages récents</caption>
-                    <thead>
-                        <tr class="bg-gray-50/70 dark:bg-gray-1000/40">
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">N° passage</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Date / heure</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Il y a</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Statut</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr
-                            v-for="episode in filteredRecentEpisodes"
-                            :key="episode.id"
-                            :class="['transition-colors hover:bg-gray-50 dark:hover:bg-gray-1000', episode.priority === 'EMERGENCY' ? 'bg-red-50/60 dark:bg-red-950/20' : '']"
-                        >
-                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <div class="flex items-center gap-3">
-                                    <Avatar
-                                        rounded
-                                        size="sm"
-                                        variant="primary-pale"
-                                        :text="formatPatientInitials(episode.patient)"
-                                        aria-hidden="true"
-                                    />
-                                    <div class="min-w-0">
-                                        <Link :href="`/patients/${episode.patient.uuid}`" class="block truncate text-sm font-medium text-primary-600 hover:text-primary-700">
-                                            {{ formatPatientName(episode.patient) }}
-                                        </Link>
-                                        <span class="mt-0.5 block text-xs text-slate-400">{{ episode.patient.patient_number }}</span>
+                    <table class="w-full min-w-[980px] border-collapse">
+                        <caption class="sr-only">Liste des passages patients filtrés</caption>
+                        <thead>
+                            <tr class="bg-gray-50/70 dark:bg-gray-1000/40">
+                                <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
+                                <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Passage</th>
+                                <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Arrivée</th>
+                                <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Priorité</th>
+                                <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Parcours</th>
+                                <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="episode in recentEpisodes" :key="episode.id" class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000">
+                                <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                                    <div class="flex min-w-[220px] items-center gap-3">
+                                        <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" aria-hidden="true" />
+                                        <div class="min-w-0">
+                                            <Link v-if="can('patients.view')" :href="`/patients/${episode.patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(episode.patient) }}</Link>
+                                            <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(episode.patient) }}</span>
+                                            <span class="mt-0.5 block text-xs text-slate-400">{{ episode.patient.patient_number }}</span>
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-600 dark:border-gray-900 dark:text-slate-300">
-                                {{ episode.episode_number }}
-                            </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ formatDateTime(episode.started_at) }}
-                            </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-400 dark:border-gray-900">
-                                {{ formatRelativeTime(episode.started_at) }}
-                            </td>
-                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <div class="flex flex-col items-start gap-1.5">
-                                    <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-950 dark:text-red-300">
-                                        <Icon name="alert-circle" /> Urgence
-                                    </span>
-                                    <span :class="['rounded px-2 py-0.5 text-xs font-medium', statusBadgeClass(episode.status)]">
-                                        {{ statusLabels[episode.status] ?? episode.status }}
-                                    </span>
-                                    <span class="text-xs text-slate-400">
-                                        {{ administrativeStatusLabels[episode.administrative_status] ?? episode.administrative_status }}
-                                    </span>
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
+                                </td>
+                                <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900"><span class="font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ episode.episode_number }}</span><span class="mt-0.5 block text-xs text-slate-400">{{ statusLabels[episode.status] ?? episode.status }}</span></td>
+                                <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ formatDateTime(episode.started_at) }}</span><span class="mt-0.5 block text-xs text-slate-400">{{ formatRelativeTime(episode.started_at) }}</span></td>
+                                <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900"><span :class="['inline-flex items-center gap-1.5 text-xs font-semibold', episode.priority === 'EMERGENCY' ? 'text-red-600 dark:text-red-300' : 'text-slate-500 dark:text-slate-400']"><span :class="['h-1.5 w-1.5 rounded-full', episode.priority === 'EMERGENCY' ? 'bg-red-500' : 'bg-slate-300 dark:bg-slate-600']"></span>{{ episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normale' }}</span></td>
+                                <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900"><span :class="['inline-flex rounded border px-2 py-1 text-xs font-semibold', administrativeStatusBadgeClass(episode.administrative_status)]">{{ pathwayStatus(episode) }}</span></td>
+                                <td class="border-b border-gray-200 px-5 py-3 text-end dark:border-gray-900">
+                                    <div class="inline-flex items-center gap-1.5">
+                                        <Button v-if="can('patients.view')" :as="Link" :href="`/patients/${episode.patient.uuid}`" icon size="sm" variant="white-outline" title="Voir le dossier" :aria-label="`Voir le dossier de ${formatPatientName(episode.patient)}`"><Icon class="text-base" name="eye" /></Button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
             </template>

@@ -127,6 +127,8 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('visitors.create', $names);
         $this->assertContains('visitors.close', $names);
         $this->assertContains('patients.view', $names);
+        $this->assertContains('patients.update', $names);
+        $this->assertContains('patients.delete', $names);
         $this->assertContains('patients.medical_history.manage', $names);
         $this->assertContains('episodes.create', $names);
         $this->assertContains('billing.create', $names);
@@ -155,6 +157,7 @@ class RolePermissionSeederTest extends TestCase
         // Exact-match matchers must not leak into unrelated permissions
         // that merely share the same prefix.
         $this->assertNotContains('patients.view_deleted', $names);
+        $this->assertNotContains('patients.update', $names);
         $this->assertNotContains('patients.delete', $names);
         $this->assertNotContains('episodes.cancel', $names);
     }
@@ -175,6 +178,8 @@ class RolePermissionSeederTest extends TestCase
         // No CDC-defined "maternité" catalog exists — nothing to grant.
         $this->assertNotContains('consultations.create', $names);
         $this->assertNotContains('prescriptions.create', $names);
+        $this->assertNotContains('patients.update', $names);
+        $this->assertNotContains('patients.delete', $names);
     }
 
     public function test_no_business_or_administration_role_can_collect_money(): void

@@ -28,7 +28,16 @@ trait Auditable
         });
 
         static::updated(function ($model) {
-            $changes = $model->getChanges();
+            // updated_at is transport metadata, not a business change. Its
+            // presence used to depend on whether create/update happened in
+            // the same second, producing noisy and non-deterministic audit
+            // payloads. Keep the audit focused on the fields actually
+            // changed by the operation.
+            $changes = collect($model->getChanges())->except('updated_at')->all();
+
+            if ($changes === []) {
+                return;
+            }
 
             // SoftDeletable::restoring() already records its own 'restore'
             // entry; its save() only ever touches deleted_at/deleted_by/
@@ -37,7 +46,7 @@ trait Auditable
             // once as 'update'. (The delete path itself never reaches this
             // hook at all — it writes via the query builder, which doesn't
             // fire model events.)
-            if (array_diff(array_keys($changes), ['deleted_at', 'deleted_by', 'delete_reason', 'updated_at']) === []) {
+            if (array_diff(array_keys($changes), ['deleted_at', 'deleted_by', 'delete_reason']) === []) {
                 return;
             }
 

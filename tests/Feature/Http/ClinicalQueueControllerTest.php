@@ -7,10 +7,13 @@ use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodePriority;
+use App\Enums\PatientType;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
+use App\Models\MutualOrganization;
 use App\Models\Patient;
+use App\Models\PatientMutualCoverage;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -99,6 +102,42 @@ class ClinicalQueueControllerTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->has('orientations.data', 1)
                 ->where('orientations.data.0.episode.uuid', $episode->uuid));
+    }
+
+    public function test_queue_keeps_a_mutual_designation_visible_when_its_tariff_is_not_configured(): void
+    {
+        $nurse = $this->user('NURSE', ['care.view']);
+        $patient = $this->patient();
+        $patient->update(['patient_type' => PatientType::Mutual]);
+        $organization = MutualOrganization::query()->create([
+            'name' => 'Mutuelle de test',
+            'active' => true,
+        ]);
+        PatientMutualCoverage::query()->create([
+            'patient_id' => $patient->id,
+            'mutual_organization_id' => $organization->id,
+            'employer_name' => 'Employeur de test',
+            'beneficiary_type' => 'PRINCIPAL',
+            'membership_number' => 'MUT-001',
+            'effective_from' => now(),
+            'created_by' => $nurse->id,
+        ]);
+
+        $episode = $this->app->make(CreateEpisodeAction::class)->execute($patient);
+        $service = $this->service($nurse, ReceptionRoutingMode::CareOnly);
+        $this->app->make(PlanEpisodeRoutingAction::class)->execute($episode, [[
+            'catalog_item_uuid' => $service->uuid,
+            'quantity' => 2,
+        ]], $nurse);
+
+        $this->actingAs($nurse)->get('/care')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Care/Index')
+                ->has('orientations.data', 1)
+                ->where('orientations.data.0.episode.designations.0.description', 'Consultation')
+                ->where('orientations.data.0.episode.designations.0.total_amount', null)
+            );
     }
 
     public function test_queue_routes_enforce_their_own_permissions(): void

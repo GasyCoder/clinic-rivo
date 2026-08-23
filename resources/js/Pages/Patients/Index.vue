@@ -8,7 +8,6 @@ import CheckBox from '@/Components/UI/CheckBox.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatDate } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({
@@ -128,12 +127,8 @@ const patientTypeLabels = {
     STAFF: 'Personnel',
 };
 const patientTypeLabel = (patient) => patientTypeLabels[patient.patient_type] ?? 'Standard';
-const patientBirthSummary = (patient) => {
-    if (patient.birth_date) {
-        return formatDate(patient.birth_date);
-    }
-
-    const age = patient.declared_age ?? patient.age;
+const patientAgeSummary = (patient) => {
+    const age = patient.age ?? patient.declared_age;
 
     return age !== null && age !== undefined && age !== '' ? `${age} ans` : 'Non renseigné';
 };
@@ -207,7 +202,7 @@ watch(
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Type</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Sexe</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Naissance / âge</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Âge</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Téléphone</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Priorité</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Actions</th>
@@ -255,7 +250,7 @@ watch(
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ sexLabel(patient.sex) }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ patientBirthSummary(patient) }}
+                                {{ patientAgeSummary(patient) }}
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ patient.phone ?? '—' }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">

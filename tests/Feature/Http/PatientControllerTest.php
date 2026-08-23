@@ -10,6 +10,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class PatientControllerTest extends TestCase
@@ -57,6 +58,24 @@ class PatientControllerTest extends TestCase
                 ->component('Patients/Index')
                 ->has('patients.data', 1)
                 ->where('patients.data.0.last_name', 'Rakoto')
+            );
+    }
+
+    public function test_index_exposes_the_age_calculated_from_the_birth_date(): void
+    {
+        Carbon::setTestNow('2026-08-23 10:00:00');
+
+        $user = $this->userWithPermissions(['patients.view']);
+        $patient = Patient::create([
+            'patient_number' => 'M-26-0001',
+            ...$this->patientData(['birth_date' => '1990-09-12']),
+        ]);
+
+        $this->actingAs($user)->get('/patients')
+            ->assertInertia(fn ($page) => $page
+                ->component('Patients/Index')
+                ->where('patients.data.0.uuid', $patient->uuid)
+                ->where('patients.data.0.age', 35)
             );
     }
 

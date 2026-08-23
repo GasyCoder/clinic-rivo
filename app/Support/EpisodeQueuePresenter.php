@@ -60,7 +60,9 @@ class EpisodeQueuePresenter
                         'description' => $request->designation,
                         'module' => $request->module->value,
                         'quantity' => $request->quantity,
-                        'total_amount' => Money::fromMinor(Money::multiply($request->quantity, $request->unit_price)),
+                        'total_amount' => $request->unit_price === null
+                            ? null
+                            : Money::fromMinor(Money::multiply($request->quantity, $request->unit_price)),
                         'currency' => $request->currency,
                         'routing_mode' => $request->routing_mode->value,
                     ])->values()->all()

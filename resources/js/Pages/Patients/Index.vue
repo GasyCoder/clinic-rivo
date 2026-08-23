@@ -192,19 +192,19 @@ watch(
 
         <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:px-5">
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                        <form class="relative w-full sm:w-64" role="search" @submit.prevent="submitFilters">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <form class="relative w-full sm:max-w-xs sm:flex-1" role="search" @submit.prevent="submitFilters">
                             <Input v-model="query" icon="start" type="search" placeholder="Nom, numéro patient ou téléphone" autocomplete="off" />
                             <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400" aria-label="Rechercher">
                                 <Icon class="text-lg/4.5" name="search" />
                             </button>
                         </form>
-                        <span class="relative"><select v-model="typeFilter" class="h-9 appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Tous les types</option><option value="STANDARD">Standard</option><option value="MUTUAL">Mutuelle</option><option value="STAFF">Personnel</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
-                        <span class="relative"><select v-model="emergencyFilter" class="h-9 appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Toute priorité</option><option value="active">Urgence en cours</option><option value="none">Normal</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
+                        <span class="relative"><select v-model="typeFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Tous les types</option><option value="STANDARD">Standard</option><option value="MUTUAL">Mutuelle</option><option value="STAFF">Personnel</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
+                        <span class="relative"><select v-model="emergencyFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Toute priorité</option><option value="active">Urgence en cours</option><option value="none">Normal</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
                     </div>
 
-                    <div class="inline-flex shrink-0 self-start rounded-md border border-gray-200 p-0.5 dark:border-gray-800" role="group" aria-label="Mode d’affichage">
+                    <div class="inline-flex shrink-0 self-start rounded-md border border-gray-200 p-0.5 dark:border-gray-800 sm:self-auto" role="group" aria-label="Mode d’affichage">
                         <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'list' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue liste" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">
                             <Icon class="text-lg" name="list" />
                         </button>

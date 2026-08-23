@@ -501,7 +501,10 @@ const pathwayStatusBadgeClass = (status) => ({
     'En attente aux Soins': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
 }[status] ?? 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400');
 
-const selectClass = 'block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
+// bg-none cancels @tailwindcss/forms' own chevron background-image on
+// <select> — without it, that arrow doubles up with the Icon we place on
+// top of these selects.
+const selectClass = 'block h-9 w-full appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
 </script>
 
 <template>

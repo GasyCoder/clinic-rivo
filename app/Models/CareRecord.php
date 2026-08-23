@@ -10,13 +10,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Audited nursing worksheet for one episode. Hospitalization and diagnostic
- * fields are nursing context only: they never change the episode's medical
- * status and never replace a physician-owned Diagnosis record.
+ * Audited nursing worksheet for one episode. The legacy hospitalization date
+ * columns are retained for historical compatibility but are no longer writable
+ * from Care: admission and discharge belong to physician-owned workflows.
  */
 #[Fillable([
-    'episode_id', 'blood_group', 'height_cm', 'weight_kg', 'bmi',
-    'allergy_note', 'allergy_snapshot', 'smoker', 'hospitalization_reason', 'hospitalized_at',
+    'episode_id', 'blood_group',
+    'blood_pressure_left_systolic', 'blood_pressure_left_diastolic',
+    'blood_pressure_right_systolic', 'blood_pressure_right_diastolic',
+    'temperature_celsius', 'known_diabetes',
+    'height_cm', 'weight_kg', 'bmi',
+    'allergy_note', 'allergy_snapshot', 'smoker', 'no_procedure_reason',
+    'hospitalization_reason', 'hospitalized_at',
     'discharged_at', 'diagnostic_note', 'transmission_reason',
     'created_by', 'updated_by',
 ])]
@@ -27,6 +32,12 @@ class CareRecord extends Model
     protected function casts(): array
     {
         return [
+            'blood_pressure_left_systolic' => 'integer',
+            'blood_pressure_left_diastolic' => 'integer',
+            'blood_pressure_right_systolic' => 'integer',
+            'blood_pressure_right_diastolic' => 'integer',
+            'temperature_celsius' => 'decimal:2',
+            'known_diabetes' => 'boolean',
             'height_cm' => 'decimal:2',
             'weight_kg' => 'decimal:2',
             'bmi' => 'decimal:2',

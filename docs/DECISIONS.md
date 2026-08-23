@@ -128,7 +128,7 @@ identifiant distribué/inter-site
 
 # ADR-006 — Rôles
 
-**Status:** ACCEPTED (amendé 2026-08-20 — ajout de NURSE, LOGISTICS et GUARD)
+**Status:** SUPERSEDED pour la structure rôles/profils par ADR-033
 
 Les rôles principaux sont :
 
@@ -139,7 +139,8 @@ RECEPTION
 MEDICINE
 NURSE
 LOGISTICS
-GUARD
+SUPPORT
+MAINTENANCE
 SURGERY
 PHARMACY
 LABORATORY
@@ -151,9 +152,10 @@ profils rattachés au rôle MEDICINE, mais sans rôle RBAC dédié — un
 infirmier n'a pas besoin du même périmètre qu'un médecin (diagnostics,
 prescriptions), d'où un rôle séparé plutôt qu'un sous-ensemble de
 permissions MEDICINE. Permissions couvertes (voir ADR-007bis) : catalogue
-"Soins" du CDC §15 (`care.*`, `vitals.*`) et catalogue "Anesthésie" du CDC
-§16 (`anesthesia.*`, normalement rattaché à SURGERY mais explicitement
-demandé ici aussi). Il n'existe aucun catalogue de permissions "Maternité"
+"Soins" du CDC §15 (`care.*`, `vitals.*`). ADR-033 précise que le catalogue
+"Anesthésie" du CDC §16 ne doit jamais être accordé à tous les comptes NURSE :
+il est affecté individuellement aux anesthésistes autorisés. Il n'existe aucun
+catalogue de permissions "Maternité"
 dans le CDC — non inventé, à définir avec l'équipe le jour où ce module
 sera construit.
 
@@ -537,6 +539,15 @@ sécurisée avec saisie masquée du mot de passe. Les anciens comptes démo sont
 désactivés seulement après la création vérifiée de leur remplaçant réel, afin de
 ne jamais verrouiller le site.
 
+**Exception explicite de développement (2026-08-23).** À la demande du
+propriétaire, `DevelopmentUserSeeder` crée des fixtures locales permettant de
+tester chaque rôle et chaque profil professionnel. Il n'est jamais appelé par
+`DatabaseSeeder`, refuse toute exécution hors `local` / `testing`, utilise
+uniquement le domaine réservé `.test` et réinitialise ses propres comptes à
+chaque lancement. Son mot de passe est configurable par
+`RIVO_DEVELOPMENT_USERS_PASSWORD`. Cette exception ne permet aucun compte
+générique ou mot de passe de test sur un environnement de production.
+
 ---
 
 # ADR-023 — Séparation Réception Patient / Réception Visiteur
@@ -789,7 +800,7 @@ exceptionnelle reste possible par permission individuelle auditée.
 
 # ADR-026 — Rôles Logistique et Gardien indépendants
 
-**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+**Status:** SUPERSEDED pour Gardien et Maintenance par ADR-033
 
 Cette décision affine le CDC officiel et remplace la partie d’ADR-025 qui
 rattachait encore logistique et gardiennage au rôle `ADMINISTRATION`. Trois
@@ -798,7 +809,7 @@ responsabilités autonomes sont désormais définies :
 ```text
 ADMINISTRATION  ressources humaines, employés, contrats, présence, congés, planning
 LOGISTICS       inventaire, affectation, localisation, état et maintenance des équipements
-GUARD           enregistrement et suivi des entrées/sorties, observations et incidents
+SUPPORT/GUARD   enregistrement et suivi des entrées/sorties, observations et incidents
 ```
 
 Chaque rôle possède ses permissions propres. Il ne voit pas les menus des deux
@@ -810,7 +821,8 @@ pharmaceutiques restent exclusivement dans le menu `PHARMACY`. La Logistique
 ne gère que les équipements durables et le stock administratif ; elle ne gère
 ni médicament, ni délivrance, ni paiement.
 
-Le rôle `GUARD` utilise le registre des entrées et sorties. Il peut enregistrer
+Le profil `SUPPORT/GUARD` utilise le registre des entrées et sorties avec des
+permissions affectées au compte. Il peut enregistrer
 une entrée, ajouter une observation, consulter les personnes présentes et
 enregistrer leur sortie. Ce registre ne crée ni patient, ni épisode clinique,
 ni facture, ni paiement.
@@ -841,7 +853,8 @@ cohérent :
 RECEPTION
 ADMINISTRATION
 LOGISTICS
-GUARD
+SUPPORT
+MAINTENANCE
 MEDICINE
 NURSE
 SURGERY
@@ -1126,8 +1139,9 @@ ADR-003, ADR-004 et ADR-027. Il ne reçoit jamais un accès SQL direct aux bases
 
 Le rôle `NURSE` utilise une fiche de soins rattachée à l'épisode, jamais au
 dossier administratif permanent. Elle regroupe les constantes et observations
-du passage : groupe sanguin, taille, poids, IMC calculé par Laravel, allergie
-signalée, tabagisme, contexte d'hospitalisation et motif de transmission.
+du passage : tension artérielle gauche et droite, température, diabète connu,
+groupe sanguin, taille, poids, IMC calculé par Laravel, allergie signalée,
+tabagisme et, lorsque le parcours continue vers Médecine, éléments de transmission.
 
 L'IMC est accompagné d'un repère de dépistage calculé à partir d'une règle
 Laravel centralisée. Pour les adultes de 20 ans ou plus, les seuils OMS retenus
@@ -1166,12 +1180,58 @@ Réception tant que le Super Admin n'a pas configuré leur tarif et leur parcour
 Les quatre actes de validation déjà tarifés conservent leur prix existant.
 
 La présence de « Diagnostic » et des dates d'hospitalisation sur la fiche papier
-ne transfère pas la décision médicale au rôle `NURSE`. Dans la fiche Soins, il
-s'agit du diagnostic communiqué et du contexte infirmier : ces champs ne créent
-pas un enregistrement `diagnoses`, ne changent pas `medical_status` et ne
-prononcent ni hospitalisation ni sortie. Les décisions officielles restent sous
-les permissions Médecine (`diagnoses.*`, `hospitalization.request`, sortie
-médicale).
+ne transfère pas la décision médicale au rôle `NURSE`. La précision client du
+23/08/2026 remplace ici l'interprétation initiale : la fiche Soins ne saisit ni
+l'entrée ni la sortie d'hospitalisation. L'entrée proviendra automatiquement du
+workflow d'admission après décision médicale ; la sortie proviendra de l'action
+de sortie médicale. Tant que le module Hospitalisation n'existe pas, ces champs
+ne sont pas affichés. Le diagnostic communiqué et les observations de
+transmission ne sont affichés que pour `CARE_THEN_MEDICINE`, un besoin inconnu
+encore orientable, ou une urgence. Un parcours `CARE_ONLY` se termine aux Soins
+et n'affiche donc aucune section « Hospitalisation et transmission ».
+
+Les constantes courantes ne sont pas obligatoires pour chaque acte infirmier.
+Pour un parcours `CARE_ONLY` connu, tel qu'un pansement ou une injection isolée,
+groupe sanguin, taille, poids et IMC sont facultatifs et repliés par défaut ;
+l'infirmier peut les ouvrir s'ils ont réellement été relevés ou si le contexte
+clinique le justifie. Ils restent visibles et recommandés en urgence, pour un
+besoin encore indéterminé ou lorsque le parcours continue vers Médecine. Cette
+recommandation d'interface ne remplace pas l'appréciation clinique et le backend
+n'impose pas artificiellement ces quatre valeurs pour enregistrer un acte.
+
+La précision client du 23/08/2026 ajoute au relevé facultatif la tension des
+deux bras, la température et le statut « diabète connu ». La tension est
+enregistrée en quatre valeurs numériques structurées (systolique/diastolique,
+gauche/droite) avec l'unité mmHg ; chaque paire doit être complète et la
+systolique supérieure à la diastolique. La température est enregistrée en °C.
+Le diabète possède trois états distincts : non renseigné, non et oui. Ces
+données restent attachées à l'épisode et protégées par `vitals.*` ; elles ne
+deviennent pas obligatoires pour un pansement ou une injection isolée.
+
+Le snapshot d'allergies d'un passage reste historique. Si une allergie qui y
+figure n'existe plus parmi les allergies actives du dossier patient, elle est
+affichée comme historique, n'est plus renvoyée comme sélection active et ne peut
+ni bloquer une sauvegarde ultérieure ni être effacée silencieusement du snapshot.
+
+Le 23/08/2026, le client valide aussi le mode compact de cette fiche. Pour un
+acte autonome, toute la section « Constantes et observations » est repliée et
+reste facultative. Cela ne signifie pas « aucune allergie » : l'absence de donnée
+et une réponse négative demeurent deux états distincts. Les actes configurés à
+risque, notamment les injections IM/IV et la perfusion, déclenchent donc une
+vérification de sécurité ciblée du statut allergique même si la section complète
+reste fermée. La confirmation, l'acte, le soignant et l'heure sont historisés.
+
+Ces exigences appartiennent au référentiel Super Admin par prestation
+(`care_requires_allergy_check`, `care_recommends_vitals`) et sont copiées dans
+la demande du passage lors de sa planification. Un changement ultérieur du
+catalogue ne réécrit ainsi pas rétroactivement le parcours déjà ouvert.
+
+Un parcours `CARE_ONLY` ne peut être terminé sans au moins un acte effectivement
+enregistré. Pour un besoin initialement indéterminé, l'équipe choisit soit une
+orientation vers Médecine, soit des actes réalisés, soit une clôture sans acte
+avec un motif explicite. L'enregistrement des nouveaux actes et la fin de prise
+en charge s'effectuent dans une transaction unique afin d'éviter une fiche
+enregistrée mais un parcours non terminé, ou l'inverse.
 
 Permissions :
 
@@ -1184,3 +1244,100 @@ medical_orders.view
 Le rôle `NURSE` ne reçoit aucune permission `payments.*`, `cash.*` ou
 `receipts.*`. Les soins peuvent alimenter ultérieurement les éléments
 facturables, mais tout encaissement reste exclusivement à Réception / Caisse.
+
+---
+
+# ADR-033 — Profils professionnels et permissions propres au compte
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du client)
+
+Cette décision amende ADR-006 et ADR-026. Le CDC officiel rattache encore
+l'anesthésiste à Chirurgie et le gardien ainsi que la maintenance à
+Administration. La demande explicite du propriétaire du 23/08/2026 a priorité :
+les rôles opérationnels sont séparés, tandis que les droits concrets restent
+dynamiques et attribués par compte.
+
+La classification validée est :
+
+```text
+NURSE
+  REGISTERED_NURSE   Infirmier / Infirmière
+  MIDWIFE            Sage-femme
+  ANESTHETIST        Anesthésiste
+
+SUPPORT
+  GUARD              Gardien / Gardienne
+  CLEANER            Agent d'entretien / Femme de ménage
+
+MAINTENANCE
+  IT_TECHNICIAN      Technicien informatique
+```
+
+Le rôle représente uniquement le domaine et son socle strictement commun. Le
+profil professionnel décrit la fonction principale ; il n'est jamais consulté
+par le moteur d'autorisation et ne confère donc aucun droit automatiquement.
+Ses permissions recommandées servent uniquement de modèle lors de l'affectation
+d'un compte. Le Super Admin ou un gestionnaire explicitement autorisé les copie
+en `ALLOW` individuels dans `user_permissions`, puis peut les adapter. Une
+permission `DENY` individuelle reste prioritaire sur un `ALLOW` individuel puis
+sur le socle du rôle.
+
+Deux comptes ayant le même rôle et le même profil peuvent ainsi posséder des
+droits différents sans modifier tous leurs collègues. Modifier ultérieurement
+les recommandations d'un profil ne change jamais silencieusement les comptes
+existants. Toute affectation de rôle, de profil et de permission individuelle
+est auditée.
+
+Le socle `NURSE` conserve les Soins, constantes, lecture des ordres et accès
+clinique minimal au patient. `ANESTHETIST` recommande `surgery.view` et les
+permissions `anesthesia.*`, mais celles-ci doivent être attribuées au compte
+concerné ; elles ne sont plus héritées par toutes les infirmières et
+sages-femmes. Aucun droit Maternité n'est inventé tant que son module et son
+catalogue ne sont pas définis.
+
+`SUPPORT` et `MAINTENANCE` n'ont aucun droit métier global. Le profil `GUARD`
+recommande le registre de gardiennage et des visiteurs. `CLEANER` n'ajoute aucun
+accès logiciel par défaut. `IT_TECHNICIAN` recommande uniquement la consultation
+logistique et le suivi de maintenance des équipements ; les droits plus sensibles
+restent une décision individuelle.
+
+L'ancien rôle `GUARD` est obsolète. Lors de la migration, chaque compte concerné
+est déplacé vers `SUPPORT/GUARD` et reçoit une copie individuelle de ses anciens
+droits afin d'éviter toute perte d'accès. L'ancien rôle est ensuite retiré. Les
+comptes `NURSE` existants sans profil restent actifs mais doivent afficher
+« Profil métier à définir » jusqu'à leur qualification manuelle ; aucune
+qualification infirmier, sage-femme ou anesthésiste n'est déduite arbitrairement.
+
+---
+
+# ADR-034 — Personne à contacter propre au passage
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite de l'équipe)
+
+Cette décision remplace, sur ce point précis, le CDC Fonctionnel client qui
+plaçait la « personne à contacter » dans le dossier administratif permanent
+du patient. L'équipe a constaté que la personne effectivement joignable peut
+changer d'un passage à l'autre ; un champ unique et permanent ne reflète donc
+pas la réalité et peut induire en erreur en cas d'urgence.
+
+La personne à contacter est désormais portée par l'épisode (`episodes.
+emergency_contact_name/_phone/_relationship/_email`), jamais par le dossier
+patient permanent. Elle est demandée à chaque arrivée — nouveau patient,
+patient déjà connu ou personnel de la clinique — et peut différer d'un
+passage au suivant sans jamais réécrire un historique. Elle reste facultative
+et n'est jamais requise pour démarrer un passage, y compris en urgence.
+
+La migration technique conserve, pour chaque passage encore `OPEN` au moment
+du changement, le dernier contact permanent connu comme valeur de départ. Les
+passages déjà clos ne sont pas complétés rétroactivement : associer après coup
+un contact à un passage terminé reviendrait à inventer une donnée qui n'a
+jamais été confirmée pour ce passage précis.
+
+La page Dossier patient (Aperçu) et la page Édition du dossier permanent ne
+portent donc plus ce champ. Le dossier patient garde en revanche ses propres
+repères médicaux permanents (allergies, antécédents), historisés et enrichis
+au fil des passages via la fiche de soins (voir ADR-032) — une distinction
+que cette même mise à jour a rendue plus explicite dans l'interface : dossier
+permanent d'un côté (onglet Aperçu), fiche de chaque passage de l'autre
+(onglet Passages), sans mélanger les deux registres sous un même intitulé
+« administratif ».

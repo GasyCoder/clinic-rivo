@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'episode_id', 'catalog_item_id', 'catalog_tariff_id', 'tariff_category',
     'catalog_item_uuid', 'catalog_code',
     'designation', 'module', 'routing_mode', 'unit', 'unit_price',
+    'care_requires_allergy_check', 'care_recommends_vitals',
     'currency', 'quantity', 'created_by',
 ])]
 class EpisodeServiceRequest extends Model
@@ -37,6 +38,8 @@ class EpisodeServiceRequest extends Model
         return [
             'module' => CatalogModule::class,
             'routing_mode' => ReceptionRoutingMode::class,
+            'care_requires_allergy_check' => 'boolean',
+            'care_recommends_vitals' => 'boolean',
             'tariff_category' => CatalogTariffCategory::class,
             'unit_price' => 'decimal:2',
             'quantity' => 'decimal:2',

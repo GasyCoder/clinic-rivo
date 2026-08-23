@@ -34,6 +34,12 @@ class PatientController extends Controller
     public function index(Request $request): Response
     {
         $search = trim((string) $request->query('q', ''));
+        $type = in_array($request->query('type'), array_column(PatientType::cases(), 'value'), true)
+            ? $request->query('type')
+            : null;
+        $emergency = in_array($request->query('emergency'), ['active', 'none'], true)
+            ? $request->query('emergency')
+            : null;
 
         $patients = Patient::query()
             ->select([
@@ -54,6 +60,13 @@ class PatientController extends Controller
                         ->orWhere('phone', 'like', "%{$search}%");
                 });
             })
+            ->when($type, fn ($query) => $query->where('patient_type', $type))
+            ->when($emergency === 'active', fn ($query) => $query->whereHas('episodes', fn ($episode) => $episode
+                ->where('priority', EpisodePriority::Emergency->value)
+                ->where('status', EpisodeStatus::Open->value)))
+            ->when($emergency === 'none', fn ($query) => $query->whereDoesntHave('episodes', fn ($episode) => $episode
+                ->where('priority', EpisodePriority::Emergency->value)
+                ->where('status', EpisodeStatus::Open->value)))
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
@@ -65,17 +78,32 @@ class PatientController extends Controller
         return Inertia::render('Patients/Index', [
             'patients' => $patients,
             'search' => $search,
+            'filters' => ['type' => $type, 'emergency' => $emergency],
         ]);
     }
 
     public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog): Response
     {
+        // Care record data (constants, allergy snapshot, acts performed) is
+        // gated behind care.view, matching CareController's own capability
+        // — the rest of this page already shows medical history (allergies,
+        // antecedents) to anyone who can open a patient's file at all, so
+        // this is the one clinical block on it that needs a narrower check.
+        $canViewCareRecords = $request->user()->can('care.view');
+
         $patient->load([
             'addressEntry:id,uuid,label',
             'antecedents',
             'allergies',
             'episodes' => fn ($query) => $query
-                ->with('orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at')
+                ->with([
+                    'orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at',
+                    ...($canViewCareRecords ? [
+                        'careRecord',
+                        'careRecord.procedures' => fn ($procedures) => $procedures
+                            ->with('performer:id,name'),
+                    ] : []),
+                ])
                 ->orderByDesc('started_at'),
         ]);
 
@@ -288,10 +316,6 @@ class PatientController extends Controller
                 'email' => $patient->email,
                 'address_entry_uuid' => $patient->addressEntry?->uuid,
                 'address' => $patient->addressEntry?->label ?? $patient->address,
-                'emergency_contact_name' => $patient->emergency_contact_name,
-                'emergency_contact_phone' => $patient->emergency_contact_phone,
-                'emergency_contact_relationship' => $patient->emergency_contact_relationship,
-                'emergency_contact_email' => $patient->emergency_contact_email,
                 'active_mutual_coverage' => $coverage ? [
                     'uuid' => $coverage->uuid,
                     'organization' => $coverage->organization ? [

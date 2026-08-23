@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
+use App\Actions\Care\SaveAndCompleteCareAction;
 use App\Actions\Care\SaveCareRecordAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
@@ -111,7 +112,8 @@ class CareController extends Controller
         }
 
         $canEdit = $episodeOrientation->status === EpisodeOrientationStatus::InProgress
-            && $request->user()->can($record ? 'care.update' : 'care.create')
+            && $request->user()->can($record ? 'care.update' : 'care.create');
+        $canEditVitals = $canEdit
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
 
         return Inertia::render('Care/Show', [
@@ -151,18 +153,24 @@ class CareController extends Controller
                 ->where('type', CatalogItemType::Service->value)
                 ->where('module', CatalogModule::Care->value)
                 ->orderBy('name')
-                ->get(['uuid', 'code', 'name', 'unit'])
+                ->get([
+                    'uuid', 'code', 'name', 'unit',
+                    'care_requires_allergy_check', 'care_recommends_vitals',
+                ])
                 ->map(fn (CatalogItem $item) => [
                     'uuid' => $item->uuid,
                     'code' => $item->code,
                     'name' => $item->name,
                     'unit' => $item->unit,
+                    'care_requires_allergy_check' => $item->care_requires_allergy_check,
+                    'care_recommends_vitals' => $item->care_recommends_vitals,
                 ]),
             'capabilities' => [
                 'can_view_vitals' => $canViewVitals,
                 'can_view_allergies' => $canViewAllergies,
                 'can_manage_allergies' => $canManageAllergies,
                 'can_edit' => $canEdit,
+                'can_edit_vitals' => $canEditVitals,
                 'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
                     && $request->user()->can('care.complete'),
             ],
@@ -178,6 +186,27 @@ class CareController extends Controller
 
         return redirect()->route('care.orientations.show', $episodeOrientation)
             ->with('status', 'Fiche de soins enregistrée.');
+    }
+
+    public function saveAndComplete(
+        UpdateCareRecordRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        SaveAndCompleteCareAction $action,
+    ): RedirectResponse {
+        $orientToMedicine = $request->boolean('orient_to_medicine');
+        $action->execute(
+            $episodeOrientation,
+            $request->safe()->except('orient_to_medicine'),
+            $request->user(),
+            $orientToMedicine,
+        );
+
+        return redirect()->route('care.index')->with(
+            'status',
+            $orientToMedicine
+                ? 'Actes enregistrés. Le patient est maintenant en attente en Médecine.'
+                : 'Actes enregistrés et prise en charge terminée.',
+        );
     }
 
     public function accept(
@@ -202,9 +231,13 @@ class CareController extends Controller
             ->where('destination_module', CatalogModule::Medicine->value)
             ->exists();
 
-        return back()->with('status', $sentToMedicine
-            ? 'Soins terminés. Le patient est maintenant en attente en Médecine.'
-            : 'Soins terminés. Aucune consultation médicale n’est prévue pour ce parcours.');
+        if ($sentToMedicine) {
+            return back()->with('status', 'Soins terminés. Le patient est maintenant en attente en Médecine.');
+        }
+
+        return back()
+            ->with('status', 'Soins terminés. Aucune consultation médicale n’est prévue pour ce parcours.')
+            ->with('status_type', 'warning');
     }
 
     public function completeAndOrient(
@@ -233,6 +266,12 @@ class CareController extends Controller
             'uuid' => $record->uuid,
             ...($canViewVitals ? [
                 'blood_group' => $record->blood_group,
+                'blood_pressure_left_systolic' => $record->blood_pressure_left_systolic,
+                'blood_pressure_left_diastolic' => $record->blood_pressure_left_diastolic,
+                'blood_pressure_right_systolic' => $record->blood_pressure_right_systolic,
+                'blood_pressure_right_diastolic' => $record->blood_pressure_right_diastolic,
+                'temperature_celsius' => $record->temperature_celsius,
+                'known_diabetes' => $record->known_diabetes,
                 'height_cm' => $record->height_cm,
                 'weight_kg' => $record->weight_kg,
                 'bmi' => $record->bmi,
@@ -243,9 +282,7 @@ class CareController extends Controller
                 'allergy_note' => $record->allergy_note,
                 'allergy_snapshot' => $record->allergy_snapshot ?? [],
             ] : []),
-            'hospitalization_reason' => $record->hospitalization_reason,
-            'hospitalized_at' => $record->hospitalized_at?->format('Y-m-d\TH:i'),
-            'discharged_at' => $record->discharged_at?->format('Y-m-d\TH:i'),
+            'no_procedure_reason' => $record->no_procedure_reason,
             'diagnostic_note' => $record->diagnostic_note,
             'transmission_reason' => $record->transmission_reason,
             'created_by' => $record->creator?->name,
@@ -257,6 +294,7 @@ class CareController extends Controller
                 'name' => $procedure->procedure_name,
                 'quantity' => $procedure->quantity,
                 'notes' => $procedure->notes,
+                'allergy_checked_at' => $procedure->allergy_checked_at,
                 'performed_by' => $procedure->performer?->name,
                 'performed_at' => $procedure->performed_at,
             ])->values(),

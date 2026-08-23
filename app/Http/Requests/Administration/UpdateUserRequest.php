@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Administration;
 
+use App\Models\ProfessionalProfile;
 use App\Support\SecurePassword;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -35,6 +36,19 @@ class UpdateUserRequest extends FormRequest
             ],
             'password' => ['nullable', 'confirmed', SecurePassword::rule()],
             'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            'professional_profile_id' => [
+                Rule::requiredIf(fn () => ProfessionalProfile::query()
+                    ->active()
+                    ->where('role_id', $this->integer('role_id'))
+                    ->exists()),
+                'nullable',
+                'integer',
+                Rule::exists('professional_profiles', 'id')->where(
+                    fn ($query) => $query
+                        ->where('role_id', $this->integer('role_id'))
+                        ->where('active', true),
+                ),
+            ],
             'permission_overrides' => ['sometimes', 'array'],
             'permission_overrides.*.permission_id' => [
                 'required',
@@ -52,6 +66,8 @@ class UpdateUserRequest extends FormRequest
             'password.confirmed' => 'La confirmation du mot de passe ne correspond pas.',
             'password.min' => 'Le mot de passe doit contenir au moins 12 caractères.',
             'email.unique' => 'Cette adresse email est déjà utilisée.',
+            'professional_profile_id.required' => 'Choisissez le profil métier de ce compte.',
+            'professional_profile_id.exists' => 'Le profil métier choisi ne correspond pas au rôle sélectionné.',
         ];
     }
 }

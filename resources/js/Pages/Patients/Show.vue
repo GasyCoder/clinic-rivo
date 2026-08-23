@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
-import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -25,15 +25,44 @@ const props = defineProps({
     billingCatalog: Array,
 });
 
-const page = usePage();
 const { can } = usePermissions();
-const status = computed(() => page.props.flash?.status);
 const activeSection = ref('overview');
 const showInvoiceForm = ref(false);
 const paymentTarget = ref(null);
 const cancellationTarget = ref(null);
 const validatingInvoice = ref(null);
 const mutualAttachmentsOpen = ref(false);
+const episodeQuery = ref('');
+const episodeStatusFilter = ref('');
+const episodeUrgencyFilter = ref('');
+const storedEpisodeViewMode = (() => {
+    try {
+        return localStorage.getItem('rivo:patient-episodes:view');
+    } catch {
+        return null;
+    }
+})();
+const episodeViewMode = ref(storedEpisodeViewMode ?? 'list');
+const setEpisodeViewMode = (mode) => {
+    episodeViewMode.value = mode;
+    try {
+        localStorage.setItem('rivo:patient-episodes:view', mode);
+    } catch {
+        // Private browsing or storage disabled — the toggle still works for
+        // this visit, it just won't be remembered next time.
+    }
+};
+const filteredEpisodes = computed(() => {
+    const needle = episodeQuery.value.trim().toLocaleLowerCase('fr');
+
+    return props.patient.episodes.filter((episode) => {
+        if (needle && !episode.episode_number.toLocaleLowerCase('fr').includes(needle)) return false;
+        if (episodeStatusFilter.value && episode.status !== episodeStatusFilter.value) return false;
+        if (episodeUrgencyFilter.value === 'emergency' && episode.priority !== 'EMERGENCY') return false;
+        if (episodeUrgencyFilter.value === 'normal' && episode.priority === 'EMERGENCY') return false;
+        return true;
+    });
+});
 
 const activeEmergencyEpisode = computed(() => props.patient.episodes.find(
     (episode) => episode.status === 'OPEN' && episode.priority === 'EMERGENCY',
@@ -205,7 +234,44 @@ const pathwayStatus = (episode) => {
     if (care?.status === 'IN_PROGRESS') return 'Pris en charge aux Soins';
     if (care) return 'En attente aux Soins';
 
+    // ADR-030 CARE_ONLY : le parcours peut se terminer entièrement aux
+    // Soins, sans jamais créer d'orientation Médecine. administrative_status
+    // reste alors IN_CARE indéfiniment (rien ne le fait avancer ensuite) —
+    // sans ce cas, le texte retombait sur « En cours de soins » pour un
+    // passage en réalité terminé.
+    const careCompleted = orientations.some((orientation) => orientation.destination_module === 'CARE'
+        && orientation.status === 'COMPLETED');
+    const medicineOrientationExists = orientations.some((orientation) => orientation.destination_module === 'MEDICINE');
+    if (careCompleted && !medicineOrientationExists) return 'Soins terminés';
+
     return administrativeStatusLabels[episode.administrative_status] ?? episode.administrative_status;
+};
+const pathwayStatusBadgeClass = (status) => ({
+    'Soins terminés': 'border-green-200 text-green-700 dark:border-green-900 dark:text-green-300',
+    'En consultation': 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
+    'Pris en charge aux Soins': 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
+    'En attente en Médecine': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
+    'En attente aux Soins': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
+}[status] ?? 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400');
+// Per-passage clinical snapshot for the Passages tab — distinct from the
+// permanent dossier's current allergies/antecedents (Aperçu tab): this is
+// what Soins actually recorded during THIS specific passage.
+const careVitalsSummary = (record) => {
+    if (!record) return [];
+    const rows = [];
+    const bloodPressure = (systolic, diastolic) => (systolic || diastolic ? `${systolic ?? '—'}/${diastolic ?? '—'} mmHg` : null);
+    const left = bloodPressure(record.blood_pressure_left_systolic, record.blood_pressure_left_diastolic);
+    const right = bloodPressure(record.blood_pressure_right_systolic, record.blood_pressure_right_diastolic);
+    if (left) rows.push({ label: 'Tension bras gauche', value: left });
+    if (right) rows.push({ label: 'Tension bras droit', value: right });
+    if (record.temperature_celsius) rows.push({ label: 'Température', value: `${record.temperature_celsius} °C` });
+    if (record.height_cm) rows.push({ label: 'Taille', value: `${record.height_cm} cm` });
+    if (record.weight_kg) rows.push({ label: 'Poids', value: `${record.weight_kg} kg` });
+    if (record.bmi) rows.push({ label: 'IMC', value: record.bmi });
+    if (record.blood_group) rows.push({ label: 'Groupe sanguin', value: record.blood_group });
+    if (record.known_diabetes !== null && record.known_diabetes !== undefined) rows.push({ label: 'Diabète connu', value: record.known_diabetes ? 'Oui' : 'Non' });
+    if (record.smoker !== null && record.smoker !== undefined) rows.push({ label: 'Tabac', value: record.smoker ? 'Oui' : 'Non' });
+    return rows;
 };
 const statusLabels = { OPEN: 'Ouvert', CLOSED: 'Clos', CANCELLED: 'Annulé' };
 const invoiceStatusLabels = {
@@ -308,8 +374,6 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </button>
             </nav>
         </section>
-
-        <div v-if="status" class="flex items-center gap-3 rounded border border-gray-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" role="status"><Icon class="text-lg text-green-600" name="check-circle" /><span>{{ status }}</span></div>
 
         <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded border border-gray-200 border-s-4 border-s-red-500 bg-white px-4 py-3 dark:border-gray-800 dark:border-s-red-500 dark:bg-gray-950" role="status">
             <Icon class="mt-0.5 shrink-0 text-lg text-red-600 dark:text-red-400" name="alert-circle" />
@@ -503,7 +567,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </section>
 
                 <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Repères médicaux déclarés</h2><p class="mt-0.5 text-xs text-slate-400">Informations signalées dans le dossier administratif.</p></div>
+                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Repères médicaux déclarés</h2><p class="mt-0.5 text-xs text-slate-400">Dossier médical permanent du patient, confirmé et complété au fil des passages.</p></div>
                     <div class="grid grid-cols-1 divide-y divide-gray-200 dark:divide-gray-900 md:grid-cols-2 md:divide-x md:divide-y-0">
                         <div class="px-5 py-4">
                             <h3 class="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Icon class="text-slate-400" name="alert-circle" /> Allergies</h3>
@@ -524,7 +588,8 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Dernier passage</h2><button v-if="patient.episodes.length" type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="activeSection = 'episodes'">Voir l’historique</button></div>
                     <div v-if="latestEpisode" class="mt-4">
                         <div class="flex flex-wrap items-center gap-2"><span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ latestEpisode.episode_number }}</span><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(latestEpisode.status)]">{{ statusLabels[latestEpisode.status] }}</span><span v-if="latestEpisode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></div>
-                        <p class="mt-2 text-xs leading-5 text-slate-500">{{ pathwayStatus(latestEpisode) }}<br>{{ formatDateTime(latestEpisode.started_at) }}</p>
+                        <p class="mt-2"><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', pathwayStatusBadgeClass(pathwayStatus(latestEpisode))]">{{ pathwayStatus(latestEpisode) }}</span></p>
+                        <p class="mt-1.5 text-xs leading-5 text-slate-400">{{ formatDateTime(latestEpisode.started_at) }}</p>
                     </div>
                     <p v-else class="mt-3 text-sm text-slate-400">Aucun passage enregistré.</p>
                 </section>
@@ -586,9 +651,10 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </section>
 
                 <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Personne à contacter</h2>
-                    <div v-if="patient.emergency_contact_name" class="mt-3 space-y-1.5 text-sm text-slate-500 dark:text-slate-300"><p class="font-semibold text-slate-700 dark:text-white">{{ patient.emergency_contact_name }}</p><p v-if="patient.emergency_contact_relationship">{{ patient.emergency_contact_relationship }}</p><p v-if="patient.emergency_contact_phone" class="flex items-center gap-2"><Icon class="text-slate-400" name="call" />{{ patient.emergency_contact_phone }}</p><p v-if="patient.emergency_contact_email" class="flex items-start gap-2 break-all"><Icon class="mt-0.5 text-slate-400" name="mail" />{{ patient.emergency_contact_email }}</p></div>
-                    <p v-else class="mt-3 text-sm text-slate-400">Non renseignée.</p>
+                    <div class="flex items-center justify-between gap-2"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Personne à contacter</h2><span v-if="latestEpisode" class="font-mono text-[11px] text-slate-400">{{ latestEpisode.episode_number }}</span></div>
+                    <p class="mt-0.5 text-xs text-slate-400">Propre à ce passage : peut différer au prochain.</p>
+                    <div v-if="latestEpisode?.emergency_contact_name" class="mt-3 space-y-1.5 text-sm text-slate-500 dark:text-slate-300"><p class="font-semibold text-slate-700 dark:text-white">{{ latestEpisode.emergency_contact_name }}</p><p v-if="latestEpisode.emergency_contact_relationship">{{ latestEpisode.emergency_contact_relationship }}</p><p v-if="latestEpisode.emergency_contact_phone" class="flex items-center gap-2"><Icon class="text-slate-400" name="call" />{{ latestEpisode.emergency_contact_phone }}</p><p v-if="latestEpisode.emergency_contact_email" class="flex items-start gap-2 break-all"><Icon class="mt-0.5 text-slate-400" name="mail" />{{ latestEpisode.emergency_contact_email }}</p></div>
+                    <p v-else class="mt-3 text-sm text-slate-400">Non renseignée pour ce passage.</p>
                 </section>
 
                 <section v-if="account" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
@@ -600,18 +666,69 @@ const invoiceStatusBadgeClass = (statusValue) => ({
         </div>
 
         <section v-else-if="activeSection === 'episodes'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-2 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des passages</h2><p class="mt-0.5 text-xs text-slate-400">Les arrivées sont créées depuis la Réception patient.</p></div>
-                <span class="text-xs font-medium text-slate-400">{{ patient.episodes.length }} passage{{ patient.episodes.length > 1 ? 's' : '' }}</span>
+            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des passages</h2><p class="mt-0.5 text-xs text-slate-400">Les arrivées sont créées depuis la Réception patient.</p></div>
+                    <span class="text-xs font-medium text-slate-400">{{ filteredEpisodes.length }} sur {{ patient.episodes.length }} passage{{ patient.episodes.length > 1 ? 's' : '' }}</span>
+                </div>
+                <div v-if="patient.episodes.length" class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <span class="relative w-full sm:w-48"><input v-model="episodeQuery" type="search" placeholder="Numéro de passage…" class="h-9 w-full rounded border border-gray-200 bg-white ps-9 pe-3 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" /><Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-sm text-slate-400" name="search" /></span>
+                        <span class="relative"><select v-model="episodeStatusFilter" class="h-9 appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950"><option value="">Tout statut</option><option value="OPEN">Ouvert</option><option value="CLOSED">Clos</option><option value="CANCELLED">Annulé</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
+                        <span class="relative"><select v-model="episodeUrgencyFilter" class="h-9 appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950"><option value="">Toute priorité</option><option value="emergency">Urgence</option><option value="normal">Normal</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
+                    </div>
+                    <div class="inline-flex shrink-0 self-start rounded-md border border-gray-200 p-0.5 dark:border-gray-800" role="group" aria-label="Mode d’affichage">
+                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', episodeViewMode === 'list' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue liste" :aria-pressed="episodeViewMode === 'list'" @click="setEpisodeViewMode('list')"><Icon class="text-lg" name="list" /></button>
+                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', episodeViewMode === 'grid' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue grille" :aria-pressed="episodeViewMode === 'grid'" @click="setEpisodeViewMode('grid')"><Icon class="text-lg" name="grid-alt" /></button>
+                    </div>
+                </div>
             </div>
             <div v-if="patient.episodes.length === 0" class="px-5 py-12 text-center"><span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="clock" /></span><p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun passage enregistré</p><p class="mt-1 text-xs text-slate-400">Le premier passage sera créé depuis la Réception.</p></div>
-            <ul v-else class="divide-y divide-gray-200 dark:divide-gray-900">
-                <li v-for="episode in patient.episodes" :key="episode.uuid" class="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
-                    <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</span><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span><span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span></div><p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }}</p></div>
-                    <div><p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parcours clinique</p><p class="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">{{ pathwayStatus(episode) }}</p></div>
-                    <div class="md:text-end"><span class="text-xs text-slate-400">{{ episode.status === 'OPEN' ? 'Passage actif' : 'Passage terminé' }}</span></div>
-                </li>
-            </ul>
+            <div v-else-if="filteredEpisodes.length === 0" class="px-5 py-12 text-center"><span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="search" /></span><p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun passage ne correspond</p><p class="mt-1 text-xs text-slate-400">Modifiez la recherche ou les filtres.</p></div>
+            <div v-else :class="episodeViewMode === 'grid' ? 'grid grid-cols-1 gap-4 p-5 lg:grid-cols-2' : 'divide-y divide-gray-200 dark:divide-gray-900'">
+                <article v-for="episode in filteredEpisodes" :key="episode.uuid" :class="episodeViewMode === 'grid' ? 'rounded-lg border border-gray-200 p-5 dark:border-gray-800' : 'p-5'">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</span>
+                                <span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', episodeStatusBadgeClass(episode.status)]">{{ statusLabels[episode.status] }}</span>
+                                <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span>
+                                <span class="text-xs text-slate-400">{{ episode.status === 'OPEN' ? 'Passage actif' : 'Passage terminé' }}</span>
+                            </div>
+                            <p class="mt-1 text-xs text-slate-400">Démarré le {{ formatDateTime(episode.started_at) }}</p>
+                        </div>
+                        <div class="shrink-0 sm:text-end">
+                            <p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Parcours clinique</p>
+                            <p class="mt-1"><span :class="['rounded border px-2 py-0.5 text-[11px] font-medium', pathwayStatusBadgeClass(pathwayStatus(episode))]">{{ pathwayStatus(episode) }}</span></p>
+                        </div>
+                    </div>
+
+                    <div v-if="episode.emergency_contact_name" class="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded border border-gray-200 px-3 py-1.5 text-xs text-slate-500 dark:border-gray-800 dark:text-slate-300">
+                        <Icon class="text-slate-400" name="call" />
+                        <span class="font-semibold text-slate-700 dark:text-white">{{ episode.emergency_contact_name }}</span>
+                        <span v-if="episode.emergency_contact_relationship">· {{ episode.emergency_contact_relationship }}</span>
+                        <span v-if="episode.emergency_contact_phone">· {{ episode.emergency_contact_phone }}</span>
+                    </div>
+
+                    <div v-if="can('care.view')" class="mt-4 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                        <div class="flex items-center gap-2 border-b border-gray-200 bg-gray-50/70 px-3 py-2 dark:border-gray-800 dark:bg-gray-1000/30"><Icon class="text-sm text-slate-400" name="user-check" /><h3 class="text-xs font-bold uppercase tracking-wide text-slate-500">Soins de ce passage</h3></div>
+                        <div v-if="episode.care_record" class="space-y-3 p-3">
+                            <dl v-if="careVitalsSummary(episode.care_record).length" class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3 lg:grid-cols-4">
+                                <div v-for="row in careVitalsSummary(episode.care_record)" :key="row.label"><dt class="text-slate-400">{{ row.label }}</dt><dd class="font-semibold text-slate-700 dark:text-slate-200">{{ row.value }}</dd></div>
+                            </dl>
+                            <div v-if="episode.care_record.allergy_snapshot?.length" class="flex flex-wrap items-center gap-1.5 text-xs"><span class="font-medium text-slate-400">Allergies signalées :</span><span v-for="allergy in episode.care_record.allergy_snapshot" :key="allergy.uuid ?? allergy.substance" class="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-200">{{ allergy.substance }}</span></div>
+                            <ul v-if="episode.care_record.procedures?.length" class="space-y-1 text-xs">
+                                <li v-for="procedure in episode.care_record.procedures" :key="procedure.uuid" class="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+                                    <span class="text-slate-600 dark:text-slate-300"><span class="font-semibold text-slate-700 dark:text-white">{{ procedure.procedure_name }}</span> · {{ procedure.quantity }} · {{ procedure.performer?.name ?? '—' }}</span>
+                                    <span class="text-slate-400">{{ formatDateTime(procedure.performed_at) }}</span>
+                                </li>
+                            </ul>
+                            <p v-if="episode.care_record.transmission_reason" class="border-t border-gray-100 pt-2 text-xs leading-5 text-slate-500 dark:border-gray-900 dark:text-slate-300"><span class="font-semibold text-slate-600 dark:text-slate-200">Transmis à Médecine :</span> {{ episode.care_record.transmission_reason }}</p>
+                        </div>
+                        <p v-else class="px-3 py-3 text-xs text-slate-400">Aucune fiche de soins pour ce passage.</p>
+                    </div>
+                </article>
+            </div>
         </section>
 
         <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closePaymentDialog">

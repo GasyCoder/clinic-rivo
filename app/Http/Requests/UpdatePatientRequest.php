@@ -62,10 +62,6 @@ class UpdatePatientRequest extends FormRequest
                     ->whereNull('deleted_at')),
             ],
             'new_address_label' => ['nullable', 'string', 'max:255'],
-            'emergency_contact_name' => ['nullable', 'string', 'max:255'],
-            'emergency_contact_phone' => ['nullable', 'string', 'max:50'],
-            'emergency_contact_relationship' => ['nullable', 'string', 'max:100'],
-            'emergency_contact_email' => ['nullable', 'email', 'max:255'],
         ];
     }
 

@@ -3,6 +3,7 @@
 namespace App\Actions\Catalog;
 
 use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
@@ -26,12 +27,13 @@ class CreateCatalogItemAction
         $stockable = (bool) $data['stockable'];
         $this->assertTypeRules($type, $billable, $stockable);
         [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
+        [$requiresAllergyCheck, $recommendsVitals] = $this->careRequirements($type, $data);
 
         if ($billable && $actor->cannot('catalog.tariffs.create')) {
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $receptionSelectable, $routingMode) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
@@ -42,6 +44,8 @@ class CreateCatalogItemAction
                 'stockable' => $stockable,
                 'reception_selectable' => $receptionSelectable,
                 'reception_routing_mode' => $routingMode,
+                'care_requires_allergy_check' => $requiresAllergyCheck,
+                'care_recommends_vitals' => $recommendsVitals,
                 'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
                 'created_by' => $actor->id,
                 'updated_by' => $actor->id,
@@ -142,5 +146,25 @@ class CreateCatalogItemAction
         }
 
         return [$selectable, $route];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{0: bool, 1: bool}
+     */
+    private function careRequirements(CatalogItemType $type, array $data): array
+    {
+        $isCareService = $type === CatalogItemType::Service
+            && ($data['module'] ?? null) === CatalogModule::Care->value;
+        $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
+        $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+
+        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
+            throw ValidationException::withMessages([
+                'care_requires_allergy_check' => 'Ces exigences sont réservées aux prestations du module Soins.',
+            ]);
+        }
+
+        return [$isCareService && $requiresAllergyCheck, $isCareService && $recommendsVitals];
     }
 }

@@ -19,7 +19,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      * Provisional local data used to validate the Reception billing workflow.
      * Amounts are MGA and must be confirmed by the clinic before production.
      *
-     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool}>
+     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool, care_requires_allergy_check?: bool, care_recommends_vitals?: bool}>
      */
     private const SERVICES = [
         [
@@ -111,6 +111,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Réalisation d’une injection par voie intramusculaire.',
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
+            'care_requires_allergy_check' => true,
         ],
         [
             'code' => 'PERFUSION',
@@ -121,6 +122,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Pose et surveillance initiale d’une perfusion.',
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
+            'care_requires_allergy_check' => true,
         ],
         [
             'code' => 'CARE-ABL-SONDE',
@@ -161,6 +163,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Injection réalisée par voie intraveineuse.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'care_requires_allergy_check' => true,
         ],
         [
             'code' => 'CARE-LAV-GAST',
@@ -395,6 +398,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         'stockable' => false,
                         'reception_selectable' => $service['reception_selectable'],
                         'reception_routing_mode' => $service['routing_mode'],
+                        'care_requires_allergy_check' => $service['care_requires_allergy_check'] ?? false,
+                        'care_recommends_vitals' => $service['care_recommends_vitals'] ?? false,
                         'description' => $service['description'],
                         'created_by' => $actor->id,
                         'updated_by' => $actor->id,

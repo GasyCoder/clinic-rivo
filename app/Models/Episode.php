@@ -33,6 +33,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'patient_id', 'visit_sequence', 'episode_number', 'status', 'priority', 'medical_status',
     'financial_status', 'administrative_status', 'designation_deferred',
     'service_plan_finalized_at', 'started_at', 'ended_at', 'created_by',
+    'emergency_contact_name', 'emergency_contact_phone',
+    'emergency_contact_relationship', 'emergency_contact_email',
 ])]
 class Episode extends Model
 {

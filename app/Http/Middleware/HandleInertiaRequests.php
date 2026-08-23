@@ -49,6 +49,10 @@ class HandleInertiaRequests extends Middleware
                         'code' => $user->role->code,
                         'name' => $user->role->name,
                     ] : null,
+                    'professional_profile' => $user->professionalProfile ? [
+                        'code' => $user->professionalProfile->code,
+                        'name' => $user->professionalProfile->name,
+                    ] : null,
                 ] : null,
             ],
             'permissions' => $user ? $user->effectivePermissionNames()->values()->all() : [],
@@ -68,6 +72,11 @@ class HandleInertiaRequests extends Middleware
             ],
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),
+                // Optional tone for the status toast (success/warning/danger/
+                // info). Defaults to success client-side when absent, so the
+                // dozens of existing ->with('status', ...) calls need no
+                // change — only a message that isn't a plain success sets it.
+                'status_type' => fn () => $request->session()->get('status_type'),
                 'duplicates' => fn () => $request->session()->get('duplicates'),
             ],
         ];

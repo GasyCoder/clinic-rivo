@@ -29,12 +29,20 @@ class CreateEpisodeAction
         private readonly CreateEpisodeOrientationAction $createOrientation,
     ) {}
 
+    /**
+     * @param  array<string, mixed>  $episodeData  Passage-specific admin
+     *                                              extras (ADR-034: e.g.
+     *                                              emergency contact, which
+     *                                              can differ from one
+     *                                              passage to the next).
+     */
     public function execute(
         Patient $patient,
         EpisodePriority $priority = EpisodePriority::Normal,
         ?User $actor = null,
+        array $episodeData = [],
     ): Episode {
-        return DB::transaction(function () use ($patient, $priority, $actor): Episode {
+        return DB::transaction(function () use ($patient, $priority, $actor, $episodeData): Episode {
             $episodeNumber = $this->numbers->next($patient);
             $episode = Episode::create([
                 'patient_id' => $patient->id,
@@ -49,6 +57,10 @@ class CreateEpisodeAction
                     : EpisodeAdministrativeStatus::PendingOrientation,
                 'started_at' => now(),
                 'created_by' => $actor?->getKey() ?? Auth::id(),
+                'emergency_contact_name' => $episodeData['emergency_contact_name'] ?? null,
+                'emergency_contact_phone' => $episodeData['emergency_contact_phone'] ?? null,
+                'emergency_contact_relationship' => $episodeData['emergency_contact_relationship'] ?? null,
+                'emergency_contact_email' => $episodeData['emergency_contact_email'] ?? null,
             ]);
 
             // A normal passage has no default queue: its known designations

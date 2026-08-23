@@ -64,6 +64,19 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'INJECTION-IM',
             'reception_routing_mode' => ReceptionRoutingMode::CareOnly->value,
+            'care_requires_allergy_check' => true,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'INJECTION-IV',
+            'care_requires_allergy_check' => true,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'PERFUSION',
+            'care_requires_allergy_check' => true,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'PANSEMENT-C',
+            'care_requires_allergy_check' => false,
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'LAB-NFS',

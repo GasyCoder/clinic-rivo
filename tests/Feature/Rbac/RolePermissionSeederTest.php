@@ -86,22 +86,12 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('employees.update', $names);
     }
 
-    public function test_guard_gets_entry_and_exit_register_permissions_only(): void
+    public function test_support_and_maintenance_have_no_global_task_permission(): void
     {
         $this->seedRbac();
 
-        $names = $this->permissionNamesFor('GUARD');
-
-        $this->assertContains('guarding.view', $names);
-        $this->assertContains('guarding.entries.create', $names);
-        $this->assertContains('guarding.entries.close', $names);
-        $this->assertContains('visitors.view', $names);
-        $this->assertContains('visitors.create', $names);
-        $this->assertContains('visitors.close', $names);
-        $this->assertNotContains('patients.view', $names);
-        $this->assertNotContains('employees.view', $names);
-        $this->assertNotContains('logistics.view', $names);
-        $this->assertNotContains('cash.view', $names);
+        $this->assertSame([], $this->permissionNamesFor('SUPPORT'));
+        $this->assertSame([], $this->permissionNamesFor('MAINTENANCE'));
     }
 
     public function test_administration_does_not_leak_medical_or_patient_permissions(): void
@@ -162,7 +152,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('episodes.cancel', $names);
     }
 
-    public function test_nurse_gets_care_vitals_and_anesthesia_permissions(): void
+    public function test_nurse_gets_shared_care_and_vitals_but_not_profile_specific_anesthesia(): void
     {
         $this->seedRbac();
 
@@ -171,13 +161,14 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('care.create', $names);
         $this->assertContains('vitals.create', $names);
         $this->assertContains('medical_orders.view', $names);
-        $this->assertContains('anesthesia.validate', $names);
         $this->assertContains('patients.view', $names);
         $this->assertContains('patients.medical_history.manage', $names);
 
         // No CDC-defined "maternité" catalog exists — nothing to grant.
         $this->assertNotContains('consultations.create', $names);
         $this->assertNotContains('prescriptions.create', $names);
+        $this->assertNotContains('anesthesia.view', $names);
+        $this->assertNotContains('anesthesia.validate', $names);
         $this->assertNotContains('patients.update', $names);
         $this->assertNotContains('patients.delete', $names);
     }
@@ -186,7 +177,7 @@ class RolePermissionSeederTest extends TestCase
     {
         $this->seedRbac();
 
-        foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+        foreach (['ADMINISTRATION', 'LOGISTICS', 'SUPPORT', 'MAINTENANCE', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             $names = $this->permissionNamesFor($roleCode);
 
             foreach ($names as $name) {
@@ -206,7 +197,7 @@ class RolePermissionSeederTest extends TestCase
         config(['rivo.site.type' => 'admin']);
         $this->seedRbac();
 
-        foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+        foreach (['ADMINISTRATION', 'LOGISTICS', 'SUPPORT', 'MAINTENANCE', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             foreach ($this->permissionNamesFor($roleCode) as $permission) {
                 $this->assertFalse(
                     str_starts_with($permission, 'catalog.'),
@@ -235,16 +226,14 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('episodes.create', $names);
     }
 
-    public function test_anesthesia_is_shared_between_nurse_and_surgery(): void
+    public function test_anesthesia_is_not_inherited_by_every_nurse_account(): void
     {
         $this->seedRbac();
 
         $nurseNames = $this->permissionNamesFor('NURSE');
-        $surgeryNames = $this->permissionNamesFor('SURGERY');
-
         foreach (['anesthesia.view', 'anesthesia.create', 'anesthesia.update', 'anesthesia.validate'] as $permission) {
-            $this->assertContains($permission, $nurseNames);
-            $this->assertContains($permission, $surgeryNames);
+            $this->assertNotContains($permission, $nurseNames);
+            $this->assertContains($permission, $this->permissionNamesFor('SURGERY'));
         }
     }
 

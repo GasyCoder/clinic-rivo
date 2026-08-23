@@ -4,9 +4,11 @@ namespace Tests\Feature\Administration;
 
 use App\Models\AuditLog;
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
+use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -23,7 +25,12 @@ class UserAdministrationTest extends TestCase
     {
         parent::setUp();
 
-        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
+        $this->seed([
+            RoleSeeder::class,
+            PermissionSeeder::class,
+            ProfessionalProfileSeeder::class,
+            RolePermissionSeeder::class,
+        ]);
     }
 
     private function userWithRole(string $roleCode, array $attributes = []): User
@@ -100,6 +107,11 @@ class UserAdministrationTest extends TestCase
                 ->has('users.data', 1)
                 ->where('users.data', fn ($users) => collect($users)->contains('email', $actor->email))
                 ->where('roles', fn ($roles) => collect($roles)->doesntContain('code', 'SUPER_ADMIN'))
+                ->where('roles', function ($roles) {
+                    $nurse = collect($roles)->firstWhere('code', 'NURSE');
+
+                    return $nurse && count($nurse['profiles']) === 3;
+                })
                 ->has('permissionCatalog'));
     }
 
@@ -148,6 +160,69 @@ class UserAdministrationTest extends TestCase
             ->assertSessionHasErrors('role_id');
 
         $this->assertDatabaseMissing('users', ['email' => $payload['email']]);
+    }
+
+    public function test_role_with_professional_profiles_requires_a_matching_profile(): void
+    {
+        $actor = $this->siteUserManager();
+        $nurseRole = Role::query()->where('code', 'NURSE')->firstOrFail();
+        $guardProfile = ProfessionalProfile::query()->where('code', 'GUARD')->firstOrFail();
+        $payload = [
+            ...$this->validPayload('nurse@clinic.test'),
+            'role_id' => $nurseRole->id,
+        ];
+
+        $this->actingAs($actor)
+            ->post('/administration/users', $payload)
+            ->assertSessionHasErrors('professional_profile_id');
+
+        $payload['professional_profile_id'] = $guardProfile->id;
+
+        $this->actingAs($actor)
+            ->post('/administration/users', $payload)
+            ->assertSessionHasErrors('professional_profile_id');
+
+        $this->assertDatabaseMissing('users', ['email' => $payload['email']]);
+    }
+
+    public function test_two_nurse_accounts_can_have_different_profile_permissions(): void
+    {
+        $actor = $this->siteUserManager();
+        $nurseRole = Role::query()->where('code', 'NURSE')->firstOrFail();
+        $nurseProfile = ProfessionalProfile::query()->where('code', 'REGISTERED_NURSE')->firstOrFail();
+        $anesthetistProfile = ProfessionalProfile::query()->where('code', 'ANESTHETIST')->firstOrFail();
+        $anesthesiaPermission = Permission::query()->where('name', 'anesthesia.validate')->firstOrFail();
+
+        $this->actingAs($actor)->post('/administration/users', [
+            ...$this->validPayload('infirmiere@clinic.test'),
+            'role_id' => $nurseRole->id,
+            'professional_profile_id' => $nurseProfile->id,
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($actor)->post('/administration/users', [
+            ...$this->validPayload('anesthesiste@clinic.test'),
+            'role_id' => $nurseRole->id,
+            'professional_profile_id' => $anesthetistProfile->id,
+            'permission_overrides' => [[
+                'permission_id' => $anesthesiaPermission->id,
+                'effect' => 'allow',
+            ]],
+        ])->assertSessionHasNoErrors();
+
+        $nurse = User::query()->where('email', 'infirmiere@clinic.test')->firstOrFail();
+        $anesthetist = User::query()->where('email', 'anesthesiste@clinic.test')->firstOrFail();
+
+        $this->assertSame($nurse->role_id, $anesthetist->role_id);
+        $this->assertFalse($nurse->hasPermissionTo('anesthesia.validate'));
+        $this->assertTrue($anesthetist->hasPermissionTo('anesthesia.validate'));
+        $this->assertDatabaseHas('audit_logs', [
+            'entity_id' => $anesthetist->id,
+            'action' => 'user.profile.assign',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'entity_id' => $anesthetist->id,
+            'action' => 'user.permissions.assign',
+        ]);
     }
 
     public function test_permission_overrides_require_the_dedicated_permission(): void

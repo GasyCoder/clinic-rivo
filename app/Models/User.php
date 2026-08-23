@@ -22,6 +22,7 @@ use LogicException;
     'email',
     'password',
     'role_id',
+    'professional_profile_id',
     'email_verified_at',
 ])]
 #[Hidden(['password', 'remember_token'])]
@@ -61,6 +62,11 @@ class User extends Authenticatable
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
+    }
+
+    public function professionalProfile(): BelongsTo
+    {
+        return $this->belongsTo(ProfessionalProfile::class);
     }
 
     public function deactivator(): BelongsTo

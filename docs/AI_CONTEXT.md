@@ -179,9 +179,11 @@ même avec une permission ajoutée par erreur. Voir ADR-027.
 
 Les responsabilités administratives sont séparées : `ADMINISTRATION` couvre les
 RH, contrats, présences, congés, planning et rapports RH ; `LOGISTICS` couvre
-l’inventaire et le suivi des équipements ainsi que le stock administratif ;
-`GUARD` couvre le registre et le suivi des entrées/sorties. Aucun de ces rôles
-ne gère les utilisateurs, rôles ou permissions par défaut. Voir ADR-026.
+l’inventaire et le suivi des équipements ainsi que le stock administratif.
+`SUPPORT` classe notamment les profils Gardien et Agent d'entretien ;
+`MAINTENANCE` classe notamment le profil Technicien informatique. Leurs tâches
+spécifiques sont affectées au compte, jamais globalement au rôle. Aucun de ces
+rôles ne gère les utilisateurs, rôles ou permissions par défaut. Voir ADR-033.
 
 ---
 
@@ -194,7 +196,8 @@ RECEPTION
 MEDICINE
 NURSE
 LOGISTICS
-GUARD
+SUPPORT
+MAINTENANCE
 SURGERY
 PHARMACY
 LABORATORY
@@ -204,11 +207,18 @@ Les rôles représentent des domaines principaux.
 
 Les permissions déterminent réellement les actions autorisées.
 
+Pour `NURSE`, `SUPPORT` et `MAINTENANCE`, un profil professionnel qualifie le
+métier principal sans donner directement de permission. Les recommandations du
+profil sont copiées explicitement comme permissions individuelles, modifiables
+compte par compte. Voir ADR-033.
+
 Les utilisateurs sont locaux à chaque base/site. Un compte actif doit posséder
 un rôle valide. Les comptes ne sont jamais supprimés physiquement : ils sont
 désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
-Les seeders ne doivent créer aucun compte ou mot de passe de démonstration.
-Voir ADR-022.
+Les seeders standards ne doivent créer aucun compte ou mot de passe de
+démonstration. L'unique exception est `DevelopmentUserSeeder`, explicitement
+réservé à `local/testing`, jamais appelé par `DatabaseSeeder` et refusé en
+production. Voir ADR-022.
 
 La compatibilité compte/déploiement est contrôlée à la connexion et sur chaque
 session : `SUPER_ADMIN` uniquement sur `admin`, tout rôle opérationnel uniquement
@@ -546,11 +556,10 @@ lignes sont ambiguës ou variables. La part payée par une mutuelle et la part d
 patient ne sont pas encore définies par le client.
 
 Le 23/08/2026, le client a validé une fiche de soins `NURSE` par passage :
-constantes, IMC calculé, observations, contexte d'hospitalisation, transmission
+constantes, IMC calculé, observations, transmission conditionnelle
 et historique append-only des actes réellement réalisés. Les actes fournis sans
 prix entrent dans le référentiel sans faux tarif. Le « diagnostic communiqué »
-et les dates d'hospitalisation sont du contexte infirmier ; ils ne remplacent
-jamais le diagnostic, la décision d'hospitalisation ou la sortie appartenant à
+reste une information de transmission et ne remplace jamais le diagnostic de
 Médecine. Les allergies confirmées sont sélectionnées depuis le dossier
 permanent ; une nouvelle allergie peut y être ajoutée avec la permission
 `patients.medical_history.manage`, et la fiche conserve le snapshot du passage.
@@ -558,7 +567,33 @@ Pour un patient sans allergie déjà connue, le personnel autorisé peut sélect
 un allergène courant depuis `allergen_references` ; ce choix alimente le dossier
 permanent. La saisie manuelle reste le recours lorsqu'il n'existe pas dans le
 référentiel et ne modifie pas automatiquement ce référentiel partagé.
-Voir ADR-032.
+La fiche Soins ne décide ni l'hospitalisation ni la sortie. Les dates d'entrée
+et de sortie seront alimentées par les futurs workflows Hospitalisation et
+Sortie médicale, et restent absentes de l'écran Soins jusque-là. La transmission
+vers Médecine est visible pour `CARE_THEN_MEDICINE`, le besoin inconnu et
+l'urgence ; elle est masquée pour `CARE_ONLY`. Voir ADR-032.
+Pour un acte autonome `CARE_ONLY` (par exemple un pansement), groupe sanguin,
+taille, poids et IMC sont facultatifs et repliés par défaut. Ils restent
+recommandés pour l'urgence, le besoin inconnu et un parcours continuant vers
+Médecine, sans devenir des champs obligatoires artificiels. Un ancien élément du
+snapshot d'allergies qui n'existe plus dans le dossier actif demeure consultable
+comme historique, mais n'est jamais resoumis comme sélection active et ne bloque
+plus l'enregistrement de la fiche.
+La section complète « Constantes et observations » est facultative et repliée
+pour un acte autonome. Les actes marqués dans le référentiel comme nécessitant
+une vérification allergique (injections IM/IV et perfusion dans le jeu initial)
+affichent seulement ce contrôle de sécurité ciblé ; sa confirmation est tracée
+avec l'acte. Les règles `care_requires_allergy_check` et
+`care_recommends_vitals` sont configurées par prestation puis figées dans la
+demande du passage. `CARE_ONLY` exige au moins un acte enregistré avant la fin.
+Un besoin indéterminé sans acte exige soit une orientation Médecine, soit un
+motif explicite. L'action UI « Enregistrer l'acte et terminer » est atomique côté
+Laravel.
+Le relevé facultatif inclut aussi la tension systolique/diastolique des bras
+gauche et droit en mmHg, la température en °C et le statut « diabète connu » à
+trois états (non renseigné, non, oui). Une paire de tension est toujours complète
+et cohérente. Ces données appartiennent au passage et nécessitent `vitals.*` ;
+elles ne sont pas rendues obligatoires pour chaque acte.
 
 ---
 

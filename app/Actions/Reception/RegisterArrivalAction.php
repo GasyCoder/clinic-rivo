@@ -64,6 +64,7 @@ class RegisterArrivalAction
         ?string $employeeUuid = null,
         ?array $mutualData = null,
         array $mutualAttachments = [],
+        array $episodeData = [],
     ): Episode {
         $storedAttachmentPaths = [];
         $actor ??= Auth::user();
@@ -83,6 +84,7 @@ class RegisterArrivalAction
                 $employeeUuid,
                 $mutualData,
                 $mutualAttachments,
+                $episodeData,
                 &$storedAttachmentPaths,
             ): Episode {
                 if ($existingPatientUuid) {
@@ -195,7 +197,7 @@ class RegisterArrivalAction
                     }
                 }
 
-                return $this->createEpisode->execute($patient, $priority, $actor);
+                return $this->createEpisode->execute($patient, $priority, $actor, $episodeData);
             });
         } catch (Throwable $exception) {
             // The attachment action cleans up its own failures. This second

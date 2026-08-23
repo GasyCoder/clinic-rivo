@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 #[Fillable([
     'code', 'name', 'type', 'module', 'unit', 'billable', 'stockable',
     'reception_selectable', 'reception_routing_mode', 'description',
+    'care_requires_allergy_check', 'care_recommends_vitals',
     'created_by', 'updated_by',
 ])]
 class CatalogItem extends Model
@@ -33,6 +34,8 @@ class CatalogItem extends Model
             'stockable' => 'boolean',
             'reception_selectable' => 'boolean',
             'reception_routing_mode' => ReceptionRoutingMode::class,
+            'care_requires_allergy_check' => 'boolean',
+            'care_recommends_vitals' => 'boolean',
         ];
     }
 

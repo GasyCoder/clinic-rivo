@@ -117,6 +117,31 @@ class CatalogManagementTest extends TestCase
         ]);
     }
 
+    public function test_care_service_requirements_are_configurable_but_forbidden_on_other_modules(): void
+    {
+        $actor = $this->catalogManager();
+
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload([
+            'code' => 'INJECTION-TEST',
+            'name' => 'Injection de test',
+            'module' => CatalogModule::Care->value,
+            'reception_routing_mode' => ReceptionRoutingMode::CareOnly->value,
+            'care_requires_allergy_check' => true,
+            'care_recommends_vitals' => false,
+        ]))->assertRedirect();
+
+        $item = CatalogItem::query()->sole();
+        $this->assertTrue($item->care_requires_allergy_check);
+        $this->assertFalse($item->care_recommends_vitals);
+
+        $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload([
+            'code' => 'ECG-INVALID',
+            'care_requires_allergy_check' => true,
+        ]))->assertSessionHasErrors('care_requires_allergy_check');
+
+        $this->assertDatabaseCount('catalog_items', 1);
+    }
+
     public function test_authorized_account_can_create_distinct_standard_and_mutual_tariffs(): void
     {
         $actor = $this->catalogManager();
@@ -319,6 +344,8 @@ class CatalogManagementTest extends TestCase
                 ->where('items.data.0.current_mutual_tariff.tariff_category', CatalogTariffCategory::Mutual->value)
                 ->where('items.data.0.current_mutual_tariff.tariff_category_label', 'Mutuelle')
                 ->where('items.data.0.current_mutual_tariff.amount', '20000.00')
+                ->where('items.data.0.care_requires_allergy_check', false)
+                ->where('items.data.0.care_recommends_vitals', false)
                 ->has('items.data.0.tariffs', 2)
                 ->where('summary.without_standard_tariff', 0)
                 ->where('summary.without_mutual_tariff', 0));

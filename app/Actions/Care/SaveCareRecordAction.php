@@ -4,6 +4,7 @@ namespace App\Actions\Care;
 
 use App\Actions\Patient\RecordPatientAllergyAction;
 use App\Enums\AllergySeverity;
+use App\Enums\CareCompletionMode;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
@@ -11,10 +12,12 @@ use App\Enums\EpisodeStatus;
 use App\Models\AllergenReference;
 use App\Models\CareRecord;
 use App\Models\CatalogItem;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\Patient;
 use App\Models\PatientAllergy;
 use App\Models\User;
+use App\Support\CareWorkflow;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
@@ -24,7 +27,10 @@ use InvalidArgumentException;
 
 class SaveCareRecordAction
 {
-    public function __construct(private readonly RecordPatientAllergyAction $recordAllergy) {}
+    public function __construct(
+        private readonly RecordPatientAllergyAction $recordAllergy,
+        private readonly CareWorkflow $careWorkflow,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data
@@ -33,7 +39,7 @@ class SaveCareRecordAction
     {
         return DB::transaction(function () use ($orientation, $data, $actor): CareRecord {
             $locked = EpisodeOrientation::query()
-                ->with(['episode.careRecord', 'episode.patient.allergies'])
+                ->with(['episode.careRecord', 'episode.patient.allergies', 'episode.serviceRequests'])
                 ->lockForUpdate()
                 ->findOrFail($orientation->getKey());
 
@@ -48,12 +54,15 @@ class SaveCareRecordAction
                 ]);
             }
 
+            $this->guardWorkflowFields($locked->episode, $data);
+
             $procedures = collect($data['procedures'] ?? []);
             $attributes = $this->recordAttributes($data);
             $attributes = $this->appendAllergyAttributes(
                 $attributes,
                 $locked->episode->patient,
                 $data,
+                $locked->episode->careRecord?->allergy_snapshot ?? [],
                 $actor,
             );
 
@@ -80,7 +89,14 @@ class SaveCareRecordAction
                 ]);
             }
 
-            $this->appendProcedures($record, $procedures, $actor);
+            $this->appendProcedures(
+                $record,
+                $procedures,
+                $actor,
+                $locked->episode->serviceRequests
+                    ->where('care_requires_allergy_check', true)
+                    ->pluck('catalog_item_uuid'),
+            );
 
             return $record->fresh(['procedures.performer', 'creator', 'updater']);
         });
@@ -92,31 +108,89 @@ class SaveCareRecordAction
         $height = $data['height_cm'] ?? null;
         $weight = $data['weight_kg'] ?? null;
 
-        return [
-            'blood_group' => $data['blood_group'] ?? null,
-            'height_cm' => $height,
-            'weight_kg' => $weight,
-            'bmi' => $this->calculateBmi($height, $weight),
-            'smoker' => array_key_exists('smoker', $data) ? $data['smoker'] : null,
-            'hospitalization_reason' => $this->nullableText($data['hospitalization_reason'] ?? null),
-            'hospitalized_at' => $data['hospitalized_at'] ?? null,
-            'discharged_at' => $data['discharged_at'] ?? null,
-            'diagnostic_note' => $this->nullableText($data['diagnostic_note'] ?? null),
-            'transmission_reason' => $this->nullableText($data['transmission_reason'] ?? null),
-        ] + (array_key_exists('allergy_note', $data) ? [
+        $attributes = [
+            'no_procedure_reason' => $this->nullableText($data['no_procedure_reason'] ?? null),
+        ];
+
+        $vitalFields = [
+            'blood_group',
+            'blood_pressure_left_systolic', 'blood_pressure_left_diastolic',
+            'blood_pressure_right_systolic', 'blood_pressure_right_diastolic',
+            'temperature_celsius', 'known_diabetes',
+            'height_cm', 'weight_kg', 'smoker',
+        ];
+
+        if (collect($vitalFields)->contains(fn (string $field) => array_key_exists($field, $data))) {
+            $attributes += [
+                'blood_group' => $data['blood_group'] ?? null,
+                'blood_pressure_left_systolic' => $data['blood_pressure_left_systolic'] ?? null,
+                'blood_pressure_left_diastolic' => $data['blood_pressure_left_diastolic'] ?? null,
+                'blood_pressure_right_systolic' => $data['blood_pressure_right_systolic'] ?? null,
+                'blood_pressure_right_diastolic' => $data['blood_pressure_right_diastolic'] ?? null,
+                'temperature_celsius' => $data['temperature_celsius'] ?? null,
+                'known_diabetes' => array_key_exists('known_diabetes', $data) ? $data['known_diabetes'] : null,
+                'height_cm' => $height,
+                'weight_kg' => $weight,
+                'bmi' => $this->calculateBmi($height, $weight),
+                'smoker' => array_key_exists('smoker', $data) ? $data['smoker'] : null,
+            ];
+        }
+
+        return $attributes + (array_key_exists('allergy_note', $data) ? [
             'allergy_note' => $this->nullableText($data['allergy_note']),
+        ] : []) + (array_key_exists('diagnostic_note', $data) ? [
+            'diagnostic_note' => $this->nullableText($data['diagnostic_note']),
+        ] : []) + (array_key_exists('transmission_reason', $data) ? [
+            'transmission_reason' => $this->nullableText($data['transmission_reason']),
         ] : []);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function guardWorkflowFields(Episode $episode, array $data): void
+    {
+        foreach (['hospitalization_reason', 'hospitalized_at', 'discharged_at'] as $field) {
+            if (filled($data[$field] ?? null)) {
+                throw ValidationException::withMessages([
+                    $field => 'L’hospitalisation et la sortie relèvent du workflow médical, pas de la fiche Soins.',
+                ]);
+            }
+        }
+
+        if (! $this->careWorkflow->expectsMedicalTransmission($episode)
+            && (filled($data['diagnostic_note'] ?? null) || filled($data['transmission_reason'] ?? null))) {
+            throw ValidationException::withMessages([
+                'transmission_reason' => 'Ce parcours se termine aux Soins et ne prévoit pas de transmission vers Médecine.',
+            ]);
+        }
+
+        $hasProcedures = collect($data['procedures'] ?? [])->isNotEmpty();
+        $hasNoProcedureReason = filled($data['no_procedure_reason'] ?? null);
+
+        if ($hasProcedures && $hasNoProcedureReason) {
+            throw ValidationException::withMessages([
+                'no_procedure_reason' => 'Retirez le motif « aucun acte » puisque des actes réalisés sont sélectionnés.',
+            ]);
+        }
+
+        if ($hasNoProcedureReason
+            && $this->careWorkflow->completionMode($episode) !== CareCompletionMode::Choice) {
+            throw ValidationException::withMessages([
+                'no_procedure_reason' => 'Le motif « aucun acte » est réservé à un besoin initialement non défini.',
+            ]);
+        }
     }
 
     /**
      * @param  array<string, mixed>  $attributes
      * @param  array<string, mixed>  $data
+     * @param  array<int, array<string, mixed>>  $existingSnapshot
      * @return array<string, mixed>
      */
     private function appendAllergyAttributes(
         array $attributes,
         Patient $patient,
         array $data,
+        array $existingSnapshot,
         User $actor,
     ): array {
         $hasSelection = array_key_exists('allergy_uuids', $data);
@@ -150,6 +224,12 @@ class SaveCareRecordAction
 
         $knownBySubstance = $patient->allergies
             ->keyBy(fn (PatientAllergy $allergy) => $this->normalizeAllergyName($allergy->substance));
+        $activeUuids = $patient->allergies->pluck('uuid')->all();
+        $historicalSnapshot = collect($existingSnapshot)
+            ->filter(fn ($allergy) => is_array($allergy)
+                && filled($allergy['substance'] ?? null)
+                && (! filled($allergy['uuid'] ?? null) || ! in_array($allergy['uuid'], $activeUuids, true)))
+            ->values();
 
         $references = AllergenReference::query()
             ->where('active', true)
@@ -209,14 +289,16 @@ class SaveCareRecordAction
             $selected->push($allergy);
         }
 
-        $snapshot = $selected
-            ->unique('uuid')
-            ->map(fn (PatientAllergy $allergy) => [
-                'uuid' => $allergy->uuid,
-                'substance' => $allergy->substance,
-                'reaction' => $allergy->reaction,
-                'severity' => $allergy->severity?->value,
-            ])
+        $snapshot = $historicalSnapshot
+            ->concat($selected
+                ->unique('uuid')
+                ->map(fn (PatientAllergy $allergy) => [
+                    'uuid' => $allergy->uuid,
+                    'substance' => $allergy->substance,
+                    'reaction' => $allergy->reaction,
+                    'severity' => $allergy->severity?->value,
+                ]))
+            ->unique(fn ($allergy) => $allergy['uuid'] ?? $this->normalizeAllergyName($allergy['substance']))
             ->values()
             ->all();
 
@@ -233,8 +315,12 @@ class SaveCareRecordAction
     /**
      * @param  Collection<int, array<string, mixed>>  $procedures
      */
-    private function appendProcedures(CareRecord $record, Collection $procedures, User $actor): void
-    {
+    private function appendProcedures(
+        CareRecord $record,
+        Collection $procedures,
+        User $actor,
+        Collection $plannedAllergyCheckUuids,
+    ): void {
         if ($procedures->isEmpty()) {
             return;
         }
@@ -256,10 +342,25 @@ class SaveCareRecordAction
         foreach ($procedures as $index => $procedure) {
             $item = $items->get($procedure['catalog_item_uuid']);
             $notes = $this->nullableText(Arr::get($procedure, 'notes'));
+            $requiresAllergyCheck = $item->care_requires_allergy_check
+                || $plannedAllergyCheckUuids->contains($item->uuid);
 
             if ($item->code === 'CARE-OTHER' && $notes === null) {
                 throw ValidationException::withMessages([
                     "procedures.{$index}.notes" => 'Précisez l’acte réalisé lorsque vous choisissez « Autres ».',
+                ]);
+            }
+
+            if ($requiresAllergyCheck && ! $actor->can('patients.medical_history.view')) {
+                throw new AuthorizationException('Vous ne pouvez pas vérifier le statut allergique du patient.');
+            }
+
+            if ($requiresAllergyCheck && ! filter_var(
+                Arr::get($procedure, 'allergy_checked', false),
+                FILTER_VALIDATE_BOOL,
+            )) {
+                throw ValidationException::withMessages([
+                    "procedures.{$index}.allergy_checked" => 'Vérifiez le statut allergique avant de valider cet acte.',
                 ]);
             }
 
@@ -270,6 +371,7 @@ class SaveCareRecordAction
                 'procedure_name' => $item->name,
                 'quantity' => $procedure['quantity'],
                 'notes' => $notes,
+                'allergy_checked_at' => $requiresAllergyCheck ? now() : null,
                 'performed_by' => $actor->getKey(),
                 'performed_at' => now(),
             ]);

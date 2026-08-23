@@ -78,6 +78,7 @@ class StoreArrivalRequest extends FormRequest
                     Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
                 ],
                 'is_emergency' => ['sometimes', 'boolean'],
+                ...$this->emergencyContactRules(),
             ];
         }
 
@@ -143,10 +144,7 @@ class StoreArrivalRequest extends FormRequest
                     ->whereNull('deleted_at')),
             ]),
             'new_address_label' => $commonRule(['nullable', 'string', 'max:255']),
-            'emergency_contact_name' => $commonRule(['nullable', 'string', 'max:255']),
-            'emergency_contact_phone' => $commonRule(['nullable', 'string', 'max:50']),
-            'emergency_contact_relationship' => $commonRule(['nullable', 'string', 'max:100']),
-            'emergency_contact_email' => $commonRule(['nullable', 'email', 'max:255']),
+            ...$this->emergencyContactRules(),
 
             'mutual_organization_name' => [
                 Rule::requiredIf($isMutual),
@@ -193,6 +191,25 @@ class StoreArrivalRequest extends FormRequest
         ];
     }
 
+    /**
+     * ADR-034: the contact reachable for this patient belongs to the
+     * passage, not the permanent record — asked the same way whether the
+     * patient is new or returning, and never barred for STAFF (unlike the
+     * HR-synced identity fields above, it isn't owned by the Employee
+     * record).
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    private function emergencyContactRules(): array
+    {
+        return [
+            'emergency_contact_name' => ['nullable', 'string', 'max:255'],
+            'emergency_contact_phone' => ['nullable', 'string', 'max:50'],
+            'emergency_contact_relationship' => ['nullable', 'string', 'max:100'],
+            'emergency_contact_email' => ['nullable', 'email', 'max:255'],
+        ];
+    }
+
     /** @return array<int, callable(Validator): void> */
     public function after(): array
     {
@@ -231,6 +248,10 @@ class StoreArrivalRequest extends FormRequest
             'profession' => 'profession',
             'address_entry_uuid' => 'adresse',
             'new_address_label' => 'nouvelle adresse',
+            'emergency_contact_name' => 'nom de la personne à contacter',
+            'emergency_contact_phone' => 'téléphone de la personne à contacter',
+            'emergency_contact_relationship' => 'lien avec la personne à contacter',
+            'emergency_contact_email' => 'email de la personne à contacter',
             'mutual_organization_name' => 'mutuelle',
             'mutual_employer_name' => 'entreprise',
             'mutual_beneficiary_type' => 'qualité du bénéficiaire',

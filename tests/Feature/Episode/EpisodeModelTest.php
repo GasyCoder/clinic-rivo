@@ -47,6 +47,23 @@ class EpisodeModelTest extends TestCase
         $this->assertNotNull($episode->uuid);
     }
 
+    public function test_emergency_contact_fields_are_stored_on_the_episode(): void
+    {
+        // ADR-034: the contact reachable for a patient belongs to the
+        // passage, not the permanent patient record.
+        $episode = $this->makeEpisode([
+            'emergency_contact_name' => 'Marie Rakoto',
+            'emergency_contact_phone' => '0341234567',
+            'emergency_contact_relationship' => 'Épouse',
+            'emergency_contact_email' => 'marie.rakoto@example.mg',
+        ]);
+
+        $this->assertSame('Marie Rakoto', $episode->emergency_contact_name);
+        $this->assertSame('0341234567', $episode->emergency_contact_phone);
+        $this->assertSame('Épouse', $episode->emergency_contact_relationship);
+        $this->assertSame('marie.rakoto@example.mg', $episode->emergency_contact_email);
+    }
+
     public function test_administrative_status_covers_the_circuit_positions_named_by_the_client_cdcf(): void
     {
         // Client CDCF §36: "En cours de soins" and "En attente de règlement"

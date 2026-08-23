@@ -32,17 +32,23 @@ class CareRecordFlowTest extends TestCase
             'vitals.view', 'vitals.create', 'vitals.update',
             'patients.medical_history.view', 'patients.medical_history.manage',
         ]);
-        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        [$orientation, $procedure] = $this->activeCareOrientation(
+            $nurse,
+            ReceptionRoutingMode::CareThenMedicine,
+        );
 
         $response = $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
             'blood_group' => 'O+',
+            'blood_pressure_left_systolic' => 122,
+            'blood_pressure_left_diastolic' => 78,
+            'blood_pressure_right_systolic' => 118,
+            'blood_pressure_right_diastolic' => 76,
+            'temperature_celsius' => '37.20',
+            'known_diabetes' => true,
             'height_cm' => '175',
             'weight_kg' => '70',
             'allergy_note' => 'Pénicilline signalée',
             'smoker' => false,
-            'hospitalization_reason' => 'Surveillance clinique',
-            'hospitalized_at' => '2026-08-23 08:00:00',
-            'discharged_at' => '2026-08-23 12:00:00',
             'diagnostic_note' => 'Diagnostic communiqué par le médecin',
             'transmission_reason' => 'Contrôler la température.',
             'procedures' => [[
@@ -56,6 +62,12 @@ class CareRecordFlowTest extends TestCase
 
         $record = CareRecord::query()->sole();
         $this->assertSame('22.86', $record->bmi);
+        $this->assertSame(122, $record->blood_pressure_left_systolic);
+        $this->assertSame(78, $record->blood_pressure_left_diastolic);
+        $this->assertSame(118, $record->blood_pressure_right_systolic);
+        $this->assertSame(76, $record->blood_pressure_right_diastolic);
+        $this->assertSame('37.20', $record->temperature_celsius);
+        $this->assertTrue($record->known_diabetes);
         $this->assertFalse($record->smoker);
         $this->assertSame($nurse->id, $record->created_by);
         $this->assertDatabaseHas('care_record_procedures', [
@@ -82,12 +94,107 @@ class CareRecordFlowTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Care/Show')
                 ->where('careRecord.blood_group', 'O+')
+                ->where('careRecord.blood_pressure_left_systolic', 122)
+                ->where('careRecord.blood_pressure_left_diastolic', 78)
+                ->where('careRecord.blood_pressure_right_systolic', 118)
+                ->where('careRecord.blood_pressure_right_diastolic', 76)
+                ->where('careRecord.temperature_celsius', '37.20')
+                ->where('careRecord.known_diabetes', true)
                 ->where('careRecord.bmi', '22.86')
                 ->where('careRecord.bmi_assessment.code', 'NORMAL')
                 ->where('bmiReference.adult_min_age', 20)
+                ->where('orientation.episode.care_completion_mode', 'MEDICINE')
+                ->where('orientation.episode.care_transmission_expected', true)
+                ->where('orientation.episode.care_vitals_recommended', true)
                 ->has('careRecord.procedures', 1)
                 ->where('careRecord.procedures.0.name', 'Injection IM')
             );
+    }
+
+    public function test_care_only_never_collects_hospitalization_or_medical_transmission_fields(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('orientation.episode.care_completion_mode', 'FINISH')
+                ->where('orientation.episode.care_transmission_expected', false)
+                ->where('orientation.episode.care_vitals_recommended', false)
+            );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'hospitalization_reason' => 'Hospitaliser le patient',
+            'hospitalized_at' => '2026-08-23 08:00:00',
+            'discharged_at' => '2026-08-23 12:00:00',
+        ])->assertSessionHasErrors([
+            'hospitalization_reason',
+            'hospitalized_at',
+            'discharged_at',
+        ]);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'transmission_reason' => 'Envoyer en Médecine',
+        ])->assertSessionHasErrors('transmission_reason');
+
+        $this->assertDatabaseCount('care_records', 0);
+    }
+
+    public function test_a_care_only_procedure_can_be_recorded_without_routine_vitals(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $procedure->uuid,
+                'quantity' => 1,
+                'notes' => 'Pansement réalisé sans relevé systématique des constantes.',
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $record = CareRecord::query()->sole();
+
+        $this->assertNull($record->blood_group);
+        $this->assertNull($record->height_cm);
+        $this->assertNull($record->weight_kg);
+        $this->assertNull($record->bmi);
+        $this->assertDatabaseHas('care_record_procedures', [
+            'care_record_id' => $record->id,
+            'procedure_code' => $procedure->code,
+            'quantity' => 1,
+        ]);
+    }
+
+    public function test_blood_pressure_temperature_and_diabetes_values_are_validated(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'blood_pressure_left_systolic' => 80,
+            'blood_pressure_left_diastolic' => 120,
+            'blood_pressure_right_systolic' => 130,
+            'temperature_celsius' => 48,
+            'known_diabetes' => 'inconnu',
+        ])->assertSessionHasErrors([
+            'blood_pressure_left_systolic',
+            'blood_pressure_left_diastolic',
+            'blood_pressure_right_diastolic',
+            'temperature_celsius',
+            'known_diabetes',
+        ]);
+
+        $this->assertDatabaseCount('care_records', 0);
     }
 
     public function test_updating_the_worksheet_preserves_previous_procedure_history(): void
@@ -111,7 +218,7 @@ class CareRecordFlowTest extends TestCase
         $this->actingAs($nurse)->put($url, [
             'height_cm' => 160,
             'weight_kg' => 62,
-            'transmission_reason' => 'Nouvelle observation.',
+            'smoker' => false,
             'procedures' => [[
                 'catalog_item_uuid' => $procedure->uuid,
                 'quantity' => 1,
@@ -222,6 +329,58 @@ class CareRecordFlowTest extends TestCase
         );
     }
 
+    public function test_a_missing_historical_allergy_is_preserved_without_blocking_the_next_save(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        $historicalUuid = '043463b7-1732-4715-8ce0-e4b339923e0d';
+
+        CareRecord::query()->create([
+            'episode_id' => $orientation->episode_id,
+            'allergy_note' => 'Allergie déclarée pendant le premier relevé.',
+            'allergy_snapshot' => [[
+                'uuid' => $historicalUuid,
+                'substance' => 'Ancienne allergie déclarée',
+                'reaction' => null,
+                'severity' => null,
+            ]],
+            'created_by' => $nurse->id,
+            'updated_by' => $nurse->id,
+        ]);
+
+        $this->actingAs($nurse)->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->has('patientAllergies', 0)
+                ->where('careRecord.allergy_snapshot.0.uuid', $historicalUuid)
+                ->where('orientation.episode.care_vitals_recommended', false)
+            );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'allergy_uuids' => [$historicalUuid],
+            'allergy_note' => 'Observation infirmière mise à jour.',
+            'procedures' => [[
+                'catalog_item_uuid' => $procedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $record = CareRecord::query()->sole();
+
+        $this->assertSame('Observation infirmière mise à jour.', $record->allergy_note);
+        $this->assertSame(
+            ['Ancienne allergie déclarée'],
+            collect($record->allergy_snapshot)->pluck('substance')->all(),
+        );
+        $this->assertDatabaseHas('care_record_procedures', [
+            'care_record_id' => $record->id,
+            'procedure_code' => $procedure->code,
+        ]);
+    }
+
     public function test_an_allergy_from_another_patient_cannot_be_selected(): void
     {
         $nurse = $this->userWithPermissions([
@@ -327,11 +486,161 @@ class CareRecordFlowTest extends TestCase
         ])->assertForbidden();
     }
 
-    /** @return array{0: EpisodeOrientation, 1: CatalogItem} */
-    private function activeCareOrientation(User $nurse): array
+    public function test_an_injection_requires_an_explicit_allergy_check_and_keeps_the_trace(): void
     {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation(
+            $nurse,
+            ReceptionRoutingMode::CareOnly,
+            requiresAllergyCheck: true,
+        );
+        $payload = [
+            'procedures' => [[
+                'catalog_item_uuid' => $procedure->uuid,
+                'quantity' => 1,
+                'allergy_checked' => false,
+            ]],
+        ];
+
+        $this->actingAs($nurse)
+            ->put("/care/orientations/{$orientation->uuid}/record", $payload)
+            ->assertSessionHasErrors('procedures.0.allergy_checked');
+        $this->assertDatabaseCount('care_records', 0);
+
+        $payload['procedures'][0]['allergy_checked'] = true;
+        $this->actingAs($nurse)
+            ->put("/care/orientations/{$orientation->uuid}/record", $payload)
+            ->assertRedirect(route('care.orientations.show', $orientation));
+
+        $this->assertNotNull(CareRecordProcedure::query()->sole()->allergy_checked_at);
+        $this->actingAs($nurse)->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('orientation.episode.care_requires_allergy_check', true)
+                ->where('orientation.episode.designations.0.care_requires_allergy_check', true)
+                ->where('procedureCatalog.0.care_requires_allergy_check', true)
+            );
+    }
+
+    public function test_a_simple_care_act_can_be_saved_and_completed_atomically_without_vitals(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->put(
+            "/care/orientations/{$orientation->uuid}/record-and-complete",
+            [
+                'procedures' => [[
+                    'catalog_item_uuid' => $procedure->uuid,
+                    'quantity' => 1,
+                ]],
+                'orient_to_medicine' => false,
+            ],
+        )->assertRedirect(route('care.index'));
+
+        $record = CareRecord::query()->sole();
+        $this->assertNull($record->blood_group);
+        $this->assertNull($record->height_cm);
+        $this->assertNull($record->weight_kg);
+        $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
+        $this->assertDatabaseCount('care_record_procedures', 1);
+        $this->assertDatabaseMissing('episode_orientations', [
+            'episode_id' => $orientation->episode_id,
+            'destination_module' => CatalogModule::Medicine->value,
+        ]);
+    }
+
+    public function test_recording_a_care_act_does_not_require_permission_to_edit_vitals(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('capabilities.can_edit', true)
+                ->where('capabilities.can_edit_vitals', false)
+            );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $procedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $this->assertDatabaseCount('care_record_procedures', 1);
+    }
+
+    public function test_care_only_cannot_be_completed_without_a_recorded_act(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)
+            ->post("/care/orientations/{$orientation->uuid}/complete")
+            ->assertSessionHasErrors('procedures');
+
+        $this->assertSame('IN_PROGRESS', $orientation->fresh()->status->value);
+    }
+
+    public function test_an_unknown_need_requires_a_reason_to_finish_without_an_act(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
-        $procedure = $this->procedure($nurse, 'INJECTION-IM', 'Injection IM');
+        $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        $orientation = $episode->orientations()->sole();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
+
+        $this->actingAs($nurse)
+            ->post("/care/orientations/{$orientation->uuid}/complete")
+            ->assertSessionHasErrors('no_procedure_reason');
+
+        $this->actingAs($nurse)->put(
+            "/care/orientations/{$orientation->uuid}/record-and-complete",
+            [
+                'no_procedure_reason' => 'Patient reparti avant la réalisation d’un acte.',
+                'orient_to_medicine' => false,
+            ],
+        )->assertRedirect(route('care.index'));
+
+        $this->assertSame(
+            'Patient reparti avant la réalisation d’un acte.',
+            CareRecord::query()->sole()->no_procedure_reason,
+        );
+        $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
+    }
+
+    /** @return array{0: EpisodeOrientation, 1: CatalogItem} */
+    private function activeCareOrientation(
+        User $nurse,
+        ReceptionRoutingMode $routingMode = ReceptionRoutingMode::CareOnly,
+        bool $requiresAllergyCheck = false,
+        bool $recommendsVitals = false,
+    ): array {
+        $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
+        $procedure = $this->procedure(
+            $nurse,
+            'INJECTION-IM',
+            'Injection IM',
+            true,
+            $routingMode,
+            $requiresAllergyCheck,
+            $recommendsVitals,
+        );
         $this->app->make(PlanEpisodeRoutingAction::class)->execute($episode, [[
             'catalog_item_uuid' => $procedure->uuid,
             'quantity' => 1,
@@ -353,8 +662,15 @@ class CareRecordFlowTest extends TestCase
         ]);
     }
 
-    private function procedure(User $actor, string $code, string $name, bool $receptionSelectable = true): CatalogItem
-    {
+    private function procedure(
+        User $actor,
+        string $code,
+        string $name,
+        bool $receptionSelectable = true,
+        ReceptionRoutingMode $routingMode = ReceptionRoutingMode::CareOnly,
+        bool $requiresAllergyCheck = false,
+        bool $recommendsVitals = false,
+    ): CatalogItem {
         return CatalogItem::query()->create([
             'code' => $code,
             'name' => $name,
@@ -364,7 +680,9 @@ class CareRecordFlowTest extends TestCase
             'billable' => $code !== 'CARE-OTHER',
             'stockable' => false,
             'reception_selectable' => $receptionSelectable,
-            'reception_routing_mode' => $receptionSelectable ? ReceptionRoutingMode::CareOnly : null,
+            'reception_routing_mode' => $receptionSelectable ? $routingMode : null,
+            'care_requires_allergy_check' => $requiresAllergyCheck,
+            'care_recommends_vitals' => $recommendsVitals,
             'created_by' => $actor->id,
             'updated_by' => $actor->id,
         ]);

@@ -44,13 +44,11 @@ class RolePermissionSeeder extends Seeder
             'equipment.inventory', 'equipment.maintenance.manage',
             'equipment.decommission',
         ],
-        'GUARD' => [
-            'guarding.view',
-            'guarding.entries.view', 'guarding.entries.create',
-            'guarding.entries.update', 'guarding.entries.close',
-            'guarding.reports.view', 'guarding.reports.export',
-            'visitors.view', 'visitors.create', 'visitors.update', 'visitors.close',
-        ],
+        // SUPPORT and MAINTENANCE contain distinct jobs. Their task-specific
+        // permissions are copied to each account explicitly from its profile
+        // template; they are never inherited globally by every role member.
+        'SUPPORT' => [],
+        'MAINTENANCE' => [],
         'RECEPTION' => [
             'reception.view',
             'employees.patient_lookup',
@@ -78,19 +76,17 @@ class RolePermissionSeeder extends Seeder
             'prescriptions.cancel', 'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
         ],
-        // ADR-006 amendment 2026-08-19 — "Soins" (§15) + "Anesthésie" (§16)
-        // catalogs; no "Maternité" grant since no such permission catalog
-        // exists in the CDC (see PermissionSeeder).
+        // Shared baseline for every paramedical profile. Anesthesia belongs
+        // only to accounts explicitly assigned those permissions (normally
+        // the ANESTHETIST profile), never to the whole NURSE role.
         'NURSE' => [
             'care.view', 'care.create', 'care.update', 'care.complete',
             'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
-            'anesthesia.view', 'anesthesia.create', 'anesthesia.update',
-            'anesthesia.validate', 'patients.medical_history.view',
+            'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
         ],
-        // anesthesia. is intentionally granted to both NURSE and SURGERY —
-        // see the same ADR-006 amendment ("normalement rattaché à SURGERY
-        // mais explicitement demandé aussi pour NURSE").
+        // Surgery keeps its module baseline. A NURSE/ANESTHETIST account may
+        // receive the same anesthesia permissions through individual ALLOWs.
         'SURGERY' => [
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule',
             'surgery.preoperative.view', 'surgery.preoperative.validate',

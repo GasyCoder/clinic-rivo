@@ -185,6 +185,8 @@ class CatalogController extends Controller
             'reception_selectable' => $item->reception_selectable,
             'reception_routing_mode' => $item->reception_routing_mode?->value,
             'reception_routing_label' => $item->reception_routing_mode?->label(),
+            'care_requires_allergy_check' => $item->care_requires_allergy_check,
+            'care_recommends_vitals' => $item->care_recommends_vitals,
             'description' => $item->description,
             'archived' => $item->trashed(),
             'archived_at' => $item->deleted_at,

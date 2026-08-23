@@ -111,6 +111,8 @@ class PlanEpisodeRoutingAction
                     'designation' => $item->name,
                     'module' => $item->module,
                     'routing_mode' => $item->reception_routing_mode,
+                    'care_requires_allergy_check' => $item->care_requires_allergy_check,
+                    'care_recommends_vitals' => $item->care_recommends_vitals,
                     'unit' => $item->unit,
                     'unit_price' => $tariff?->amount,
                     'currency' => $tariff?->currency ?? 'MGA',

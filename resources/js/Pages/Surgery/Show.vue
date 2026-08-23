@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Card from '@/Components/UI/Card.vue';
@@ -22,9 +22,7 @@ const props = defineProps({
     teamFunctions: Array,
 });
 
-const page = usePage();
 const { can } = usePermissions();
-const status = computed(() => page.props.flash?.status);
 const base = computed(() => `/surgery/${props.surgicalRequest.uuid}`);
 
 const STATUS_LABELS = {
@@ -280,10 +278,6 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             </div>
             <Button :as="Link" href="/surgery" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Chirurgie</span></Button>
         </header>
-
-        <div v-if="status" class="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300" role="status">
-            <Icon class="text-lg" name="check-circle" /><span>{{ status }}</span>
-        </div>
 
         <div class="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <!-- Demande -->

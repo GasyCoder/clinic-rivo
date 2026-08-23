@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'care_record_id', 'catalog_item_id', 'catalog_item_uuid',
     'procedure_code', 'procedure_name', 'quantity', 'notes',
-    'performed_by', 'performed_at',
+    'allergy_checked_at', 'performed_by', 'performed_at',
 ])]
 class CareRecordProcedure extends Model
 {
@@ -22,6 +22,7 @@ class CareRecordProcedure extends Model
     {
         return [
             'quantity' => 'decimal:2',
+            'allergy_checked_at' => 'datetime',
             'performed_at' => 'datetime',
         ];
     }

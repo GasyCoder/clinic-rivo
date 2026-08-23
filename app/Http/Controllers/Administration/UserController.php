@@ -29,7 +29,11 @@ class UserController extends Controller
         $roleCode = trim((string) $request->query('role', ''));
 
         $users = User::query()
-            ->with(['role:id,code,name', 'permissions:id,name'])
+            ->with([
+                'role:id,code,name',
+                'professionalProfile:id,role_id,code,name',
+                'permissions:id,name',
+            ])
             ->whereHas('role', fn ($role) => $role->where('code', '!=', 'SUPER_ADMIN'))
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($nested) use ($search) {
@@ -53,6 +57,11 @@ class UserController extends Controller
                     'code' => $user->role->code,
                     'name' => $user->role->name,
                 ] : null,
+                'professional_profile' => $user->professionalProfile ? [
+                    'id' => $user->professionalProfile->id,
+                    'code' => $user->professionalProfile->code,
+                    'name' => $user->professionalProfile->name,
+                ] : null,
                 'active' => $user->isActive(),
                 'last_login_at' => $user->last_login_at,
                 'deactivated_at' => $user->deactivated_at,
@@ -66,7 +75,13 @@ class UserController extends Controller
             ]);
 
         $roles = Role::query()
-            ->with('permissions:id,name')
+            ->with([
+                'permissions:id,name',
+                'professionalProfiles' => fn ($query) => $query
+                    ->active()
+                    ->with('recommendedPermissions:id,name')
+                    ->orderBy('name'),
+            ])
             ->where('code', '!=', 'SUPER_ADMIN')
             ->orderBy('name')
             ->get()
@@ -75,6 +90,18 @@ class UserController extends Controller
                 'code' => $role->code,
                 'name' => $role->name,
                 'permissions' => $role->permissions->pluck('name')->sort()->values(),
+                'profiles' => $role->professionalProfiles->map(fn ($profile) => [
+                    'id' => $profile->id,
+                    'code' => $profile->code,
+                    'name' => $profile->name,
+                    'description' => $profile->description,
+                    'recommended_permissions' => $profile->recommendedPermissions
+                        ->map(fn (Permission $permission) => [
+                            'id' => $permission->id,
+                            'name' => $permission->name,
+                        ])
+                        ->values(),
+                ])->values(),
             ]);
 
         $permissions = $request->user()->can('permissions.view')

@@ -2,6 +2,7 @@
 
 namespace App\Services\Authorization;
 
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
@@ -38,11 +39,37 @@ class UserAdministrationGuard
         }
     }
 
+    public function assertProfileMatchesRole(Role $role, ?ProfessionalProfile $profile): void
+    {
+        $requiresProfile = $role->professionalProfiles()->active()->exists();
+
+        if ($requiresProfile && ! $profile) {
+            throw ValidationException::withMessages([
+                'professional_profile_id' => 'Choisissez le profil métier de ce compte.',
+            ]);
+        }
+
+        if ($profile && (! $profile->active || $profile->role_id !== $role->id)) {
+            throw ValidationException::withMessages([
+                'professional_profile_id' => 'Le profil métier choisi ne correspond pas au rôle sélectionné.',
+            ]);
+        }
+    }
+
     public function assertCanChangeOwnRole(User $actor, User $target, Role $newRole): void
     {
         if ($actor->is($target) && $target->role_id !== $newRole->id) {
             throw ValidationException::withMessages([
                 'role_id' => 'Vous ne pouvez pas modifier votre propre rôle.',
+            ]);
+        }
+    }
+
+    public function assertCanChangeOwnProfile(User $actor, User $target, ?ProfessionalProfile $newProfile): void
+    {
+        if ($actor->is($target) && $target->professional_profile_id !== $newProfile?->id) {
+            throw ValidationException::withMessages([
+                'professional_profile_id' => 'Vous ne pouvez pas modifier votre propre profil métier.',
             ]);
         }
     }

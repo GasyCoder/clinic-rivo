@@ -72,10 +72,6 @@ const form = useForm({
     email: props.patient.email ?? '',
     address_entry_uuid: currentAddressUuid,
     new_address_label: legacyAddress,
-    emergency_contact_name: props.patient.emergency_contact_name ?? '',
-    emergency_contact_phone: props.patient.emergency_contact_phone ?? '',
-    emergency_contact_relationship: props.patient.emergency_contact_relationship ?? '',
-    emergency_contact_email: props.patient.emergency_contact_email ?? '',
 });
 
 const exactAge = computed(() => {
@@ -324,14 +320,9 @@ const selectClass = 'block h-9 w-full appearance-none rounded border border-gray
                                 <FormError v-if="form.errors.address_entry_uuid || form.errors.new_address_label || form.errors.address" class="mt-1">{{ form.errors.address_entry_uuid || form.errors.new_address_label || form.errors.address }}</FormError>
                             </div>
                         </div>
-                        <div class="rounded-md border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-1000/30">
-                            <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Personne à contacter <span class="font-normal text-slate-400">(facultatif)</span></h3><p class="mt-0.5 text-xs text-slate-400">Proche à joindre si nécessaire.</p></div>
-                            <div class="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                                <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Nom complet</span><IconInput v-model="form.emergency_contact_name" icon="user" /><FormError v-if="form.errors.emergency_contact_name" class="mt-1">{{ form.errors.emergency_contact_name }}</FormError></label>
-                                <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Lien de parenté</span><Input v-model="form.emergency_contact_relationship" /><FormError v-if="form.errors.emergency_contact_relationship" class="mt-1">{{ form.errors.emergency_contact_relationship }}</FormError></label>
-                                <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Téléphone</span><IconInput v-model="form.emergency_contact_phone" icon="call" type="tel" /><FormError v-if="form.errors.emergency_contact_phone" class="mt-1">{{ form.errors.emergency_contact_phone }}</FormError></label>
-                                <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Email</span><IconInput v-model="form.emergency_contact_email" icon="mail" type="email" /><FormError v-if="form.errors.emergency_contact_email" class="mt-1">{{ form.errors.emergency_contact_email }}</FormError></label>
-                            </div>
+                        <div class="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50/50 p-4 text-xs leading-5 text-slate-500 dark:border-gray-800 dark:bg-gray-1000/30 dark:text-slate-300">
+                            <Icon class="mt-0.5 shrink-0 text-slate-400" name="info" />
+                            <p><span class="font-semibold text-slate-600 dark:text-slate-200">Personne à contacter :</span> propre à chaque passage, pas au dossier permanent — elle se renseigne à la Réception lors de l’arrivée et se consulte dans l’onglet Passages du dossier.</p>
                         </div>
                     </div>
                 </section>

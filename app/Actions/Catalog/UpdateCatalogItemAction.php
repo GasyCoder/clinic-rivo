@@ -3,6 +3,7 @@
 namespace App\Actions\Catalog;
 
 use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\User;
@@ -39,12 +40,25 @@ class UpdateCatalogItemAction
             ]);
         }
 
+        $isCareService = $item->type === CatalogItemType::Service
+            && ($data['module'] ?? null) === CatalogModule::Care->value;
+        $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
+        $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+
+        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
+            throw ValidationException::withMessages([
+                'care_requires_allergy_check' => 'Ces exigences sont réservées aux prestations du module Soins.',
+            ]);
+        }
+
         $item->fill([
             'name' => trim($data['name']),
             'module' => $data['module'],
             'unit' => trim($data['unit']),
             'reception_selectable' => $selectable,
             'reception_routing_mode' => $route,
+            'care_requires_allergy_check' => $isCareService && $requiresAllergyCheck,
+            'care_recommends_vitals' => $isCareService && $recommendsVitals,
             'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
             'updated_by' => $actor->id,
         ])->save();

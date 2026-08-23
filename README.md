@@ -164,6 +164,19 @@ docs/DECISIONS.md
 docs/ROADMAP.md
 ```
 
+## Comptes locaux de développement
+
+Après les migrations et les seeders standards, les comptes de test par rôle et
+profil se créent explicitement avec :
+
+```bash
+php artisan db:seed --class=Database\\Seeders\\DevelopmentUserSeeder
+```
+
+Le mot de passe commun est défini par `RIVO_DEVELOPMENT_USERS_PASSWORD`. Ce
+seeder est idempotent, n'est pas inclus dans `DatabaseSeeder` et refuse de
+s'exécuter hors des environnements `local` et `testing`.
+
 ---
 
 # Agents IA

@@ -251,6 +251,11 @@ class ReceptionControllerTest extends TestCase
         $this->assertSame('1990-05-12', $patient->birth_date->toDateString());
         $this->assertSame(1, $patient->episodes()->count());
         $this->assertSame(0, AuditLog::query()->where('action', 'update')->count());
+
+        // ADR-034: unlike the identity fields above, the emergency contact
+        // legitimately belongs to this arrival's episode, not the patient.
+        $this->assertSame('Marie Rakoto', $episode->fresh()->emergency_contact_name);
+        $this->assertSame('0331234567', $episode->fresh()->emergency_contact_phone);
     }
 
     public function test_existing_patient_arrival_needs_only_the_episode_create_permission(): void

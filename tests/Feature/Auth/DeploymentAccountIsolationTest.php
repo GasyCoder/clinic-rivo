@@ -55,7 +55,7 @@ class DeploymentAccountIsolationTest extends TestCase
     {
         $this->seedFor('clinic');
 
-        foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+        foreach (['ADMINISTRATION', 'LOGISTICS', 'SUPPORT', 'MAINTENANCE', 'RECEPTION', 'MEDICINE', 'NURSE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             $user = $this->user($roleCode);
 
             $this->post('/login', [

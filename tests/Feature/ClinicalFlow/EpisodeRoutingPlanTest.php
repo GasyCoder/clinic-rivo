@@ -10,6 +10,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
+use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Episode;
@@ -90,11 +91,18 @@ class EpisodeRoutingPlanTest extends TestCase
     public function test_care_only_finishes_without_creating_medicine(): void
     {
         $injection = $this->service('INJECTION-IM', ReceptionRoutingMode::CareOnly);
+        $injection->update(['care_requires_allergy_check' => true]);
         $episode = $this->episode();
         $this->plan($episode, [[$injection, 1]]);
         $care = $episode->orientations()->sole();
 
+        $this->assertTrue($episode->serviceRequests()->sole()->care_requires_allergy_check);
+
+        $injection->update(['care_requires_allergy_check' => false]);
+        $this->assertTrue($episode->serviceRequests()->sole()->care_requires_allergy_check);
+
         app(AcceptCareOrientationAction::class)->execute($care, $this->actor);
+        $this->recordPerformedProcedure($episode, $injection);
         app(CompleteCareAndOrientToMedicineAction::class)->execute($care, $this->actor);
 
         $this->assertDatabaseMissing('episode_orientations', [
@@ -225,6 +233,25 @@ class EpisodeRoutingPlanTest extends TestCase
         ]);
 
         return $item;
+    }
+
+    private function recordPerformedProcedure(Episode $episode, CatalogItem $item): void
+    {
+        $record = CareRecord::query()->create([
+            'episode_id' => $episode->id,
+            'created_by' => $this->actor->id,
+            'updated_by' => $this->actor->id,
+        ]);
+
+        $record->procedures()->create([
+            'catalog_item_id' => $item->id,
+            'catalog_item_uuid' => $item->uuid,
+            'procedure_code' => $item->code,
+            'procedure_name' => $item->name,
+            'quantity' => 1,
+            'performed_by' => $this->actor->id,
+            'performed_at' => now(),
+        ]);
     }
 
     /**

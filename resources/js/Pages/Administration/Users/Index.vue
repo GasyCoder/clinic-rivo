@@ -32,6 +32,7 @@ const form = useForm({
     name: '',
     email: '',
     role_id: '',
+    professional_profile_id: '',
     password: '',
     password_confirmation: '',
     permission_overrides: [],
@@ -43,9 +44,14 @@ const canCreate = computed(() => can('users.create') && can('roles.assign'));
 const canAssignPermissions = computed(() => can('permissions.assign'));
 const isEditing = computed(() => editingUser.value !== null);
 const selectedRole = computed(() => props.roles.find((role) => Number(role.id) === Number(form.role_id)) ?? null);
+const selectedRoleProfiles = computed(() => selectedRole.value?.profiles ?? []);
+const selectedProfile = computed(() => selectedRoleProfiles.value.find(
+    (profile) => Number(profile.id) === Number(form.professional_profile_id),
+) ?? null);
+const profileChanged = computed(() => isEditing.value
+    && Number(editingUser.value?.professional_profile?.id ?? 0) !== Number(form.professional_profile_id ?? 0));
 const selectedRolePermissions = computed(() => new Set(selectedRole.value?.permissions ?? []));
 const overrideCount = computed(() => serializeOverrides().length);
-const flashStatus = computed(() => page.props.flash?.status);
 
 const groupedPermissions = computed(() => {
     const groups = {};
@@ -128,6 +134,7 @@ const openCreate = () => {
     form.reset();
     form.clearErrors();
     form.role_id = props.roles.find((role) => role.code !== 'SUPER_ADMIN')?.id ?? props.roles[0]?.id ?? '';
+    form.professional_profile_id = '';
     resetPermissionEffects();
     formOpen.value = true;
 };
@@ -138,6 +145,7 @@ const openEdit = (user) => {
     form.name = user.name;
     form.email = user.email;
     form.role_id = user.role?.id ?? '';
+    form.professional_profile_id = user.professional_profile?.id ?? '';
     form.password = '';
     form.password_confirmation = '';
     resetPermissionEffects(user.permission_overrides);
@@ -156,6 +164,23 @@ const closeForm = () => {
 const serializeOverrides = () => Object.entries(permissionEffects)
     .filter(([, effect]) => effect === 'allow' || effect === 'deny')
     .map(([permissionId, effect]) => ({ permission_id: Number(permissionId), effect }));
+
+const onRoleChange = () => {
+    form.professional_profile_id = '';
+};
+
+const applyProfileRecommendations = () => {
+    if (!canAssignPermissions.value || !selectedProfile.value) return;
+
+    for (const permission of selectedProfile.value.recommended_permissions ?? []) {
+        permissionEffects[permission.id] = 'allow';
+    }
+};
+
+const roleRequiresProfile = (roleId) => {
+    const role = props.roles.find((item) => Number(item.id) === Number(roleId));
+    return Boolean(role?.profiles?.length);
+};
 
 const submitUser = () => {
     form.permission_overrides = serializeOverrides();
@@ -230,11 +255,6 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
             </Button>
         </div>
 
-        <div v-if="flashStatus" class="flex items-center gap-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-            <Icon class="text-lg" name="check-circle" />
-            <span>{{ flashStatus }}</span>
-        </div>
-
         <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between lg:px-5">
                 <form class="relative w-full lg:max-w-md" role="search" @submit.prevent="submitFilters">
@@ -288,6 +308,12 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
                                 <p class="text-sm font-medium text-slate-600 dark:text-slate-200">{{ user.role?.name ?? 'Aucun rôle' }}</p>
+                                <p v-if="user.professional_profile" class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                    {{ user.professional_profile.name }}
+                                </p>
+                                <p v-else-if="roleRequiresProfile(user.role?.id)" class="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                    Profil métier à définir
+                                </p>
                                 <p v-if="user.permission_overrides.length" class="mt-0.5 text-xs text-slate-400">{{ user.permission_overrides.length }} exception{{ user.permission_overrides.length > 1 ? 's' : '' }} individuelle{{ user.permission_overrides.length > 1 ? 's' : '' }}</p>
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ formatDateTime(user.last_login_at) }}</td>
@@ -340,8 +366,8 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
             <div class="flex items-start gap-3">
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900"><Icon class="text-lg" name="shield-check" /></span>
                 <div>
-                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Accès par rôle, exceptions contrôlées</h2>
-                    <p class="mt-1 text-xs leading-5 text-slate-500">Le rôle fournit les droits habituels du métier. Une permission individuelle doit rester exceptionnelle et toute attribution est auditée. Un compte n’est jamais supprimé : il est désactivé pour préserver l’historique.</p>
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Un accès propre à chaque compte</h2>
+                    <p class="mt-1 text-xs leading-5 text-slate-500">Le rôle fournit uniquement le socle commun du service. Le profil précise le métier principal ; ses droits recommandés doivent être appliqués au compte puis peuvent être adaptés individuellement. Toute attribution est auditée. Un compte n’est jamais supprimé : il est désactivé pour préserver l’historique.</p>
                 </div>
             </div>
         </aside>
@@ -373,14 +399,42 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                 <Input id="user_email" v-model="form.email" type="email" autocomplete="off" :aria-invalid="Boolean(form.errors.email)" />
                                 <FormError v-if="form.errors.email">{{ form.errors.email }}</FormError>
                             </div>
-                            <div class="sm:col-span-2">
+                            <div :class="selectedRoleProfiles.length ? '' : 'sm:col-span-2'">
                                 <label for="user_role" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Rôle métier <span class="text-red-500">*</span></label>
-                                <select id="user_role" v-model="form.role_id" :disabled="editingUser?.is_current" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 disabled:bg-gray-50 disabled:text-slate-400 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-900" :aria-invalid="Boolean(form.errors.role_id)">
+                                <select id="user_role" v-model="form.role_id" :disabled="editingUser?.is_current" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 disabled:bg-gray-50 disabled:text-slate-400 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-900" :aria-invalid="Boolean(form.errors.role_id)" @change="onRoleChange">
                                     <option disabled value="">Choisir un rôle</option>
                                     <option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option>
                                 </select>
                                 <p v-if="editingUser?.is_current" class="mt-1.5 text-xs text-slate-400">Votre propre rôle ne peut pas être modifié depuis cette session.</p>
                                 <FormError v-if="form.errors.role_id">{{ form.errors.role_id }}</FormError>
+                            </div>
+
+                            <div v-if="selectedRoleProfiles.length">
+                                <label for="user_professional_profile" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profil professionnel <span class="text-red-500">*</span></label>
+                                <select id="user_professional_profile" v-model="form.professional_profile_id" :disabled="editingUser?.is_current" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 disabled:bg-gray-50 disabled:text-slate-400 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-900" :aria-invalid="Boolean(form.errors.professional_profile_id)">
+                                    <option disabled value="">Choisir un profil</option>
+                                    <option v-for="profile in selectedRoleProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+                                </select>
+                                <FormError v-if="form.errors.professional_profile_id">{{ form.errors.professional_profile_id }}</FormError>
+                            </div>
+
+                            <div v-if="selectedProfile" class="sm:col-span-2 rounded border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/40">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                        <p class="text-sm font-bold text-slate-700 dark:text-white">{{ selectedProfile.name }}</p>
+                                        <p class="mt-1 text-xs leading-5 text-slate-500">{{ selectedProfile.description }}</p>
+                                        <p class="mt-1 text-[11px] text-slate-400">Le profil classe le métier ; il ne donne aucun droit automatiquement.</p>
+                                    </div>
+                                    <Button v-if="canAssignPermissions && !editingUser?.is_current && selectedProfile.recommended_permissions?.length" size="sm" variant="white-outline" type="button" class="shrink-0" @click="applyProfileRecommendations">
+                                        <Icon class="text-base" name="shield-check" />
+                                        <span class="ms-2">Appliquer les droits principaux</span>
+                                    </Button>
+                                </div>
+                                <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-slate-400">
+                                    {{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }}, enregistré{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} individuellement après application.
+                                </p>
+                                <p v-else class="mt-2 text-[11px] text-slate-400">Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</p>
+                                <p v-if="profileChanged" class="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">Le changement de profil ne retire pas les permissions individuelles existantes. Vérifiez les exceptions ci-dessous avant d’enregistrer.</p>
                             </div>
                         </div>
 

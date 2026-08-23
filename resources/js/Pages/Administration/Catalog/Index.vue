@@ -44,6 +44,8 @@ const itemForm = useForm({
     stockable: false,
     reception_selectable: false,
     reception_routing_mode: null,
+    care_requires_allergy_check: false,
+    care_recommends_vitals: false,
     description: '',
     tariff_amount: '',
     mutual_tariff_amount: '',
@@ -52,7 +54,6 @@ const itemForm = useForm({
 const tariffForm = useForm({ tariff_category: 'STANDARD', tariff_amount: '', reason: '' });
 const archiveForm = useForm({ reason: '' });
 
-const flashStatus = computed(() => page.props.flash?.status);
 const isEditing = computed(() => editingItem.value !== null);
 const selectedType = computed(() => props.types.find((type) => type.value === itemForm.type));
 const canSeeTariffs = computed(() => can('catalog.tariffs.view'));
@@ -90,6 +91,13 @@ watch(() => itemForm.type, (value) => {
     }
 });
 
+watch(() => [itemForm.type, itemForm.module], ([type, module]) => {
+    if (type === 'SERVICE' && module === 'CARE') return;
+
+    itemForm.care_requires_allergy_check = false;
+    itemForm.care_recommends_vitals = false;
+});
+
 const submitFilters = () => {
     router.get('/administration/catalog', {
         q: query.value || undefined,
@@ -110,6 +118,8 @@ const openCreate = () => {
     itemForm.stockable = false;
     itemForm.reception_selectable = false;
     itemForm.reception_routing_mode = null;
+    itemForm.care_requires_allergy_check = false;
+    itemForm.care_recommends_vitals = false;
     formOpen.value = true;
 };
 
@@ -125,6 +135,8 @@ const openEdit = (item) => {
     itemForm.stockable = item.stockable;
     itemForm.reception_selectable = item.reception_selectable;
     itemForm.reception_routing_mode = item.reception_routing_mode;
+    itemForm.care_requires_allergy_check = item.care_requires_allergy_check;
+    itemForm.care_recommends_vitals = item.care_recommends_vitals;
     itemForm.description = item.description ?? '';
     itemForm.tariff_amount = '';
     itemForm.mutual_tariff_amount = '';
@@ -149,6 +161,12 @@ const submitItem = () => {
             description: data.description || null,
             reception_selectable: data.reception_selectable,
             reception_routing_mode: data.reception_selectable ? data.reception_routing_mode : null,
+            care_requires_allergy_check: data.type === 'SERVICE' && data.module === 'CARE'
+                ? data.care_requires_allergy_check
+                : false,
+            care_recommends_vitals: data.type === 'SERVICE' && data.module === 'CARE'
+                ? data.care_recommends_vitals
+                : false,
         })).put(`/administration/catalog/${editingItem.value.uuid}`, {
             preserveScroll: true,
             onSuccess: closeItemForm,
@@ -156,7 +174,15 @@ const submitItem = () => {
         return;
     }
 
-    itemForm.transform((data) => data).post('/administration/catalog', {
+    itemForm.transform((data) => ({
+        ...data,
+        care_requires_allergy_check: data.type === 'SERVICE' && data.module === 'CARE'
+            ? data.care_requires_allergy_check
+            : false,
+        care_recommends_vitals: data.type === 'SERVICE' && data.module === 'CARE'
+            ? data.care_recommends_vitals
+            : false,
+    })).post('/administration/catalog', {
         preserveScroll: true,
         onSuccess: closeItemForm,
     });
@@ -249,11 +275,6 @@ const formatDateTime = (value) => value
                 <Icon class="text-lg" name="plus" />
                 <span class="ms-2">Nouvel élément</span>
             </Button>
-        </div>
-
-        <div v-if="flashStatus" class="flex items-center gap-3 rounded border border-gray-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" role="status">
-            <Icon class="text-lg text-emerald-600" name="check-circle" />
-            <span>{{ flashStatus }}</span>
         </div>
 
         <section class="grid overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-2 xl:grid-cols-5">
@@ -466,6 +487,22 @@ const formatDateTime = (value) => value
                                     <FormError v-if="itemForm.errors.reception_routing_mode">{{ itemForm.errors.reception_routing_mode }}</FormError>
                                 </div>
                                 <FormError v-if="itemForm.errors.reception_selectable">{{ itemForm.errors.reception_selectable }}</FormError>
+                            </div>
+                            <div v-if="itemForm.type === 'SERVICE' && itemForm.module === 'CARE'" class="rounded border border-gray-200 p-3 dark:border-gray-800 sm:col-span-2">
+                                <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Exigences pendant le soin</p>
+                                <p class="mt-1 text-xs text-slate-400">Ces règles pilotent la fiche infirmière sans rendre toutes les constantes obligatoires.</p>
+                                <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                                    <label class="flex items-start gap-2 rounded border border-gray-200 p-3 text-sm text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                                        <input v-model="itemForm.care_requires_allergy_check" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        <span><span class="block font-semibold text-slate-700 dark:text-white">Vérifier les allergies</span><span class="mt-0.5 block text-xs text-slate-400">Confirmation exigée avant une injection, perfusion ou autre acte configuré à risque.</span></span>
+                                    </label>
+                                    <label class="flex items-start gap-2 rounded border border-gray-200 p-3 text-sm text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                                        <input v-model="itemForm.care_recommends_vitals" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        <span><span class="block font-semibold text-slate-700 dark:text-white">Recommander les constantes</span><span class="mt-0.5 block text-xs text-slate-400">Ouvre la section clinique par défaut, sans inventer de valeur obligatoire.</span></span>
+                                    </label>
+                                </div>
+                                <FormError v-if="itemForm.errors.care_requires_allergy_check">{{ itemForm.errors.care_requires_allergy_check }}</FormError>
+                                <FormError v-if="itemForm.errors.care_recommends_vitals">{{ itemForm.errors.care_recommends_vitals }}</FormError>
                             </div>
                         </div>
 

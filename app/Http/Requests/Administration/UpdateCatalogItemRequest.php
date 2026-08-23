@@ -35,6 +35,8 @@ class UpdateCatalogItemRequest extends FormRequest
                 Rule::requiredIf($this->boolean('reception_selectable')),
                 new Enum(ReceptionRoutingMode::class),
             ],
+            'care_requires_allergy_check' => ['sometimes', 'boolean'],
+            'care_recommends_vitals' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string', 'max:2000'],
         ];
     }

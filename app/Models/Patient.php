@@ -33,7 +33,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'sex', 'civility', 'identity_document_type', 'identity_document_number',
     'marital_status', 'children_count', 'profession', 'phone', 'email',
     'address', 'address_entry_id',
-    'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship', 'emergency_contact_email',
 ])]
 class Patient extends Model
 {

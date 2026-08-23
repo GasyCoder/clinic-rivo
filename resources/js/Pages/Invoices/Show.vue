@@ -21,7 +21,6 @@ const siteName = computed(() => page.props.site?.name ?? brandName.value);
 const legalDetails = computed(() => page.props.site?.documents ?? {});
 const publicUrl = computed(() => page.props.site?.publicUrl ?? 'https://cliniquesaintgeorges.mg');
 const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''));
-const status = computed(() => page.props.flash?.status);
 const hasDiscount = computed(() => Number(props.invoice.discount_amount ?? 0) > 0);
 const returnHref = computed(() => (props.returnToCash ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
 const returnLabel = computed(() => (props.returnToCash ? 'Retour à la caisse' : 'Retour au patient'));
@@ -109,10 +108,6 @@ onBeforeUnmount(() => {
     <Head :title="`Facture ${invoice.invoice_number}`" />
 
     <div class="invoice-page w-full space-y-3">
-        <div v-if="status" class="invoice-actions flex items-start gap-3 rounded border border-gray-200 bg-white px-4 py-2.5 text-sm leading-5 text-slate-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" role="status">
-            <Icon class="mt-0.5 shrink-0 text-lg text-green-600" name="check-circle" />
-            <span>{{ status }}</span>
-        </div>
 
         <div class="invoice-actions flex flex-wrap items-center justify-between gap-3">
             <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">

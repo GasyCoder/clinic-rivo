@@ -154,7 +154,7 @@ const designationSummary = (orientation) => {
                                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
                                     <Button size="sm" variant="white-outline">Prendre en charge</Button>
                                 </Link>
-                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" name="edit" /><span class="ms-1.5">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
+                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="orientation.status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
                             </td>
                         </tr>
                         <tr v-if="orientations.data.length === 0">
@@ -178,7 +178,7 @@ const designationSummary = (orientation) => {
                             <p class="mt-3 text-sm text-slate-500">{{ designationSummary(orientation) }}</p>
                             <div class="mt-4">
                                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="white-outline">Prendre en charge</Button></Link>
-                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" block size="sm" variant="white-outline">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</Button>
+                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" block size="sm" variant="white-outline"><Icon class="text-base" :name="orientation.status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
                             </div>
                         </div>
                     </div>

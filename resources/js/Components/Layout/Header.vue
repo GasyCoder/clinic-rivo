@@ -53,7 +53,7 @@ const logout = () => {
 
                     <div class="px-1 py-2 hidden xl:flex flex-col justify-center min-w-0">
                         <span class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
-                        <span v-if="site.name" class="text-xs text-slate-400 truncate uppercase tracking-wide">{{ site.name }}</span>
+                        <span v-if="site.name" class="text-xs text-slate-500 dark:text-slate-400 truncate uppercase tracking-wide">{{ site.name }}</span>
                     </div>
 
                     <div class="px-1 py-3.5 ms-auto">
@@ -75,7 +75,7 @@ const logout = () => {
                                     <MenuItems class="dropdown-menu absolute end-0 top-full mt-2.5 max-xs:min-w-[240px] max-xs:max-w-[240px] min-w-[260px] max-w-[260px] border border-t-3 border-gray-200 dark:border-gray-800 border-t-primary-600 dark:border-t-primary-600 bg-white dark:bg-gray-950 rounded shadow z-[1000]">
                                         <div class="px-7 py-4 border-b border-gray-200 dark:border-gray-800">
                                             <div class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ user?.name }}</div>
-                                            <div class="text-xs text-slate-400 truncate">{{ user?.email }}</div>
+                                            <div class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ user?.email }}</div>
                                         </div>
                                         <ul class="py-3">
                                             <li>
@@ -90,7 +90,7 @@ const logout = () => {
                                             <li>
                                                 <button
                                                     type="button"
-                                                    class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-400 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
+                                                    class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
                                                     @click="theme.updateMode"
                                                 >
                                                     <div class="flex dark:hidden items-center">
@@ -110,7 +110,7 @@ const logout = () => {
                                             <li>
                                                 <button
                                                     type="button"
-                                                    class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-400 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
+                                                    class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
                                                     @click="logout"
                                                 >
                                                     <Icon class="text-lg leading-none w-7" name="signout" />

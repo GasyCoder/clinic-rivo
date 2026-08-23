@@ -161,6 +161,13 @@ class ReceptionController extends Controller
                 'sex', 'civility', 'identity_document_type', 'identity_document_number',
                 'marital_status', 'children_count', 'profession', 'phone', 'email',
                 'address_entry_uuid', 'new_address_label',
+            ]);
+
+            // ADR-034: the contact reachable for this patient can differ
+            // from one passage to the next, so it belongs to the episode
+            // being opened here — for a new patient and a returning one
+            // alike — not to the permanent patient record.
+            $episodeData = $request->safe()->only([
                 'emergency_contact_name', 'emergency_contact_phone',
                 'emergency_contact_email', 'emergency_contact_relationship',
             ]);
@@ -181,6 +188,7 @@ class ReceptionController extends Controller
                     'membership_number' => $request->validated('mutual_membership_number'),
                 ] : null,
                 mutualAttachments: $request->file('mutual_attachments', []),
+                episodeData: $episodeData,
             );
         } catch (DuplicatePatientException $exception) {
             return back()->withInput()->with('duplicates', $exception->matches->map(fn (Patient $patient) => [

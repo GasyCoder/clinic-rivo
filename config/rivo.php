@@ -101,6 +101,7 @@ return [
 
     'seeders' => [
         'catalog_actor' => env('RIVO_CATALOG_SEED_ACTOR'),
+        'development_users_password' => env('RIVO_DEVELOPMENT_USERS_PASSWORD', 'Rivo-Dev-2026!'),
     ],
 
     /*

@@ -17,6 +17,7 @@ defineOptions({
 const props = defineProps({
     patients: Object,
     search: String,
+    filters: Object,
 });
 
 const { can } = usePermissions();
@@ -25,6 +26,16 @@ const canUpdatePatient = computed(() => can('patients.update'));
 const canDeletePatient = computed(() => can('patients.delete'));
 
 const query = ref(props.search ?? '');
+const typeFilter = ref(props.filters?.type ?? '');
+const emergencyFilter = ref(props.filters?.emergency ?? '');
+const storedViewMode = (() => {
+    try {
+        return localStorage.getItem('rivo:patients:view');
+    } catch {
+        return null;
+    }
+})();
+const viewMode = ref(storedViewMode ?? 'list');
 const selectedUuids = ref([]);
 const deleteTargets = ref([]);
 const deleteReason = ref('');
@@ -36,9 +47,23 @@ const allCurrentSelected = computed(() => currentPageUuids.value.length > 0
     && currentPageUuids.value.every((uuid) => selectedUuids.value.includes(uuid))
 );
 
-const submitSearch = () => {
+const submitFilters = () => {
     selectedUuids.value = [];
-    router.get('/patients', { q: query.value }, { preserveState: true, replace: true });
+    router.get('/patients', {
+        q: query.value || undefined,
+        type: typeFilter.value || undefined,
+        emergency: emergencyFilter.value || undefined,
+    }, { preserveState: true, replace: true });
+};
+
+const setViewMode = (mode) => {
+    viewMode.value = mode;
+    try {
+        localStorage.setItem('rivo:patients:view', mode);
+    } catch {
+        // Private browsing or storage disabled — the toggle still works
+        // for this visit, it just won't be remembered next time.
+    }
 };
 
 const toggleCurrentPage = (checked) => {
@@ -166,13 +191,28 @@ watch(
         </div>
 
         <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                <form class="relative w-full sm:max-w-md" role="search" @submit.prevent="submitSearch">
-                    <Input v-model="query" icon="start" type="search" placeholder="Nom, numéro patient ou téléphone" autocomplete="off" />
-                    <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400" aria-label="Rechercher">
-                        <Icon class="text-lg/4.5" name="search" />
-                    </button>
-                </form>
+            <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:px-5">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <form class="relative w-full sm:w-64" role="search" @submit.prevent="submitFilters">
+                            <Input v-model="query" icon="start" type="search" placeholder="Nom, numéro patient ou téléphone" autocomplete="off" />
+                            <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400" aria-label="Rechercher">
+                                <Icon class="text-lg/4.5" name="search" />
+                            </button>
+                        </form>
+                        <span class="relative"><select v-model="typeFilter" class="h-9 appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Tous les types</option><option value="STANDARD">Standard</option><option value="MUTUAL">Mutuelle</option><option value="STAFF">Personnel</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
+                        <span class="relative"><select v-model="emergencyFilter" class="h-9 appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Toute priorité</option><option value="active">Urgence en cours</option><option value="none">Normal</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
+                    </div>
+
+                    <div class="inline-flex shrink-0 self-start rounded-md border border-gray-200 p-0.5 dark:border-gray-800" role="group" aria-label="Mode d’affichage">
+                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'list' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue liste" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">
+                            <Icon class="text-lg" name="list" />
+                        </button>
+                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'grid' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue grille" :aria-pressed="viewMode === 'grid'" @click="setViewMode('grid')">
+                            <Icon class="text-lg" name="grid-alt" />
+                        </button>
+                    </div>
+                </div>
 
                 <div v-if="canDeletePatient && selectedUuids.length" class="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2 dark:border-gray-800">
                     <span class="text-xs font-bold text-slate-600 dark:text-slate-300">
@@ -185,7 +225,7 @@ watch(
                 </div>
             </div>
 
-            <div class="overflow-x-auto">
+            <div v-if="viewMode === 'list'" class="overflow-x-auto">
                 <table class="w-full min-w-[1080px] border-collapse">
                     <caption class="sr-only">Liste des patients</caption>
                     <thead>
@@ -314,6 +354,48 @@ watch(
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div v-else class="p-4 sm:p-5">
+                <div v-if="patients.data.length === 0" class="py-8 text-center">
+                    <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900">
+                        <Icon class="text-xl" name="users" />
+                    </span>
+                    <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun patient trouvé</p>
+                    <p class="mt-1 text-xs text-slate-400">Modifiez votre recherche ou enregistrez une nouvelle arrivée.</p>
+                </div>
+                <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <article v-for="patient in patients.data" :key="patient.uuid" class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-800 dark:hover:border-gray-700">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex min-w-0 items-center gap-3">
+                                <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(patient)" aria-hidden="true" />
+                                <div class="min-w-0">
+                                    <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">{{ formatPatientName(patient) }}</Link>
+                                    <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</span>
+                                    <span class="mt-0.5 block text-xs text-slate-400">{{ patient.patient_number }}</span>
+                                </div>
+                            </div>
+                            <CheckBox v-if="canDeletePatient" :id="`patient-grid-${patient.uuid}`" size="sm" :model-value="selectedUuids.includes(patient.uuid)" :aria-label="`Sélectionner ${formatPatientName(patient)}`" @update:model-value="togglePatient(patient.uuid, $event)" />
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ patientTypeLabel(patient) }}</span>
+                            <span v-if="patient.active_emergency_episodes_count > 0" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span>
+                        </div>
+
+                        <dl class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                            <div><dt class="text-slate-400">Sexe</dt><dd class="mt-0.5 font-semibold text-slate-600 dark:text-slate-300">{{ sexLabel(patient.sex) }}</dd></div>
+                            <div><dt class="text-slate-400">Âge</dt><dd class="mt-0.5 font-semibold text-slate-600 dark:text-slate-300">{{ patientAgeSummary(patient) }}</dd></div>
+                            <div class="col-span-2"><dt class="text-slate-400">Téléphone</dt><dd class="mt-0.5 truncate font-semibold text-slate-600 dark:text-slate-300">{{ patient.phone ?? '—' }}</dd></div>
+                        </dl>
+
+                        <div class="mt-auto flex items-center gap-1.5 border-t border-gray-100 pt-3 dark:border-gray-900">
+                            <Button v-if="canViewPatient" :as="Link" :href="`/patients/${patient.uuid}`" size="sm" variant="white-outline" class="flex-1"><Icon class="text-base" name="eye" /><span class="ms-1.5">Voir</span></Button>
+                            <Button v-if="canUpdatePatient && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" icon size="sm" variant="white-outline" :aria-label="`Modifier ${formatPatientName(patient)}`" title="Modifier le patient"><Icon class="text-base" name="edit" /></Button>
+                            <Button v-if="canDeletePatient" icon size="sm" variant="danger-outline" type="button" :aria-label="`Supprimer ${formatPatientName(patient)}`" title="Supprimer le patient" @click="openDeleteDialog([patient])"><Icon class="text-base" name="trash" /></Button>
+                        </div>
+                    </article>
+                </div>
             </div>
 
             <div v-if="patients.last_page > 1" class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 p-4 dark:border-gray-900">

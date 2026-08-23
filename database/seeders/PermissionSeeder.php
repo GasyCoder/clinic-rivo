@@ -46,7 +46,7 @@ class PermissionSeeder extends Seeder
         'api.view' => 'Voir l’état des intégrations API',
 
         // CDC officiel §17, affiné par la décision projet qui sépare RH,
-        // Logistique et Gardiennage en responsabilités autonomes.
+        // Logistique, Support et Maintenance en responsabilités autonomes.
         'employees.view' => 'Voir les employés',
         'employees.create' => 'Créer un employé',
         'employees.update' => 'Modifier un employé',
@@ -233,10 +233,9 @@ class PermissionSeeder extends Seeder
         'vitals.update' => 'Modifier des constantes',
         'medical_orders.view' => 'Voir les ordres médicaux',
 
-        // CDC §16 "Chirurgie" — catalogue anesthésie, normalement rattaché
-        // à SURGERY mais explicitement demandé aussi pour NURSE (ADR-006
-        // amendé 2026-08-19) : une seule définition ici, référencée par les
-        // deux rôles dans RolePermissionSeeder.
+        // CDC §16 "Chirurgie" — catalogue anesthésie. Il appartient au rôle
+        // SURGERY et peut aussi être attribué individuellement à un compte
+        // NURSE dont le profil principal est ANESTHETIST.
         'anesthesia.view' => 'Voir les dossiers d\'anesthésie',
         'anesthesia.create' => 'Créer un dossier d\'anesthésie',
         'anesthesia.update' => 'Modifier un dossier d\'anesthésie',

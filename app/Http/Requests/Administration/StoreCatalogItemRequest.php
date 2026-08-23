@@ -41,6 +41,8 @@ class StoreCatalogItemRequest extends FormRequest
                 Rule::requiredIf($this->boolean('reception_selectable')),
                 new Enum(ReceptionRoutingMode::class),
             ],
+            'care_requires_allergy_check' => ['sometimes', 'boolean'],
+            'care_recommends_vitals' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string', 'max:2000'],
             'tariff_amount' => ['nullable', 'required_if:billable,true', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
             'mutual_tariff_amount' => ['nullable', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],

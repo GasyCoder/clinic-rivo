@@ -3,6 +3,7 @@
 namespace App\Actions\User;
 
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\Auditor;
@@ -27,7 +28,11 @@ class CreateUserAction
 
         return DB::transaction(function () use ($data, $actor) {
             $role = Role::query()->lockForUpdate()->findOrFail($data['role_id']);
+            $profile = filled($data['professional_profile_id'] ?? null)
+                ? ProfessionalProfile::query()->lockForUpdate()->find($data['professional_profile_id'])
+                : null;
             $this->guard->assertCanAssignRole($actor, $role);
+            $this->guard->assertProfileMatchesRole($role, $profile);
 
             $overrides = $data['permission_overrides'] ?? [];
 
@@ -42,6 +47,7 @@ class CreateUserAction
                 'email' => mb_strtolower($data['email']),
                 'password' => $data['password'],
                 'role_id' => $role->id,
+                'professional_profile_id' => $profile?->id,
                 'email_verified_at' => now(),
             ]);
             $user->forceFill(['active' => true])->save();
@@ -57,6 +63,7 @@ class CreateUserAction
                     'name' => $user->name,
                     'email' => $user->email,
                     'role' => $role->code,
+                    'professional_profile' => $profile?->code,
                     'active' => true,
                 ],
                 module: 'administration',
@@ -71,6 +78,16 @@ class CreateUserAction
                 actor: $actor,
             );
 
+            if ($profile) {
+                $this->auditor->record(
+                    'user.profile.assign',
+                    entity: $user,
+                    newValues: ['professional_profile' => $profile->code],
+                    module: 'administration',
+                    actor: $actor,
+                );
+            }
+
             if ($overrides !== []) {
                 $this->auditor->record(
                     'user.permissions.assign',
@@ -81,7 +98,7 @@ class CreateUserAction
                 );
             }
 
-            return $user->load(['role', 'permissions']);
+            return $user->load(['role', 'professionalProfile', 'permissions']);
         });
     }
 

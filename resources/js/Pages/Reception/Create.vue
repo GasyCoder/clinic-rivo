@@ -68,8 +68,12 @@ const allSteps = {
 };
 
 const visibleSteps = computed(() => {
+    // ADR-034: the contact reachable for this patient belongs to the
+    // passage being opened, not the permanent record — so every arrival
+    // collects it, including a returning patient or a staff member, even
+    // though those two skip the rest of the identity/contact fields.
     if (arrivalMode.value === 'existing') {
-        return [allSteps.type, allSteps.identity, allSteps.confirmation];
+        return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.confirmation];
     }
 
     if (patientCategory.value === 'STANDARD') {
@@ -77,7 +81,7 @@ const visibleSteps = computed(() => {
     }
 
     if (patientCategory.value === 'STAFF') {
-        return [allSteps.type, allSteps.identity, allSteps.coverage, allSteps.confirmation];
+        return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.coverage, allSteps.confirmation];
     }
 
     return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.coverage, allSteps.confirmation];
@@ -221,7 +225,7 @@ const chooseCategory = (category) => {
 const submitSearch = () => navigate('identite', query.value ? { q: query.value } : {});
 const pickExistingPatient = (patient) => {
     selectedPatient.value = patient;
-    navigate('confirmation');
+    navigate('contact');
 };
 
 const filteredEmployees = computed(() => {
@@ -289,11 +293,15 @@ const coverageComplete = computed(() => {
 
 const continueIdentity = () => {
     if (!identityComplete.value) return;
-    navigate(patientCategory.value === 'STAFF' ? 'couverture' : 'contact');
+    navigate('contact');
 };
 const continueContact = () => {
     if (!contactComplete.value) return;
-    navigate(patientCategory.value === 'MUTUAL' ? 'couverture' : 'confirmation');
+    if (arrivalMode.value === 'existing') {
+        navigate('confirmation');
+        return;
+    }
+    navigate(['MUTUAL', 'STAFF'].includes(patientCategory.value) ? 'couverture' : 'confirmation');
 };
 const continueCoverage = () => {
     if (coverageComplete.value) navigate('confirmation');
@@ -420,8 +428,15 @@ const returnToInvalidStep = (errors) => {
 const submitArrival = (confirmDuplicate = false) => {
     form.confirm_duplicate = confirmDuplicate;
     form.transform((data) => {
+        const emergencyContact = {
+            emergency_contact_name: data.emergency_contact_name,
+            emergency_contact_phone: data.emergency_contact_phone,
+            emergency_contact_relationship: data.emergency_contact_relationship,
+            emergency_contact_email: data.emergency_contact_email,
+        };
+
         if (arrivalMode.value === 'existing') {
-            return { patient_uuid: selectedPatient.value.uuid, is_emergency: data.is_emergency };
+            return { patient_uuid: selectedPatient.value.uuid, is_emergency: data.is_emergency, ...emergencyContact };
         }
 
         if (patientCategory.value === 'STAFF') {
@@ -429,6 +444,7 @@ const submitArrival = (confirmDuplicate = false) => {
                 patient_type: 'STAFF',
                 employee_uuid: selectedEmployee.value.uuid,
                 is_emergency: data.is_emergency,
+                ...emergencyContact,
             };
         }
 
@@ -469,8 +485,21 @@ const pathwayStatus = (episode) => {
     if (medicine) return 'En attente Médecine';
     if (care?.status === 'IN_PROGRESS') return 'En cours aux Soins';
     if (care) return 'En attente aux Soins';
+    // ADR-030 CARE_ONLY : termine parfois entièrement aux Soins sans jamais
+    // ouvrir d'orientation Médecine — à distinguer d'un parcours simplement
+    // défini mais pas encore commencé.
+    const careCompleted = orientations.some((item) => item.destination_module === 'CARE' && item.status === 'COMPLETED');
+    const medicineOrientationExists = orientations.some((item) => item.destination_module === 'MEDICINE');
+    if (careCompleted && !medicineOrientationExists) return 'Soins terminés';
     return episode.service_plan_finalized_at ? 'Parcours défini' : 'Prestations à définir';
 };
+const pathwayStatusBadgeClass = (status) => ({
+    'Soins terminés': 'border-green-200 text-green-700 dark:border-green-900 dark:text-green-300',
+    'En consultation': 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
+    'En cours aux Soins': 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
+    'En attente Médecine': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
+    'En attente aux Soins': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
+}[status] ?? 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400');
 
 const selectClass = 'block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
 </script>
@@ -615,9 +644,9 @@ const selectClass = 'block h-9 w-full appearance-none rounded border border-gray
                 </section>
 
                 <section v-else-if="currentStep === 'contact'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Coordonnées du patient</h2>
-                    <p class="mt-1 text-sm text-slate-400">Séparez les moyens de contact du bloc d’identité pour une saisie plus rapide.</p>
-                    <div class="mt-6 grid gap-5 md:grid-cols-2">
+                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">{{ arrivalMode === 'existing' || patientCategory === 'STAFF' ? 'Personne à contacter pour ce passage' : 'Coordonnées du patient' }}</h2>
+                    <p class="mt-1 text-sm text-slate-400">{{ arrivalMode === 'existing' || patientCategory === 'STAFF' ? 'Peut différer d’un passage à l’autre : à vérifier à chaque arrivée.' : 'Séparez les moyens de contact du bloc d’identité pour une saisie plus rapide.' }}</p>
+                    <div v-if="arrivalMode !== 'existing' && patientCategory !== 'STAFF'" class="mt-6 grid gap-5 md:grid-cols-2">
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Téléphone</span><IconInput v-model="form.phone" icon="call" autocomplete="tel" /><FormError v-if="form.errors.phone" class="mt-1">{{ form.errors.phone }}</FormError></label>
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Email</span><IconInput v-model="form.email" icon="mail" type="email" autocomplete="email" /><FormError v-if="form.errors.email" class="mt-1">{{ form.errors.email }}</FormError></label>
                         <div class="md:col-span-2"><div class="mb-1.5 flex items-center justify-between"><span class="text-sm font-medium text-slate-700 dark:text-white">Adresse</span><button type="button" class="inline-flex items-center gap-1 text-xs font-semibold text-primary-600" @click="toggleNewAddress"><Icon :name="showNewAddress ? 'minus' : 'plus'" />{{ showNewAddress ? 'Choisir dans la liste' : 'Ajouter une adresse' }}</button></div><div v-if="!showNewAddress" class="relative"><select :class="selectClass" :value="form.address_entry_uuid" @change="selectAddress"><option value="">Adresse non renseignée</option><option v-for="address in addressEntries" :key="address.uuid" :value="address.uuid">{{ address.label }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></div><IconInput v-else v-model="form.new_address_label" icon="map-pin" placeholder="Saisissez la nouvelle adresse" /><FormError v-if="form.errors.address_entry_uuid || form.errors.new_address_label" class="mt-1">{{ form.errors.address_entry_uuid || form.errors.new_address_label }}</FormError></div>
@@ -766,7 +795,7 @@ const selectClass = 'block h-9 w-full appearance-none rounded border border-gray
             <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900"><Icon name="clock" /></span><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Passages patients</h2><p class="mt-0.5 text-xs text-slate-400">Arrivées récentes et état du parcours clinique.</p></div></div><span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-slate-500 dark:bg-gray-900">{{ recentEpisodes.length }} affiché{{ recentEpisodes.length > 1 ? 's' : '' }}</span></div>
             <div class="flex items-center gap-3 border-b border-gray-200 bg-gray-50/50 px-5 py-3 dark:border-gray-900 dark:bg-gray-1000/30"><span class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Afficher</span><div class="inline-flex overflow-x-auto rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950"><Link v-for="option in recentFilterOptions" :key="option.value" :href="recentFilterHref(option.value)" replace preserve-scroll :class="['shrink-0 rounded px-3 py-1.5 text-xs font-semibold', activeRecentFilter === option.value ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']">{{ option.label }}</Link></div></div>
             <div v-if="!recentEpisodes.length" class="px-5 py-12 text-center"><p class="text-sm font-semibold text-slate-600 dark:text-slate-200">Aucun passage dans cette vue</p><Button class="mt-4" size="sm" @click="startArrival">Nouvelle arrivée</Button></div>
-            <div v-else class="overflow-x-auto"><table class="w-full min-w-[920px]"><thead><tr class="bg-gray-50/60 text-start text-xs uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40"><th class="px-5 py-2.5 text-start">Patient</th><th class="px-5 py-2.5 text-start">Passage</th><th class="px-5 py-2.5 text-start">Arrivée</th><th class="px-5 py-2.5 text-start">Priorité</th><th class="px-5 py-2.5 text-start">Parcours</th><th class="px-5 py-2.5 text-end">Action</th></tr></thead><tbody><tr v-for="episode in recentEpisodes" :key="episode.uuid" class="border-t border-gray-200 hover:bg-gray-50/50 dark:border-gray-900 dark:hover:bg-gray-1000/30"><td class="px-5 py-3"><div class="flex items-center gap-3"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" /><div><Link v-if="can('patients.view')" :href="`/patients/${episode.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(episode.patient) }}</Link><p class="mt-0.5 text-xs text-slate-400">{{ episode.patient.patient_number }}</p></div></div></td><td class="px-5 py-3 font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ episode.episode_number }}</td><td class="px-5 py-3"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ formatDateTime(episode.started_at) }}</span><span class="text-xs text-slate-400">{{ formatRelativeTime(episode.started_at) }}</span></td><td class="px-5 py-3"><span :class="['text-xs font-semibold', episode.priority === 'EMERGENCY' ? 'text-red-600' : 'text-slate-500']">{{ episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normale' }}</span></td><td class="px-5 py-3"><span class="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800">{{ pathwayStatus(episode) }}</span></td><td class="px-5 py-3 text-end"><Button v-if="can('episodes.update') && !episode.service_plan_finalized_at" :as="Link" :href="`/reception/passages/${episode.uuid}/prestations`" size="sm" variant="white-outline">Préparer</Button><Button v-else-if="can('patients.view')" :as="Link" :href="`/patients/${episode.patient.uuid}`" icon size="sm" variant="white-outline"><Icon name="eye" /></Button></td></tr></tbody></table></div>
+            <div v-else class="overflow-x-auto"><table class="w-full min-w-[920px]"><thead><tr class="bg-gray-50/60 text-start text-xs uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40"><th class="px-5 py-2.5 text-start">Patient</th><th class="px-5 py-2.5 text-start">Passage</th><th class="px-5 py-2.5 text-start">Arrivée</th><th class="px-5 py-2.5 text-start">Priorité</th><th class="px-5 py-2.5 text-start">Parcours</th><th class="px-5 py-2.5 text-end">Action</th></tr></thead><tbody><tr v-for="episode in recentEpisodes" :key="episode.uuid" class="border-t border-gray-200 hover:bg-gray-50/50 dark:border-gray-900 dark:hover:bg-gray-1000/30"><td class="px-5 py-3"><div class="flex items-center gap-3"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" /><div><Link v-if="can('patients.view')" :href="`/patients/${episode.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(episode.patient) }}</Link><p class="mt-0.5 text-xs text-slate-400">{{ episode.patient.patient_number }}</p></div></div></td><td class="px-5 py-3 font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ episode.episode_number }}</td><td class="px-5 py-3"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ formatDateTime(episode.started_at) }}</span><span class="text-xs text-slate-400">{{ formatRelativeTime(episode.started_at) }}</span></td><td class="px-5 py-3"><span :class="['text-xs font-semibold', episode.priority === 'EMERGENCY' ? 'text-red-600' : 'text-slate-500']">{{ episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normale' }}</span></td><td class="px-5 py-3"><span :class="['rounded border px-2 py-1 text-xs font-semibold', pathwayStatusBadgeClass(pathwayStatus(episode))]">{{ pathwayStatus(episode) }}</span></td><td class="px-5 py-3 text-end"><Button v-if="can('episodes.update') && !episode.service_plan_finalized_at" :as="Link" :href="`/reception/passages/${episode.uuid}/prestations`" size="sm" variant="white-outline">Préparer</Button><Button v-else-if="can('patients.view')" :as="Link" :href="`/patients/${episode.patient.uuid}`" icon size="sm" variant="white-outline"><Icon name="eye" /></Button></td></tr></tbody></table></div>
         </Card>
     </div>
 

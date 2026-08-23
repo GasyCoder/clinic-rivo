@@ -22,7 +22,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
 - [x] Permissions et exceptions individuelles auditées
-- [x] Rôles autonomes Administration/RH, Logistique et Gardien
+- [x] Rôles autonomes Administration/RH et Logistique
+- [x] Profils professionnels NURSE, SUPPORT et MAINTENANCE sans droits implicites
+- [x] Permissions supplémentaires affectées individuellement par compte
 - [x] Séparation stricte des comptes Super Admin et des comptes opérationnels
 - [ ] Soft Delete
 - [ ] Audit

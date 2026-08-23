@@ -8,10 +8,9 @@ use Illuminate\Database\Seeder;
 class RoleSeeder extends Seeder
 {
     /**
-     * The fixed set of principal roles (ADR-006 / CDC §9), extended by the
-     * explicit project decisions for NURSE, LOGISTICS and GUARD. Logistics
-     * and guarding are independent operational responsibilities: neither is
-     * an alias granting every ADMINISTRATION permission.
+     * Principal security domains. A role provides only the shared baseline;
+     * ProfessionalProfileSeeder classifies the job and proposes additional
+     * permissions that are assigned to individual accounts.
      *
      * @var array<string, string>
      */
@@ -19,10 +18,11 @@ class RoleSeeder extends Seeder
         'SUPER_ADMIN' => 'Super Administrateur',
         'ADMINISTRATION' => 'Administration / RH',
         'LOGISTICS' => 'Logistique',
-        'GUARD' => 'Gardien',
+        'SUPPORT' => 'Support',
+        'MAINTENANCE' => 'Maintenance',
         'RECEPTION' => 'Réception / Caisse',
         'MEDICINE' => 'Médecine',
-        'NURSE' => 'Infirmier / Sage-femme',
+        'NURSE' => 'Soins paramédicaux',
         'SURGERY' => 'Chirurgie',
         'PHARMACY' => 'Pharmacie',
         'LABORATORY' => 'Laboratoire',

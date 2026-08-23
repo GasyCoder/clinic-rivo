@@ -2,11 +2,12 @@
 
 namespace App\Support;
 
-use App\Enums\ReceptionRoutingMode;
 use App\Models\EpisodeOrientation;
 
 class EpisodeQueuePresenter
 {
+    public function __construct(private readonly CareWorkflow $careWorkflow) {}
+
     /** @return array<string, mixed> */
     public function present(EpisodeOrientation $orientation): array
     {
@@ -15,12 +16,7 @@ class EpisodeQueuePresenter
         $serviceRequests = $episode->relationLoaded('serviceRequests')
             ? $episode->serviceRequests
             : collect();
-        $careCompletionMode = $episode->designation_deferred
-            ? 'CHOICE'
-            : ($serviceRequests->contains(fn ($request) => in_array($request->routing_mode, [
-                ReceptionRoutingMode::MedicineDirect,
-                ReceptionRoutingMode::CareThenMedicine,
-            ], true)) ? 'MEDICINE' : 'FINISH');
+        $careCompletionMode = $this->careWorkflow->completionMode($episode);
 
         return [
             'uuid' => $orientation->uuid,
@@ -41,7 +37,10 @@ class EpisodeQueuePresenter
                 'started_at' => $episode->started_at,
                 'administrative_status' => $episode->administrative_status->value,
                 'designation_deferred' => $episode->designation_deferred,
-                'care_completion_mode' => $careCompletionMode,
+                'care_completion_mode' => $careCompletionMode->value,
+                'care_transmission_expected' => $this->careWorkflow->expectsMedicalTransmission($episode),
+                'care_vitals_recommended' => $this->careWorkflow->recommendsRoutineVitals($episode),
+                'care_requires_allergy_check' => $this->careWorkflow->requiresAllergyCheck($episode),
                 'patient' => [
                     'uuid' => $patient->uuid,
                     'patient_number' => $patient->patient_number,
@@ -57,6 +56,8 @@ class EpisodeQueuePresenter
                 'designations' => $serviceRequests->isNotEmpty()
                     ? $serviceRequests->map(fn ($request) => [
                         'uuid' => $request->uuid,
+                        'catalog_item_uuid' => $request->catalog_item_uuid,
+                        'code' => $request->catalog_code,
                         'description' => $request->designation,
                         'module' => $request->module->value,
                         'quantity' => $request->quantity,
@@ -65,6 +66,8 @@ class EpisodeQueuePresenter
                             : Money::fromMinor(Money::multiply($request->quantity, $request->unit_price)),
                         'currency' => $request->currency,
                         'routing_mode' => $request->routing_mode->value,
+                        'care_requires_allergy_check' => $request->care_requires_allergy_check,
+                        'care_recommends_vitals' => $request->care_recommends_vitals,
                     ])->values()->all()
                     : $episode->billableItems
                         ->filter(fn ($item) => $item->status->value !== 'CANCELLED')

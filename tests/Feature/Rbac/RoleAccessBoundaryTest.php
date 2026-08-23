@@ -68,9 +68,13 @@ class RoleAccessBoundaryTest extends TestCase
                 'allowed' => ['/logistics'],
                 'denied' => ['/administration', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
             ],
-            'GUARD' => [
-                'allowed' => ['/reception/visitors'],
-                'denied' => ['/administration', '/logistics', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+            'SUPPORT' => [
+                'allowed' => [],
+                'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+            ],
+            'MAINTENANCE' => [
+                'allowed' => [],
+                'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
             ],
             'PHARMACY' => [
                 'allowed' => ['/pharmacy'],
@@ -124,7 +128,7 @@ class RoleAccessBoundaryTest extends TestCase
             ])->assertForbidden();
         }
 
-        foreach (['ADMINISTRATION', 'LOGISTICS', 'GUARD', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
+        foreach (['ADMINISTRATION', 'LOGISTICS', 'SUPPORT', 'MAINTENANCE', 'SURGERY', 'PHARMACY', 'LABORATORY'] as $roleCode) {
             $unauthorized = $this->user($roleCode);
 
             $this->actingAs($unauthorized)->get('/patients')->assertForbidden();
@@ -160,5 +164,21 @@ class RoleAccessBoundaryTest extends TestCase
             'id' => $patient->id,
             'deleted_at' => null,
         ]);
+    }
+
+    public function test_support_guard_access_is_granted_to_the_account_not_the_whole_role(): void
+    {
+        $guard = $this->user('SUPPORT');
+        $cleaner = $this->user('SUPPORT');
+        $permissions = Permission::query()
+            ->whereIn('name', ['visitors.view', 'visitors.create'])
+            ->pluck('id')
+            ->mapWithKeys(fn (int $id) => [$id => ['effect' => 'allow']])
+            ->all();
+
+        $guard->permissions()->attach($permissions);
+
+        $this->actingAs($guard)->get('/reception/visitors')->assertOk();
+        $this->actingAs($cleaner)->get('/reception/visitors')->assertForbidden();
     }
 }

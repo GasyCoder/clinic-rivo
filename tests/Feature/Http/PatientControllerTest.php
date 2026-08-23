@@ -102,6 +102,43 @@ class PatientControllerTest extends TestCase
             );
     }
 
+    public function test_index_supports_the_type_and_emergency_filters(): void
+    {
+        $user = $this->userWithPermissions(['patients.view']);
+        $standard = Patient::create(['patient_number' => 'M-000001', ...$this->patientData(['last_name' => 'Rakoto']), 'patient_type' => PatientType::Standard->value]);
+        $mutual = Patient::create(['patient_number' => 'M-000002', ...$this->patientData(['last_name' => 'Rasoa']), 'patient_type' => PatientType::Mutual->value]);
+        Episode::create([
+            'patient_id' => $standard->id,
+            'episode_number' => 'ME-000001',
+            'status' => 'OPEN',
+            'priority' => 'EMERGENCY',
+            'administrative_status' => 'ORIENTED',
+            'started_at' => now(),
+            'created_by' => $user->id,
+        ]);
+
+        $this->actingAs($user)->get('/patients?type=MUTUAL')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 1)
+                ->where('patients.data.0.uuid', $mutual->uuid)
+                ->where('filters.type', 'MUTUAL'));
+
+        $this->actingAs($user)->get('/patients?emergency=active')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 1)
+                ->where('patients.data.0.uuid', $standard->uuid));
+
+        $this->actingAs($user)->get('/patients?emergency=none')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 1)
+                ->where('patients.data.0.uuid', $mutual->uuid));
+
+        $this->actingAs($user)->get('/patients?type=bogus')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 2)
+                ->where('filters.type', null));
+    }
+
     public function test_there_is_no_creation_route_on_the_read_only_directory(): void
     {
         $user = $this->userWithPermissions(['patients.view']);

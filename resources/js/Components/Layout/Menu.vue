@@ -121,7 +121,7 @@ const closeMobile = () => {
                 v-if="item.heading"
                 class="relative first:pt-1 pt-10 pb-2 px-6 before:absolute before:h-px before:w-full before:start-0 before:top-1/2 before:bg-gray-200 dark:before:bg-gray-900 first:before:hidden before:opacity-0 group-[&.is-compact:not(.has-hover)]/sidebar:before:opacity-100"
             >
-                <h6 class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 text-slate-400 dark:text-slate-300 whitespace-nowrap uppercase font-bold text-xs tracking-relaxed leading-tight">
+                <h6 class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 text-slate-500 dark:text-slate-300 whitespace-nowrap uppercase font-bold text-xs tracking-relaxed leading-tight">
                     {{ item.heading }}
                 </h6>
             </li>
@@ -135,7 +135,7 @@ const closeMobile = () => {
                         <span class="w-9 shrink-0 text-slate-400 group-[.active]/item:text-primary-500">
                             <Icon class="text-2xl leading-none" :name="item.icon" />
                         </span>
-                        <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-1 truncate text-slate-600 dark:text-slate-500 group-[.active]/item:text-primary-500">
+                        <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300 group-[.active]/item:text-primary-500">
                             {{ item.text }}
                         </span>
                         <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 ms-2 flex items-center gap-2">
@@ -150,7 +150,7 @@ const closeMobile = () => {
                         <li v-for="child in item.children" :key="child.code">
                             <Link
                                 :href="child.link"
-                                :class="['block rounded px-3 py-1.5 text-xs transition-colors', isChildActive(child) ? 'bg-gray-100 font-bold text-primary-600 dark:bg-gray-900 dark:text-primary-400' : 'text-slate-500 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-gray-900 dark:hover:text-slate-300']"
+                                :class="['block rounded px-3 py-1.5 text-xs transition-colors', isChildActive(child) ? 'bg-gray-100 font-bold text-primary-600 dark:bg-gray-900 dark:text-primary-400' : 'text-slate-500 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-900 dark:hover:text-slate-300']"
                                 @click="closeMobile"
                             >
                                 {{ child.label }}
@@ -168,7 +168,7 @@ const closeMobile = () => {
                     <span class="font-normal tracking-normal w-9 inline-flex flex-grow-0 flex-shrink-0 text-slate-400 group-[.active]/item:text-primary-500 group-hover:text-primary-500">
                         <Icon class="text-2xl leading-none text-current transition-all duration-300" :name="item.icon" />
                     </span>
-                    <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 flex-grow-1 inline-block whitespace-nowrap transition-all duration-300 text-slate-600 dark:text-slate-500 group-[.active]/item:text-primary-500 group-hover:text-primary-500">
+                    <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 flex-grow-1 inline-block whitespace-nowrap transition-all duration-300 text-slate-600 dark:text-slate-300 group-[.active]/item:text-primary-500 group-hover:text-primary-500">
                         {{ item.text }}
                     </span>
                 </Link>

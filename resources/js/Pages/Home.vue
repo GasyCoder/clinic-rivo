@@ -20,7 +20,7 @@ defineOptions({
                 Tableau de bord
             </h1>
 
-            <p class="mt-1 text-sm text-slate-500">
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 Vue générale de la Clinique Saint Georges
             </p>
         </div>
@@ -35,7 +35,7 @@ defineOptions({
                        bg-white p-5 dark:border-gray-900
                        dark:bg-gray-950"
             >
-                <div class="text-sm text-slate-500">
+                <div class="text-sm font-medium text-slate-500 dark:text-slate-400">
                     Patients aujourd'hui
                 </div>
 
@@ -53,7 +53,7 @@ defineOptions({
                        bg-white p-5 dark:border-gray-900
                        dark:bg-gray-950"
             >
-                <div class="text-sm text-slate-500">
+                <div class="text-sm font-medium text-slate-500 dark:text-slate-400">
                     Consultations
                 </div>
 
@@ -71,7 +71,7 @@ defineOptions({
                        bg-white p-5 dark:border-gray-900
                        dark:bg-gray-950"
             >
-                <div class="text-sm text-slate-500">
+                <div class="text-sm font-medium text-slate-500 dark:text-slate-400">
                     Analyses laboratoire
                 </div>
 
@@ -89,7 +89,7 @@ defineOptions({
                        bg-white p-5 dark:border-gray-900
                        dark:bg-gray-950"
             >
-                <div class="text-sm text-slate-500">
+                <div class="text-sm font-medium text-slate-500 dark:text-slate-400">
                     Recettes du jour
                 </div>
 

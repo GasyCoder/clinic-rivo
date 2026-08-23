@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -27,9 +27,7 @@ const props = defineProps({
     recentSessions: Array,
 });
 
-const page = usePage();
 const { can } = usePermissions();
-const status = computed(() => page.props.flash?.status);
 const activeLedgerTab = ref(can('billing.view') ? 'invoices' : 'payments');
 const invoiceSearch = ref('');
 const showCloseForm = ref(false);
@@ -115,10 +113,6 @@ const recordPayment = () => {
                 <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="users" /><span class="ms-2">Patients</span></Button>
             </div>
         </header>
-
-        <div v-if="status" class="flex items-start gap-3 rounded border border-green-200 bg-white px-4 py-2.5 text-sm text-slate-600 dark:border-green-900 dark:bg-gray-950 dark:text-slate-300" role="status">
-            <Icon class="mt-0.5 shrink-0 text-lg text-green-600" name="check-circle" /><span>{{ status }}</span>
-        </div>
 
         <section v-if="cashSession" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">

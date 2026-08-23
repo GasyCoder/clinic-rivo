@@ -3,6 +3,7 @@
 namespace App\Actions\User;
 
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\Auditor;
@@ -26,12 +27,17 @@ class UpdateUserAction
         }
 
         return DB::transaction(function () use ($user, $data, $actor) {
-            $user = User::query()->with(['role', 'permissions'])->lockForUpdate()->findOrFail($user->id);
+            $user = User::query()->with(['role', 'professionalProfile', 'permissions'])->lockForUpdate()->findOrFail($user->id);
             $role = Role::query()->lockForUpdate()->findOrFail($data['role_id']);
+            $profile = filled($data['professional_profile_id'] ?? null)
+                ? ProfessionalProfile::query()->lockForUpdate()->find($data['professional_profile_id'])
+                : null;
 
             $this->guard->assertCanManageTarget($actor, $user);
             $this->guard->assertCanAssignRole($actor, $role);
+            $this->guard->assertProfileMatchesRole($role, $profile);
             $this->guard->assertCanChangeOwnRole($actor, $user, $role);
+            $this->guard->assertCanChangeOwnProfile($actor, $user, $profile);
             $this->guard->assertLastActiveSuperAdminPreserved($user, $role);
 
             $hasOverrides = array_key_exists('permission_overrides', $data);
@@ -50,6 +56,7 @@ class UpdateUserAction
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role?->code,
+                'professional_profile' => $user->professionalProfile?->code,
             ];
             $oldOverrides = $user->permissions->map(fn ($permission) => [
                 'permission' => $permission->name,
@@ -61,6 +68,7 @@ class UpdateUserAction
                 'name' => $data['name'],
                 'email' => mb_strtolower($data['email']),
                 'role_id' => $role->id,
+                'professional_profile_id' => $profile?->id,
             ]);
 
             if ($passwordChanged) {
@@ -78,6 +86,7 @@ class UpdateUserAction
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $role->code,
+                'professional_profile' => $profile?->code,
             ];
 
             if ($oldValues !== $newValues) {
@@ -97,6 +106,17 @@ class UpdateUserAction
                     entity: $user,
                     newValues: ['role' => $newValues['role']],
                     oldValues: ['role' => $oldValues['role']],
+                    module: 'administration',
+                    actor: $actor,
+                );
+            }
+
+            if ($oldValues['professional_profile'] !== $newValues['professional_profile']) {
+                $this->auditor->record(
+                    'user.profile.assign',
+                    entity: $user,
+                    newValues: ['professional_profile' => $newValues['professional_profile']],
+                    oldValues: ['professional_profile' => $oldValues['professional_profile']],
                     module: 'administration',
                     actor: $actor,
                 );
@@ -131,7 +151,7 @@ class UpdateUserAction
                 );
             }
 
-            return $user->load(['role', 'permissions']);
+            return $user->load(['role', 'professionalProfile', 'permissions']);
         });
     }
 

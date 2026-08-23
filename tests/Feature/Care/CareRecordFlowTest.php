@@ -5,9 +5,11 @@ namespace Tests\Feature\Care;
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
+use App\Enums\AllergenCategory;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
+use App\Models\AllergenReference;
 use App\Models\CareRecord;
 use App\Models\CareRecordProcedure;
 use App\Models\CatalogItem;
@@ -28,6 +30,7 @@ class CareRecordFlowTest extends TestCase
         $nurse = $this->userWithPermissions([
             'care.view', 'care.create', 'care.update', 'care.complete',
             'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view', 'patients.medical_history.manage',
         ]);
         [$orientation, $procedure] = $this->activeCareOrientation($nurse);
 
@@ -123,6 +126,145 @@ class CareRecordFlowTest extends TestCase
             'module' => 'care',
             'entity_type' => CareRecord::class,
         ]);
+    }
+
+    public function test_nurse_selects_a_known_allergy_and_adds_a_new_one_to_the_patient_record(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view', 'patients.medical_history.manage',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+        $patient = $orientation->episode->patient;
+        $known = $patient->allergies()->create([
+            'substance' => 'Pénicilline',
+            'reaction' => 'Urticaire',
+            'severity' => 'MODERATE',
+            'recorded_by' => $nurse->id,
+        ]);
+
+        $this->actingAs($nurse)->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('capabilities.can_view_allergies', true)
+                ->where('capabilities.can_manage_allergies', true)
+                ->has('patientAllergies', 1)
+                ->where('patientAllergies.0.uuid', $known->uuid)
+            );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'allergy_uuids' => [$known->uuid],
+            'new_allergies' => [[
+                'substance' => 'Arachides',
+                'reaction' => 'Dyspnée',
+                'severity' => 'SEVERE',
+            ]],
+            'allergy_note' => 'Informations confirmées pendant le passage.',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('patient_allergies', [
+            'patient_id' => $patient->id,
+            'substance' => 'Arachides',
+            'reaction' => 'Dyspnée',
+            'severity' => 'SEVERE',
+            'recorded_by' => $nurse->id,
+        ]);
+
+        $record = CareRecord::query()->sole();
+        $this->assertSame(
+            ['Pénicilline', 'Arachides'],
+            collect($record->allergy_snapshot)->pluck('substance')->all(),
+        );
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'create',
+            'module' => 'medical',
+            'user_id' => $nurse->id,
+        ]);
+    }
+
+    public function test_nurse_can_select_an_allergen_from_the_reference_for_a_new_patient(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view', 'patients.medical_history.manage',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+        $patient = $orientation->episode->patient;
+        $reference = AllergenReference::query()->create([
+            'code' => 'LATEX',
+            'name' => 'Latex',
+            'category' => AllergenCategory::Material,
+            'active' => true,
+        ]);
+
+        $this->actingAs($nurse)->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->has('allergenReference', 1)
+                ->where('allergenReference.0.uuid', $reference->uuid)
+                ->where('allergenReference.0.category_label', 'Matériaux')
+                ->has('patientAllergies', 0)
+            );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'allergen_reference_uuids' => [$reference->uuid],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('patient_allergies', [
+            'patient_id' => $patient->id,
+            'allergen_reference_id' => $reference->id,
+            'substance' => 'Latex',
+            'recorded_by' => $nurse->id,
+        ]);
+        $this->assertSame(
+            ['Latex'],
+            collect(CareRecord::query()->sole()->allergy_snapshot)->pluck('substance')->all(),
+        );
+    }
+
+    public function test_an_allergy_from_another_patient_cannot_be_selected(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+        $foreignAllergy = $this->patient()->allergies()->create(['substance' => 'Latex']);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'allergy_uuids' => [$foreignAllergy->uuid],
+        ])->assertSessionHasErrors('allergy_uuids.0');
+
+        $this->assertDatabaseCount('care_records', 0);
+    }
+
+    public function test_adding_a_permanent_allergy_requires_medical_history_manage_permission(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'new_allergies' => [['substance' => 'Latex']],
+        ])->assertForbidden();
+
+        $reference = AllergenReference::query()->create([
+            'code' => 'LATEX',
+            'name' => 'Latex',
+            'category' => AllergenCategory::Material,
+            'active' => true,
+        ]);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'allergen_reference_uuids' => [$reference->uuid],
+        ])->assertForbidden();
+
+        $this->assertDatabaseCount('patient_allergies', 0);
+        $this->assertDatabaseCount('care_records', 0);
     }
 
     public function test_other_procedure_requires_a_description(): void

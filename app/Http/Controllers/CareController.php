@@ -9,6 +9,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Http\Requests\UpdateCareRecordRequest;
+use App\Models\AllergenReference;
 use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\EpisodeOrientation;
@@ -102,14 +103,50 @@ class CareController extends Controller
         $record = $episodeOrientation->episode->careRecord;
         $patientAge = $this->patientAgeAtEpisode($episodeOrientation);
         $canViewVitals = $request->user()->can('vitals.view');
+        $canViewAllergies = $request->user()->can('patients.medical_history.view');
+        $canManageAllergies = $request->user()->can('patients.medical_history.manage');
+
+        if ($canViewAllergies) {
+            $episodeOrientation->episode->patient->load('allergies');
+        }
+
         $canEdit = $episodeOrientation->status === EpisodeOrientationStatus::InProgress
             && $request->user()->can($record ? 'care.update' : 'care.create')
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
 
         return Inertia::render('Care/Show', [
             'orientation' => $presenter->present($episodeOrientation),
-            'careRecord' => $this->recordPayload($record, $canViewVitals, $bmiAssessment, $patientAge),
+            'careRecord' => $this->recordPayload(
+                $record,
+                $canViewVitals,
+                $canViewAllergies,
+                $bmiAssessment,
+                $patientAge,
+            ),
             'bmiReference' => $canViewVitals ? $bmiAssessment->reference($patientAge) : null,
+            'patientAllergies' => $canViewAllergies
+                ? $episodeOrientation->episode->patient->allergies->map(fn ($allergy) => [
+                    'uuid' => $allergy->uuid,
+                    'substance' => $allergy->substance,
+                    'reaction' => $allergy->reaction,
+                    'severity' => $allergy->severity?->value,
+                ])->values()
+                : [],
+            'allergenReference' => $canManageAllergies
+                ? AllergenReference::query()
+                    ->where('active', true)
+                    ->orderBy('category')
+                    ->orderBy('name')
+                    ->get(['uuid', 'code', 'name', 'category'])
+                    ->map(fn (AllergenReference $reference) => [
+                        'uuid' => $reference->uuid,
+                        'code' => $reference->code,
+                        'name' => $reference->name,
+                        'category' => $reference->category->value,
+                        'category_label' => $reference->category->label(),
+                    ])
+                    ->values()
+                : [],
             'procedureCatalog' => CatalogItem::query()
                 ->where('type', CatalogItemType::Service->value)
                 ->where('module', CatalogModule::Care->value)
@@ -123,6 +160,8 @@ class CareController extends Controller
                 ]),
             'capabilities' => [
                 'can_view_vitals' => $canViewVitals,
+                'can_view_allergies' => $canViewAllergies,
+                'can_manage_allergies' => $canManageAllergies,
                 'can_edit' => $canEdit,
                 'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
                     && $request->user()->can('care.complete'),
@@ -182,6 +221,7 @@ class CareController extends Controller
     private function recordPayload(
         ?CareRecord $record,
         bool $canViewVitals,
+        bool $canViewAllergies,
         BmiAssessment $bmiAssessment,
         ?int $patientAge,
     ): ?array {
@@ -197,8 +237,11 @@ class CareController extends Controller
                 'weight_kg' => $record->weight_kg,
                 'bmi' => $record->bmi,
                 'bmi_assessment' => $bmiAssessment->classify($record->bmi, $patientAge),
-                'allergy_note' => $record->allergy_note,
                 'smoker' => $record->smoker,
+            ] : []),
+            ...($canViewAllergies ? [
+                'allergy_note' => $record->allergy_note,
+                'allergy_snapshot' => $record->allergy_snapshot ?? [],
             ] : []),
             'hospitalization_reason' => $record->hospitalization_reason,
             'hospitalized_at' => $record->hospitalized_at?->format('Y-m-d\TH:i'),

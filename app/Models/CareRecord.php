@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 #[Fillable([
     'episode_id', 'blood_group', 'height_cm', 'weight_kg', 'bmi',
-    'allergy_note', 'smoker', 'hospitalization_reason', 'hospitalized_at',
+    'allergy_note', 'allergy_snapshot', 'smoker', 'hospitalization_reason', 'hospitalized_at',
     'discharged_at', 'diagnostic_note', 'transmission_reason',
     'created_by', 'updated_by',
 ])]
@@ -30,6 +30,7 @@ class CareRecord extends Model
             'height_cm' => 'decimal:2',
             'weight_kg' => 'decimal:2',
             'bmi' => 'decimal:2',
+            'allergy_snapshot' => 'array',
             'smoker' => 'boolean',
             'hospitalized_at' => 'datetime',
             'discharged_at' => 'datetime',

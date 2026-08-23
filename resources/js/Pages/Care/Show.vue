@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -16,6 +16,8 @@ const props = defineProps({
     orientation: Object,
     careRecord: Object,
     bmiReference: Object,
+    patientAllergies: Array,
+    allergenReference: Array,
     procedureCatalog: Array,
     capabilities: Object,
 });
@@ -29,6 +31,9 @@ const form = useForm({
     height_cm: props.careRecord?.height_cm ?? '',
     weight_kg: props.careRecord?.weight_kg ?? '',
     allergy_note: props.careRecord?.allergy_note ?? '',
+    allergy_uuids: props.careRecord?.allergy_snapshot?.map((allergy) => allergy.uuid) ?? [],
+    allergen_reference_uuids: [],
+    new_allergies: [],
     smoker: props.careRecord?.smoker === true ? '1' : props.careRecord?.smoker === false ? '0' : '',
     hospitalization_reason: props.careRecord?.hospitalization_reason ?? '',
     hospitalized_at: props.careRecord?.hospitalized_at ?? '',
@@ -37,6 +42,104 @@ const form = useForm({
     transmission_reason: props.careRecord?.transmission_reason ?? '',
     procedures: [],
 });
+
+const severityLabels = { MILD: 'Légère', MODERATE: 'Modérée', SEVERE: 'Sévère' };
+const showNewAllergy = ref(false);
+const allergenReferenceSelection = ref('');
+const newAllergyError = ref('');
+const newAllergy = reactive({ substance: '', reaction: '', severity: '' });
+
+const normalizeAllergyName = (value) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr');
+const selectedAllergenReferences = computed(() => props.allergenReference.filter(
+    (reference) => form.allergen_reference_uuids.includes(reference.uuid),
+));
+const availableAllergenGroups = computed(() => {
+    const knownNames = new Set(props.patientAllergies.map((allergy) => normalizeAllergyName(allergy.substance)));
+    const groups = new Map();
+
+    props.allergenReference
+        .filter((reference) => !knownNames.has(normalizeAllergyName(reference.name)))
+        .filter((reference) => !form.allergen_reference_uuids.includes(reference.uuid))
+        .forEach((reference) => {
+            if (!groups.has(reference.category)) {
+                groups.set(reference.category, {
+                    code: reference.category,
+                    label: reference.category_label,
+                    items: [],
+                });
+            }
+            groups.get(reference.category).items.push(reference);
+        });
+
+    return [...groups.values()];
+});
+
+const addAllergenReference = () => {
+    if (!allergenReferenceSelection.value) return;
+    if (!form.allergen_reference_uuids.includes(allergenReferenceSelection.value)) {
+        form.allergen_reference_uuids.push(allergenReferenceSelection.value);
+    }
+    allergenReferenceSelection.value = '';
+};
+
+const removeAllergenReference = (uuid) => {
+    const index = form.allergen_reference_uuids.indexOf(uuid);
+    if (index >= 0) form.allergen_reference_uuids.splice(index, 1);
+};
+
+const allergySelected = (uuid) => form.allergy_uuids.includes(uuid);
+const toggleAllergy = (uuid) => {
+    if (!props.capabilities.can_edit || !props.capabilities.can_view_allergies) return;
+    const index = form.allergy_uuids.indexOf(uuid);
+    if (index >= 0) form.allergy_uuids.splice(index, 1);
+    else form.allergy_uuids.push(uuid);
+};
+
+const resetNewAllergy = () => {
+    newAllergy.substance = '';
+    newAllergy.reaction = '';
+    newAllergy.severity = '';
+    newAllergyError.value = '';
+    showNewAllergy.value = false;
+};
+
+const addNewAllergy = () => {
+    const substance = newAllergy.substance.trim().replace(/\s+/g, ' ');
+    if (!substance) {
+        newAllergyError.value = 'Indiquez la substance ou le produit allergène.';
+        return;
+    }
+
+    const normalized = normalizeAllergyName(substance);
+    const existing = props.patientAllergies.find((allergy) => normalizeAllergyName(allergy.substance) === normalized);
+    if (existing) {
+        if (!allergySelected(existing.uuid)) form.allergy_uuids.push(existing.uuid);
+        resetNewAllergy();
+        return;
+    }
+
+    const reference = props.allergenReference.find((item) => normalizeAllergyName(item.name) === normalized);
+    if (reference) {
+        if (!form.allergen_reference_uuids.includes(reference.uuid)) {
+            form.allergen_reference_uuids.push(reference.uuid);
+        }
+        resetNewAllergy();
+        return;
+    }
+
+    const alreadyQueued = form.new_allergies.some((allergy) => normalizeAllergyName(allergy.substance) === normalized);
+    if (!alreadyQueued) {
+        form.new_allergies.push({
+            substance,
+            reaction: newAllergy.reaction.trim() || null,
+            severity: newAllergy.severity || null,
+        });
+    }
+
+    resetNewAllergy();
+};
+
+const removeNewAllergy = (index) => form.new_allergies.splice(index, 1);
 
 const bmi = computed(() => {
     const height = Number(form.height_cm);
@@ -101,23 +204,42 @@ const toggleProcedure = (item) => {
 
 const procedureError = (index, field) => form.errors[`procedures.${index}.${field}`];
 const submit = () => {
-    form.transform((data) => ({
-        ...data,
-        blood_group: data.blood_group || null,
-        height_cm: data.height_cm || null,
-        weight_kg: data.weight_kg || null,
-        smoker: data.smoker === '' ? null : data.smoker === '1',
-        hospitalized_at: data.hospitalized_at || null,
-        discharged_at: data.discharged_at || null,
-        procedures: data.procedures.map(({ catalog_item_uuid, quantity, notes }) => ({
-            catalog_item_uuid,
-            quantity,
-            notes,
-        })),
-    })).put(`/care/orientations/${props.orientation.uuid}/record`, {
+    form.transform((data) => {
+        const payload = {
+            ...data,
+            blood_group: data.blood_group || null,
+            height_cm: data.height_cm || null,
+            weight_kg: data.weight_kg || null,
+            smoker: data.smoker === '' ? null : data.smoker === '1',
+            hospitalized_at: data.hospitalized_at || null,
+            discharged_at: data.discharged_at || null,
+            procedures: data.procedures.map(({ catalog_item_uuid, quantity, notes }) => ({
+                catalog_item_uuid,
+                quantity,
+                notes,
+            })),
+        };
+
+        if (!props.capabilities.can_view_allergies) {
+            delete payload.allergy_note;
+            delete payload.allergy_uuids;
+            delete payload.allergen_reference_uuids;
+            delete payload.new_allergies;
+        } else if (!props.capabilities.can_manage_allergies) {
+            delete payload.allergen_reference_uuids;
+            delete payload.new_allergies;
+        }
+
+        return payload;
+    }).put(`/care/orientations/${props.orientation.uuid}/record`, {
         preserveScroll: true,
         onSuccess: () => {
             form.procedures = [];
+            form.allergy_uuids = props.careRecord?.allergy_snapshot?.map((allergy) => allergy.uuid) ?? [];
+            form.allergen_reference_uuids = [];
+            form.new_allergies = [];
+            allergenReferenceSelection.value = '';
+            form.defaults();
         },
     });
 };
@@ -179,7 +301,55 @@ const submit = () => {
                                     </div>
                                 </div>
                             </div>
-                            <div class="sm:col-span-2 lg:col-span-3"><label for="allergy_note" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Allergie signalée</label><Input id="allergy_note" v-model="form.allergy_note" :disabled="!capabilities.can_edit" placeholder="Substance ou réaction signalée" /><FormError class="mt-1" :message="form.errors.allergy_note" /></div>
+                            <div v-if="capabilities.can_view_allergies" class="space-y-3 sm:col-span-2 lg:col-span-3">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <div><span class="block text-sm font-medium text-slate-700 dark:text-white">Allergies signalées</span><p class="mt-0.5 text-[11px] text-slate-400">Choisissez une allergie connue ou ajoutez une substance absente du référentiel.</p></div>
+                                    <button v-if="capabilities.can_edit && capabilities.can_manage_allergies" type="button" class="inline-flex h-8 items-center gap-1.5 rounded border border-gray-200 px-2.5 text-xs font-semibold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:text-slate-300" @click="showNewAllergy = !showNewAllergy"><Icon name="plus" />Ajouter manuellement</button>
+                                </div>
+
+                                <div v-if="capabilities.can_edit && capabilities.can_manage_allergies" class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/40">
+                                    <label for="allergen_reference" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Référentiel d’allergènes courants</label>
+                                    <div class="flex flex-col gap-2 sm:flex-row">
+                                        <select id="allergen_reference" v-model="allergenReferenceSelection" class="block h-9 min-w-0 flex-1 rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" @change="addAllergenReference">
+                                            <option value="">Sélectionner un allergène…</option>
+                                            <optgroup v-for="group in availableAllergenGroups" :key="group.code" :label="group.label">
+                                                <option v-for="reference in group.items" :key="reference.uuid" :value="reference.uuid">{{ reference.name }}</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                    <p class="mt-1.5 text-[11px] text-slate-400">Le choix sera ajouté au dossier permanent du patient après enregistrement.</p>
+                                </div>
+
+                                <div v-if="selectedAllergenReferences.length" class="flex flex-wrap gap-2">
+                                    <span v-for="reference in selectedAllergenReferences" :key="reference.uuid" class="inline-flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-200"><span>{{ reference.name }}</span><button type="button" :aria-label="`Retirer ${reference.name}`" @click="removeAllergenReference(reference.uuid)"><Icon name="cross" /></button></span>
+                                </div>
+
+                                <p v-if="patientAllergies.length" class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Déjà enregistrées pour ce patient</p>
+                                <div v-if="patientAllergies.length" class="flex flex-wrap gap-2">
+                                    <button v-for="allergy in patientAllergies" :key="allergy.uuid" type="button" :disabled="!capabilities.can_edit" :class="['inline-flex items-center gap-2 rounded border px-3 py-2 text-start text-xs transition-colors', allergySelected(allergy.uuid) ? 'border-red-300 bg-red-50 font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-200' : 'border-gray-200 bg-white text-slate-600 hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']" @click="toggleAllergy(allergy.uuid)">
+                                        <Icon :name="allergySelected(allergy.uuid) ? 'check-circle' : 'circle'" class="text-base" />
+                                        <span><span class="block">{{ allergy.substance }}</span><span v-if="allergy.reaction || allergy.severity" class="mt-0.5 block text-[10px] font-normal opacity-70">{{ [allergy.reaction, severityLabels[allergy.severity]].filter(Boolean).join(' · ') }}</span></span>
+                                    </button>
+                                </div>
+                                <p v-else class="rounded border border-dashed border-gray-200 px-3 py-3 text-xs text-slate-400 dark:border-gray-800">Aucune allergie n’est encore enregistrée pour ce patient. Utilisez le référentiel ci-dessus ou l’ajout manuel.</p>
+
+                                <div v-if="form.new_allergies.length" class="flex flex-wrap gap-2">
+                                    <span v-for="(allergy, index) in form.new_allergies" :key="`${allergy.substance}-${index}`" class="inline-flex items-center gap-2 rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/20 dark:text-red-200"><span>Nouvelle : {{ allergy.substance }}</span><button type="button" aria-label="Retirer cette nouvelle allergie" @click="removeNewAllergy(index)"><Icon name="cross" /></button></span>
+                                </div>
+
+                                <div v-if="showNewAllergy && capabilities.can_manage_allergies" class="rounded-md border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-1000/40">
+                                    <div class="grid gap-3 md:grid-cols-3">
+                                        <div><label for="new_allergy_substance" class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-200">Substance *</label><Input id="new_allergy_substance" v-model="newAllergy.substance" placeholder="Ex. Pénicilline" @input="newAllergyError = ''" /></div>
+                                        <div><label for="new_allergy_reaction" class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-200">Réaction</label><Input id="new_allergy_reaction" v-model="newAllergy.reaction" placeholder="Ex. urticaire" /></div>
+                                        <div><label for="new_allergy_severity" class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-200">Gravité</label><select id="new_allergy_severity" v-model="newAllergy.severity" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="">Non précisée</option><option value="MILD">Légère</option><option value="MODERATE">Modérée</option><option value="SEVERE">Sévère</option></select></div>
+                                    </div>
+                                    <FormError class="mt-1" :message="newAllergyError" />
+                                    <p class="mt-2 text-[11px] text-slate-400">La nouvelle allergie sera ajoutée au dossier permanent lors de l’enregistrement de la fiche.</p>
+                                    <div class="mt-3 flex justify-end gap-2"><Button type="button" size="sm" variant="white-outline" @click="resetNewAllergy">Annuler</Button><Button type="button" size="sm" variant="secondary" @click="addNewAllergy"><Icon name="plus" /><span class="ms-1.5">Ajouter à la fiche</span></Button></div>
+                                </div>
+
+                                <div><label for="allergy_note" class="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-200">Observation complémentaire</label><Input id="allergy_note" v-model="form.allergy_note" :disabled="!capabilities.can_edit" placeholder="Précision communiquée pendant ce passage" /><FormError class="mt-1" :message="form.errors.allergy_note || form.errors.allergy_uuids || form.errors.allergen_reference_uuids || form.errors.new_allergies" /></div>
+                            </div>
                             <div><label for="smoker" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Tabac</label><select id="smoker" v-model="form.smoker" :disabled="!capabilities.can_edit" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000"><option value="">Non renseigné</option><option value="0">Non</option><option value="1">Oui</option></select><FormError class="mt-1" :message="form.errors.smoker" /></div>
                         </div>
                         <p v-else class="p-5 text-sm text-slate-400">Vous n’avez pas l’autorisation de consulter les constantes.</p>
@@ -220,14 +390,14 @@ const submit = () => {
                 <div class="overflow-x-auto"><table class="w-full min-w-[760px] border-collapse"><thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Acte</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Qté</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Observation</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Réalisé par</th><th class="px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400">Date / heure</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-900"><tr v-for="procedure in careRecord.procedures" :key="procedure.uuid"><td class="px-5 py-3"><span class="block text-sm font-bold text-slate-700 dark:text-white">{{ procedure.name }}</span><span class="font-mono text-xs text-slate-400">{{ procedure.code }}</span></td><td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ procedure.quantity }}</td><td class="max-w-sm px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ procedure.notes || '—' }}</td><td class="px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ procedure.performed_by || '—' }}</td><td class="px-5 py-3 text-end text-sm text-slate-500 dark:text-slate-300">{{ formatDateTime(procedure.performed_at) }}</td></tr></tbody></table></div>
             </section>
 
-            <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                <p class="text-xs text-slate-400"><span v-if="careRecord">Dernière mise à jour par {{ careRecord.updated_by || careRecord.created_by || '—' }}.</span></p>
-                <Button v-if="capabilities.can_edit" type="submit" size="rg" variant="primary" :disabled="form.processing"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la fiche' }}</span></Button>
+            <div v-if="capabilities.can_edit && form.isDirty" class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-xs font-medium text-amber-700 dark:text-amber-300">Modifications non enregistrées. Enregistrez la fiche avant de terminer la prise en charge.</p>
+                <Button type="submit" size="rg" variant="primary" :disabled="form.processing"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la fiche' }}</span></Button>
             </div>
         </form>
 
-        <section v-if="capabilities.can_complete" class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Fin de prise en charge</h2><p class="mt-1 text-xs text-slate-400">Enregistrez d’abord la fiche si vous avez ajouté des informations.</p></div>
+        <section v-if="capabilities.can_complete && !form.isDirty" class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
+            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Fin de prise en charge</h2><p class="mt-1 text-xs text-slate-400">La fiche est enregistrée. Vous pouvez maintenant terminer cette prise en charge.</p></div>
             <div class="flex flex-wrap gap-2">
                 <Link :href="`/care/orientations/${orientation.uuid}/complete`" method="post" as="button" preserve-scroll><Button size="rg" :variant="episode.care_completion_mode === 'MEDICINE' ? 'primary' : 'white-outline'"><Icon name="check" /><span class="ms-2">{{ episode.care_completion_mode === 'MEDICINE' ? 'Terminer et transmettre' : 'Terminer les soins' }}</span></Button></Link>
                 <Link v-if="episode.care_completion_mode === 'CHOICE'" :href="`/care/orientations/${orientation.uuid}/complete-and-orient`" method="post" as="button" preserve-scroll><Button size="rg" variant="primary">Vers Médecine</Button></Link>

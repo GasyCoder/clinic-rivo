@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             PermissionSeeder::class,
             PaymentMethodSeeder::class,
+            AllergenReferenceSeeder::class,
             RolePermissionSeeder::class,
         ]);
     }

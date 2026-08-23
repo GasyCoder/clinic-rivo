@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * lists "allergies" explicitly). Same historized shape as
  * PatientAntecedent — see that model for why this isn't a flat column.
  */
-#[Fillable(['patient_id', 'substance', 'reaction', 'severity', 'recorded_by'])]
+#[Fillable(['patient_id', 'allergen_reference_id', 'substance', 'reaction', 'severity', 'recorded_by'])]
 class PatientAllergy extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
@@ -30,6 +30,11 @@ class PatientAllergy extends Model
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    public function reference(): BelongsTo
+    {
+        return $this->belongsTo(AllergenReference::class, 'allergen_reference_id');
     }
 
     protected function auditModule(): ?string

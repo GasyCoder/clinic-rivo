@@ -551,7 +551,14 @@ et historique append-only des actes réellement réalisés. Les actes fournis sa
 prix entrent dans le référentiel sans faux tarif. Le « diagnostic communiqué »
 et les dates d'hospitalisation sont du contexte infirmier ; ils ne remplacent
 jamais le diagnostic, la décision d'hospitalisation ou la sortie appartenant à
-Médecine. Voir ADR-032.
+Médecine. Les allergies confirmées sont sélectionnées depuis le dossier
+permanent ; une nouvelle allergie peut y être ajoutée avec la permission
+`patients.medical_history.manage`, et la fiche conserve le snapshot du passage.
+Pour un patient sans allergie déjà connue, le personnel autorisé peut sélectionner
+un allergène courant depuis `allergen_references` ; ce choix alimente le dossier
+permanent. La saisie manuelle reste le recours lorsqu'il n'existe pas dans le
+référentiel et ne modifie pas automatiquement ce référentiel partagé.
+Voir ADR-032.
 
 ---
 

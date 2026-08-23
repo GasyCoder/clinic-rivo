@@ -1138,6 +1138,23 @@ demande une interprétation selon l'âge et le sexe avec les courbes de croissan
 adaptées. L'alerte reste une aide à l'évaluation, jamais un diagnostic ni une
 décision médicale automatique.
 
+Les allergies sont des données permanentes et historisées du dossier patient
+(`patient_allergies`), pas un simple texte isolé dans la fiche Soins. Un compte
+autorisé peut confirmer une ou plusieurs allergies déjà connues pendant le
+passage. Avec `patients.medical_history.manage`, il peut aussi ajouter une
+allergie absente en précisant substance, réaction et gravité. La fiche conserve
+un snapshot de la sélection du passage afin qu'une correction ultérieure du
+dossier permanent ne réécrive pas l'historique clinique.
+
+Un nouveau patient n'ayant encore aucun antécédent doit néanmoins pouvoir être
+renseigné sans saisie libre systématique. Un référentiel local distinct
+(`allergen_references`) propose donc des allergènes courants classés par famille.
+Sélectionner une entrée crée l'allergie correspondante dans le dossier permanent
+du patient puis l'inclut dans le snapshot du passage. L'ajout manuel reste
+disponible lorsqu'aucune entrée ne convient, mais il n'enrichit jamais
+automatiquement le référentiel partagé. Ce référentiel médical n'est pas le
+catalogue des prestations et ne porte aucun tarif.
+
 Les actes effectivement réalisés sont historisés de façon append-only avec
 l'acte du référentiel, son libellé instantané, la quantité, l'observation,
 l'utilisateur et l'heure. « Autres » exige une description. Une correction ne

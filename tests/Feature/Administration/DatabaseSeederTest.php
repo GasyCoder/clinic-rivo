@@ -16,5 +16,15 @@ class DatabaseSeederTest extends TestCase
 
         $this->assertDatabaseCount('users', 0);
         $this->assertDatabaseMissing('users', ['email' => 'test@example.com']);
+        $this->assertDatabaseHas('allergen_references', [
+            'code' => 'PENICILLINS',
+            'name' => 'Pénicillines',
+            'active' => true,
+        ]);
+        $this->assertDatabaseHas('allergen_references', [
+            'code' => 'LATEX',
+            'name' => 'Latex',
+            'active' => true,
+        ]);
     }
 }

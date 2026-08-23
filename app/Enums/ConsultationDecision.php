@@ -23,4 +23,21 @@ enum ConsultationDecision: string
     case Surgery = 'SURGERY';
     case ExternalTransfer = 'EXTERNAL_TRANSFER';
     case Discharge = 'DISCHARGE';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::SimpleTreatment => 'Traitement simple',
+            self::MedicationPrescription => 'Prescription médicamenteuse',
+            self::NursingCare => 'Ordre de soins',
+            self::LaboratoryTests => 'Examens de laboratoire',
+            self::Imaging => 'Imagerie',
+            self::Hospitalization => 'Hospitalisation',
+            self::MaternityReferral => 'Orientation maternité',
+            self::PediatricsReferral => 'Orientation pédiatrie',
+            self::Surgery => 'Demande de chirurgie',
+            self::ExternalTransfer => 'Transfert externe',
+            self::Discharge => 'Sortie médicale',
+        };
+    }
 }

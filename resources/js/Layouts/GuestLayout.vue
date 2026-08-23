@@ -1,12 +1,14 @@
 <script setup>
 import { useThemeSync } from '@/composables/useThemeSync';
 import Icon from '@/Components/UI/Icon.vue';
+import ToastContainer from '@/Components/UI/ToastContainer.vue';
 
 const { theme } = useThemeSync();
 </script>
 
 <template>
     <div class="nk-main">
+        <ToastContainer />
         <div class="nk-wrap flex flex-col min-h-screen">
             <!-- bottom-start: top-end is the mobile drawer toggle
                  (IdentityPanel.vue), and the identity panel itself owns the

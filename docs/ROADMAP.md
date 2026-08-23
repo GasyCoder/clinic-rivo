@@ -19,9 +19,13 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Configuration frontend
 - [x] Configuration base locale
 - [ ] DashWind
-- [ ] Authentification
-- [ ] RBAC dynamique
-- [ ] Permissions
+- [x] Authentification locale avec comptes actifs et rôle obligatoire
+- [x] RBAC dynamique
+- [x] Permissions et exceptions individuelles auditées
+- [x] Rôles autonomes Administration/RH et Logistique
+- [x] Profils professionnels NURSE, SUPPORT et MAINTENANCE sans droits implicites
+- [x] Permissions supplémentaires affectées individuellement par compte
+- [x] Séparation stricte des comptes Super Admin et des comptes opérationnels
 - [ ] Soft Delete
 - [ ] Audit
 - [ ] UUID
@@ -33,14 +37,32 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 1 — Réception / Patients / Caisse
 
 - [ ] Patient
+- [x] Typologie patient Standard / Mutuelle / Personnel
+- [x] Profil administratif enrichi (situation maritale, enfants, profession, adresse référencée)
+- [x] Couverture mutuelle et cinq justificatifs privés maximum
+- [x] Lien patient-personnel vers un véritable dossier Employé
 - [ ] Identification patient
 - [ ] Recherche patient
 - [ ] Détection des doublons
 - [ ] Episode de soins
+- [x] Numéro patient annuel `SITE-YY-NNNN`
+- [x] Numéro de passage ordinal `PATIENT-NN`
 - [ ] Réception
+- [x] Réception visiteur (entrées, sorties, motifs, patient facultatif et pièces jointes privées)
 - [ ] Orientation
+- [x] Parcours Réception piloté par la désignation (Médecine directe / Soins puis Médecine / Soins seuls)
+- [x] Besoin inconnu sans désignation ni montant fictif
 - [ ] Rendez-vous
 - [ ] Prestations facturables
+- [x] Référentiel des prestations et produits facturables
+- [x] Tarifs historisés propres à chaque site
+- [x] Barèmes historisés séparés Sans mutuelle / Mutuelle
+- [x] Résolution du barème par type patient et snapshot sur le passage
+- [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
+- [ ] Répartition contractuelle part mutuelle / part patient
+- [x] Résolution backend du tarif sans saisie libre par Réception
+- [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
+- [x] Facture imprimable sans faux reçu pour un règlement ultérieur
 - [ ] Factures
 - [ ] Facture lignes
 - [ ] Caisse unique
@@ -59,17 +81,20 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 2 — Médecine / Soins
 
 - [ ] Dossier médical
-- [ ] Consultation
-- [ ] Diagnostic
-- [ ] Prescription
+- [x] Consultation par orientation Médecine
+- [x] Diagnostic historisé par consultation
+- [x] Prescription médicale et annulation contrôlée
+- [x] Impression de l'ordonnance active avec numéro patient et numéro de passage
 - [ ] Constantes
 - [ ] Soins
+- [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
+- [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
 - [ ] Ordres de soins
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
 - [ ] Hospitalisation
 - [ ] Transfert médical
-- [ ] Sortie médicale
+- [x] Sortie médicale découplée de la sortie administrative
 
 ---
 
@@ -101,18 +126,19 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 
 # Phase 4 — Pharmacie / Stocks
 
-- [ ] Médicaments
+- [x] Fondation médicaments spécialisés liés au référentiel
 - [ ] Produits
-- [ ] DCI
-- [ ] Dosages
-- [ ] Lots
-- [ ] Péremptions
-- [ ] Stocks
+- [x] DCI et formes pharmaceutiques
+- [x] Dosages
+- [x] Fondation lots locaux
+- [x] Exclusion des lots périmés de la disponibilité
+- [x] Disponibilité physique moins réservations actives
 - [ ] Entrées
 - [ ] Sorties
 - [ ] Inventaires
 - [ ] Ajustements
-- [ ] Prescription reçue
+- [x] Prescription Médecine reliée au médicament et réservation FEFO
+- [x] Ligne d'ordonnance manuelle hors référentiel, sans stock ni prix, en attente de validation
 - [ ] Préparation délivrance
 - [ ] Vérification statut financier si nécessaire
 - [ ] Délivrance
@@ -158,7 +184,13 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 
 # Phase 6 — Administration
 
+- [x] Utilisateurs locaux
+- [x] Attribution des rôles
+- [x] Activation / désactivation des comptes
+- [x] Exceptions de permissions individuelles
 - [ ] Employés
+- [x] Socle Employé et lien sécurisé avec le dossier patient
+- [ ] Règles d'éligibilité du personnel et registre immuable du crédit bloc
 - [ ] RH
 - [ ] Contrats
 - [ ] Présences
@@ -167,7 +199,10 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Planning
 - [ ] Logistique
 - [ ] Stock administratif
-- [ ] Visiteurs
+- [ ] Catalogue des équipements
+- [ ] Affectations et localisations des équipements
+- [ ] Maintenance et mise hors service des équipements
+- [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
 - [ ] Gardiennage
 - [ ] Rapports RH
 
@@ -192,6 +227,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Réception transfert
 - [ ] Accusé réception
 - [ ] Transfert stock
+- [ ] Synchronisation référentiel et tarifs par UUID
+- [ ] Idempotence des commandes de catalogue multi-site
 - [ ] Autres échanges métier
 
 ---
@@ -207,8 +244,10 @@ admin.rivo.mg
 - [ ] Auth Super Admin
 - [ ] API Mampikony
 - [ ] API Ambondromamy
+- [ ] API Boriziny
 - [ ] Vue Mampikony
 - [ ] Vue Ambondromamy
+- [ ] Vue Boriziny
 - [ ] Vue consolidée
 - [ ] Patients
 - [ ] Activités
@@ -217,6 +256,11 @@ admin.rivo.mg
 - [ ] Laboratoire
 - [ ] Pharmacie
 - [ ] Stocks
+- [ ] Référentiels et tarifs propres à chaque site
+- [x] Navigation Super Admin vers les désignations et deux grilles par site
+- [ ] Commandes distantes de tarifs via API sécurisée des sites
+- [ ] Action « appliquer aux deux sites »
+- [ ] Résultat et reprise séparés en cas d’échec partiel
 - [ ] Chirurgie
 - [ ] Utilisateurs
 - [ ] Rôles
@@ -244,6 +288,7 @@ admin.rivo.mg
 - [ ] Logs
 - [ ] Production Mampikony
 - [ ] Production Ambondromamy
+- [ ] Production Boriziny
 - [ ] Production Admin
 - [ ] Recette client
 

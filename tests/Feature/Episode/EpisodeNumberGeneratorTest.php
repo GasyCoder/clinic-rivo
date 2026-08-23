@@ -2,50 +2,94 @@
 
 namespace Tests\Feature\Episode;
 
+use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeStatus;
+use App\Models\Episode;
+use App\Models\Patient;
 use App\Services\Episode\EpisodeNumberGenerator;
+use App\Services\Patient\PatientNumberGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class EpisodeNumberGeneratorTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_first_number_is_prefixed_by_the_site_code_with_an_e_marker_and_zero_padded(): void
+    protected function tearDown(): void
     {
-        config(['rivo.site.code' => 'M']);
+        Carbon::setTestNow();
 
-        $number = (new EpisodeNumberGenerator)->next();
-
-        $this->assertSame('ME-000001', $number);
+        parent::tearDown();
     }
 
-    public function test_numbers_increment_sequentially(): void
+    private function patient(string $number = 'M-26-0001', string $lastName = 'Rakoto'): Patient
     {
-        config(['rivo.site.code' => 'A']);
+        return Patient::create([
+            'patient_number' => $number,
+            'first_name' => 'Jean',
+            'last_name' => $lastName,
+            'birth_date' => '1990-05-12',
+            'sex' => 'M',
+        ]);
+    }
+
+    public function test_first_passage_appends_the_patient_ordinal(): void
+    {
+        $patient = $this->patient();
+
+        $number = (new EpisodeNumberGenerator)->next($patient);
+
+        $this->assertSame('M-26-0001-01', $number);
+    }
+
+    public function test_passage_numbers_increment_independently_for_each_patient(): void
+    {
         $generator = new EpisodeNumberGenerator;
+        $first = $this->patient('M-26-0001');
+        $second = $this->patient('M-26-0002', 'Rasoa');
 
-        $this->assertSame('AE-000001', $generator->next());
-        $this->assertSame('AE-000002', $generator->next());
-        $this->assertSame('AE-000003', $generator->next());
+        $this->assertSame('M-26-0001-01', $generator->next($first));
+        $this->assertSame('M-26-0001-02', $generator->next($first));
+        $this->assertSame('M-26-0002-01', $generator->next($second));
     }
 
-    public function test_falls_back_to_a_placeholder_prefix_when_site_code_is_unset(): void
+    public function test_historical_episodes_with_null_sequence_are_counted(): void
     {
-        config(['rivo.site.code' => null]);
+        $patient = $this->patient('M-000001');
 
-        $number = (new EpisodeNumberGenerator)->next();
+        foreach ([1, 2] as $index) {
+            Episode::create([
+                'patient_id' => $patient->id,
+                'visit_sequence' => null,
+                'episode_number' => "MP-00000{$index}",
+                'status' => EpisodeStatus::Open,
+                'administrative_status' => EpisodeAdministrativeStatus::PendingOrientation,
+                'started_at' => now()->addMinutes($index),
+            ]);
+        }
 
-        $this->assertSame('XE-000001', $number);
+        $this->assertSame('M-000001-03', (new EpisodeNumberGenerator)->next($patient));
+    }
+
+    public function test_sequence_can_be_extracted_for_episode_persistence(): void
+    {
+        $patient = $this->patient();
+        $generator = new EpisodeNumberGenerator;
+        $number = $generator->next($patient);
+
+        $this->assertSame(1, $generator->sequenceFromNumber($patient, $number));
     }
 
     public function test_episode_and_patient_sequences_are_independent(): void
     {
+        Carbon::setTestNow('2026-08-22 10:00:00');
         config(['rivo.site.code' => 'M']);
+        $patientNumber = (new PatientNumberGenerator)->next();
+        $patient = $this->patient($patientNumber);
+        $episodeNumber = (new EpisodeNumberGenerator)->next($patient);
 
-        $episodeNumber = (new EpisodeNumberGenerator)->next();
-        $patientNumber = (new \App\Services\Patient\PatientNumberGenerator)->next();
-
-        $this->assertSame('ME-000001', $episodeNumber);
-        $this->assertSame('M-000001', $patientNumber);
+        $this->assertSame('M-26-0001', $patientNumber);
+        $this->assertSame('M-26-0001-01', $episodeNumber);
     }
 }

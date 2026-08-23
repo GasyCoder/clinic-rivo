@@ -10,9 +10,14 @@ use App\Actions\Cash\OpenCashSessionAction;
 use App\Actions\Medicine\CreateConsultationAction;
 use App\Actions\Payment\RecordPaymentAction;
 use App\Enums\BillableItemStatus;
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\BillableItem;
+use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
 use App\Models\Episode;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
@@ -61,11 +66,30 @@ class BillableItemFlowTest extends TestCase
         string $description,
         bool $requiresPriorPayment = false,
     ): BillableItem {
+        $catalogItem = CatalogItem::create([
+            'code' => 'TEST-'.str_pad((string) (CatalogItem::withTrashed()->count() + 1), 4, '0', STR_PAD_LEFT),
+            'name' => $description,
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::from($module),
+            'unit' => 'acte',
+            'billable' => true,
+            'stockable' => false,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        CatalogTariff::create([
+            'catalog_item_id' => $catalogItem->id,
+            'amount' => '1000.50',
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif de test',
+            'created_by' => $actor->id,
+        ]);
+
         return $this->app->make(RecordBillableItemAction::class)->execute($episode, [
-            'source_module' => $module,
-            'description' => $description,
+            'catalog_item_uuid' => $catalogItem->uuid,
             'quantity' => '1',
-            'unit_price' => '1000.50',
             'payment_required_before_fulfillment' => $requiresPriorPayment,
         ], $actor);
     }
@@ -92,23 +116,48 @@ class BillableItemFlowTest extends TestCase
         ], $actor);
     }
 
-    public function test_manual_reception_lines_are_first_recorded_as_billable_items(): void
+    public function test_reception_catalog_lines_are_recorded_with_the_server_side_tariff_snapshot(): void
     {
         [$actor, $patient, $episode] = $this->context();
+        $catalogItem = CatalogItem::create([
+            'code' => 'RECEPTION-ADMIN',
+            'name' => 'Frais administratif',
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Reception,
+            'unit' => 'dossier',
+            'billable' => true,
+            'stockable' => false,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        $tariff = CatalogTariff::create([
+            'catalog_item_id' => $catalogItem->id,
+            'amount' => '125.25',
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif initial',
+            'created_by' => $actor->id,
+        ]);
 
         $invoice = $this->app->make(CreateInvoiceAction::class)->execute($patient, [
             'episode_uuid' => $episode->uuid,
-            'lines' => [[
-                'description' => 'Frais administratif',
+            'catalog_lines' => [[
+                'catalog_item_uuid' => $catalogItem->uuid,
                 'quantity' => '2',
-                'unit_price' => '125.25',
             ]],
         ], $actor);
 
         $item = BillableItem::query()->sole();
         $this->assertSame('RECEPTION', $item->source_module);
         $this->assertSame('250.50', $item->total_amount);
+        $this->assertSame($catalogItem->id, $item->catalog_item_id);
+        $this->assertSame($tariff->id, $item->catalog_tariff_id);
         $this->assertSame($item->id, $invoice->lines()->sole()->billable_item_id);
+
+        $tariff->update(['amount' => '999.00']);
+        $this->assertSame('125.25', $item->fresh()->unit_price);
+        $this->assertSame('250.50', $invoice->fresh()->total_amount);
     }
 
     public function test_laboratory_and_pharmacy_use_the_same_read_only_financial_clearance(): void
@@ -195,7 +244,7 @@ class BillableItemFlowTest extends TestCase
     public function test_payment_state_does_not_overwrite_medical_or_administrative_state(): void
     {
         [$actor, $patient, $episode] = $this->context();
-        $episode->update(['medical_status' => 'IN_CONSULTATION']);
+        $episode->update(['medical_status' => EpisodeMedicalStatus::InCare]);
         $item = $this->item($episode, $actor, 'MEDICINE', 'Consultation');
         $invoice = $this->app->make(CreateInvoiceAction::class)->execute($patient, [
             'episode_uuid' => $episode->uuid,
@@ -213,7 +262,7 @@ class BillableItemFlowTest extends TestCase
         ], $actor);
 
         $episode->refresh();
-        $this->assertSame('IN_CONSULTATION', $episode->medical_status);
+        $this->assertSame(EpisodeMedicalStatus::InCare, $episode->medical_status);
         $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
         $this->assertNull($episode->financial_status);
         $this->assertSame(InvoiceStatus::Paid, $invoice->fresh()->status);

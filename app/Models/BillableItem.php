@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\BillableItemStatus;
+use App\Enums\CatalogTariffCategory;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\ProtectsFinancialRecord;
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 #[Fillable([
     'episode_id', 'source_module', 'source_type', 'source_id', 'source_uuid',
+    'catalog_item_id', 'catalog_tariff_id', 'tariff_category',
     'description', 'quantity', 'unit_price', 'total_amount', 'currency',
     'payment_required_before_fulfillment', 'status', 'created_by',
     'cancelled_by', 'cancelled_at', 'cancellation_reason',
@@ -22,10 +24,15 @@ class BillableItem extends Model
 {
     use Auditable, HasUuid, ProtectsFinancialRecord;
 
+    protected $attributes = [
+        'tariff_category' => CatalogTariffCategory::Standard->value,
+    ];
+
     protected function casts(): array
     {
         return [
             'status' => BillableItemStatus::class,
+            'tariff_category' => CatalogTariffCategory::class,
             'quantity' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'total_amount' => 'decimal:2',
@@ -42,6 +49,16 @@ class BillableItem extends Model
     public function source(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function catalogItem(): BelongsTo
+    {
+        return $this->belongsTo(CatalogItem::class);
+    }
+
+    public function catalogTariff(): BelongsTo
+    {
+        return $this->belongsTo(CatalogTariff::class);
     }
 
     public function creator(): BelongsTo

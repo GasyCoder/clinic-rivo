@@ -9,9 +9,28 @@ use App\Models\Invoice;
 use App\Models\Patient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class BillingController extends Controller
 {
+    public function show(Request $request, Invoice $invoice): Response
+    {
+        $invoice->load([
+            'patient:id,uuid,patient_number,first_name,last_name',
+            'episode:id,uuid,episode_number',
+            'lines.billableItem:id,source_module',
+            'creator:id,name',
+            'validator:id,name',
+        ]);
+
+        return Inertia::render('Invoices/Show', [
+            'invoice' => $invoice,
+            'returnToCash' => $request->query('from') === 'cash'
+                && $request->user()->can('cash.view'),
+        ]);
+    }
+
     public function store(
         StoreInvoiceRequest $request,
         Patient $patient,

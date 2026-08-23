@@ -4,6 +4,7 @@ namespace App\Actions\Billing;
 
 use App\Enums\BillableItemStatus;
 use App\Enums\InvoiceStatus;
+use App\Enums\PatientType;
 use App\Models\BillableItem;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -22,10 +23,20 @@ class CreateInvoiceAction
     ) {}
 
     /**
-     * @param  array{episode_uuid: string, billable_item_uuids?: array<int, string>, lines?: array<int, array{description: string, quantity: int|string, unit_price: int|string}>}  $data
+     * @param  array{episode_uuid: string, billable_item_uuids?: array<int, string>, catalog_lines?: array<int, array{catalog_item_uuid: string, quantity: int|string}>}  $data
      */
     public function execute(Patient $patient, array $data, User $actor): Invoice
     {
+        // ADR-030: a staff benefit is not a zero tariff or an arbitrary
+        // discount. Until RH / Finance has resolved the employee coverage
+        // and the surgery-credit share, creating a normal patient invoice
+        // here would overcharge the employee and bypass that ledger.
+        if ($patient->patient_type === PatientType::Staff) {
+            throw ValidationException::withMessages([
+                'patient' => 'La couverture Personnel doit être calculée par RH / Finance avant toute facturation.',
+            ]);
+        }
+
         return DB::transaction(function () use ($patient, $data, $actor) {
             $episode = $patient->episodes()
                 ->where('uuid', $data['episode_uuid'])
@@ -40,19 +51,17 @@ class CreateInvoiceAction
 
             $items = $this->selectedItems($episode->id, $data['billable_item_uuids'] ?? []);
 
-            foreach ($data['lines'] ?? [] as $line) {
+            foreach ($data['catalog_lines'] ?? [] as $line) {
                 $items->push($this->recordBillableItem->execute($episode, [
-                    'source_module' => 'RECEPTION',
-                    'description' => $line['description'],
+                    'catalog_item_uuid' => $line['catalog_item_uuid'],
                     'quantity' => $line['quantity'],
-                    'unit_price' => $line['unit_price'],
                     'payment_required_before_fulfillment' => false,
                 ], $actor));
             }
 
             if ($items->isEmpty()) {
                 throw ValidationException::withMessages([
-                    'lines' => 'Ajoutez ou sélectionnez au moins une prestation facturable.',
+                    'catalog_lines' => 'Ajoutez ou sélectionnez au moins une prestation facturable.',
                 ]);
             }
 
@@ -60,7 +69,7 @@ class CreateInvoiceAction
 
             if ($subtotalMinor <= 0 || $subtotalMinor > 999_999_999_999_999) {
                 throw ValidationException::withMessages([
-                    'lines' => 'Le montant total de la facture est invalide ou dépasse la limite autorisée.',
+                    'catalog_lines' => 'Le montant total de la facture est invalide ou dépasse la limite autorisée.',
                 ]);
             }
 

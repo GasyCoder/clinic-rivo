@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import Sidebar from '@/Components/Layout/Sidebar.vue';
 import Header from '@/Components/Layout/Header.vue';
 import Footer from '@/Components/Layout/Footer.vue';
+import ToastContainer from '@/Components/UI/ToastContainer.vue';
 
 import { useThemeSync } from '@/composables/useThemeSync';
 
@@ -22,6 +23,7 @@ const sidebarCompact = ref(false);
 
 <template>
     <div class="nk-main">
+        <ToastContainer />
         <Sidebar v-model:visibility="sidebarVisibility" v-model:compact="sidebarCompact" />
 
         <div class="nk-wrap xl:ps-72 [&>.nk-header]:xl:start-72 [&>.nk-header]:xl:w-[calc(100%-theme(spacing.72))] peer-[&.is-compact:not(.has-hover)]:xl:ps-[74px] peer-[&.is-compact:not(.has-hover)]:[&>.nk-header]:xl:start-[74px] peer-[&.is-compact:not(.has-hover)]:[&>.nk-header]:xl:w-[calc(100%-74px)] flex flex-col min-h-screen transition-all duration-300">

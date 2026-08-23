@@ -60,12 +60,16 @@ return [
     |--------------------------------------------------------------------------
     |
     | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | will be used by the PHP date and date-time functions. Clinique Saint
+    | Georges operates only in Madagascar (Mampikony, Ambondromamy,
+    | Boriziny), so this is Madagascar's own zone rather than UTC: browser
+    | `datetime-local` inputs submit a naive local wall-clock string with no
+    | offset, and every "not in the future" / "today" comparison against
+    | now() must interpret it the same way the clinic's clocks do.
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'Indian/Antananarivo'),
 
     /*
     |--------------------------------------------------------------------------

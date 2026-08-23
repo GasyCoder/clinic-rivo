@@ -7,6 +7,7 @@ use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Append-only (see migration) — a corrected diagnosis is a new FINAL row,
@@ -28,6 +29,16 @@ class Diagnosis extends Model
     public function consultation(): BelongsTo
     {
         return $this->belongsTo(Consultation::class);
+    }
+
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    public function cancellation(): HasOne
+    {
+        return $this->hasOne(DiagnosisCancellation::class);
     }
 
     protected function auditModule(): ?string

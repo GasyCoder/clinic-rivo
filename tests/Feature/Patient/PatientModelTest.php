@@ -114,19 +114,6 @@ class PatientModelTest extends TestCase
         $this->assertFalse($patient->isForceDeleteProtected());
     }
 
-    public function test_emergency_contact_fields_are_stored(): void
-    {
-        $patient = $this->makePatient([
-            'emergency_contact_name' => 'Marie Rakoto',
-            'emergency_contact_phone' => '0341234567',
-            'emergency_contact_relationship' => 'Épouse',
-        ]);
-
-        $this->assertSame('Marie Rakoto', $patient->emergency_contact_name);
-        $this->assertSame('0341234567', $patient->emergency_contact_phone);
-        $this->assertSame('Épouse', $patient->emergency_contact_relationship);
-    }
-
     public function test_civility_is_cast_to_the_patient_civility_enum(): void
     {
         $patient = $this->makePatient(['civility' => 'MRS']);
@@ -149,10 +136,8 @@ class PatientModelTest extends TestCase
     {
         $patient = $this->makePatient([
             'email' => 'jean.rakoto@example.mg',
-            'emergency_contact_email' => 'marie.rakoto@example.mg',
         ]);
 
         $this->assertSame('jean.rakoto@example.mg', $patient->email);
-        $this->assertSame('marie.rakoto@example.mg', $patient->emergency_contact_email);
     }
 }

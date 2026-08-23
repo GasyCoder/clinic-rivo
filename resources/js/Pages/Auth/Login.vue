@@ -60,13 +60,6 @@ const site = computed(() => page.props.site);
                     </span>
                 </div>
 
-                <div
-                    v-if="page.props.flash.status"
-                    class="mb-5 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-400"
-                >
-                    {{ page.props.flash.status }}
-                </div>
-
                 <form @submit.prevent="submit">
                     <FormGroup>
                         <FormLabel for="email" class="mb-2 block">Email</FormLabel>

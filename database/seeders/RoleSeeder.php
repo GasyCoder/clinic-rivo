@@ -8,18 +8,21 @@ use Illuminate\Database\Seeder;
 class RoleSeeder extends Seeder
 {
     /**
-     * The fixed set of principal roles (ADR-006 / CDC §9). NURSE added
-     * 2026-08-19, amending ADR-006 — see that ADR for why it's a separate
-     * role rather than a MEDICINE subset.
+     * Principal security domains. A role provides only the shared baseline;
+     * ProfessionalProfileSeeder classifies the job and proposes additional
+     * permissions that are assigned to individual accounts.
      *
      * @var array<string, string>
      */
     public const ROLES = [
         'SUPER_ADMIN' => 'Super Administrateur',
-        'ADMINISTRATION' => 'Administration',
+        'ADMINISTRATION' => 'Administration / RH',
+        'LOGISTICS' => 'Logistique',
+        'SUPPORT' => 'Support',
+        'MAINTENANCE' => 'Maintenance',
         'RECEPTION' => 'Réception / Caisse',
         'MEDICINE' => 'Médecine',
-        'NURSE' => 'Infirmier / Sage-femme',
+        'NURSE' => 'Soins paramédicaux',
         'SURGERY' => 'Chirurgie',
         'PHARMACY' => 'Pharmacie',
         'LABORATORY' => 'Laboratoire',

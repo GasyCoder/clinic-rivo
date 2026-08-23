@@ -8,12 +8,12 @@ class FinancialNumberGenerator
 {
     public function invoice(): string
     {
-        return $this->next('invoice', 'I');
+        return $this->next('invoice', 'F');
     }
 
     public function payment(): string
     {
-        return $this->next('payment', 'P');
+        return $this->next('payment', 'V');
     }
 
     public function receipt(): string

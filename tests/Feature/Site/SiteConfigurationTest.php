@@ -15,6 +15,14 @@ class SiteConfigurationTest extends TestCase
             'rivo.site.code' => 'M',
             'rivo.site.name' => 'Mampikony',
             'rivo.site.type' => 'clinic',
+            'rivo.documents' => [
+                'logo_url' => '/images/clinic-logo.svg',
+                'nif' => 'NIF-TEST',
+                'stat' => 'STAT-TEST',
+                'address' => 'Mampikony',
+                'phone' => '+261 00 000 00',
+                'email' => 'contact@example.test',
+            ],
         ]);
 
         $response = $this->get('/login');
@@ -25,6 +33,13 @@ class SiteConfigurationTest extends TestCase
             ->where('site.type', 'clinic')
             ->where('site.brand', 'Clinique Saint Georges')
             ->where('site.gatewayUrl', 'https://app.rivo.mg')
+            ->where('site.publicUrl', 'https://cliniquesaintgeorges.mg')
+            ->where('site.documents.logo_url', '/images/clinic-logo.svg')
+            ->where('site.documents.nif', 'NIF-TEST')
+            ->where('site.documents.stat', 'STAT-TEST')
+            ->where('site.documents.address', 'Mampikony')
+            ->where('site.documents.phone', '+261 00 000 00')
+            ->where('site.documents.email', 'contact@example.test')
         );
     }
 

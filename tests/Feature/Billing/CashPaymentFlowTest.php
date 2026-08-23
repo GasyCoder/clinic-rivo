@@ -2,8 +2,12 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Models\CashMovement;
 use App\Models\CashSession;
+use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
 use App\Models\Episode;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -65,15 +69,44 @@ class CashPaymentFlowTest extends TestCase
 
     private function createInvoice(User $user, Patient $patient, Episode $episode): Invoice
     {
+        $consultation = $this->catalogItem($user, 'Consultation', '1500.50');
+        $dressing = $this->catalogItem($user, 'Pansement', '1000.00');
+
         $this->actingAs($user)->post("/patients/{$patient->uuid}/invoices", [
             'episode_uuid' => $episode->uuid,
-            'lines' => [
-                ['description' => 'Consultation', 'quantity' => 2, 'unit_price' => '1500.50'],
-                ['description' => 'Pansement', 'quantity' => 1, 'unit_price' => '1000'],
+            'catalog_lines' => [
+                ['catalog_item_uuid' => $consultation->uuid, 'quantity' => 2],
+                ['catalog_item_uuid' => $dressing->uuid, 'quantity' => 1],
             ],
         ])->assertRedirect();
 
         return Invoice::query()->sole();
+    }
+
+    private function catalogItem(User $actor, string $name = 'Acte', string $amount = '1000.00'): CatalogItem
+    {
+        $item = CatalogItem::create([
+            'code' => 'BILL-'.str_pad((string) (CatalogItem::withTrashed()->count() + 1), 4, '0', STR_PAD_LEFT),
+            'name' => $name,
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Reception,
+            'unit' => 'acte',
+            'billable' => true,
+            'stockable' => false,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+        CatalogTariff::create([
+            'catalog_item_id' => $item->id,
+            'amount' => $amount,
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif de test',
+            'created_by' => $actor->id,
+        ]);
+
+        return $item;
     }
 
     public function test_financial_data_and_routes_are_hidden_without_their_permissions(): void
@@ -86,14 +119,77 @@ class CashPaymentFlowTest extends TestCase
                 ->component('Patients/Show')
                 ->where('account', null)
                 ->has('paymentMethods', 0)
+                ->has('billingCatalog', 0)
                 ->where('openCashSession', null));
 
         $this->actingAs($viewer)->get('/cash')->assertForbidden();
         $this->actingAs($viewer)->post("/patients/{$patient->uuid}/invoices", [
             'episode_uuid' => $episode->uuid,
-            'lines' => [['description' => 'Acte', 'quantity' => 1, 'unit_price' => 1000]],
+            'catalog_lines' => [['catalog_item_uuid' => fake()->uuid(), 'quantity' => 1]],
         ])->assertForbidden();
         $this->actingAs($viewer)->post("/patients/{$patient->uuid}/payments", [])->assertForbidden();
+    }
+
+    public function test_cash_workspace_exposes_collectible_invoices_and_active_payment_methods(): void
+    {
+        $user = $this->userWithPermissions([
+            'cash.view', 'billing.view', 'billing.create', 'billing.validate', 'billing.print',
+            'payments.create',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+
+        $this->actingAs($user)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Index')
+                ->where('cashSession', null)
+                ->where('outstandingSummary.count', 1)
+                ->where('outstandingSummary.balance_amount', '4001.00')
+                ->has('outstandingInvoices', 1)
+                ->where('outstandingInvoices.0.uuid', $invoice->uuid)
+                ->where('outstandingInvoices.0.status', 'VALIDATED')
+                ->where('outstandingInvoices.0.lines_count', 2)
+                ->where('outstandingInvoices.0.patient.uuid', $patient->uuid)
+                ->has('paymentMethods', 5));
+
+        $this->actingAs($user)->get("/invoices/{$invoice->uuid}?from=cash")
+            ->assertInertia(fn ($page) => $page
+                ->component('Invoices/Show')
+                ->where('returnToCash', true));
+    }
+
+    public function test_cash_workspace_does_not_expose_billing_or_payment_method_data_without_permissions(): void
+    {
+        $user = $this->userWithPermissions(['cash.view']);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+
+        Invoice::create([
+            'patient_id' => $patient->id,
+            'episode_id' => $episode->id,
+            'invoice_number' => 'AI-PRIVATE',
+            'status' => 'VALIDATED',
+            'currency' => 'MGA',
+            'subtotal_amount' => '1000.00',
+            'discount_amount' => '0.00',
+            'total_amount' => '1000.00',
+            'paid_amount' => '0.00',
+            'balance_amount' => '1000.00',
+            'created_by' => $user->id,
+            'validated_by' => $user->id,
+            'validated_at' => now(),
+        ]);
+
+        $this->actingAs($user)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Index')
+                ->where('outstandingSummary', null)
+                ->has('outstandingInvoices', 0)
+                ->has('paymentMethods', 0)
+                ->has('recentPayments', 0));
     }
 
     public function test_invoice_is_computed_validated_and_exposed_on_the_patient_account(): void
@@ -138,10 +234,11 @@ class CashPaymentFlowTest extends TestCase
         $user = $this->userWithPermissions(['billing.create']);
         [$patient] = $this->patientWithEpisode($user);
         [, $otherEpisode] = $this->patientWithEpisode($user, 'M-000002', 'ME-000002');
+        $catalogItem = $this->catalogItem($user);
 
         $this->actingAs($user)->post("/patients/{$patient->uuid}/invoices", [
             'episode_uuid' => $otherEpisode->uuid,
-            'lines' => [['description' => 'Acte', 'quantity' => 1, 'unit_price' => 1000]],
+            'catalog_lines' => [['catalog_item_uuid' => $catalogItem->uuid, 'quantity' => 1]],
         ])->assertSessionHasErrors('episode_uuid');
 
         $this->assertDatabaseCount('invoices', 0);
@@ -234,7 +331,13 @@ class CashPaymentFlowTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Receipts/Show')
                 ->where('receipt.uuid', $receipt->uuid)
+                ->where('returnToCash', false)
                 ->where('receipt.payment.invoice.patient.uuid', $patient->uuid));
+
+        $this->actingAs($user)->get("/receipts/{$receipt->uuid}?from=cash")
+            ->assertInertia(fn ($page) => $page
+                ->component('Receipts/Show')
+                ->where('returnToCash', true));
 
         // Mobile money is collected but is not physically present in the
         // drawer. Expected cash = 10,000 opening + 1,500.50 cash payment.

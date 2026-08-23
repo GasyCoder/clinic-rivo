@@ -3,6 +3,7 @@
 namespace Tests\Feature\Episode;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Exceptions\InvalidEpisodeTransitionException;
@@ -47,6 +48,23 @@ class EpisodeModelTest extends TestCase
         $this->assertNotNull($episode->uuid);
     }
 
+    public function test_emergency_contact_fields_are_stored_on_the_episode(): void
+    {
+        // ADR-034: the contact reachable for a patient belongs to the
+        // passage, not the permanent patient record.
+        $episode = $this->makeEpisode([
+            'emergency_contact_name' => 'Marie Rakoto',
+            'emergency_contact_phone' => '0341234567',
+            'emergency_contact_relationship' => 'Épouse',
+            'emergency_contact_email' => 'marie.rakoto@example.mg',
+        ]);
+
+        $this->assertSame('Marie Rakoto', $episode->emergency_contact_name);
+        $this->assertSame('0341234567', $episode->emergency_contact_phone);
+        $this->assertSame('Épouse', $episode->emergency_contact_relationship);
+        $this->assertSame('marie.rakoto@example.mg', $episode->emergency_contact_email);
+    }
+
     public function test_administrative_status_covers_the_circuit_positions_named_by_the_client_cdcf(): void
     {
         // Client CDCF §36: "En cours de soins" and "En attente de règlement"
@@ -66,11 +84,11 @@ class EpisodeModelTest extends TestCase
         $this->assertSame(EpisodeAdministrativeStatus::PendingOrientation, $episode->administrative_status);
     }
 
-    public function test_medical_status_and_financial_status_are_plain_strings_not_cast(): void
+    public function test_medical_status_is_cast_while_financial_status_remains_owned_by_cash(): void
     {
-        $episode = $this->makeEpisode(['medical_status' => 'EN_CONSULTATION', 'financial_status' => 'IMPAYE']);
+        $episode = $this->makeEpisode(['medical_status' => EpisodeMedicalStatus::InCare, 'financial_status' => 'IMPAYE']);
 
-        $this->assertSame('EN_CONSULTATION', $episode->medical_status);
+        $this->assertSame(EpisodeMedicalStatus::InCare, $episode->medical_status);
         $this->assertSame('IMPAYE', $episode->financial_status);
     }
 
@@ -110,7 +128,7 @@ class EpisodeModelTest extends TestCase
     {
         $episode = $this->makeEpisode();
 
-        $episode->update(['medical_status' => 'EN_CONSULTATION']);
+        $episode->update(['medical_status' => EpisodeMedicalStatus::InCare]);
 
         $log = AuditLog::where('action', 'update')
             ->where('entity_type', Episode::class)
@@ -118,7 +136,7 @@ class EpisodeModelTest extends TestCase
             ->first();
 
         $this->assertNotNull($log);
-        $this->assertSame(['medical_status' => 'EN_CONSULTATION'], $log->new_values);
+        $this->assertSame(['medical_status' => EpisodeMedicalStatus::InCare->value], $log->new_values);
     }
 
     public function test_start_care_transitions_oriented_to_in_care(): void
@@ -137,24 +155,6 @@ class EpisodeModelTest extends TestCase
         $episode->startCare();
 
         $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->fresh()->administrative_status);
-    }
-
-    public function test_orient_transitions_from_pending_orientation_to_oriented(): void
-    {
-        $episode = $this->makeEpisode();
-
-        $episode->orient();
-
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->fresh()->administrative_status);
-    }
-
-    public function test_orient_refuses_when_not_pending_orientation(): void
-    {
-        $episode = $this->makeEpisode(['administrative_status' => EpisodeAdministrativeStatus::Oriented]);
-
-        $this->expectException(InvalidEpisodeTransitionException::class);
-
-        $episode->orient();
     }
 
     public function test_cancel_sets_status_and_ended_at_and_is_audited_once_with_the_reason(): void

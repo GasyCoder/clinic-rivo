@@ -8,14 +8,16 @@ use App\Enums\BillableItemStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
+use App\Enums\PatientType;
 use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
+use App\Models\AddressEntry;
 use App\Models\BillableItem;
 use App\Models\CashSession;
-use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
+use App\Services\Billing\BillableCatalogDirectory;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,8 +34,19 @@ class PatientController extends Controller
     public function index(Request $request): Response
     {
         $search = trim((string) $request->query('q', ''));
+        $type = in_array($request->query('type'), array_column(PatientType::cases(), 'value'), true)
+            ? $request->query('type')
+            : null;
+        $emergency = in_array($request->query('emergency'), ['active', 'none'], true)
+            ? $request->query('emergency')
+            : null;
 
         $patients = Patient::query()
+            ->select([
+                'id', 'uuid', 'patient_number', 'patient_type', 'first_name',
+                'last_name', 'birth_date', 'birth_date_is_approximate',
+                'declared_age', 'sex', 'phone',
+            ])
             ->withCount([
                 'episodes as active_emergency_episodes_count' => fn ($query) => $query
                     ->where('priority', EpisodePriority::Emergency->value)
@@ -47,27 +60,77 @@ class PatientController extends Controller
                         ->orWhere('phone', 'like', "%{$search}%");
                 });
             })
+            ->when($type, fn ($query) => $query->where('patient_type', $type))
+            ->when($emergency === 'active', fn ($query) => $query->whereHas('episodes', fn ($episode) => $episode
+                ->where('priority', EpisodePriority::Emergency->value)
+                ->where('status', EpisodeStatus::Open->value)))
+            ->when($emergency === 'none', fn ($query) => $query->whereDoesntHave('episodes', fn ($episode) => $episode
+                ->where('priority', EpisodePriority::Emergency->value)
+                ->where('status', EpisodeStatus::Open->value)))
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
 
+        $patients->getCollection()->each(
+            fn (Patient $patient) => $this->appendAdministrativePresentation($patient),
+        );
+
         return Inertia::render('Patients/Index', [
             'patients' => $patients,
             'search' => $search,
+            'filters' => ['type' => $type, 'emergency' => $emergency],
         ]);
     }
 
-    public function show(Request $request, Patient $patient): Response
+    public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog): Response
     {
+        // Care record data (constants, allergy snapshot, acts performed) is
+        // gated behind care.view, matching CareController's own capability
+        // — the rest of this page already shows medical history (allergies,
+        // antecedents) to anyone who can open a patient's file at all, so
+        // this is the one clinical block on it that needs a narrower check.
+        $canViewCareRecords = $request->user()->can('care.view');
+
         $patient->load([
+            'addressEntry:id,uuid,label',
             'antecedents',
             'allergies',
-            'episodes' => fn ($query) => $query->orderByDesc('started_at'),
+            'episodes' => fn ($query) => $query
+                ->with([
+                    'orientations:id,episode_id,destination_module,status,oriented_at,accepted_at,completed_at',
+                    ...($canViewCareRecords ? [
+                        'careRecord',
+                        'careRecord.procedures' => fn ($procedures) => $procedures
+                            ->with('performer:id,name'),
+                    ] : []),
+                ])
+                ->orderByDesc('started_at'),
         ]);
+
+        if ($request->user()->can('patient_staff_links.view')) {
+            $patient->load([
+                'activeStaffLink:id,uuid,patient_id,employee_id,linked_at',
+                'activeStaffLink.employee:id,uuid,employee_number,first_name,last_name,profession,active',
+            ]);
+        }
+
+        if ($request->user()->can('patient_coverages.view')) {
+            $patient->load([
+                'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from',
+                'activeMutualCoverage.organization:id,uuid,name',
+            ]);
+
+            if ($request->user()->can('patient_coverage_documents.view')) {
+                $patient->load('activeMutualCoverage.attachments');
+            }
+        }
+
+        $this->appendAdministrativePresentation($patient);
 
         $account = null;
         $paymentMethods = [];
         $openCashSession = null;
+        $billingCatalog = [];
 
         if ($request->user()->can('billing.view')) {
             $canViewPayments = $request->user()->can('payments.view');
@@ -180,36 +243,118 @@ class PatientController extends Controller
                 ->first(['uuid', 'session_number', 'opened_at']);
         }
 
+        if ($request->user()->can('billing.create')) {
+            // The account screen creates a financial document directly. In
+            // contrast with Reception routing, an unpriced service cannot be
+            // offered here because there is no clinical-plan fallback.
+            $billingCatalog = $catalog->services($patient)
+                ->where('tariff_available', true)
+                ->values();
+        }
+
         return Inertia::render('Patients/Show', [
             'patient' => $patient,
             'account' => $account,
             'paymentMethods' => $paymentMethods,
             'openCashSession' => $openCashSession,
+            'billingCatalog' => $billingCatalog,
         ]);
     }
 
-    public function edit(Patient $patient): Response
+    public function edit(Request $request, Patient $patient): Response
     {
+        abort_if(
+            $patient->patient_type === PatientType::Staff,
+            403,
+            'Les informations d’un patient Personnel se modifient depuis son dossier RH.',
+        );
+
+        $patient->load('addressEntry:id,uuid,label');
+
+        $canViewCoverage = $request->user()->can('patient_coverages.view');
+        $canViewCoverageDocuments = $canViewCoverage
+            && $request->user()->can('patients.view')
+            && $request->user()->can('patient_coverage_documents.view');
+
+        if ($patient->patient_type === PatientType::Mutual && $canViewCoverage) {
+            $patient->load([
+                'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from,effective_until',
+                'activeMutualCoverage.organization:id,uuid,name',
+            ]);
+
+            if ($canViewCoverageDocuments) {
+                $patient->load([
+                    'activeMutualCoverage.attachments' => fn ($query) => $query
+                        ->oldest('created_at'),
+                ]);
+            }
+        }
+
+        $coverage = $patient->relationLoaded('activeMutualCoverage')
+            ? $patient->activeMutualCoverage
+            : null;
+
         return Inertia::render('Patients/Edit', [
             'patient' => [
                 'uuid' => $patient->uuid,
                 'patient_number' => $patient->patient_number,
+                'patient_type' => $patient->patient_type->value,
                 'first_name' => $patient->first_name,
                 'last_name' => $patient->last_name,
                 'birth_date' => $patient->birth_date?->toDateString(),
                 'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-                'age' => $patient->birth_date?->age,
+                'declared_age' => $patient->declared_age,
+                'age' => $patient->birth_date?->age ?? $patient->declared_age,
                 'sex' => $patient->sex->value,
                 'civility' => $patient->civility?->value,
                 'identity_document_type' => $patient->identity_document_type?->value,
                 'identity_document_number' => $patient->identity_document_number,
+                'marital_status' => $patient->marital_status?->value,
+                'children_count' => $patient->children_count,
+                'profession' => $patient->profession,
                 'phone' => $patient->phone,
                 'email' => $patient->email,
-                'address' => $patient->address,
-                'emergency_contact_name' => $patient->emergency_contact_name,
-                'emergency_contact_phone' => $patient->emergency_contact_phone,
-                'emergency_contact_relationship' => $patient->emergency_contact_relationship,
-                'emergency_contact_email' => $patient->emergency_contact_email,
+                'address_entry_uuid' => $patient->addressEntry?->uuid,
+                'address' => $patient->addressEntry?->label ?? $patient->address,
+                'active_mutual_coverage' => $coverage ? [
+                    'uuid' => $coverage->uuid,
+                    'organization' => $coverage->organization ? [
+                        'uuid' => $coverage->organization->uuid,
+                        'name' => $coverage->organization->name,
+                    ] : null,
+                    'employer_name' => $coverage->employer_name,
+                    'beneficiary_type' => $coverage->beneficiary_type?->value,
+                    'membership_number' => $coverage->membership_number,
+                    'effective_from' => $coverage->effective_from?->toIso8601String(),
+                    ...($canViewCoverageDocuments ? [
+                        'attachments_count' => $coverage->attachments->count(),
+                        'attachments' => $coverage->attachments->map(fn ($attachment) => [
+                            'uuid' => $attachment->uuid,
+                            'original_name' => $attachment->original_name,
+                            'mime_type' => $attachment->mime_type,
+                            'size' => $attachment->size,
+                            'is_image' => $attachment->is_image,
+                            'url' => route('reception.mutual-coverages.attachments.show', [
+                                'coverage' => $coverage,
+                                'attachment' => $attachment,
+                            ], false),
+                        ])->values(),
+                    ] : []),
+                ] : null,
+            ],
+            'addressEntries' => $request->user()->can('address_entries.view')
+                ? AddressEntry::query()
+                    ->where('active', true)
+                    ->orderBy('label')
+                    ->limit(250)
+                    ->get(['uuid', 'label'])
+                : [],
+            'capabilities' => [
+                'can_view_coverage' => $canViewCoverage,
+                'can_view_coverage_documents' => $canViewCoverageDocuments,
+                'can_add_coverage_documents' => $canViewCoverage
+                    && $request->user()->can('patient_coverage_documents.create'),
+                'can_create_address_entry' => $request->user()->can('address_entries.create'),
             ],
         ]);
     }
@@ -219,7 +364,7 @@ class PatientController extends Controller
         Patient $patient,
         UpdatePatientAction $action,
     ): RedirectResponse {
-        $action->execute($patient, $request->validated());
+        $action->execute($patient, $request->validated(), $request->user());
 
         return redirect()->route('patients.show', $patient)
             ->with('status', "Dossier {$patient->patient_number} mis à jour.");
@@ -246,5 +391,13 @@ class PatientController extends Controller
 
         return back()
             ->with('status', "{$deleted} dossier(s) patient archivé(s).");
+    }
+
+    private function appendAdministrativePresentation(Patient $patient): Patient
+    {
+        $patient->setAttribute('age', $patient->birth_date?->age ?? $patient->declared_age);
+        $patient->setAttribute('patient_type_label', $patient->patient_type->label());
+
+        return $patient;
     }
 }

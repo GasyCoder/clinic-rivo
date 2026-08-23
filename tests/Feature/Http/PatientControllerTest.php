@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Http;
 
+use App\Enums\PatientType;
 use App\Models\AuditLog;
 use App\Models\Episode;
 use App\Models\Patient;
@@ -9,6 +10,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class PatientControllerTest extends TestCase
@@ -59,6 +61,24 @@ class PatientControllerTest extends TestCase
             );
     }
 
+    public function test_index_exposes_the_age_calculated_from_the_birth_date(): void
+    {
+        Carbon::setTestNow('2026-08-23 10:00:00');
+
+        $user = $this->userWithPermissions(['patients.view']);
+        $patient = Patient::create([
+            'patient_number' => 'M-26-0001',
+            ...$this->patientData(['birth_date' => '1990-09-12']),
+        ]);
+
+        $this->actingAs($user)->get('/patients')
+            ->assertInertia(fn ($page) => $page
+                ->component('Patients/Index')
+                ->where('patients.data.0.uuid', $patient->uuid)
+                ->where('patients.data.0.age', 35)
+            );
+    }
+
     public function test_index_marks_a_patient_with_an_active_emergency_episode(): void
     {
         $user = $this->userWithPermissions(['patients.view']);
@@ -80,6 +100,43 @@ class PatientControllerTest extends TestCase
                 ->where('patients.data.0.uuid', $patient->uuid)
                 ->where('patients.data.0.active_emergency_episodes_count', 1)
             );
+    }
+
+    public function test_index_supports_the_type_and_emergency_filters(): void
+    {
+        $user = $this->userWithPermissions(['patients.view']);
+        $standard = Patient::create(['patient_number' => 'M-000001', ...$this->patientData(['last_name' => 'Rakoto']), 'patient_type' => PatientType::Standard->value]);
+        $mutual = Patient::create(['patient_number' => 'M-000002', ...$this->patientData(['last_name' => 'Rasoa']), 'patient_type' => PatientType::Mutual->value]);
+        Episode::create([
+            'patient_id' => $standard->id,
+            'episode_number' => 'ME-000001',
+            'status' => 'OPEN',
+            'priority' => 'EMERGENCY',
+            'administrative_status' => 'ORIENTED',
+            'started_at' => now(),
+            'created_by' => $user->id,
+        ]);
+
+        $this->actingAs($user)->get('/patients?type=MUTUAL')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 1)
+                ->where('patients.data.0.uuid', $mutual->uuid)
+                ->where('filters.type', 'MUTUAL'));
+
+        $this->actingAs($user)->get('/patients?emergency=active')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 1)
+                ->where('patients.data.0.uuid', $standard->uuid));
+
+        $this->actingAs($user)->get('/patients?emergency=none')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 1)
+                ->where('patients.data.0.uuid', $mutual->uuid));
+
+        $this->actingAs($user)->get('/patients?type=bogus')
+            ->assertInertia(fn ($page) => $page
+                ->has('patients.data', 2)
+                ->where('filters.type', null));
     }
 
     public function test_there_is_no_creation_route_on_the_read_only_directory(): void
@@ -157,6 +214,28 @@ class PatientControllerTest extends TestCase
             'entity_type' => Patient::class,
             'entity_id' => $patient->id,
         ]);
+    }
+
+    public function test_a_staff_patient_cannot_be_edited_outside_the_hr_record(): void
+    {
+        $user = $this->userWithPermissions(['patients.update']);
+        $patient = Patient::create([
+            'patient_number' => 'M-26-0001',
+            'patient_type' => PatientType::Staff,
+            ...$this->patientData(),
+        ]);
+
+        $this->actingAs($user)
+            ->get("/patients/{$patient->uuid}/edit")
+            ->assertForbidden();
+
+        $this->actingAs($user)
+            ->put("/patients/{$patient->uuid}", [
+                ...$this->patientData(['first_name' => 'Modification interdite']),
+            ])
+            ->assertForbidden();
+
+        $this->assertSame('Jean', $patient->fresh()->first_name);
     }
 
     public function test_patient_update_rejects_an_invalid_administrative_identity(): void

@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -19,17 +20,52 @@ use Inertia\Response;
  */
 class HomeController extends Controller
 {
-    public function __invoke(Request $request): Response|RedirectResponse
+    public function __invoke(Request $request, PortalDirectory $directory): Response|RedirectResponse
     {
-        if (config('rivo.site.type') === 'gateway') {
+        $deploymentType = config('rivo.site.type');
+
+        abort_unless(
+            in_array($deploymentType, ['clinic', 'admin', 'gateway'], true),
+            500,
+            'RIVO_SITE_TYPE doit être clinic, admin ou gateway.',
+        );
+
+        if ($deploymentType === 'gateway') {
             return Inertia::render('SiteSelect', [
-                'clinics' => config('rivo.clinics'),
+                'clinics' => collect(config('rivo.clinics'))->map(fn (array $clinic) => [
+                    'code' => $clinic['code'],
+                    'name' => $clinic['name'],
+                    'url' => $clinic['url'],
+                ]),
                 'adminUrl' => config('rivo.admin_url'),
             ]);
         }
 
         if (! $request->user()) {
             return redirect()->route('login');
+        }
+
+        if (! $request->user()->isActive() || ! $request->user()->role_id || ! $request->user()->role()->exists()) {
+            auth('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect()->route('login')->withErrors([
+                'email' => "Ce compte n'est pas actif ou ne possède aucun rôle valide.",
+            ]);
+        }
+
+        if ($deploymentType === 'admin') {
+            abort_unless(
+                $request->user()->hasRole('SUPER_ADMIN')
+                && $request->user()->can('super_admin.portal.view'),
+                403,
+            );
+
+            return Inertia::render('SuperAdmin/Dashboard', [
+                'sites' => $directory->sites(),
+                'modules' => $directory->modules(),
+            ]);
         }
 
         return Inertia::render('Home');

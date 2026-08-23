@@ -37,15 +37,14 @@ class AppServiceProvider extends ServiceProvider
         // a new Permission row makes it immediately checkable everywhere
         // (Policies, `can:` middleware, $user->can()) with no code change.
         //
-        // SUPER_ADMIN is granted access here AND holds every permission as
-        // explicit role_permissions rows (see RoleSeeder), so this is not a
-        // silent bypass. It only short-circuits authorization checks — it
-        // must never be used as a substitute for enforcing critical business
-        // invariants (e.g. "only Reception/Cash collects payments") which
-        // belong in the relevant Actions/Services regardless of role.
+        // Even SUPER_ADMIN resolves through persisted role permissions. There
+        // is no role-name bypass, and an explicit individual DENY remains
+        // prioritary (ADR-007/027).
         Gate::before(function (User $user, string $ability) {
-            if ($user->hasRole('SUPER_ADMIN')) {
-                return true;
+            // role_id is protected by a foreign key; a non-null value is a
+            // valid local role, without an extra query on every Gate check.
+            if (! $user->isActive() || ! $user->role_id) {
+                return false;
             }
 
             if (! Permission::allNames()->contains($ability)) {

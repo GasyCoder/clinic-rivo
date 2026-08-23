@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
@@ -79,19 +80,28 @@ class PasswordResetTest extends TestCase
         Notification::fake();
 
         $user = User::factory()->create();
+        DB::table('sessions')->insert([
+            'id' => 'existing-user-session',
+            'user_id' => $user->id,
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'test',
+            'payload' => 'payload',
+            'last_activity' => now()->timestamp,
+        ]);
         $this->post('/forgot-password', ['email' => $user->email]);
 
         Notification::assertSentTo($user, ResetPassword::class, function ($notification) use ($user) {
             $response = $this->post('/reset-password', [
                 'token' => $notification->token,
                 'email' => $user->email,
-                'password' => 'new-strong-password',
-                'password_confirmation' => 'new-strong-password',
+                'password' => 'New-strong-password1!',
+                'password_confirmation' => 'New-strong-password1!',
             ]);
 
             $response->assertRedirect('/login');
-            $this->assertTrue(Hash::check('new-strong-password', $user->fresh()->password));
+            $this->assertTrue(Hash::check('New-strong-password1!', $user->fresh()->password));
             $this->assertGuest();
+            $this->assertDatabaseMissing('sessions', ['id' => 'existing-user-session']);
 
             return true;
         });
@@ -108,8 +118,8 @@ class PasswordResetTest extends TestCase
             $this->post('/reset-password', [
                 'token' => $notification->token,
                 'email' => $user->email,
-                'password' => 'new-strong-password',
-                'password_confirmation' => 'new-strong-password',
+                'password' => 'New-strong-password1!',
+                'password_confirmation' => 'New-strong-password1!',
             ]);
 
             $log = AuditLog::where('action', 'password.reset')->first();
@@ -131,8 +141,8 @@ class PasswordResetTest extends TestCase
         $response = $this->post('/reset-password', [
             'token' => 'not-a-real-token',
             'email' => $user->email,
-            'password' => 'new-strong-password',
-            'password_confirmation' => 'new-strong-password',
+            'password' => 'New-strong-password1!',
+            'password_confirmation' => 'New-strong-password1!',
         ]);
 
         $response->assertSessionHasErrors('email');
@@ -147,8 +157,23 @@ class PasswordResetTest extends TestCase
         $response = $this->post('/reset-password', [
             'token' => $token,
             'email' => $user->email,
-            'password' => 'new-strong-password',
+            'password' => 'New-strong-password1!',
             'password_confirmation' => 'different-password',
+        ]);
+
+        $response->assertSessionHasErrors('password');
+    }
+
+    public function test_password_reset_rejects_a_password_that_does_not_meet_the_account_policy(): void
+    {
+        $user = User::factory()->create();
+        $token = Password::createToken($user);
+
+        $response = $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'weakpassword',
+            'password_confirmation' => 'weakpassword',
         ]);
 
         $response->assertSessionHasErrors('password');

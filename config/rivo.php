@@ -45,7 +45,7 @@ return [
     'site' => [
         'code' => env('RIVO_SITE_CODE'),
         'name' => env('RIVO_SITE_NAME'),
-        'type' => env('RIVO_SITE_TYPE', 'clinic'),
+        'type' => strtolower(trim((string) env('RIVO_SITE_TYPE', 'clinic'))),
     ],
 
     /*
@@ -69,12 +69,49 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Printed document identity
+    |--------------------------------------------------------------------------
+    |
+    | Legal and contact details shown on invoices and other official documents.
+    | They vary by operational site and must be configured with verified values
+    | at deployment time. No legal identifier is guessed by the application.
+    |
+    */
+
+    'documents' => [
+        'logo_url' => env('RIVO_DOCUMENT_LOGO_URL'),
+        'nif' => env('RIVO_LEGAL_NIF'),
+        'stat' => env('RIVO_LEGAL_STAT'),
+        'address' => env('RIVO_LEGAL_ADDRESS'),
+        'phone' => env('RIVO_LEGAL_PHONE'),
+        'email' => env('RIVO_LEGAL_EMAIL'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Local provisioning
+    |--------------------------------------------------------------------------
+    |
+    | Optional UUID or email of the real, active account recorded as the
+    | provisioning author when the explicit local clinical-service seeder is
+    | run. This does not grant that account any catalog permission. The seeder
+    | is never part of DatabaseSeeder and is refused outside local/testing.
+    |
+    */
+
+    'seeders' => [
+        'catalog_actor' => env('RIVO_CATALOG_SEED_ACTOR'),
+        'development_users_password' => env('RIVO_DEVELOPMENT_USERS_PASSWORD', 'Rivo-Dev-2026!'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Clinic directory
     |--------------------------------------------------------------------------
     |
-    | Consulted only by the staff gateway (site.type = gateway, app.rivo.mg)
-    | to build its redirect links. A clinic or admin deployment never reads
-    | this list — it only knows its own identity above.
+    | Consulted by the staff gateway for login links and by the central
+    | Super Administration for its API directory. `api_url` is never a DB
+    | connection and may remain null until the secured site API is deployed.
     |
     */
 
@@ -83,16 +120,19 @@ return [
             'code' => 'M',
             'name' => 'Mampikony',
             'url' => env('RIVO_SITE_MAMPIKONY_URL', 'https://clinique-m.rivo.mg'),
+            'api_url' => env('RIVO_API_MAMPIKONY_URL'),
         ],
         [
             'code' => 'A',
             'name' => 'Ambondromamy',
             'url' => env('RIVO_SITE_AMBONDROMAMY_URL', 'https://clinique-a.rivo.mg'),
+            'api_url' => env('RIVO_API_AMBONDROMAMY_URL'),
         ],
         [
             'code' => 'B',
             'name' => 'Boriziny',
             'url' => env('RIVO_SITE_BORIZINY_URL', 'https://clinique-b.rivo.mg'),
+            'api_url' => env('RIVO_API_BORIZINY_URL'),
         ],
     ],
 

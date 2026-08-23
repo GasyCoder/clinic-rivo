@@ -115,10 +115,10 @@ class SurgeryController extends Controller
             'careNotes.recordedBy',
         ]);
 
-        // Broad by design (any active user, not role-filtered): the CDC
-        // does not restrict who may be scheduled as surgeon/anesthetist/team
-        // member to a specific role, and NURSE also holds anesthesia.*
-        // (ADR-006 amendment) — narrowing this would invent a rule.
+        // Broad by design (any active user, not role-filtered): the CDC does
+        // not restrict who may be scheduled as a surgical team member to a
+        // role. Authorization remains account-specific; an anesthetist may
+        // hold anesthesia.* as individual ALLOW permissions (ADR-033).
         $users = User::query()
             ->with('role:id,code,name')
             ->orderBy('name')

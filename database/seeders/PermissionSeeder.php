@@ -7,6 +7,12 @@ use Illuminate\Database\Seeder;
 
 class PermissionSeeder extends Seeder
 {
+    /** @var array<int, string> */
+    private const OBSOLETE_PERMISSIONS = [
+        // Users are historical actors and are now deactivated, never deleted.
+        'users.delete',
+    ];
+
     /**
      * Clinical modules not yet implemented (laboratory, pharmacy, etc.)
      * still have no permission invented here — each seeds its own
@@ -18,8 +24,139 @@ class PermissionSeeder extends Seeder
         'users.view' => 'Voir les utilisateurs',
         'users.create' => 'Créer un utilisateur',
         'users.update' => 'Modifier un utilisateur',
-        'users.delete' => 'Supprimer un utilisateur',
+        'users.activate' => 'Réactiver un utilisateur',
+        'users.deactivate' => 'Désactiver un utilisateur',
+        'users.assign_super_admin' => 'Attribuer ou gérer le rôle Super Administrateur',
         'users.manage' => 'Gérer les comptes, rôles et permissions',
+
+        'roles.view' => 'Voir les rôles',
+        'roles.assign' => 'Attribuer un rôle',
+        'permissions.view' => 'Voir les permissions',
+        'permissions.assign' => 'Attribuer des permissions individuelles',
+
+        // ADR-025 — portail central. Ces droits n'accordent aucun accès
+        // direct aux bases locales : chaque lecture/écriture distante reste
+        // soumise à l'API et aux permissions du site cible.
+        'super_admin.portal.view' => 'Accéder au portail Super Administration',
+        'sites.view' => 'Voir les sites et leurs modules',
+        'reports.financial.view' => 'Voir les rapports financiers par site',
+        'settings.view' => 'Voir les paramètres globaux',
+        'settings.update' => 'Modifier les paramètres globaux',
+        'audit.view' => 'Voir le journal d’audit',
+        'api.view' => 'Voir l’état des intégrations API',
+
+        // CDC officiel §17, affiné par la décision projet qui sépare RH,
+        // Logistique, Support et Maintenance en responsabilités autonomes.
+        'employees.view' => 'Voir les employés',
+        'employees.create' => 'Créer un employé',
+        'employees.update' => 'Modifier un employé',
+        'employees.delete' => 'Archiver un employé',
+        'employees.restore' => 'Restaurer un employé',
+        // Vue volontairement minimale du dossier RH pour relier un membre du
+        // personnel à son dossier patient, sans exposer contrats ou données RH.
+        'employees.patient_lookup' => 'Rechercher un employé pour son dossier patient',
+        'patient_staff_links.view' => 'Voir le lien patient-personnel',
+        'patient_staff_links.create' => 'Relier un patient à un employé',
+        'patient_staff_links.end' => 'Mettre fin à un lien patient-personnel',
+
+        'address_entries.view' => 'Voir le référentiel des adresses',
+        'address_entries.create' => 'Ajouter une adresse au référentiel',
+        'address_entries.update' => 'Modifier une adresse du référentiel',
+        'address_entries.archive' => 'Archiver une adresse du référentiel',
+
+        'mutual_organizations.view' => 'Voir les organismes de mutuelle',
+        'mutual_organizations.create' => 'Créer un organisme de mutuelle',
+        'mutual_organizations.update' => 'Modifier un organisme de mutuelle',
+        'mutual_organizations.archive' => 'Archiver un organisme de mutuelle',
+        'patient_coverages.view' => 'Voir la couverture administrative du patient',
+        'patient_coverages.create' => 'Enregistrer une couverture mutuelle',
+        'patient_coverages.update' => 'Modifier une couverture mutuelle',
+        'patient_coverages.end' => 'Mettre fin à une couverture mutuelle',
+        'patient_coverage_documents.view' => 'Voir les justificatifs privés de couverture',
+        'patient_coverage_documents.create' => 'Ajouter un justificatif privé de couverture',
+        'patient_coverage_documents.archive' => 'Archiver un justificatif privé de couverture',
+        'contracts.view' => 'Voir les contrats',
+        'contracts.create' => 'Créer un contrat',
+        'contracts.update' => 'Modifier un contrat',
+        'contracts.archive' => 'Archiver un contrat',
+        'attendance.view' => 'Voir les présences',
+        'attendance.create' => 'Enregistrer une présence',
+        'attendance.update' => 'Modifier une présence',
+        'leave.view' => 'Voir les congés',
+        'leave.create' => 'Créer une demande de congé',
+        'leave.approve' => 'Approuver une demande de congé',
+        'leave.cancel' => 'Annuler une demande de congé',
+        'planning.view' => 'Voir les plannings',
+        'planning.create' => 'Créer un planning',
+        'planning.update' => 'Modifier un planning',
+        'logistics.view' => 'Voir la logistique',
+        'logistics.manage' => 'Gérer la logistique',
+        'administrative_stock.view' => 'Voir le stock administratif',
+        'administrative_stock.entry' => 'Enregistrer une entrée de stock administratif',
+        'administrative_stock.exit' => 'Enregistrer une sortie de stock administratif',
+        'administrative_stock.inventory' => 'Réaliser un inventaire administratif',
+        'equipment.view' => 'Voir les équipements',
+        'equipment.create' => 'Enregistrer un équipement',
+        'equipment.update' => 'Modifier un équipement',
+        'equipment.delete' => 'Archiver un équipement',
+        'equipment.restore' => 'Restaurer un équipement',
+        'equipment.assign' => 'Affecter ou déplacer un équipement',
+        'equipment.inventory' => 'Réaliser l’inventaire des équipements',
+        'equipment.maintenance.manage' => 'Suivre la maintenance des équipements',
+        'equipment.decommission' => 'Mettre un équipement hors service',
+        'guarding.view' => 'Accéder au poste de gardiennage',
+        'guarding.entries.view' => 'Voir le journal des entrées et sorties',
+        'guarding.entries.create' => 'Enregistrer une entrée',
+        'guarding.entries.update' => 'Corriger une entrée ou une observation',
+        'guarding.entries.close' => 'Enregistrer une sortie',
+        'guarding.reports.view' => 'Voir les rapports de gardiennage',
+        'guarding.reports.export' => 'Exporter les rapports de gardiennage',
+        'hr_reports.view' => 'Voir les rapports RH',
+        'hr_reports.export' => 'Exporter les rapports RH',
+
+        // ADR-024 — référentiel partagé localement par chaque site. Ces
+        // permissions restent dynamiques, mais ne sont attribuées par
+        // défaut qu'au SUPER_ADMIN dans RolePermissionSeeder.
+        'catalog.items.view' => 'Voir le référentiel des produits et prestations',
+        'catalog.items.create' => 'Créer un élément du référentiel',
+        'catalog.items.update' => 'Modifier un élément du référentiel',
+        'catalog.items.delete' => 'Archiver un élément du référentiel',
+        'catalog.items.restore' => 'Restaurer un élément du référentiel',
+        'catalog.tariffs.view' => 'Voir les tarifs et leur historique',
+        'catalog.tariffs.create' => 'Créer un tarif',
+        'catalog.tariffs.update' => 'Modifier un tarif',
+        'catalog.tariffs.archive' => 'Suspendre un tarif',
+
+        'reception.view' => 'Accéder à la réception',
+
+        'visitors.view' => 'Voir le registre des visiteurs',
+        'visitors.create' => 'Enregistrer l’entrée d’un visiteur',
+        'visitors.update' => 'Corriger une visite',
+        'visitors.close' => 'Enregistrer la sortie d’un visiteur',
+
+        // CDC §13 + ADR-024. Le stock de médicaments reste dans Pharmacie.
+        // Les prix et le référentiel sont gérés séparément par le Super Admin.
+        'pharmacy.view' => 'Accéder à la pharmacie',
+        'pharmacy.dispense' => 'Délivrer les médicaments autorisés',
+        'pharmacy.return' => 'Enregistrer un retour de pharmacie',
+        'pharmacy.reports.view' => 'Voir les rapports de pharmacie',
+        'pharmacy.reports.export' => 'Exporter les rapports de pharmacie',
+        'medicines.view' => 'Voir le référentiel des médicaments',
+        'stock.availability.view' => 'Consulter la disponibilité agrégée des médicaments',
+        'stock.view' => 'Voir le stock de médicaments et consommables',
+        'stock.entry' => 'Enregistrer une entrée en stock pharmacie',
+        'stock.exit' => 'Enregistrer une sortie de stock pharmacie',
+        'stock.adjust' => 'Ajuster le stock pharmacie',
+        'stock.inventory' => 'Réaliser un inventaire du stock pharmacie',
+        'stock.validate' => 'Valider un mouvement de stock pharmacie',
+        'stock.transfer' => 'Transférer un stock pharmacie',
+        'stock.approve' => 'Approuver un transfert de stock pharmacie',
+        'stock.import' => 'Importer le stock pharmacie',
+        'stock.export' => 'Exporter le stock pharmacie',
+        'stock.lots.view' => 'Voir les lots de médicaments',
+        'stock.lots.create' => 'Créer un lot de médicaments',
+        'stock.lots.update' => 'Modifier un lot de médicaments',
+        'stock.expiration.view' => 'Voir les péremptions',
 
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',
@@ -41,7 +178,7 @@ class PermissionSeeder extends Seeder
         // dans ce module, à ajouter quand ce flux sera réellement construit.
         'episodes.view' => 'Voir les épisodes',
         'episodes.create' => 'Créer un épisode',
-        'episodes.update' => 'Modifier un épisode (orientation, ...)',
+        'episodes.update' => 'Modifier un épisode',
         'episodes.cancel' => 'Annuler un épisode',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
@@ -52,6 +189,7 @@ class PermissionSeeder extends Seeder
         'billing.view' => 'Voir les factures et soldes',
         'billing.create' => 'Créer une facture',
         'billing.validate' => 'Valider une facture',
+        'billing.print' => 'Voir et imprimer une facture',
         'payments.view' => 'Voir les paiements',
         'payments.create' => 'Enregistrer un paiement',
         'payments.cancel' => 'Annuler un paiement',
@@ -61,12 +199,10 @@ class PermissionSeeder extends Seeder
         'receipts.view' => 'Voir les reçus',
         'receipts.print' => 'Imprimer les reçus',
 
-        // CDC GitHub §15. medical_record.view, laboratory_orders.create,
-        // hospitalization.request, surgery.request, transfer.request et
-        // medical_discharge.create sont aussi listées là-bas mais non
-        // seedées ici : aucune de ces capacités n'est implémentée tant que
-        // Laboratoire/Hospitalisation/Chirurgie/Transfert/Sortie médicale
-        // (§34) n'existent pas.
+        // CDC GitHub §15 / ADR-035. Les demandes Laboratoire,
+        // Hospitalisation, Chirurgie et Transfert restent absentes tant que
+        // leurs workflows spécialisés ne sont pas réellement construits.
+        'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
         'consultations.create' => 'Créer une consultation',
         'consultations.update' => 'Modifier une consultation',
@@ -81,6 +217,7 @@ class PermissionSeeder extends Seeder
         'prescriptions.create' => 'Créer une prescription',
         'prescriptions.update' => 'Modifier une prescription',
         'prescriptions.cancel' => 'Annuler une prescription',
+        'medical_discharge.create' => 'Prononcer une sortie médicale',
 
         // CDC §15 "Soins" — seedées ici en avance du module Soins/Vitals
         // (pas encore construit) car explicitement demandées pour le rôle
@@ -96,10 +233,9 @@ class PermissionSeeder extends Seeder
         'vitals.update' => 'Modifier des constantes',
         'medical_orders.view' => 'Voir les ordres médicaux',
 
-        // CDC §16 "Chirurgie" — catalogue anesthésie, normalement rattaché
-        // à SURGERY mais explicitement demandé aussi pour NURSE (ADR-006
-        // amendé 2026-08-19) : une seule définition ici, référencée par les
-        // deux rôles dans RolePermissionSeeder.
+        // CDC §16 "Chirurgie" — catalogue anesthésie. Il appartient au rôle
+        // SURGERY et peut aussi être attribué individuellement à un compte
+        // NURSE dont le profil principal est ANESTHETIST.
         'anesthesia.view' => 'Voir les dossiers d\'anesthésie',
         'anesthesia.create' => 'Créer un dossier d\'anesthésie',
         'anesthesia.update' => 'Modifier un dossier d\'anesthésie',
@@ -138,6 +274,8 @@ class PermissionSeeder extends Seeder
 
     public function run(): void
     {
+        Permission::query()->whereIn('name', self::OBSOLETE_PERMISSIONS)->delete();
+
         foreach (self::PERMISSIONS as $name => $label) {
             Permission::query()->updateOrCreate(['name' => $name], ['label' => $label]);
         }

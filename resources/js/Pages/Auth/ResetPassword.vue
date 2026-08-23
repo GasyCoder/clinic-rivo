@@ -99,6 +99,7 @@ const submit = () => {
                                 required
                             />
                         </InputWrap>
+                        <p class="mt-1.5 text-xs leading-5 text-slate-400">12 caractères minimum, avec majuscule, minuscule, chiffre et symbole.</p>
                         <FormError v-if="form.errors.password">{{ form.errors.password }}</FormError>
                     </FormGroup>
 

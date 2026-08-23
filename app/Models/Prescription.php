@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * `prescriptions.cancel`, not delete — see cancel() below, same pattern as
  * Episode::cancel().
  */
-#[Fillable(['consultation_id', 'status', 'cancel_reason', 'cancelled_at'])]
+#[Fillable(['consultation_id', 'prescribed_by', 'status', 'prescribed_at', 'cancel_reason', 'cancelled_at'])]
 class Prescription extends Model
 {
     use Auditable, HasUuid;
@@ -27,6 +27,7 @@ class Prescription extends Model
     {
         return [
             'status' => PrescriptionStatus::class,
+            'prescribed_at' => 'datetime',
             'cancelled_at' => 'datetime',
         ];
     }
@@ -39,6 +40,11 @@ class Prescription extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(PrescriptionLine::class);
+    }
+
+    public function prescribedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'prescribed_by');
     }
 
     /**
@@ -57,6 +63,7 @@ class Prescription extends Model
         }
 
         $this->status = PrescriptionStatus::Cancelled;
+        $this->cancel_reason = $reason;
         $this->cancelled_at = now();
         $this->save();
 

@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\EnsureActiveAccount;
+use App\Http\Middleware\EnsureDeploymentAccount;
 use App\Http\Middleware\EnsureSiteType;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
@@ -18,6 +20,8 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
+            'account.active' => EnsureActiveAccount::class,
+            'account.deployment' => EnsureDeploymentAccount::class,
             'site.type' => EnsureSiteType::class,
         ]);
 

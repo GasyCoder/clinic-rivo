@@ -4,11 +4,12 @@
 
 RIVO est l'application de gestion de la Clinique Saint Georges.
 
-Sites :
+Sites opérationnels :
 
 ```text
 Mampikony
 Ambondromamy
+Boriziny
 ```
 
 CDC officiel :
@@ -36,7 +37,7 @@ Laravel Queue / Jobs
 
 # Architecture générale
 
-Les deux établissements sont indépendants.
+Les trois établissements sont indépendants.
 
 ```text
 clinique-m.rivo.mg
@@ -58,11 +59,21 @@ Laravel
 DB_AMBONDROMAMY
 ```
 
+```text
+clinique-b.rivo.mg
+        │
+        ▼
+Laravel
+        │
+        ▼
+DB_BORIZINY
+```
+
 Une seule codebase.
 
-Deux déploiements.
+Trois déploiements.
 
-Deux bases indépendantes.
+Trois bases indépendantes.
 
 Aucun accès SQL direct entre les bases.
 
@@ -118,11 +129,61 @@ admin.rivo.mg
       ├── API Mampikony
       │       └── DB_MAMPIKONY
       │
-      └── API Ambondromamy
+      ├── API Ambondromamy
               └── DB_AMBONDROMAMY
+      └── API Boriziny
+              └── DB_BORIZINY
 ```
 
 Le Super Admin n'accède jamais directement aux bases de données locales.
+
+## Référentiels, tarifs et stocks
+
+Les prestations, produits stockables et équipements durables sont des domaines
+distincts :
+
+```text
+prestations : consultation, ECG, échographie, analyse, acte
+stocks       : médicaments, consommables médicaux, fournitures
+équipements  : actifs identifiés, affectés et maintenus individuellement
+```
+
+Le référentiel utilise des UUID distribués. Les tarifs sont historisés et propres
+à chaque site ; une modification ne change jamais une facturation antérieure.
+Le paramétrage du référentiel et des tarifs est attribué par défaut uniquement au
+`SUPER_ADMIN`, via permissions granulaires `catalog.items.*` et
+`catalog.tariffs.*`. Les modules opérationnels utilisent le catalogue sans
+modifier les tarifs.
+
+Pharmacie réalise les mouvements de médicaments et consommables autorisés.
+Administration réalise le stock administratif et le suivi des équipements.
+Réception sélectionne les prestations et demeure l’unique module d’encaissement.
+Elle ne saisit pas de prix libre : le backend résout le tarif actif et conserve
+le montant historique sur la prestation facturable et la facture.
+
+Depuis `admin.rivo.mg`, une action multi-site appelle séparément les APIs de
+Mampikony, Ambondromamy et Boriziny avec UUID, idempotence, audit et reprise sur
+échec partiel. Aucun accès SQL inter-site n’est autorisé. Voir ADR-024.
+
+Le portail Super Administration possède une navigation distincte des sites
+opérationnels. Il présente le tableau de bord consolidé, chaque site et ses
+modules, les rapports financiers, les espaces Administration, utilisateurs,
+rôles/permissions, paramètres et audit. Son accès exige
+`super_admin.portal.view`. Voir ADR-025.
+
+Un compte `SUPER_ADMIN` est exclusivement central et ne peut jamais se connecter
+directement à un site. Une personne qui exerce aussi une fonction opérationnelle
+doit posséder un compte local distinct avec le rôle métier correspondant. Un
+compte opérationnel ne peut réciproquement pas se connecter au portail central,
+même avec une permission ajoutée par erreur. Voir ADR-027.
+
+Les responsabilités administratives sont séparées : `ADMINISTRATION` couvre les
+RH, contrats, présences, congés, planning et rapports RH ; `LOGISTICS` couvre
+l’inventaire et le suivi des équipements ainsi que le stock administratif.
+`SUPPORT` classe notamment les profils Gardien et Agent d'entretien ;
+`MAINTENANCE` classe notamment le profil Technicien informatique. Leurs tâches
+spécifiques sont affectées au compte, jamais globalement au rôle. Aucun de ces
+rôles ne gère les utilisateurs, rôles ou permissions par défaut. Voir ADR-033.
 
 ---
 
@@ -133,6 +194,10 @@ SUPER_ADMIN
 ADMINISTRATION
 RECEPTION
 MEDICINE
+NURSE
+LOGISTICS
+SUPPORT
+MAINTENANCE
 SURGERY
 PHARMACY
 LABORATORY
@@ -141,6 +206,23 @@ LABORATORY
 Les rôles représentent des domaines principaux.
 
 Les permissions déterminent réellement les actions autorisées.
+
+Pour `NURSE`, `SUPPORT` et `MAINTENANCE`, un profil professionnel qualifie le
+métier principal sans donner directement de permission. Les recommandations du
+profil sont copiées explicitement comme permissions individuelles, modifiables
+compte par compte. Voir ADR-033.
+
+Les utilisateurs sont locaux à chaque base/site. Un compte actif doit posséder
+un rôle valide. Les comptes ne sont jamais supprimés physiquement : ils sont
+désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
+Les seeders standards ne doivent créer aucun compte ou mot de passe de
+démonstration. L'unique exception est `DevelopmentUserSeeder`, explicitement
+réservé à `local/testing`, jamais appelé par `DatabaseSeeder` et refusé en
+production. Voir ADR-022.
+
+La compatibilité compte/déploiement est contrôlée à la connexion et sur chaque
+session : `SUPER_ADMIN` uniquement sur `admin`, tout rôle opérationnel uniquement
+sur `clinic`. Le rôle et la permission sont tous deux nécessaires au portail.
 
 ---
 
@@ -312,6 +394,15 @@ cash closing
 payment receipt
 ```
 
+Une ordonnance Médecine sélectionne un médicament actif du référentiel
+Pharmacie. La disponibilité est calculée sur les lots actifs non périmés, moins
+les réservations actives. La validation réserve transactionnellement la
+quantité en FEFO et échoue intégralement si le stock est insuffisant. Elle ne
+déstocke pas : seule la future délivrance Pharmacie réalise la sortie physique.
+L'annulation d'une ordonnance libère la réservation. Médecine ne reçoit que
+`stock.availability.view`, jamais les droits de mutation `stock.*`. Voir
+ADR-036.
+
 ---
 
 # Laboratoire
@@ -384,6 +475,8 @@ episodes
 reception
 orientation
 appointments
+visitor entries and departures
+up to four private professional visitor attachments (JPEG, PNG, WebP or PDF)
 
 billable items
 invoices
@@ -396,6 +489,17 @@ cash opening
 cash closing
 financial reports
 ```
+
+À l’arrivée, Réception peut sélectionner les prestations `SERVICE`. Laravel
+résout le barème `STANDARD` ou `MUTUAL` selon le type du patient et crée son
+instantané ; le navigateur ne fournit jamais un prix fiable. Les deux grilles
+sont historisées indépendamment. Un tarif mutuelle manquant ne reprend jamais
+le tarif standard : la demande clinique et l’orientation sont conservées, mais
+la facturation reste en attente. `PAYER PLUS TARD` produit une facture
+validée avec solde dû ; `PAYER MAINTENANT` exige une caisse ouverte et produit
+facture, paiement, mouvement de caisse et reçu. Aucun reçu n’existe sans
+encaissement réel. Une urgence ne dépend jamais de cette sélection ou du
+paiement. Voir ADR-028 et ADR-031.
 
 ---
 
@@ -428,6 +532,102 @@ Tailwind CSS
 DashWind constitue la base visuelle.
 
 Ne pas introduire un autre design system sans validation.
+
+---
+
+# Décision client du 22/08/2026 — accueil patient
+
+ADR-030 remplace le parcours uniforme de l'ADR-029 : le type administratif du
+patient est `STANDARD`, `MUTUAL` ou `STAFF`, puis les désignations configurées
+pilotent le parcours clinique (`MEDICINE_DIRECT`, `CARE_THEN_MEDICINE` ou
+`CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.
+Une consultation spécialisée déjà identifiée est `MEDICINE_DIRECT`; la
+consultation générale reste `CARE_THEN_MEDICINE`.
+
+Les nouveaux numéros humains sont annuels pour le patient (`M-26-0001`) et
+ordinaux par patient pour les passages (`M-26-0001-01`). Les UUID restent les
+identifiants publics. Le dossier Employé est distinct de `users`; la Réception
+ne fait qu'une recherche minimale et un lien patient-employé. Les pièces de
+mutuelle sont privées et limitées à cinq.
+
+La demande clinique doit être conservée indépendamment de la facturation. Pour
+un employé actif et éligible, les prestations sont prises en charge à 100 % hors
+bloc ; les actes du bloc consomment un crédit configurable et l'excédent reste à
+la charge du patient. Le montant brut demeure historisé : la couverture/crédit
+RH/Finance ne peut jamais être simulé par un tarif nul, une remise arbitraire ou
+un faux paiement. Tant que la période du crédit et le périmètre exact des actes
+du bloc ne sont pas configurés, la facturation `STAFF` reste en attente sans
+bloquer le parcours clinique.
+
+Les tarifs `STANDARD` (« Sans mutuelle ») et `MUTUAL` sont des montants bruts
+propres à chaque site. `STAFF` n'est pas une grille tarifaire : son avantage est
+calculé séparément. Le PDF Ambondromamy de juin 2023 confirme les deux grilles,
+mais reste une référence historique non importée automatiquement car plusieurs
+lignes sont ambiguës ou variables. La part payée par une mutuelle et la part du
+patient ne sont pas encore définies par le client.
+
+Le 23/08/2026, le client a validé une fiche de soins `NURSE` par passage :
+constantes, IMC calculé, observations, transmission conditionnelle
+et historique append-only des actes réellement réalisés. Les actes fournis sans
+prix entrent dans le référentiel sans faux tarif. Le « diagnostic communiqué »
+reste une information de transmission et ne remplace jamais le diagnostic de
+Médecine. Les allergies confirmées sont sélectionnées depuis le dossier
+permanent ; une nouvelle allergie peut y être ajoutée avec la permission
+`patients.medical_history.manage`, et la fiche conserve le snapshot du passage.
+Pour un patient sans allergie déjà connue, le personnel autorisé peut sélectionner
+un allergène courant depuis `allergen_references` ; ce choix alimente le dossier
+permanent. La saisie manuelle reste le recours lorsqu'il n'existe pas dans le
+référentiel et ne modifie pas automatiquement ce référentiel partagé.
+La fiche Soins ne décide ni l'hospitalisation ni la sortie. Les dates d'entrée
+et de sortie seront alimentées par les futurs workflows Hospitalisation et
+Sortie médicale, et restent absentes de l'écran Soins jusque-là. La transmission
+vers Médecine est visible pour `CARE_THEN_MEDICINE`, le besoin inconnu et
+l'urgence ; elle est masquée pour `CARE_ONLY`. Voir ADR-032.
+Pour un acte autonome `CARE_ONLY` (par exemple un pansement), groupe sanguin,
+taille, poids et IMC sont facultatifs et repliés par défaut. Ils restent
+recommandés pour l'urgence, le besoin inconnu et un parcours continuant vers
+Médecine, sans devenir des champs obligatoires artificiels. Un ancien élément du
+snapshot d'allergies qui n'existe plus dans le dossier actif demeure consultable
+comme historique, mais n'est jamais resoumis comme sélection active et ne bloque
+plus l'enregistrement de la fiche.
+La section complète « Constantes et observations » est facultative et repliée
+pour un acte autonome. Les actes marqués dans le référentiel comme nécessitant
+une vérification allergique (injections IM/IV et perfusion dans le jeu initial)
+affichent seulement ce contrôle de sécurité ciblé ; sa confirmation est tracée
+avec l'acte. Les règles `care_requires_allergy_check` et
+`care_recommends_vitals` sont configurées par prestation puis figées dans la
+demande du passage. `CARE_ONLY` exige au moins un acte enregistré avant la fin.
+Un besoin indéterminé sans acte exige soit une orientation Médecine, soit un
+motif explicite. L'action UI « Enregistrer l'acte et terminer » est atomique côté
+Laravel.
+Le relevé facultatif inclut une tension systolique/diastolique unique en mmHg,
+la fréquence cardiaque, la SpO2, la température en °C et le statut « diabète
+connu » à trois états (non renseigné, non, oui). La paire de tension est
+toujours complète et cohérente. Ces données appartiennent au passage et
+nécessitent `vitals.*` ; elles ne sont pas rendues obligatoires pour chaque
+acte. Une FC inférieure à 60 bpm déclenche une alerte de dépistage non
+bloquante. Pour l'adulte elle devient rouge sous 50 bpm ; pour un mineur toute
+valeur sous 60 bpm est rouge et doit être interprétée selon l'âge et la
+tolérance clinique. La SpO₂ est signalée en orange de 93 à 94 % et en rouge
+à 92 % ou moins. La température est signalée en orange de 35 à 35,9 °C ou de
+38 à 39,9 °C, puis en rouge sous 35 °C ou à partir de 40 °C. Ces alertes
+restent non bloquantes et s'affichent sous forme d'une ligne compacte sous
+chaque champ. La tension utilise le même rendu : basse sous 90/60, élevée dès
+130/80, très élevée dès 140/90 et rouge au-dessus de 180/120. Elle doit être
+saisie en mmHg complet (`170/120`, pas `17/12`). Voir ADR-038 à ADR-041.
+
+Le parcours Médecine est porté par l'orientation du passage. Sa prise en charge
+ouvre une consultation qui réunit les demandes de Réception et la transmission
+Soins, puis historise motif, examen clinique, hypothèses, diagnostic final et
+prescriptions. Les diagnostics sont append-only ; seul l'auteur d'une saisie
+erronée peut l'annuler. Le système conserve une trace séparée avec auteur et
+date, sans demander de motif libre et sans modifier ni supprimer le diagnostic
+original. Une prescription est annulée avec motif plutôt
+que supprimée. La sortie médicale possède ses propres types et
+complète l'orientation Médecine, mais ne clôt jamais le passage administratif et
+ne dépend jamais du solde du patient. Les demandes Labo, Soins, Chirurgie,
+Hospitalisation et Transfert ne peuvent être simulées par une simple sélection :
+elles exigent leurs workflows dédiés. Voir ADR-035.
 
 ---
 

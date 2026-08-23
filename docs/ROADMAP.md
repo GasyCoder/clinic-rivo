@@ -160,19 +160,24 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 
 # Phase 5 — Chirurgie
 
-- [ ] Demande chirurgie
-- [ ] Programmation
-- [ ] Préopératoire
-- [ ] Validation préopératoire
-- [ ] Intervention
-- [ ] Anesthésie
-- [ ] Equipe bloc
-- [ ] Consommables
-- [ ] Compte rendu
-- [ ] Complications
-- [ ] Postopératoire
-- [ ] Sortie
+- [x] Demande chirurgie
+- [x] Programmation
+- [x] Référentiel contrôlé des interventions avec choix « Autres » documenté
+- [x] Espaces Chirurgie et Anesthésie séparés par permission, dossier partagé
+- [x] Parcours guidés par étapes pour Chirurgie et Anesthésie
+- [x] Consultation pré-anesthésique et examen paraclinique structurés
+- [x] Validation anesthésique séparée, auditée et verrouillée côté backend
+- [x] Préparation et validation chirurgicales préopératoires distinctes
+- [x] Intervention
+- [x] Anesthésie
+- [x] Equipe bloc
+- [x] Consommables
+- [x] Compte rendu et verrouillage après validation
+- [x] Complications
+- [x] Entrée/sortie du bloc et suivi postopératoire structuré
+- [x] Sortie
 - [ ] Prestations facturables
+- [ ] Rapport financier Chirurgie Prévu/Réel/Écart/Dette NP alimenté par factures et paiements
 
 Règle :
 

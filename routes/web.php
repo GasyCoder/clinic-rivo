@@ -5,6 +5,7 @@ use App\Http\Controllers\Administration\CatalogController as AdministrationCatal
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;
 use App\Http\Controllers\AnesthesiaController;
+use App\Http\Controllers\AnesthesiaWorkspaceController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
@@ -25,13 +26,17 @@ use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SurgeryController;
+use App\Http\Controllers\SurgicalBlockEntryController;
+use App\Http\Controllers\SurgicalBlockExitController;
 use App\Http\Controllers\SurgicalCareNoteController;
 use App\Http\Controllers\SurgicalComplicationController;
 use App\Http\Controllers\SurgicalConsumableController;
 use App\Http\Controllers\SurgicalInterventionController;
+use App\Http\Controllers\SurgicalPostoperativeObservationController;
 use App\Http\Controllers\SurgicalPreoperativeController;
 use App\Http\Controllers\SurgicalReportController;
 use App\Http\Controllers\SurgicalTeamMemberController;
+use App\Http\Controllers\SurgicalTreatmentItemController;
 use App\Http\Controllers\VisitorReceptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -183,6 +188,11 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/print', [MedicineController::class, 'printPrescription'])->name('medicine.prescriptions.print')->middleware('can:prescriptions.view');
     Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
 
+    // Espace anesthésiste autonome. Il partage les mêmes dossiers cliniques
+    // avec Chirurgie mais n'accorde jamais implicitement surgery.view.
+    Route::get('/anesthesia', [AnesthesiaWorkspaceController::class, 'index'])->name('anesthesia.index')->middleware('can:anesthesia.view');
+    Route::get('/anesthesia/{surgicalRequest}', [AnesthesiaWorkspaceController::class, 'show'])->name('anesthesia.show')->middleware('can:anesthesia.view');
+
     // Chirurgie (CDC GitHub §15/16). Each middleware name matches exactly
     // one seeded permission (PermissionSeeder) — see SurgeryController's
     // own doc comment for why this is split across several controllers.
@@ -193,18 +203,21 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/surgery/{surgicalRequest}', [SurgeryController::class, 'update'])->name('surgery.update')->middleware('can:surgery.update');
     Route::post('/surgery/{surgicalRequest}/schedule', [SurgeryController::class, 'schedule'])->name('surgery.schedule')->middleware('can:surgery.schedule');
     Route::post('/surgery/{surgicalRequest}/preparation', [SurgeryController::class, 'updatePreparation'])->name('surgery.preparation.update')->middleware('can:surgery.preparation.update');
+    Route::put('/surgery/{surgicalRequest}/block-entry', [SurgicalBlockEntryController::class, 'update'])->name('surgery.block-entry.update')->middleware('can:surgery.preparation.update');
     Route::post('/surgery/{surgicalRequest}/discharge', [SurgeryController::class, 'discharge'])->name('surgery.discharge')->middleware('can:surgery.discharge.create');
 
     Route::post('/surgery/{surgicalRequest}/preoperative/validate', [SurgicalPreoperativeController::class, 'validatePreoperative'])->name('surgery.preoperative.validate')->middleware('can:surgery.preoperative.validate');
 
     Route::post('/surgery/{surgicalRequest}/team', [SurgicalTeamMemberController::class, 'store'])->name('surgery.team.store')->middleware('can:surgery.update');
-    Route::delete('/surgery/{surgicalRequest}/team/{member}', [SurgicalTeamMemberController::class, 'destroy'])->name('surgery.team.destroy')->middleware('can:surgery.update');
+    Route::delete('/surgery/{surgicalRequest}/team/{teamMember}', [SurgicalTeamMemberController::class, 'destroy'])->scopeBindings()->name('surgery.team.destroy')->middleware('can:surgery.update');
 
     Route::post('/surgery/{surgicalRequest}/intervention', [SurgicalInterventionController::class, 'store'])->name('surgery.intervention.store')->middleware('can:surgery.intervention.create');
     Route::put('/surgery/{surgicalRequest}/intervention/{intervention}', [SurgicalInterventionController::class, 'update'])->name('surgery.intervention.update')->middleware('can:surgery.intervention.update');
+    Route::put('/surgery/{surgicalRequest}/block-exit', [SurgicalBlockExitController::class, 'update'])->name('surgery.block-exit.update')->middleware('can:surgery.intervention.update');
 
     Route::post('/surgery/{surgicalRequest}/anesthesia', [AnesthesiaController::class, 'store'])->name('surgery.anesthesia.store')->middleware('can:anesthesia.create');
     Route::put('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}', [AnesthesiaController::class, 'update'])->name('surgery.anesthesia.update')->middleware('can:anesthesia.update');
+    Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/assessment/validate', [AnesthesiaController::class, 'validateAssessment'])->name('surgery.anesthesia.assessment.validate')->middleware('can:anesthesia.validate');
     Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/validate', [AnesthesiaController::class, 'validateRecord'])->name('surgery.anesthesia.validate')->middleware('can:anesthesia.validate');
 
     Route::post('/surgery/{surgicalRequest}/report', [SurgicalReportController::class, 'store'])->name('surgery.report.store')->middleware('can:surgery.report.create');
@@ -213,7 +226,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     Route::post('/surgery/{surgicalRequest}/complications', [SurgicalComplicationController::class, 'store'])->name('surgery.complications.store')->middleware('can:surgery.complications.create');
     Route::post('/surgery/{surgicalRequest}/consumables', [SurgicalConsumableController::class, 'store'])->name('surgery.consumables.store')->middleware('can:surgery.consumables.create');
-    Route::delete('/surgery/{surgicalRequest}/consumables/{consumable}', [SurgicalConsumableController::class, 'destroy'])->name('surgery.consumables.destroy')->middleware('can:surgery.consumables.create');
+    Route::delete('/surgery/{surgicalRequest}/consumables/{consumable}', [SurgicalConsumableController::class, 'destroy'])->scopeBindings()->name('surgery.consumables.destroy')->middleware('can:surgery.consumables.create');
     Route::post('/surgery/{surgicalRequest}/care-notes/perioperative', [SurgicalCareNoteController::class, 'storePerioperative'])->name('surgery.care-notes.perioperative')->middleware('can:surgery.care.create');
     Route::post('/surgery/{surgicalRequest}/care-notes/postoperative', [SurgicalCareNoteController::class, 'storePostoperative'])->name('surgery.care-notes.postoperative')->middleware('can:surgery.postoperative_care.create');
+
+    Route::post('/surgery/{surgicalRequest}/preliminary-treatments', [SurgicalTreatmentItemController::class, 'storePreliminary'])->name('surgery.preliminary-treatments.store')->middleware('can:surgery.preparation.update');
+    Route::delete('/surgery/{surgicalRequest}/preliminary-treatments/{treatmentItem}', [SurgicalTreatmentItemController::class, 'destroyPreliminary'])->scopeBindings()->name('surgery.preliminary-treatments.destroy')->middleware('can:surgery.preparation.update');
+    Route::post('/surgery/{surgicalRequest}/postoperative-treatments', [SurgicalTreatmentItemController::class, 'storePostoperative'])->name('surgery.postoperative-treatments.store')->middleware('can:surgery.postoperative_care.create');
+    Route::delete('/surgery/{surgicalRequest}/postoperative-treatments/{treatmentItem}', [SurgicalTreatmentItemController::class, 'destroyPostoperative'])->scopeBindings()->name('surgery.postoperative-treatments.destroy')->middleware('can:surgery.postoperative_care.create');
+    Route::post('/surgery/{surgicalRequest}/postoperative-observations', [SurgicalPostoperativeObservationController::class, 'store'])->name('surgery.postoperative-observations.store')->middleware('can:surgery.postoperative_care.create');
+    Route::delete('/surgery/{surgicalRequest}/postoperative-observations/{observation}', [SurgicalPostoperativeObservationController::class, 'destroy'])->scopeBindings()->name('surgery.postoperative-observations.destroy')->middleware('can:surgery.postoperative_care.create');
 });

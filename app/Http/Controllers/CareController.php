@@ -12,9 +12,9 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Http\Requests\UpdateCareRecordRequest;
 use App\Models\AllergenReference;
-use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\EpisodeOrientation;
+use App\Services\Care\CareRecordReadModel;
 use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
 use App\Support\EpisodeQueuePresenter;
@@ -107,6 +107,7 @@ class CareController extends Controller
         HeartRateAssessment $heartRateAssessment,
         OxygenSaturationAssessment $oxygenSaturationAssessment,
         TemperatureAssessment $temperatureAssessment,
+        CareRecordReadModel $careRecordReadModel,
     ): Response {
         $episodeOrientation->load([
             'episode.patient',
@@ -137,17 +138,7 @@ class CareController extends Controller
 
         return Inertia::render('Care/Show', [
             'orientation' => $presenter->present($episodeOrientation),
-            'careRecord' => $this->recordPayload(
-                $record,
-                $canViewVitals,
-                $canViewAllergies,
-                $bmiAssessment,
-                $bloodPressureAssessment,
-                $heartRateAssessment,
-                $oxygenSaturationAssessment,
-                $temperatureAssessment,
-                $patientAge,
-            ),
+            'careRecord' => $careRecordReadModel->present($record, $request->user()),
             'bmiReference' => $canViewVitals ? $bmiAssessment->reference($patientAge) : null,
             'bloodPressureReference' => $canViewVitals ? $bloodPressureAssessment->reference() : null,
             'heartRateReference' => $canViewVitals ? $heartRateAssessment->reference($patientAge) : null,
@@ -275,68 +266,6 @@ class CareController extends Controller
         $action->executeForUnknownNeed($episodeOrientation, $request->user());
 
         return back()->with('status', 'Évaluation terminée. Le patient est orienté vers Médecine.');
-    }
-
-    /** @return array<string, mixed>|null */
-    private function recordPayload(
-        ?CareRecord $record,
-        bool $canViewVitals,
-        bool $canViewAllergies,
-        BmiAssessment $bmiAssessment,
-        BloodPressureAssessment $bloodPressureAssessment,
-        HeartRateAssessment $heartRateAssessment,
-        OxygenSaturationAssessment $oxygenSaturationAssessment,
-        TemperatureAssessment $temperatureAssessment,
-        ?int $patientAge,
-    ): ?array {
-        if (! $record) {
-            return null;
-        }
-
-        return [
-            'uuid' => $record->uuid,
-            ...($canViewVitals ? [
-                'blood_group' => $record->blood_group,
-                'blood_pressure_systolic' => $record->blood_pressure_systolic,
-                'blood_pressure_diastolic' => $record->blood_pressure_diastolic,
-                'blood_pressure_assessment' => $bloodPressureAssessment->classify(
-                    $record->blood_pressure_systolic,
-                    $record->blood_pressure_diastolic,
-                ),
-                'heart_rate' => $record->heart_rate,
-                'heart_rate_assessment' => $heartRateAssessment->classify($record->heart_rate, $patientAge),
-                'spo2' => $record->spo2,
-                'spo2_assessment' => $oxygenSaturationAssessment->classify($record->spo2),
-                'temperature_celsius' => $record->temperature_celsius,
-                'temperature_assessment' => $temperatureAssessment->classify($record->temperature_celsius),
-                'known_diabetes' => $record->known_diabetes,
-                'height_cm' => $record->height_cm,
-                'weight_kg' => $record->weight_kg,
-                'bmi' => $record->bmi,
-                'bmi_assessment' => $bmiAssessment->classify($record->bmi, $patientAge),
-                'smoker' => $record->smoker,
-            ] : []),
-            ...($canViewAllergies ? [
-                'allergy_note' => $record->allergy_note,
-                'allergy_snapshot' => $record->allergy_snapshot ?? [],
-            ] : []),
-            'no_procedure_reason' => $record->no_procedure_reason,
-            'diagnostic_note' => $record->diagnostic_note,
-            'transmission_reason' => $record->transmission_reason,
-            'created_by' => $record->creator?->name,
-            'updated_by' => $record->updater?->name,
-            'updated_at' => $record->updated_at,
-            'procedures' => $record->procedures->map(fn ($procedure) => [
-                'uuid' => $procedure->uuid,
-                'code' => $procedure->procedure_code,
-                'name' => $procedure->procedure_name,
-                'quantity' => $procedure->quantity,
-                'notes' => $procedure->notes,
-                'allergy_checked_at' => $procedure->allergy_checked_at,
-                'performed_by' => $procedure->performer?->name,
-                'performed_at' => $procedure->performed_at,
-            ])->values(),
-        ];
     }
 
     private function patientAgeAtEpisode(EpisodeOrientation $orientation): ?int

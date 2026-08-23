@@ -26,6 +26,19 @@ defineProps({
             <div v-for="site in sites" :key="site.code" class="grid grid-cols-[minmax(180px,1fr)_repeat(3,minmax(130px,0.5fr))] items-center border-b border-gray-200 px-5 py-4 last:border-0 dark:border-gray-900"><Link :href="`/super-admin/sites/${site.code}?module=CASH`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ site.name }}</Link><span class="text-sm text-slate-400">—</span><span class="text-sm text-slate-400">—</span><span class="text-sm text-slate-400">—</span></div>
         </section>
 
+        <section v-if="workspace.code === 'FINANCE'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+            <header class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-start sm:justify-between">
+                <div><p class="text-[11px] font-bold uppercase tracking-[0.16em] text-primary-600">Rapport financier · Chirurgie</p><h2 class="mt-1 text-lg font-bold text-slate-700 dark:text-white">Revenus par intervention</h2><p class="mt-1 text-xs leading-5 text-slate-500">Lecture financière uniquement. Les montants proviendront des prestations, factures et paiements de la Caisse.</p></div>
+                <span class="inline-flex self-start rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950 dark:text-amber-300">Circuit facturable à relier</span>
+            </header>
+            <div class="overflow-x-auto">
+                <div class="min-w-[760px]">
+                    <div class="grid grid-cols-[minmax(260px,1.8fr)_repeat(4,minmax(110px,0.6fr))] border-b border-gray-200 bg-gray-50/70 px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900 dark:bg-gray-1000/40"><span>Intervention</span><span>Prévu</span><span>Réel</span><span>Écart</span><span>Dette NP</span></div>
+                    <div v-for="row in workspace.surgical_revenue_rows" :key="row.code" class="grid grid-cols-[minmax(260px,1.8fr)_repeat(4,minmax(110px,0.6fr))] border-b border-gray-100 px-5 py-3 text-sm last:border-0 dark:border-gray-900"><strong class="font-medium text-slate-700 dark:text-slate-200">{{ row.name }}</strong><span class="text-slate-400">—</span><span class="text-slate-400">—</span><span class="text-slate-400">—</span><span class="text-slate-400">—</span></div>
+                </div>
+            </div>
+        </section>
+
         <section v-else-if="workspace.code === 'SETTINGS'" class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950"><label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nom de l’application</label><div class="flex h-10 items-center rounded border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">{{ brand }}</div><p class="mt-2 text-xs leading-5 text-slate-400">La modification sera activée avec la commande API idempotente qui diffusera la valeur séparément aux sites sélectionnés.</p></div>
             <div class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Cibles</h2><ul class="mt-3 space-y-2"><li v-for="site in sites" :key="site.code" class="flex items-center justify-between text-xs text-slate-500"><span>{{ site.name }}</span><span>API {{ site.integration_status === 'CONFIGURED' ? 'configurée' : 'à configurer' }}</span></li></ul></div>

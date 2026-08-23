@@ -2,6 +2,7 @@
 
 namespace App\Services\SuperAdmin;
 
+use App\Support\SurgeryReferenceData;
 use Illuminate\Support\Collection;
 
 /**
@@ -132,7 +133,15 @@ class PortalDirectory
                 'title' => 'Rapports financiers par site',
                 'description' => 'Recettes, paiements, soldes et clôtures, consolidés sans contourner la caisse unique de chaque site.',
                 'icon' => 'wallet',
-                'areas' => ['Synthèse consolidée', 'Recettes par site', 'Paiements et créances', 'Clôtures de caisse', 'Exports autorisés'],
+                'areas' => ['Synthèse consolidée', 'Recettes par site', 'Revenus chirurgie par acte', 'Paiements et créances', 'Clôtures de caisse', 'Exports autorisés'],
+                'surgical_revenue_rows' => array_map(fn (array $procedure): array => [
+                    'code' => $procedure['code'],
+                    'name' => $procedure['name'],
+                    'planned' => null,
+                    'actual' => null,
+                    'difference' => null,
+                    'unpaid_debt' => null,
+                ], SurgeryReferenceData::procedures()),
             ],
             'HR' => [
                 'title' => 'Ressources humaines',

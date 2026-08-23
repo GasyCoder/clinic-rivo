@@ -4,6 +4,7 @@ namespace App\Actions\Surgery;
 
 use App\Models\SurgicalReport;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 
 class ValidateSurgicalReportAction
 {
@@ -15,6 +16,12 @@ class ValidateSurgicalReportAction
      */
     public function execute(SurgicalReport $report): SurgicalReport
     {
+        if ($report->validated_at !== null) {
+            throw ValidationException::withMessages([
+                'report' => 'Ce compte rendu opératoire est déjà validé.',
+            ]);
+        }
+
         $report->validated_by = Auth::id();
         $report->validated_at = now();
         $report->save();

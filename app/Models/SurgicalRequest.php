@@ -25,7 +25,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * migration for the flagged conflict with §11's generic critical-data rule.
  */
 #[Fillable([
-    'episode_id', 'requested_by', 'surgeon_id', 'status', 'procedure_name', 'notes',
+    'episode_id', 'catalog_item_id', 'requested_by', 'surgeon_id', 'status',
+    'procedure_name', 'procedure_details', 'notes',
     'operating_room', 'preparation_notes', 'scheduled_at',
     'preoperative_notes', 'preoperative_assessed_by', 'preoperative_assessed_at',
     'preoperative_validated_by', 'preoperative_validated_at',
@@ -50,6 +51,11 @@ class SurgicalRequest extends Model
     public function episode(): BelongsTo
     {
         return $this->belongsTo(Episode::class);
+    }
+
+    public function catalogItem(): BelongsTo
+    {
+        return $this->belongsTo(CatalogItem::class);
     }
 
     public function requestedBy(): BelongsTo
@@ -110,6 +116,26 @@ class SurgicalRequest extends Model
     public function careNotes(): HasMany
     {
         return $this->hasMany(SurgicalCareNote::class);
+    }
+
+    public function blockEntry(): HasOne
+    {
+        return $this->hasOne(SurgicalBlockEntry::class);
+    }
+
+    public function blockExit(): HasOne
+    {
+        return $this->hasOne(SurgicalBlockExit::class);
+    }
+
+    public function observations(): HasMany
+    {
+        return $this->hasMany(SurgicalPostoperativeObservation::class)->oldest('observed_at');
+    }
+
+    public function treatmentItems(): HasMany
+    {
+        return $this->hasMany(SurgicalTreatmentItem::class)->oldest('id');
     }
 
     /**

@@ -83,6 +83,22 @@ class PortalTest extends TestCase
         }
     }
 
+    public function test_finance_workspace_places_surgical_revenue_without_inventing_amounts(): void
+    {
+        $actor = $this->user('SUPER_ADMIN');
+
+        $this->actingAs($actor)->get('/super-admin/workspaces/finance')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Workspace')
+                ->where('workspace.code', 'FINANCE')
+                ->where('workspace.areas.2', 'Revenus chirurgie par acte')
+                ->has('workspace.surgical_revenue_rows', 25)
+                ->where('workspace.surgical_revenue_rows.0.name', 'Adénome prostatique')
+                ->where('workspace.surgical_revenue_rows.0.actual', null)
+                ->where('workspace.surgical_revenue_rows.0.unpaid_debt', null));
+    }
+
     public function test_admin_portal_rejects_an_operational_role_at_login(): void
     {
         $user = $this->user('ADMINISTRATION');

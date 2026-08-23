@@ -214,7 +214,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('catalog.tariffs.archive', $this->permissionNamesFor('SUPER_ADMIN'));
     }
 
-    public function test_surgery_gets_surgery_and_anesthesia_permissions_and_read_only_episode_access(): void
+    public function test_surgery_gets_surgical_and_episode_permissions_without_implicit_anesthesia_access(): void
     {
         $this->seedRbac();
 
@@ -222,7 +222,16 @@ class RolePermissionSeederTest extends TestCase
 
         $this->assertContains('surgery.create', $names);
         $this->assertContains('surgery.report.validate', $names);
-        $this->assertContains('anesthesia.validate', $names);
+        $this->assertContains('care.view', $names);
+        $this->assertContains('vitals.view', $names);
+        $this->assertContains('patients.medical_history.view', $names);
+        $this->assertNotContains('care.update', $names);
+        $this->assertNotContains('vitals.update', $names);
+        $this->assertNotContains('patients.medical_history.manage', $names);
+        $this->assertNotContains('anesthesia.view', $names);
+        $this->assertNotContains('anesthesia.create', $names);
+        $this->assertNotContains('anesthesia.update', $names);
+        $this->assertNotContains('anesthesia.validate', $names);
         $this->assertContains('episodes.view', $names);
 
         $this->assertNotContains('consultations.view', $names);
@@ -237,7 +246,11 @@ class RolePermissionSeederTest extends TestCase
         $nurseNames = $this->permissionNamesFor('NURSE');
         foreach (['anesthesia.view', 'anesthesia.create', 'anesthesia.update', 'anesthesia.validate'] as $permission) {
             $this->assertNotContains($permission, $nurseNames);
-            $this->assertContains($permission, $this->permissionNamesFor('SURGERY'));
+        }
+
+        $surgeryNames = $this->permissionNamesFor('SURGERY');
+        foreach (['anesthesia.view', 'anesthesia.create', 'anesthesia.update', 'anesthesia.validate'] as $permission) {
+            $this->assertNotContains($permission, $surgeryNames);
         }
     }
 

@@ -1294,11 +1294,16 @@ existants. Toute affectation de rôle, de profil et de permission individuelle
 est auditée.
 
 Le socle `NURSE` conserve les Soins, constantes, lecture des ordres et accès
-clinique minimal au patient. `ANESTHETIST` recommande `surgery.view` et les
+clinique minimal au patient. `ANESTHETIST` recommande uniquement les
 permissions `anesthesia.*`, mais celles-ci doivent être attribuées au compte
 concerné ; elles ne sont plus héritées par toutes les infirmières et
-sages-femmes. Aucun droit Maternité n'est inventé tant que son module et son
-catalogue ne sont pas définis.
+sages-femmes. Le socle `SURGERY` n'accorde aucune permission `anesthesia.*` :
+le chirurgien qui doit consulter l'évaluation nécessaire au bloc reçoit
+explicitement `anesthesia.view`, sans droit de créer, corriger ou valider la
+consultation pré-anesthésique et l'examen paraclinique. Ces actions relèvent des
+permissions individuelles `anesthesia.create/update/validate`. Aucun droit
+Maternité n'est inventé tant que son module et son catalogue ne sont pas
+définis.
 
 `SUPPORT` et `MAINTENANCE` n'ont aucun droit métier global. Le profil `GUARD`
 recommande le registre de gardiennage et des visiteurs. `CLEANER` n'ajoute aucun
@@ -1668,3 +1673,55 @@ Références :
 https://www.heart.org/en/health-topics/high-blood-pressure/understanding-blood-pressure-readings
 https://www.nhs.uk/conditions/low-blood-pressure-hypotension/
 ```
+
+---
+
+# ADR-042 — Espaces Chirurgie/Anesthésie, référentiels et rapport financier
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Chirurgie et Anesthésie disposent de deux espaces de travail distincts :
+`/surgery` exige `surgery.view`, tandis que `/anesthesia` exige
+`anesthesia.view`. Une permission n'accorde jamais l'autre implicitement. Le
+socle du rôle ou une permission individuelle `ALLOW` constitue une autorisation
+explicite ; un `DENY` individuel reste prioritaire. Sans `anesthesia.view`, les
+données anesthésiques ne sont pas sérialisées dans la page Chirurgie.
+
+La séparation des interfaces ne duplique pas le dossier. Les deux espaces
+travaillent sur le même `SurgicalRequest` et son unique `AnesthesiaRecord`, ce
+qui garantit la continuité clinique et l'historique. L'interface Anesthésie est
+organisée en trois étapes (consultation, paraclinique/décision, conduite
+peropératoire) et l'interface Chirurgie en cinq étapes (dossier, préparation,
+intervention, sortie de bloc, suivi/clôture).
+
+La fiche `CareRecord` du même épisode reste également la source unique pour les
+informations déjà saisies aux Soins. Chirurgie et Anesthésie les reçoivent dans
+une projection explicitement en lecture seule, filtrée côté Laravel par
+`care.view`, `vitals.view` et `patients.medical_history.view`. La relation brute
+n'est pas sérialisée. Le rôle `SURGERY` reçoit ces trois droits de lecture, mais
+aucun droit `care.update`, `vitals.update` ou de gestion des antécédents. Un
+`DENY` individuel continue à masquer la partie concernée.
+
+Dans ces espaces, tension, température, poids, taille, groupe sanguin, allergies
+et actes réalisés aux Soins ne sont donc ni préremplis dans un second formulaire,
+ni ressaisis. Les formulaires ne demandent que les observations propres à
+l'anesthésie ou au passage au bloc. La consultation et le bilan anesthésiques
+sont présentés en accordéons progressifs avec enregistrement entre sous-étapes.
+Le « feu vert chirurgical avant bloc » demeure un contrôle organisationnel de
+l'équipe chirurgicale et la transition vers le bloc ; il ne valide ni l'état
+clinique du patient, ni la décision de l'anesthésiste.
+
+L'intervention prévue est choisie dans le référentiel `CatalogItem` du module
+`SURGERY`. Le dossier conserve à la fois la référence et un instantané du
+libellé afin qu'une correction future du catalogue ne réécrive jamais
+l'historique clinique. Le choix « Autres » exige une précision. Les produits,
+matériels et techniques d'anesthésie utilisent également une liste contrôlée ;
+chaque enregistrement conserve code, libellé et catégorie en instantané.
+
+Le tableau `Prévu / Réel / Écart / Dette NP` appartient aux rapports financiers,
+jamais à l'espace clinique Chirurgie. `Réel` et `Dette NP` doivent provenir des
+éléments facturables, factures et paiements de la Réception/Caisse. Aucun
+montant, zéro ou dette ne peut être déduit d'un dossier chirurgical seul. Tant
+que la création des prestations facturables Chirurgie et l'API de rapport ne
+sont pas implémentées, l'interface Finance affiche donc des valeurs
+indisponibles (`—`) plutôt que de faux `Ar0`.

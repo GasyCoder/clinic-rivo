@@ -10,45 +10,81 @@ import FormGroup from '@/Components/UI/FormGroup.vue';
 import FormLabel from '@/Components/UI/FormLabel.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
+import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
+import ConduiteAnesthesique from '@/Components/Surgery/ConduiteAnesthesique.vue';
+import ConsultationPreAnesthesique from '@/Components/Surgery/ConsultationPreAnesthesique.vue';
+import EnTeteDossierChirurgical from '@/Components/Surgery/EnTeteDossierChirurgical.vue';
+import EntreeBloc from '@/Components/Surgery/EntreeBloc.vue';
+import ExamenParaclinique from '@/Components/Surgery/ExamenParaclinique.vue';
+import SortieBloc from '@/Components/Surgery/SortieBloc.vue';
+import ValidationPreoperatoire from '@/Components/Surgery/ValidationPreoperatoire.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
-import { formatPatientName } from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
+    workspace: { type: String, default: 'surgery' },
     surgicalRequest: Object,
+    careSummary: { type: Object, default: null },
     users: Array,
     teamFunctions: Array,
+    procedures: { type: Array, default: () => [] },
+    anesthesiaItems: { type: Array, default: () => [] },
 });
 
 const { can } = usePermissions();
 const base = computed(() => `/surgery/${props.surgicalRequest.uuid}`);
+const isAnesthesiaWorkspace = computed(() => props.workspace === 'anesthesia');
+const hasClinicalData = (value) => {
+    if (Array.isArray(value)) return value.some(hasClinicalData);
+    if (value && typeof value === 'object') return Object.values(value).some(hasClinicalData);
+    return value !== null && value !== undefined && value !== '';
+};
+const defaultSurgeryStep = ['COMPLETED', 'DISCHARGED'].includes(props.surgicalRequest.status)
+    ? 'followup'
+    : props.surgicalRequest.status === 'IN_PROGRESS'
+        ? 'intervention'
+        : props.surgicalRequest.status === 'PREOPERATIVE_VALIDATED'
+            ? 'preparation'
+            : 'case';
+const activeTab = ref(isAnesthesiaWorkspace.value
+    ? (props.surgicalRequest.anesthesia_record?.assessment_validated_at ? 'peroperative' : 'consultation')
+    : defaultSurgeryStep);
+const anesthesiaTabs = computed(() => [
+    { id: 'consultation', shortLabel: 'Consultation', icon: 'user-check', owner: 'Étape 1', description: 'Antécédents et examen clinique', complete: hasClinicalData(props.surgicalRequest.anesthesia_record?.consultation_data) },
+    { id: 'paraclinical', shortLabel: 'Paraclinique', icon: 'activity', owner: 'Étape 2', description: 'Résultats, scores et décision', complete: hasClinicalData(props.surgicalRequest.anesthesia_record?.paraclinical_data) },
+    { id: 'peroperative', shortLabel: 'Conduite anesthésique', icon: 'shield-check', owner: 'Étape 3', description: 'Produits utilisés et observations', complete: Boolean(props.surgicalRequest.anesthesia_record?.validated_at) },
+]);
+const surgeryTabs = computed(() => [
+    { id: 'case', shortLabel: 'Dossier', icon: 'file-text', owner: 'Étape 1', description: 'Demande, programmation et équipe', complete: Boolean(props.surgicalRequest.surgeon && props.surgicalRequest.scheduled_at) },
+    { id: 'preparation', shortLabel: 'Préparation', icon: 'signin', owner: 'Étape 2', description: 'Contrôles et entrée au bloc', complete: Boolean(props.surgicalRequest.preoperative_validated_at && props.surgicalRequest.block_entry) },
+    { id: 'intervention', shortLabel: 'Intervention', icon: 'activity', owner: 'Étape 3', description: 'Acte opératoire et consommables', complete: Boolean(props.surgicalRequest.intervention?.ended_at) },
+    { id: 'block-exit', shortLabel: 'Sortie du bloc', icon: 'signout', owner: 'Étape 4', description: 'Bilan et surveillance postopératoire', complete: Boolean(props.surgicalRequest.block_exit) },
+    { id: 'followup', shortLabel: 'Suivi & clôture', icon: 'check-circle', owner: 'Étape 5', description: 'Complications, compte rendu et sortie', complete: Boolean(props.surgicalRequest.report?.validated_at) },
+]);
+const tabs = computed(() => isAnesthesiaWorkspace.value ? anesthesiaTabs.value : surgeryTabs.value);
+const currentTabIndex = computed(() => tabs.value.findIndex((tab) => tab.id === activeTab.value));
+const currentTab = computed(() => tabs.value[currentTabIndex.value] ?? tabs.value[0]);
+const previousTab = computed(() => tabs.value[currentTabIndex.value - 1] ?? null);
+const nextTab = computed(() => tabs.value[currentTabIndex.value + 1] ?? null);
+const surgeonUsers = computed(() => props.users.filter((user) => user.role?.code === 'SURGERY'));
+const anesthesiaAssessment = computed(() => props.surgicalRequest.anesthesia_record?.paraclinical_data ?? {});
+const surgeryAuthorizationLabel = computed(() => {
+    if (anesthesiaAssessment.value.surgery_authorized === true) return 'Autorisée';
+    if (anesthesiaAssessment.value.surgery_authorized === false) return 'Non autorisée';
+    return 'Décision non renseignée';
+});
+const workspaceMeta = computed(() => isAnesthesiaWorkspace.value
+    ? { label: 'Anesthésie', tone: 'violet', returnUrl: '/anesthesia', returnLabel: 'Dossiers anesthésie' }
+    : { label: 'Chirurgie', tone: 'emerald', returnUrl: '/surgery', returnLabel: 'Dossiers chirurgie' });
 
-const STATUS_LABELS = {
-    PENDING: 'En attente',
-    SCHEDULED: 'Programmée',
-    PREOPERATIVE_VALIDATED: 'Bilan préop. validé',
-    IN_PROGRESS: 'En cours',
-    COMPLETED: 'Terminée',
-    DISCHARGED: 'Sortie',
-};
-const STATUS_VARIANTS = {
-    PENDING: 'bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400',
-    SCHEDULED: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-    PREOPERATIVE_VALIDATED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
-    IN_PROGRESS: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300',
-    COMPLETED: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
-    DISCHARGED: 'bg-gray-100 text-gray-600 dark:bg-gray-900 dark:text-gray-400',
-};
 const TEAM_FUNCTION_LABELS = {
     SURGEON: 'Chirurgien',
     ANESTHETIST: 'Anesthésiste',
     OR_NURSE: 'Infirmier de bloc',
     PARAMEDICAL: 'Paramédical',
 };
-const statusLabel = (s) => STATUS_LABELS[s] ?? s;
-const statusVariant = (s) => STATUS_VARIANTS[s] ?? STATUS_VARIANTS.PENDING;
 
 // `datetime-local` inputs need "YYYY-MM-DDTHH:mm" — used to pre-fill a
 // correction form with the value already saved server-side.
@@ -57,13 +93,18 @@ const toDatetimeLocal = (value) => (value ? value.slice(0, 16).replace(' ', 'T')
 // --- En-tête : acte, notes (surgery.update) ---
 const showEditForm = ref(false);
 const editForm = useForm({
-    procedure_name: props.surgicalRequest.procedure_name,
+    catalog_item_uuid: props.surgicalRequest.catalog_item?.uuid ?? '',
+    procedure_details: props.surgicalRequest.procedure_details ?? '',
     notes: props.surgicalRequest.notes ?? '',
 });
-const submitEdit = () => editForm.put(base.value, {
-    preserveScroll: true,
-    onSuccess: () => { showEditForm.value = false; },
-});
+const selectedEditProcedure = computed(() => props.procedures.find((procedure) => procedure.uuid === editForm.catalog_item_uuid) ?? null);
+const editUsesOtherProcedure = computed(() => selectedEditProcedure.value?.code === 'SURG-OTHER');
+const submitEdit = () => editForm
+    .transform((data) => ({ ...data, procedure_details: editUsesOtherProcedure.value ? data.procedure_details : null }))
+    .put(base.value, {
+        preserveScroll: true,
+        onSuccess: () => { showEditForm.value = false; },
+    });
 
 // --- Programmation (surgery.schedule) — also used to CORRECT a scheduling
 // mistake (wrong surgeon/date) as long as the intervention hasn't started;
@@ -92,26 +133,6 @@ const submitPreparation = () => preparationForm.post(`${base.value}/preparation`
     onSuccess: () => { showPreparationForm.value = false; },
 });
 
-// --- Bilan préopératoire : le contenu (surgery.update, pas de permission
-// dédiée .create/.update — seules .view/.validate existent) et sa
-// validation (surgery.preoperative.validate) ---
-const editingPreop = ref(false);
-const preopForm = useForm({ preoperative_notes: props.surgicalRequest.preoperative_notes ?? '' });
-const submitPreop = () => {
-    preopForm.transform((data) => ({ ...data, _method: 'put' })).post(base.value, {
-        preserveScroll: true,
-        onSuccess: () => { editingPreop.value = false; },
-    });
-};
-const validatingPreoperative = ref(false);
-const validatePreoperative = () => {
-    validatingPreoperative.value = true;
-    router.post(`${base.value}/preoperative/validate`, {}, {
-        preserveScroll: true,
-        onFinish: () => { validatingPreoperative.value = false; },
-    });
-};
-
 // --- Équipe de bloc (surgery.update) ---
 const showTeamForm = ref(false);
 const teamForm = useForm({ user_id: '', function: props.teamFunctions[0]?.value ?? '' });
@@ -125,34 +146,6 @@ const removeMember = (member) => {
     router.delete(`${base.value}/team/${member.id}`, {
         preserveScroll: true,
         onFinish: () => { removingMemberId.value = null; },
-    });
-};
-
-// --- Anesthésie (anesthesia.create / update / validate) ---
-const showAnesthesiaForm = ref(!props.surgicalRequest.anesthesia_record);
-const anesthesiaCreateForm = useForm({ anesthetist_id: '', notes: '', administered_at: '' });
-const submitAnesthesiaCreate = () => anesthesiaCreateForm.post(`${base.value}/anesthesia`, {
-    preserveScroll: true,
-    onSuccess: () => { showAnesthesiaForm.value = false; },
-});
-
-const editingAnesthesia = ref(false);
-const anesthesiaUpdateForm = useForm({
-    notes: props.surgicalRequest.anesthesia_record?.notes ?? '',
-    administered_at: props.surgicalRequest.anesthesia_record?.administered_at ?? '',
-});
-const submitAnesthesiaUpdate = () => {
-    anesthesiaUpdateForm.transform((data) => ({ ...data, _method: 'put' })).post(
-        `${base.value}/anesthesia/${props.surgicalRequest.anesthesia_record.id}`,
-        { preserveScroll: true, onSuccess: () => { editingAnesthesia.value = false; } },
-    );
-};
-const validatingAnesthesia = ref(false);
-const validateAnesthesia = () => {
-    validatingAnesthesia.value = true;
-    router.post(`${base.value}/anesthesia/${props.surgicalRequest.anesthesia_record.id}/validate`, {}, {
-        preserveScroll: true,
-        onFinish: () => { validatingAnesthesia.value = false; },
     });
 };
 
@@ -179,9 +172,8 @@ const submitInterventionUpdate = () => {
 
 // --- Consommables (surgery.consumables.create) — traçabilité seule, sans
 // prix. Chirurgie n'a aucune action de facturation : la Réception voit ces
-// éléments automatiquement dès qu'elle ouvre "Nouvelle facture" pour ce
-// passage (PatientController::surgicalBillableSuggestions), sans bouton
-// ici — seule la Réception facture (CDC). ---
+// données seront transformées en prestations par le futur circuit facturable
+// Chirurgie. Aucun prix ni encaissement n'est traité ici. ---
 const showConsumableForm = ref(false);
 const consumableForm = useForm({ label: '', quantity: 1, unit: '' });
 const submitConsumable = () => consumableForm.post(`${base.value}/consumables`, {
@@ -257,31 +249,95 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
 <template>
     <Head :title="surgicalRequest.procedure_name" />
 
-    <div class="mx-auto w-full max-w-screen-2xl space-y-6 lg:space-y-8">
-        <header class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div class="flex min-w-0 items-start gap-3">
-                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
-                    <Icon class="text-2xl" name="masks" />
-                </span>
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <h1 class="truncate font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">{{ surgicalRequest.procedure_name }}</h1>
-                        <span :class="['rounded px-2 py-1 text-xs font-bold', statusVariant(surgicalRequest.status)]">{{ statusLabel(surgicalRequest.status) }}</span>
-                    </div>
-                    <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
-                        <Link v-if="surgicalRequest.episode?.patient" :href="`/patients/${surgicalRequest.episode.patient.uuid}`" class="font-medium text-primary-600 hover:underline">
-                            {{ formatPatientName(surgicalRequest.episode.patient) }}
-                        </Link>
-                        <span v-if="surgicalRequest.episode"> · Passage {{ surgicalRequest.episode.episode_number }}</span>
-                    </p>
-                </div>
-            </div>
-            <Button :as="Link" href="/surgery" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Chirurgie</span></Button>
-        </header>
+    <div class="mx-auto w-full max-w-[1500px] space-y-4">
+        <EnTeteDossierChirurgical :surgical-request="surgicalRequest" :workspace="workspace">
+            <template #actions>
+                <Button :as="Link" :href="workspaceMeta.returnUrl" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">{{ workspaceMeta.returnLabel }}</span></Button>
+            </template>
+        </EnTeteDossierChirurgical>
 
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <nav class="overflow-x-auto rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 print:hidden" :aria-label="`Étapes ${workspaceMeta.label}`">
+            <ol :class="['flex items-center', tabs.length > 3 ? 'min-w-[780px]' : 'min-w-[520px]', 'lg:min-w-0']" role="tablist">
+                <li v-for="(tab, index) in tabs" :key="tab.id" class="flex min-w-0 flex-1 items-center last:flex-none">
+                    <button
+                        type="button"
+                        role="tab"
+                        :aria-selected="activeTab === tab.id"
+                        :aria-current="activeTab === tab.id ? 'step' : undefined"
+                        class="group flex shrink-0 items-center gap-2 rounded-md px-1 py-1 text-start outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-300"
+                        @click="activeTab = tab.id"
+                    >
+                        <span
+                            :class="[
+                                'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold transition-colors',
+                                activeTab === tab.id
+                                    ? (isAnesthesiaWorkspace ? 'border-2 border-violet-600 bg-white text-violet-600 dark:bg-gray-950' : 'border-2 border-primary-600 bg-white text-primary-600 dark:bg-gray-950')
+                                    : tab.complete
+                                        ? (isAnesthesiaWorkspace ? 'bg-violet-600 text-white' : 'bg-primary-600 text-white')
+                                        : 'bg-gray-100 text-slate-400 dark:bg-gray-900',
+                            ]"
+                        >
+                            <Icon v-if="tab.complete && activeTab !== tab.id" name="check" />
+                            <span v-else>{{ index + 1 }}</span>
+                        </span>
+                        <span
+                            :class="[
+                                'whitespace-nowrap text-xs font-bold transition-colors',
+                                activeTab === tab.id
+                                    ? (isAnesthesiaWorkspace ? 'text-violet-600' : 'text-primary-600')
+                                    : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200',
+                            ]"
+                        >{{ tab.shortLabel }}</span>
+                    </button>
+                    <span
+                        v-if="index < tabs.length - 1"
+                        :class="[
+                            'mx-3 h-px min-w-6 flex-1 transition-colors',
+                            index < currentTabIndex
+                                ? (isAnesthesiaWorkspace ? 'bg-violet-300 dark:bg-violet-800' : 'bg-primary-300 dark:bg-primary-800')
+                                : 'bg-gray-200 dark:bg-gray-800',
+                        ]"
+                        aria-hidden="true"
+                    ></span>
+                </li>
+            </ol>
+        </nav>
+
+        <main class="min-w-0 space-y-4">
+            <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
+            <CareSummaryReadOnly
+                v-if="careSummary && ((isAnesthesiaWorkspace && activeTab === 'consultation') || (!isAnesthesiaWorkspace && activeTab === 'preparation'))"
+                :care-summary="careSummary"
+            />
+
+            <ConsultationPreAnesthesique
+                v-if="isAnesthesiaWorkspace && activeTab === 'consultation'"
+                :surgical-request="surgicalRequest"
+                :care-summary="careSummary"
+                :can-create="can('anesthesia.create')"
+                :can-update="can('anesthesia.update')"
+            />
+
+            <ExamenParaclinique
+                v-if="isAnesthesiaWorkspace && activeTab === 'paraclinical'"
+                :surgical-request="surgicalRequest"
+                :care-summary="careSummary"
+                :can-create="can('anesthesia.create')"
+                :can-update="can('anesthesia.update')"
+                :can-validate="can('anesthesia.validate')"
+            />
+
+            <ConduiteAnesthesique
+                v-if="isAnesthesiaWorkspace && activeTab === 'peroperative'"
+                :surgical-request="surgicalRequest"
+                :reference-items="anesthesiaItems"
+                :can-create="can('anesthesia.create')"
+                :can-update="can('anesthesia.update')"
+                :can-validate="can('anesthesia.validate')"
+            />
+
             <!-- Demande -->
-            <Card class="shadow-sm">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'case'" class="shadow-sm xl:col-span-5">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="file-text" /></span>1. Demande</h2>
@@ -290,10 +346,11 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
 
                 <form v-if="showEditForm" class="space-y-3" @submit.prevent="submitEdit">
                     <FormGroup class="!mb-0">
-                        <FormLabel class="mb-1.5" for="procedure_name">Acte</FormLabel>
-                        <Input id="procedure_name" v-model="editForm.procedure_name" required />
-                        <FormError v-if="editForm.errors.procedure_name">{{ editForm.errors.procedure_name }}</FormError>
+                        <FormLabel class="mb-1.5" for="catalog_item_uuid">Intervention</FormLabel>
+                        <select id="catalog_item_uuid" v-model="editForm.catalog_item_uuid" class="block min-h-11 w-full rounded-md border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required><option value="" disabled>Choisir dans le référentiel</option><option v-for="procedure in procedures" :key="procedure.uuid" :value="procedure.uuid">{{ procedure.name }}</option></select>
+                        <FormError v-if="editForm.errors.catalog_item_uuid">{{ editForm.errors.catalog_item_uuid }}</FormError>
                     </FormGroup>
+                    <FormGroup v-if="editUsesOtherProcedure" class="!mb-0"><FormLabel class="mb-1.5" for="procedure_details">Précision obligatoire</FormLabel><Input id="procedure_details" v-model="editForm.procedure_details" required /><FormError v-if="editForm.errors.procedure_details">{{ editForm.errors.procedure_details }}</FormError></FormGroup>
                     <FormGroup class="!mb-0">
                         <FormLabel class="mb-1.5" for="notes">Notes</FormLabel>
                         <textarea id="notes" v-model="editForm.notes" rows="2" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
@@ -304,6 +361,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                     </div>
                 </form>
                 <dl v-else class="space-y-2 text-sm">
+                    <div v-if="surgicalRequest.procedure_details"><dt class="text-xs text-slate-400">Précision de l’intervention</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.procedure_details }}</dd></div>
                     <div><dt class="text-xs text-slate-400">Notes</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.notes ?? '—' }}</dd></div>
                     <div><dt class="text-xs text-slate-400">Demandée par</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.requested_by?.name ?? '—' }}</dd></div>
                 </dl>
@@ -311,7 +369,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             </Card>
 
             <!-- Programmation & préparation -->
-            <Card class="shadow-sm">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'case'" class="shadow-sm xl:col-span-7">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="calendar" /></span>2. Programmation</h2>
@@ -328,7 +386,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                             <FormLabel class="mb-1.5" for="surgeon_id">Chirurgien <span class="text-red-500">*</span></FormLabel>
                             <select id="surgeon_id" v-model="scheduleForm.surgeon_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
                                 <option value="" disabled>Choisir</option>
-                                <option v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</option>
+                                <option v-for="user in surgeonUsers" :key="user.id" :value="user.id">{{ user.name }}</option>
                             </select>
                             <FormError v-if="scheduleForm.errors.surgeon_id">{{ scheduleForm.errors.surgeon_id }}</FormError>
                         </FormGroup>
@@ -374,39 +432,15 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                 </CardBody>
             </Card>
 
-            <!-- Préopératoire -->
-            <Card class="shadow-sm">
-                <CardBody>
-                <div class="mb-4 flex items-center justify-between">
-                    <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="check-circle" /></span>3. Bilan préopératoire</h2>
-                    <div class="flex gap-2">
-                        <Button v-if="can('surgery.update') && !surgicalRequest.preoperative_validated_by && !editingPreop" size="sm" variant="white-outline" type="button" @click="editingPreop = true"><Icon class="text-base" name="edit" /><span class="ms-1.5">Modifier</span></Button>
-                        <Button
-                            v-if="surgicalRequest.status === 'SCHEDULED' && can('surgery.preoperative.validate')"
-                            size="sm" variant="primary" type="button" :disabled="validatingPreoperative"
-                            @click="validatePreoperative"
-                        >
-                            <Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span>
-                        </Button>
-                    </div>
-                </div>
-                <form v-if="editingPreop" class="space-y-3" @submit.prevent="submitPreop">
-                    <textarea v-model="preopForm.preoperative_notes" rows="3" placeholder="ASA, à jeun, allergies, bilan biologique…" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
-                    <div class="flex justify-end gap-2">
-                        <Button size="sm" variant="white-outline" type="button" @click="editingPreop = false">Annuler</Button>
-                        <Button size="sm" variant="primary" type="submit" :disabled="preopForm.processing">Enregistrer</Button>
-                    </div>
-                </form>
-                <dl v-else class="space-y-2 text-sm">
-                    <div><dt class="text-xs text-slate-400">Bilan</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.preoperative_notes ?? 'Non renseigné' }}</dd></div>
-                    <div v-if="surgicalRequest.preoperative_assessed_by"><dt class="text-xs text-slate-400">Évalué par</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.preoperative_assessed_by.name }} · {{ formatDateTime(surgicalRequest.preoperative_assessed_at) }}</dd></div>
-                    <div v-if="surgicalRequest.preoperative_validated_by"><dt class="text-xs font-bold text-green-600">Validé par</dt><dd class="text-green-700 dark:text-green-300">{{ surgicalRequest.preoperative_validated_by.name }} · {{ formatDateTime(surgicalRequest.preoperative_validated_at) }}</dd></div>
-                </dl>
-                </CardBody>
-            </Card>
+            <ValidationPreoperatoire
+                v-if="!isAnesthesiaWorkspace && activeTab === 'preparation'"
+                :surgical-request="surgicalRequest"
+                :can-update="can('surgery.update')"
+                :can-validate="surgicalRequest.status === 'SCHEDULED' && can('surgery.preoperative.validate')"
+            />
 
             <!-- Équipe de bloc -->
-            <Card class="shadow-sm">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'case'" :class="['shadow-sm', can('anesthesia.view') ? 'xl:col-span-7' : 'xl:col-span-12']">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="users" /></span>4. Équipe de bloc</h2>
@@ -445,47 +479,31 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                 </CardBody>
             </Card>
 
-            <!-- Anesthésie -->
-            <Card class="shadow-sm">
+            <!-- Synthèse anesthésie : uniquement avec anesthesia.view. -->
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'case' && can('anesthesia.view')" class="border-violet-100 shadow-sm dark:border-violet-950 xl:col-span-5">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="shield-check" /></span>5. Anesthésie</h2>
-
-                <form v-if="!surgicalRequest.anesthesia_record && can('anesthesia.create')" class="space-y-3" @submit.prevent="submitAnesthesiaCreate">
-                    <select v-model="anesthesiaCreateForm.anesthetist_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                        <option value="">Anesthésiste (optionnel)</option>
-                        <option v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</option>
-                    </select>
-                    <textarea v-model="anesthesiaCreateForm.notes" rows="2" placeholder="Type d'anesthésie, observations…" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
-                    <input v-model="anesthesiaCreateForm.administered_at" type="datetime-local" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" />
-                    <Button size="sm" variant="primary" type="submit" :disabled="anesthesiaCreateForm.processing">Créer le dossier</Button>
-                </form>
-
-                <template v-else-if="surgicalRequest.anesthesia_record">
-                    <div class="mb-3 flex items-center justify-end gap-2">
-                        <Button v-if="can('anesthesia.update') && !surgicalRequest.anesthesia_record.validated_at && !editingAnesthesia" size="xs" variant="white-outline" type="button" @click="editingAnesthesia = true"><Icon name="edit" /></Button>
-                        <Button v-if="can('anesthesia.validate') && !surgicalRequest.anesthesia_record.validated_at" size="sm" variant="primary" type="button" :disabled="validatingAnesthesia" @click="validateAnesthesia"><Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span></Button>
-                    </div>
-                    <form v-if="editingAnesthesia" class="space-y-3" @submit.prevent="submitAnesthesiaUpdate">
-                        <textarea v-model="anesthesiaUpdateForm.notes" rows="2" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
-                        <input v-model="anesthesiaUpdateForm.administered_at" type="datetime-local" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" />
-                        <div class="flex justify-end gap-2">
-                            <Button size="sm" variant="white-outline" type="button" @click="editingAnesthesia = false">Annuler</Button>
-                            <Button size="sm" variant="primary" type="submit" :disabled="anesthesiaUpdateForm.processing">Enregistrer</Button>
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300"><Icon class="text-base" name="shield-check" /></span>Synthèse anesthésie</h2>
+                            <p class="mt-1 text-xs text-slate-400">Lecture ciblée des informations nécessaires à la continuité du bloc.</p>
                         </div>
-                    </form>
-                    <dl v-else class="space-y-2 text-sm">
-                        <div><dt class="text-xs text-slate-400">Anesthésiste</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.anesthesia_record.anesthetist?.name ?? '—' }}</dd></div>
-                        <div><dt class="text-xs text-slate-400">Notes</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.anesthesia_record.notes ?? '—' }}</dd></div>
-                        <div><dt class="text-xs text-slate-400">Administrée le</dt><dd class="text-slate-600 dark:text-slate-300">{{ formatDateTime(surgicalRequest.anesthesia_record.administered_at) ?? '—' }}</dd></div>
-                        <div v-if="surgicalRequest.anesthesia_record.validated_by"><dt class="text-xs font-bold text-green-600">Validée par</dt><dd class="text-green-700 dark:text-green-300">{{ surgicalRequest.anesthesia_record.validator?.name }} · {{ formatDateTime(surgicalRequest.anesthesia_record.validated_at) }}</dd></div>
+                        <Button :as="Link" :href="`/anesthesia/${surgicalRequest.uuid}`" size="sm" variant="white-outline"><Icon name="external" /><span class="ms-1.5">Ouvrir le volet anesthésie</span></Button>
+                    </div>
+                    <dl v-if="surgicalRequest.anesthesia_record" class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                        <div><dt class="text-xs text-slate-400">Anesthésiste</dt><dd class="font-medium text-slate-700 dark:text-white">{{ surgicalRequest.anesthesia_record.anesthetist?.name ?? '—' }}</dd></div>
+                        <div><dt class="text-xs text-slate-400">Décision</dt><dd :class="['font-bold', anesthesiaAssessment.surgery_authorized === false ? 'text-red-600' : anesthesiaAssessment.surgery_authorized === true ? 'text-green-600' : 'text-amber-600']">{{ surgeryAuthorizationLabel }}</dd></div>
+                        <div><dt class="text-xs text-slate-400">Classe ASA</dt><dd class="text-slate-600 dark:text-slate-300">{{ anesthesiaAssessment.asa_class || '—' }}</dd></div>
+                        <div><dt class="text-xs text-slate-400">Plan anesthésique</dt><dd class="text-slate-600 dark:text-slate-300">{{ anesthesiaAssessment.anesthesia_plan || '—' }}</dd></div>
+                        <div class="sm:col-span-2"><dt class="text-xs text-slate-400">Évaluation</dt><dd class="text-slate-600 dark:text-slate-300">{{ surgicalRequest.anesthesia_record.assessment_validated_at ? `Validée le ${formatDateTime(surgicalRequest.anesthesia_record.assessment_validated_at)}` : 'Brouillon / non validée' }}</dd></div>
                     </dl>
-                </template>
-                <p v-else class="text-sm text-slate-400">Aucun dossier d'anesthésie.</p>
+                    <p v-else class="text-sm text-slate-400">Aucune évaluation anesthésique enregistrée.</p>
                 </CardBody>
             </Card>
 
+            <EntreeBloc v-if="!isAnesthesiaWorkspace && activeTab === 'preparation'" :surgical-request="surgicalRequest" :can-edit="can('surgery.preparation.update')" />
+
             <!-- Intervention -->
-            <Card class="shadow-sm">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'intervention'" class="shadow-sm xl:col-span-7">
                 <CardBody>
                 <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="activity" /></span>6. Intervention</h2>
 
@@ -493,7 +511,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                     <form v-if="can('surgery.intervention.create')" class="space-y-3" @submit.prevent="submitInterventionCreate">
                         <select v-model="interventionCreateForm.performed_by" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
                             <option value="">Opérateur (optionnel)</option>
-                            <option v-for="user in users" :key="user.id" :value="user.id">{{ user.name }}</option>
+                            <option v-for="user in surgeonUsers" :key="user.id" :value="user.id">{{ user.name }}</option>
                         </select>
                         <input v-model="interventionCreateForm.started_at" type="datetime-local" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" />
                         <textarea v-model="interventionCreateForm.notes" rows="2" placeholder="Notes de début d'intervention" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white"></textarea>
@@ -528,7 +546,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             </Card>
 
             <!-- Consommables -->
-            <Card class="shadow-sm">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'intervention'" class="shadow-sm xl:col-span-5">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="cards" /></span>7. Consommables</h2>
@@ -562,13 +580,20 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                 <p v-else class="text-sm text-slate-400">Aucun consommable enregistré.</p>
                 <p class="mt-3 flex items-start gap-2 rounded border border-gray-200 bg-gray-50/70 p-2.5 text-xs leading-5 text-slate-400 dark:border-gray-900 dark:bg-gray-1000/40">
                     <Icon class="mt-0.5 shrink-0 text-sm" name="info" />
-                    La Réception voit automatiquement ces éléments dans « Nouvelle facture » une fois le dossier terminé — elle seule fixe le prix et facture.
+                    Traçabilité clinique uniquement. Aucune facturation ni aucun encaissement n'est effectué ici ; le futur circuit facturable Chirurgie devra relier ces données au référentiel financier de la Réception.
                 </p>
                 </CardBody>
             </Card>
 
+            <SortieBloc
+                v-if="!isAnesthesiaWorkspace && activeTab === 'block-exit'"
+                :surgical-request="surgicalRequest"
+                :can-edit="can('surgery.intervention.update')"
+                :can-record-postoperative="can('surgery.postoperative_care.create')"
+            />
+
             <!-- Complications -->
-            <Card class="shadow-sm">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'followup'" class="shadow-sm xl:col-span-4">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300"><Icon class="text-base" name="alert-circle" /></span>8. Complications</h2>
@@ -596,9 +621,10 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             </Card>
 
             <!-- Soins -->
-            <Card class="shadow-sm xl:col-span-2">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'followup'" class="shadow-sm xl:col-span-8">
                 <CardBody>
-                <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="user-check" /></span>9. Soins</h2>
+                <h2 class="mb-1 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="user-check" /></span>9. Suivi péri- et postopératoire</h2>
+                <p class="mb-4 ms-10 text-xs text-slate-400">Notes propres au passage au bloc ; elles ne modifient pas la fiche déjà réalisée dans le module Soins.</p>
                 <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                         <div class="mb-2 flex items-center justify-between">
@@ -647,7 +673,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             </Card>
 
             <!-- Compte rendu -->
-            <Card class="shadow-sm xl:col-span-2">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'followup'" :class="['shadow-sm', ['COMPLETED', 'DISCHARGED'].includes(surgicalRequest.status) ? 'xl:col-span-8' : 'xl:col-span-12']">
                 <CardBody>
                 <div class="mb-4 flex items-center justify-between">
                     <h2 class="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="file-text" /></span>10. Compte rendu opératoire</h2>
@@ -683,7 +709,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             </Card>
 
             <!-- Sortie -->
-            <Card v-if="['COMPLETED', 'DISCHARGED'].includes(surgicalRequest.status)" class="shadow-sm xl:col-span-2">
+            <Card v-if="!isAnesthesiaWorkspace && activeTab === 'followup' && ['COMPLETED', 'DISCHARGED'].includes(surgicalRequest.status)" class="shadow-sm xl:col-span-4">
                 <CardBody>
                 <h2 class="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500"><span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="signout" /></span>11. Sortie</h2>
 
@@ -697,6 +723,15 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                 </dl>
                 </CardBody>
             </Card>
-        </div>
+            </div>
+
+            <footer class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between print:hidden">
+                <Button v-if="previousTab" size="rg" variant="white-outline" type="button" @click="activeTab = previousTab.id"><Icon name="arrow-left" /><span class="ms-2">{{ previousTab.shortLabel }}</span></Button>
+                <span v-else></span>
+                <div class="text-center"><p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ currentTab.owner }} sur {{ tabs.length }}</p><p class="mt-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">{{ currentTab.shortLabel }}</p></div>
+                <Button v-if="nextTab" size="rg" type="button" @click="activeTab = nextTab.id"><span class="me-2">{{ nextTab.shortLabel }}</span><Icon name="arrow-right" /></Button>
+                <span v-else></span>
+            </footer>
+        </main>
     </div>
 </template>

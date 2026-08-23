@@ -33,7 +33,6 @@ class ProfessionalProfileSeeder extends Seeder
                 'name' => 'Anesthésiste',
                 'description' => 'Soins et anesthésie au bloc selon l’affectation individuelle.',
                 'permissions' => [
-                    'surgery.view',
                     'anesthesia.view', 'anesthesia.create',
                     'anesthesia.update', 'anesthesia.validate',
                 ],

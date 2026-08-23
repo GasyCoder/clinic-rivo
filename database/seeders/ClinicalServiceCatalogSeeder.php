@@ -8,6 +8,7 @@ use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Support\Money;
+use App\Support\SurgeryReferenceData;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -354,7 +355,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 &$preserved,
                 &$withoutTariff,
             ): void {
-                foreach (self::SERVICES as $service) {
+                foreach (self::services() as $service) {
                     $existing = CatalogItem::withTrashed()
                         ->where('code', $service['code'])
                         ->first();
@@ -425,12 +426,32 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         $this->command?->info(sprintf(
             '%d désignations disponibles : %d créées, %d tarifs ajoutés, %d tarifs existants conservés, %d en attente de tarif.',
-            count(self::SERVICES),
+            count(self::services()),
             $created,
             $tariffsCreated,
             $preserved,
             $withoutTariff,
         ));
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private static function services(): array
+    {
+        $surgicalProcedures = array_map(fn (array $procedure): array => [
+            'code' => $procedure['code'],
+            'name' => $procedure['name'],
+            'module' => CatalogModule::Surgery,
+            'unit' => 'intervention',
+            'amount' => null,
+            'description' => $procedure['code'] === 'SURG-OTHER'
+                ? 'Autre intervention chirurgicale, à préciser obligatoirement dans le dossier.'
+                : 'Intervention chirurgicale issue du référentiel validé par la clinique.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+            'billable' => $procedure['code'] !== 'SURG-OTHER',
+        ], SurgeryReferenceData::procedures());
+
+        return [...self::SERVICES, ...$surgicalProcedures];
     }
 
     private function resolveActor(): User

@@ -19,6 +19,7 @@ const clinicMenu = [
     { icon: 'activity', text: 'Médecine', link: '/medicine', permission: 'consultations.view' },
     { icon: 'user-check', text: 'Soins', link: '/care', permission: 'care.view' },
     { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
+    { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
     { icon: 'capsule', text: 'Pharmacie', link: '/pharmacy', permission: 'pharmacy.view' },
     { heading: 'Gestion' },
     { icon: 'briefcase', text: 'Ressources humaines', link: '/administration', exact: true, permission: 'employees.view' },

@@ -461,7 +461,19 @@ post-operative
 medical discharge
 ```
 
+Les espaces `/surgery` et `/anesthesia` sont indépendants et respectivement
+protégés par `surgery.view` et `anesthesia.view`, mais partagent le même dossier
+chirurgical afin de préserver la continuité. Les deux interfaces sont guidées
+par étapes. Les interventions sont choisies dans le catalogue `SURGERY` avec
+instantané du libellé ; les éléments d'anesthésie suivent une liste contrôlée
+avec instantané de leur code, libellé et catégorie. Voir ADR-042.
+
 La Chirurgie ne peut pas encaisser.
+
+Le rapport par acte `Prévu / Réel / Écart / Dette NP` appartient à Finance et
+ne peut être alimenté qu'à partir des prestations facturables, factures et
+paiements de Réception/Caisse. Tant que ce circuit n'est pas relié, aucune
+valeur `Ar0` ne doit être fabriquée depuis les dossiers cliniques.
 
 ---
 

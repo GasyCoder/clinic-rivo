@@ -14,7 +14,7 @@ class PermissionSeeder extends Seeder
     ];
 
     /**
-     * Clinical modules not yet implemented (laboratory, pharmacy, etc.)
+     * Clinical modules not yet implemented (notably laboratory)
      * still have no permission invented here — each seeds its own
      * when it is built, per ADR-008's action catalog.
      *
@@ -200,8 +200,9 @@ class PermissionSeeder extends Seeder
         'receipts.print' => 'Imprimer les reçus',
 
         // CDC GitHub §15 / ADR-035. Les demandes Laboratoire,
-        // Hospitalisation, Chirurgie et Transfert restent absentes tant que
-        // leurs workflows spécialisés ne sont pas réellement construits.
+        // Hospitalisation et Transfert restent absentes tant que leurs
+        // workflows spécialisés ne sont pas réellement construits. Chirurgie
+        // possède désormais son workflow séparé décrit par ADR-042.
         'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
         'consultations.create' => 'Créer une consultation',
@@ -233,9 +234,9 @@ class PermissionSeeder extends Seeder
         'vitals.update' => 'Modifier des constantes',
         'medical_orders.view' => 'Voir les ordres médicaux',
 
-        // CDC §16 "Chirurgie" — catalogue anesthésie. Il appartient au rôle
-        // SURGERY et peut aussi être attribué individuellement à un compte
-        // NURSE dont le profil principal est ANESTHETIST.
+        // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-042 en fait un
+        // espace autorisé séparément : ces permissions sont attribuées aux
+        // comptes concernés, notamment au profil ANESTHETIST.
         'anesthesia.view' => 'Voir les dossiers d\'anesthésie',
         'anesthesia.create' => 'Créer un dossier d\'anesthésie',
         'anesthesia.update' => 'Modifier un dossier d\'anesthésie',

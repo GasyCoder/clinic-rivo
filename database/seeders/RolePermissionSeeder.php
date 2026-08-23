@@ -87,8 +87,9 @@ class RolePermissionSeeder extends Seeder
             'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
         ],
-        // Surgery keeps its module baseline. A NURSE/ANESTHETIST account may
-        // receive the same anesthesia permissions through individual ALLOWs.
+        // SURGERY is the surgeon/operating-team baseline. Access to the
+        // separate Anesthesia workspace is granted explicitly per account;
+        // it is never implied by surgery.view (ADR-042).
         'SURGERY' => [
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule',
             'surgery.preoperative.view', 'surgery.preoperative.validate',
@@ -97,8 +98,10 @@ class RolePermissionSeeder extends Seeder
             'surgery.complications.create', 'surgery.discharge.create',
             'surgery.preparation.update', 'surgery.consumables.create',
             'surgery.care.create', 'surgery.postoperative_care.create',
-            'anesthesia.view', 'anesthesia.create', 'anesthesia.update',
-            'anesthesia.validate', 'episodes.view',
+            // The Soins worksheet is reused in read-only mode during block
+            // preparation; no care/vitals/history mutation is granted here.
+            'care.view', 'vitals.view', 'patients.medical_history.view',
+            'episodes.view',
         ],
         // Pharmacy owns medication stock operations, never cash or payment.
         // medicines.create/update and every catalog/tariff mutation remain

@@ -35,7 +35,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 16);
+        $this->assertDatabaseCount('catalog_items', 30);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame(
             16,
@@ -71,6 +71,20 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             'reception_routing_mode' => null,
         ]);
         $this->assertSame(10, CatalogItem::query()->where('reception_selectable', true)->count());
+        $this->assertSame(18, CatalogItem::query()->where('module', 'CARE')->count());
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'CARE-ABL-SONDE',
+            'name' => 'Ablation sonde',
+            'reception_selectable' => false,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'CARE-OTHER',
+            'name' => 'Autres',
+            'billable' => false,
+        ]);
+        $this->assertDatabaseMissing('catalog_tariffs', [
+            'catalog_item_id' => CatalogItem::query()->where('code', 'CARE-ABL-SONDE')->value('id'),
+        ]);
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'create',
             'module' => 'catalog',
@@ -97,7 +111,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 16);
+        $this->assertDatabaseCount('catalog_items', 30);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame('27500.00', $ecg->fresh()->currentTariff->amount);
     }
@@ -113,7 +127,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 16);
+        $this->assertDatabaseCount('catalog_items', 30);
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.items.create'));
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.tariffs.create'));
     }

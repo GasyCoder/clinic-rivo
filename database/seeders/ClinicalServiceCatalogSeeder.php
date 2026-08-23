@@ -19,7 +19,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      * Provisional local data used to validate the Reception billing workflow.
      * Amounts are MGA and must be confirmed by the clinic before production.
      *
-     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode}>
+     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool}>
      */
     private const SERVICES = [
         [
@@ -94,7 +94,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
         ],
         [
             'code' => 'PANSEMENT-C',
-            'name' => 'Pansement complexe',
+            'name' => 'Gros pansement avec plaie souillée K=1',
             'module' => CatalogModule::Care,
             'unit' => 'soin',
             'amount' => 20000,
@@ -104,7 +104,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
         ],
         [
             'code' => 'INJECTION-IM',
-            'name' => 'Injection intramusculaire',
+            'name' => 'Injection IM',
             'module' => CatalogModule::Care,
             'unit' => 'soin',
             'amount' => 5000,
@@ -114,13 +114,154 @@ class ClinicalServiceCatalogSeeder extends Seeder
         ],
         [
             'code' => 'PERFUSION',
-            'name' => 'Pose de perfusion',
+            'name' => 'Pose sérum + surveillance',
             'module' => CatalogModule::Care,
             'unit' => 'soin',
             'amount' => 10000,
             'description' => 'Pose et surveillance initiale d’une perfusion.',
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
+        ],
+        [
+            'code' => 'CARE-ABL-SONDE',
+            'name' => 'Ablation sonde',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Retrait d’une sonde et surveillance infirmière.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-CURET-LR-K1',
+            'name' => 'Curetage de propreté sous anesthésie loco-régionale K=1',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Acte de curetage tracé sur la fiche de soins.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-CURET-S-K1',
+            'name' => 'Curetage simple de propreté K=1',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Acte de curetage simple tracé sur la fiche de soins.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'INJECTION-IV',
+            'name' => 'Injection IV',
+            'module' => CatalogModule::Care,
+            'unit' => 'soin',
+            'amount' => null,
+            'description' => 'Injection réalisée par voie intraveineuse.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-LAV-GAST',
+            'name' => 'Lavage gastrique',
+            'module' => CatalogModule::Care,
+            'unit' => 'soin',
+            'amount' => null,
+            'description' => 'Lavage gastrique et surveillance associée.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-LAV-SONDE-V',
+            'name' => 'Lavage sonde vésicale',
+            'module' => CatalogModule::Care,
+            'unit' => 'soin',
+            'amount' => null,
+            'description' => 'Lavage d’une sonde vésicale.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-POSE-SONDE',
+            'name' => 'Pose sonde',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Pose d’une sonde et surveillance associée.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-PRELEV-LAB',
+            'name' => 'Prélèvement labo',
+            'module' => CatalogModule::Care,
+            'unit' => 'prélèvement',
+            'amount' => null,
+            'description' => 'Réalisation d’un prélèvement destiné au laboratoire.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-REFECT-PLAIE-K1',
+            'name' => 'Réfection chirurgicale de la plaie traumatique K=1',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Réfection d’une plaie traumatique tracée par l’équipe de soins.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-NEBUL',
+            'name' => 'Soins nébuliseur',
+            'module' => CatalogModule::Care,
+            'unit' => 'séance',
+            'amount' => null,
+            'description' => 'Séance de nébulisation et surveillance.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-SUTURES',
+            'name' => 'Sutures',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Réalisation et traçabilité de sutures.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-O2-EXTRACT',
+            'name' => 'Utilisation extracteur O₂',
+            'module' => CatalogModule::Care,
+            'unit' => 'séance',
+            'amount' => null,
+            'description' => 'Oxygénothérapie avec extracteur et surveillance.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-ASPIRATION',
+            'name' => 'Aspiration',
+            'module' => CatalogModule::Care,
+            'unit' => 'soin',
+            'amount' => null,
+            'description' => 'Acte d’aspiration et surveillance associée.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'CARE-OTHER',
+            'name' => 'Autres',
+            'module' => CatalogModule::Care,
+            'unit' => 'acte',
+            'amount' => null,
+            'description' => 'Autre acte infirmier, à préciser obligatoirement dans la fiche.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+            'billable' => false,
         ],
         [
             'code' => 'LAB-NFS',
@@ -200,6 +341,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
         $created = 0;
         $tariffsCreated = 0;
         $preserved = 0;
+        $withoutTariff = 0;
 
         try {
             DB::transaction(function () use (
@@ -207,6 +349,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 &$created,
                 &$tariffsCreated,
                 &$preserved,
+                &$withoutTariff,
             ): void {
                 foreach (self::SERVICES as $service) {
                     $existing = CatalogItem::withTrashed()
@@ -220,11 +363,18 @@ class ClinicalServiceCatalogSeeder extends Seeder
                     }
 
                     if ($existing) {
-                        $this->assertCompatible($existing);
+                        $this->assertCompatible($existing, $service);
+                        $this->applyLegacyCareLabel($existing, $service);
                         $this->applyInitialReceptionRouteIfUnset($existing, $service);
 
                         if ($existing->currentTariff()->exists()) {
                             $preserved++;
+
+                            continue;
+                        }
+
+                        if ($service['amount'] === null) {
+                            $withoutTariff++;
 
                             continue;
                         }
@@ -241,7 +391,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         'type' => CatalogItemType::Service->value,
                         'module' => $service['module']->value,
                         'unit' => $service['unit'],
-                        'billable' => true,
+                        'billable' => $service['billable'] ?? true,
                         'stockable' => false,
                         'reception_selectable' => $service['reception_selectable'],
                         'reception_routing_mode' => $service['routing_mode'],
@@ -249,9 +399,14 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         'created_by' => $actor->id,
                         'updated_by' => $actor->id,
                     ]);
-                    $this->createTariff($item, $service['amount'], $actor);
                     $created++;
-                    $tariffsCreated++;
+
+                    if ($service['amount'] === null) {
+                        $withoutTariff++;
+                    } else {
+                        $this->createTariff($item, $service['amount'], $actor);
+                        $tariffsCreated++;
+                    }
                 }
             });
         } finally {
@@ -263,11 +418,12 @@ class ClinicalServiceCatalogSeeder extends Seeder
         }
 
         $this->command?->info(sprintf(
-            '%d désignations disponibles : %d créées, %d tarifs ajoutés, %d tarifs existants conservés.',
+            '%d désignations disponibles : %d créées, %d tarifs ajoutés, %d tarifs existants conservés, %d en attente de tarif.',
             count(self::SERVICES),
             $created,
             $tariffsCreated,
             $preserved,
+            $withoutTariff,
         ));
     }
 
@@ -324,17 +480,39 @@ class ClinicalServiceCatalogSeeder extends Seeder
             && $actor->hasPermissionTo('catalog.tariffs.create');
     }
 
-    private function assertCompatible(CatalogItem $item): void
+    /** @param array{billable?: bool} $service */
+    private function assertCompatible(CatalogItem $item, array $service): void
     {
         if (
             $item->type !== CatalogItemType::Service
-            || ! $item->billable
+            || $item->billable !== ($service['billable'] ?? true)
             || $item->stockable
         ) {
             throw new RuntimeException(
                 "Le code {$item->code} existe avec une configuration incompatible ; aucune donnée n’a été écrasée.",
             );
         }
+    }
+
+    /**
+     * Rename only labels created by an older version of this same local
+     * seeder. An administrator-customized label is never overwritten.
+     *
+     * @param  array{name: string}  $service
+     */
+    private function applyLegacyCareLabel(CatalogItem $item, array $service): void
+    {
+        $legacyLabels = [
+            'PANSEMENT-C' => 'Pansement complexe',
+            'INJECTION-IM' => 'Injection intramusculaire',
+            'PERFUSION' => 'Pose de perfusion',
+        ];
+
+        if (($legacyLabels[$item->code] ?? null) !== $item->name) {
+            return;
+        }
+
+        $item->forceFill(['name' => $service['name']])->save();
     }
 
     /**

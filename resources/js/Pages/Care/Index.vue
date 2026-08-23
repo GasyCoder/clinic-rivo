@@ -154,18 +154,7 @@ const designationSummary = (orientation) => {
                                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
                                     <Button size="sm" variant="white-outline">Prendre en charge</Button>
                                 </Link>
-                                <div v-else-if="orientation.status === 'IN_PROGRESS' && can('care.complete')" class="inline-flex items-center gap-2">
-                                    <Link :href="`/care/orientations/${orientation.uuid}/complete`" method="post" as="button" preserve-scroll>
-                                        <Button size="sm" :variant="orientation.episode.care_completion_mode === 'MEDICINE' ? 'primary' : 'white-outline'">
-                                            <Icon class="text-base" name="check" />
-                                            <span class="ms-1.5">{{ orientation.episode.care_completion_mode === 'MEDICINE' ? 'Terminer et transmettre' : 'Terminer les soins' }}</span>
-                                        </Button>
-                                    </Link>
-                                    <Link v-if="orientation.episode.care_completion_mode === 'CHOICE'" :href="`/care/orientations/${orientation.uuid}/complete-and-orient`" method="post" as="button" preserve-scroll>
-                                        <Button size="sm" variant="primary">Vers Médecine</Button>
-                                    </Link>
-                                </div>
-                                <span v-else class="text-xs text-slate-400">—</span>
+                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" name="edit" /><span class="ms-1.5">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
                             </td>
                         </tr>
                         <tr v-if="orientations.data.length === 0">
@@ -189,10 +178,7 @@ const designationSummary = (orientation) => {
                             <p class="mt-3 text-sm text-slate-500">{{ designationSummary(orientation) }}</p>
                             <div class="mt-4">
                                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="white-outline">Prendre en charge</Button></Link>
-                                <div v-else-if="orientation.status === 'IN_PROGRESS' && can('care.complete')" class="space-y-2">
-                                    <Link :href="`/care/orientations/${orientation.uuid}/complete`" method="post" as="button" class="block" preserve-scroll><Button block size="sm" :variant="orientation.episode.care_completion_mode === 'MEDICINE' ? 'primary' : 'white-outline'">{{ orientation.episode.care_completion_mode === 'MEDICINE' ? 'Terminer et transmettre' : 'Terminer les soins' }}</Button></Link>
-                                    <Link v-if="orientation.episode.care_completion_mode === 'CHOICE'" :href="`/care/orientations/${orientation.uuid}/complete-and-orient`" method="post" as="button" class="block" preserve-scroll><Button block size="sm">Vers Médecine</Button></Link>
-                                </div>
+                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" block size="sm" variant="white-outline">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</Button>
                             </div>
                         </div>
                     </div>

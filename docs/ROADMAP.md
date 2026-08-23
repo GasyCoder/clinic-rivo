@@ -84,6 +84,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Prescription
 - [ ] Constantes
 - [ ] Soins
+- [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
+- [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
 - [ ] Ordres de soins
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie

@@ -545,6 +545,14 @@ mais reste une référence historique non importée automatiquement car plusieur
 lignes sont ambiguës ou variables. La part payée par une mutuelle et la part du
 patient ne sont pas encore définies par le client.
 
+Le 23/08/2026, le client a validé une fiche de soins `NURSE` par passage :
+constantes, IMC calculé, observations, contexte d'hospitalisation, transmission
+et historique append-only des actes réellement réalisés. Les actes fournis sans
+prix entrent dans le référentiel sans faux tarif. Le « diagnostic communiqué »
+et les dates d'hospitalisation sont du contexte infirmier ; ils ne remplacent
+jamais le diagnostic, la décision d'hospitalisation ou la sortie appartenant à
+Médecine. Voir ADR-032.
+
 ---
 
 # Backend architecture

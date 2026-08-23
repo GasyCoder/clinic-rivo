@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * CDC §21. Represents one patient visit/passage, opened at Réception and
@@ -82,6 +83,11 @@ class Episode extends Model
     public function serviceRequests(): HasMany
     {
         return $this->hasMany(EpisodeServiceRequest::class);
+    }
+
+    public function careRecord(): HasOne
+    {
+        return $this->hasOne(CareRecord::class);
     }
 
     public function surgicalRequests(): HasMany

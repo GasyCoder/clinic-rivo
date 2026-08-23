@@ -155,6 +155,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // from the route configured on each selected designation. Unknown needs
     // start in Soins; an emergency receives both queues at admission.
     Route::get('/care', [CareController::class, 'index'])->name('care.index')->middleware('can:care.view');
+    Route::get('/care/orientations/{episodeOrientation}', [CareController::class, 'show'])->name('care.orientations.show')->middleware('can:care.view');
+    Route::put('/care/orientations/{episodeOrientation}/record', [CareController::class, 'saveRecord'])->name('care.orientations.record.update')->middleware('can:care.view');
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');

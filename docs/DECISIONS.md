@@ -1117,3 +1117,53 @@ mutuelle et part patient n'est inventée ici.
 Le portail Super Administration présente cet espace par site, mais toute lecture
 ou commande distante doit passer par l'API sécurisée du site conformément aux
 ADR-003, ADR-004 et ADR-027. Il ne reçoit jamais un accès SQL direct aux bases.
+
+---
+
+# ADR-032 — Fiche de soins infirmiers par passage
+
+**Status:** ACCEPTED (2026-08-23 — remarque explicite du client)
+
+Le rôle `NURSE` utilise une fiche de soins rattachée à l'épisode, jamais au
+dossier administratif permanent. Elle regroupe les constantes et observations
+du passage : groupe sanguin, taille, poids, IMC calculé par Laravel, allergie
+signalée, tabagisme, contexte d'hospitalisation et motif de transmission.
+
+L'IMC est accompagné d'un repère de dépistage calculé à partir d'une règle
+Laravel centralisée. Pour les adultes de 20 ans ou plus, les seuils OMS retenus
+sont : insuffisance pondérale `< 18,5`, corpulence normale `18,5–24,9`,
+surpoids `25–29,9`, obésité classe I `30–34,9`, classe II `35–39,9` et classe
+III `>= 40`. Avant 20 ans, aucun seuil adulte n'est appliqué : l'interface
+demande une interprétation selon l'âge et le sexe avec les courbes de croissance
+adaptées. L'alerte reste une aide à l'évaluation, jamais un diagnostic ni une
+décision médicale automatique.
+
+Les actes effectivement réalisés sont historisés de façon append-only avec
+l'acte du référentiel, son libellé instantané, la quantité, l'observation,
+l'utilisateur et l'heure. « Autres » exige une description. Une correction ne
+supprime jamais un acte antérieur ; elle produit une nouvelle trace.
+
+La remarque client fournit les actes Soins mais aucun tarif. Ils sont donc
+ajoutés au référentiel sans montant inventé et restent non sélectionnables à la
+Réception tant que le Super Admin n'a pas configuré leur tarif et leur parcours.
+Les quatre actes de validation déjà tarifés conservent leur prix existant.
+
+La présence de « Diagnostic » et des dates d'hospitalisation sur la fiche papier
+ne transfère pas la décision médicale au rôle `NURSE`. Dans la fiche Soins, il
+s'agit du diagnostic communiqué et du contexte infirmier : ces champs ne créent
+pas un enregistrement `diagnoses`, ne changent pas `medical_status` et ne
+prononcent ni hospitalisation ni sortie. Les décisions officielles restent sous
+les permissions Médecine (`diagnoses.*`, `hospitalization.request`, sortie
+médicale).
+
+Permissions :
+
+```text
+care.view / create / update / complete
+vitals.view / create / update
+medical_orders.view
+```
+
+Le rôle `NURSE` ne reçoit aucune permission `payments.*`, `cash.*` ou
+`receipts.*`. Les soins peuvent alimenter ultérieurement les éléments
+facturables, mais tout encaissement reste exclusivement à Réception / Caisse.

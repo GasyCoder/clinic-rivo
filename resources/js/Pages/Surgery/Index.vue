@@ -72,7 +72,7 @@ const statusVariant = (status) => STATUS_VARIANTS[status] ?? STATUS_VARIANTS.PEN
         <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-start gap-3">
                 <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
-                    <Icon class="text-2xl" name="grid-alt" />
+                    <Icon class="text-2xl" name="masks" />
                 </span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Chirurgie</h1>
@@ -157,7 +157,7 @@ const statusVariant = (status) => STATUS_VARIANTS[status] ?? STATUS_VARIANTS.PEN
                         <tr v-if="surgicalRequests.data.length === 0">
                             <td colspan="5" class="px-5 py-12 text-center">
                                 <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900">
-                                    <Icon class="text-xl" name="grid-alt" />
+                                    <Icon class="text-xl" name="masks" />
                                 </span>
                                 <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucune demande de chirurgie</p>
                             </td>

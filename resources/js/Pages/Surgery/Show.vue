@@ -261,7 +261,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
         <header class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div class="flex min-w-0 items-start gap-3">
                 <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
-                    <Icon class="text-2xl" name="grid-alt" />
+                    <Icon class="text-2xl" name="masks" />
                 </span>
                 <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">

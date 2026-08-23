@@ -9,7 +9,7 @@ defineOptions({ layout: AppLayout });
 const { can } = usePermissions();
 
 const areas = [
-    { title: 'Médicaments', description: 'Consulter les médicaments autorisés du référentiel.', icon: 'bag', permission: 'medicines.view' },
+    { title: 'Médicaments', description: 'Consulter les médicaments autorisés du référentiel.', icon: 'capsule', permission: 'medicines.view' },
     { title: 'Stock médicaments', description: 'Voir les quantités disponibles par produit et par lot.', icon: 'package', permission: 'stock.view' },
     { title: 'Lots & péremptions', description: 'Suivre les numéros de lots et les dates de péremption.', icon: 'calendar', permission: 'stock.lots.view' },
     { title: 'Entrées & sorties', description: 'Tracer chaque mouvement physique du stock pharmacie.', icon: 'swap', permission: 'stock.entry' },

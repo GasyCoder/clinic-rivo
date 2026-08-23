@@ -65,7 +65,7 @@ const submit = () => form.post('/surgery');
         <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-start gap-3">
                 <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
-                    <Icon class="text-2xl" name="grid-alt" />
+                    <Icon class="text-2xl" name="masks" />
                 </span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Nouvelle demande de chirurgie</h1>

@@ -46,7 +46,7 @@ const tabs = [
     <div class="mx-auto w-full max-w-screen-2xl space-y-5">
         <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-start gap-3">
-                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-2xl" name="user-list" /></span>
+                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-2xl" name="activity" /></span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Médecine</h1>
                     <p class="mt-1 text-sm text-slate-400">Patients orientés par les Soins et admissions urgentes.</p>
@@ -105,7 +105,7 @@ const tabs = [
                                 <Button v-else-if="can('patients.view')" :as="Link" :href="`/patients/${orientation.episode.patient.uuid}`" size="sm" variant="white-outline">Ouvrir le dossier</Button>
                             </td>
                         </tr>
-                        <tr v-if="orientations.data.length === 0"><td colspan="6" class="px-5 py-12 text-center"><Icon class="text-2xl text-slate-300" name="user-list" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p><p class="mt-1 text-xs text-slate-400">Les patients normaux apparaissent après l’orientation des Soins.</p></td></tr>
+                        <tr v-if="orientations.data.length === 0"><td colspan="6" class="px-5 py-12 text-center"><Icon class="text-2xl text-slate-300" name="activity" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p><p class="mt-1 text-xs text-slate-400">Les patients normaux apparaissent après l’orientation des Soins.</p></td></tr>
                     </tbody>
                 </table>
             </div>

@@ -19,6 +19,7 @@ const props = defineProps({
     receptionRoutingModes: Array,
     tariffCategories: Array,
     summary: Object,
+    pendingMedicines: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -251,6 +252,26 @@ const restoreItem = (item) => {
     router.post(`/administration/catalog/${item.uuid}/restore`, {}, { preserveScroll: true });
 };
 
+const reviewTarget = ref(null);
+const reviewForm = useForm({ note: '' });
+const openReview = (line) => {
+    reviewTarget.value = line;
+    reviewForm.reset();
+    reviewForm.clearErrors();
+};
+const closeReview = () => {
+    if (reviewForm.processing) return;
+    reviewTarget.value = null;
+    reviewForm.reset();
+    reviewForm.clearErrors();
+};
+const submitReview = () => {
+    reviewForm.post(`/administration/catalog/pending-medicines/${reviewTarget.value.id}/review`, {
+        preserveScroll: true,
+        onSuccess: closeReview,
+    });
+};
+
 const formatDateTime = (value) => value
     ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
     : '—';
@@ -304,6 +325,27 @@ const formatDateTime = (value) => value
                 <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Archivés</p>
                 <p class="mt-1 text-xl font-bold text-slate-700 dark:text-white">{{ summary.archived }}</p>
             </div>
+        </section>
+
+        <section v-if="pendingMedicines.length" class="overflow-hidden rounded-lg border border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/10">
+            <div class="flex items-center gap-3 border-b border-amber-200 px-5 py-4 dark:border-amber-900">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"><Icon class="text-lg" name="alert-circle" /></span>
+                <div>
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Médicaments demandés par les médecins</h2>
+                    <p class="mt-0.5 text-xs text-slate-500">Ajoutés manuellement sur une ordonnance faute d’être au référentiel Pharmacie. Aucun stock ni prix n’a été engagé ; le médecin n’a jamais eu accès à un tarif.</p>
+                </div>
+            </div>
+            <ul class="divide-y divide-amber-200/70 dark:divide-amber-900/60">
+                <li v-for="line in pendingMedicines" :key="line.id" class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0">
+                        <p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.medication_name }}<span class="ms-2 text-xs font-normal text-slate-400">× {{ line.quantity }}</span></p>
+                        <p v-if="line.dosage || line.frequency || line.duration" class="mt-1 text-xs text-slate-500">{{ [line.dosage, line.frequency, line.duration].filter(Boolean).join(' · ') }}</p>
+                        <p v-if="line.instructions" class="mt-1 text-xs text-slate-400">{{ line.instructions }}</p>
+                        <p class="mt-2 text-[11px] text-slate-400">Prescrit par {{ line.prescribed_by || 'N/R' }} · Passage {{ line.episode_number || 'N/R' }} · Patient {{ line.patient_number || 'N/R' }} · {{ formatDateTime(line.prescribed_at) }}</p>
+                    </div>
+                    <Button v-if="can('catalog.items.create')" type="button" size="sm" variant="white-outline" class="shrink-0" @click="openReview(line)"><Icon class="me-1.5 text-base" name="check" />Marquer traité</Button>
+                </li>
+            </ul>
         </section>
 
         <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
@@ -604,6 +646,17 @@ const formatDateTime = (value) => value
                 </div>
                 <div class="mt-5"><label for="catalog_archive_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label><textarea id="catalog_archive_reason" v-model="archiveForm.reason" rows="3" autofocus class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" placeholder="Décision et référence utiles"></textarea><FormError v-if="archiveForm.errors.reason">{{ archiveForm.errors.reason }}</FormError></div>
                 <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button size="rg" variant="white-outline" type="button" :disabled="archiveForm.processing" @click="closeArchive">Annuler</Button><Button size="rg" variant="secondary" type="button" :disabled="archiveForm.processing" @click="submitArchive"><Icon class="text-lg" :name="archiveMode === 'tariff' ? 'pause' : 'archive'" /><span class="ms-2">{{ archiveForm.processing ? 'Enregistrement…' : 'Confirmer' }}</span></Button></div>
+            </section>
+        </div>
+
+        <div v-if="reviewTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closeReview">
+            <section class="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="review-medicine-title">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"><Icon class="text-xl" name="check" /></span>
+                    <div><h2 id="review-medicine-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Marquer « {{ reviewTarget.medication_name }} » traité</h2><p class="mt-1 text-sm leading-5 text-slate-500">Décrivez la suite donnée (ajout au référentiel sous tel code, doublon, non retenu…). Cela ne crée ni médicament ni stock automatiquement.</p></div>
+                </div>
+                <div class="mt-5"><label for="catalog_review_note" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Note <span class="text-red-500">*</span></label><textarea id="catalog_review_note" v-model="reviewForm.note" rows="3" autofocus class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" placeholder="Ex. Ajouté au référentiel sous MED-0231"></textarea><FormError v-if="reviewForm.errors.note">{{ reviewForm.errors.note }}</FormError></div>
+                <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button size="rg" variant="white-outline" type="button" :disabled="reviewForm.processing" @click="closeReview">Annuler</Button><Button size="rg" type="button" :disabled="reviewForm.processing" @click="submitReview"><Icon class="text-lg" name="check" /><span class="ms-2">{{ reviewForm.processing ? 'Enregistrement…' : 'Confirmer' }}</span></Button></div>
             </section>
         </div>
     </div>

@@ -30,6 +30,8 @@ class EpisodeQueuePresenter
             'oriented_at' => $orientation->oriented_at,
             'accepted_at' => $orientation->accepted_at,
             'accepted_by' => $orientation->acceptedBy?->name,
+            'has_consultation' => $orientation->relationLoaded('consultation')
+                && $orientation->consultation !== null,
             'episode' => [
                 'uuid' => $episode->uuid,
                 'episode_number' => $episode->episode_number,

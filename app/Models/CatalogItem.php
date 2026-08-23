@@ -76,6 +76,11 @@ class CatalogItem extends Model
         return $this->hasMany(EpisodeServiceRequest::class);
     }
 
+    public function medicine(): HasOne
+    {
+        return $this->hasOne(Medicine::class);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -90,7 +95,8 @@ class CatalogItem extends Model
     {
         return $this->tariffs()->exists()
             || $this->billableItems()->exists()
-            || $this->episodeServiceRequests()->exists();
+            || $this->episodeServiceRequests()->exists()
+            || $this->medicine()->exists();
     }
 
     protected function auditModule(): ?string

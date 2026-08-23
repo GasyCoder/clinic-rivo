@@ -98,9 +98,11 @@ class ClinicalQueueControllerTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->has('orientations.data', 1)
                 ->where('orientations.data.0.episode.uuid', $episode->uuid));
-        $this->actingAs($doctor)->get('/medicine')
+        $this->actingAs($doctor)->get('/medicine?filter=emergency')
             ->assertInertia(fn ($page) => $page
                 ->has('orientations.data', 1)
+                ->where('filter', 'emergency')
+                ->where('counts.emergency', 1)
                 ->where('orientations.data.0.episode.uuid', $episode->uuid));
     }
 

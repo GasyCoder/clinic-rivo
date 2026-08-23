@@ -16,8 +16,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 #[Fillable([
     'episode_id', 'blood_group',
-    'blood_pressure_left_systolic', 'blood_pressure_left_diastolic',
-    'blood_pressure_right_systolic', 'blood_pressure_right_diastolic',
+    'blood_pressure_systolic', 'blood_pressure_diastolic',
+    'heart_rate', 'spo2',
     'temperature_celsius', 'known_diabetes',
     'height_cm', 'weight_kg', 'bmi',
     'allergy_note', 'allergy_snapshot', 'smoker', 'no_procedure_reason',
@@ -32,10 +32,10 @@ class CareRecord extends Model
     protected function casts(): array
     {
         return [
-            'blood_pressure_left_systolic' => 'integer',
-            'blood_pressure_left_diastolic' => 'integer',
-            'blood_pressure_right_systolic' => 'integer',
-            'blood_pressure_right_diastolic' => 'integer',
+            'blood_pressure_systolic' => 'integer',
+            'blood_pressure_diastolic' => 'integer',
+            'heart_rate' => 'integer',
+            'spo2' => 'integer',
             'temperature_celsius' => 'decimal:2',
             'known_diabetes' => 'boolean',
             'height_cm' => 'decimal:2',

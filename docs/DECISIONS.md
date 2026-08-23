@@ -1042,6 +1042,11 @@ CARE_THEN_MEDICINE   consultation générale ou évaluation clinique
 CARE_ONLY            injection, pansement, prise de tension
 ```
 
+Une consultation spécialisée dont le besoin est déjà identifié appartient
+à `MEDICINE_DIRECT`, comme l'ECG et l'échographie. La consultation générale
+reste `CARE_THEN_MEDICINE` afin que les Soins effectuent l'évaluation et les
+constantes utiles avant la consultation.
+
 Une prestation connue `MEDICINE_DIRECT` ne passe pas artificiellement par les
 Soins. Une prestation `CARE_ONLY` peut se terminer aux Soins. Une prestation
 `CARE_THEN_MEDICINE` ne devient visible en Médecine qu'après la fin des Soins.
@@ -1341,3 +1346,325 @@ que cette même mise à jour a rendue plus explicite dans l'interface : dossier
 permanent d'un côté (onglet Aperçu), fiche de chaque passage de l'autre
 (onglet Passages), sans mélanger les deux registres sous un même intitulé
 « administratif ».
+
+---
+
+# ADR-035 — Consultation Médecine et sortie médicale
+
+**Status:** ACCEPTED (2026-08-23 — fiches client et exigence explicite du propriétaire)
+
+La file Médecine reste alimentée exclusivement par le parcours clinique de
+l'ADR-030 : `MEDICINE_DIRECT`, transmission terminée par les Soins pour
+`CARE_THEN_MEDICINE`, orientation explicite d'un besoin inconnu, ou admission
+`EMERGENCY`. Consulter le dossier permanent d'un patient ne l'ajoute jamais à
+la file Médecine.
+
+La prise en charge d'une orientation Médecine ouvre un dossier de consultation
+rattaché à cette orientation et au passage. Le dossier présente sans les
+recopier comme de nouvelles données : l'identité, les allergies permanentes,
+les prestations demandées, les constantes, actes et transmissions enregistrés
+aux Soins. Une orientation ne possède qu'une consultation active ; les
+réorientations historiques d'un même passage peuvent produire des consultations
+distinctes.
+
+Le médecin peut enregistrer progressivement :
+
+```text
+motif de consultation
+examen clinique
+hypothèses diagnostiques append-only
+diagnostic final append-only
+prescription et lignes de traitement
+décision médicale et observations
+```
+
+Les diagnostics déjà consignés ne sont jamais supprimés silencieusement. Une
+correction produit une nouvelle entrée identifiée par son auteur et son heure.
+Lorsqu'une entrée a été enregistrée par erreur, seul le médecin qui l'a saisie,
+et qui dispose de `diagnoses.update`, peut l'annuler. Aucun motif libre n'est
+demandé : le système enregistre automatiquement l'auteur et la date de
+l'annulation. Cette annulation est une trace séparée, immuable et auditée : la
+ligne diagnostique originale reste visible avec son auteur et sa date, et n'est
+ni modifiée ni supprimée.
+Une prescription active peut être annulée avec un motif audité ; elle n'est pas
+supprimée physiquement.
+
+Les examens de laboratoire, ordres de soins, demandes de chirurgie,
+hospitalisation et transfert restent des workflows spécialisés. Une simple
+valeur dans l'écran Consultation ne doit jamais simuler la création de l'ordre
+correspondant. Ils seront reliés à la consultation lorsque leurs modules seront
+implémentés.
+
+La sortie médicale est une décision médicale distincte de la sortie
+administrative et du règlement. Ses types initiaux, conformes au CDC et aux
+fiches remises par le client, sont :
+
+```text
+NORMAL
+TRANSFER
+AT_PATIENT_REQUEST
+MEDICAL_DECISION_REFUSAL
+DECEASED
+```
+
+Elle conserve la date et l'heure, le diagnostic final, l'état du patient, les
+prescriptions de sortie, les recommandations, le rendez-vous éventuel et les
+observations. Un décès conserve en plus l'heure, le lieu et les causes utiles au
+futur certificat de constatation. La sortie complète l'orientation Médecine et
+met à jour uniquement le statut médical du passage :
+
+```text
+NORMAL / AT_PATIENT_REQUEST / MEDICAL_DECISION_REFUSAL -> MEDICALLY_DISCHARGED
+TRANSFER                                                -> TRANSFERRED
+DECEASED                                                -> DECEASED
+```
+
+Elle ne clôt jamais automatiquement l'épisode global et ne dépend ni d'une
+facture, ni d'un paiement, ni d'une caisse ouverte. La sortie administrative
+reste la responsabilité de Réception / Caisse.
+
+Les fiches papier partagées le 23/08/2026 couvrent aussi le journal de
+traitements, le ticket de contrôle Caisse/Sécurité, le certificat médical et le
+certificat de décès. Ces impressions utiliseront les données cliniques validées,
+mais constituent des documents séparés : elles ne doivent pas modifier la
+consultation ni servir de faux reçu ou de validation administrative.
+
+Permissions initiales :
+
+```text
+medical_record.view
+consultations.view / create / update
+diagnoses.view / create / update
+prescriptions.view / create / update / cancel
+medical_discharge.create
+```
+
+Médecine ne reçoit aucune permission `payments.*`, `cash.*` ou `receipts.*`.
+
+---
+
+# ADR-036 — Prescription adossée au stock Pharmacie par lots
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+La saisie libre d'un médicament dans une nouvelle ordonnance est remplacée par
+la sélection d'une fiche active du référentiel Pharmacie. Un médicament étend
+un `catalog_item` de type `MEDICINE` dans une table spécialisée qui conserve
+notamment la DCI, la forme pharmaceutique et le dosage. Les formes initiales
+reprennent le classement transmis par le client : comprimé, injectable,
+liquide, sachet, sirop, pommade/crème, suppositoire/ovule, ampoule/collyre/
+goutte, parapharmacie/consommable et autre. Cette spécialisation ne fusionne
+pas les médicaments, les prestations et les équipements (ADR-024).
+
+Le stock local est porté par des lots avec numéro de lot, quantité physique et
+date de péremption. Un lot périmé n'est jamais compté comme disponible. L'écran
+Médecine présente seulement la disponibilité agrégée et la prochaine
+péremption utile ; les détails de mouvements et toute mutation restent sous la
+responsabilité de Pharmacie.
+
+À la validation d'une ordonnance, Laravel refait le contrôle dans une
+transaction et verrouille les lots. La quantité est réservée en FEFO
+(`First Expired, First Out`) : le lot utilisable qui expire le plus tôt est
+réservé en premier. Une réservation évite que deux médecins prescrivent la
+même quantité simultanément. Si une seule ligne est insuffisante, toute la
+transaction est annulée : aucune ordonnance, ligne ou réservation partielle ne
+reste enregistrée.
+
+Une prescription ne réalise pas encore la sortie physique. Seule la délivrance
+validée par Pharmacie diminuera `quantity_on_hand` et créera le mouvement de
+stock correspondant. L'annulation auditée d'une prescription libère ses
+réservations. Un mouvement de stock validé reste immuable ; une correction
+passe par un nouveau mouvement inverse ou d'ajustement, jamais par une
+modification ou suppression de l'historique.
+
+Permissions minimales :
+
+```text
+MEDICINE : medicines.view + stock.availability.view + prescriptions.create
+PHARMACY : medicines.view + stock.availability.view + stock.* + pharmacy.dispense
+```
+
+Le rôle Médecine n'obtient aucun droit d'entrée, sortie, ajustement,
+inventaire ou transfert. Cette évolution ne crée ni paiement ni caisse dans
+Médecine ou Pharmacie ; l'encaissement reste exclusivement à Réception / Caisse.
+
+---
+
+# ADR-037 — Médicament manuel hors référentiel, en attente de validation
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+ADR-036 remplace la saisie libre par la sélection du référentiel Pharmacie
+pour le cas normal. Elle ne doit cependant jamais bloquer une ordonnance
+lorsque le médicament nécessaire est simplement absent du référentiel : le
+médecin peut alors ajouter une ligne manuelle (nom libre, posologie,
+fréquence, durée, instructions), en plus des lignes normales issues du
+référentiel dans la même ordonnance.
+
+Une ligne manuelle :
+
+```text
+ne référence aucun catalog_item ni medicine (medicine_id reste null) ;
+ne réserve, ne verrouille et ne consomme aucun lot de stock Pharmacie ;
+n'affiche et ne permet de saisir aucun prix, comme toute ligne d'ordonnance ;
+est marquée en attente de validation dès sa création.
+```
+
+Cette attente n'est pas une nouvelle permission. Elle réutilise
+`catalog.items.create`, déjà réservée par défaut au Super Admin par
+l'ADR-024 et attribuable en exception individuelle auditée (ADR-022) à un
+compte opérationnel réel — par exemple Pharmacie ou Administration. Aucune
+permission dédiée n'a été créée pour ce seul usage.
+
+Traiter la demande enregistre uniquement l'auteur, la date et une note libre
+sur la ligne d'ordonnance ; cela ne crée pas automatiquement un `medicine`,
+un `catalog_item` ni un lot de stock. Faire entrer réellement le médicament
+au référentiel et au stock reste un acte distinct, déjà couvert par les
+écrans et permissions existants (`catalog.items.create`, puis les mouvements
+Pharmacie de l'ADR-036) — cette ADR ne les automatise pas.
+
+La ligne manuelle reste modifiable (quantité, nom, posologie) tant que
+l'ordonnance est active, sans jamais déclencher de contrôle de stock. Son
+annulation suit la même trace d'audit que toute ligne d'ordonnance.
+
+Permissions inchangées :
+
+```text
+MEDICINE : aucun ajout — prescriptions.create couvre déjà la ligne manuelle
+Validation de la demande : catalog.items.create (ADR-024, ADR-022)
+```
+
+---
+
+# ADR-038 — Une seule tension artérielle, ajout de la FC et de la SpO2
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire, amende ADR-032)
+
+ADR-032 exigeait la tension des deux bras (quatre valeurs : systolique et
+diastolique, gauche et droite). Cette exigence est remplacée le jour même par
+une tension artérielle unique (`blood_pressure_systolic`,
+`blood_pressure_diastolic`), à laquelle s'ajoutent deux constantes absentes
+d'ADR-032 :
+
+```text
+FC   fréquence cardiaque, en battements par minute (heart_rate)
+SpO2 saturation en oxygène, en pourcentage (spo2)
+```
+
+Ces trois valeurs restent facultatives comme le reste du bloc « Constantes et
+observations » d'ADR-032 : replié par défaut pour un acte autonome, jamais
+rendu obligatoire pour enregistrer un acte infirmier. Les bornes de validation
+suivent la même logique clinique que les champs existants : FC entre 20 et 250
+btt/mn, SpO2 entre 0 et 100 %.
+
+La colonne `blood_group` et les autres constantes d'ADR-032 (température,
+diabète connu, taille, poids, IMC, allergies) ne changent pas.
+
+---
+
+# ADR-039 — Alerte de fréquence cardiaque basse
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+La fiche Soins affiche immédiatement une alerte de dépistage lorsque la
+fréquence cardiaque mesurée est inférieure à 60 bpm. Cette alerte ne bloque
+ni l'enregistrement ni la fin des Soins et ne constitue jamais un diagnostic.
+
+Pour un adulte, une valeur de 50 à 59 bpm produit un avertissement orange ;
+une valeur inférieure à 50 bpm produit une alerte rouge demandant un nouveau
+contrôle et la recherche de signes de mauvaise tolérance. Pour un patient de
+moins de 18 ans, toute valeur inférieure à 60 bpm produit une alerte rouge et
+rappelle que l'interprétation dépend de l'âge précis et du contexte clinique.
+Si l'âge est inconnu, l'alerte reste visible mais demande de renseigner l'âge.
+
+La classification est calculée côté Laravel et le frontend reçoit le même
+référentiel pour l'aperçu instantané pendant la saisie. Les seuils s'appuient
+sur la plage adulte au repos de l'American Heart Association (60–100 bpm), son
+algorithme 2025 de bradycardie adulte (bradyarythmie typiquement sous 50 bpm) et
+son algorithme pédiatrique, qui requiert une évaluation urgente sous 60 bpm en
+présence d'une mauvaise tolérance cardiopulmonaire.
+
+Références :
+
+```text
+https://www.heart.org/en/health-topics/high-blood-pressure/the-facts-about-high-blood-pressure/all-about-heart-rate-pulse
+https://www.heart.org/-/media/CPR-Files/CPR-Guidelines-Files/2025-Accessible/Algorithm-ACLS-Bradycardia-LngDscrp-250725-Ed.pdf
+https://cpr.heart.org/-/media/CPR-Files/CPR-Guidelines-Files/2025-Accessible/Algorithm-PALS-Bradycardia-LngDscrp-250729-Ed.pdf
+```
+
+---
+
+# ADR-040 — Alertes compactes SpO₂ et température
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Les alertes de constantes ne doivent pas occuper un grand bloc transversal dans
+la fiche Soins. La FC, la SpO₂ et la température affichent chacune une seule
+ligne compacte directement sous leur champ, avec une bordure de champ assortie.
+Le message détaillé reste disponible comme aide contextuelle. L'alerte reste
+non bloquante et ne constitue pas un diagnostic.
+
+Pour la SpO₂ :
+
+```text
+95–100 %  aucune alerte générale
+93–94 %   avertissement orange
+≤ 92 %    alerte rouge
+```
+
+Ces seuils sont des repères généraux : une maladie respiratoire chronique ou
+l'altitude peuvent modifier la valeur habituelle du patient. Toute valeur
+signalée doit être recontrôlée et interprétée avec les symptômes.
+
+Pour la température :
+
+```text
+< 35 °C       alerte rouge — hypothermie possible
+35–35,9 °C   avertissement orange — température basse
+36–37,9 °C   aucune alerte générale
+38–39,9 °C   avertissement orange — fièvre
+≥ 40 °C      alerte rouge — température très élevée
+```
+
+La classification est centralisée dans Laravel et le même référentiel est
+fourni à Vue pour l'aperçu immédiat pendant la saisie.
+
+Références :
+
+```text
+https://medlineplus.gov/lab-tests/pulse-oximetry/
+https://medlineplus.gov/ency/article/001982.htm
+https://medlineplus.gov/hypothermia.html
+```
+
+---
+
+# ADR-041 — Alerte compacte de tension artérielle
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+La fiche Soins classe la tension systolique/diastolique saisie en **mmHg** et
+affiche, directement sous le champ, la même alerte compacte et non bloquante
+que pour les autres constantes. Cette aide au dépistage ne constitue pas un
+diagnostic et demande toujours de recontrôler une mesure signalée.
+
+Pour un adulte :
+
+```text
+< 90 systolique ou < 60 diastolique  avertissement orange — TA basse
+130–139 ou 80–89                    avertissement orange — TA élevée
+≥ 140 ou ≥ 90                       avertissement orange — TA très élevée
+> 180 ou > 120                      alerte rouge — TA sévèrement élevée
+```
+
+Le format abrégé local `17/12` n'est pas enregistré silencieusement comme une
+mesure clinique. L'interface demande explicitement `170/120 mmHg`, afin de ne
+pas transformer une valeur ambiguë. Une paire incohérente reste soumise à la
+validation Laravel existante.
+
+Références :
+
+```text
+https://www.heart.org/en/health-topics/high-blood-pressure/understanding-blood-pressure-readings
+https://www.nhs.uk/conditions/low-blood-pressure-hypotension/
+```

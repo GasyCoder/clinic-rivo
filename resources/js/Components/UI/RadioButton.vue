@@ -29,7 +29,7 @@ const inputCompClass = computed(() => ({
 const labelCompClass = computed(() => ({
     'text-slate-600 dark:text-slate-400 peer-disabled:text-slate-400 peer-disabled:dark:text-slate-700 text-sm leading-5 border-gray-200 dark:border-gray-800 cursor-pointer inline-block rounded-[inherit]': true,
     'ps-10 pe-4 py-2.5 border': !props.nocontrol,
-    'px-4 py-1.5 border-2 peer-checked:border-primary-600 transition-all duration-300': props.nocontrol,
+    'border bg-white px-3 py-1.5 hover:border-slate-300 hover:text-slate-700 peer-checked:border-primary-500 peer-checked:bg-primary-50 peer-checked:font-semibold peer-checked:text-primary-700 peer-focus-visible:ring-2 peer-focus-visible:ring-primary-200 peer-disabled:cursor-not-allowed dark:bg-gray-950 dark:hover:border-gray-700 dark:hover:text-slate-200 dark:peer-checked:border-primary-600 dark:peer-checked:bg-primary-950/30 dark:peer-checked:text-primary-300 dark:peer-focus-visible:ring-primary-950 transition-all duration-200': props.nocontrol,
     'flex items-center gap-3': props.icon,
 }));
 </script>

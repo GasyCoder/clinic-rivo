@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Exceptions\InvalidEpisodeTransitionException;
@@ -19,10 +20,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * CDC §21. Represents one patient visit/passage, opened at Réception and
  * tracked through orientation, care and billing via three independently
  * evolving status columns (§21: "le statut médical, financier et
- * administratif doit rester séparé"). `medical_status`/`financial_status`
- * are plain nullable strings here — their valid values belong to modules
- * not yet built (Médecine, Facture/Caisse) and are deliberately left for
- * those modules to define, not guessed in this one.
+ * administratif doit rester séparé"). `medical_status` is governed by the
+ * Medicine workflow (ADR-035); `financial_status` remains owned by
+ * Facture/Caisse and is never changed by Médecine.
  *
  * No SoftDeletable: §21's schema does not list deleted_at for episodes
  * (unlike patients), and ADR-010 prefers cancel/correct/reverse over
@@ -49,6 +49,7 @@ class Episode extends Model
         return [
             'status' => EpisodeStatus::class,
             'priority' => EpisodePriority::class,
+            'medical_status' => EpisodeMedicalStatus::class,
             'administrative_status' => EpisodeAdministrativeStatus::class,
             'designation_deferred' => 'boolean',
             'service_plan_finalized_at' => 'datetime',
@@ -90,6 +91,11 @@ class Episode extends Model
     public function careRecord(): HasOne
     {
         return $this->hasOne(CareRecord::class);
+    }
+
+    public function medicalDischarge(): HasOne
+    {
+        return $this->hasOne(MedicalDischarge::class);
     }
 
     public function surgicalRequests(): HasMany

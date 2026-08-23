@@ -275,10 +275,10 @@ const careVitalsSummary = (record) => {
     if (!record) return [];
     const rows = [];
     const bloodPressure = (systolic, diastolic) => (systolic || diastolic ? `${systolic ?? '—'}/${diastolic ?? '—'} mmHg` : null);
-    const left = bloodPressure(record.blood_pressure_left_systolic, record.blood_pressure_left_diastolic);
-    const right = bloodPressure(record.blood_pressure_right_systolic, record.blood_pressure_right_diastolic);
-    if (left) rows.push({ label: 'Tension bras gauche', value: left });
-    if (right) rows.push({ label: 'Tension bras droit', value: right });
+    const pressure = bloodPressure(record.blood_pressure_systolic, record.blood_pressure_diastolic);
+    if (pressure) rows.push({ label: 'Tension artérielle', value: pressure });
+    if (record.heart_rate) rows.push({ label: 'Fréquence cardiaque', value: `${record.heart_rate} btt/mn` });
+    if (record.spo2 !== null && record.spo2 !== undefined) rows.push({ label: 'SpO2', value: `${record.spo2} %` });
     if (record.temperature_celsius) rows.push({ label: 'Température', value: `${record.temperature_celsius} °C` });
     if (record.height_cm) rows.push({ label: 'Taille', value: `${record.height_cm} cm` });
     if (record.weight_kg) rows.push({ label: 'Poids', value: `${record.weight_kg} kg` });

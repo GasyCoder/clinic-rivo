@@ -89,6 +89,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/administration/catalog/{catalogItem}/tariff/archive', [AdministrationCatalogController::class, 'archiveTariff'])->name('administration.catalog.tariff.archive')->middleware('can:catalog.tariffs.archive');
     Route::delete('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'destroy'])->name('administration.catalog.destroy')->middleware('can:catalog.items.delete');
     Route::post('/administration/catalog/{catalogItem}/restore', [AdministrationCatalogController::class, 'restore'])->name('administration.catalog.restore')->middleware('can:catalog.items.restore');
+    // Médicament ajouté manuellement par un médecin (ordonnance jamais
+    // bloquée par une absence au référentiel) : jamais de stock ni de prix,
+    // seulement une trace en attente pour qui détient catalog.items.create.
+    Route::post('/administration/catalog/pending-medicines/{prescriptionLine}/review', [AdministrationCatalogController::class, 'reviewUnlistedMedicine'])->name('administration.catalog.pending-medicines.review')->middleware('can:catalog.items.create');
 
     // Réception: one operational entry point, with isolated patient and
     // non-clinical visitor workflows. A visitor never creates an episode.
@@ -163,7 +167,21 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
 
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
+    Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
+    Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
+        ->whereIn('step', ['dossier', 'consultation', 'diagnostic', 'ordonnance', 'decision'])
+        ->name('medicine.orientations.step')
+        ->middleware('can:consultations.view');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
+    Route::put('/medicine/orientations/{episodeOrientation}/consultation', [MedicineController::class, 'updateConsultation'])->name('medicine.consultations.update')->middleware('can:consultations.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'storeDiagnosis'])->name('medicine.diagnoses.store')->middleware('can:diagnoses.create');
+    Route::put('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'updateDiagnosis'])->name('medicine.diagnoses.update')->middleware('can:diagnoses.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/diagnoses/cancel', [MedicineController::class, 'cancelDiagnosis'])->name('medicine.diagnoses.cancel')->middleware('can:diagnoses.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/prescriptions', [MedicineController::class, 'storePrescription'])->name('medicine.prescriptions.store')->middleware('can:prescriptions.create');
+    Route::put('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}', [MedicineController::class, 'updatePrescription'])->name('medicine.prescriptions.update')->middleware('can:prescriptions.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/cancel', [MedicineController::class, 'cancelPrescription'])->name('medicine.prescriptions.cancel')->middleware('can:prescriptions.cancel');
+    Route::get('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/print', [MedicineController::class, 'printPrescription'])->name('medicine.prescriptions.print')->middleware('can:prescriptions.view');
+    Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
 
     // Chirurgie (CDC GitHub §15/16). Each middleware name matches exactly
     // one seeded permission (PermissionSeeder) — see SurgeryController's

@@ -132,7 +132,7 @@ const designationSummary = (orientation) => {
                                             {{ formatPatientName(orientation.episode.patient) }}
                                         </Link>
                                         <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(orientation.episode.patient) }}</span>
-                                        <span class="text-xs text-slate-400">{{ orientation.episode.patient.patient_number }}</span>
+                                        <span class="inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ orientation.episode.patient.patient_number }}</span>
                                     </div>
                                 </div>
                             </td>

@@ -39,11 +39,11 @@ class CareRecordFlowTest extends TestCase
 
         $response = $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
             'blood_group' => 'O+',
-            'blood_pressure_left_systolic' => 122,
-            'blood_pressure_left_diastolic' => 78,
-            'blood_pressure_right_systolic' => 118,
-            'blood_pressure_right_diastolic' => 76,
-            'temperature_celsius' => '37.20',
+            'blood_pressure_systolic' => 145,
+            'blood_pressure_diastolic' => 95,
+            'heart_rate' => 55,
+            'spo2' => 92,
+            'temperature_celsius' => '38.20',
             'known_diabetes' => true,
             'height_cm' => '175',
             'weight_kg' => '70',
@@ -62,11 +62,11 @@ class CareRecordFlowTest extends TestCase
 
         $record = CareRecord::query()->sole();
         $this->assertSame('22.86', $record->bmi);
-        $this->assertSame(122, $record->blood_pressure_left_systolic);
-        $this->assertSame(78, $record->blood_pressure_left_diastolic);
-        $this->assertSame(118, $record->blood_pressure_right_systolic);
-        $this->assertSame(76, $record->blood_pressure_right_diastolic);
-        $this->assertSame('37.20', $record->temperature_celsius);
+        $this->assertSame(145, $record->blood_pressure_systolic);
+        $this->assertSame(95, $record->blood_pressure_diastolic);
+        $this->assertSame(55, $record->heart_rate);
+        $this->assertSame(92, $record->spo2);
+        $this->assertSame('38.20', $record->temperature_celsius);
         $this->assertTrue($record->known_diabetes);
         $this->assertFalse($record->smoker);
         $this->assertSame($nurse->id, $record->created_by);
@@ -94,11 +94,27 @@ class CareRecordFlowTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Care/Show')
                 ->where('careRecord.blood_group', 'O+')
-                ->where('careRecord.blood_pressure_left_systolic', 122)
-                ->where('careRecord.blood_pressure_left_diastolic', 78)
-                ->where('careRecord.blood_pressure_right_systolic', 118)
-                ->where('careRecord.blood_pressure_right_diastolic', 76)
-                ->where('careRecord.temperature_celsius', '37.20')
+                ->where('careRecord.blood_pressure_systolic', 145)
+                ->where('careRecord.blood_pressure_diastolic', 95)
+                ->where('careRecord.blood_pressure_assessment.code', 'HIGH_STAGE_2')
+                ->where('careRecord.blood_pressure_assessment.tone', 'warning')
+                ->where('bloodPressureReference.stage_one_systolic_from', 130)
+                ->where('bloodPressureReference.stage_two_diastolic_from', 90)
+                ->where('careRecord.heart_rate', 55)
+                ->where('careRecord.heart_rate_assessment.code', 'LOW')
+                ->where('careRecord.heart_rate_assessment.tone', 'warning')
+                ->where('heartRateReference.low_threshold', 60)
+                ->where('heartRateReference.marked_low_threshold', 50)
+                ->where('careRecord.spo2', 92)
+                ->where('careRecord.spo2_assessment.code', 'VERY_LOW')
+                ->where('careRecord.spo2_assessment.tone', 'danger')
+                ->where('oxygenSaturationReference.usual_minimum', 95)
+                ->where('oxygenSaturationReference.danger_maximum', 92)
+                ->where('careRecord.temperature_celsius', '38.20')
+                ->where('careRecord.temperature_assessment.code', 'FEVER')
+                ->where('careRecord.temperature_assessment.tone', 'warning')
+                ->where('temperatureReference.fever_from', 38)
+                ->where('temperatureReference.high_danger_from', 40)
                 ->where('careRecord.known_diabetes', true)
                 ->where('careRecord.bmi', '22.86')
                 ->where('careRecord.bmi_assessment.code', 'NORMAL')
@@ -181,15 +197,17 @@ class CareRecordFlowTest extends TestCase
         [$orientation] = $this->activeCareOrientation($nurse);
 
         $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
-            'blood_pressure_left_systolic' => 80,
-            'blood_pressure_left_diastolic' => 120,
-            'blood_pressure_right_systolic' => 130,
+            'blood_pressure_systolic' => 80,
+            'blood_pressure_diastolic' => 120,
+            'heart_rate' => 300,
+            'spo2' => 150,
             'temperature_celsius' => 48,
             'known_diabetes' => 'inconnu',
         ])->assertSessionHasErrors([
-            'blood_pressure_left_systolic',
-            'blood_pressure_left_diastolic',
-            'blood_pressure_right_diastolic',
+            'blood_pressure_systolic',
+            'blood_pressure_diastolic',
+            'heart_rate',
+            'spo2',
             'temperature_celsius',
             'known_diabetes',
         ]);

@@ -69,11 +69,13 @@ class RolePermissionSeeder extends Seeder
             'receipts.view', 'receipts.print',
         ],
         'MEDICINE' => [
+            'medical_record.view',
             'consultations.view', 'consultations.create', 'consultations.update',
             'consultations.delete', 'consultations.restore',
             'diagnoses.view', 'diagnoses.create', 'diagnoses.update',
             'prescriptions.view', 'prescriptions.create', 'prescriptions.update',
-            'prescriptions.cancel', 'patients.medical_history.view',
+            'medicines.view', 'stock.availability.view',
+            'prescriptions.cancel', 'medical_discharge.create', 'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
         ],
         // Shared baseline for every paramedical profile. Anesthesia belongs
@@ -104,7 +106,7 @@ class RolePermissionSeeder extends Seeder
         'PHARMACY' => [
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.return',
             'pharmacy.reports.view', 'pharmacy.reports.export',
-            'prescriptions.view', 'medicines.view',
+            'prescriptions.view', 'medicines.view', 'stock.availability.view',
             'stock.view', 'stock.entry', 'stock.exit', 'stock.adjust',
             'stock.inventory', 'stock.validate', 'stock.transfer',
             'stock.approve', 'stock.import', 'stock.export',

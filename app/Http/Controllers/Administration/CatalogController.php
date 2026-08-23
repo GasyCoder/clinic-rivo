@@ -6,20 +6,24 @@ use App\Actions\Catalog\ArchiveCatalogItemAction;
 use App\Actions\Catalog\ArchiveCatalogTariffAction;
 use App\Actions\Catalog\CreateCatalogItemAction;
 use App\Actions\Catalog\RestoreCatalogItemAction;
+use App\Actions\Catalog\ReviewUnlistedPrescriptionLineAction;
 use App\Actions\Catalog\SetCatalogTariffAction;
 use App\Actions\Catalog\UpdateCatalogItemAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
+use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\ReceptionRoutingMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveCatalogTariffRequest;
 use App\Http\Requests\Administration\CatalogReasonRequest;
+use App\Http\Requests\Administration\ReviewUnlistedPrescriptionLineRequest;
 use App\Http\Requests\Administration\SetCatalogTariffRequest;
 use App\Http\Requests\Administration\StoreCatalogItemRequest;
 use App\Http\Requests\Administration\UpdateCatalogItemRequest;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
+use App\Models\PrescriptionLine;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -61,6 +65,7 @@ class CatalogController extends Controller
 
         return Inertia::render('Administration/Catalog/Index', [
             'items' => $items,
+            'pendingMedicines' => $this->pendingUnlistedMedicines(),
             'filters' => [
                 'q' => $search,
                 'type' => $type?->value ?? '',
@@ -163,6 +168,46 @@ class CatalogController extends Controller
         $action->execute($item, $request->user());
 
         return back()->with('status', "Élément {$item->code} restauré.");
+    }
+
+    public function reviewUnlistedMedicine(
+        ReviewUnlistedPrescriptionLineRequest $request,
+        PrescriptionLine $prescriptionLine,
+        ReviewUnlistedPrescriptionLineAction $action,
+    ): RedirectResponse {
+        $action->execute($prescriptionLine, $request->validated('note'), $request->user());
+
+        return back()->with('status', "Demande « {$prescriptionLine->medication_name} » traitée.");
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function pendingUnlistedMedicines(): array
+    {
+        return PrescriptionLine::query()
+            ->where('is_manual_entry', true)
+            ->where('catalog_review_status', PrescriptionLineReviewStatus::Pending->value)
+            ->with([
+                'prescription.prescribedBy:id,name',
+                'prescription.consultation.episode:id,episode_number,patient_id',
+                'prescription.consultation.episode.patient:id,patient_number',
+            ])
+            ->latest('created_at')
+            ->get()
+            ->map(fn (PrescriptionLine $line) => [
+                'id' => $line->getKey(),
+                'medication_name' => $line->medication_name,
+                'quantity' => $line->quantity,
+                'dosage' => $line->dosage,
+                'frequency' => $line->frequency,
+                'duration' => $line->duration,
+                'instructions' => $line->instructions,
+                'prescribed_at' => $line->prescription->prescribed_at ?? $line->created_at,
+                'prescribed_by' => $line->prescription->prescribedBy?->name,
+                'episode_number' => $line->prescription->consultation?->episode?->episode_number,
+                'patient_number' => $line->prescription->consultation?->episode?->patient?->patient_number,
+            ])
+            ->values()
+            ->all();
     }
 
     /** @return array<string, mixed> */

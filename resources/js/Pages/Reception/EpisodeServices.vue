@@ -10,6 +10,7 @@ import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
+import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
@@ -119,32 +120,38 @@ const submit = () => {
     <Head :title="`Passage ${episode.episode_number}`" />
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-4">
-        <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex min-w-0 items-center gap-3">
-                <Avatar rounded size="md" variant="slate-pale" :text="formatPatientInitials(episode.patient)" />
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Passage {{ episode.episode_number }}</h1>
-                        <span v-if="episode.priority === 'EMERGENCY'" class="rounded border border-red-200 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-red-600 dark:border-red-900">Urgence</span>
+        <Card class="overflow-hidden shadow-sm">
+            <div class="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex min-w-0 items-center gap-4">
+                    <Avatar rounded size="md" variant="slate-pale" :text="formatPatientInitials(episode.patient)" />
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h1 class="truncate font-heading text-2xl font-bold text-slate-700 dark:text-white">{{ formatPatientName(episode.patient) }}</h1>
+                            <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-bold text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500" />Urgence</span>
+                            <span v-else class="inline-flex items-center gap-1 rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000"><span class="h-1.5 w-1.5 rounded-full bg-slate-300" />Normal</span>
+                        </div>
+                        <div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                            <span>PASSAGE <strong class="font-mono text-slate-600 dark:text-slate-300">{{ episode.episode_number }}</strong></span>
+                            <span>PATIENT <strong class="font-mono text-slate-600 dark:text-slate-300">{{ episode.patient.patient_number }}</strong></span>
+                        </div>
                     </div>
-                    <p class="mt-1 truncate text-sm text-slate-500">{{ formatPatientName(episode.patient) }} · {{ episode.patient.patient_number }}</p>
+                </div>
+                <div class="flex shrink-0 flex-wrap gap-2">
+                    <Button :as="Link" href="/reception/patients" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="arrow-left" />Retour aux passages</Button>
                 </div>
             </div>
-            <Button :as="Link" href="/reception/patients" size="rg" variant="white-outline"><Icon class="me-2" name="arrow-left" />Retour aux passages</Button>
-        </header>
+
+            <div class="grid border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30 sm:grid-cols-3">
+                <div class="border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-b-0 sm:border-e"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Arrivée</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ formatDateTime(episode.started_at) }}</p></div>
+                <div class="border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-b-0 sm:border-e"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Type patient</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ patientTypeLabels[episode.patient.patient_type] }}</p></div>
+                <div class="px-5 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Barème tarifaire</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ pricingContext.label }}<span v-if="pricingContext.organization_name" class="font-normal text-slate-400"> · {{ pricingContext.organization_name }}</span></p></div>
+            </div>
+        </Card>
 
         <Card class="overflow-visible shadow-sm">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900">
-                <div class="flex items-center gap-3">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-lg" name="activity" /></span>
-                    <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Prestations et parcours clinique</h2><p class="mt-0.5 text-xs text-slate-400">Sélectionnez le besoin connu ; le système calcule sa destination.</p></div>
-                </div>
-                <div class="flex flex-wrap items-center gap-2 text-xs">
-                    <span class="rounded border border-gray-200 px-2.5 py-1 font-semibold text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ patientTypeLabels[episode.patient.patient_type] }}</span>
-                    <span class="rounded border border-gray-200 px-2.5 py-1 font-semibold text-slate-600 dark:border-gray-800 dark:text-slate-300">
-                        {{ pricingContext.label }}<template v-if="pricingContext.organization_name"> · {{ pricingContext.organization_name }}</template>
-                    </span>
-                </div>
+            <div class="flex items-center gap-3 border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-lg" name="activity" /></span>
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Prestations et parcours clinique</h2><p class="mt-0.5 text-xs text-slate-400">Sélectionnez le besoin connu ; le système calcule sa destination.</p></div>
             </div>
 
             <div v-if="mutualCoverageMissing || pricingContext.missing_tariffs_count" class="border-b border-gray-200 bg-amber-50/60 px-5 py-2.5 text-xs leading-5 text-amber-800 dark:border-gray-900 dark:bg-amber-950/15 dark:text-amber-300">

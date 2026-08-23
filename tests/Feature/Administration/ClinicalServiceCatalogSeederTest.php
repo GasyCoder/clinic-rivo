@@ -62,6 +62,10 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             'reception_routing_mode' => ReceptionRoutingMode::CareThenMedicine->value,
         ]);
         $this->assertDatabaseHas('catalog_items', [
+            'code' => 'CONSULT-SPEC',
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect->value,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
             'code' => 'INJECTION-IM',
             'reception_routing_mode' => ReceptionRoutingMode::CareOnly->value,
             'care_requires_allergy_check' => true,
@@ -127,6 +131,27 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertDatabaseCount('catalog_items', 30);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame('27500.00', $ecg->fresh()->currentTariff->amount);
+    }
+
+    public function test_it_corrects_only_the_previous_specialist_consultation_route(): void
+    {
+        $actor = $this->catalogManager();
+        config(['rivo.seeders.catalog_actor' => $actor->email]);
+
+        $this->seed(ClinicalServiceCatalogSeeder::class);
+
+        $specialistConsultation = CatalogItem::query()->where('code', 'CONSULT-SPEC')->firstOrFail();
+        $specialistConsultation->forceFill([
+            'reception_routing_mode' => ReceptionRoutingMode::CareThenMedicine,
+        ])->save();
+
+        $this->seed(ClinicalServiceCatalogSeeder::class);
+
+        $this->assertSame(
+            ReceptionRoutingMode::MedicineDirect,
+            $specialistConsultation->fresh()->reception_routing_mode,
+        );
+        $this->assertSame($actor->id, $specialistConsultation->fresh()->updated_by);
     }
 
     public function test_an_explicit_provisioning_actor_gets_no_catalog_permission(): void

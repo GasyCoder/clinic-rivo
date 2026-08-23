@@ -13,6 +13,7 @@ use App\Enums\BillableItemStatus;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\BillableItem;
 use App\Models\CatalogItem;
@@ -243,7 +244,7 @@ class BillableItemFlowTest extends TestCase
     public function test_payment_state_does_not_overwrite_medical_or_administrative_state(): void
     {
         [$actor, $patient, $episode] = $this->context();
-        $episode->update(['medical_status' => 'IN_CONSULTATION']);
+        $episode->update(['medical_status' => EpisodeMedicalStatus::InCare]);
         $item = $this->item($episode, $actor, 'MEDICINE', 'Consultation');
         $invoice = $this->app->make(CreateInvoiceAction::class)->execute($patient, [
             'episode_uuid' => $episode->uuid,
@@ -261,7 +262,7 @@ class BillableItemFlowTest extends TestCase
         ], $actor);
 
         $episode->refresh();
-        $this->assertSame('IN_CONSULTATION', $episode->medical_status);
+        $this->assertSame(EpisodeMedicalStatus::InCare, $episode->medical_status);
         $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
         $this->assertNull($episode->financial_status);
         $this->assertSame(InvoiceStatus::Paid, $invoice->fresh()->status);

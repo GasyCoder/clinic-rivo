@@ -107,7 +107,7 @@ class DevelopmentUserSeeder extends Seeder
                 ] : [];
 
                 $user->forceFill([
-                    'name' => "{$definition['name']} — {$siteName}",
+                    'name' => "{$definition['name']} ({$siteName})",
                     'email' => $email,
                     'email_verified_at' => now(),
                     'password' => $password,

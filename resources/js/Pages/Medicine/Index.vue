@@ -8,7 +8,7 @@ import Card from '@/Components/UI/Card.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatDateTime, formatRelativeTime } from '@/utilities/date';
+import { formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
@@ -34,9 +34,10 @@ const designationSummary = (orientation) => {
 };
 
 const tabs = [
-    { value: 'all', label: 'Tous' },
-    { value: 'waiting', label: 'En attente' },
-    { value: 'in_progress', label: 'En consultation' },
+    { value: 'all', label: 'Tous', icon: 'list' },
+    { value: 'waiting', label: 'En attente', icon: 'clock' },
+    { value: 'in_progress', label: 'En consultation', icon: 'activity' },
+    { value: 'emergency', label: 'Urgences', icon: 'alert-circle' },
 ];
 </script>
 
@@ -49,7 +50,7 @@ const tabs = [
                 <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-2xl" name="activity" /></span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Médecine</h1>
-                    <p class="mt-1 text-sm text-slate-400">Patients orientés par les Soins et admissions urgentes.</p>
+                    <p class="mt-1 text-sm text-slate-400">Patients adressés par leur parcours clinique ou admis en urgence.</p>
                 </div>
             </div>
             <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="users" /><span class="ms-2">Dossiers patients</span></Button>
@@ -57,9 +58,11 @@ const tabs = [
 
         <Card class="overflow-hidden shadow-sm">
             <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">
-                <div class="inline-flex w-fit rounded border border-gray-200 bg-gray-50 p-1 dark:border-gray-900 dark:bg-gray-1000">
-                    <button v-for="tab in tabs" :key="tab.value" type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', filter === tab.value ? 'bg-white text-slate-700 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600']" @click="selectFilter(tab.value)">
-                        {{ tab.label }} <span class="ms-1 text-xs text-slate-400">{{ counts[tab.value] }}</span>
+                <div class="flex w-full overflow-x-auto rounded border border-gray-200 bg-gray-50 p-1 dark:border-gray-900 dark:bg-gray-1000 lg:w-fit">
+                    <button v-for="tab in tabs" :key="tab.value" type="button" :class="['inline-flex shrink-0 items-center gap-2 rounded px-3 py-1.5 text-sm font-semibold transition-colors', filter === tab.value ? 'bg-white text-slate-700 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600', tab.value === 'emergency' && filter === tab.value ? 'text-red-700 dark:text-red-300' : '']" @click="selectFilter(tab.value)">
+                        <Icon class="text-base" :name="tab.icon" />
+                        <span>{{ tab.label }}</span>
+                        <span class="min-w-5 rounded bg-gray-100 px-1.5 py-0.5 text-center text-[10px] font-bold text-slate-500 dark:bg-gray-800 dark:text-slate-300">{{ counts[tab.value] }}</span>
                     </button>
                 </div>
                 <div class="relative w-full lg:max-w-sm">
@@ -89,7 +92,7 @@ const tabs = [
                                     <div class="min-w-0">
                                         <Link v-if="can('patients.view')" :href="`/patients/${orientation.episode.patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(orientation.episode.patient) }}</Link>
                                         <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(orientation.episode.patient) }}</span>
-                                        <span class="text-xs text-slate-400">{{ orientation.episode.patient.patient_number }}</span>
+                                        <span class="inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ orientation.episode.patient.patient_number }}</span>
                                     </div>
                                 </div>
                             </td>
@@ -102,10 +105,11 @@ const tabs = [
                             <td class="px-5 py-3"><span class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300"><span :class="['h-1.5 w-1.5 rounded-full', orientation.status === 'IN_PROGRESS' ? 'bg-primary-500' : 'bg-amber-500']" />{{ orientation.status === 'IN_PROGRESS' ? 'En consultation' : 'En attente' }}</span><span v-if="orientation.accepted_by" class="mt-1 block text-xs text-slate-400">par {{ orientation.accepted_by }}</span></td>
                             <td class="px-5 py-3 text-end">
                                 <Link v-if="orientation.status === 'PENDING' && can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button size="sm">Prendre en charge</Button></Link>
-                                <Button v-else-if="can('patients.view')" :as="Link" :href="`/patients/${orientation.episode.patient.uuid}`" size="sm" variant="white-outline">Ouvrir le dossier</Button>
+                                <Button v-else-if="orientation.has_consultation" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/dossier`" size="sm" variant="white-outline"><Icon class="me-1.5 text-base" name="eye" />Ouvrir le dossier</Button>
+                                <Link v-else-if="can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button size="sm" variant="white-outline"><Icon class="me-1.5 text-base" name="eye" />Ouvrir le dossier</Button></Link>
                             </td>
                         </tr>
-                        <tr v-if="orientations.data.length === 0"><td colspan="6" class="px-5 py-12 text-center"><Icon class="text-2xl text-slate-300" name="activity" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p><p class="mt-1 text-xs text-slate-400">Les patients normaux apparaissent après l’orientation des Soins.</p></td></tr>
+                        <tr v-if="orientations.data.length === 0"><td colspan="6" class="px-5 py-12 text-center"><Icon class="text-2xl text-slate-300" name="activity" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p><p class="mt-1 text-xs text-slate-400">Les patients apparaissent ici selon la désignation, la transmission des Soins ou l’urgence.</p></td></tr>
                     </tbody>
                 </table>
             </div>

@@ -81,9 +81,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 2 — Médecine / Soins
 
 - [ ] Dossier médical
-- [ ] Consultation
-- [ ] Diagnostic
-- [ ] Prescription
+- [x] Consultation par orientation Médecine
+- [x] Diagnostic historisé par consultation
+- [x] Prescription médicale et annulation contrôlée
+- [x] Impression de l'ordonnance active avec numéro patient et numéro de passage
 - [ ] Constantes
 - [ ] Soins
 - [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
@@ -93,7 +94,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Demande chirurgie
 - [ ] Hospitalisation
 - [ ] Transfert médical
-- [ ] Sortie médicale
+- [x] Sortie médicale découplée de la sortie administrative
 
 ---
 
@@ -125,18 +126,19 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 
 # Phase 4 — Pharmacie / Stocks
 
-- [ ] Médicaments
+- [x] Fondation médicaments spécialisés liés au référentiel
 - [ ] Produits
-- [ ] DCI
-- [ ] Dosages
-- [ ] Lots
-- [ ] Péremptions
-- [ ] Stocks
+- [x] DCI et formes pharmaceutiques
+- [x] Dosages
+- [x] Fondation lots locaux
+- [x] Exclusion des lots périmés de la disponibilité
+- [x] Disponibilité physique moins réservations actives
 - [ ] Entrées
 - [ ] Sorties
 - [ ] Inventaires
 - [ ] Ajustements
-- [ ] Prescription reçue
+- [x] Prescription Médecine reliée au médicament et réservation FEFO
+- [x] Ligne d'ordonnance manuelle hors référentiel, sans stock ni prix, en attente de validation
 - [ ] Préparation délivrance
 - [ ] Vérification statut financier si nécessaire
 - [ ] Délivrance

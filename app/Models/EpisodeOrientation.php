@@ -10,6 +10,7 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Persistent, audited hand-off between two operational services.
@@ -59,6 +60,11 @@ class EpisodeOrientation extends Model
     public function completedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'completed_by');
+    }
+
+    public function consultation(): HasOne
+    {
+        return $this->hasOne(Consultation::class, 'episode_orientation_id');
     }
 
     public function accept(User $actor): void

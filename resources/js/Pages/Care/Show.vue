@@ -7,7 +7,6 @@ import Button from '@/Components/UI/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
-import Radio from '@/Components/UI/Radio.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
@@ -17,6 +16,10 @@ const props = defineProps({
     orientation: Object,
     careRecord: Object,
     bmiReference: Object,
+    bloodPressureReference: Object,
+    heartRateReference: Object,
+    oxygenSaturationReference: Object,
+    temperatureReference: Object,
     patientAllergies: Array,
     allergenReference: Array,
     procedureCatalog: Array,
@@ -56,10 +59,10 @@ const initialRequestedProcedures = (props.orientation.episode.designations ?? []
 
 const form = useForm({
     blood_group: props.careRecord?.blood_group ?? '',
-    blood_pressure_left_systolic: props.careRecord?.blood_pressure_left_systolic ?? '',
-    blood_pressure_left_diastolic: props.careRecord?.blood_pressure_left_diastolic ?? '',
-    blood_pressure_right_systolic: props.careRecord?.blood_pressure_right_systolic ?? '',
-    blood_pressure_right_diastolic: props.careRecord?.blood_pressure_right_diastolic ?? '',
+    blood_pressure_systolic: props.careRecord?.blood_pressure_systolic ?? '',
+    blood_pressure_diastolic: props.careRecord?.blood_pressure_diastolic ?? '',
+    heart_rate: props.careRecord?.heart_rate ?? '',
+    spo2: props.careRecord?.spo2 ?? '',
     temperature_celsius: props.careRecord?.temperature_celsius ?? '',
     known_diabetes: props.careRecord?.known_diabetes === true ? '1' : props.careRecord?.known_diabetes === false ? '0' : '',
     height_cm: props.careRecord?.height_cm ?? '',
@@ -78,10 +81,10 @@ const form = useForm({
 const formEl = ref(null);
 const hasRecordedClinicalDetails = Boolean(
     props.careRecord?.blood_group
-    || props.careRecord?.blood_pressure_left_systolic
-    || props.careRecord?.blood_pressure_left_diastolic
-    || props.careRecord?.blood_pressure_right_systolic
-    || props.careRecord?.blood_pressure_right_diastolic
+    || props.careRecord?.blood_pressure_systolic
+    || props.careRecord?.blood_pressure_diastolic
+    || props.careRecord?.heart_rate
+    || (props.careRecord?.spo2 !== null && props.careRecord?.spo2 !== undefined)
     || props.careRecord?.temperature_celsius
     || props.careRecord?.known_diabetes !== null && props.careRecord?.known_diabetes !== undefined
     || props.careRecord?.height_cm
@@ -95,6 +98,23 @@ const historicalSnapshotAllergies = computed(() => (props.careRecord?.allergy_sn
     (allergy) => !allergy.uuid || !activePatientAllergyUuids.value.has(allergy.uuid),
 ));
 const noProcedureSelected = ref(Boolean(props.careRecord?.no_procedure_reason));
+const yesNoOptions = [
+    { value: '', label: 'N/R', title: 'Non renseigné' },
+    { value: '0', label: 'Non', title: 'Non' },
+    { value: '1', label: 'Oui', title: 'Oui' },
+];
+const routingLabels = {
+    MEDICINE_DIRECT: 'Médecine directe',
+    CARE_THEN_MEDICINE: 'Soins → Médecine',
+    CARE_ONLY: 'Soins uniquement',
+};
+const routingLabel = (mode) => routingLabels[mode] ?? 'Parcours à préciser';
+const requestedCareProcedureUuids = computed(() => new Set(
+    episode.value.designations
+        .filter((designation) => designation.module === 'CARE')
+        .map((designation) => designation.catalog_item_uuid),
+));
+const requestedAtReception = (uuid) => requestedCareProcedureUuids.value.has(uuid);
 
 const severityLabels = { MILD: 'Légère', MODERATE: 'Modérée', SEVERE: 'Sévère' };
 const showNewAllergy = ref(false);
@@ -243,13 +263,125 @@ const bmiBadgeClasses = computed(() => ({
 
 const bmiAlertIcon = computed(() => bmiAssessment.value?.tone === 'success' ? 'check-circle' : 'alert-circle');
 
-const filteredProcedures = computed(() => {
-    const query = procedureSearch.value.trim().toLocaleLowerCase('fr');
-    if (!query) return props.procedureCatalog;
-    return props.procedureCatalog.filter((item) => `${item.name} ${item.code}`.toLocaleLowerCase('fr').includes(query));
+const numericVitalValue = (value) => {
+    if (value === '' || value === null || value === undefined) return null;
+
+    const normalized = typeof value === 'string' ? value.trim().replace(',', '.') : value;
+    const numeric = Number(normalized);
+
+    return Number.isFinite(numeric) ? numeric : null;
+};
+
+const bloodPressureAssessment = computed(() => {
+    const systolic = numericVitalValue(form.blood_pressure_systolic);
+    const diastolic = numericVitalValue(form.blood_pressure_diastolic);
+    const reference = props.bloodPressureReference;
+
+    if (!reference || systolic === null || diastolic === null) return null;
+
+    if (systolic < 40 || diastolic < 20) {
+        return {
+            code: 'MMHG_FORMAT',
+            label: 'Format mmHg',
+            tone: 'danger',
+            message: 'Saisissez la valeur complète en mmHg : 170/120 et non 17/12.',
+            compact: 'Saisir 170/120, pas 17/12',
+        };
+    }
+
+    if (systolic > 300 || diastolic > 200 || systolic <= diastolic) {
+        return {
+            code: 'INCONSISTENT',
+            label: 'TA incohérente',
+            tone: 'danger',
+            message: 'Vérifiez les valeurs SYS et DIA avant l’enregistrement.',
+            compact: 'Vérifier SYS / DIA',
+        };
+    }
+
+    if (systolic > reference.severe_systolic_above || diastolic > reference.severe_diastolic_above) {
+        return reference.severe;
+    }
+
+    if (systolic < reference.low_systolic_below || diastolic < reference.low_diastolic_below) {
+        return reference.low;
+    }
+
+    if (systolic >= reference.stage_two_systolic_from || diastolic >= reference.stage_two_diastolic_from) {
+        return reference.stage_two;
+    }
+
+    if (systolic >= reference.stage_one_systolic_from || diastolic >= reference.stage_one_diastolic_from) {
+        return reference.stage_one;
+    }
+
+    return null;
 });
 
-const selectedProcedure = (uuid) => form.procedures.find((item) => item.catalog_item_uuid === uuid);
+const heartRateAssessment = computed(() => {
+    const value = numericVitalValue(form.heart_rate);
+    const reference = props.heartRateReference;
+
+    if (!reference || value === null || value <= 0 || value >= reference.low_threshold) return null;
+    if (reference.patient_age === null || reference.patient_age === undefined) {
+        return value < reference.marked_low_threshold
+            ? reference.age_unknown_marked_low
+            : reference.age_unknown_low;
+    }
+    if (reference.patient_age < reference.adult_min_age) return reference.pediatric_low;
+
+    return value < reference.marked_low_threshold
+        ? reference.adult_marked_low
+        : reference.adult_low;
+});
+
+const oxygenSaturationAssessment = computed(() => {
+    const value = numericVitalValue(form.spo2);
+    const reference = props.oxygenSaturationReference;
+
+    if (!reference || value === null || value < 0 || value > 100 || value >= reference.usual_minimum) return null;
+
+    return value <= reference.danger_maximum ? reference.danger : reference.warning;
+});
+
+const temperatureAssessment = computed(() => {
+    const value = numericVitalValue(form.temperature_celsius);
+    const reference = props.temperatureReference;
+
+    if (!reference || value === null || value < 25 || value > 45) return null;
+    if (value < reference.low_danger_below) return reference.very_low;
+    if (value < reference.low_warning_below) return reference.low;
+    if (value >= reference.high_danger_from) return reference.very_high;
+    if (value >= reference.fever_from) return reference.fever;
+
+    return null;
+});
+
+const vitalInputClasses = (assessment) => assessment?.tone === 'danger'
+    ? '!border-red-400 !bg-red-50/30 focus:!border-red-500 focus:!ring-red-100 dark:!border-red-800 dark:!bg-red-950/10 dark:focus:!ring-red-950'
+    : assessment
+        ? '!border-amber-400 !bg-amber-50/30 focus:!border-amber-500 focus:!ring-amber-100 dark:!border-amber-800 dark:!bg-amber-950/10 dark:focus:!ring-amber-950'
+        : '';
+
+const vitalGroupClasses = (assessment) => assessment?.tone === 'danger'
+    ? '!border-red-400 !bg-red-50/30 focus-within:!border-red-500 focus-within:!ring-red-100 dark:!border-red-800 dark:!bg-red-950/10 dark:focus-within:!ring-red-950'
+    : assessment
+        ? '!border-amber-400 !bg-amber-50/30 focus-within:!border-amber-500 focus-within:!ring-amber-100 dark:!border-amber-800 dark:!bg-amber-950/10 dark:focus-within:!ring-amber-950'
+        : '';
+
+const compactVitalAlertClasses = (assessment) => assessment?.tone === 'danger'
+    ? 'text-red-600 dark:text-red-300'
+    : 'text-amber-700 dark:text-amber-300';
+
+const filteredProcedures = computed(() => {
+    const query = procedureSearch.value.trim().toLocaleLowerCase('fr');
+    const selectedUuids = new Set(form.procedures.map((procedure) => procedure.catalog_item_uuid));
+
+    return props.procedureCatalog
+        .filter((item) => !selectedUuids.has(item.uuid))
+        .filter((item) => !query || `${item.name} ${item.code}`.toLocaleLowerCase('fr').includes(query));
+});
+
 const requiredAllergyProcedures = computed(() => form.procedures.filter(
     (procedure) => procedure.care_requires_allergy_check,
 ));
@@ -309,11 +441,13 @@ const buildPayload = (data, orientToMedicine = undefined) => {
     const payload = {
             ...data,
             blood_group: data.blood_group || null,
-            blood_pressure_left_systolic: data.blood_pressure_left_systolic || null,
-            blood_pressure_left_diastolic: data.blood_pressure_left_diastolic || null,
-            blood_pressure_right_systolic: data.blood_pressure_right_systolic || null,
-            blood_pressure_right_diastolic: data.blood_pressure_right_diastolic || null,
-            temperature_celsius: data.temperature_celsius || null,
+            blood_pressure_systolic: data.blood_pressure_systolic || null,
+            blood_pressure_diastolic: data.blood_pressure_diastolic || null,
+            heart_rate: data.heart_rate || null,
+            spo2: data.spo2 || null,
+            temperature_celsius: typeof data.temperature_celsius === 'string'
+                ? (data.temperature_celsius.trim().replace(',', '.') || null)
+                : (data.temperature_celsius || null),
             known_diabetes: data.known_diabetes === '' ? null : data.known_diabetes === '1',
             height_cm: data.height_cm || null,
             weight_kg: data.weight_kg || null,
@@ -329,10 +463,10 @@ const buildPayload = (data, orientToMedicine = undefined) => {
 
     if (!props.capabilities.can_edit_vitals) {
         delete payload.blood_group;
-        delete payload.blood_pressure_left_systolic;
-        delete payload.blood_pressure_left_diastolic;
-        delete payload.blood_pressure_right_systolic;
-        delete payload.blood_pressure_right_diastolic;
+        delete payload.blood_pressure_systolic;
+        delete payload.blood_pressure_diastolic;
+        delete payload.heart_rate;
+        delete payload.spo2;
         delete payload.temperature_celsius;
         delete payload.known_diabetes;
         delete payload.height_cm;
@@ -417,8 +551,8 @@ const submitAndComplete = (orientToMedicine = false) => {
             <div class="border-t border-gray-200 bg-gray-50/40 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/20">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Besoins du passage</h2>
-                        <p class="mt-1 text-xs text-slate-400">Demande connue au moment de l’arrivée.</p>
+                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Prestations demandées à l’accueil</h2>
+                        <p class="mt-1 text-xs text-slate-400">Elles déterminent le parcours et la facturation, mais ne signifient pas que l’acte a déjà été réalisé.</p>
                     </div>
                     <span class="text-xs text-slate-400">Pris en charge {{ orientation.accepted_at ? formatDateTime(orientation.accepted_at) : '—' }}<span v-if="orientation.accepted_by"> par {{ orientation.accepted_by }}</span></span>
                 </div>
@@ -433,7 +567,10 @@ const submitAndComplete = (orientToMedicine = false) => {
                 <ul v-else class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                     <li v-for="(designation, index) in episode.designations" :key="designation.uuid" class="flex min-w-0 items-start gap-3 rounded-md border border-gray-200 bg-white px-3.5 py-3 dark:border-gray-800 dark:bg-gray-950">
                         <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ index + 1 }}</span>
-                        <span class="min-w-0"><strong class="block text-sm font-semibold text-slate-700 dark:text-white">{{ designation.description }}</strong><span v-if="designation.code || Number(designation.quantity) > 1" class="mt-1 flex flex-wrap gap-x-2 text-[11px] text-slate-400"><span v-if="designation.code" class="font-mono">{{ designation.code }}</span><span v-if="Number(designation.quantity) > 1">Quantité : {{ designation.quantity }}</span></span></span>
+                        <span class="min-w-0 flex-1">
+                            <span class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"><strong class="text-sm font-semibold text-slate-700 dark:text-white">{{ designation.description }}</strong><span class="inline-flex shrink-0 items-center rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ routingLabel(designation.routing_mode) }}</span></span>
+                            <span v-if="designation.code || Number(designation.quantity) > 1" class="mt-1 flex flex-wrap gap-x-2 text-[11px] text-slate-400"><span v-if="designation.code" class="font-mono">{{ designation.code }}</span><span v-if="Number(designation.quantity) > 1">Quantité : {{ designation.quantity }}</span></span>
+                        </span>
                     </li>
                 </ul>
             </div>
@@ -449,10 +586,20 @@ const submitAndComplete = (orientToMedicine = false) => {
         <form ref="formEl" class="space-y-5" novalidate @submit.prevent="submit">
             <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
                 <div class="space-y-5">
-                    <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+                    <section class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm shadow-slate-200/20 dark:border-gray-900 dark:bg-gray-950 dark:shadow-none">
                         <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                            <div><div class="flex flex-wrap items-center gap-2"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Constantes et observations</h2><span v-if="!episode.care_vitals_recommended" class="rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-gray-900 dark:text-slate-300">Facultatif</span><span v-else class="rounded border border-primary-200 bg-primary-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary-700 dark:border-primary-900 dark:bg-primary-950/40 dark:text-primary-300">Recommandé pour ce parcours</span></div><p class="mt-1 text-xs text-slate-400">Ouvrez cette partie uniquement si des données cliniques ont réellement été relevées.</p></div>
-                            <button v-if="capabilities.can_view_vitals || capabilities.can_view_allergies" type="button" class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded border border-gray-200 px-3 text-xs font-semibold text-slate-600 hover:border-gray-300 dark:border-gray-800 dark:text-slate-300" @click="showClinicalDetails = !showClinicalDetails"><Icon :name="showClinicalDetails ? 'chevron-up' : 'chevron-down'" />{{ showClinicalDetails ? 'Masquer' : 'Ajouter des données' }}</button>
+                            <div class="flex min-w-0 items-start gap-3">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="activity" /></span>
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Constantes et observations</h2>
+                                        <span v-if="!episode.care_vitals_recommended" class="rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-gray-900 dark:text-slate-300">Facultatif</span>
+                                        <span v-else class="inline-flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />Recommandé</span>
+                                    </div>
+                                    <p class="mt-1 text-xs text-slate-400">Renseignez uniquement les données réellement relevées pendant ce passage.</p>
+                                </div>
+                            </div>
+                            <button v-if="capabilities.can_view_vitals || capabilities.can_view_allergies" type="button" class="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded border border-gray-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:bg-gray-900" :aria-expanded="showClinicalDetails" @click="showClinicalDetails = !showClinicalDetails"><Icon :name="showClinicalDetails ? 'chevron-up' : 'chevron-down'" />{{ showClinicalDetails ? 'Réduire' : 'Renseigner' }}</button>
                         </div>
                         <div v-if="requiresAllergySafetyCheck" class="border-b border-amber-200 bg-amber-50/60 px-5 py-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -462,55 +609,87 @@ const submitAndComplete = (orientToMedicine = false) => {
                             </div>
                             <FormError class="mt-2" :message="allergySafetyError" />
                         </div>
-                        <div v-if="showClinicalDetails && (capabilities.can_view_vitals || capabilities.can_view_allergies)" class="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-                            <template v-if="capabilities.can_view_vitals">
-                                <div>
-                                    <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Tension bras gauche <span class="font-normal text-slate-400">(mmHg)</span></label>
-                                    <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                                        <Input id="blood_pressure_left_systolic" v-model="form.blood_pressure_left_systolic" type="number" min="40" max="300" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="SYS" aria-label="Pression systolique du bras gauche" />
-                                        <span class="text-sm text-slate-300">/</span>
-                                        <Input id="blood_pressure_left_diastolic" v-model="form.blood_pressure_left_diastolic" type="number" min="20" max="200" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="DIA" aria-label="Pression diastolique du bras gauche" />
-                                    </div>
-                                    <FormError class="mt-1" :message="form.errors.blood_pressure_left_systolic || form.errors.blood_pressure_left_diastolic" />
+                        <div v-if="showClinicalDetails && (capabilities.can_view_vitals || capabilities.can_view_allergies)" class="divide-y divide-gray-200 dark:divide-gray-900">
+                            <section v-if="capabilities.can_view_vitals" class="px-5 py-5">
+                                <div class="mb-4 flex items-start justify-between gap-4">
+                                    <div><h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Constantes vitales</h3><p class="mt-1 text-[11px] text-slate-400">Mesures ponctuelles relevées pendant la prise en charge.</p></div>
+                                    <span class="hidden text-[11px] text-slate-400 sm:block">Tous les champs sont facultatifs</span>
                                 </div>
-                                <div>
-                                    <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Tension bras droit <span class="font-normal text-slate-400">(mmHg)</span></label>
-                                    <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                                        <Input id="blood_pressure_right_systolic" v-model="form.blood_pressure_right_systolic" type="number" min="40" max="300" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="SYS" aria-label="Pression systolique du bras droit" />
-                                        <span class="text-sm text-slate-300">/</span>
-                                        <Input id="blood_pressure_right_diastolic" v-model="form.blood_pressure_right_diastolic" type="number" min="20" max="200" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="DIA" aria-label="Pression diastolique du bras droit" />
-                                    </div>
-                                    <FormError class="mt-1" :message="form.errors.blood_pressure_right_systolic || form.errors.blood_pressure_right_diastolic" />
-                                </div>
-                                <div><label for="temperature_celsius" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Température (°C)</label><Input id="temperature_celsius" v-model="form.temperature_celsius" type="number" min="25" max="45" step="0.1" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 37,2" /><FormError class="mt-1" :message="form.errors.temperature_celsius" /></div>
-                                <fieldset>
-                                    <legend class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Diabète connu</legend>
-                                    <div class="flex flex-wrap gap-2">
-                                        <Radio id="known_diabetes_unknown" v-model="form.known_diabetes" name="known_diabetes" value="" size="sm" :disabled="!capabilities.can_edit_vitals">Inconnu</Radio>
-                                        <Radio id="known_diabetes_no" v-model="form.known_diabetes" name="known_diabetes" value="0" size="sm" :disabled="!capabilities.can_edit_vitals">Non</Radio>
-                                        <Radio id="known_diabetes_yes" v-model="form.known_diabetes" name="known_diabetes" value="1" size="sm" :disabled="!capabilities.can_edit_vitals">Oui</Radio>
-                                    </div>
-                                    <FormError class="mt-1" :message="form.errors.known_diabetes" />
-                                </fieldset>
-                                <div><label for="blood_group" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Groupe sanguin</label><select id="blood_group" v-model="form.blood_group" :disabled="!capabilities.can_edit_vitals" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000"><option value="">Non renseigné</option><option v-for="group in ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']" :key="group" :value="group">{{ group }}</option></select><FormError class="mt-1" :message="form.errors.blood_group" /></div>
-                                <div><label for="height_cm" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Taille (cm)</label><Input id="height_cm" v-model="form.height_cm" type="number" min="20" max="250" step="0.01" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 165" /><FormError class="mt-1" :message="form.errors.height_cm" /></div>
-                                <div><label for="weight_kg" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Poids (kg)</label><Input id="weight_kg" v-model="form.weight_kg" type="number" min="0.1" max="500" step="0.01" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 62" /><FormError class="mt-1" :message="form.errors.weight_kg" /></div>
-                                <div><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">IMC</span><div class="flex h-9 items-center rounded border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-slate-600 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-200">{{ displayedBmi ?? '—' }}</div><p class="mt-1 text-[11px] text-slate-400">Calculé automatiquement.</p></div>
-                            </template>
-                            <div v-if="capabilities.can_view_vitals && bmiAssessment" :class="bmiAlertClasses" class="rounded-md border px-4 py-3 sm:col-span-2 lg:col-span-4" role="status" aria-live="polite">
-                                <div class="flex items-start gap-3">
-                                    <Icon :name="bmiAlertIcon" class="mt-0.5 shrink-0 text-lg" />
+                                <div class="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-[1.35fr_repeat(3,minmax(0,1fr))]">
                                     <div class="min-w-0">
-                                        <p class="flex flex-wrap items-center gap-2 text-sm font-bold"><span :class="bmiBadgeClasses" class="inline-flex rounded px-2 py-1 text-xs font-bold">{{ bmiAssessment.label }}</span><span class="font-normal opacity-75">IMC {{ displayedBmi }}</span></p>
-                                        <p class="mt-1 text-xs leading-5 opacity-90">{{ bmiAssessment.message }}</p>
-                                        <p class="mt-1 text-[11px] leading-4 opacity-65">{{ bmiReference.disclaimer }}</p>
+                                        <label for="blood_pressure_systolic" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Tension artérielle</label>
+                                        <div :class="['grid h-10 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center overflow-hidden rounded border border-gray-200 bg-white transition focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:focus-within:ring-primary-950', vitalGroupClasses(bloodPressureAssessment)]">
+                                            <input id="blood_pressure_systolic" v-model="form.blood_pressure_systolic" type="number" min="40" max="300" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="SYS" aria-label="Pression artérielle systolique" class="h-full min-w-0 appearance-none border-0 bg-transparent px-3 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:ring-0 disabled:bg-slate-50 dark:text-white dark:disabled:bg-slate-950 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                                            <span class="text-slate-300">/</span>
+                                            <input id="blood_pressure_diastolic" v-model="form.blood_pressure_diastolic" type="number" min="20" max="200" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="DIA" aria-label="Pression artérielle diastolique" class="h-full min-w-0 appearance-none border-0 bg-transparent px-3 text-sm text-slate-700 outline-none placeholder:text-slate-300 focus:ring-0 disabled:bg-slate-50 dark:text-white dark:disabled:bg-slate-950 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+                                            <span class="pe-3 text-[11px] font-medium text-slate-400">mmHg</span>
+                                        </div>
+                                        <FormError class="mt-1" :message="form.errors.blood_pressure_systolic || form.errors.blood_pressure_diastolic" />
+                                        <p v-if="bloodPressureAssessment" :class="['mt-1 flex items-center gap-1 text-[10px] font-semibold leading-4', compactVitalAlertClasses(bloodPressureAssessment)]" role="alert" aria-live="polite" :title="bloodPressureAssessment.message"><Icon name="alert-circle" class="shrink-0 text-xs" /><span>{{ bloodPressureAssessment.label }} · {{ bloodPressureAssessment.compact || 'Recontrôler' }}</span></p>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <label for="heart_rate" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Fréquence cardiaque</label>
+                                        <div class="relative"><Input id="heart_rate" v-model="form.heart_rate" :class="['!h-10 pe-14 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none', vitalInputClasses(heartRateAssessment)]" type="number" min="20" max="250" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 78" /><span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[11px] font-medium text-slate-400">bpm</span></div>
+                                        <FormError class="mt-1" :message="form.errors.heart_rate" />
+                                        <p v-if="heartRateAssessment" :class="['mt-1 flex items-center gap-1 text-[10px] font-semibold leading-4', compactVitalAlertClasses(heartRateAssessment)]" role="alert" aria-live="polite" :title="heartRateAssessment.message"><Icon name="alert-circle" class="shrink-0 text-xs" /><span>{{ heartRateAssessment.label }} · Recontrôler</span></p>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <label for="spo2" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Saturation en oxygène</label>
+                                        <div class="relative"><Input id="spo2" v-model="form.spo2" :class="['!h-10 pe-10 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none', vitalInputClasses(oxygenSaturationAssessment)]" type="number" min="0" max="100" step="1" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 98" /><span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[11px] font-medium text-slate-400">%</span></div>
+                                        <FormError class="mt-1" :message="form.errors.spo2" />
+                                        <p v-if="oxygenSaturationAssessment" :class="['mt-1 flex items-center gap-1 text-[10px] font-semibold leading-4', compactVitalAlertClasses(oxygenSaturationAssessment)]" role="alert" aria-live="polite" :title="oxygenSaturationAssessment.message"><Icon name="alert-circle" class="shrink-0 text-xs" /><span>{{ oxygenSaturationAssessment.label }} · Recontrôler</span></p>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <label for="temperature_celsius" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Température</label>
+                                        <div class="relative"><Input id="temperature_celsius" v-model="form.temperature_celsius" :class="['!h-10 pe-10', vitalInputClasses(temperatureAssessment)]" type="text" inputmode="decimal" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 37,2" /><span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[11px] font-medium text-slate-400">°C</span></div>
+                                        <FormError class="mt-1" :message="form.errors.temperature_celsius" />
+                                        <p v-if="temperatureAssessment" :class="['mt-1 flex items-center gap-1 text-[10px] font-semibold leading-4', compactVitalAlertClasses(temperatureAssessment)]" role="alert" aria-live="polite" :title="temperatureAssessment.message"><Icon name="alert-circle" class="shrink-0 text-xs" /><span>{{ temperatureAssessment.label }} · Recontrôler</span></p>
                                     </div>
                                 </div>
-                            </div>
-                            <div v-if="capabilities.can_view_allergies" class="space-y-3 sm:col-span-2 lg:col-span-3">
+                            </section>
+
+                            <section v-if="capabilities.can_view_vitals" class="px-5 py-5">
+                                <div class="mb-4"><h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Profil clinique</h3><p class="mt-1 text-[11px] text-slate-400">Informations utiles à l’évaluation et à la sécurité du soin.</p></div>
+                                <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                    <fieldset class="min-w-0">
+                                        <legend class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Diabète connu</legend>
+                                        <div class="grid h-10 grid-cols-3 gap-1 rounded border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-1000/60">
+                                            <label v-for="option in yesNoOptions" :key="`diabetes-${option.value}`" :title="option.title" :class="['flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors', form.known_diabetes === option.value ? 'bg-white text-slate-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:text-white dark:ring-gray-700' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200', !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.known_diabetes" class="sr-only" type="radio" name="known_diabetes" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
+                                        </div>
+                                        <FormError class="mt-1" :message="form.errors.known_diabetes" />
+                                    </fieldset>
+                                    <fieldset class="min-w-0">
+                                        <legend class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Tabac</legend>
+                                        <div class="grid h-10 grid-cols-3 gap-1 rounded border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-1000/60">
+                                            <label v-for="option in yesNoOptions" :key="`smoker-${option.value}`" :title="option.title" :class="['flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors', form.smoker === option.value ? 'bg-white text-slate-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:text-white dark:ring-gray-700' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200', !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.smoker" class="sr-only" type="radio" name="smoker" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
+                                        </div>
+                                        <FormError class="mt-1" :message="form.errors.smoker" />
+                                    </fieldset>
+                                    <div class="min-w-0">
+                                        <label for="blood_group" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Groupe sanguin</label>
+                                        <div class="relative"><select id="blood_group" v-model="form.blood_group" :disabled="!capabilities.can_edit_vitals" class="block h-10 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000"><option value="">N/R — Non renseigné</option><option v-for="group in ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']" :key="group" :value="group">{{ group }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></div>
+                                        <FormError class="mt-1" :message="form.errors.blood_group" />
+                                    </div>
+                                </div>
+
+                                <div class="mt-5 border-t border-gray-100 pt-4 dark:border-gray-900">
+                                    <div class="mb-3 flex items-center justify-between gap-3"><h4 class="text-xs font-semibold text-slate-600 dark:text-slate-200">Mesures corporelles</h4><span class="text-[11px] text-slate-400">L’IMC est calculé automatiquement</span></div>
+                                    <div class="grid gap-4 sm:grid-cols-3">
+                                        <div class="min-w-0"><label for="height_cm" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Taille</label><div class="relative"><Input id="height_cm" v-model="form.height_cm" class="!h-10 pe-12 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" type="number" min="20" max="250" step="0.01" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 165" /><span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[11px] font-medium text-slate-400">cm</span></div><FormError class="mt-1" :message="form.errors.height_cm" /></div>
+                                        <div class="min-w-0"><label for="weight_kg" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Poids</label><div class="relative"><Input id="weight_kg" v-model="form.weight_kg" class="!h-10 pe-12 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" type="number" min="0.1" max="500" step="0.01" :disabled="!capabilities.can_edit_vitals" placeholder="Ex. 62" /><span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[11px] font-medium text-slate-400">kg</span></div><FormError class="mt-1" :message="form.errors.weight_kg" /></div>
+                                        <div class="min-w-0"><span class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">IMC</span><div class="flex h-10 items-center justify-between rounded border border-gray-200 bg-gray-50 px-3 dark:border-gray-800 dark:bg-gray-1000"><strong class="text-sm text-slate-700 dark:text-white">{{ displayedBmi ?? '—' }}</strong><span v-if="bmiAssessment" :class="bmiBadgeClasses" class="rounded px-2 py-1 text-[10px] font-bold">{{ bmiAssessment.label }}</span><span v-else class="text-[10px] font-semibold text-slate-400">AUTO</span></div></div>
+                                    </div>
+                                    <div v-if="bmiAssessment" :class="bmiAlertClasses" class="mt-4 rounded-md border px-4 py-3" role="status" aria-live="polite">
+                                        <div class="flex items-start gap-3"><Icon :name="bmiAlertIcon" class="mt-0.5 shrink-0 text-lg" /><div class="min-w-0"><p class="text-xs font-semibold leading-5">{{ bmiAssessment.message }}</p><p class="mt-1 text-[11px] leading-4 opacity-65">{{ bmiReference.disclaimer }}</p></div></div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section v-if="capabilities.can_view_allergies" class="px-5 py-5">
+                                <div class="space-y-3">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div><span class="block text-sm font-medium text-slate-700 dark:text-white">Allergies signalées</span><p class="mt-0.5 text-[11px] text-slate-400">Choisissez une allergie connue ou ajoutez une substance absente du référentiel.</p></div>
-                                    <button v-if="capabilities.can_edit && capabilities.can_manage_allergies" type="button" class="inline-flex h-8 items-center gap-1.5 rounded border border-gray-200 px-2.5 text-xs font-semibold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:text-slate-300" @click="showNewAllergy = !showNewAllergy"><Icon name="plus" />Ajouter manuellement</button>
+                                    <div><h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Allergies signalées</h3><p class="mt-1 text-[11px] text-slate-400">Sélectionnez une allergie connue ou ajoutez une substance absente du référentiel.</p></div>
+                                    <button v-if="capabilities.can_edit && capabilities.can_manage_allergies" type="button" class="inline-flex h-9 items-center gap-1.5 rounded border border-gray-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" @click="showNewAllergy = !showNewAllergy"><Icon name="plus" />Ajouter manuellement</button>
                                 </div>
 
                                 <div v-if="capabilities.can_edit && capabilities.can_manage_allergies" class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/40">
@@ -559,17 +738,9 @@ const submitAndComplete = (orientToMedicine = false) => {
                                     <div class="mt-3 flex justify-end gap-2"><Button type="button" size="sm" variant="white-outline" @click="resetNewAllergy">Annuler</Button><Button type="button" size="sm" variant="secondary" @click="addNewAllergy"><Icon name="plus" /><span class="ms-1.5">Ajouter à la fiche</span></Button></div>
                                 </div>
 
-                                <div><label for="allergy_note" class="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-200">Observation complémentaire</label><Input id="allergy_note" v-model="form.allergy_note" :disabled="!capabilities.can_edit" placeholder="Précision communiquée pendant ce passage" /><FormError class="mt-1" :message="form.errors.allergy_note || form.errors.allergy_uuids || form.errors.allergen_reference_uuids || form.errors.new_allergies" /></div>
-                            </div>
-                            <fieldset v-if="capabilities.can_view_vitals">
-                                <legend class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Tabac</legend>
-                                <div class="flex flex-wrap gap-2">
-                                    <Radio id="smoker_unknown" v-model="form.smoker" name="smoker" value="" size="sm" :disabled="!capabilities.can_edit_vitals">Inconnu</Radio>
-                                    <Radio id="smoker_no" v-model="form.smoker" name="smoker" value="0" size="sm" :disabled="!capabilities.can_edit_vitals">Non</Radio>
-                                    <Radio id="smoker_yes" v-model="form.smoker" name="smoker" value="1" size="sm" :disabled="!capabilities.can_edit_vitals">Oui</Radio>
+                                    <div><label for="allergy_note" class="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-200">Observation complémentaire</label><Input id="allergy_note" v-model="form.allergy_note" :disabled="!capabilities.can_edit" placeholder="Précision communiquée pendant ce passage" /><FormError class="mt-1" :message="form.errors.allergy_note || form.errors.allergy_uuids || form.errors.allergen_reference_uuids || form.errors.new_allergies" /></div>
                                 </div>
-                                <FormError class="mt-1" :message="form.errors.smoker" />
-                            </fieldset>
+                            </section>
                         </div>
                     </section>
 
@@ -583,23 +754,51 @@ const submitAndComplete = (orientToMedicine = false) => {
                 </div>
 
                 <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:sticky xl:top-5">
-                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><div class="flex items-center justify-between gap-3"><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Actes réalisés</h2><p class="mt-1 text-xs text-slate-400">Sélectionnez uniquement les actes effectivement réalisés.</p></div><span class="rounded bg-gray-100 px-2 py-1 text-xs font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ form.procedures.length }}</span></div></div>
-                    <div v-if="capabilities.can_edit" class="p-4">
-                        <div class="relative"><Input v-model="procedureSearch" icon="start" type="search" placeholder="Rechercher un acte" autocomplete="off" /><span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400"><Icon name="search" /></span></div>
-                        <div class="mt-3 max-h-72 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
-                            <button v-for="item in filteredProcedures" :key="item.uuid" type="button" :class="['flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start last:border-b-0 dark:border-gray-900', selectedProcedure(item.uuid) ? 'bg-gray-50 dark:bg-gray-1000' : 'hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="toggleProcedure(item)"><span :class="['flex h-7 w-7 shrink-0 items-center justify-center rounded border', selectedProcedure(item.uuid) ? 'border-primary-500 bg-primary-600 text-white' : 'border-gray-200 text-slate-400 dark:border-gray-700']"><Icon :name="selectedProcedure(item.uuid) ? 'check' : 'plus'" /></span><span class="min-w-0 flex-1"><span class="block text-xs font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-[10px] text-slate-400"><span>{{ item.code }}</span><span v-if="item.care_requires_allergy_check" class="font-sans font-semibold text-amber-600 dark:text-amber-300">Allergies à vérifier</span><span v-if="item.care_recommends_vitals" class="font-sans font-semibold">Constantes recommandées</span></span></span></button>
-                            <p v-if="filteredProcedures.length === 0" class="px-4 py-8 text-center text-xs text-slate-400">Aucun acte trouvé.</p>
+                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                        <div class="flex items-center justify-between gap-3">
+                            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Actes infirmiers effectués</h2><p class="mt-1 text-xs text-slate-400">Confirmez uniquement ce qui a réellement été réalisé pendant ce passage.</p></div>
+                            <span class="rounded bg-gray-100 px-2 py-1 text-xs font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ form.procedures.length }}</span>
+                        </div>
+                    </div>
+                    <div v-if="capabilities.can_edit" class="divide-y divide-gray-200 dark:divide-gray-900">
+                        <div class="p-4">
+                            <div class="mb-3 flex items-center justify-between gap-3"><h3 class="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Actes à confirmer</h3><span v-if="requestedCareProcedureUuids.size" class="text-[10px] font-medium text-slate-400">Préremplis depuis l’accueil</span></div>
+                            <div v-if="form.procedures.length" class="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                                <div v-for="(procedure, index) in form.procedures" :key="procedure.catalog_item_uuid" class="rounded border border-gray-200 p-3 dark:border-gray-800">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <p class="truncate text-xs font-bold text-slate-700 dark:text-white">{{ procedure.name }}</p>
+                                            <div class="mt-1 flex flex-wrap items-center gap-1.5"><span class="font-mono text-[10px] text-slate-400">{{ procedure.code }}</span><span :class="['rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide', requestedAtReception(procedure.catalog_item_uuid) ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300']">{{ requestedAtReception(procedure.catalog_item_uuid) ? 'Demandé à l’accueil' : 'Ajouté aux Soins' }}</span><span v-if="procedure.care_requires_allergy_check" class="text-[10px] font-semibold text-amber-600 dark:text-amber-300">Allergies à vérifier</span></div>
+                                        </div>
+                                        <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20" aria-label="Retirer cet acte" @click="toggleProcedure({ uuid: procedure.catalog_item_uuid })"><Icon name="trash" /></button>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-[90px_minmax(0,1fr)] gap-2"><div><label :for="`quantity-${index}`" class="mb-1 block text-[11px] text-slate-400">Quantité</label><Input :id="`quantity-${index}`" v-model="procedure.quantity" type="number" min="0.01" max="999" step="0.01" /></div><div><label :for="`notes-${index}`" class="mb-1 block text-[11px] text-slate-400">Observation{{ procedure.code === 'CARE-OTHER' ? ' *' : '' }}</label><Input :id="`notes-${index}`" v-model="procedure.notes" :placeholder="procedure.code === 'CARE-OTHER' ? 'Précisez l’acte' : 'Facultatif'" /></div></div>
+                                    <FormError class="mt-1" :message="procedureError(index, 'quantity') || procedureError(index, 'notes') || procedureError(index, 'allergy_checked')" />
+                                </div>
+                            </div>
+                            <div v-else class="rounded border border-dashed border-gray-200 px-4 py-5 text-center dark:border-gray-800">
+                                <Icon class="text-xl text-slate-300" name="check-circle" />
+                                <p class="mt-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Aucun acte infirmier sélectionné</p>
+                                <p class="mt-1 text-[11px] leading-5 text-slate-400">{{ requestedCareProcedureUuids.size ? 'Les actes demandés ont été retirés. Ajoutez uniquement ceux qui ont été réalisés.' : 'Aucun acte infirmier n’a été demandé à l’accueil. Ajoutez-en un seulement s’il est réellement effectué.' }}</p>
+                            </div>
                         </div>
 
-                        <div v-if="episode.care_completion_mode === 'CHOICE'" class="mt-3 rounded border border-dashed border-gray-300 p-3 dark:border-gray-700">
-                            <button type="button" class="flex w-full items-start gap-2 text-start" @click="toggleNoProcedure"><span :class="['mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border', noProcedureSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-300 dark:border-gray-700']"><Icon v-if="noProcedureSelected" name="check" class="text-xs" /></span><span><span class="block text-xs font-bold text-slate-700 dark:text-white">Aucun acte réalisé</span><span class="mt-0.5 block text-[11px] text-slate-400">Utilisez cette option seulement pour clôturer l’évaluation sans acte ni orientation médicale.</span></span></button>
-                            <div v-if="noProcedureSelected" class="mt-3"><label for="no_procedure_reason" class="mb-1 block text-[11px] font-medium text-slate-500">Motif *</label><Input id="no_procedure_reason" v-model="form.no_procedure_reason" placeholder="Ex. patient reparti avant le soin" /><FormError class="mt-1" :message="form.errors.no_procedure_reason" /></div>
+                        <div class="p-4">
+                            <label for="procedure-search" class="mb-2 block text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Ajouter un autre acte</label>
+                            <div class="relative"><Input id="procedure-search" v-model="procedureSearch" icon="start" type="search" placeholder="Rechercher par nom ou code" autocomplete="off" /><span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400"><Icon name="search" /></span></div>
+                            <div class="mt-3 max-h-56 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
+                                <button v-for="item in filteredProcedures" :key="item.uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-b-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="toggleProcedure(item)"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 dark:border-gray-700"><Icon name="plus" /></span><span class="min-w-0 flex-1"><span class="block text-xs font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-[10px] text-slate-400"><span>{{ item.code }}</span><span v-if="requestedAtReception(item.uuid)" class="font-sans font-semibold text-primary-600 dark:text-primary-300">Demandé à l’accueil</span><span v-if="item.care_requires_allergy_check" class="font-sans font-semibold text-amber-600 dark:text-amber-300">Allergies à vérifier</span><span v-if="item.care_recommends_vitals" class="font-sans font-semibold">Constantes recommandées</span></span></span></button>
+                                <div v-if="filteredProcedures.length === 0" class="px-4 py-7 text-center"><Icon class="text-xl text-slate-300" name="search" /><p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ procedureSearch ? 'Aucun acte trouvé' : 'Tous les actes disponibles sont déjà sélectionnés' }}</p></div>
+                            </div>
                         </div>
 
-                        <div v-if="form.procedures.length" class="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
-                            <div v-for="(procedure, index) in form.procedures" :key="procedure.catalog_item_uuid" class="rounded border border-gray-200 p-3 dark:border-gray-800"><div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold text-slate-700 dark:text-white">{{ procedure.name }}</p><p v-if="procedure.care_requires_allergy_check" class="mt-1 text-[10px] font-semibold text-amber-600 dark:text-amber-300">Vérification allergique requise</p></div><button type="button" class="text-slate-400 hover:text-red-500" aria-label="Retirer cet acte" @click="toggleProcedure({ uuid: procedure.catalog_item_uuid })"><Icon name="cross" /></button></div><div class="mt-3 grid grid-cols-[90px_minmax(0,1fr)] gap-2"><div><label :for="`quantity-${index}`" class="mb-1 block text-[11px] text-slate-400">Quantité</label><Input :id="`quantity-${index}`" v-model="procedure.quantity" type="number" min="0.01" max="999" step="0.01" /></div><div><label :for="`notes-${index}`" class="mb-1 block text-[11px] text-slate-400">Observation{{ procedure.code === 'CARE-OTHER' ? ' *' : '' }}</label><Input :id="`notes-${index}`" v-model="procedure.notes" :placeholder="procedure.code === 'CARE-OTHER' ? 'Précisez l’acte' : 'Facultatif'" /></div></div><FormError class="mt-1" :message="procedureError(index, 'quantity') || procedureError(index, 'notes') || procedureError(index, 'allergy_checked')" /></div>
+                        <div v-if="episode.care_completion_mode === 'CHOICE'" class="p-4">
+                            <div class="rounded border border-dashed border-gray-300 p-3 dark:border-gray-700">
+                                <button type="button" class="flex w-full items-start gap-2 text-start" @click="toggleNoProcedure"><span :class="['mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border', noProcedureSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-300 dark:border-gray-700']"><Icon v-if="noProcedureSelected" name="check" class="text-xs" /></span><span><span class="block text-xs font-bold text-slate-700 dark:text-white">Aucun acte effectué</span><span class="mt-0.5 block text-[11px] text-slate-400">Utilisez cette option seulement pour clôturer l’évaluation sans acte ni orientation médicale.</span></span></button>
+                                <div v-if="noProcedureSelected" class="mt-3"><label for="no_procedure_reason" class="mb-1 block text-[11px] font-medium text-slate-500">Motif *</label><Input id="no_procedure_reason" v-model="form.no_procedure_reason" placeholder="Ex. patient reparti avant le soin" /><FormError class="mt-1" :message="form.errors.no_procedure_reason" /></div>
+                            </div>
                         </div>
-                        <FormError class="mt-3" :message="form.errors.procedures || form.errors.care_record" />
+                        <FormError class="px-4 pb-4" :message="form.errors.procedures || form.errors.care_record" />
                     </div>
                     <p v-else class="p-5 text-sm text-slate-400">La fiche est en lecture seule.</p>
                 </section>

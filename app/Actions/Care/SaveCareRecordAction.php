@@ -114,8 +114,8 @@ class SaveCareRecordAction
 
         $vitalFields = [
             'blood_group',
-            'blood_pressure_left_systolic', 'blood_pressure_left_diastolic',
-            'blood_pressure_right_systolic', 'blood_pressure_right_diastolic',
+            'blood_pressure_systolic', 'blood_pressure_diastolic',
+            'heart_rate', 'spo2',
             'temperature_celsius', 'known_diabetes',
             'height_cm', 'weight_kg', 'smoker',
         ];
@@ -123,10 +123,10 @@ class SaveCareRecordAction
         if (collect($vitalFields)->contains(fn (string $field) => array_key_exists($field, $data))) {
             $attributes += [
                 'blood_group' => $data['blood_group'] ?? null,
-                'blood_pressure_left_systolic' => $data['blood_pressure_left_systolic'] ?? null,
-                'blood_pressure_left_diastolic' => $data['blood_pressure_left_diastolic'] ?? null,
-                'blood_pressure_right_systolic' => $data['blood_pressure_right_systolic'] ?? null,
-                'blood_pressure_right_diastolic' => $data['blood_pressure_right_diastolic'] ?? null,
+                'blood_pressure_systolic' => $data['blood_pressure_systolic'] ?? null,
+                'blood_pressure_diastolic' => $data['blood_pressure_diastolic'] ?? null,
+                'heart_rate' => $data['heart_rate'] ?? null,
+                'spo2' => $data['spo2'] ?? null,
                 'temperature_celsius' => $data['temperature_celsius'] ?? null,
                 'known_diabetes' => array_key_exists('known_diabetes', $data) ? $data['known_diabetes'] : null,
                 'height_cm' => $height,

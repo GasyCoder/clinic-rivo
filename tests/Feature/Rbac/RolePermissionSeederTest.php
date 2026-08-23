@@ -138,8 +138,12 @@ class RolePermissionSeederTest extends TestCase
         $names = $this->permissionNamesFor('MEDICINE');
 
         $this->assertContains('consultations.create', $names);
+        $this->assertContains('medical_record.view', $names);
         $this->assertContains('diagnoses.create', $names);
         $this->assertContains('prescriptions.cancel', $names);
+        $this->assertContains('medicines.view', $names);
+        $this->assertContains('stock.availability.view', $names);
+        $this->assertContains('medical_discharge.create', $names);
         $this->assertContains('patients.medical_history.manage', $names);
         $this->assertContains('patients.view', $names);
         $this->assertContains('episodes.view', $names);
@@ -245,6 +249,7 @@ class RolePermissionSeederTest extends TestCase
 
         $this->assertContains('pharmacy.view', $names);
         $this->assertContains('medicines.view', $names);
+        $this->assertContains('stock.availability.view', $names);
         $this->assertContains('stock.inventory', $names);
         $this->assertContains('stock.lots.create', $names);
         $this->assertContains('stock.expiration.view', $names);

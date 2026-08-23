@@ -1,0 +1,26 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('diagnosis_cancellations', function (Blueprint $table) {
+            $table->foreignId('replacement_diagnosis_id')
+                ->nullable()
+                ->after('diagnosis_id')
+                ->constrained('diagnoses')
+                ->restrictOnDelete();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('diagnosis_cancellations', function (Blueprint $table) {
+            $table->dropConstrainedForeignId('replacement_diagnosis_id');
+        });
+    }
+};

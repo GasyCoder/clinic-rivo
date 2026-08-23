@@ -15,8 +15,12 @@ use App\Models\AllergenReference;
 use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\EpisodeOrientation;
+use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
 use App\Support\EpisodeQueuePresenter;
+use App\Support\HeartRateAssessment;
+use App\Support\OxygenSaturationAssessment;
+use App\Support\TemperatureAssessment;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -99,6 +103,10 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
         EpisodeQueuePresenter $presenter,
         BmiAssessment $bmiAssessment,
+        BloodPressureAssessment $bloodPressureAssessment,
+        HeartRateAssessment $heartRateAssessment,
+        OxygenSaturationAssessment $oxygenSaturationAssessment,
+        TemperatureAssessment $temperatureAssessment,
     ): Response {
         $episodeOrientation->load([
             'episode.patient',
@@ -134,9 +142,17 @@ class CareController extends Controller
                 $canViewVitals,
                 $canViewAllergies,
                 $bmiAssessment,
+                $bloodPressureAssessment,
+                $heartRateAssessment,
+                $oxygenSaturationAssessment,
+                $temperatureAssessment,
                 $patientAge,
             ),
             'bmiReference' => $canViewVitals ? $bmiAssessment->reference($patientAge) : null,
+            'bloodPressureReference' => $canViewVitals ? $bloodPressureAssessment->reference() : null,
+            'heartRateReference' => $canViewVitals ? $heartRateAssessment->reference($patientAge) : null,
+            'oxygenSaturationReference' => $canViewVitals ? $oxygenSaturationAssessment->reference() : null,
+            'temperatureReference' => $canViewVitals ? $temperatureAssessment->reference() : null,
             'patientAllergies' => $canViewAllergies
                 ? $episodeOrientation->episode->patient->allergies->map(fn ($allergy) => [
                     'uuid' => $allergy->uuid,
@@ -267,6 +283,10 @@ class CareController extends Controller
         bool $canViewVitals,
         bool $canViewAllergies,
         BmiAssessment $bmiAssessment,
+        BloodPressureAssessment $bloodPressureAssessment,
+        HeartRateAssessment $heartRateAssessment,
+        OxygenSaturationAssessment $oxygenSaturationAssessment,
+        TemperatureAssessment $temperatureAssessment,
         ?int $patientAge,
     ): ?array {
         if (! $record) {
@@ -277,11 +297,18 @@ class CareController extends Controller
             'uuid' => $record->uuid,
             ...($canViewVitals ? [
                 'blood_group' => $record->blood_group,
-                'blood_pressure_left_systolic' => $record->blood_pressure_left_systolic,
-                'blood_pressure_left_diastolic' => $record->blood_pressure_left_diastolic,
-                'blood_pressure_right_systolic' => $record->blood_pressure_right_systolic,
-                'blood_pressure_right_diastolic' => $record->blood_pressure_right_diastolic,
+                'blood_pressure_systolic' => $record->blood_pressure_systolic,
+                'blood_pressure_diastolic' => $record->blood_pressure_diastolic,
+                'blood_pressure_assessment' => $bloodPressureAssessment->classify(
+                    $record->blood_pressure_systolic,
+                    $record->blood_pressure_diastolic,
+                ),
+                'heart_rate' => $record->heart_rate,
+                'heart_rate_assessment' => $heartRateAssessment->classify($record->heart_rate, $patientAge),
+                'spo2' => $record->spo2,
+                'spo2_assessment' => $oxygenSaturationAssessment->classify($record->spo2),
                 'temperature_celsius' => $record->temperature_celsius,
+                'temperature_assessment' => $temperatureAssessment->classify($record->temperature_celsius),
                 'known_diabetes' => $record->known_diabetes,
                 'height_cm' => $record->height_cm,
                 'weight_kg' => $record->weight_kg,

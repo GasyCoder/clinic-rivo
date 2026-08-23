@@ -3,6 +3,7 @@
 namespace Tests\Feature\Episode;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Exceptions\InvalidEpisodeTransitionException;
@@ -83,11 +84,11 @@ class EpisodeModelTest extends TestCase
         $this->assertSame(EpisodeAdministrativeStatus::PendingOrientation, $episode->administrative_status);
     }
 
-    public function test_medical_status_and_financial_status_are_plain_strings_not_cast(): void
+    public function test_medical_status_is_cast_while_financial_status_remains_owned_by_cash(): void
     {
-        $episode = $this->makeEpisode(['medical_status' => 'EN_CONSULTATION', 'financial_status' => 'IMPAYE']);
+        $episode = $this->makeEpisode(['medical_status' => EpisodeMedicalStatus::InCare, 'financial_status' => 'IMPAYE']);
 
-        $this->assertSame('EN_CONSULTATION', $episode->medical_status);
+        $this->assertSame(EpisodeMedicalStatus::InCare, $episode->medical_status);
         $this->assertSame('IMPAYE', $episode->financial_status);
     }
 
@@ -127,7 +128,7 @@ class EpisodeModelTest extends TestCase
     {
         $episode = $this->makeEpisode();
 
-        $episode->update(['medical_status' => 'EN_CONSULTATION']);
+        $episode->update(['medical_status' => EpisodeMedicalStatus::InCare]);
 
         $log = AuditLog::where('action', 'update')
             ->where('entity_type', Episode::class)
@@ -135,7 +136,7 @@ class EpisodeModelTest extends TestCase
             ->first();
 
         $this->assertNotNull($log);
-        $this->assertSame(['medical_status' => 'EN_CONSULTATION'], $log->new_values);
+        $this->assertSame(['medical_status' => EpisodeMedicalStatus::InCare->value], $log->new_values);
     }
 
     public function test_start_care_transitions_oriented_to_in_care(): void

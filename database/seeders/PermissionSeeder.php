@@ -142,6 +142,7 @@ class PermissionSeeder extends Seeder
         'pharmacy.reports.view' => 'Voir les rapports de pharmacie',
         'pharmacy.reports.export' => 'Exporter les rapports de pharmacie',
         'medicines.view' => 'Voir le référentiel des médicaments',
+        'stock.availability.view' => 'Consulter la disponibilité agrégée des médicaments',
         'stock.view' => 'Voir le stock de médicaments et consommables',
         'stock.entry' => 'Enregistrer une entrée en stock pharmacie',
         'stock.exit' => 'Enregistrer une sortie de stock pharmacie',
@@ -198,12 +199,10 @@ class PermissionSeeder extends Seeder
         'receipts.view' => 'Voir les reçus',
         'receipts.print' => 'Imprimer les reçus',
 
-        // CDC GitHub §15. medical_record.view, laboratory_orders.create,
-        // hospitalization.request, surgery.request, transfer.request et
-        // medical_discharge.create sont aussi listées là-bas mais non
-        // seedées ici : aucune de ces capacités n'est implémentée tant que
-        // Laboratoire/Hospitalisation/Chirurgie/Transfert/Sortie médicale
-        // (§34) n'existent pas.
+        // CDC GitHub §15 / ADR-035. Les demandes Laboratoire,
+        // Hospitalisation, Chirurgie et Transfert restent absentes tant que
+        // leurs workflows spécialisés ne sont pas réellement construits.
+        'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
         'consultations.create' => 'Créer une consultation',
         'consultations.update' => 'Modifier une consultation',
@@ -218,6 +217,7 @@ class PermissionSeeder extends Seeder
         'prescriptions.create' => 'Créer une prescription',
         'prescriptions.update' => 'Modifier une prescription',
         'prescriptions.cancel' => 'Annuler une prescription',
+        'medical_discharge.create' => 'Prononcer une sortie médicale',
 
         // CDC §15 "Soins" — seedées ici en avance du module Soins/Vitals
         // (pas encore construit) car explicitement demandées pour le rôle

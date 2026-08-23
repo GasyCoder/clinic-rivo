@@ -77,6 +77,7 @@ class PrescriptionModelTest extends TestCase
 
         $fresh = $prescription->fresh();
         $this->assertSame(PrescriptionStatus::Cancelled, $fresh->status);
+        $this->assertSame('Allergie découverte', $fresh->cancel_reason);
         $this->assertNotNull($fresh->cancelled_at);
 
         $this->assertSame(1, AuditLog::where('action', 'cancel')

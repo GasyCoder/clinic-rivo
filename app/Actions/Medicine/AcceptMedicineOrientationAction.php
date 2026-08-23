@@ -3,6 +3,9 @@
 namespace App\Actions\Medicine;
 
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeMedicalStatus;
+use App\Enums\EpisodeOrientationStatus;
+use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +17,7 @@ class AcceptMedicineOrientationAction
     {
         return DB::transaction(function () use ($orientation, $actor): EpisodeOrientation {
             $locked = EpisodeOrientation::query()
-                ->with('episode')
+                ->with('episode.serviceRequests')
                 ->lockForUpdate()
                 ->findOrFail($orientation->getKey());
 
@@ -22,10 +25,30 @@ class AcceptMedicineOrientationAction
                 throw new InvalidArgumentException('Cette orientation ne concerne pas le service Médecine.');
             }
 
-            $locked->accept($actor);
-            $locked->episode->startCare();
+            if ($locked->status === EpisodeOrientationStatus::Pending) {
+                $locked->accept($actor);
+            } elseif ($locked->status !== EpisodeOrientationStatus::InProgress) {
+                throw new InvalidArgumentException('Cette orientation Médecine n’est plus active.');
+            }
 
-            return $locked->fresh(['episode.patient']);
+            $locked->episode->startCare();
+            $locked->episode->update(['medical_status' => EpisodeMedicalStatus::InCare]);
+
+            $initialReason = $locked->reason
+                ?: $locked->episode->serviceRequests->pluck('designation')->filter()->join(' · ')
+                ?: 'Motif à préciser';
+
+            Consultation::query()->firstOrCreate(
+                ['episode_orientation_id' => $locked->getKey()],
+                [
+                    'episode_id' => $locked->episode_id,
+                    'doctor_id' => $locked->accepted_by ?? $actor->getKey(),
+                    'reason' => $initialReason,
+                    'consulted_at' => $locked->accepted_at ?? now(),
+                ],
+            );
+
+            return $locked->fresh(['episode.patient', 'consultation']);
         });
     }
 }

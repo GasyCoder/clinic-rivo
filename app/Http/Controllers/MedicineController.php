@@ -3,10 +3,31 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
+use App\Actions\Medicine\CancelDiagnosisAction;
+use App\Actions\Medicine\CancelPrescriptionAction;
+use App\Actions\Medicine\CorrectDiagnosisAction;
+use App\Actions\Medicine\CreatePrescriptionAction;
+use App\Actions\Medicine\RecordDiagnosisAction;
+use App\Actions\Medicine\RecordMedicalDischargeAction;
+use App\Actions\Medicine\SaveConsultationAction;
+use App\Actions\Medicine\UpdatePrescriptionAction;
 use App\Enums\CatalogModule;
+use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\PrescriptionStatus;
+use App\Http\Requests\CancelMedicineDiagnosisRequest;
+use App\Http\Requests\CancelMedicinePrescriptionRequest;
+use App\Http\Requests\StoreMedicalDischargeRequest;
+use App\Http\Requests\StoreMedicineDiagnosisRequest;
+use App\Http\Requests\StoreMedicinePrescriptionRequest;
+use App\Http\Requests\UpdateMedicineConsultationRequest;
+use App\Http\Requests\UpdateMedicineDiagnosisRequest;
+use App\Http\Requests\UpdateMedicinePrescriptionRequest;
+use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
+use App\Models\Prescription;
 use App\Support\EpisodeQueuePresenter;
+use App\Support\MedicineDossierPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -16,7 +37,7 @@ class MedicineController extends Controller
 {
     public function index(Request $request, EpisodeQueuePresenter $presenter): Response
     {
-        $filter = in_array($request->query('filter'), ['all', 'waiting', 'in_progress'], true)
+        $filter = in_array($request->query('filter'), ['all', 'waiting', 'in_progress', 'emergency'], true)
             ? (string) $request->query('filter')
             : 'all';
         $search = trim((string) $request->query('q', ''));
@@ -37,6 +58,9 @@ class MedicineController extends Controller
             'in_progress' => (clone $baseQuery)
                 ->where('status', EpisodeOrientationStatus::InProgress->value)
                 ->count(),
+            'emergency' => (clone $baseQuery)
+                ->whereHas('episode', fn ($query) => $query->where('priority', 'EMERGENCY'))
+                ->count(),
         ];
 
         $orientations = $baseQuery
@@ -45,6 +69,7 @@ class MedicineController extends Controller
                 'episode.billableItems',
                 'episode.serviceRequests',
                 'acceptedBy:id,name',
+                'consultation:id,episode_orientation_id',
             ])
             ->when(
                 $filter === 'waiting',
@@ -53,6 +78,10 @@ class MedicineController extends Controller
             ->when(
                 $filter === 'in_progress',
                 fn ($query) => $query->where('status', EpisodeOrientationStatus::InProgress->value),
+            )
+            ->when(
+                $filter === 'emergency',
+                fn ($query) => $query->whereHas('episode', fn ($episodeQuery) => $episodeQuery->where('priority', 'EMERGENCY')),
             )
             ->when($search !== '', function ($query) use ($search): void {
                 $query->whereHas('episode', function ($episodeQuery) use ($search): void {
@@ -85,6 +114,214 @@ class MedicineController extends Controller
     ): RedirectResponse {
         $action->execute($episodeOrientation, $request->user());
 
-        return back()->with('status', 'Patient pris en charge en Médecine.');
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'dossier'])
+            ->with('status', 'Patient pris en charge en Médecine.');
+    }
+
+    public function begin(EpisodeOrientation $episodeOrientation): RedirectResponse
+    {
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'dossier']);
+    }
+
+    public function show(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+        MedicineDossierPresenter $presenter,
+    ): Response {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Medicine, 404);
+        abort_if($episodeOrientation->status === EpisodeOrientationStatus::Pending, 409, 'La consultation doit d’abord être prise en charge.');
+
+        $step = (string) $request->route('step');
+
+        $episodeOrientation->load([
+            'episode.patient.allergies',
+            'episode.patient.antecedents',
+            'episode.billableItems',
+            'episode.serviceRequests',
+            'episode.careRecord.procedures.performer:id,name',
+            'episode.medicalDischarge.creator:id,name',
+            'consultation.doctor:id,name',
+            'consultation.diagnoses.recordedBy:id,name',
+            'consultation.diagnoses.cancellation.cancelledBy:id,name',
+            'consultation.prescriptions.prescribedBy:id,name',
+            'consultation.prescriptions.lines.medicine.catalogItem:id,uuid,unit',
+            'acceptedBy:id,name',
+            'completedBy:id,name',
+        ]);
+
+        abort_unless($episodeOrientation->consultation, 409, 'Le dossier de consultation doit être initialisé.');
+
+        return Inertia::render('Medicine/Show', [
+            ...$presenter->present(
+                $episodeOrientation,
+                $request->user(),
+                includeMedicineCatalog: $step === 'ordonnance',
+            ),
+            'current_step' => $step,
+        ]);
+    }
+
+    public function updateConsultation(
+        UpdateMedicineConsultationRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        SaveConsultationAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->validated(), $request->user());
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'consultation'])
+            ->with('status', 'Consultation enregistrée.');
+    }
+
+    public function storeDiagnosis(
+        StoreMedicineDiagnosisRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        RecordDiagnosisAction $action,
+    ): RedirectResponse {
+        $consultation = $episodeOrientation->consultation()->firstOrFail();
+        $action->execute(
+            $consultation,
+            DiagnosisType::from($request->validated('type')),
+            $request->validated('description'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'diagnostic'])
+            ->with('status', 'Diagnostic ajouté au dossier médical.');
+    }
+
+    public function cancelDiagnosis(
+        CancelMedicineDiagnosisRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CancelDiagnosisAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation,
+            Diagnosis::query()->findOrFail($request->integer('diagnosis_id')),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'diagnostic'])
+            ->with('status', 'Diagnostic annulé avec conservation de la trace médicale.')
+            ->with('status_type', 'warning');
+    }
+
+    public function updateDiagnosis(
+        UpdateMedicineDiagnosisRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CorrectDiagnosisAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation,
+            Diagnosis::query()->findOrFail($request->integer('diagnosis_id')),
+            DiagnosisType::from($request->validated('type')),
+            $request->validated('description'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'diagnostic'])
+            ->with('status', 'Diagnostic rectifié avec conservation de la version précédente.');
+    }
+
+    public function storePrescription(
+        StoreMedicinePrescriptionRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CreatePrescriptionAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            $request->validated('lines'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'ordonnance'])
+            ->with('status', 'Ordonnance enregistrée.');
+    }
+
+    public function cancelPrescription(
+        CancelMedicinePrescriptionRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        Prescription $prescription,
+        CancelPrescriptionAction $action,
+    ): RedirectResponse {
+        $action->execute($prescription, $request->validated('reason'), $request->user());
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'ordonnance'])
+            ->with('status', 'Ordonnance retirée. Le stock réservé a été libéré.')
+            ->with('status_type', 'warning');
+    }
+
+    public function updatePrescription(
+        UpdateMedicinePrescriptionRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        Prescription $prescription,
+        UpdatePrescriptionAction $action,
+    ): RedirectResponse {
+        $action->execute($prescription, $request->validated('lines'), $request->user());
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'ordonnance'])
+            ->with('status', 'Ordonnance mise à jour. Les quantités réservées ont été recalculées.');
+    }
+
+    public function printPrescription(
+        EpisodeOrientation $episodeOrientation,
+        Prescription $prescription,
+    ): Response {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Medicine, 404);
+        abort_unless(
+            $prescription->consultation?->episode_orientation_id === $episodeOrientation->getKey(),
+            404,
+        );
+        abort_unless($prescription->status === PrescriptionStatus::Active, 409, 'Seule une ordonnance active peut être imprimée.');
+
+        $episodeOrientation->load(['episode.patient']);
+        $prescription->load(['prescribedBy:id,name', 'lines' => fn ($query) => $query->orderBy('id')]);
+
+        $episode = $episodeOrientation->episode;
+        $patient = $episode->patient;
+
+        return Inertia::render('Medicine/PrescriptionPrint', [
+            'orientation' => ['uuid' => $episodeOrientation->uuid],
+            'episode' => [
+                'episode_number' => $episode->episode_number,
+                'priority' => $episode->priority->value,
+            ],
+            'patient' => [
+                'uuid' => $patient->uuid,
+                'patient_number' => $patient->patient_number,
+                'first_name' => $patient->first_name,
+                'last_name' => $patient->last_name,
+                'sex' => $patient->sex->value,
+                'sex_label' => $patient->sex->value === 'F' ? 'Féminin' : 'Masculin',
+                'birth_date' => $patient->birth_date?->toDateString(),
+                'birth_date_is_approximate' => $patient->birth_date_is_approximate,
+                'age' => $patient->birth_date?->age ?? $patient->declared_age,
+            ],
+            'prescription' => [
+                'uuid' => $prescription->uuid,
+                'prescribed_at' => $prescription->prescribed_at ?? $prescription->created_at,
+                'prescribed_by' => $prescription->prescribedBy?->name,
+                'lines' => $prescription->lines->map(fn ($line) => [
+                    'id' => $line->getKey(),
+                    'medication_name' => $line->medication_name,
+                    'quantity' => $line->quantity,
+                    'unit' => $line->medicine?->catalogItem?->unit,
+                    'dosage' => $line->dosage,
+                    'frequency' => $line->frequency,
+                    'duration' => $line->duration,
+                    'instructions' => $line->instructions,
+                ])->values(),
+            ],
+        ]);
+    }
+
+    public function discharge(
+        StoreMedicalDischargeRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        RecordMedicalDischargeAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->validated(), $request->user());
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'decision'])
+            ->with('status', 'Sortie médicale enregistrée. Le dossier administratif reste ouvert pour la Réception / Caisse.');
     }
 }

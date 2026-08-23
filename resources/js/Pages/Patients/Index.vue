@@ -279,7 +279,7 @@ watch(
                                         <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">
                                             {{ formatPatientName(patient) }}
                                         </span>
-                                        <span class="mt-0.5 block text-xs text-slate-400">{{ patient.patient_number }}</span>
+                                        <span class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ patient.patient_number }}</span>
                                     </div>
                                 </div>
                             </td>
@@ -372,7 +372,7 @@ watch(
                                 <div class="min-w-0">
                                     <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">{{ formatPatientName(patient) }}</Link>
                                     <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</span>
-                                    <span class="mt-0.5 block text-xs text-slate-400">{{ patient.patient_number }}</span>
+                                    <span class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ patient.patient_number }}</span>
                                 </div>
                             </div>
                             <CheckBox v-if="canDeletePatient" :id="`patient-grid-${patient.uuid}`" size="sm" :model-value="selectedUuids.includes(patient.uuid)" :aria-label="`Sélectionner ${formatPatientName(patient)}`" @update:model-value="togglePatient(patient.uuid, $event)" />
@@ -389,10 +389,13 @@ watch(
                             <div class="col-span-2"><dt class="text-slate-400">Téléphone</dt><dd class="mt-0.5 truncate font-semibold text-slate-600 dark:text-slate-300">{{ patient.phone ?? '—' }}</dd></div>
                         </dl>
 
-                        <div class="mt-auto flex items-center gap-1.5 border-t border-gray-100 pt-3 dark:border-gray-900">
-                            <Button v-if="canViewPatient" :as="Link" :href="`/patients/${patient.uuid}`" size="sm" variant="white-outline" class="flex-1"><Icon class="text-base" name="eye" /><span class="ms-1.5">Voir</span></Button>
-                            <Button v-if="canUpdatePatient && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" icon size="sm" variant="white-outline" :aria-label="`Modifier ${formatPatientName(patient)}`" title="Modifier le patient"><Icon class="text-base" name="edit" /></Button>
-                            <Button v-if="canDeletePatient" icon size="sm" variant="danger-outline" type="button" :aria-label="`Supprimer ${formatPatientName(patient)}`" title="Supprimer le patient" @click="openDeleteDialog([patient])"><Icon class="text-base" name="trash" /></Button>
+                        <div class="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-3 dark:border-gray-900">
+                            <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400"><Icon class="text-sm" name="eye" />Voir le dossier</Link>
+                            <span v-else></span>
+                            <div class="flex shrink-0 items-center gap-1.5">
+                                <Button v-if="canUpdatePatient && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" icon size="sm" variant="white-outline" :aria-label="`Modifier ${formatPatientName(patient)}`" title="Modifier le patient"><Icon class="text-base" name="edit" /></Button>
+                                <Button v-if="canDeletePatient" icon size="sm" variant="danger-outline" type="button" :aria-label="`Supprimer ${formatPatientName(patient)}`" title="Supprimer le patient" @click="openDeleteDialog([patient])"><Icon class="text-base" name="trash" /></Button>
+                            </div>
                         </div>
                     </article>
                 </div>

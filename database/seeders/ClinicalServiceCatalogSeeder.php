@@ -40,7 +40,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'amount' => 30000,
             'description' => 'Consultation auprès d’un médecin spécialiste.',
             'reception_selectable' => true,
-            'routing_mode' => ReceptionRoutingMode::CareThenMedicine,
+            'routing_mode' => ReceptionRoutingMode::MedicineDirect,
         ],
         [
             'code' => 'ECG',
@@ -369,6 +369,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         $this->assertCompatible($existing, $service);
                         $this->applyLegacyCareLabel($existing, $service);
                         $this->applyInitialReceptionRouteIfUnset($existing, $service);
+                        $this->applyAcceptedRoutingCorrection($existing, $service, $actor);
 
                         if ($existing->currentTariff()->exists()) {
                             $preserved++;
@@ -538,6 +539,29 @@ class ClinicalServiceCatalogSeeder extends Seeder
         $item->forceFill([
             'reception_selectable' => true,
             'reception_routing_mode' => $service['routing_mode'],
+        ])->save();
+    }
+
+    /**
+     * The initial local fixture routed specialist consultations through Care.
+     * The client later confirmed that a known specialist consultation goes
+     * directly to Medicine. Correct only the former Care-then-Medicine value;
+     * other configured routes remain untouched. Existing episode requests
+     * keep their routing snapshot unchanged.
+     *
+     * @param  array{code: string, routing_mode: ?ReceptionRoutingMode}  $service
+     */
+    private function applyAcceptedRoutingCorrection(CatalogItem $item, array $service, User $actor): void
+    {
+        if ($service['code'] !== 'CONSULT-SPEC'
+            || $item->reception_routing_mode !== ReceptionRoutingMode::CareThenMedicine
+            || $service['routing_mode'] !== ReceptionRoutingMode::MedicineDirect) {
+            return;
+        }
+
+        $item->forceFill([
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect,
+            'updated_by' => $actor->id,
         ])->save();
     }
 

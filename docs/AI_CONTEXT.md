@@ -394,6 +394,15 @@ cash closing
 payment receipt
 ```
 
+Une ordonnance Médecine sélectionne un médicament actif du référentiel
+Pharmacie. La disponibilité est calculée sur les lots actifs non périmés, moins
+les réservations actives. La validation réserve transactionnellement la
+quantité en FEFO et échoue intégralement si le stock est insuffisant. Elle ne
+déstocke pas : seule la future délivrance Pharmacie réalise la sortie physique.
+L'annulation d'une ordonnance libère la réservation. Médecine ne reçoit que
+`stock.availability.view`, jamais les droits de mutation `stock.*`. Voir
+ADR-036.
+
 ---
 
 # Laboratoire
@@ -532,6 +541,8 @@ ADR-030 remplace le parcours uniforme de l'ADR-029 : le type administratif du
 patient est `STANDARD`, `MUTUAL` ou `STAFF`, puis les désignations configurées
 pilotent le parcours clinique (`MEDICINE_DIRECT`, `CARE_THEN_MEDICINE` ou
 `CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.
+Une consultation spécialisée déjà identifiée est `MEDICINE_DIRECT`; la
+consultation générale reste `CARE_THEN_MEDICINE`.
 
 Les nouveaux numéros humains sont annuels pour le patient (`M-26-0001`) et
 ordinaux par patient pour les passages (`M-26-0001-01`). Les UUID restent les
@@ -589,11 +600,34 @@ demande du passage. `CARE_ONLY` exige au moins un acte enregistré avant la fin.
 Un besoin indéterminé sans acte exige soit une orientation Médecine, soit un
 motif explicite. L'action UI « Enregistrer l'acte et terminer » est atomique côté
 Laravel.
-Le relevé facultatif inclut aussi la tension systolique/diastolique des bras
-gauche et droit en mmHg, la température en °C et le statut « diabète connu » à
-trois états (non renseigné, non, oui). Une paire de tension est toujours complète
-et cohérente. Ces données appartiennent au passage et nécessitent `vitals.*` ;
-elles ne sont pas rendues obligatoires pour chaque acte.
+Le relevé facultatif inclut une tension systolique/diastolique unique en mmHg,
+la fréquence cardiaque, la SpO2, la température en °C et le statut « diabète
+connu » à trois états (non renseigné, non, oui). La paire de tension est
+toujours complète et cohérente. Ces données appartiennent au passage et
+nécessitent `vitals.*` ; elles ne sont pas rendues obligatoires pour chaque
+acte. Une FC inférieure à 60 bpm déclenche une alerte de dépistage non
+bloquante. Pour l'adulte elle devient rouge sous 50 bpm ; pour un mineur toute
+valeur sous 60 bpm est rouge et doit être interprétée selon l'âge et la
+tolérance clinique. La SpO₂ est signalée en orange de 93 à 94 % et en rouge
+à 92 % ou moins. La température est signalée en orange de 35 à 35,9 °C ou de
+38 à 39,9 °C, puis en rouge sous 35 °C ou à partir de 40 °C. Ces alertes
+restent non bloquantes et s'affichent sous forme d'une ligne compacte sous
+chaque champ. La tension utilise le même rendu : basse sous 90/60, élevée dès
+130/80, très élevée dès 140/90 et rouge au-dessus de 180/120. Elle doit être
+saisie en mmHg complet (`170/120`, pas `17/12`). Voir ADR-038 à ADR-041.
+
+Le parcours Médecine est porté par l'orientation du passage. Sa prise en charge
+ouvre une consultation qui réunit les demandes de Réception et la transmission
+Soins, puis historise motif, examen clinique, hypothèses, diagnostic final et
+prescriptions. Les diagnostics sont append-only ; seul l'auteur d'une saisie
+erronée peut l'annuler. Le système conserve une trace séparée avec auteur et
+date, sans demander de motif libre et sans modifier ni supprimer le diagnostic
+original. Une prescription est annulée avec motif plutôt
+que supprimée. La sortie médicale possède ses propres types et
+complète l'orientation Médecine, mais ne clôt jamais le passage administratif et
+ne dépend jamais du solde du patient. Les demandes Labo, Soins, Chirurgie,
+Hospitalisation et Transfert ne peuvent être simulées par une simple sélection :
+elles exigent leurs workflows dédiés. Voir ADR-035.
 
 ---
 

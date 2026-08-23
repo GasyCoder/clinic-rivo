@@ -9,6 +9,7 @@ use App\Actions\Care\SaveCareRecordAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\EpisodePriority;
 use App\Http\Requests\UpdateCareRecordRequest;
 use App\Models\AllergenReference;
 use App\Models\CareRecord;
@@ -29,6 +30,9 @@ class CareController extends Controller
             ? (string) $request->query('filter')
             : 'active';
         $search = trim((string) $request->query('q', ''));
+        $priority = in_array($request->query('priority'), ['emergency', 'normal'], true)
+            ? (string) $request->query('priority')
+            : null;
 
         $baseQuery = EpisodeOrientation::query()
             ->where('destination_module', CatalogModule::Care->value)
@@ -69,6 +73,12 @@ class CareController extends Controller
                         });
                 });
             })
+            ->when($priority === 'emergency', fn ($query) => $query
+                ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
+                    ->where('priority', EpisodePriority::Emergency->value)))
+            ->when($priority === 'normal', fn ($query) => $query
+                ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
+                    ->where('priority', '!=', EpisodePriority::Emergency->value)))
             ->orderByRaw("CASE WHEN EXISTS (SELECT 1 FROM episodes WHERE episodes.id = episode_orientations.episode_id AND episodes.priority = 'EMERGENCY') THEN 0 ELSE 1 END")
             ->orderByDesc($filter === 'oriented' ? 'completed_at' : 'oriented_at')
             ->paginate(20)
@@ -80,6 +90,7 @@ class CareController extends Controller
             'counts' => $counts,
             'filter' => $filter,
             'search' => $search,
+            'priority' => $priority,
         ]);
     }
 

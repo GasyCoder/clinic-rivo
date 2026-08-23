@@ -104,6 +104,33 @@ class ClinicalQueueControllerTest extends TestCase
                 ->where('orientations.data.0.episode.uuid', $episode->uuid));
     }
 
+    public function test_care_queue_supports_the_priority_filter(): void
+    {
+        $nurse = $this->user('NURSE', ['care.view']);
+        $emergency = $this->app->make(CreateEpisodeAction::class)
+            ->execute($this->patient('M-000001'), EpisodePriority::Emergency);
+        $normal = $this->app->make(CreateEpisodeAction::class)
+            ->execute($this->patient('M-000002'), EpisodePriority::Normal);
+        $normalService = $this->service($nurse, ReceptionRoutingMode::CareOnly);
+        $this->app->make(PlanEpisodeRoutingAction::class)->execute($normal, [[
+            'catalog_item_uuid' => $normalService->uuid,
+            'quantity' => 1,
+        ]], $nurse);
+
+        $this->actingAs($nurse)->get('/care?priority=emergency')
+            ->assertInertia(fn ($page) => $page
+                ->has('orientations.data', 1)
+                ->where('orientations.data.0.episode.uuid', $emergency->uuid));
+
+        $this->actingAs($nurse)->get('/care?priority=normal')
+            ->assertInertia(fn ($page) => $page
+                ->has('orientations.data', 1)
+                ->where('orientations.data.0.episode.uuid', $normal->uuid));
+
+        $this->actingAs($nurse)->get('/care')
+            ->assertInertia(fn ($page) => $page->has('orientations.data', 2));
+    }
+
     public function test_queue_keeps_a_mutual_designation_visible_when_its_tariff_is_not_configured(): void
     {
         $nurse = $this->user('NURSE', ['care.view']);

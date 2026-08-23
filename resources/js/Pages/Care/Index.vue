@@ -18,10 +18,12 @@ const props = defineProps({
     counts: Object,
     filter: String,
     search: String,
+    priority: String,
 });
 
 const { can } = usePermissions();
 const query = ref(props.search ?? '');
+const priorityFilter = ref(props.priority ?? '');
 
 const visit = (params) => router.get('/care', params, {
     preserveState: true,
@@ -29,18 +31,20 @@ const visit = (params) => router.get('/care', params, {
     replace: true,
 });
 
-const selectFilter = (filter) => visit({
+const buildParams = (overrides = {}) => ({
     ...(query.value ? { q: query.value } : {}),
-    ...(filter !== 'active' ? { filter } : {}),
+    ...(props.filter !== 'active' ? { filter: props.filter } : {}),
+    ...(priorityFilter.value ? { priority: priorityFilter.value } : {}),
+    ...overrides,
 });
+
+const selectFilter = (filter) => visit(buildParams({ filter: filter !== 'active' ? filter : undefined }));
+const submitPriority = () => visit(buildParams());
 
 let debounceTimer = null;
 watch(query, (value) => {
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => visit({
-        ...(value ? { q: value } : {}),
-        ...(props.filter !== 'active' ? { filter: props.filter } : {}),
-    }), 350);
+    debounceTimer = setTimeout(() => visit(buildParams({ q: value || undefined })), 350);
 });
 
 const designationSummary = (orientation) => {
@@ -94,11 +98,14 @@ const designationSummary = (orientation) => {
                     </button>
                 </div>
 
-                <div class="relative w-full lg:max-w-sm">
-                    <Input v-model="query" icon="start" type="search" placeholder="Patient ou n° passage" autocomplete="off" />
-                    <span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400">
-                        <Icon class="text-lg" name="search" />
-                    </span>
+                <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <div class="relative w-full sm:max-w-xs sm:flex-1">
+                        <Input v-model="query" icon="start" type="search" placeholder="Patient ou n° passage" autocomplete="off" />
+                        <span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400">
+                            <Icon class="text-lg" name="search" />
+                        </span>
+                    </div>
+                    <span class="relative"><select v-model="priorityFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitPriority"><option value="">Toute priorité</option><option value="emergency">Urgence</option><option value="normal">Normal</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
                 </div>
             </div>
 

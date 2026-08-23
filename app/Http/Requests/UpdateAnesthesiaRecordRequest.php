@@ -24,6 +24,12 @@ class UpdateAnesthesiaRecordRequest extends FormRequest
         ];
     }
 
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return AnesthesiaAssessmentRules::attributes();
+    }
+
     /** @return array<int, callable> */
     public function after(): array
     {

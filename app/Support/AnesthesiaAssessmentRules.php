@@ -117,6 +117,120 @@ final class AnesthesiaAssessmentRules
         ];
     }
 
+    /** @return array<string, string> */
+    public static function attributes(): array
+    {
+        $attributes = [
+            'anesthetist_id' => 'anesthésiste',
+            'notes' => 'conduite et observations',
+            'administered_at' => 'date d’administration de l’anesthésie',
+            'consultation_data.admission_reason' => 'motif d’entrée',
+            'consultation_data.tobacco' => 'tabagisme',
+            'consultation_data.alcohol' => 'consommation d’alcool',
+            'consultation_data.other_toxic_exposure' => 'autre exposition toxique',
+            'consultation_data.medical_conditions' => 'antécédents médicaux',
+            'consultation_data.medical_conditions.*' => 'antécédent médical',
+            'consultation_data.medical_history_notes' => 'précisions des antécédents médicaux',
+            'consultation_data.cough_duration' => 'durée de la toux',
+            'consultation_data.sputum' => 'crachats',
+            'consultation_data.pain_notes' => 'description de la douleur',
+            'consultation_data.anesthetic_history' => 'antécédents anesthésiques',
+            'consultation_data.surgical_history' => 'antécédents chirurgicaux',
+            'consultation_data.anesthetic_incidents' => 'incidents anesthésiques antérieurs',
+            'consultation_data.gyneco_obstetric.gravida' => 'nombre de grossesses',
+            'consultation_data.gyneco_obstetric.para' => 'nombre d’accouchements',
+            'consultation_data.gyneco_obstetric.abortion' => 'nombre d’avortements',
+            'consultation_data.gyneco_obstetric.last_menstrual_period' => 'date des dernières règles',
+            'consultation_data.gyneco_obstetric.contraception' => 'méthode contraceptive',
+            'consultation_data.gyneco_obstetric.contraception_date' => 'date de contraception',
+            'consultation_data.gyneco_obstetric.delivery_route' => 'voie d’accouchement',
+            'consultation_data.gyneco_obstetric.delivery_date' => 'date d’accouchement',
+            'consultation_data.gyneco_obstetric.parity_status' => 'parité',
+            'consultation_data.gyneco_obstetric.obstetric_hemorrhage' => 'hémorragie obstétricale',
+            'consultation_data.gyneco_obstetric.notes' => 'observations gynéco-obstétricales',
+            'consultation_data.clinical_exam.cardiovascular' => 'examen cardio-vasculaire',
+            'consultation_data.clinical_exam.pulmonary' => 'examen pulmonaire',
+            'consultation_data.clinical_exam.neurological' => 'examen neurologique',
+            'consultation_data.clinical_exam.coloration' => 'coloration',
+            'consultation_data.clinical_exam.venous_access' => 'abord veineux',
+            'consultation_data.clinical_exam.spinal_access' => 'abord rachidien',
+            'consultation_data.blood_pressure_systolic' => 'tension artérielle systolique',
+            'consultation_data.blood_pressure_diastolic' => 'tension artérielle diastolique',
+            'consultation_data.heart_rate' => 'fréquence cardiaque',
+            'consultation_data.oxygen_saturation' => 'saturation en oxygène',
+            'consultation_data.respiratory_rate' => 'fréquence respiratoire',
+            'consultation_data.temperature_celsius' => 'température',
+            'consultation_data.weight_kg' => 'poids',
+            'consultation_data.height_cm' => 'taille',
+            'consultation_data.mouth_opening' => 'ouverture buccale',
+            'consultation_data.mallampati' => 'score de Mallampati',
+            'consultation_data.thyromental_distance' => 'distance thyromentonnière',
+            'consultation_data.cervical_spine' => 'rachis cervical',
+            'consultation_data.dental_prosthesis' => 'prothèse dentaire',
+            'consultation_data.other_prosthesis' => 'autre prothèse',
+            'consultation_data.last_meal_time' => 'heure du dernier repas',
+            'consultation_data.last_drink_time' => 'heure de la dernière boisson',
+            'consultation_data.neuropsychological_status' => 'état neuropsychologique',
+            'paraclinical_data.blood_group' => 'groupe sanguin',
+            'paraclinical_data.rhesus' => 'rhésus',
+            'paraclinical_data.transfusion_recommended_units' => 'nombre de culots recommandés',
+            'paraclinical_data.transfusion_received' => 'transfusion reçue',
+            'paraclinical_data.preoperative_transfusion_units' => 'nombre de culots préopératoires',
+            'paraclinical_data.ultrasound_notes' => 'résultat de l’échographie',
+            'paraclinical_data.ultrasonographer' => 'échographiste',
+            'paraclinical_data.glasgow_eye' => 'ouverture des yeux (Glasgow)',
+            'paraclinical_data.glasgow_verbal' => 'réponse verbale (Glasgow)',
+            'paraclinical_data.glasgow_motor' => 'réponse motrice (Glasgow)',
+            'paraclinical_data.apfel_score' => 'score d’Apfel',
+            'paraclinical_data.associated_pathologies' => 'pathologies associées',
+            'paraclinical_data.conclusion' => 'conclusion anesthésique',
+            'paraclinical_data.therapeutic_recommendation' => 'recommandation thérapeutique',
+            'paraclinical_data.surgery_authorized' => 'autorisation de la chirurgie',
+            'paraclinical_data.asa_class' => 'classe ASA',
+            'paraclinical_data.nyha_class' => 'classe NYHA',
+            'paraclinical_data.anesthesia_plan' => 'plan anesthésique',
+            'paraclinical_data.fasting_hours' => 'durée du jeûne prescrit',
+            'anesthetic_items' => 'éléments d’anesthésie',
+            'anesthetic_items.*.reference_code' => 'élément d’anesthésie',
+            'anesthetic_items.*.details' => 'précision de l’élément d’anesthésie',
+            'anesthetic_items.*.quantity' => 'quantité de l’élément d’anesthésie',
+            'anesthetic_items.*.unit' => 'unité de l’élément d’anesthésie',
+        ];
+
+        $laboratoryLabels = [
+            'hemoglobin' => 'hémoglobine',
+            'hematocrit' => 'hématocrite',
+            'psa' => 'PSA',
+            'creatinine' => 'créatinine',
+            'glycemia' => 'glycémie',
+            'urea' => 'urée',
+            'tdr' => 'TDR',
+            'crp' => 'CRP',
+            'widal_to' => 'Widal TO',
+            'widal_th' => 'Widal TH',
+        ];
+
+        foreach ($laboratoryLabels as $field => $label) {
+            $attributes["paraclinical_data.laboratory.{$field}"] = $label;
+        }
+
+        $pathologyLabels = [
+            'cardiac' => 'pathologie cardiaque',
+            'respiratory' => 'pathologie respiratoire',
+            'renal' => 'pathologie rénale',
+            'digestive' => 'pathologie digestive',
+            'neurological' => 'pathologie neurologique',
+            'gynecological' => 'pathologie gynécologique',
+            'ent' => 'pathologie ORL',
+        ];
+
+        foreach ($pathologyLabels as $field => $label) {
+            $attributes["paraclinical_data.associated_pathologies.{$field}"] = $label;
+        }
+
+        return $attributes;
+    }
+
     /** @return array<int, string> */
     private static function medicalConditions(): array
     {

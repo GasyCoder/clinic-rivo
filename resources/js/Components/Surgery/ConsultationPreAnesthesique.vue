@@ -7,7 +7,9 @@ import CardBody from '@/Components/UI/CardBody.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
+import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import ClinicalAccordionSection from '@/Components/Surgery/ClinicalAccordionSection.vue';
+import { useValidationNavigation } from '@/composables/useValidationNavigation';
 
 const props = defineProps({
     surgicalRequest: Object,
@@ -64,6 +66,30 @@ const assessmentLocked = computed(() => Boolean(record.value?.assessment_validat
 const canEdit = computed(() => !assessmentLocked.value && (record.value ? props.canUpdate : props.canCreate));
 const isFemale = computed(() => String(patient.value.sex ?? '') === 'F');
 const activeSection = ref('history');
+const formElement = ref(null);
+const examErrorPrefixes = [
+    'consultation_data.clinical_exam.',
+    'consultation_data.blood_pressure_',
+    'consultation_data.heart_rate',
+    'consultation_data.oxygen_saturation',
+    'consultation_data.respiratory_rate',
+    'consultation_data.temperature_celsius',
+    'consultation_data.weight_kg',
+    'consultation_data.height_cm',
+    'consultation_data.mouth_opening',
+    'consultation_data.mallampati',
+    'consultation_data.thyromental_distance',
+    'consultation_data.cervical_spine',
+    'consultation_data.dental_prosthesis',
+    'consultation_data.other_prosthesis',
+    'consultation_data.last_meal_time',
+    'consultation_data.last_drink_time',
+    'consultation_data.neuropsychological_status',
+];
+const sectionForError = (key) => examErrorPrefixes.some((prefix) => key.startsWith(prefix)) ? 'exam' : 'history';
+const {
+    errorId, errorMessage, fieldAttrs, focusError, focusFirstError, invalidClass,
+} = useValidationNavigation(form, activeSection, sectionForError, formElement);
 const hasValue = (value) => Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== '';
 const historyComplete = computed(() => [
     form.consultation_data.admission_reason,
@@ -86,6 +112,7 @@ const submit = (nextSection = null) => {
         onSuccess: () => {
             if (nextSection) activeSection.value = nextSection;
         },
+        onError: (errors) => focusFirstError(errors),
     };
 
     if (record.value) {
@@ -114,7 +141,8 @@ const submit = (nextSection = null) => {
                 </div>
             </div>
 
-            <form class="space-y-4 p-4 sm:p-5" @submit.prevent="submit()">
+            <form ref="formElement" class="space-y-4 p-4 sm:p-5" @submit.prevent="submit()">
+                <ValidationErrorSummary :errors="form.errors" @select="focusError" />
                 <fieldset :disabled="!canEdit" class="space-y-3 disabled:opacity-70">
                     <ClinicalAccordionSection
                         :open="activeSection === 'history'"
@@ -130,7 +158,8 @@ const submit = (nextSection = null) => {
                     <section class="rounded-md border border-emerald-100 bg-emerald-50/40 p-4 dark:border-emerald-950 dark:bg-emerald-950/20">
                         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <label class="text-sm font-medium text-slate-600 dark:text-slate-300">Motif d’entrée
-                                <textarea v-model="form.consultation_data.admission_reason" rows="2" :class="textareaClass" placeholder="Motif clinique de l’admission"></textarea>
+                                <textarea v-model="form.consultation_data.admission_reason" v-bind="fieldAttrs('consultation_data.admission_reason')" rows="2" :class="[textareaClass, invalidClass('consultation_data.admission_reason')]" placeholder="Motif clinique de l’admission"></textarea>
+                                <FormError v-if="errorMessage('consultation_data.admission_reason')" :id="errorId('consultation_data.admission_reason')" :message="errorMessage('consultation_data.admission_reason')" />
                             </label>
                             <div class="rounded-md border border-emerald-100 bg-white/70 px-4 py-3 text-sm dark:border-emerald-950 dark:bg-gray-950/50">
                                 <span class="block text-xs font-bold uppercase tracking-wide text-slate-400">Intervention prévue</span>
@@ -138,9 +167,9 @@ const submit = (nextSection = null) => {
                             </div>
                         </div>
                         <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <label class="text-sm text-slate-500">Tabac<Input v-model="form.consultation_data.tobacco" size="lg" placeholder="Non / quantité / durée" /></label>
-                            <label class="text-sm text-slate-500">Alcool<Input v-model="form.consultation_data.alcohol" size="lg" placeholder="Non / fréquence" /></label>
-                            <label class="text-sm text-slate-500">Autre toxique<Input v-model="form.consultation_data.other_toxic_exposure" size="lg" placeholder="Préciser" /></label>
+                            <label class="text-sm text-slate-500">Tabac<Input v-model="form.consultation_data.tobacco" v-bind="fieldAttrs('consultation_data.tobacco')" size="lg" placeholder="Non / quantité / durée" /><FormError v-if="errorMessage('consultation_data.tobacco')" :id="errorId('consultation_data.tobacco')" :message="errorMessage('consultation_data.tobacco')" /></label>
+                            <label class="text-sm text-slate-500">Alcool<Input v-model="form.consultation_data.alcohol" v-bind="fieldAttrs('consultation_data.alcohol')" size="lg" placeholder="Non / fréquence" /><FormError v-if="errorMessage('consultation_data.alcohol')" :id="errorId('consultation_data.alcohol')" :message="errorMessage('consultation_data.alcohol')" /></label>
+                            <label class="text-sm text-slate-500">Autre toxique<Input v-model="form.consultation_data.other_toxic_exposure" v-bind="fieldAttrs('consultation_data.other_toxic_exposure')" size="lg" placeholder="Préciser" /><FormError v-if="errorMessage('consultation_data.other_toxic_exposure')" :id="errorId('consultation_data.other_toxic_exposure')" :message="errorMessage('consultation_data.other_toxic_exposure')" /></label>
                         </div>
                     </section>
 
@@ -155,16 +184,16 @@ const submit = (nextSection = null) => {
                                         {{ condition[1] }}
                                     </label>
                                 </div>
-                                <textarea v-model="form.consultation_data.medical_history_notes" rows="3" :class="textareaClass" placeholder="Autres antécédents ou précisions"></textarea>
-                                <div class="grid grid-cols-2 gap-2"><Input v-model="form.consultation_data.cough_duration" placeholder="Durée de la toux" /><Input v-model="form.consultation_data.sputum" placeholder="Crachat" /></div>
-                                <Input v-model="form.consultation_data.pain_notes" placeholder="Description de la douleur" />
+                                <div><textarea v-model="form.consultation_data.medical_history_notes" v-bind="fieldAttrs('consultation_data.medical_history_notes')" rows="3" :class="[textareaClass, invalidClass('consultation_data.medical_history_notes')]" placeholder="Autres antécédents ou précisions"></textarea><FormError v-if="errorMessage('consultation_data.medical_history_notes')" :id="errorId('consultation_data.medical_history_notes')" :message="errorMessage('consultation_data.medical_history_notes')" /></div>
+                                <div class="grid grid-cols-2 gap-2"><div><Input v-model="form.consultation_data.cough_duration" v-bind="fieldAttrs('consultation_data.cough_duration')" placeholder="Durée de la toux" /><FormError v-if="errorMessage('consultation_data.cough_duration')" :id="errorId('consultation_data.cough_duration')" :message="errorMessage('consultation_data.cough_duration')" /></div><div><Input v-model="form.consultation_data.sputum" v-bind="fieldAttrs('consultation_data.sputum')" placeholder="Crachat" /><FormError v-if="errorMessage('consultation_data.sputum')" :id="errorId('consultation_data.sputum')" :message="errorMessage('consultation_data.sputum')" /></div></div>
+                                <div><Input v-model="form.consultation_data.pain_notes" v-bind="fieldAttrs('consultation_data.pain_notes')" placeholder="Description de la douleur" /><FormError v-if="errorMessage('consultation_data.pain_notes')" :id="errorId('consultation_data.pain_notes')" :message="errorMessage('consultation_data.pain_notes')" /></div>
                             </div>
 
                             <div class="space-y-4 p-4">
                                 <h4 class="text-xs font-bold uppercase text-slate-400">Anesthésiques et chirurgicaux</h4>
-                                <label class="block text-sm text-slate-500">Antécédents anesthésiques<textarea v-model="form.consultation_data.anesthetic_history" rows="4" :class="textareaClass"></textarea></label>
-                                <label class="block text-sm text-slate-500">Antécédents chirurgicaux<textarea v-model="form.consultation_data.surgical_history" rows="4" :class="textareaClass"></textarea></label>
-                                <label class="block text-sm text-slate-500">Incident antérieur<textarea v-model="form.consultation_data.anesthetic_incidents" rows="3" :class="textareaClass"></textarea></label>
+                                <label class="block text-sm text-slate-500">Antécédents anesthésiques<textarea v-model="form.consultation_data.anesthetic_history" v-bind="fieldAttrs('consultation_data.anesthetic_history')" rows="4" :class="[textareaClass, invalidClass('consultation_data.anesthetic_history')]"></textarea><FormError v-if="errorMessage('consultation_data.anesthetic_history')" :id="errorId('consultation_data.anesthetic_history')" :message="errorMessage('consultation_data.anesthetic_history')" /></label>
+                                <label class="block text-sm text-slate-500">Antécédents chirurgicaux<textarea v-model="form.consultation_data.surgical_history" v-bind="fieldAttrs('consultation_data.surgical_history')" rows="4" :class="[textareaClass, invalidClass('consultation_data.surgical_history')]"></textarea><FormError v-if="errorMessage('consultation_data.surgical_history')" :id="errorId('consultation_data.surgical_history')" :message="errorMessage('consultation_data.surgical_history')" /></label>
+                                <label class="block text-sm text-slate-500">Incident antérieur<textarea v-model="form.consultation_data.anesthetic_incidents" v-bind="fieldAttrs('consultation_data.anesthetic_incidents')" rows="3" :class="[textareaClass, invalidClass('consultation_data.anesthetic_incidents')]"></textarea><FormError v-if="errorMessage('consultation_data.anesthetic_incidents')" :id="errorId('consultation_data.anesthetic_incidents')" :message="errorMessage('consultation_data.anesthetic_incidents')" /></label>
                             </div>
 
                             <div class="space-y-4 p-4">

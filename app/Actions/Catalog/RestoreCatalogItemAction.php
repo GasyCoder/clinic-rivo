@@ -3,18 +3,21 @@
 namespace App\Actions\Catalog;
 
 use App\Models\CatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 
 class RestoreCatalogItemAction
 {
-    public function execute(CatalogItem $item, User $actor): CatalogItem
+    public function execute(CatalogItem $item, CatalogActor $actor): CatalogItem
     {
         if ($actor->cannot('catalog.items.restore')) {
             throw new AuthorizationException('Vous ne pouvez pas restaurer cet élément.');
         }
 
-        $item->updated_by = $actor->id;
+        $item->fill([
+            'updated_by' => $actor->localUserId(),
+            ...$actor->externalAttribution('updated'),
+        ]);
         $item->restore();
 
         return $item->fresh(['currentTariff']);

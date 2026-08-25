@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'medicine_id', 'lot_number', 'received_at', 'expires_at',
     'quantity_on_hand', 'active', 'created_by', 'updated_by',
+    'external_created_by_uuid', 'external_created_by_name',
+    'external_updated_by_uuid', 'external_updated_by_name',
 ])]
 class MedicineLot extends Model
 {

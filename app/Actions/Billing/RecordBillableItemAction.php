@@ -74,6 +74,15 @@ class RecordBillableItemAction
                 ]);
             }
 
+            $coverage = $plannedRequest?->coverage_rate !== null
+                ? [
+                    'organization_uuid' => $plannedRequest->mutual_organization_uuid,
+                    'organization_name' => $plannedRequest->mutual_organization_name,
+                    'coverage_rate' => $plannedRequest->coverage_rate,
+                ]
+                : $this->tariffs->coverageSnapshot($episode->patient);
+            $coverageMinor = Money::percentage($totalMinor, $coverage['coverage_rate'] ?? '0.00');
+
             return BillableItem::create([
                 'episode_id' => $episode->id,
                 'source_module' => $item->module->value,
@@ -83,12 +92,18 @@ class RecordBillableItemAction
                 'catalog_item_id' => $item->id,
                 'catalog_tariff_id' => $tariff->id,
                 'tariff_category' => $plannedRequest?->tariff_category ?? $tariff->tariff_category,
+                'mutual_organization_uuid' => $coverage['organization_uuid'],
+                'mutual_organization_name' => $coverage['organization_name'],
+                'coverage_rate' => $coverage['coverage_rate'] ?? '0.00',
                 // Snapshot obligatoire : les changements de tarif futurs ne
                 // modifient jamais une prestation/facture déjà créée.
                 'description' => $item->name,
                 'quantity' => Money::normalize($data['quantity']),
                 'unit_price' => Money::fromMinor($unitPriceMinor),
                 'total_amount' => Money::fromMinor($totalMinor),
+                'gross_amount' => Money::fromMinor($totalMinor),
+                'coverage_amount' => Money::fromMinor($coverageMinor),
+                'patient_amount' => Money::fromMinor($totalMinor - $coverageMinor),
                 'currency' => $tariff->currency,
                 'payment_required_before_fulfillment' => (bool) ($data['payment_required_before_fulfillment'] ?? false),
                 'status' => BillableItemStatus::Pending,

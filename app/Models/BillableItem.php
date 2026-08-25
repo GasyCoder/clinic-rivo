@@ -16,7 +16,9 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 #[Fillable([
     'episode_id', 'source_module', 'source_type', 'source_id', 'source_uuid',
     'catalog_item_id', 'catalog_tariff_id', 'tariff_category',
-    'description', 'quantity', 'unit_price', 'total_amount', 'currency',
+    'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
+    'description', 'quantity', 'unit_price', 'total_amount', 'gross_amount',
+    'coverage_amount', 'patient_amount', 'currency',
     'payment_required_before_fulfillment', 'status', 'created_by',
     'cancelled_by', 'cancelled_at', 'cancellation_reason',
 ])]
@@ -36,6 +38,10 @@ class BillableItem extends Model
             'quantity' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'total_amount' => 'decimal:2',
+            'gross_amount' => 'decimal:2',
+            'coverage_rate' => 'decimal:2',
+            'coverage_amount' => 'decimal:2',
+            'patient_amount' => 'decimal:2',
             'payment_required_before_fulfillment' => 'boolean',
             'cancelled_at' => 'datetime',
         ];

@@ -63,11 +63,17 @@ class PermissionSeeder extends Seeder
         'address_entries.create' => 'Ajouter une adresse au référentiel',
         'address_entries.update' => 'Modifier une adresse du référentiel',
         'address_entries.archive' => 'Archiver une adresse du référentiel',
+        'address_entries.restore' => 'Restaurer une adresse du référentiel',
+        'address_entries.import' => 'Importer des adresses dans le référentiel',
+        'address_entries.export' => 'Exporter le référentiel des adresses',
 
         'mutual_organizations.view' => 'Voir les organismes de mutuelle',
         'mutual_organizations.create' => 'Créer un organisme de mutuelle',
         'mutual_organizations.update' => 'Modifier un organisme de mutuelle',
         'mutual_organizations.archive' => 'Archiver un organisme de mutuelle',
+        'mutual_organizations.restore' => 'Restaurer un organisme de mutuelle',
+        'mutual_organizations.import' => 'Importer les organismes et leurs taux de couverture',
+        'mutual_organizations.export' => 'Exporter les organismes et leurs taux de couverture',
         'patient_coverages.view' => 'Voir la couverture administrative du patient',
         'patient_coverages.create' => 'Enregistrer une couverture mutuelle',
         'patient_coverages.update' => 'Modifier une couverture mutuelle',
@@ -126,6 +132,8 @@ class PermissionSeeder extends Seeder
         'catalog.tariffs.create' => 'Créer un tarif',
         'catalog.tariffs.update' => 'Modifier un tarif',
         'catalog.tariffs.archive' => 'Suspendre un tarif',
+        'catalog.tariffs.import' => 'Importer les tarifs Standard et Mutuelle',
+        'catalog.tariffs.export' => 'Exporter les tarifs Standard et Mutuelle',
 
         'reception.view' => 'Accéder à la réception',
 
@@ -202,7 +210,7 @@ class PermissionSeeder extends Seeder
         // CDC GitHub §15 / ADR-035. Les demandes Laboratoire,
         // Hospitalisation et Transfert restent absentes tant que leurs
         // workflows spécialisés ne sont pas réellement construits. Chirurgie
-        // possède désormais son workflow séparé décrit par ADR-042.
+        // possède désormais son workflow séparé décrit par ADR-048.
         'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
         'consultations.create' => 'Créer une consultation',
@@ -234,7 +242,7 @@ class PermissionSeeder extends Seeder
         'vitals.update' => 'Modifier des constantes',
         'medical_orders.view' => 'Voir les ordres médicaux',
 
-        // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-042 en fait un
+        // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-048 en fait un
         // espace autorisé séparément : ces permissions sont attribuées aux
         // comptes concernés, notamment au profil ANESTHETIST.
         'anesthesia.view' => 'Voir les dossiers d\'anesthésie',

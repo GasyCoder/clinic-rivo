@@ -79,9 +79,18 @@ const total = computed(() => selectedServices.value.reduce(
     (sum, { line, item }) => sum + Number(line.quantity || 0) * Number(item.tariff_amount || 0),
     0,
 ));
+const coverageTotal = computed(() => selectedServices.value.reduce(
+    (sum, { line, item }) => sum + Number(line.quantity || 0) * Number(item.coverage_amount || 0),
+    0,
+));
+const patientTotal = computed(() => selectedServices.value.reduce(
+    (sum, { line, item }) => sum + Number(line.quantity || 0) * Number(item.patient_amount ?? item.tariff_amount ?? 0),
+    0,
+));
 const canPayNow = computed(() => !isStaff.value
     && !mutualCoverageMissing.value
     && !hasUnpricedServices.value
+    && patientTotal.value > 0
     && Boolean(props.openCashSession)
     && props.paymentMethods.length > 0);
 const complete = computed(() => selectedServices.value.length > 0 || form.defer_designation);
@@ -144,7 +153,7 @@ const submit = () => {
             <div class="grid border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30 sm:grid-cols-3">
                 <div class="border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-b-0 sm:border-e"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Arrivée</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ formatDateTime(episode.started_at) }}</p></div>
                 <div class="border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-b-0 sm:border-e"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Type patient</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ patientTypeLabels[episode.patient.patient_type] }}</p></div>
-                <div class="px-5 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Barème tarifaire</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ pricingContext.label }}<span v-if="pricingContext.organization_name" class="font-normal text-slate-400"> · {{ pricingContext.organization_name }}</span></p></div>
+                <div class="px-5 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Barème tarifaire</p><p class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ pricingContext.label }}<span v-if="pricingContext.organization_name" class="font-normal text-slate-400"> · {{ pricingContext.organization_name }}</span></p><p v-if="isMutual && pricingContext.coverage_rate" class="mt-0.5 text-xs text-slate-400">Mutuelle {{ Number(pricingContext.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} % · Patient {{ Number(pricingContext.patient_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p></div>
             </div>
         </Card>
 
@@ -177,7 +186,7 @@ const submit = () => {
                         <button v-for="item in filteredCatalog" :key="item.uuid" type="button" class="grid w-full grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="addService(item)">
                             <span :class="['flex h-8 w-8 items-center justify-center rounded border', item.tariff_available ? 'border-gray-200 text-primary-600 dark:border-gray-800' : 'border-amber-200 text-amber-600 dark:border-amber-900']"><Icon name="plus" /></span>
                             <span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.unit }}</span></span>
-                            <span class="ps-3 text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ item.tariff_available ? formatMoney(item.tariff_amount) : 'À configurer' }}</span><span class="mt-0.5 block text-[11px] font-semibold text-slate-400">{{ routeLabels[item.routing_mode] ?? 'Parcours à définir' }}</span></span>
+                            <span class="ps-3 text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ item.tariff_available ? formatMoney(item.tariff_amount) : 'À configurer' }}</span><span v-if="isMutual && item.tariff_available" class="mt-0.5 block text-[11px] font-semibold text-emerald-600">Patient : {{ formatMoney(item.patient_amount) }}</span><span v-else class="mt-0.5 block text-[11px] font-semibold text-slate-400">{{ routeLabels[item.routing_mode] ?? 'Parcours à définir' }}</span></span>
                         </button>
                         <div v-if="filteredCatalog.length === 0" class="px-4 py-9 text-center"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucune prestation trouvée</p><p class="mt-1 text-xs text-slate-400">Modifiez la recherche ou le filtre de service.</p></div>
                     </div>
@@ -196,8 +205,9 @@ const submit = () => {
                         </div>
                         <div v-if="isStaff" class="px-4 py-3 text-xs leading-5 text-amber-700 dark:text-amber-300"><strong>Personnel clinique :</strong> le tarif brut configuré est mémorisé ; RH / Finance calculera ensuite la gratuité et le crédit chirurgie.</div>
                         <div v-else-if="selectedServices.length && (hasUnpricedServices || mutualCoverageMissing)" class="px-4 py-3 text-xs leading-5 text-amber-700 dark:text-amber-300"><strong>Facturation en attente :</strong> le parcours clinique sera conservé, sans encaissement, jusqu’à configuration du tarif ou de la couverture.</div>
+                        <div v-else-if="selectedServices.length && isMutual && patientTotal === 0" class="flex items-start gap-3 bg-emerald-50/60 px-4 py-3 text-xs leading-5 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-200"><Icon class="mt-0.5 shrink-0" name="shield-check" /><span><strong>Prise en charge à 100 % :</strong> la facture indiquera la part de {{ pricingContext.organization_name }}, mais aucun paiement patient ni reçu de caisse ne sera créé.</span></div>
                         <div v-else-if="selectedServices.length" class="grid gap-3 p-3 sm:grid-cols-2">
-                            <button type="button" :class="['rounded-md border p-3 text-start', form.payment_choice === 'NOW' ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800', !canPayNow ? 'cursor-not-allowed opacity-50' : '']" :disabled="!canPayNow" @click="choosePayment('NOW')"><span class="text-sm font-bold text-slate-700 dark:text-white">Payer maintenant</span><span class="mt-1 block text-xs text-slate-400">Encaissement intégral et reçu immédiat.</span></button>
+                            <button type="button" :class="['rounded-md border p-3 text-start', form.payment_choice === 'NOW' ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800', !canPayNow ? 'cursor-not-allowed opacity-50' : '']" :disabled="!canPayNow" @click="choosePayment('NOW')"><span class="text-sm font-bold text-slate-700 dark:text-white">Payer maintenant</span><span class="mt-1 block text-xs text-slate-400">Encaissement de la part patient et reçu immédiat.</span></button>
                             <button type="button" :class="['rounded-md border p-3 text-start', form.payment_choice === 'LATER' ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800']" @click="choosePayment('LATER')"><span class="text-sm font-bold text-slate-700 dark:text-white">Payer plus tard</span><span class="mt-1 block text-xs text-slate-400">Facture validée avec solde à payer.</span></button>
                             <template v-if="form.payment_choice === 'NOW'">
                                 <label><span class="mb-1 block text-xs font-medium text-slate-500">Mode de paiement</span><select v-model="form.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select></label>
@@ -214,7 +224,7 @@ const submit = () => {
                             <span class="relative flex h-9 w-9 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-lg" name="cart" /><span v-if="selectedServices.length" class="absolute -end-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-primary-600 px-1 text-[10px] font-bold text-white dark:border-gray-950">{{ selectedServices.length }}</span></span>
                             <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Panier des prestations</h3><p class="mt-0.5 text-xs text-slate-400">{{ selectedServices.length }} désignation{{ selectedServices.length > 1 ? 's' : '' }}</p></div>
                         </div>
-                        <div class="text-end"><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">Total</p><p class="mt-0.5 text-base font-bold text-slate-800 dark:text-white">{{ hasUnpricedServices ? 'À finaliser' : formatMoney(total) }}</p></div>
+                        <div class="text-end"><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">{{ isMutual ? 'À payer patient' : 'Total' }}</p><p class="mt-0.5 text-base font-bold text-slate-800 dark:text-white">{{ hasUnpricedServices ? 'À finaliser' : formatMoney(patientTotal) }}</p><p v-if="isMutual && !hasUnpricedServices" class="mt-0.5 text-[10px] text-slate-400">Brut {{ formatMoney(total) }} · mutuelle {{ formatMoney(coverageTotal) }}</p></div>
                     </div>
 
                     <div v-if="selectedServices.length" class="max-h-[430px] overflow-y-auto">
@@ -226,7 +236,7 @@ const submit = () => {
                             <div class="mt-2 grid grid-cols-[minmax(0,1fr)_74px_auto] items-end gap-2">
                                 <div><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">Parcours</p><p class="mt-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">{{ routeLabels[selection.item.routing_mode] }}</p></div>
                                 <label><span class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-400">Qté</span><Input v-model="selection.line.quantity" class="!w-[74px] text-end" type="number" min="0.01" max="9999.99" step="0.01" /></label>
-                                <div class="min-w-[78px] text-end"><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">Montant</p><p :class="['mt-1 text-sm font-bold', selection.item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ selection.item.tariff_available ? formatMoney(Number(selection.line.quantity || 0) * Number(selection.item.tariff_amount)) : 'À configurer' }}</p></div>
+                                <div class="min-w-[92px] text-end"><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">{{ isMutual ? 'Part patient' : 'Montant' }}</p><p :class="['mt-1 text-sm font-bold', selection.item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ selection.item.tariff_available ? formatMoney(Number(selection.line.quantity || 0) * Number(selection.item.patient_amount ?? selection.item.tariff_amount)) : 'À configurer' }}</p><p v-if="isMutual && selection.item.tariff_available" class="mt-0.5 text-[10px] text-slate-400">Mutuelle {{ formatMoney(Number(selection.line.quantity || 0) * Number(selection.item.coverage_amount)) }}</p></div>
                             </div>
                         </div>
                     </div>

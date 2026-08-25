@@ -22,6 +22,7 @@ const legalDetails = computed(() => page.props.site?.documents ?? {});
 const publicUrl = computed(() => page.props.site?.publicUrl ?? 'https://cliniquesaintgeorges.mg');
 const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''));
 const hasDiscount = computed(() => Number(props.invoice.discount_amount ?? 0) > 0);
+const hasCoverage = computed(() => Number(props.invoice.coverage_amount ?? 0) > 0);
 const returnHref = computed(() => (props.returnToCash ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
 const returnLabel = computed(() => (props.returnToCash ? 'Retour à la caisse' : 'Retour au patient'));
 const qrCodeDataUrl = ref('');
@@ -34,6 +35,7 @@ const invoiceStatusLabel = computed(() => ({
     VALIDATED: 'À payer',
     PARTIALLY_PAID: 'Paiement partiel',
     PAID: 'Acquittée',
+    COVERED: 'Prise en charge',
     CANCELLED: 'Annulée',
 })[props.invoice.status] ?? props.invoice.status);
 
@@ -169,7 +171,7 @@ onBeforeUnmount(() => {
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Facturé à</p>
                         <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ formatPatientName(invoice.patient) }}</p>
-                        <p class="font-mono text-[11px] text-slate-500">Patient {{ invoice.patient.patient_number }}</p>
+                        <p class="font-mono text-[11px] text-slate-500">Patient {{ invoice.patient.patient_number }}</p><p v-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
                     </div>
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Passage</p>
@@ -192,19 +194,21 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="invoice-table-wrap overflow-x-auto">
-                        <table class="invoice-table w-full min-w-[620px] text-xs">
+                        <table class="invoice-table w-full min-w-[700px] text-xs">
                             <colgroup>
                                 <col class="invoice-col-description" />
                                 <col class="invoice-col-quantity" />
                                 <col class="invoice-col-price" />
                                 <col class="invoice-col-total" />
+                                <col v-if="hasCoverage" class="invoice-col-total" />
                             </colgroup>
                             <thead class="border-y border-gray-200 text-[9px] uppercase tracking-wide text-slate-400 dark:border-gray-800">
                                 <tr>
                                     <th class="px-2.5 py-2 text-start font-bold">Désignation</th>
                                     <th class="px-2.5 py-2 text-end font-bold">Qté</th>
                                     <th class="px-2.5 py-2 text-end font-bold">Tarif</th>
-                                    <th class="px-2.5 py-2 text-end font-bold">Total</th>
+                                    <th class="px-2.5 py-2 text-end font-bold">Total brut</th>
+                                    <th v-if="hasCoverage" class="px-2.5 py-2 text-end font-bold">Part patient</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
@@ -212,7 +216,8 @@ onBeforeUnmount(() => {
                                     <td class="px-2.5 py-2.5 font-medium text-slate-700 dark:text-slate-200">{{ line.description }} <span v-if="line.billable_item?.source_module" class="ms-1 text-[9px] font-normal uppercase tracking-wide text-slate-400">{{ line.billable_item.source_module }}</span></td>
                                     <td class="px-2.5 py-2.5 text-end text-slate-500">{{ line.quantity }}</td>
                                     <td class="px-2.5 py-2.5 text-end text-slate-500">{{ formatMoney(line.unit_price) }}</td>
-                                    <td class="px-2.5 py-2.5 text-end font-bold text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</td>
+                                    <td class="px-2.5 py-2.5 text-end font-bold text-slate-700 dark:text-white">{{ formatMoney(line.gross_line_total ?? line.line_total) }}</td>
+                                    <td v-if="hasCoverage" class="px-2.5 py-2.5 text-end font-bold text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -224,9 +229,10 @@ onBeforeUnmount(() => {
                             <p class="mt-1 font-medium text-slate-500">Un reçu est émis uniquement après un encaissement réel.</p>
                         </div>
                         <dl class="invoice-totals space-y-1 text-xs">
-                            <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Sous-total</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
+                            <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Total brut</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
                             <div v-if="hasDiscount" class="flex items-center justify-between gap-4"><dt class="text-slate-400">Remise</dt><dd class="font-medium text-slate-700 dark:text-white">− {{ formatMoney(invoice.discount_amount) }}</dd></div>
-                            <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-1.5 dark:border-gray-800"><dt class="font-bold text-slate-600 dark:text-slate-300">Total</dt><dd class="text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
+                            <div v-if="hasCoverage" class="flex items-center justify-between gap-4"><dt class="text-slate-400">Pris en charge · {{ invoice.mutual_organization_name }}</dt><dd class="font-medium text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                            <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-1.5 dark:border-gray-800"><dt class="font-bold text-slate-600 dark:text-slate-300">À charge patient</dt><dd class="text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
                             <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Payé</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</dd></div>
                             <div class="flex items-center justify-between gap-4 border-t border-slate-700 pt-1.5"><dt class="font-bold text-slate-700 dark:text-white">Reste à payer</dt><dd class="text-base font-black text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</dd></div>
                         </dl>
@@ -264,21 +270,25 @@ onBeforeUnmount(() => {
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">N° patient</span><span class="text-end font-mono font-bold">{{ invoice.patient.patient_number }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode.episode_number }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Émise par</span><span class="text-end font-medium">{{ invoice.creator.name }}</span></div>
+                            <div v-if="hasCoverage" class="flex items-start justify-between gap-3"><span class="shrink-0">Mutuelle</span><span class="text-end font-bold">{{ invoice.mutual_organization_name }} · {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</span></div>
                         </section>
 
                         <section class="border-b border-dashed border-slate-400 py-2.5">
                             <h2 class="mb-1.5 text-center text-[9px] font-black uppercase tracking-wider">Détail des prestations</h2>
                             <div class="divide-y divide-dashed divide-slate-300">
                                 <div v-for="line in invoice.lines" :key="line.id" class="ticket-line py-1.5 text-[11px] first:pt-0 last:pb-0">
-                                    <div class="flex items-start justify-between gap-3"><p class="min-w-0 font-bold leading-3.5">{{ line.description }}</p><p class="shrink-0 font-black">{{ formatMoney(line.line_total) }}</p></div>
+                                    <div class="flex items-start justify-between gap-3"><p class="min-w-0 font-bold leading-3.5">{{ line.description }}</p><p class="shrink-0 font-black">{{ formatMoney(line.gross_line_total ?? line.line_total) }}</p></div>
                                     <div class="flex items-center justify-between gap-3 text-[9px] text-slate-500"><span>{{ line.quantity }} × {{ formatMoney(line.unit_price) }}</span><span v-if="line.billable_item?.source_module" class="uppercase">{{ line.billable_item.source_module }}</span></div>
+                                    <div v-if="hasCoverage" class="mt-0.5 flex items-center justify-between gap-3 text-[9px]"><span>Mutuelle −{{ formatMoney(line.coverage_amount) }}</span><span>Patient {{ formatMoney(line.line_total) }}</span></div>
                                 </div>
                             </div>
                         </section>
 
                         <section class="border-b border-dashed border-slate-400 py-2.5">
                             <dl class="space-y-1 text-[11px]">
-                                <div class="flex items-center justify-between gap-3"><dt>Total</dt><dd class="font-bold">{{ formatMoney(invoice.total_amount) }}</dd></div>
+                                <div class="flex items-center justify-between gap-3"><dt>Total brut</dt><dd class="font-bold">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
+                                <div v-if="hasCoverage" class="flex items-center justify-between gap-3"><dt>Part mutuelle</dt><dd class="font-bold">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                                <div class="flex items-center justify-between gap-3"><dt>Part patient</dt><dd class="font-bold">{{ formatMoney(invoice.total_amount) }}</dd></div>
                                 <div class="flex items-center justify-between gap-3"><dt>Payé</dt><dd class="font-bold">{{ formatMoney(invoice.paid_amount) }}</dd></div>
                                 <div class="mt-1.5 flex items-center justify-between gap-3 border-y border-slate-800 py-1.5"><dt class="font-black uppercase">Reste à payer</dt><dd class="text-sm font-black">{{ formatMoney(invoice.balance_amount) }}</dd></div>
                             </dl>

@@ -20,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'reception_selectable', 'reception_routing_mode', 'description',
     'care_requires_allergy_check', 'care_recommends_vitals',
     'created_by', 'updated_by',
+    'external_created_by_uuid', 'external_created_by_name',
+    'external_updated_by_uuid', 'external_updated_by_name',
 ])]
 class CatalogItem extends Model
 {

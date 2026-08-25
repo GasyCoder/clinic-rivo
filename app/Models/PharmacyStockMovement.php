@@ -13,6 +13,7 @@ use LogicException;
 #[Fillable([
     'medicine_lot_id', 'type', 'quantity_delta', 'balance_after',
     'source_key', 'reason', 'occurred_at', 'performed_by',
+    'external_actor_uuid', 'external_actor_name',
 ])]
 class PharmacyStockMovement extends Model
 {

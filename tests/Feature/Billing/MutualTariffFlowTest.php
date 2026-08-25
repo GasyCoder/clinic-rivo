@@ -8,6 +8,7 @@ use App\Enums\ArrivalPaymentChoice;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
+use App\Enums\InvoiceStatus;
 use App\Enums\PatientType;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\BillableItem;
@@ -110,8 +111,55 @@ class MutualTariffFlowTest extends TestCase
         $this->assertSame(CatalogTariffCategory::Mutual, $billable->tariff_category);
         $this->assertSame($mutual->id, $billable->catalog_tariff_id);
         $this->assertSame('18000.00', $billable->unit_price);
-        $this->assertSame('36000.00', $invoice->total_amount);
+        $this->assertSame('36000.00', $invoice->subtotal_amount);
+        $this->assertSame('36000.00', $invoice->coverage_amount);
+        $this->assertSame('0.00', $invoice->total_amount);
+        $this->assertSame('0.00', $invoice->balance_amount);
+        $this->assertSame(InvoiceStatus::Covered, $invoice->status);
+        $this->assertSame('100.00', $invoice->coverage_rate);
+        $this->assertSame('Mutuelle de test', $invoice->mutual_organization_name);
         $this->assertSame('18000.00', $invoice->lines->sole()->unit_price);
+        $this->assertSame('36000.00', $invoice->lines->sole()->gross_line_total);
+        $this->assertSame('36000.00', $invoice->lines->sole()->coverage_amount);
+        $this->assertSame('0.00', $invoice->lines->sole()->line_total);
+    }
+
+    public function test_an_eighty_percent_mutual_contract_leaves_only_twenty_percent_to_the_patient(): void
+    {
+        $service = $this->service();
+        $this->tariff($service, CatalogTariffCategory::Standard, '25000.00');
+        $this->tariff($service, CatalogTariffCategory::Mutual, '18000.00');
+        $patient = $this->patient(PatientType::Mutual);
+        $coverage = $this->activeCoverage($patient, '80.00');
+        $episode = $this->episode($patient);
+
+        $this->complete($episode, $service, quantity: 2);
+
+        $request = EpisodeServiceRequest::query()->sole();
+        $billable = BillableItem::query()->sole();
+        $invoice = Invoice::query()->with('lines')->sole();
+
+        $this->assertSame('80.00', $request->coverage_rate);
+        $this->assertSame('36000.00', $request->gross_amount);
+        $this->assertSame('28800.00', $request->coverage_amount);
+        $this->assertSame('7200.00', $request->patient_amount);
+        $this->assertSame('28800.00', $billable->coverage_amount);
+        $this->assertSame('7200.00', $billable->patient_amount);
+        $this->assertSame('36000.00', $invoice->subtotal_amount);
+        $this->assertSame('28800.00', $invoice->coverage_amount);
+        $this->assertSame('7200.00', $invoice->total_amount);
+        $this->assertSame('7200.00', $invoice->balance_amount);
+        $this->assertSame(InvoiceStatus::Validated, $invoice->status);
+        $this->assertSame('7200.00', $invoice->lines->sole()->line_total);
+
+        // Une convention modifiée demain ne doit jamais recalculer le
+        // passage ou la facture déjà validés aujourd'hui.
+        $coverage->organization()->update(['coverage_rate' => '100.00']);
+
+        $this->assertSame('80.00', $request->fresh()->coverage_rate);
+        $this->assertSame('28800.00', $billable->fresh()->coverage_amount);
+        $this->assertSame('28800.00', $invoice->fresh()->coverage_amount);
+        $this->assertSame('7200.00', $invoice->balance_amount);
     }
 
     public function test_a_missing_mutual_tariff_never_falls_back_and_keeps_the_clinical_plan(): void
@@ -191,10 +239,11 @@ class MutualTariffFlowTest extends TestCase
         ]);
     }
 
-    private function activeCoverage(Patient $patient): PatientMutualCoverage
+    private function activeCoverage(Patient $patient, string $coverageRate = '100.00'): PatientMutualCoverage
     {
         $organization = MutualOrganization::query()->create([
             'name' => 'Mutuelle de test',
+            'coverage_rate' => $coverageRate,
             'active' => true,
         ]);
 

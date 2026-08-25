@@ -13,7 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'patient_id', 'episode_id', 'invoice_number', 'status', 'currency',
-    'subtotal_amount', 'discount_amount', 'total_amount', 'paid_amount',
+    'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
+    'subtotal_amount', 'discount_amount', 'coverage_amount', 'total_amount', 'paid_amount',
     'balance_amount', 'created_by', 'validated_by', 'cancelled_by',
     'validated_at', 'cancelled_at', 'cancellation_reason',
 ])]
@@ -27,6 +28,8 @@ class Invoice extends Model
             'status' => InvoiceStatus::class,
             'subtotal_amount' => 'decimal:2',
             'discount_amount' => 'decimal:2',
+            'coverage_rate' => 'decimal:2',
+            'coverage_amount' => 'decimal:2',
             'total_amount' => 'decimal:2',
             'paid_amount' => 'decimal:2',
             'balance_amount' => 'decimal:2',

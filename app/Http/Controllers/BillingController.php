@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\Billing\CreateInvoiceAction;
 use App\Actions\Billing\ValidateInvoiceAction;
+use App\Enums\InvoiceStatus;
 use App\Http\Requests\StoreInvoiceRequest;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -46,8 +47,12 @@ class BillingController extends Controller
         Invoice $invoice,
         ValidateInvoiceAction $action,
     ): RedirectResponse {
-        $action->execute($invoice, $request->user());
+        $invoice = $action->execute($invoice, $request->user());
 
-        return back()->with('status', "Facture {$invoice->invoice_number} validée et prête à encaisser.");
+        $message = $invoice->status === InvoiceStatus::Covered
+            ? "Facture {$invoice->invoice_number} validée : prise en charge intégrale, aucun encaissement patient."
+            : "Facture {$invoice->invoice_number} validée et prête à encaisser.";
+
+        return back()->with('status', $message);
     }
 }

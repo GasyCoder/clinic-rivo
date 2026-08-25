@@ -20,10 +20,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 #[Fillable([
     'episode_id', 'catalog_item_id', 'catalog_tariff_id', 'tariff_category',
+    'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
     'catalog_item_uuid', 'catalog_code',
     'designation', 'module', 'routing_mode', 'unit', 'unit_price',
     'care_requires_allergy_check', 'care_recommends_vitals',
-    'currency', 'quantity', 'created_by',
+    'currency', 'quantity', 'gross_amount', 'coverage_amount', 'patient_amount', 'created_by',
 ])]
 class EpisodeServiceRequest extends Model
 {
@@ -43,6 +44,10 @@ class EpisodeServiceRequest extends Model
             'tariff_category' => CatalogTariffCategory::class,
             'unit_price' => 'decimal:2',
             'quantity' => 'decimal:2',
+            'coverage_rate' => 'decimal:2',
+            'gross_amount' => 'decimal:2',
+            'coverage_amount' => 'decimal:2',
+            'patient_amount' => 'decimal:2',
         ];
     }
 

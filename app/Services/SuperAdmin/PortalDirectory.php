@@ -17,7 +17,7 @@ class PortalDirectory
         return collect(config('rivo.clinics', []))->map(fn (array $site) => [
             'code' => $site['code'],
             'name' => $site['name'],
-            'integration_status' => filled($site['api_url'] ?? null) ? 'CONFIGURED' : 'PENDING',
+            'integration_status' => filled($site['api_url'] ?? null) && filled($site['api_token'] ?? null) ? 'CONFIGURED' : 'PENDING',
             'modules' => $this->modules(),
         ])->values();
     }
@@ -105,7 +105,7 @@ class PortalDirectory
             [
                 'code' => 'CATALOG', 'label' => 'Référentiels & tarifs', 'icon' => 'setting-alt',
                 'description' => 'Prestations et grilles tarifaires propres au site.',
-                'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Historique tarifaire'],
+                'areas' => ['Désignations', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles et partenaires', 'Historique tarifaire'],
                 'notice' => 'Les montants restent propres au site. Le portail central les administre uniquement via l’API sécurisée du site sélectionné.',
             ],
         ];
@@ -174,10 +174,10 @@ class PortalDirectory
                 'areas' => ['Rôles principaux', 'Permissions par module', 'Affectations par site', 'Exceptions individuelles', 'Historique des changements'],
             ],
             'TARIFFS' => [
-                'title' => 'Désignations & tarifs',
-                'description' => 'Pilotage par site des prestations, tarifs sans mutuelle et tarifs mutuelle historisés.',
+                'title' => 'Tarifs & mutuelles',
+                'description' => 'Pilotage par site des prestations, grilles tarifaires et organismes de couverture.',
                 'icon' => 'list-index',
-                'areas' => ['Désignations par site', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Historique et écarts', 'Publication contrôlée via API'],
+                'areas' => ['Désignations par site', 'Tarifs sans mutuelle', 'Tarifs mutuelle', 'Mutuelles et partenaires', 'Historique et écarts', 'Publication contrôlée via API'],
             ],
             'SETTINGS' => [
                 'title' => 'Paramètres',

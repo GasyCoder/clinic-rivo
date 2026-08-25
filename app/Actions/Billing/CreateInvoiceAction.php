@@ -65,7 +65,15 @@ class CreateInvoiceAction
                 ]);
             }
 
-            $subtotalMinor = $items->sum(fn (BillableItem $item) => Money::toMinor($item->total_amount));
+            $subtotalMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->gross_amount ?? $item->total_amount,
+            ));
+            $coverageMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->coverage_amount ?? '0.00',
+            ));
+            $patientMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->patient_amount ?? $item->total_amount,
+            ));
 
             if ($subtotalMinor <= 0 || $subtotalMinor > 999_999_999_999_999) {
                 throw ValidationException::withMessages([
@@ -73,18 +81,32 @@ class CreateInvoiceAction
                 ]);
             }
 
+            if ($coverageMinor < 0 || $coverageMinor > $subtotalMinor || $patientMinor !== $subtotalMinor - $coverageMinor) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'La répartition entre mutuelle et patient est incohérente.',
+                ]);
+            }
+
             $subtotal = Money::fromMinor($subtotalMinor);
+            $patientTotal = Money::fromMinor($patientMinor);
+            $organizationUuids = $items->pluck('mutual_organization_uuid')->filter()->unique();
+            $organizationNames = $items->pluck('mutual_organization_name')->filter()->unique();
+            $coverageRates = $items->pluck('coverage_rate')->filter(fn ($rate) => $rate !== null)->unique();
             $invoice = Invoice::create([
                 'patient_id' => $patient->id,
                 'episode_id' => $episode->id,
                 'invoice_number' => $this->numbers->invoice(),
                 'status' => InvoiceStatus::Draft,
                 'currency' => 'MGA',
+                'mutual_organization_uuid' => $organizationUuids->count() === 1 ? $organizationUuids->first() : null,
+                'mutual_organization_name' => $organizationNames->count() === 1 ? $organizationNames->first() : null,
+                'coverage_rate' => $coverageRates->count() === 1 ? $coverageRates->first() : null,
                 'subtotal_amount' => $subtotal,
                 'discount_amount' => '0.00',
-                'total_amount' => $subtotal,
+                'coverage_amount' => Money::fromMinor($coverageMinor),
+                'total_amount' => $patientTotal,
                 'paid_amount' => '0.00',
-                'balance_amount' => $subtotal,
+                'balance_amount' => $patientTotal,
                 'created_by' => $actor->id,
             ]);
 
@@ -94,7 +116,10 @@ class CreateInvoiceAction
                     'description' => $item->description,
                     'quantity' => $item->quantity,
                     'unit_price' => $item->unit_price,
-                    'line_total' => $item->total_amount,
+                    'line_total' => $item->patient_amount ?? $item->total_amount,
+                    'gross_line_total' => $item->gross_amount ?? $item->total_amount,
+                    'coverage_rate' => $item->coverage_rate ?? '0.00',
+                    'coverage_amount' => $item->coverage_amount ?? '0.00',
                     'source_type' => $item->source_type,
                     'source_uuid' => $item->source_uuid,
                     'status' => 'ACTIVE',

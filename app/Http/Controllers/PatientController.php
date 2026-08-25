@@ -117,7 +117,7 @@ class PatientController extends Controller
         if ($request->user()->can('patient_coverages.view')) {
             $patient->load([
                 'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from',
-                'activeMutualCoverage.organization:id,uuid,name',
+                'activeMutualCoverage.organization:id,uuid,name,coverage_rate',
             ]);
 
             if ($request->user()->can('patient_coverage_documents.view')) {
@@ -161,7 +161,9 @@ class PatientController extends Controller
                 'total_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->total_amount))),
                 'paid_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->paid_amount))),
                 'balance_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->balance_amount))),
-                'unbilled_amount' => Money::fromMinor($pendingItems->sum(fn ($item) => Money::toMinor($item->total_amount))),
+                'unbilled_amount' => Money::fromMinor($pendingItems->sum(fn ($item) => Money::toMinor(
+                    $item->patient_amount ?? $item->total_amount,
+                ))),
                 'billable_items' => $billableItems->map(fn ($item) => [
                     'uuid' => $item->uuid,
                     'source_module' => $item->source_module,
@@ -169,6 +171,11 @@ class PatientController extends Controller
                     'quantity' => $item->quantity,
                     'unit_price' => $item->unit_price,
                     'total_amount' => $item->total_amount,
+                    'gross_amount' => $item->gross_amount,
+                    'coverage_amount' => $item->coverage_amount,
+                    'patient_amount' => $item->patient_amount,
+                    'coverage_rate' => $item->coverage_rate,
+                    'mutual_organization_name' => $item->mutual_organization_name,
                     'currency' => $item->currency,
                     'payment_required_before_fulfillment' => $item->payment_required_before_fulfillment,
                     'status' => $item->status->value,
@@ -187,6 +194,9 @@ class PatientController extends Controller
                     'currency' => $invoice->currency,
                     'subtotal_amount' => $invoice->subtotal_amount,
                     'discount_amount' => $invoice->discount_amount,
+                    'coverage_amount' => $invoice->coverage_amount,
+                    'coverage_rate' => $invoice->coverage_rate,
+                    'mutual_organization_name' => $invoice->mutual_organization_name,
                     'total_amount' => $invoice->total_amount,
                     'paid_amount' => $invoice->paid_amount,
                     'balance_amount' => $invoice->balance_amount,
@@ -202,6 +212,9 @@ class PatientController extends Controller
                         'quantity' => $line->quantity,
                         'unit_price' => $line->unit_price,
                         'line_total' => $line->line_total,
+                        'gross_line_total' => $line->gross_line_total,
+                        'coverage_rate' => $line->coverage_rate,
+                        'coverage_amount' => $line->coverage_amount,
                         'source_module' => $line->billableItem?->source_module ?? 'RECEPTION',
                         'status' => $line->status,
                     ])->values(),
@@ -279,7 +292,7 @@ class PatientController extends Controller
         if ($patient->patient_type === PatientType::Mutual && $canViewCoverage) {
             $patient->load([
                 'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from,effective_until',
-                'activeMutualCoverage.organization:id,uuid,name',
+                'activeMutualCoverage.organization:id,uuid,name,coverage_rate',
             ]);
 
             if ($canViewCoverageDocuments) {

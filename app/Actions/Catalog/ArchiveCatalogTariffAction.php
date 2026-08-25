@@ -4,8 +4,8 @@ namespace App\Actions\Catalog;
 
 use App\Enums\CatalogTariffCategory;
 use App\Models\CatalogItem;
-use App\Models\User;
 use App\Services\Audit\Auditor;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +18,7 @@ class ArchiveCatalogTariffAction
         CatalogItem $item,
         CatalogTariffCategory $category,
         string $reason,
-        User $actor,
+        CatalogActor $actor,
     ): void {
         if ($actor->cannot('catalog.tariffs.archive')) {
             throw new AuthorizationException('Vous ne pouvez pas suspendre ce tarif.');
@@ -37,7 +37,8 @@ class ArchiveCatalogTariffAction
             $current->fill([
                 'effective_until' => now(),
                 'active_key' => null,
-                'ended_by' => $actor->id,
+                'ended_by' => $actor->localUserId(),
+                ...$actor->externalAttribution('ended'),
             ])->save();
 
             $this->auditor->record(
@@ -47,7 +48,7 @@ class ArchiveCatalogTariffAction
                 newValues: ['active' => false],
                 reason: trim($reason),
                 module: 'catalog',
-                actor: $actor,
+                actor: $actor->user(),
             );
         });
     }

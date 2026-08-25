@@ -8,5 +8,6 @@ enum InvoiceStatus: string
     case Validated = 'VALIDATED';
     case PartiallyPaid = 'PARTIALLY_PAID';
     case Paid = 'PAID';
+    case Covered = 'COVERED';
     case Cancelled = 'CANCELLED';
 }

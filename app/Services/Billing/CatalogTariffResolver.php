@@ -34,19 +34,49 @@ class CatalogTariffResolver
 
     public function assertPatientCanBeBilled(Patient $patient): void
     {
+        $this->coverageSnapshot($patient);
+    }
+
+    /**
+     * Current contractual context. The caller may request a nullable result
+     * while opening the clinical route: an emergency route must never be
+     * blocked only because the family has not completed the coverage yet.
+     *
+     * @return array{organization_uuid: ?string, organization_name: ?string, coverage_rate: ?string}
+     */
+    public function coverageSnapshot(Patient $patient, bool $required = true): array
+    {
         if ($patient->patient_type !== PatientType::Mutual) {
-            return;
+            return [
+                'organization_uuid' => null,
+                'organization_name' => null,
+                'coverage_rate' => '0.00',
+            ];
         }
 
-        $hasActiveCoverage = $patient->relationLoaded('activeMutualCoverage')
-            ? $patient->activeMutualCoverage !== null
-            : $patient->activeMutualCoverage()->exists();
+        $patient->loadMissing('activeMutualCoverage.organization');
+        $coverage = $patient->activeMutualCoverage;
+        $organization = $coverage?->organization;
 
-        if (! $hasActiveCoverage) {
-            throw ValidationException::withMessages([
-                'patient' => 'La couverture mutuelle active doit être complétée avant la facturation.',
-            ]);
+        if (! $coverage || ! $organization) {
+            if ($required) {
+                throw ValidationException::withMessages([
+                    'patient' => 'La couverture mutuelle active doit être complétée avant la facturation.',
+                ]);
+            }
+
+            return [
+                'organization_uuid' => null,
+                'organization_name' => null,
+                'coverage_rate' => null,
+            ];
         }
+
+        return [
+            'organization_uuid' => $organization->uuid,
+            'organization_name' => $organization->name,
+            'coverage_rate' => $organization->coverage_rate,
+        ];
     }
 
     public function current(

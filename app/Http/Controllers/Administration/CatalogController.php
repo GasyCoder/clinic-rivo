@@ -24,6 +24,7 @@ use App\Http\Requests\Administration\UpdateCatalogItemRequest;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\PrescriptionLine;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -109,7 +110,7 @@ class CatalogController extends Controller
 
     public function store(StoreCatalogItemRequest $request, CreateCatalogItemAction $action): RedirectResponse
     {
-        $item = $action->execute($request->validated(), $request->user());
+        $item = $action->execute($request->validated(), CatalogActor::fromUser($request->user()));
 
         return back()->with('status', "Élément {$item->code} créé dans le référentiel.");
     }
@@ -119,7 +120,7 @@ class CatalogController extends Controller
         CatalogItem $catalogItem,
         UpdateCatalogItemAction $action,
     ): RedirectResponse {
-        $action->execute($catalogItem, $request->validated(), $request->user());
+        $action->execute($catalogItem, $request->validated(), CatalogActor::fromUser($request->user()));
 
         return back()->with('status', "Élément {$catalogItem->code} mis à jour.");
     }
@@ -135,7 +136,7 @@ class CatalogController extends Controller
             $category,
             $request->validated('tariff_amount'),
             $request->validated('reason'),
-            $request->user(),
+            CatalogActor::fromUser($request->user()),
         );
 
         return back()->with('status', "Tarif {$category->label()} enregistré pour {$catalogItem->code}.");
@@ -147,7 +148,12 @@ class CatalogController extends Controller
         ArchiveCatalogTariffAction $action,
     ): RedirectResponse {
         $category = CatalogTariffCategory::from($request->validated('tariff_category'));
-        $action->execute($catalogItem, $category, $request->validated('reason'), $request->user());
+        $action->execute(
+            $catalogItem,
+            $category,
+            $request->validated('reason'),
+            CatalogActor::fromUser($request->user()),
+        );
 
         return back()->with('status', "Tarif {$category->label()} de {$catalogItem->code} suspendu.");
     }
@@ -157,7 +163,11 @@ class CatalogController extends Controller
         CatalogItem $catalogItem,
         ArchiveCatalogItemAction $action,
     ): RedirectResponse {
-        $action->execute($catalogItem, $request->validated('reason'), $request->user());
+        $action->execute(
+            $catalogItem,
+            $request->validated('reason'),
+            CatalogActor::fromUser($request->user()),
+        );
 
         return back()->with('status', "Élément {$catalogItem->code} archivé.");
     }
@@ -165,7 +175,7 @@ class CatalogController extends Controller
     public function restore(Request $request, string $catalogItem, RestoreCatalogItemAction $action): RedirectResponse
     {
         $item = CatalogItem::onlyTrashed()->where('uuid', $catalogItem)->firstOrFail();
-        $action->execute($item, $request->user());
+        $action->execute($item, CatalogActor::fromUser($request->user()));
 
         return back()->with('status', "Élément {$item->code} restauré.");
     }

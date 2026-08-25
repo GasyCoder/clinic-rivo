@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'invoice_id', 'billable_item_id', 'description', 'quantity', 'unit_price', 'line_total',
+    'gross_line_total', 'coverage_rate', 'coverage_amount',
     'source_type', 'source_uuid', 'status', 'created_by',
 ])]
 class InvoiceLine extends Model
@@ -22,6 +23,9 @@ class InvoiceLine extends Model
             'quantity' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'line_total' => 'decimal:2',
+            'gross_line_total' => 'decimal:2',
+            'coverage_rate' => 'decimal:2',
+            'coverage_amount' => 'decimal:2',
         ];
     }
 

@@ -10,6 +10,7 @@ use App\Models\CashSession;
 use App\Models\Episode;
 use App\Models\PaymentMethod;
 use App\Services\Billing\BillableCatalogDirectory;
+use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -25,7 +26,7 @@ class EpisodeServiceController extends Controller
         $episode->load([
             'patient:id,uuid,patient_number,patient_type,first_name,last_name',
             'patient.activeMutualCoverage:id,patient_id,mutual_organization_id,membership_number,effective_until',
-            'patient.activeMutualCoverage.organization:id,uuid,name',
+            'patient.activeMutualCoverage.organization:id,uuid,name,coverage_rate',
         ]);
 
         if ($episode->service_plan_finalized_at) {
@@ -54,6 +55,7 @@ class EpisodeServiceController extends Controller
                     'last_name' => $episode->patient->last_name,
                     'mutual_coverage' => $episode->patient->activeMutualCoverage ? [
                         'organization_name' => $episode->patient->activeMutualCoverage->organization->name,
+                        'coverage_rate' => $episode->patient->activeMutualCoverage->organization->coverage_rate,
                         'membership_number' => $episode->patient->activeMutualCoverage->membership_number,
                     ] : null,
                 ],
@@ -63,6 +65,12 @@ class EpisodeServiceController extends Controller
                 'category' => $tariffCategory,
                 'label' => $tariffCategory === 'MUTUAL' ? 'Tarif mutuelle' : 'Tarif sans mutuelle',
                 'organization_name' => $episode->patient->activeMutualCoverage?->organization?->name,
+                'coverage_rate' => $episode->patient->activeMutualCoverage?->organization?->coverage_rate,
+                'patient_rate' => $episode->patient->activeMutualCoverage?->organization
+                    ? Money::fromMinor(10_000 - Money::toMinor(
+                        $episode->patient->activeMutualCoverage->organization->coverage_rate,
+                    ))
+                    : '100.00',
                 'missing_tariffs_count' => $billingCatalog->where('tariff_available', false)->count(),
             ],
             'paymentMethods' => $request->user()->can('payments.create')

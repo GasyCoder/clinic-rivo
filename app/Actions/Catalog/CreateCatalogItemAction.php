@@ -7,7 +7,7 @@ use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 class CreateCatalogItemAction
 {
     /** @param array<string, mixed> $data */
-    public function execute(array $data, User $actor): CatalogItem
+    public function execute(array $data, CatalogActor $actor): CatalogItem
     {
         if ($actor->cannot('catalog.items.create')) {
             throw new AuthorizationException('Vous ne pouvez pas créer un élément du référentiel.');
@@ -47,8 +47,10 @@ class CreateCatalogItemAction
                 'care_requires_allergy_check' => $requiresAllergyCheck,
                 'care_recommends_vitals' => $recommendsVitals,
                 'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
-                'created_by' => $actor->id,
-                'updated_by' => $actor->id,
+                'created_by' => $actor->localUserId(),
+                'updated_by' => $actor->localUserId(),
+                ...$actor->externalAttribution('created'),
+                ...$actor->externalAttribution('updated'),
             ]);
 
             if ($billable) {
@@ -67,7 +69,8 @@ class CreateCatalogItemAction
                     'effective_from' => now(),
                     'active_key' => 'CURRENT',
                     'change_reason' => trim($data['tariff_reason']),
-                    'created_by' => $actor->id,
+                    'created_by' => $actor->localUserId(),
+                    ...$actor->externalAttribution('created'),
                 ]);
 
                 if (filled($data['mutual_tariff_amount'] ?? null)) {
@@ -86,7 +89,8 @@ class CreateCatalogItemAction
                         'effective_from' => now(),
                         'active_key' => 'CURRENT',
                         'change_reason' => trim($data['tariff_reason']),
-                        'created_by' => $actor->id,
+                        'created_by' => $actor->localUserId(),
+                        ...$actor->externalAttribution('created'),
                     ]);
                 }
             }

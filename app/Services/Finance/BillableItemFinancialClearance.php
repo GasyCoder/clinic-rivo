@@ -27,7 +27,7 @@ class BillableItemFinancialClearance
 
         $invoice = $item->invoiceLine?->invoice;
 
-        return $invoice?->status === InvoiceStatus::Paid
+        return in_array($invoice?->status, [InvoiceStatus::Paid, InvoiceStatus::Covered], true)
             && Money::toMinor($invoice->balance_amount) === 0;
     }
 }

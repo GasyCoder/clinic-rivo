@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Patient;
+use App\Support\Money;
 use Illuminate\Support\Collection;
 
 /**
@@ -24,6 +25,7 @@ class BillableCatalogDirectory
     {
         $category = $this->tariffs->categoryFor($patient);
         $relationship = $this->tariffs->relationshipFor($patient);
+        $coverage = $this->tariffs->coverageSnapshot($patient, required: false);
 
         return CatalogItem::query()
             ->where('type', CatalogItemType::Service->value)
@@ -36,9 +38,13 @@ class BillableCatalogDirectory
             ->orderBy('module')
             ->orderBy('name')
             ->get()
-            ->map(function (CatalogItem $item) use ($category, $relationship): array {
+            ->map(function (CatalogItem $item) use ($category, $relationship, $coverage): array {
                 /** @var CatalogTariff|null $tariff */
                 $tariff = $item->getRelation($relationship);
+                $grossMinor = $tariff ? Money::toMinor($tariff->amount) : null;
+                $coverageMinor = $grossMinor !== null && $coverage['coverage_rate'] !== null
+                    ? Money::percentage($grossMinor, $coverage['coverage_rate'])
+                    : null;
 
                 return [
                     'uuid' => $item->uuid,
@@ -53,6 +59,11 @@ class BillableCatalogDirectory
                     'tariff_category_label' => $category->label(),
                     'tariff_available' => $tariff !== null,
                     'tariff_amount' => $tariff?->amount,
+                    'coverage_rate' => $coverage['coverage_rate'],
+                    'coverage_amount' => $coverageMinor !== null ? Money::fromMinor($coverageMinor) : null,
+                    'patient_amount' => $grossMinor !== null && $coverageMinor !== null
+                        ? Money::fromMinor($grossMinor - $coverageMinor)
+                        : null,
                     'currency' => $tariff?->currency ?? 'MGA',
                 ];
             })

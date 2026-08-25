@@ -1676,7 +1676,268 @@ https://www.nhs.uk/conditions/low-blood-pressure-hypotension/
 
 ---
 
-# ADR-042 — Espaces Chirurgie/Anesthésie, référentiels et rapport financier
+# ADR-042 — Supervision centrale du stock Pharmacie et référentiel d’adresses par site
+
+**Status:** ACCEPTED (2026-08-23 — amendée le même jour par exigence explicite du propriétaire)
+
+La Super Administration expose deux espaces indépendants :
+
+```text
+Stock médicaments   vue consolidée, import et export Excel par site
+Adresses             référentiel administrable séparément sur chaque site
+```
+
+Le stock physique reste exploité au quotidien par la Pharmacie du site. Le
+portail central peut lire les médicaments, quantités physiques, réservations,
+disponibilités, lots et péremptions et exporter cette photographie en Excel,
+avec une ligne par lot.
+
+L'exigence explicite du propriétaire autorise aussi un import Excel central.
+Pour ne jamais transformer une quantité ambiguë en ajustement silencieux, chaque
+ligne indique obligatoirement une seule opération :
+
+```text
+STOCK_INITIAL  crée uniquement un nouveau lot et son mouvement d'ouverture
+ENTREE         ajoute une quantité et crée un mouvement d'entrée
+```
+
+`STOCK_INITIAL` est refusé si le lot existe déjà. L'import ne propose ni sortie,
+ni ajustement, ni inventaire, ni délivrance. Le médicament doit déjà exister et
+être actif dans le référentiel du site ; le lot, la péremption, la quantité et
+le motif sont obligatoires. L'ensemble du fichier est validé dans une
+transaction : une ligne invalide annule tout l'import. Les mouvements créés
+restent immuables conformément à l'ADR-036.
+
+Les adresses peuvent être ajoutées, renommées, archivées et restaurées depuis
+le portail central, mais la commande est exécutée dans la base du site cible.
+Une adresse archivée n’est plus proposée aux nouveaux dossiers ; les patients
+et employés déjà liés conservent leur référence historique. Les doublons sont
+comparés après normalisation des accents, espaces et majuscules.
+
+Le référentiel d'un site peut également être exporté en Excel et alimenté par
+un fichier `.xlsx` dont la colonne obligatoire est `Adresse`. L'import est limité à 1 000 lignes,
+normalise les doublons, est atomique, idempotent et audité dans la base du site
+cible. Une adresse archivée doit toujours être restaurée explicitement : un
+import ne la réactive pas silencieusement.
+
+`admin.rivo.mg` ne se connecte jamais directement aux bases des cliniques. Les
+deux modules utilisent des endpoints `/api/v1/super-admin/*` authentifiés avec
+un secret propre à chaque site. Toute requête porte un UUID ; toute écriture
+porte une clé d’idempotence et conserve l’identité UUID/nom de l’acteur central
+dans l’audit local. L’indisponibilité d’un site ne masque ni ne bloque les
+résultats des autres sites.
+
+Permissions :
+
+```text
+stock.view
+stock.import
+stock.export
+address_entries.view
+address_entries.create
+address_entries.update
+address_entries.archive
+address_entries.restore
+address_entries.import
+address_entries.export
+```
+
+---
+
+# ADR-043 — Banc d’API multi-site strictement local
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Pour ne pas bloquer le développement du portail Super Administration avant le
+déploiement des trois domaines cliniques, l’environnement `local` fournit un
+banc d’API distribué démarré par :
+
+```text
+composer local:apis
+```
+
+Le portail conserve son serveur et sa base habituels sur `127.0.0.1:8000`. Les
+sites sont servis séparément et ne partagent aucune base :
+
+```text
+Mampikony      127.0.0.1:8001   storage/app/local-sites/mampikony.sqlite
+Ambondromamy   127.0.0.1:8002   storage/app/local-sites/ambondromamy.sqlite
+Boriziny       127.0.0.1:8003   storage/app/local-sites/boriziny.sqlite
+```
+
+Chaque processus démarre comme `RIVO_SITE_TYPE=clinic`, avec son identité, son
+jeton local et sa base SQLite. Le portail accède aux stocks et aux adresses
+uniquement par les endpoints REST sécurisés `/api/v1/super-admin/*`. Il n’existe
+donc aucun raccourci SQL entre le portail et les sites, même pendant le
+développement.
+
+Les jetons déterministes et les ports par défaut sont exclusivement activés
+avec `APP_ENV=local`. En production, les URL et secrets restent obligatoirement
+explicites. Les bases sont créées et peuplées à leur première préparation ; un
+redémarrage conserve les modifications de test. Leur recréation exige l’option
+explicite `--reset` et est refusée tant que l’API concernée tourne.
+
+---
+
+# ADR-044 — Pilotage central des désignations et tarifs par API de site
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+L’espace Super Administration `Désignations & tarifs` n’est plus une maquette.
+Il interroge séparément les API de Mampikony, Ambondromamy et Boriziny et permet,
+sur le site explicitement choisi :
+
+```text
+créer et modifier une désignation
+archiver et restaurer une désignation
+créer ou remplacer le tarif STANDARD (sans mutuelle)
+créer ou remplacer le tarif MUTUAL (mutuelle)
+suspendre un tarif actif
+consulter l’historique tarifaire
+```
+
+Le portail central ne lit et n’écrit jamais directement une base clinique.
+Chaque écriture distante porte un UUID de requête, une clé d’idempotence,
+l’UUID/nom du Super Administrateur et ses permissions granulaires. L’API cible
+réexécute l’autorisation métier et conserve l’identité distante dans les lignes
+concernées et l’audit local. Une panne d’un site ne bloque pas les autres.
+
+Les deux catégories tarifaires restent indépendantes. Un tarif mutuelle absent
+ne reprend jamais le tarif standard. Tout remplacement clôt la version active
+et crée une nouvelle version ; aucun passage ni facture historique n’est
+recalculé. L’archivage d’une désignation est un Soft Delete audité.
+
+Le banc local de l’ADR-043 expose ces mêmes endpoints. Les prestations de test
+sont ajoutées seulement lorsqu’aucune prestation clinique n’existe encore sur
+le site : un redémarrage ne recrée donc pas un tarif suspendu et n’écrase jamais
+une décision tarifaire saisie pendant les tests.
+
+---
+
+# ADR-045 — Référentiel des mutuelles et partenaires par site
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Chaque site clinique possède son propre référentiel `mutual_organizations`.
+La Super Administration peut le consulter, créer un organisme, le renommer,
+l’archiver et le restaurer exclusivement par l’API du site cible. Les
+couvertures patient déjà enregistrées conservent leur relation avec un
+organisme archivé ; celui-ci n’est simplement plus proposé pour une nouvelle
+couverture.
+
+Les noms sont comparés après normalisation des accents, espaces et majuscules.
+Un organisme archivé doit être restauré explicitement et ne peut jamais être
+recréé comme doublon. Toutes les écritures sont autorisées par permissions
+granulaires, idempotentes, auditées dans la base clinique et portent l’identité
+du Super Administrateur distant.
+
+Classification validée :
+
+```text
+Sans mutuelle       catégorie tarifaire STANDARD, pas un organisme
+Avantage Personnel dispositif RH/Finance du personnel, pas une mutuelle
+Funhece, ADEFI, G4S, BOA, BNI, PAMF, ISPG, TFC et les partenaires
+« Personnels … »    organismes/partenaires du référentiel
+```
+
+Cette décision valide la gestion des organismes, mais ne définit pas une grille
+de prix différente pour chacun. Jusqu’à validation d’une convention détaillée,
+le tarif `MUTUAL` reste une seule catégorie propre au site et n’utilise jamais
+le tarif `STANDARD` comme remplacement silencieux.
+
+Permissions :
+
+```text
+mutual_organizations.view
+mutual_organizations.create
+mutual_organizations.update
+mutual_organizations.archive
+mutual_organizations.restore
+mutual_organizations.import
+mutual_organizations.export
+```
+
+---
+
+# ADR-046 — Actions multiples sûres dans les référentiels Super Administration
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Les écrans Adresses, Stock médicaments et Désignations & tarifs acceptent une
+sélection multiple limitée à 100 lignes et toujours rattachée à un seul site.
+Une sélection ne peut jamais déclencher implicitement la même commande sur
+plusieurs cliniques.
+
+Les commandes d'archivage et de restauration multiples concernent uniquement
+les adresses, les désignations et les organismes mutualistes. Elles réutilisent
+les permissions granulaires existantes, portent une clé d'idempotence, sont
+auditées pour chaque entité et s'exécutent dans une transaction locale du site.
+La liste complète des UUID doit être compatible avec l'opération : si une seule
+ligne est absente, déjà archivée ou déjà active, la commande entière est
+refusée sans modification partielle. Un motif commun est obligatoire pour tout
+archivage.
+
+Dans le Stock, l'action multiple est volontairement limitée à l'export Excel
+des médicaments sélectionnés avec tous leurs lots. Aucun ajustement, mouvement,
+inventaire, archivage ou suppression de stock en masse n'est déduit d'une simple
+sélection d'interface. Les écritures de stock conservent les processus explicites
+et audités définis par les ADR-036 et ADR-042.
+
+---
+
+# ADR-047 — Taux de couverture mutuelle et répartition financière figée
+
+**Status:** ACCEPTED (2026-08-23 — précision explicite du client)
+
+Le montant `MUTUAL` d'une désignation reste le tarif brut contractuel du site.
+Chaque organisme actif porte séparément un `coverage_rate` compris entre 0 et
+100 %, avec 100 % comme valeur par défaut. Le reste patient est calculé par le
+backend :
+
+```text
+part mutuelle = tarif brut × taux de couverture
+part patient  = tarif brut − part mutuelle
+```
+
+Le calcul utilise les unités monétaires entières et un arrondi déterministe. Par
+exemple, une prestation de 20 000 MGA couverte à 80 % produit 16 000 MGA de
+prise en charge et 4 000 MGA à payer par le patient.
+
+La couverture n'est ni une remise, ni un encaissement, ni un paiement. La
+Réception/Caisse reste le seul module autorisé à encaisser la part patient. Une
+facture couverte à 100 % est validée avec le statut `COVERED`; aucun paiement et
+aucun reçu de paiement ne sont fabriqués. Le document conserve néanmoins le
+tarif brut et la part de l'organisme.
+
+Le nom/UUID de l'organisme, son taux, le brut, la prise en charge et le reste
+patient sont figés sur la demande du passage, la prestation facturable et les
+lignes de facture. Une modification ultérieure du taux ou du tarif ne recalcule
+jamais un historique clinique ou financier.
+
+Le portail Super Administration importe et exporte en Excel `.xlsx` :
+
+```text
+les deux colonnes tarifaires STANDARD et MUTUAL par désignation et par site
+la liste des organismes et leur taux de couverture par site
+```
+
+Les imports sont limités, validés intégralement avant application, atomiques,
+idempotents et audités dans la base du site cible via `/api/v1`. Un organisme
+archivé doit être restauré explicitement. Le portail central ne communique
+jamais directement avec la base d'un site.
+
+Permissions complémentaires :
+
+```text
+catalog.tariffs.import
+catalog.tariffs.export
+mutual_organizations.import
+mutual_organizations.export
+```
+
+---
+
+# ADR-048 — Espaces Chirurgie/Anesthésie, référentiels et rapport financier
 
 **Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
 

@@ -11,6 +11,7 @@ use App\Enums\ArrivalPaymentChoice;
 use App\Enums\PatientType;
 use App\Models\Episode;
 use App\Models\User;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -74,6 +75,10 @@ class CompleteEpisodeServicesAction
                 $invoice = $this->validateInvoice->execute($invoice, $actor);
 
                 if ($paymentChoice === ArrivalPaymentChoice::Later) {
+                    return new ArrivalRegistrationResult($episode, $invoice);
+                }
+
+                if (Money::toMinor($invoice->balance_amount) === 0) {
                     return new ArrivalRegistrationResult($episode, $invoice);
                 }
 

@@ -24,9 +24,13 @@ class RolePermissionSeeder extends Seeder
             'employees.delete', 'employees.restore',
             'employees.patient_lookup',
             'patient_staff_links.view', 'patient_staff_links.create', 'patient_staff_links.end',
-            'address_entries.view', 'address_entries.create', 'address_entries.update', 'address_entries.archive',
+            'address_entries.view', 'address_entries.create', 'address_entries.update',
+            'address_entries.archive', 'address_entries.restore',
+            'address_entries.import', 'address_entries.export',
             'mutual_organizations.view', 'mutual_organizations.create',
             'mutual_organizations.update', 'mutual_organizations.archive',
+            'mutual_organizations.restore', 'mutual_organizations.import',
+            'mutual_organizations.export',
             'patient_coverages.view', 'patient_coverages.update', 'patient_coverages.end',
             'patient_coverage_documents.view', 'patient_coverage_documents.archive',
             'contracts.view', 'contracts.create', 'contracts.update', 'contracts.archive',
@@ -89,7 +93,7 @@ class RolePermissionSeeder extends Seeder
         ],
         // SURGERY is the surgeon/operating-team baseline. Access to the
         // separate Anesthesia workspace is granted explicitly per account;
-        // it is never implied by surgery.view (ADR-042).
+        // it is never implied by surgery.view (ADR-048).
         'SURGERY' => [
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule',
             'surgery.preoperative.view', 'surgery.preoperative.validate',

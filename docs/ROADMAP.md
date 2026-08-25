@@ -29,7 +29,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Soft Delete
 - [ ] Audit
 - [ ] UUID
-- [ ] Base API `/api/v1`
+- [x] Base API `/api/v1` pour la supervision Stock/Adresses/Catalogue Super Admin
 - [ ] Queue / Jobs
 
 ---
@@ -59,7 +59,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Barèmes historisés séparés Sans mutuelle / Mutuelle
 - [x] Résolution du barème par type patient et snapshot sur le passage
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
-- [ ] Répartition contractuelle part mutuelle / part patient
+- [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
+- [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
 - [x] Résolution backend du tarif sans saisie libre par Réception
 - [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
 - [x] Facture imprimable sans faux reçu pour un règlement ultérieur
@@ -215,25 +216,27 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 
 # Phase 7 — API inter-sites
 
-- [ ] `/api/v1`
-- [ ] Authentification API
+- [x] `/api/v1` pour les endpoints Stock/Adresses/Catalogue du portail central
+- [x] Authentification API par jeton distinct par site pour ce périmètre
 - [ ] Service accounts
 - [ ] Permissions API
 - [ ] UUID
-- [ ] Request UUID
-- [ ] Idempotency
+- [x] Request UUID sur les endpoints Stock/Adresses
+- [x] Idempotency sur les commandes Adresses
 - [ ] Queue
-- [ ] Retry
+- [x] Retry et isolation des pannes pour le client central Stock/Adresses
 - [ ] Backoff
-- [ ] Timeout
+- [x] Timeout configurable pour le client central Stock/Adresses
+- [x] Banc local distribué Mampikony/Ambondromamy/Boriziny avec une base SQLite isolée par API
 - [ ] Journal API
 - [ ] Recherche patient distante
 - [ ] Transfert patient
 - [ ] Réception transfert
 - [ ] Accusé réception
 - [ ] Transfert stock
-- [ ] Synchronisation référentiel et tarifs par UUID
-- [ ] Idempotence des commandes de catalogue multi-site
+- [x] Pilotage du référentiel et des tarifs de chaque site par UUID via API
+- [x] Idempotence des commandes distantes de catalogue
+- [x] Gestion des mutuelles et partenaires de chaque site par UUID via API
 - [ ] Autres échanges métier
 
 ---
@@ -260,10 +263,16 @@ admin.rivo.mg
 - [ ] Finance
 - [ ] Laboratoire
 - [ ] Pharmacie
-- [ ] Stocks
-- [ ] Référentiels et tarifs propres à chaque site
+- [x] Supervision consolidée des stocks, lots et péremptions avec import/export Excel audité par site
+- [x] Référentiels et tarifs propres à chaque site
 - [x] Navigation Super Admin vers les désignations et deux grilles par site
-- [ ] Commandes distantes de tarifs via API sécurisée des sites
+- [x] Référentiel d’adresses par site : CRUD logique et import/export Excel via API
+- [x] Commandes distantes de tarifs via API sécurisée des sites
+- [x] Référentiel des mutuelles et partenaires par site avec archivage/restauration audités
+- [x] Taux de couverture par organisme (100 % par défaut) et import/export Excel via API
+- [x] Répartition financière brute / mutuelle / patient historisée sur les factures
+- [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
+- [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel
 - [ ] Chirurgie

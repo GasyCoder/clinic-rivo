@@ -76,11 +76,15 @@ class PortalTest extends TestCase
     {
         $actor = $this->user('SUPER_ADMIN');
 
-        foreach (['finance', 'hr', 'logistics', 'guarding', 'tariffs', 'users', 'roles', 'settings', 'audit'] as $workspace) {
+        foreach (['finance', 'hr', 'logistics', 'guarding', 'users', 'roles', 'settings', 'audit'] as $workspace) {
             $this->actingAs($actor)->get("/super-admin/workspaces/{$workspace}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component('SuperAdmin/Workspace'));
         }
+
+        $this->actingAs($actor)->get('/super-admin/workspaces/tariffs')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('SuperAdmin/Tariffs/Index'));
     }
 
     public function test_finance_workspace_places_surgical_revenue_without_inventing_amounts(): void

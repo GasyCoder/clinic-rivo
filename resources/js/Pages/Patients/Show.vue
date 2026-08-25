@@ -102,10 +102,14 @@ const catalogByUuid = computed(() => new Map(
 const invoiceDraftTotal = computed(() => {
     const selectedItemsTotal = pendingItemsForEpisode.value
         .filter((item) => invoiceForm.billable_item_uuids.includes(item.uuid))
-        .reduce((total, item) => total + Number(item.total_amount), 0);
+        .reduce((total, item) => total + Number(item.patient_amount ?? item.total_amount), 0);
     const catalogLinesTotal = invoiceForm.catalog_lines.reduce(
         (total, line) => total
-            + (Number(line.quantity) || 0) * Number(catalogByUuid.value.get(line.catalog_item_uuid)?.tariff_amount ?? 0),
+            + (Number(line.quantity) || 0) * Number(
+                catalogByUuid.value.get(line.catalog_item_uuid)?.patient_amount
+                    ?? catalogByUuid.value.get(line.catalog_item_uuid)?.tariff_amount
+                    ?? 0,
+            ),
         0,
     );
 
@@ -294,6 +298,7 @@ const invoiceStatusLabels = {
     VALIDATED: 'À payer',
     PARTIALLY_PAID: 'Paiement partiel',
     PAID: 'Payée',
+    COVERED: 'Prise en charge',
     CANCELLED: 'Annulée',
 };
 const severityLabels = { MILD: 'Légère', MODERATE: 'Modérée', SEVERE: 'Sévère' };
@@ -328,6 +333,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
     DRAFT: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
     VALIDATED: 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
     PARTIALLY_PAID: 'border-orange-200 text-orange-700 dark:border-orange-900 dark:text-orange-300',
+    COVERED: 'border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300',
     PAID: 'border-green-200 text-green-700 dark:border-green-900 dark:text-green-300',
     CANCELLED: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-300',
 }[statusValue] ?? 'border-gray-200 text-slate-600');
@@ -411,7 +417,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
 
             <div class="grid grid-cols-2 divide-x divide-y divide-gray-200 border-b border-gray-200 dark:divide-gray-900 dark:border-gray-900 lg:grid-cols-4 lg:divide-y-0">
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">À facturer</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.unbilled_amount) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total facturé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
+                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Part patient facturée</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total payé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.paid_amount) }}</p></div>
                 <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500">Reste à payer</p><p :class="['mt-1.5 text-xl font-bold', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white']">{{ formatMoney(account.balance_amount) }}</p></div>
             </div>
@@ -443,7 +449,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                             </span>
                             <span class="mt-0.5 block text-xs text-slate-400">{{ item.quantity }} × {{ formatMoney(item.unit_price) }}</span>
                         </span>
-                        <span class="shrink-0 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.total_amount) }}</span>
+                        <span class="shrink-0 text-end text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(item.patient_amount ?? item.total_amount) }}<small v-if="Number(item.coverage_amount) > 0" class="mt-0.5 block text-[10px] font-normal text-slate-400">Brut {{ formatMoney(item.gross_amount ?? item.total_amount) }}</small></span>
                     </label>
                 </div>
 
@@ -453,11 +459,11 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <div v-for="(line, index) in invoiceForm.catalog_lines" :key="index" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_170px_36px]">
                         <select v-model="line.catalog_item_uuid" :aria-label="`Désignation ${index + 1}`" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
                             <option value="" disabled>Choisir une prestation</option>
-                            <option v-for="catalogItem in billingCatalog" :key="catalogItem.uuid" :value="catalogItem.uuid">{{ catalogItem.code }} · {{ catalogItem.name }} — {{ formatMoney(catalogItem.tariff_amount) }}</option>
+                            <option v-for="catalogItem in billingCatalog" :key="catalogItem.uuid" :value="catalogItem.uuid">{{ catalogItem.code }} · {{ catalogItem.name }} — patient {{ formatMoney(catalogItem.patient_amount ?? catalogItem.tariff_amount) }}</option>
                         </select>
                         <Input v-model="line.quantity" type="number" min="0.01" step="0.01" aria-label="Quantité" placeholder="Quantité" required />
                         <div class="flex h-9 items-center justify-end rounded border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">
-                            {{ formatMoney((Number(line.quantity) || 0) * Number(catalogByUuid.get(line.catalog_item_uuid)?.tariff_amount ?? 0)) }}
+                            {{ formatMoney((Number(line.quantity) || 0) * Number(catalogByUuid.get(line.catalog_item_uuid)?.patient_amount ?? catalogByUuid.get(line.catalog_item_uuid)?.tariff_amount ?? 0)) }}
                         </div>
                         <Button icon size="rg" variant="danger-outline" type="button" aria-label="Retirer cette ligne" @click="removeInvoiceLine(index)"><Icon class="text-base" name="trash" /></Button>
                     </div>
@@ -511,7 +517,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                                     <th class="w-40 px-4 py-2.5 text-start text-[11px] font-bold uppercase tracking-wide text-slate-400">Service</th>
                                     <th class="w-24 px-4 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-400">Qté</th>
                                     <th class="w-40 px-4 py-2.5 text-end text-[11px] font-bold uppercase tracking-wide text-slate-400">Tarif unitaire</th>
-                                    <th class="w-40 px-4 py-2.5 text-end text-[11px] font-bold uppercase tracking-wide text-slate-400">Montant</th>
+                                    <th class="w-40 px-4 py-2.5 text-end text-[11px] font-bold uppercase tracking-wide text-slate-400">Part patient</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
@@ -520,12 +526,14 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                                     <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ moduleLabels[line.source_module] ?? line.source_module }}</td>
                                     <td class="px-4 py-3 text-center text-sm tabular-nums text-slate-600 dark:text-slate-300">{{ formatQuantity(line.quantity) }}</td>
                                     <td class="px-4 py-3 text-end text-sm tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(line.unit_price) }}</td>
-                                    <td class="px-4 py-3 text-end text-sm font-bold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</td>
+                                    <td class="px-4 py-3 text-end"><p class="text-sm font-bold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</p><p v-if="Number(line.coverage_amount) > 0" class="mt-0.5 text-[10px] text-slate-400">Brut {{ formatMoney(line.gross_line_total) }} · mutuelle −{{ formatMoney(line.coverage_amount) }}</p></td>
                                 </tr>
                             </tbody>
                             <tfoot class="border-t border-gray-200 bg-gray-50/60 dark:border-gray-900 dark:bg-gray-1000/30">
+                                <tr v-if="Number(invoice.coverage_amount) > 0"><th colspan="4" class="px-4 pt-3 pb-1 text-end text-xs font-medium text-slate-500">Total brut</th><td class="px-4 pt-3 pb-1 text-end text-sm font-semibold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</td></tr>
+                                <tr v-if="Number(invoice.coverage_amount) > 0"><th colspan="4" class="px-4 py-1 text-end text-xs font-medium text-slate-500">Pris en charge · {{ invoice.mutual_organization_name }}</th><td class="px-4 py-1 text-end text-sm font-semibold tabular-nums text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</td></tr>
                                 <tr>
-                                    <th colspan="4" class="px-4 pt-3 pb-1 text-end text-xs font-medium text-slate-500">Total de la facture</th>
+                                    <th colspan="4" class="px-4 pt-3 pb-1 text-end text-xs font-medium text-slate-500">À charge patient</th>
                                     <td class="px-4 pt-3 pb-1 text-end text-sm font-bold tabular-nums text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</td>
                                 </tr>
                                 <tr>

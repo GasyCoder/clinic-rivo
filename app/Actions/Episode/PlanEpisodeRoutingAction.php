@@ -61,6 +61,8 @@ class PlanEpisodeRoutingAction
                 return $this->replayFinalizedPlan($lockedEpisode, $normalized);
             }
 
+            $coverage = $this->tariffs->coverageSnapshot($lockedEpisode->patient, required: false);
+
             $items = CatalogItem::query()
                 ->whereIn('uuid', $normalized->keys())
                 ->where('type', CatalogItemType::Service->value)
@@ -85,6 +87,12 @@ class PlanEpisodeRoutingAction
                     $lockedEpisode->patient,
                     lockForUpdate: true,
                 );
+                $grossMinor = $tariff
+                    ? Money::multiply($quantity, $tariff->amount)
+                    : null;
+                $coverageMinor = $grossMinor !== null && $coverage['coverage_rate'] !== null
+                    ? Money::percentage($grossMinor, $coverage['coverage_rate'])
+                    : 0;
                 $existing = EpisodeServiceRequest::query()
                     ->where('episode_id', $lockedEpisode->getKey())
                     ->where('catalog_item_id', $item->getKey())
@@ -106,6 +114,9 @@ class PlanEpisodeRoutingAction
                     'catalog_item_id' => $item->getKey(),
                     'catalog_tariff_id' => $tariff?->getKey(),
                     'tariff_category' => $this->tariffs->categoryFor($lockedEpisode->patient),
+                    'mutual_organization_uuid' => $coverage['organization_uuid'],
+                    'mutual_organization_name' => $coverage['organization_name'],
+                    'coverage_rate' => $coverage['coverage_rate'],
                     'catalog_item_uuid' => $item->uuid,
                     'catalog_code' => $item->code,
                     'designation' => $item->name,
@@ -117,6 +128,11 @@ class PlanEpisodeRoutingAction
                     'unit_price' => $tariff?->amount,
                     'currency' => $tariff?->currency ?? 'MGA',
                     'quantity' => $quantity,
+                    'gross_amount' => $grossMinor !== null ? Money::fromMinor($grossMinor) : null,
+                    'coverage_amount' => Money::fromMinor($coverageMinor),
+                    'patient_amount' => $grossMinor !== null
+                        ? Money::fromMinor($grossMinor - $coverageMinor)
+                        : null,
                     'created_by' => $actor->getKey(),
                 ]);
             }

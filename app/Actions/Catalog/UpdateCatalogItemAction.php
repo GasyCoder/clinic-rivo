@@ -6,14 +6,14 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 
 class UpdateCatalogItemAction
 {
     /** @param array<string, mixed> $data */
-    public function execute(CatalogItem $item, array $data, User $actor): CatalogItem
+    public function execute(CatalogItem $item, array $data, CatalogActor $actor): CatalogItem
     {
         if ($actor->cannot('catalog.items.update')) {
             throw new AuthorizationException('Vous ne pouvez pas modifier le référentiel.');
@@ -60,7 +60,8 @@ class UpdateCatalogItemAction
             'care_requires_allergy_check' => $isCareService && $requiresAllergyCheck,
             'care_recommends_vitals' => $isCareService && $recommendsVitals,
             'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
-            'updated_by' => $actor->id,
+            'updated_by' => $actor->localUserId(),
+            ...$actor->externalAttribution('updated'),
         ])->save();
 
         return $item->fresh(['currentTariff']);

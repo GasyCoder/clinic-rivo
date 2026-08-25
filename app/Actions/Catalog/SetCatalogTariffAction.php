@@ -5,7 +5,7 @@ namespace App\Actions\Catalog;
 use App\Enums\CatalogTariffCategory;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +18,7 @@ class SetCatalogTariffAction
         CatalogTariffCategory $category,
         string|int $amount,
         string $reason,
-        User $actor,
+        CatalogActor $actor,
     ): CatalogTariff {
         return DB::transaction(function () use ($item, $category, $amount, $reason, $actor) {
             $item = CatalogItem::query()->lockForUpdate()->findOrFail($item->id);
@@ -56,7 +56,8 @@ class SetCatalogTariffAction
                 $current->fill([
                     'effective_until' => $effectiveAt,
                     'active_key' => null,
-                    'ended_by' => $actor->id,
+                    'ended_by' => $actor->localUserId(),
+                    ...$actor->externalAttribution('ended'),
                 ])->save();
             }
 
@@ -67,7 +68,8 @@ class SetCatalogTariffAction
                 'effective_from' => $effectiveAt,
                 'active_key' => 'CURRENT',
                 'change_reason' => trim($reason),
-                'created_by' => $actor->id,
+                'created_by' => $actor->localUserId(),
+                ...$actor->externalAttribution('created'),
             ]);
         });
     }

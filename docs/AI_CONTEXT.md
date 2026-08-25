@@ -165,6 +165,18 @@ Depuis `admin.rivo.mg`, une action multi-site appelle séparément les APIs de
 Mampikony, Ambondromamy et Boriziny avec UUID, idempotence, audit et reprise sur
 échec partiel. Aucun accès SQL inter-site n’est autorisé. Voir ADR-024.
 
+La Super Administration importe et exporte les adresses et le stock pharmacie
+au format Excel `.xlsx`. Elle pilote aussi les désignations et les tarifs
+`STANDARD`/`MUTUAL` de chaque site exclusivement par les API
+`/api/v1/super-admin/catalog*`. L’API du site réautorise la permission précise,
+historise les prix et attribue l’action à l’acteur central UUID/nom. L'import
+d'adresses normalise les doublons. L'import
+de stock accepte seulement `STOCK_INITIAL` pour un lot nouveau ou `ENTREE` pour
+ajouter une quantité ; chaque ligne crée dans le site cible un mouvement
+immuable, transactionnel, idempotent et audité avec l'identité de l'acteur
+central. Aucun ajustement, sortie ou délivrance n'est créé par cet import. Voir
+ADR-042.
+
 Le portail Super Administration possède une navigation distincte des sites
 opérationnels. Il présente le tableau de bord consolidé, chaque site et ses
 modules, les rapports financiers, les espaces Administration, utilisateurs,
@@ -466,7 +478,7 @@ protégés par `surgery.view` et `anesthesia.view`, mais partagent le même doss
 chirurgical afin de préserver la continuité. Les deux interfaces sont guidées
 par étapes. Les interventions sont choisies dans le catalogue `SURGERY` avec
 instantané du libellé ; les éléments d'anesthésie suivent une liste contrôlée
-avec instantané de leur code, libellé et catégorie. Voir ADR-042.
+avec instantané de leur code, libellé et catégorie. Voir ADR-048.
 
 La Chirurgie ne peut pas encaisser.
 
@@ -575,8 +587,17 @@ Les tarifs `STANDARD` (« Sans mutuelle ») et `MUTUAL` sont des montants bruts
 propres à chaque site. `STAFF` n'est pas une grille tarifaire : son avantage est
 calculé séparément. Le PDF Ambondromamy de juin 2023 confirme les deux grilles,
 mais reste une référence historique non importée automatiquement car plusieurs
-lignes sont ambiguës ou variables. La part payée par une mutuelle et la part du
-patient ne sont pas encore définies par le client.
+lignes sont ambiguës ou variables.
+
+Le 23/08/2026, le client a précisé que le taux de prise en charge dépend de
+l'organisme : la majorité couvre 100 %, tandis que certaines conventions
+couvrent par exemple 80 % et laissent 20 % au patient. Le tarif `MUTUAL` reste
+le montant brut commun au site ; le taux appartient à `mutual_organizations`.
+La Réception/Caisse n'encaisse que la part patient. Une couverture à 100 %
+valide la facture comme prise en charge, sans paiement ni reçu fictif. Les parts
+brute, mutuelle et patient sont figées sur le passage, la prestation facturable
+et la facture afin qu'une modification future de convention ne recalcule jamais
+l'historique. Voir ADR-047.
 
 Le 23/08/2026, le client a validé une fiche de soins `NURSE` par passage :
 constantes, IMC calculé, observations, transmission conditionnelle
@@ -681,6 +702,29 @@ https://github.com/GasyCoder/cdc-clinic-george
 ```
 
 Avant toute implémentation importante.
+
+En développement local, la Super Administration reste sur `:8000` et les API
+cliniques isolées se lancent avec `composer local:apis` sur les ports 8001 à
+8003. Chacune utilise sa propre base SQLite sous `storage/app/local-sites/`.
+Ne jamais remplacer ce banc local par une connexion directe à la base du
+portail ; voir ADR-043.
+
+Les organismes de mutuelle et partenaires sont administrés séparément dans
+chaque base clinique via l’API du site et `mutual_organizations` (ADR-045).
+« Sans mutuelle » désigne la grille tarifaire `STANDARD`, et « Avantage
+Personnel » relève du dispositif RH/Finance : aucun des deux ne doit être créé
+comme organisme. La grille `MUTUAL` reste commune au site tant que le client
+n’a pas validé une convention tarifaire distincte pour chaque organisme. Chaque
+organisme porte en revanche son taux de couverture contractuel, 100 % par
+défaut, importable et exportable en Excel avec son reste patient calculé. Les
+deux grilles tarifaires `STANDARD` et `MUTUAL` sont elles aussi importables et
+exportables en Excel par site. Voir ADR-047.
+
+Les sélections multiples du portail central restent limitées à 100 UUID d’un
+seul site. Adresses, désignations et organismes autorisent un archivage ou une
+restauration atomique, idempotente et auditée. Le Stock autorise seulement
+l’export Excel ciblé avec tous les lots ; une sélection UI ne crée jamais un
+mouvement ni un ajustement de quantité. Voir ADR-046.
 
 Lire également :
 

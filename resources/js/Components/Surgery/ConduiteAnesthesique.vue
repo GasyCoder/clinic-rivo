@@ -7,7 +7,9 @@ import CardBody from '@/Components/UI/CardBody.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
+import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import ClinicalAccordionSection from '@/Components/Surgery/ClinicalAccordionSection.vue';
+import { useValidationNavigation } from '@/composables/useValidationNavigation';
 import { formatDateTime } from '@/utilities/date';
 
 const props = defineProps({
@@ -37,6 +39,11 @@ const form = useForm({
         unit: item.unit ?? '',
     })),
 });
+const formElement = ref(null);
+const sectionForError = (key) => ['notes', 'administered_at'].includes(key) ? 'observations' : 'items';
+const {
+    errorId, errorMessage, fieldAttrs, focusError, focusFirstError, hasError, invalidClass,
+} = useValidationNavigation(form, activeSection, sectionForError, formElement);
 
 const referenceByCode = computed(() => Object.fromEntries(props.referenceItems.map((item) => [item.code, item])));
 const categoryLabels = { MEDICATION: 'Médicament', MATERIAL: 'Matériel', TECHNIQUE: 'Technique', OTHER: 'Autre' };
@@ -59,6 +66,7 @@ const submit = (nextSection = null) => {
         onSuccess: () => {
             if (nextSection) activeSection.value = nextSection;
         },
+        onError: (errors) => focusFirstError(errors),
     };
 
     if (record.value) {
@@ -92,7 +100,8 @@ const validate = () => {
                 </div>
             </header>
 
-            <form class="space-y-4 p-4 sm:p-5" @submit.prevent="submit()">
+            <form ref="formElement" class="space-y-4 p-4 sm:p-5" @submit.prevent="submit()">
+                <ValidationErrorSummary :errors="form.errors" @select="focusError" />
                 <fieldset :disabled="!canEdit" class="space-y-3 disabled:opacity-70">
                     <ClinicalAccordionSection
                         :open="activeSection === 'items'"
@@ -116,13 +125,16 @@ const validate = () => {
                         <p v-if="selectionError" class="mt-2 text-xs text-amber-600">{{ selectionError }}</p>
                     </section>
 
-                    <section class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-900">
+                    <section
+                        v-bind="fieldAttrs('anesthetic_items')"
+                        :class="['overflow-hidden rounded-md border border-gray-200 dark:border-gray-900', invalidClass('anesthetic_items')]"
+                    >
                         <div v-if="form.anesthetic_items.length" class="divide-y divide-gray-200 dark:divide-gray-900">
                             <article v-for="(item, index) in form.anesthetic_items" :key="item.reference_code" class="grid grid-cols-1 gap-3 p-4 lg:grid-cols-[minmax(180px,1.2fr)_minmax(180px,1.5fr)_110px_120px_auto] lg:items-end">
-                                <div><span class="block text-[10px] font-bold uppercase tracking-wide text-slate-400">Élément</span><strong class="mt-2 block text-sm text-slate-700 dark:text-white">{{ referenceByCode[item.reference_code]?.name ?? item.reference_code }}</strong><small class="text-slate-400">{{ categoryLabels[referenceByCode[item.reference_code]?.category] ?? 'Référentiel' }}</small></div>
-                                <label class="text-xs text-slate-500">Précision <span v-if="item.reference_code === 'ANESTH-OTHER'" class="text-red-500">*</span><Input v-model="item.details" size="lg" :required="item.reference_code === 'ANESTH-OTHER'" placeholder="Dose, présentation ou autre précision" /><FormError v-if="itemError(index, 'details')">{{ itemError(index, 'details') }}</FormError></label>
-                                <label class="text-xs text-slate-500">Quantité<Input v-model="item.quantity" size="lg" type="number" min="0.01" step="0.01" /></label>
-                                <label class="text-xs text-slate-500">Unité<Input v-model="item.unit" size="lg" placeholder="mg, ml, unité" /></label>
+                                <div v-bind="fieldAttrs(`anesthetic_items.${index}.reference_code`)" tabindex="-1" :class="hasError(`anesthetic_items.${index}.reference_code`) ? 'rounded border border-red-400 p-2' : ''"><span class="block text-[10px] font-bold uppercase tracking-wide text-slate-400">Élément</span><strong class="mt-2 block text-sm text-slate-700 dark:text-white">{{ referenceByCode[item.reference_code]?.name ?? item.reference_code }}</strong><small class="text-slate-400">{{ categoryLabels[referenceByCode[item.reference_code]?.category] ?? 'Référentiel' }}</small><FormError v-if="itemError(index, 'reference_code')" :id="errorId(`anesthetic_items.${index}.reference_code`)" :message="itemError(index, 'reference_code')" /></div>
+                                <label class="text-xs text-slate-500">Précision <span v-if="item.reference_code === 'ANESTH-OTHER'" class="text-red-500">*</span><Input v-model="item.details" v-bind="fieldAttrs(`anesthetic_items.${index}.details`)" size="lg" :required="item.reference_code === 'ANESTH-OTHER'" placeholder="Dose, présentation ou autre précision" /><FormError v-if="itemError(index, 'details')" :id="errorId(`anesthetic_items.${index}.details`)" :message="itemError(index, 'details')" /></label>
+                                <label class="text-xs text-slate-500">Quantité<Input v-model="item.quantity" v-bind="fieldAttrs(`anesthetic_items.${index}.quantity`)" size="lg" type="number" min="0.01" step="0.01" /><FormError v-if="itemError(index, 'quantity')" :id="errorId(`anesthetic_items.${index}.quantity`)" :message="itemError(index, 'quantity')" /></label>
+                                <label class="text-xs text-slate-500">Unité<Input v-model="item.unit" v-bind="fieldAttrs(`anesthetic_items.${index}.unit`)" size="lg" placeholder="mg, ml, unité" /><FormError v-if="itemError(index, 'unit')" :id="errorId(`anesthetic_items.${index}.unit`)" :message="itemError(index, 'unit')" /></label>
                                 <button type="button" class="flex h-11 w-11 items-center justify-center rounded-md text-red-500 hover:bg-red-50 dark:hover:bg-red-950" aria-label="Retirer" @click="removeItem(index)"><Icon name="trash" /></button>
                             </article>
                         </div>
@@ -143,8 +155,8 @@ const validate = () => {
                         @toggle="activeSection = activeSection === 'observations' ? '' : 'observations'"
                     >
                     <section class="grid grid-cols-1 gap-4 rounded-md border border-violet-100 bg-violet-50/30 p-4 dark:border-violet-950 dark:bg-violet-950/10 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
-                        <label class="text-sm text-slate-500">Conduite et observations<textarea v-model="form.notes" rows="4" class="mt-1 block w-full resize-y rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" placeholder="Technique, incidents, observations peropératoires…"></textarea></label>
-                        <label class="text-sm text-slate-500">Anesthésie administrée le<Input v-model="form.administered_at" size="lg" type="datetime-local" /></label>
+                        <label class="text-sm text-slate-500">Conduite et observations<textarea v-model="form.notes" v-bind="fieldAttrs('notes')" rows="4" :class="['mt-1 block w-full resize-y rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white', invalidClass('notes')]" placeholder="Technique, incidents, observations peropératoires…"></textarea><FormError v-if="errorMessage('notes')" :id="errorId('notes')" :message="errorMessage('notes')" /></label>
+                        <label class="text-sm text-slate-500">Anesthésie administrée le<Input v-model="form.administered_at" v-bind="fieldAttrs('administered_at')" size="lg" type="datetime-local" /><FormError v-if="errorMessage('administered_at')" :id="errorId('administered_at')" :message="errorMessage('administered_at')" /></label>
                     </section>
 
                     <div class="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-4 dark:border-gray-900">

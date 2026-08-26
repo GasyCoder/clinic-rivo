@@ -7,7 +7,9 @@ import CardBody from '@/Components/UI/CardBody.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
+import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import ClinicalAccordionSection from '@/Components/Surgery/ClinicalAccordionSection.vue';
+import { useValidationNavigation } from '@/composables/useValidationNavigation';
 
 const props = defineProps({
     surgicalRequest: Object,
@@ -67,6 +69,29 @@ const glasgowTotal = computed(() => {
     return values.every((value) => value !== '' && value !== null) ? values.reduce((sum, value) => sum + Number(value), 0) : null;
 });
 const activeSection = ref('results');
+const formElement = ref(null);
+const resultErrorPrefixes = [
+    'paraclinical_data.blood_group',
+    'paraclinical_data.rhesus',
+    'paraclinical_data.transfusion_',
+    'paraclinical_data.preoperative_transfusion_',
+    'paraclinical_data.ultrasound_',
+    'paraclinical_data.ultrasonographer',
+    'paraclinical_data.laboratory.',
+];
+const scoreErrorPrefixes = [
+    'paraclinical_data.glasgow_',
+    'paraclinical_data.apfel_score',
+    'paraclinical_data.associated_pathologies',
+];
+const sectionForError = (key) => {
+    if (resultErrorPrefixes.some((prefix) => key.startsWith(prefix))) return 'results';
+    if (scoreErrorPrefixes.some((prefix) => key.startsWith(prefix))) return 'scores';
+    return 'decision';
+};
+const {
+    errorId, errorMessage, fieldAttrs, focusError, focusFirstError, invalidClass,
+} = useValidationNavigation(form, activeSection, sectionForError, formElement);
 const hasValue = (value) => value !== null && value !== undefined && value !== '';
 const resultsComplete = computed(() => [
     ...Object.values(form.paraclinical_data.laboratory),
@@ -93,6 +118,7 @@ const submit = (nextSection = null) => {
         onSuccess: () => {
             if (nextSection) activeSection.value = nextSection;
         },
+        onError: (errors) => focusFirstError(errors),
     };
 
     if (record.value) {
@@ -129,7 +155,8 @@ const validateAssessment = () => {
                 </div>
             </div>
 
-            <form class="space-y-4 p-4 sm:p-5" @submit.prevent="submit()">
+            <form ref="formElement" class="space-y-4 p-4 sm:p-5" @submit.prevent="submit()">
+                <ValidationErrorSummary :errors="form.errors" @select="focusError" />
                 <fieldset :disabled="!canEdit" class="space-y-3 disabled:opacity-70">
                     <ClinicalAccordionSection
                         :open="activeSection === 'results'"
@@ -146,23 +173,23 @@ const validateAssessment = () => {
                         <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-5">
                             <div v-if="careBloodGroup" class="rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 sm:col-span-2 dark:border-blue-950 dark:bg-blue-950/20"><span class="block text-[10px] font-bold uppercase tracking-wide text-blue-600">Groupe sanguin · Soins</span><strong class="mt-1 block text-sm text-slate-700 dark:text-white">{{ careBloodGroup }}</strong><small class="text-[10px] text-slate-400">Lecture seule, non recopié.</small></div>
                             <template v-else>
-                                <label class="text-sm text-slate-500">Groupe<select v-model="form.paraclinical_data.blood_group" :class="inputClass"><option value="">Non renseigné</option><option v-for="group in ['A', 'B', 'AB', 'O']" :key="group" :value="group">{{ group }}</option></select></label>
-                                <label class="text-sm text-slate-500">Rhésus<select v-model="form.paraclinical_data.rhesus" :class="inputClass"><option value="">Non renseigné</option><option value="POSITIVE">Positif (+)</option><option value="NEGATIVE">Négatif (−)</option></select></label>
+                                <label class="text-sm text-slate-500">Groupe<select v-model="form.paraclinical_data.blood_group" v-bind="fieldAttrs('paraclinical_data.blood_group')" :class="[inputClass, invalidClass('paraclinical_data.blood_group')]"><option value="">Non renseigné</option><option v-for="group in ['A', 'B', 'AB', 'O']" :key="group" :value="group">{{ group }}</option></select><FormError v-if="errorMessage('paraclinical_data.blood_group')" :id="errorId('paraclinical_data.blood_group')" :message="errorMessage('paraclinical_data.blood_group')" /></label>
+                                <label class="text-sm text-slate-500">Rhésus<select v-model="form.paraclinical_data.rhesus" v-bind="fieldAttrs('paraclinical_data.rhesus')" :class="[inputClass, invalidClass('paraclinical_data.rhesus')]"><option value="">Non renseigné</option><option value="POSITIVE">Positif (+)</option><option value="NEGATIVE">Négatif (−)</option></select><FormError v-if="errorMessage('paraclinical_data.rhesus')" :id="errorId('paraclinical_data.rhesus')" :message="errorMessage('paraclinical_data.rhesus')" /></label>
                             </template>
-                            <label class="text-sm text-slate-500">Culots recommandés<Input v-model="form.paraclinical_data.transfusion_recommended_units" type="number" min="0" max="100" /></label>
-                            <label class="text-sm text-slate-500">Transfusion reçue<select v-model="form.paraclinical_data.transfusion_received" :class="inputClass"><option value="">Non renseignée</option><option :value="true">Oui</option><option :value="false">Non</option></select></label>
-                            <label class="text-sm text-slate-500">Culots en préopératoire<Input v-model="form.paraclinical_data.preoperative_transfusion_units" type="number" min="0" max="100" /></label>
+                            <label class="text-sm text-slate-500">Culots recommandés<Input v-model="form.paraclinical_data.transfusion_recommended_units" v-bind="fieldAttrs('paraclinical_data.transfusion_recommended_units')" type="number" min="0" max="100" /><FormError v-if="errorMessage('paraclinical_data.transfusion_recommended_units')" :id="errorId('paraclinical_data.transfusion_recommended_units')" :message="errorMessage('paraclinical_data.transfusion_recommended_units')" /></label>
+                            <label class="text-sm text-slate-500">Transfusion reçue<select v-model="form.paraclinical_data.transfusion_received" v-bind="fieldAttrs('paraclinical_data.transfusion_received')" :class="[inputClass, invalidClass('paraclinical_data.transfusion_received')]"><option value="">Non renseignée</option><option :value="true">Oui</option><option :value="false">Non</option></select><FormError v-if="errorMessage('paraclinical_data.transfusion_received')" :id="errorId('paraclinical_data.transfusion_received')" :message="errorMessage('paraclinical_data.transfusion_received')" /></label>
+                            <label class="text-sm text-slate-500">Culots en préopératoire<Input v-model="form.paraclinical_data.preoperative_transfusion_units" v-bind="fieldAttrs('paraclinical_data.preoperative_transfusion_units')" type="number" min="0" max="100" /><FormError v-if="errorMessage('paraclinical_data.preoperative_transfusion_units')" :id="errorId('paraclinical_data.preoperative_transfusion_units')" :message="errorMessage('paraclinical_data.preoperative_transfusion_units')" /></label>
                         </div>
                     </section>
 
                     <section class="overflow-hidden rounded-md border border-sky-100 dark:border-sky-950">
                         <header class="bg-sky-50 px-4 py-3 dark:bg-sky-950/30"><h3 class="text-sm font-bold uppercase tracking-wide text-sky-800 dark:text-sky-200">Biologie et échographie</h3></header>
                         <div class="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5">
-                            <label v-for="field in [['hemoglobin', 'Hb'], ['hematocrit', 'Hte'], ['psa', 'PSA'], ['creatinine', 'Créatinine'], ['glycemia', 'Glycémie'], ['urea', 'Urée'], ['tdr', 'TDR'], ['crp', 'CRP'], ['widal_to', 'Widal TO'], ['widal_th', 'Widal TH']]" :key="field[0]" class="text-xs font-medium text-slate-500">{{ field[1] }}<Input v-model="form.paraclinical_data.laboratory[field[0]]" size="lg" placeholder="Valeur / unité" /></label>
+                            <label v-for="field in [['hemoglobin', 'Hb'], ['hematocrit', 'Hte'], ['psa', 'PSA'], ['creatinine', 'Créatinine'], ['glycemia', 'Glycémie'], ['urea', 'Urée'], ['tdr', 'TDR'], ['crp', 'CRP'], ['widal_to', 'Widal TO'], ['widal_th', 'Widal TH']]" :key="field[0]" class="text-xs font-medium text-slate-500">{{ field[1] }}<Input v-model="form.paraclinical_data.laboratory[field[0]]" v-bind="fieldAttrs(`paraclinical_data.laboratory.${field[0]}`)" size="lg" placeholder="Valeur / unité" /><FormError v-if="errorMessage(`paraclinical_data.laboratory.${field[0]}`)" :id="errorId(`paraclinical_data.laboratory.${field[0]}`)" :message="errorMessage(`paraclinical_data.laboratory.${field[0]}`)" /></label>
                         </div>
                         <div class="grid grid-cols-1 gap-3 border-t border-sky-100 p-4 dark:border-sky-950 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
-                            <label class="text-sm text-slate-500">Résultat de l’échographie<textarea v-model="form.paraclinical_data.ultrasound_notes" rows="3" :class="textareaClass"></textarea></label>
-                            <label class="text-sm text-slate-500">Échographiste<Input v-model="form.paraclinical_data.ultrasonographer" size="lg" /></label>
+                            <label class="text-sm text-slate-500">Résultat de l’échographie<textarea v-model="form.paraclinical_data.ultrasound_notes" v-bind="fieldAttrs('paraclinical_data.ultrasound_notes')" rows="3" :class="[textareaClass, invalidClass('paraclinical_data.ultrasound_notes')]"></textarea><FormError v-if="errorMessage('paraclinical_data.ultrasound_notes')" :id="errorId('paraclinical_data.ultrasound_notes')" :message="errorMessage('paraclinical_data.ultrasound_notes')" /></label>
+                            <label class="text-sm text-slate-500">Échographiste<Input v-model="form.paraclinical_data.ultrasonographer" v-bind="fieldAttrs('paraclinical_data.ultrasonographer')" size="lg" /><FormError v-if="errorMessage('paraclinical_data.ultrasonographer')" :id="errorId('paraclinical_data.ultrasonographer')" :message="errorMessage('paraclinical_data.ultrasonographer')" /></label>
                         </div>
                     </section>
 
@@ -184,13 +211,13 @@ const validateAssessment = () => {
                         <div class="overflow-hidden rounded-md border border-amber-100 dark:border-amber-950">
                             <header class="flex items-center justify-between bg-amber-50 px-4 py-3 dark:bg-amber-950/30"><h3 class="text-sm font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">Score de Glasgow</h3><strong class="rounded-full bg-white px-3 py-1 text-lg text-amber-700 shadow-sm dark:bg-gray-950">{{ glasgowTotal ?? '—' }}<span class="text-xs font-normal text-slate-400"> / 15</span></strong></header>
                             <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-3">
-                                <label class="text-sm text-slate-500">Ouverture des yeux<select v-model="form.paraclinical_data.glasgow_eye" :class="inputClass"><option value="">Choisir</option><option :value="4">Spontanée — 4</option><option :value="3">À la demande — 3</option><option :value="2">À la douleur — 2</option><option :value="1">Aucune — 1</option></select></label>
-                                <label class="text-sm text-slate-500">Réponse verbale<select v-model="form.paraclinical_data.glasgow_verbal" :class="inputClass"><option value="">Choisir</option><option :value="5">Orientée — 5</option><option :value="4">Confuse — 4</option><option :value="3">Inappropriée — 3</option><option :value="2">Incompréhensible — 2</option><option :value="1">Aucune — 1</option></select></label>
-                                <label class="text-sm text-slate-500">Réponse motrice<select v-model="form.paraclinical_data.glasgow_motor" :class="inputClass"><option value="">Choisir</option><option :value="6">Aux ordres — 6</option><option :value="5">Orientée — 5</option><option :value="4">Évitement — 4</option><option :value="3">Flexion — 3</option><option :value="2">Extension — 2</option><option :value="1">Aucune — 1</option></select></label>
+                                <label class="text-sm text-slate-500">Ouverture des yeux<select v-model="form.paraclinical_data.glasgow_eye" v-bind="fieldAttrs('paraclinical_data.glasgow_eye')" :class="[inputClass, invalidClass('paraclinical_data.glasgow_eye')]"><option value="">Choisir</option><option :value="4">Spontanée — 4</option><option :value="3">À la demande — 3</option><option :value="2">À la douleur — 2</option><option :value="1">Aucune — 1</option></select><FormError v-if="errorMessage('paraclinical_data.glasgow_eye')" :id="errorId('paraclinical_data.glasgow_eye')" :message="errorMessage('paraclinical_data.glasgow_eye')" /></label>
+                                <label class="text-sm text-slate-500">Réponse verbale<select v-model="form.paraclinical_data.glasgow_verbal" v-bind="fieldAttrs('paraclinical_data.glasgow_verbal')" :class="[inputClass, invalidClass('paraclinical_data.glasgow_verbal')]"><option value="">Choisir</option><option :value="5">Orientée — 5</option><option :value="4">Confuse — 4</option><option :value="3">Inappropriée — 3</option><option :value="2">Incompréhensible — 2</option><option :value="1">Aucune — 1</option></select><FormError v-if="errorMessage('paraclinical_data.glasgow_verbal')" :id="errorId('paraclinical_data.glasgow_verbal')" :message="errorMessage('paraclinical_data.glasgow_verbal')" /></label>
+                                <label class="text-sm text-slate-500">Réponse motrice<select v-model="form.paraclinical_data.glasgow_motor" v-bind="fieldAttrs('paraclinical_data.glasgow_motor')" :class="[inputClass, invalidClass('paraclinical_data.glasgow_motor')]"><option value="">Choisir</option><option :value="6">Aux ordres — 6</option><option :value="5">Orientée — 5</option><option :value="4">Évitement — 4</option><option :value="3">Flexion — 3</option><option :value="2">Extension — 2</option><option :value="1">Aucune — 1</option></select><FormError v-if="errorMessage('paraclinical_data.glasgow_motor')" :id="errorId('paraclinical_data.glasgow_motor')" :message="errorMessage('paraclinical_data.glasgow_motor')" /></label>
                             </div>
                         </div>
                         <div class="rounded-md border border-amber-100 bg-amber-50/40 p-4 dark:border-amber-950 dark:bg-amber-950/20">
-                            <label class="text-sm font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">Score d’Apfel<select v-model="form.paraclinical_data.apfel_score" :class="inputClass"><option value="">Non renseigné</option><option v-for="score in [0, 1, 2, 3, 4]" :key="score" :value="score">{{ score }} / 4</option></select></label>
+                            <label class="text-sm font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">Score d’Apfel<select v-model="form.paraclinical_data.apfel_score" v-bind="fieldAttrs('paraclinical_data.apfel_score')" :class="[inputClass, invalidClass('paraclinical_data.apfel_score')]"><option value="">Non renseigné</option><option v-for="score in [0, 1, 2, 3, 4]" :key="score" :value="score">{{ score }} / 4</option></select><FormError v-if="errorMessage('paraclinical_data.apfel_score')" :id="errorId('paraclinical_data.apfel_score')" :message="errorMessage('paraclinical_data.apfel_score')" /></label>
                             <p class="mt-3 text-xs leading-5 text-slate-400">Saisie du score clinique constaté, sans interprétation automatique ni seuil inventé.</p>
                         </div>
                     </section>
@@ -198,7 +225,7 @@ const validateAssessment = () => {
                     <section class="overflow-hidden rounded-md border border-orange-100 dark:border-orange-950">
                         <header class="bg-orange-50 px-4 py-3 dark:bg-orange-950/30"><h3 class="text-sm font-bold uppercase tracking-wide text-orange-800 dark:text-orange-200">Pathologies associées</h3></header>
                         <div class="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
-                            <label v-for="field in [['cardiac', 'Cardiaque'], ['respiratory', 'Respiratoire'], ['renal', 'Rénale'], ['digestive', 'Digestive'], ['neurological', 'Neurologique'], ['gynecological', 'Gynécologique'], ['ent', 'ORL']]" :key="field[0]" class="text-xs font-medium text-slate-500">{{ field[1] }}<Input v-model="form.paraclinical_data.associated_pathologies[field[0]]" size="lg" placeholder="RAS ou préciser" /></label>
+                            <label v-for="field in [['cardiac', 'Cardiaque'], ['respiratory', 'Respiratoire'], ['renal', 'Rénale'], ['digestive', 'Digestive'], ['neurological', 'Neurologique'], ['gynecological', 'Gynécologique'], ['ent', 'ORL']]" :key="field[0]" class="text-xs font-medium text-slate-500">{{ field[1] }}<Input v-model="form.paraclinical_data.associated_pathologies[field[0]]" v-bind="fieldAttrs(`paraclinical_data.associated_pathologies.${field[0]}`)" size="lg" placeholder="RAS ou préciser" /><FormError v-if="errorMessage(`paraclinical_data.associated_pathologies.${field[0]}`)" :id="errorId(`paraclinical_data.associated_pathologies.${field[0]}`)" :message="errorMessage(`paraclinical_data.associated_pathologies.${field[0]}`)" /></label>
                         </div>
                     </section>
 
@@ -218,15 +245,15 @@ const validateAssessment = () => {
                     <section class="overflow-hidden rounded-md border border-emerald-100 dark:border-emerald-950">
                         <header class="bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30"><h3 class="text-sm font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">Conclusion et conduite anesthésique</h3></header>
                         <div class="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-                            <label class="text-sm text-slate-500">Conclusion<textarea v-model="form.paraclinical_data.conclusion" rows="4" :class="textareaClass"></textarea></label>
-                            <label class="text-sm text-slate-500">Recommandation thérapeutique<textarea v-model="form.paraclinical_data.therapeutic_recommendation" rows="4" :class="textareaClass"></textarea></label>
+                            <label class="text-sm text-slate-500">Conclusion<textarea v-model="form.paraclinical_data.conclusion" v-bind="fieldAttrs('paraclinical_data.conclusion')" rows="4" :class="[textareaClass, invalidClass('paraclinical_data.conclusion')]"></textarea><FormError v-if="errorMessage('paraclinical_data.conclusion')" :id="errorId('paraclinical_data.conclusion')" :message="errorMessage('paraclinical_data.conclusion')" /></label>
+                            <label class="text-sm text-slate-500">Recommandation thérapeutique<textarea v-model="form.paraclinical_data.therapeutic_recommendation" v-bind="fieldAttrs('paraclinical_data.therapeutic_recommendation')" rows="4" :class="[textareaClass, invalidClass('paraclinical_data.therapeutic_recommendation')]"></textarea><FormError v-if="errorMessage('paraclinical_data.therapeutic_recommendation')" :id="errorId('paraclinical_data.therapeutic_recommendation')" :message="errorMessage('paraclinical_data.therapeutic_recommendation')" /></label>
                         </div>
                         <div class="grid grid-cols-1 gap-4 border-t border-emerald-100 p-4 sm:grid-cols-2 lg:grid-cols-5 dark:border-emerald-950">
-                            <label class="text-sm text-slate-500">Chirurgie autorisée<select v-model="form.paraclinical_data.surgery_authorized" :class="inputClass"><option value="">Décision non renseignée</option><option :value="true">Oui</option><option :value="false">Non</option></select></label>
-                            <label class="text-sm text-slate-500">Classe ASA<Input v-model="form.paraclinical_data.asa_class" size="lg" placeholder="Ex. ASA II" /></label>
-                            <label class="text-sm text-slate-500">Classe NYHA<Input v-model="form.paraclinical_data.nyha_class" size="lg" placeholder="Ex. NYHA I" /></label>
-                            <label class="text-sm text-slate-500">Jeûne prescrit<Input v-model="form.paraclinical_data.fasting_hours" type="number" min="0" max="72" step="0.5" placeholder="heures" /></label>
-                            <label class="text-sm text-slate-500 lg:col-span-1">Plan anesthésique<textarea v-model="form.paraclinical_data.anesthesia_plan" rows="2" :class="textareaClass"></textarea></label>
+                            <label class="text-sm text-slate-500">Chirurgie autorisée<select v-model="form.paraclinical_data.surgery_authorized" v-bind="fieldAttrs('paraclinical_data.surgery_authorized')" :class="[inputClass, invalidClass('paraclinical_data.surgery_authorized')]"><option value="">Décision non renseignée</option><option :value="true">Oui</option><option :value="false">Non</option></select><FormError v-if="errorMessage('paraclinical_data.surgery_authorized')" :id="errorId('paraclinical_data.surgery_authorized')" :message="errorMessage('paraclinical_data.surgery_authorized')" /></label>
+                            <label class="text-sm text-slate-500">Classe ASA<Input v-model="form.paraclinical_data.asa_class" v-bind="fieldAttrs('paraclinical_data.asa_class')" size="lg" placeholder="Ex. ASA II" /><FormError v-if="errorMessage('paraclinical_data.asa_class')" :id="errorId('paraclinical_data.asa_class')" :message="errorMessage('paraclinical_data.asa_class')" /></label>
+                            <label class="text-sm text-slate-500">Classe NYHA<Input v-model="form.paraclinical_data.nyha_class" v-bind="fieldAttrs('paraclinical_data.nyha_class')" size="lg" placeholder="Ex. NYHA I" /><FormError v-if="errorMessage('paraclinical_data.nyha_class')" :id="errorId('paraclinical_data.nyha_class')" :message="errorMessage('paraclinical_data.nyha_class')" /></label>
+                            <label class="text-sm text-slate-500">Jeûne prescrit<Input v-model="form.paraclinical_data.fasting_hours" v-bind="fieldAttrs('paraclinical_data.fasting_hours')" type="number" min="0" max="72" step="0.5" placeholder="heures" /><FormError v-if="errorMessage('paraclinical_data.fasting_hours')" :id="errorId('paraclinical_data.fasting_hours')" :message="errorMessage('paraclinical_data.fasting_hours')" /></label>
+                            <label class="text-sm text-slate-500 lg:col-span-1">Plan anesthésique<textarea v-model="form.paraclinical_data.anesthesia_plan" v-bind="fieldAttrs('paraclinical_data.anesthesia_plan')" rows="2" :class="[textareaClass, invalidClass('paraclinical_data.anesthesia_plan')]"></textarea><FormError v-if="errorMessage('paraclinical_data.anesthesia_plan')" :id="errorId('paraclinical_data.anesthesia_plan')" :message="errorMessage('paraclinical_data.anesthesia_plan')" /></label>
                         </div>
                     </section>
 

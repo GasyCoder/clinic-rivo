@@ -198,6 +198,24 @@ class PreanestheticAssessmentTest extends TestCase
         $this->assertDatabaseCount('anesthesia_records', 0);
     }
 
+    public function test_consultation_validation_uses_a_readable_french_field_name(): void
+    {
+        $anesthetist = $this->anesthetist();
+        $request = $this->surgicalRequest($this->surgeon());
+
+        $this->actingAs($anesthetist)
+            ->post("/surgery/{$request->uuid}/anesthesia", [
+                'consultation_data' => [
+                    'gyneco_obstetric' => ['abortion' => 31],
+                ],
+            ])
+            ->assertSessionHasErrors([
+                'consultation_data.gyneco_obstetric.abortion' => 'La valeur de nombre d’avortements ne peut pas être supérieure à 30.',
+            ]);
+
+        $this->assertDatabaseCount('anesthesia_records', 0);
+    }
+
     public function test_anesthetist_assignment_rejects_a_non_anesthetist_account(): void
     {
         $anesthetist = $this->anesthetist();

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'medicine_id', 'lot_number', 'received_at', 'expires_at',
+    'medicine_id', 'medicine_supplier_id', 'lot_number', 'received_at', 'expires_at',
     'quantity_on_hand', 'active', 'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
     'external_updated_by_uuid', 'external_updated_by_name',
@@ -40,6 +40,11 @@ class MedicineLot extends Model
         return $this->hasMany(MedicineStockReservation::class);
     }
 
+    public function counterReservations(): HasMany
+    {
+        return $this->hasMany(PharmacyDispenseLotReservation::class);
+    }
+
     public function activeReservations(): HasMany
     {
         return $this->reservations()
@@ -59,6 +64,11 @@ class MedicineLot extends Model
     public function updater(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(MedicineSupplier::class, 'medicine_supplier_id');
     }
 
     protected function auditModule(): ?string

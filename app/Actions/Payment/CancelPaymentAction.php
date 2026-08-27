@@ -5,6 +5,7 @@ namespace App\Actions\Payment;
 use App\Enums\CashSessionStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\PharmacyDispenseStatus;
 use App\Models\CashMovement;
 use App\Models\CashSession;
 use App\Models\Invoice;
@@ -49,6 +50,13 @@ class CancelPaymentAction
             }
 
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($payment->invoice_id);
+            $dispense = $invoice->pharmacyDispense()->with('lines')->lockForUpdate()->first();
+
+            if ($dispense && $dispense->lines->sum('quantity_dispensed') > 0) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Ce paiement finance une délivrance Pharmacie déjà commencée et ne peut pas être annulé.',
+                ]);
+            }
             $amountMinor = Money::toMinor($payment->amount);
             $paidMinor = Money::toMinor($invoice->paid_amount);
 
@@ -90,6 +98,10 @@ class CancelPaymentAction
                     ? InvoiceStatus::Validated
                     : InvoiceStatus::PartiallyPaid,
             ])->save();
+
+            if ($dispense) {
+                $dispense->update(['status' => PharmacyDispenseStatus::AwaitingPayment]);
+            }
 
             $this->auditor->record(
                 'payment.cancel',

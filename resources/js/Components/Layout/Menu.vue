@@ -9,7 +9,7 @@ const visibility = defineModel('visibility');
 const page = usePage();
 const { can } = usePermissions();
 
-const clinicMenu = [
+const clinicMenu = computed(() => [
     { heading: 'Principal' },
     { icon: 'growth', text: 'Tableau de bord', link: '/' },
     { heading: 'Gestion clinique' },
@@ -20,14 +20,20 @@ const clinicMenu = [
     { icon: 'user-check', text: 'Soins', link: '/care', permission: 'care.view' },
     { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
     { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
-    { icon: 'capsule', text: 'Pharmacie', link: '/pharmacy', permission: 'pharmacy.view' },
+    {
+        icon: 'capsule',
+        text: 'Pharmacie',
+        link: can('pharmacy.counter_sales.create') ? '/pharmacy/counter-sales/create' : '/pharmacy',
+        activeLinks: ['/pharmacy'],
+        permission: 'pharmacy.view',
+    },
     { heading: 'Gestion' },
     { icon: 'briefcase', text: 'Ressources humaines', link: '/administration', exact: true, permission: 'employees.view' },
     { icon: 'package', text: 'Logistique', link: '/logistics', permission: 'logistics.view' },
     { icon: 'shield-check', text: 'Gardiennage', link: '/reception/visitors', permission: 'guarding.view' },
     { icon: 'users', text: 'Utilisateurs & accès', link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view' },
     { icon: 'setting-alt', text: 'Référentiels & tarifs', link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view' },
-];
+]);
 
 const adminMenu = computed(() => [
     { heading: 'Vue d’ensemble' },
@@ -57,7 +63,7 @@ const adminMenu = computed(() => [
     { icon: 'history', text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },
 ]);
 
-const rawMenu = computed(() => page.props.site?.type === 'admin' ? adminMenu.value : clinicMenu);
+const rawMenu = computed(() => page.props.site?.type === 'admin' ? adminMenu.value : clinicMenu.value);
 
 // A heading is only rendered when at least one item under it is visible —
 // Every operational item is gated by a dynamic permission. The only item

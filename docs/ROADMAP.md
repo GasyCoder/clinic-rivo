@@ -128,25 +128,25 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 # Phase 4 — Pharmacie / Stocks
 
 - [x] Fondation médicaments spécialisés liés au référentiel
-- [ ] Produits
+- [x] Produits, catégories, fournisseurs et import de création Excel/CSV
 - [x] DCI et formes pharmaceutiques
 - [x] Dosages
 - [x] Fondation lots locaux
 - [x] Exclusion des lots périmés de la disponibilité
 - [x] Disponibilité physique moins réservations actives
-- [ ] Entrées
-- [ ] Sorties
-- [ ] Inventaires
-- [ ] Ajustements
+- [x] Entrées locales auditées par lot et fournisseur
+- [x] Sorties immuables par bon de délivrance
+- [x] Inventaires par ajustement au comptage physique
+- [x] Ajustements péremption, casse/perte et inventaire
 - [x] Prescription Médecine reliée au médicament et réservation FEFO
 - [x] Ligne d'ordonnance manuelle hors référentiel, sans stock ni prix, en attente de validation
-- [ ] Préparation délivrance
-- [ ] Vérification statut financier si nécessaire
-- [ ] Délivrance
-- [ ] Déstockage
+- [x] Préparation délivrance interne et vente directe comptoir
+- [x] Vérification du paiement/prise en charge par la Caisse
+- [x] Délivrance complète ou partielle en FEFO
+- [x] Déstockage uniquement lors de la délivrance autorisée
 - [ ] Retours
-- [ ] Alertes stock
-- [ ] Alertes péremption
+- [x] Alertes automatiques de seuil minimal et rupture
+- [x] Alertes et visibilité des lots proches de la péremption
 - [ ] Transfert stock
 - [ ] Rapports
 

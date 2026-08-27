@@ -6,6 +6,7 @@ use App\Actions\Payment\CancelPaymentAction;
 use App\Actions\Payment\RecordPaymentAction;
 use App\Http\Requests\CancelPaymentRequest;
 use App\Http\Requests\RecordPaymentRequest;
+use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\Payment;
 use Illuminate\Http\RedirectResponse;
@@ -33,5 +34,18 @@ class PaymentController extends Controller
         $action->execute($payment, $request->validated('reason'), $request->user());
 
         return back()->with('status', "Paiement {$payment->payment_number} annulé. L’historique et le reçu sont conservés.");
+    }
+
+    public function storeInvoice(
+        RecordPaymentRequest $request,
+        Invoice $invoice,
+        RecordPaymentAction $action,
+    ): RedirectResponse {
+        $payment = $action->execute($invoice, $request->validated(), $request->user());
+
+        return back()->with(
+            'status',
+            "Paiement {$payment->payment_number} enregistré. Reçu {$payment->receipt->receipt_number} disponible.",
+        );
     }
 }

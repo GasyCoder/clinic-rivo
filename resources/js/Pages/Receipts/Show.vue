@@ -27,8 +27,14 @@ const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '
 const payment = computed(() => props.receipt.payment);
 const invoice = computed(() => payment.value.invoice);
 const isCancelled = computed(() => payment.value.status === 'CANCELLED');
-const returnHref = computed(() => (props.returnToCash ? '/cash' : `/patients/${invoice.value.patient.uuid}`));
-const returnLabel = computed(() => (props.returnToCash ? 'Retour à la caisse' : 'Retour au patient'));
+const customerName = computed(() => invoice.value.patient
+    ? formatPatientName(invoice.value.patient)
+    : (invoice.value.customer_name || 'Client comptoir'));
+const customerReference = computed(() => invoice.value.patient?.patient_number
+    ? `Patient ${invoice.value.patient.patient_number}`
+    : (invoice.value.source_module === 'PHARMACY' ? 'Vente directe Pharmacie' : 'Client externe'));
+const returnHref = computed(() => (props.returnToCash || !invoice.value.patient ? '/cash' : `/patients/${invoice.value.patient.uuid}`));
+const returnLabel = computed(() => (props.returnToCash || !invoice.value.patient ? 'Retour à la caisse' : 'Retour au patient'));
 const qrCodeDataUrl = ref('');
 const ticketRef = ref(null);
 const printPageStyleId = 'receipt-print-page-size';
@@ -161,8 +167,8 @@ onBeforeUnmount(() => {
                     </div>
 
                     <section class="receipt-meta-grid border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:px-6">
-                        <div><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Reçu de</p><p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ formatPatientName(invoice.patient) }}</p><p class="font-mono text-[11px] text-slate-500">Patient {{ invoice.patient.patient_number }}</p></div>
-                        <div><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Référence</p><p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">Facture {{ invoice.invoice_number }}</p><p class="text-[10px] text-slate-400">Passage {{ invoice.episode.episode_number }}</p></div>
+                        <div><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Reçu de</p><p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ customerName }}</p><p class="font-mono text-[11px] text-slate-500">{{ customerReference }}</p></div>
+                        <div><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Référence</p><p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">Facture {{ invoice.invoice_number }}</p><p class="text-[10px] text-slate-400">{{ invoice.episode ? `Passage ${invoice.episode.episode_number}` : 'Sans passage patient' }}</p></div>
                         <div><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Encaissement</p><p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{{ payment.payment_number }}</p><p class="text-[10px] text-slate-400">{{ payment.method.name }} · {{ payment.cashier.name }}</p></div>
                     </section>
 
@@ -214,10 +220,10 @@ onBeforeUnmount(() => {
                             <div v-if="isCancelled" class="border-b border-dashed border-slate-400 py-2 text-center text-[10px] font-bold uppercase">Paiement annulé — trace historique</div>
 
                             <section class="space-y-1 border-b border-dashed border-slate-400 py-2.5 text-[11px]">
-                                <div class="flex items-start justify-between gap-3"><span class="shrink-0">Patient</span><span class="text-end font-bold">{{ formatPatientName(invoice.patient) }}</span></div>
-                                <div class="flex items-start justify-between gap-3"><span class="shrink-0">N° patient</span><span class="text-end font-mono font-bold">{{ invoice.patient.patient_number }}</span></div>
+                                <div class="flex items-start justify-between gap-3"><span class="shrink-0">Client</span><span class="text-end font-bold">{{ customerName }}</span></div>
+                                <div class="flex items-start justify-between gap-3"><span class="shrink-0">Référence</span><span class="text-end font-mono font-bold">{{ customerReference }}</span></div>
                                 <div class="flex items-start justify-between gap-3"><span class="shrink-0">Facture</span><span class="text-end font-mono font-bold">{{ invoice.invoice_number }}</span></div>
-                                <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode.episode_number }}</span></div>
+                                <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode?.episode_number ?? '—' }}</span></div>
                                 <div class="flex items-start justify-between gap-3"><span class="shrink-0">Paiement</span><span class="text-end font-mono font-bold">{{ payment.payment_number }}</span></div>
                                 <div class="flex items-start justify-between gap-3"><span class="shrink-0">Caissier</span><span class="text-end font-medium">{{ payment.cashier.name }}</span></div>
                             </section>

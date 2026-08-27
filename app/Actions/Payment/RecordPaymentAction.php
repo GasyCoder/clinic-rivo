@@ -5,6 +5,7 @@ namespace App\Actions\Payment;
 use App\Enums\CashSessionStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\PharmacyDispenseStatus;
 use App\Models\CashMovement;
 use App\Models\CashSession;
 use App\Models\Invoice;
@@ -29,9 +30,9 @@ class RecordPaymentAction
     /**
      * @param  array{invoice_uuid: string, payment_method_id: int, amount: mixed, reference?: ?string, notes?: ?string}  $data
      */
-    public function execute(Patient $patient, array $data, User $actor): Payment
+    public function execute(Patient|Invoice $payer, array $data, User $actor): Payment
     {
-        return DB::transaction(function () use ($patient, $data, $actor) {
+        return DB::transaction(function () use ($payer, $data, $actor) {
             $session = CashSession::query()
                 ->where('active_key', 'SINGLE_OPEN_CASH')
                 ->where('status', CashSessionStatus::Open->value)
@@ -45,14 +46,15 @@ class RecordPaymentAction
             }
 
             $invoice = Invoice::query()
-                ->where('patient_id', $patient->id)
+                ->when($payer instanceof Patient, fn ($query) => $query->where('patient_id', $payer->id))
+                ->when($payer instanceof Invoice, fn ($query) => $query->whereKey($payer->getKey()))
                 ->where('uuid', $data['invoice_uuid'])
                 ->lockForUpdate()
                 ->first();
 
             if (! $invoice) {
                 throw ValidationException::withMessages([
-                    'invoice_uuid' => 'Cette facture n’appartient pas au patient.',
+                    'invoice_uuid' => 'Cette facture ne correspond pas au dossier d’encaissement.',
                 ]);
             }
 
@@ -126,6 +128,14 @@ class RecordPaymentAction
                     ? InvoiceStatus::Paid
                     : InvoiceStatus::PartiallyPaid,
             ])->save();
+
+            if ($newBalanceMinor === 0) {
+                $dispense = $invoice->pharmacyDispense()->lockForUpdate()->first();
+
+                if ($dispense && $dispense->status === PharmacyDispenseStatus::AwaitingPayment) {
+                    $dispense->update(['status' => PharmacyDispenseStatus::Ready]);
+                }
+            }
 
             $this->auditor->record(
                 'payment.create',

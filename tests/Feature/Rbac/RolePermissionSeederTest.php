@@ -261,11 +261,21 @@ class RolePermissionSeederTest extends TestCase
         $names = $this->permissionNamesFor('PHARMACY');
 
         $this->assertContains('pharmacy.view', $names);
+        $this->assertContains('pharmacy.dispense', $names);
+        $this->assertContains('pharmacy.return', $names);
+        $this->assertContains('pharmacy.reports.view', $names);
         $this->assertContains('medicines.view', $names);
         $this->assertContains('stock.availability.view', $names);
+        $this->assertContains('stock.entry', $names);
+        $this->assertContains('stock.exit', $names);
+        $this->assertContains('stock.adjust', $names);
         $this->assertContains('stock.inventory', $names);
+        $this->assertContains('stock.transfer', $names);
+        $this->assertContains('stock.approve', $names);
         $this->assertContains('stock.lots.create', $names);
         $this->assertContains('stock.expiration.view', $names);
+        $this->assertNotContains('medicines.create', $names);
+        $this->assertNotContains('medicines.update', $names);
         $this->assertNotContains('catalog.items.update', $names);
         $this->assertNotContains('payments.create', $names);
         $this->assertNotContains('cash.view', $names);

@@ -23,8 +23,14 @@ const publicUrl = computed(() => page.props.site?.publicUrl ?? 'https://clinique
 const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''));
 const hasDiscount = computed(() => Number(props.invoice.discount_amount ?? 0) > 0);
 const hasCoverage = computed(() => Number(props.invoice.coverage_amount ?? 0) > 0);
-const returnHref = computed(() => (props.returnToCash ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
-const returnLabel = computed(() => (props.returnToCash ? 'Retour à la caisse' : 'Retour au patient'));
+const customerName = computed(() => props.invoice.patient
+    ? formatPatientName(props.invoice.patient)
+    : (props.invoice.customer_name || 'Client comptoir'));
+const customerReference = computed(() => props.invoice.patient?.patient_number
+    ? `Patient ${props.invoice.patient.patient_number}`
+    : (props.invoice.source_module === 'PHARMACY' ? 'Vente directe Pharmacie' : 'Client externe'));
+const returnHref = computed(() => (props.returnToCash || !props.invoice.patient ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
+const returnLabel = computed(() => (props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient'));
 const qrCodeDataUrl = ref('');
 const ticketRef = ref(null);
 const printPageStyleId = 'invoice-print-page-size';
@@ -170,12 +176,12 @@ onBeforeUnmount(() => {
                 <section class="invoice-meta-grid border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:px-6">
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Facturé à</p>
-                        <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ formatPatientName(invoice.patient) }}</p>
-                        <p class="font-mono text-[11px] text-slate-500">Patient {{ invoice.patient.patient_number }}</p><p v-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
+                        <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ customerName }}</p>
+                        <p class="font-mono text-[11px] text-slate-500">{{ customerReference }}</p><p v-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
                     </div>
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Passage</p>
-                        <p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{{ invoice.episode.episode_number }}</p>
+                        <p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{{ invoice.episode?.episode_number ?? 'Sans passage patient' }}</p>
                     </div>
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Émission</p>
@@ -266,9 +272,9 @@ onBeforeUnmount(() => {
                         </header>
 
                         <section class="space-y-1 border-b border-dashed border-slate-400 py-2.5 text-[11px]">
-                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Patient</span><span class="text-end font-bold">{{ formatPatientName(invoice.patient) }}</span></div>
-                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">N° patient</span><span class="text-end font-mono font-bold">{{ invoice.patient.patient_number }}</span></div>
-                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode.episode_number }}</span></div>
+                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Client</span><span class="text-end font-bold">{{ customerName }}</span></div>
+                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Référence</span><span class="text-end font-mono font-bold">{{ customerReference }}</span></div>
+                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode?.episode_number ?? '—' }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Émise par</span><span class="text-end font-medium">{{ invoice.creator.name }}</span></div>
                             <div v-if="hasCoverage" class="flex items-start justify-between gap-3"><span class="shrink-0">Mutuelle</span><span class="text-end font-bold">{{ invoice.mutual_organization_name }} · {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</span></div>
                         </section>

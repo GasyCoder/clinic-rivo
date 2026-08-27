@@ -10,9 +10,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
-    'patient_id', 'episode_id', 'invoice_number', 'status', 'currency',
+    'patient_id', 'episode_id', 'customer_type', 'customer_name', 'customer_phone',
+    'source_module', 'invoice_number', 'status', 'currency',
     'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
     'subtotal_amount', 'discount_amount', 'coverage_amount', 'total_amount', 'paid_amount',
     'balance_amount', 'created_by', 'validated_by', 'cancelled_by',
@@ -58,6 +60,11 @@ class Invoice extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function pharmacyDispense(): HasOne
+    {
+        return $this->hasOne(PharmacyDispense::class);
     }
 
     public function creator(): BelongsTo

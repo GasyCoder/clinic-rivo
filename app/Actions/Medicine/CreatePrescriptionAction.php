@@ -2,6 +2,7 @@
 
 namespace App\Actions\Medicine;
 
+use App\Actions\Pharmacy\CreateInternalDispenseRequestAction;
 use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\PrescriptionStatus;
 use App\Models\Consultation;
@@ -13,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class CreatePrescriptionAction
 {
-    public function __construct(private readonly MedicineStockService $stock) {}
+    public function __construct(
+        private readonly MedicineStockService $stock,
+        private readonly CreateInternalDispenseRequestAction $createDispenseRequest,
+    ) {}
 
     /**
      * A line is either resolved against the Pharmacy catalog (`manual`
@@ -94,7 +98,9 @@ class CreatePrescriptionAction
                 ]);
             }
 
-            return $prescription->fresh(['lines.stockReservations']);
+            $this->createDispenseRequest->execute($prescription);
+
+            return $prescription->fresh(['lines.stockReservations', 'pharmacyDispense.lines']);
         });
     }
 }

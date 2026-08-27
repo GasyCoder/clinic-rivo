@@ -112,6 +112,32 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
     Route::get('/pharmacy', PharmacyController::class)->name('pharmacy.index')->middleware('can:pharmacy.view');
+    Route::post('/pharmacy/stock/entries', [PharmacyController::class, 'storeEntry'])
+        ->name('pharmacy.stock.entries.store')
+        ->middleware('can:stock.entry');
+    Route::post('/pharmacy/stock/adjustments', [PharmacyController::class, 'storeAdjustment'])
+        ->name('pharmacy.stock.adjustments.store')
+        ->middleware('can:stock.adjust');
+    Route::get('/pharmacy/counter-sales/create', [PharmacyController::class, 'createExternalDispense'])
+        ->name('pharmacy.counter-sales.create')
+        ->middleware('can:pharmacy.counter_sales.create');
+    Route::post('/pharmacy/counter-sales', [PharmacyController::class, 'storeExternalDispense'])
+        ->name('pharmacy.counter-sales.store')
+        ->middleware('can:pharmacy.counter_sales.create');
+    Route::post('/pharmacy/dispenses/{dispense}/invoice', [PharmacyController::class, 'prepareInvoice'])
+        ->name('pharmacy.dispenses.invoice.store');
+    Route::post('/pharmacy/dispenses/{dispense}/deliveries', [PharmacyController::class, 'dispense'])
+        ->name('pharmacy.dispenses.deliveries.store');
+    Route::post('/pharmacy/setup/categories', [PharmacyController::class, 'storeCategory'])
+        ->name('pharmacy.setup.categories.store')->middleware('can:medicine_categories.create');
+    Route::post('/pharmacy/setup/suppliers', [PharmacyController::class, 'storeSupplier'])
+        ->name('pharmacy.setup.suppliers.store')->middleware('can:medicine_suppliers.create');
+    Route::post('/pharmacy/setup/medicines', [PharmacyController::class, 'storeMedicine'])
+        ->name('pharmacy.setup.medicines.store')->middleware('can:medicines.create');
+    Route::get('/pharmacy/setup/medicines/import-template', [PharmacyController::class, 'catalogTemplate'])
+        ->name('pharmacy.setup.medicines.import-template')->middleware('can:medicines.import');
+    Route::post('/pharmacy/setup/medicines/import', [PharmacyController::class, 'importCatalog'])
+        ->name('pharmacy.setup.medicines.import')->middleware('can:medicines.import');
 
     // Administration locale des comptes de ce site. Les comptes sont
     // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.
@@ -194,6 +220,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/invoices/{invoice}', [BillingController::class, 'show'])->name('invoices.show')->middleware('can:billing.print');
     Route::post('/invoices/{invoice}/validate', [BillingController::class, 'validateInvoice'])->name('invoices.validate')->middleware('can:billing.validate');
     Route::post('/patients/{patient}/payments', [PaymentController::class, 'store'])->name('payments.store')->middleware('can:payments.create');
+    Route::post('/invoices/{invoice}/payments', [PaymentController::class, 'storeInvoice'])->name('invoices.payments.store')->middleware('can:payments.create');
     Route::post('/payments/{payment}/cancel', [PaymentController::class, 'cancel'])->name('payments.cancel')->middleware('can:payments.cancel');
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
 

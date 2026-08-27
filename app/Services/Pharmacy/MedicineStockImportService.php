@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class MedicineStockImportService
 {
+    public function __construct(private readonly MedicineStockAlertService $alerts) {}
+
     /**
      * @param  array<int, array<string, int|string|null>>  $rows
      * @return array{rows: int, quantity: int, created_lots: int, updated_lots: int}
@@ -113,12 +115,18 @@ class MedicineStockImportService
                     'quantity_delta' => $quantity,
                     'balance_after' => $balanceAfter,
                     'source_key' => sprintf('excel:%s:%d', $idempotencyKey, $index + 1),
+                    'origin' => 'Import Super Administration',
+                    'destination' => sprintf(
+                        'Stock Pharmacie — %s',
+                        config('rivo.site.name') ?: config('rivo.site.code'),
+                    ),
                     'reason' => $row['motif'],
                     'occurred_at' => now(),
                     'performed_by' => null,
                     'external_actor_uuid' => $externalActorUuid,
                     'external_actor_name' => $externalActorName,
                 ]);
+                $this->alerts->synchronize($medicine);
                 $totalQuantity += $quantity;
             }
 

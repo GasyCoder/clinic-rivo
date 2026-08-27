@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * CDC §19 lists "prescriptions utiles" in the inter-site transfer payload
@@ -45,6 +46,11 @@ class Prescription extends Model
     public function prescribedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'prescribed_by');
+    }
+
+    public function pharmacyDispense(): HasOne
+    {
+        return $this->hasOne(PharmacyDispense::class);
     }
 
     /**

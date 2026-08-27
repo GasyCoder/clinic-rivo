@@ -48,7 +48,7 @@ class CashController extends Controller
         $recentPayments = $request->user()->can('payments.view')
             ? Payment::query()
                 ->with([
-                    'invoice:id,uuid,patient_id,invoice_number',
+                    'invoice:id,uuid,patient_id,invoice_number,customer_type,customer_name,customer_phone,source_module',
                     'invoice.patient:id,uuid,patient_number,first_name,last_name',
                     'method:id,name',
                     'receipt:id,uuid,payment_id,receipt_number',
@@ -75,6 +75,7 @@ class CashController extends Controller
                 ->limit(50)
                 ->get([
                     'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
+                    'customer_type', 'customer_name', 'customer_phone', 'source_module',
                     'status', 'total_amount', 'paid_amount', 'balance_amount',
                     'created_at', 'validated_at',
                 ])

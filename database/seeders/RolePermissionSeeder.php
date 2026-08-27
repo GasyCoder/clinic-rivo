@@ -111,14 +111,17 @@ class RolePermissionSeeder extends Seeder
         // medicines.create/update and every catalog/tariff mutation remain
         // reserved to Super Admin by ADR-024.
         'PHARMACY' => [
-            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.return',
+            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice',
+            'pharmacy.counter_sales.create', 'pharmacy.return',
             'pharmacy.reports.view', 'pharmacy.reports.export',
-            'prescriptions.view', 'medicines.view', 'stock.availability.view',
+            'prescriptions.view', 'medicines.view', 'medicine_categories.view',
+            'medicine_suppliers.view', 'stock.availability.view',
             'stock.view', 'stock.entry', 'stock.exit', 'stock.adjust',
             'stock.inventory', 'stock.validate', 'stock.transfer',
             'stock.approve', 'stock.import', 'stock.export',
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
-            'stock.expiration.view',
+            'stock.expiration.view', 'stock.alerts.view',
+            'stock.cost.view', 'stock.cost.record',
         ],
         // The laboratory interface is not implemented yet. Keeping this
         // array explicit removes any stale grant left by older seeds.

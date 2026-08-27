@@ -1986,3 +1986,35 @@ montant, zéro ou dette ne peut être déduit d'un dossier chirurgical seul. Tan
 que la création des prestations facturables Chirurgie et l'API de rapport ne
 sont pas implémentées, l'interface Finance affiche donc des valeurs
 indisponibles (`—`) plutôt que de faux `Ar0`.
+
+---
+
+# ADR-049 — Parcours Pharmacie, facturation Caisse et stock local
+
+**Status:** ACCEPTED (2026-08-26 — validation explicite du propriétaire)
+
+Les stocks Pharmacie sont indépendants par site. Une ordonnance interne crée
+automatiquement une demande de dispensation et réserve les lots en FEFO. Une
+vente directe au comptoir peut être créée sans patient ni passage, mais elle
+réserve également les lots en FEFO. Dans les deux cas, la Pharmacie prépare un
+élément facturable et une facture ; elle n'encaisse jamais.
+
+La Réception/Caisse reste l'unique module autorisé à enregistrer un paiement et
+à émettre un reçu. La quantité physique d'un lot ne diminue qu'après paiement
+intégral ou prise en charge intégrale. Une délivrance partielle est autorisée :
+chaque bon de sortie, allocation de lot et mouvement est conservé, audité et
+immuable. Une annulation financière est refusée dès qu'une délivrance physique
+a commencé.
+
+Les entrées enregistrent lot, péremption, origine, destination et, lorsque le
+droit le permet, fournisseur et prix d'achat. Les ajustements de péremption,
+casse/perte et inventaire ne peuvent jamais réduire le stock physique sous les
+quantités déjà réservées. Un seuil minimal par médicament crée et résout
+automatiquement une alerte locale.
+
+Le paramétrage comprend DCI, forme, dosage, fabricant, code-barres, catégorie,
+fournisseurs, statut d'ordonnance, seuil minimal et tarif de vente. L'import de
+médicaments est création-only, atomique et rejette tout le fichier si une ligne
+ou un code est invalide. Conformément à l'ADR-024, ces écritures de catalogue
+requièrent des permissions explicites et ne sont pas accordées au rôle
+`PHARMACY` par défaut.

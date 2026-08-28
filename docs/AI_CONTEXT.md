@@ -587,6 +587,10 @@ confirmation puis routage. Le catalogue initial exige aussi un routage
 Réception configuré. La branche « Achat de médicaments uniquement » renvoie à
 la Vente comptoir Pharmacie existante et ne duplique ni médicaments ni panier
 dans Réception. Aucune analyse Laboratoire n'est activée par cette évolution.
+Après création, l’URL de prise en charge contient l’UUID de l’Episode et un
+brouillon serveur temporaire restaure la sélection après actualisation. Ce
+brouillon est supprimé dès la confirmation et ne constitue aucune demande ou
+écriture financière.
 
 Après le choix du mode, `ReceptionFinancialPreviewService` recalcule côté
 Laravel les montants brut, couvert et patient. La projection STAFF peut simuler

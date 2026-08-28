@@ -20,6 +20,9 @@ const props = defineProps({
     addressEntries: { type: Array, default: () => [] },
     mutualOrganizations: { type: Array, default: () => [] },
     capabilities: { type: Object, default: () => ({}) },
+    resumeEpisode: { type: Object, default: null },
+    receptionDraft: { type: Object, default: null },
+    financialPreview: { type: Object, default: null },
 });
 
 const steps = [
@@ -31,14 +34,14 @@ const steps = [
     { number: 6, label: 'Confirmation' },
     { number: 7, label: 'Routage' },
 ];
-const currentStep = ref(1);
+const currentStep = ref(props.resumeEpisode ? (props.resumeEpisode.financial_mode ? 6 : 5) : 1);
 const catalogQuery = ref('');
 const moduleFilter = ref('');
-const cart = ref([]);
+const cart = ref((props.receptionDraft?.catalog_lines ?? []).map((line) => ({ ...line })));
 const estimate = ref(null);
 const estimateLoading = ref(false);
 const estimateError = ref('');
-const designationDeferred = ref(false);
+const designationDeferred = ref(Boolean(props.receptionDraft?.designation_deferred));
 const isEmergency = ref(false);
 
 const patientMode = ref('search');
@@ -46,34 +49,55 @@ const patientQuery = ref('');
 const patientMatches = ref([]);
 const patientSearchLoading = ref(false);
 const patientSearchPerformed = ref(false);
-const selectedPatient = ref(null);
+const selectedPatient = ref(props.resumeEpisode?.patient ?? null);
 const duplicates = ref([]);
 const arrivalLoading = ref(false);
 const arrivalErrors = ref({});
 const arrivalMessage = ref('');
-const episode = ref(null);
+const episode = ref(props.resumeEpisode ?? null);
 
 const birthMode = ref('date');
 const patientForm = reactive({
-    first_name: '', last_name: '', birth_date: '', age: '', sex: 'M',
+    civility: '', first_name: '', last_name: '', birth_date: '', age: '', sex: 'M',
+    identity_document_type: '', identity_document_number: '',
+    marital_status: '', children_count: '',
     phone: '', email: '', profession: '', address_entry_uuid: '', new_address_label: '',
     emergency_contact_name: '', emergency_contact_phone: '',
     emergency_contact_relationship: '', emergency_contact_email: '',
 });
+const civilityOptions = [
+    { value: 'MR', label: 'M.', sex: 'M' },
+    { value: 'MRS', label: 'Mme', sex: 'F' },
+    { value: 'GIRL', label: 'Enfant fille', sex: 'F' },
+    { value: 'BOY', label: 'Enfant garçon', sex: 'M' },
+];
+const maritalStatusOptions = [
+    { value: 'SINGLE', label: 'Célibataire' },
+    { value: 'MARRIED', label: 'Marié(e)' },
+    { value: 'DIVORCED', label: 'Divorcé(e)' },
+    { value: 'WIDOWED', label: 'Veuf / Veuve' },
+];
+const chooseCivility = (event) => {
+    const value = event.target.value || '';
+    patientForm.civility = value;
+    patientForm.sex = civilityOptions.find((option) => option.value === value)?.sex ?? patientForm.sex;
+};
 
-const financialMode = ref('SELF');
+const financialMode = ref(props.resumeEpisode?.financial_mode ?? 'SELF');
 const financialLoading = ref(false);
 const financialErrors = ref({});
-const preview = ref(null);
+const preview = ref(props.financialPreview ?? null);
 const mutualForm = reactive({
-    mutual_organization_uuid: '', employer_name: '',
-    beneficiary_type: 'PRINCIPAL', membership_number: '',
+    mutual_organization_uuid: props.resumeEpisode?.mutual_coverage?.mutual_organization_uuid ?? '',
+    employer_name: props.resumeEpisode?.mutual_coverage?.employer_name ?? '',
+    beneficiary_type: props.resumeEpisode?.mutual_coverage?.beneficiary_type ?? 'PRINCIPAL',
+    membership_number: props.resumeEpisode?.mutual_coverage?.membership_number ?? '',
 });
 const employeeQuery = ref('');
 const employeeMatches = ref([]);
 const employeeSearchLoading = ref(false);
 const employeeSearchPerformed = ref(false);
-const selectedEmployee = ref(null);
+const selectedEmployee = ref(props.resumeEpisode?.staff_coverage?.employee ?? null);
 
 const finalForm = useForm({
     defer_designation: false,
@@ -212,6 +236,27 @@ const continueToPatient = () => {
     isEmergency.value = false;
     currentStep.value = 3;
 };
+const patientBackTarget = computed(() => (
+    !isEmergency.value && !designationDeferred.value && cart.value.length ? 2 : 1
+));
+const patientBackLabel = computed(() => (
+    patientBackTarget.value === 2 ? 'Retour à l’estimation' : 'Modifier le besoin'
+));
+const returnFromPatientStep = async () => {
+    arrivalErrors.value = {};
+    arrivalMessage.value = '';
+    duplicates.value = [];
+
+    if (patientBackTarget.value === 2) {
+        currentStep.value = 2;
+        if (!estimate.value) await recalculateEstimate();
+        return;
+    }
+
+    isEmergency.value = false;
+    designationDeferred.value = false;
+    currentStep.value = 1;
+};
 
 const resetEpisodeContact = () => {
     patientForm.emergency_contact_name = '';
@@ -273,18 +318,29 @@ const arrivalPayload = (confirmDuplicate = false) => {
         emergency_contact_relationship: patientForm.emergency_contact_relationship || null,
         emergency_contact_email: patientForm.emergency_contact_email || null,
     };
+    const journey = isEmergency.value ? {} : {
+        reception_draft: {
+            designation_deferred: designationDeferred.value,
+            catalog_lines: cartPayload(),
+        },
+    };
 
     if (selectedPatient.value) {
-        return { patient_uuid: selectedPatient.value.uuid, is_emergency: isEmergency.value, ...contact };
+        return { patient_uuid: selectedPatient.value.uuid, is_emergency: isEmergency.value, ...contact, ...journey };
     }
 
     return {
         patient_type: 'STANDARD',
+        civility: patientForm.civility || null,
         first_name: patientForm.first_name || null,
         last_name: patientForm.last_name,
         birth_date: birthMode.value === 'date' ? patientForm.birth_date || null : null,
         age: birthMode.value === 'age' ? Number(patientForm.age) || null : null,
         sex: patientForm.sex,
+        identity_document_type: patientForm.identity_document_type || null,
+        identity_document_number: patientForm.identity_document_number || null,
+        marital_status: patientForm.marital_status || null,
+        children_count: patientForm.children_count !== '' ? Number(patientForm.children_count) : null,
         phone: patientForm.phone || null,
         email: patientForm.email || null,
         profession: patientForm.profession || null,
@@ -293,6 +349,7 @@ const arrivalPayload = (confirmDuplicate = false) => {
         confirm_duplicate: confirmDuplicate,
         is_emergency: isEmergency.value,
         ...contact,
+        ...journey,
     };
 };
 const createEpisode = async (confirmDuplicate = false) => {
@@ -315,7 +372,7 @@ const createEpisode = async (confirmDuplicate = false) => {
             return;
         }
 
-        currentStep.value = 5;
+        window.location.replace(result.resume_url);
     } catch (error) {
         arrivalErrors.value = error.payload?.errors ?? {};
         duplicates.value = error.payload?.duplicates ?? [];
@@ -411,7 +468,6 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
             </div>
             <div class="flex flex-wrap gap-2">
                 <Button :as="Link" href="/reception" size="rg" variant="white-outline"><Icon class="me-2" name="list" />Passages récents</Button>
-                <Button v-if="currentStep > 1 && !episode" size="rg" variant="white-outline" @click="currentStep = Math.max(1, currentStep - 1)"><Icon class="me-2" name="arrow-left" />Retour</Button>
             </div>
         </header>
 
@@ -495,7 +551,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Estimation au tarif STANDARD</h2><p class="mt-1 text-sm text-slate-400">Le montant est recalculé par Laravel à partir des identifiants et quantités.</p></div><span class="rounded border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:border-gray-800">Estimation · pas une facture</span></div>
                 <div class="mt-6 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800"><div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="grid gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_110px_150px_36px] sm:items-center dark:border-gray-900"><div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ entry.catalog.name }}</p><p class="mt-0.5 text-xs text-slate-400">{{ entry.catalog.code }} · {{ entry.catalog.module_label }}</p></div><label><span class="mb-1 block text-[11px] font-semibold uppercase text-slate-400">Quantité</span><Input v-model="entry.line.quantity" type="number" min="0.01" max="9999.99" step="0.01" @change="recalculateEstimate" /></label><div class="sm:text-end"><p class="text-[11px] font-semibold uppercase text-slate-400">Sous-total</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ entry.estimated ? formatMoney(entry.estimated.line_total) : '—' }}</p><p class="text-[11px] text-slate-400">{{ entry.estimated ? `${formatMoney(entry.estimated.unit_price)} / ${entry.catalog.unit}` : 'Tarif indisponible' }}</p></div><button type="button" class="flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600" @click="removeService(entry.index)"><Icon name="cross" /></button></div></div>
                 <div v-if="estimateError" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">{{ estimateError }} Le parcours clinique pourra néanmoins être conservé sans inventer de tarif.</div>
-                <div class="mt-4 flex flex-col gap-3 rounded-md bg-slate-900 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between"><div><p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Total standard estimé</p><p class="mt-1 font-heading text-2xl font-bold">{{ estimate ? formatMoney(estimate.total_amount) : 'À confirmer' }}</p></div><p class="max-w-md text-xs leading-5 text-slate-300">Le montant définitif peut varier selon le mode de prise en charge. Aucun Patient, Episode, facture ou paiement n’a encore été créé.</p></div>
+                <div class="mt-4 flex flex-col gap-3 rounded-md bg-emerald-600 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between"><div><p class="text-xs font-semibold uppercase tracking-wide text-emerald-100">Total standard estimé</p><p class="mt-1 font-heading text-2xl font-bold">{{ estimate ? formatMoney(estimate.total_amount) : 'À confirmer' }}</p></div><p class="max-w-md text-xs leading-5 text-emerald-50">Le montant définitif peut varier selon le mode de prise en charge. Aucun Patient, Episode, facture ou paiement n’a encore été créé.</p></div>
                 <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><Button size="rg" variant="white-outline" @click="currentStep = 1"><Icon class="me-2" name="arrow-left" />Modifier le besoin</Button><div class="flex flex-col gap-2 sm:flex-row"><Button :as="Link" href="/reception" size="rg" variant="white-outline">Je voulais seulement connaître le prix</Button><Button size="rg" :disabled="estimateLoading" @click="continueToPatient">Continuer la prise en charge<Icon class="ms-2" name="arrow-right" /></Button></div></div>
             </CardBody>
 
@@ -563,7 +619,8 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                         <p class="mt-1 text-xs text-slate-400">Les informations ci-dessous seront conservées dans le dossier administratif.</p>
                     </div>
                     <div class="space-y-5 p-5">
-                        <div class="grid gap-4 md:grid-cols-2">
+                        <div class="grid gap-4 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)]">
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Civilité</span><select :value="patientForm.civility" :class="selectLgClass" @change="chooseCivility"><option value="">Choisir</option><option v-for="option in civilityOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
                             <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nom *</span><IconInput v-model="patientForm.last_name" size="lg" icon="user" autocomplete="family-name" placeholder="Nom de famille" :aria-invalid="Boolean(firstError(arrivalErrors, 'last_name'))" /><FormError v-if="firstError(arrivalErrors, 'last_name')" class="mt-1">{{ firstError(arrivalErrors, 'last_name') }}</FormError></label>
                             <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Prénom(s)</span><IconInput v-model="patientForm.first_name" size="lg" icon="user" autocomplete="given-name" placeholder="Prénom(s)" :aria-invalid="Boolean(firstError(arrivalErrors, 'first_name'))" /><FormError v-if="firstError(arrivalErrors, 'first_name')" class="mt-1">{{ firstError(arrivalErrors, 'first_name') }}</FormError></label>
                         </div>
@@ -586,6 +643,15 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                             <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profession</span><IconInput v-model="patientForm.profession" size="lg" icon="briefcase" autocomplete="organization-title" placeholder="Profession" :aria-invalid="Boolean(firstError(arrivalErrors, 'profession'))" /><FormError v-if="firstError(arrivalErrors, 'profession')" class="mt-1">{{ firstError(arrivalErrors, 'profession') }}</FormError></label>
                             <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Adresse</span><select v-model="patientForm.address_entry_uuid" :class="selectLgClass" :aria-invalid="Boolean(firstError(arrivalErrors, 'address_entry_uuid'))"><option value="">Non renseignée</option><option v-for="address in addressEntries" :key="address.uuid" :value="address.uuid">{{ address.label }}</option></select><FormError v-if="firstError(arrivalErrors, 'address_entry_uuid')" class="mt-1">{{ firstError(arrivalErrors, 'address_entry_uuid') }}</FormError></label>
                         </div>
+                        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            <div>
+                                <span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Pièce d’identité <span class="font-normal text-slate-400">(facultatif)</span></span>
+                                <div class="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]"><select v-model="patientForm.identity_document_type" :class="selectLgClass"><option value="">Type</option><option value="CIN">CIN</option><option value="PASSPORT">Passeport</option></select><IconInput v-model="patientForm.identity_document_number" size="lg" icon="card-view" :disabled="!patientForm.identity_document_type" placeholder="Numéro du document" /></div>
+                                <FormError v-if="firstError(arrivalErrors, 'identity_document_type') || firstError(arrivalErrors, 'identity_document_number')" class="mt-1">{{ firstError(arrivalErrors, 'identity_document_type') || firstError(arrivalErrors, 'identity_document_number') }}</FormError>
+                            </div>
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Situation maritale</span><select v-model="patientForm.marital_status" :class="selectLgClass"><option value="">Non renseignée</option><option v-for="option in maritalStatusOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select><FormError v-if="firstError(arrivalErrors, 'marital_status')" class="mt-1">{{ firstError(arrivalErrors, 'marital_status') }}</FormError></label>
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nombre d’enfants</span><Input v-model="patientForm.children_count" size="lg" type="number" min="0" max="30" /><FormError v-if="firstError(arrivalErrors, 'children_count')" class="mt-1">{{ firstError(arrivalErrors, 'children_count') }}</FormError></label>
+                        </div>
                     </div>
                 </section>
 
@@ -604,7 +670,10 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
 
                 <div v-if="duplicates.length" class="mt-4 w-full rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><p class="text-sm font-bold text-amber-800 dark:text-amber-200">Un dossier similaire existe déjà.</p><div class="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300"><p v-for="patient in duplicates" :key="patient.uuid">{{ patient.patient_number }} · {{ formatPatientName(patient) }}</p></div><div class="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="white-outline" @click="patientMode = 'search'; patientMatches = duplicates; patientSearchPerformed = true">Utiliser un dossier existant</Button><Button size="sm" :disabled="arrivalLoading" @click="createEpisode(true)">Créer quand même</Button></div></div>
                 <FormError v-if="arrivalMessage && !duplicates.length" class="mt-4 w-full">{{ arrivalMessage }}</FormError>
-                <div v-if="patientMode === 'create' || selectedPatient" class="mt-6 flex justify-end border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : (isEmergency ? 'Créer le passage urgence' : 'Créer l’Episode') }}<Icon class="ms-2" name="arrow-right" /></Button></div>
+                <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900">
+                    <Button size="lg" variant="white-outline" @click="returnFromPatientStep"><Icon class="me-2" name="arrow-left" />{{ patientBackLabel }}</Button>
+                    <Button v-if="patientMode === 'create' || selectedPatient" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : (isEmergency ? 'Créer le passage urgence' : 'Créer l’Episode') }}<Icon class="ms-2" name="arrow-right" /></Button>
+                </div>
             </CardBody>
 
             <CardBody v-else-if="currentStep === 5" class="!p-5 lg:!p-7">

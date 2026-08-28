@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\CatalogItemType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\MutualBeneficiaryType;
@@ -74,6 +75,7 @@ class StoreArrivalRequest extends FormRequest
                 ],
                 'is_emergency' => ['sometimes', 'boolean'],
                 ...$this->emergencyContactRules(),
+                ...$this->receptionDraftRules(),
             ];
         }
 
@@ -183,6 +185,38 @@ class StoreArrivalRequest extends FormRequest
 
             'confirm_duplicate' => ['sometimes', 'boolean'],
             'is_emergency' => ['sometimes', 'boolean'],
+            ...$this->receptionDraftRules(),
+        ];
+    }
+
+    /** @return array<string, array<int, mixed>> */
+    private function receptionDraftRules(): array
+    {
+        return [
+            'reception_draft' => [
+                'sometimes',
+                'array:designation_deferred,catalog_lines',
+                'required_array_keys:designation_deferred,catalog_lines',
+            ],
+            'reception_draft.designation_deferred' => ['required_with:reception_draft', 'boolean'],
+            // The key must exist so the server can distinguish an omitted
+            // browser payload from the intentional empty list used by the
+            // "besoin à préciser" path.
+            'reception_draft.catalog_lines' => ['array', 'max:50'],
+            'reception_draft.catalog_lines.*.catalog_item_uuid' => [
+                'required',
+                'uuid',
+                'distinct',
+                Rule::exists('catalog_items', 'uuid')->where(fn ($query) => $query
+                    ->whereNull('deleted_at')
+                    ->where('type', CatalogItemType::Service->value)
+                    ->where('billable', true)
+                    ->where('reception_selectable', true)
+                    ->whereNotNull('reception_routing_mode')),
+            ],
+            'reception_draft.catalog_lines.*.quantity' => [
+                'required', 'numeric', 'gt:0', 'max:9999.99', 'decimal:0,2',
+            ],
         ];
     }
 
@@ -209,7 +243,30 @@ class StoreArrivalRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
-            if ($validator->errors()->isNotEmpty() || $this->filled('patient_uuid')) {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            if ($this->has('reception_draft')) {
+                $deferred = $this->boolean('reception_draft.designation_deferred');
+                $lines = $this->input('reception_draft.catalog_lines', []);
+
+                if ($deferred && $lines !== []) {
+                    $validator->errors()->add(
+                        'reception_draft.catalog_lines',
+                        'Un besoin à préciser ne doit contenir aucune prestation sélectionnée.',
+                    );
+                }
+
+                if (! $deferred && $lines === []) {
+                    $validator->errors()->add(
+                        'reception_draft.catalog_lines',
+                        'Sélectionnez au moins une prestation avant de créer le passage.',
+                    );
+                }
+            }
+
+            if ($this->filled('patient_uuid')) {
                 return;
             }
 

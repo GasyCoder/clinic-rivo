@@ -2249,6 +2249,14 @@ toutes les prestations sélectionnées. Le mode `SELF`, `MUTUAL` ou `STAFF` est
 choisi seulement après cette création et enregistré exclusivement par
 `SetEpisodeFinancialContextAction`.
 
+Dès la création de l’Episode, le navigateur rejoint une URL stable contenant
+son UUID (`/reception/passages/{uuid}/prise-en-charge`). La sélection encore
+non confirmée est conservée dans un brouillon technique rattaché à l’Episode :
+une actualisation reprend donc le même passage et la même étape sans créer un
+second Episode. Ce brouillon n’est ni une demande clinique, ni une prestation
+facturable, ni une facture ; il est supprimé après la confirmation définitive
+du routage.
+
 `MUTUAL` sélectionne un `MutualOrganization` actif existant et ne permet
 aucune création d’organisme depuis ce parcours. `STAFF` sélectionne un
 `Employee` actif via la projection minimale autorisée et réutilise le lien

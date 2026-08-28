@@ -46,11 +46,13 @@ class CompleteEpisodeServicesAction
     ): ArrivalRegistrationResult {
         if ($designationDeferred) {
             $episode = $this->planRouting->planUnknownNeed($episode, $actor);
+            $episode->receptionJourneyDraft()->delete();
 
             return new ArrivalRegistrationResult($episode);
         }
 
         $this->planRouting->execute($episode, $catalogLines, $actor);
+        $episode->receptionJourneyDraft()->delete();
         $episode = $episode->fresh(['patient', 'serviceRequests', 'orientations']);
 
         if ($episode->financial_mode === null) {

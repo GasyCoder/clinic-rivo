@@ -16,6 +16,7 @@ use App\Models\MutualOrganization;
 use App\Models\Patient;
 use App\Models\VisitorVisit;
 use App\Services\Reception\ReceptionEstimateService;
+use App\Services\Reception\ReceptionFinancialPreviewService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,7 +26,10 @@ use Inertia\Response;
 /** Reception entry point for patient arrivals and the recent passage board. */
 class ReceptionController extends Controller
 {
-    public function __construct(private readonly ReceptionEstimateService $estimates) {}
+    public function __construct(
+        private readonly ReceptionEstimateService $estimates,
+        private readonly ReceptionFinancialPreviewService $financialPreviews,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -74,6 +78,26 @@ class ReceptionController extends Controller
         return $this->renderPatientReception($request, ReceptionPatientStep::from($step));
     }
 
+    public function resumeJourney(Request $request, Episode $episode): Response|RedirectResponse
+    {
+        $episode->load([
+            'patient',
+            'receptionJourneyDraft',
+            'mutualCoverage',
+            'staffCoverage.employee',
+        ]);
+
+        if ($episode->service_plan_finalized_at || $episode->priority === EpisodePriority::Emergency) {
+            return redirect()->route('patients.show', $episode->patient);
+        }
+
+        if (! $episode->receptionJourneyDraft) {
+            return redirect()->route('reception.passages.services.show', $episode);
+        }
+
+        return $this->renderPatientReception($request, episode: $episode);
+    }
+
     public function searchPatients(Request $request): JsonResponse
     {
         abort_unless($request->user()?->can('episodes.create'), 403);
@@ -103,6 +127,7 @@ class ReceptionController extends Controller
     private function renderPatientReception(
         Request $request,
         ?ReceptionPatientStep $step = null,
+        ?Episode $episode = null,
     ): Response {
         $search = trim((string) $request->query('q', ''));
         $recentFilter = in_array($request->query('filter'), [
@@ -153,6 +178,12 @@ class ReceptionController extends Controller
                 'service_plan_finalized_at', 'started_at',
             ]);
 
+        $draft = $episode?->receptionJourneyDraft;
+        $draftLines = $draft?->catalog_lines ?? [];
+        $financialPreview = $episode?->financial_mode !== null && $draftLines !== []
+            ? $this->financialPreviews->preview($episode, $draftLines)
+            : null;
+
         return Inertia::render('Reception/Create', [
             'step' => $step?->value,
             'search' => $search,
@@ -166,6 +197,34 @@ class ReceptionController extends Controller
                 ? MutualOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name', 'coverage_rate'])
                 : [],
             'estimateCatalog' => $this->estimates->catalog(),
+            'resumeEpisode' => $episode ? [
+                'uuid' => $episode->uuid,
+                'episode_number' => $episode->episode_number,
+                'priority' => $episode->priority->value,
+                'financial_mode' => $episode->financial_mode?->value,
+                'patient' => $this->patientSearchPayload($episode->patient),
+                'mutual_coverage' => $episode->mutualCoverage ? [
+                    'mutual_organization_uuid' => $episode->mutualCoverage->organization_uuid_snapshot,
+                    'employer_name' => $episode->mutualCoverage->employer_name,
+                    'beneficiary_type' => $episode->mutualCoverage->beneficiary_type->value,
+                    'membership_number' => $episode->mutualCoverage->membership_number,
+                ] : null,
+                'staff_coverage' => $episode->staffCoverage?->employee ? [
+                    'employee' => [
+                        'uuid' => $episode->staffCoverage->employee->uuid,
+                        'employee_number' => $episode->staffCoverage->employee->employee_number,
+                        'first_name' => $episode->staffCoverage->employee->first_name,
+                        'last_name' => $episode->staffCoverage->employee->last_name,
+                        'profession' => $episode->staffCoverage->employee->profession,
+                        'eligible' => $episode->staffCoverage->employee->active,
+                    ],
+                ] : null,
+            ] : null,
+            'receptionDraft' => $draft ? [
+                'catalog_lines' => $draftLines,
+                'designation_deferred' => $draft->designation_deferred,
+            ] : null,
+            'financialPreview' => $financialPreview,
             'capabilities' => [
                 'can_create_patient' => $request->user()->can('patients.create'),
                 'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
@@ -200,6 +259,19 @@ class ReceptionController extends Controller
                 'emergency_contact_email', 'emergency_contact_relationship',
             ]);
 
+            $receptionDraft = $request->validated('reception_draft');
+
+            if ($receptionDraft && ! $receptionDraft['designation_deferred']) {
+                $estimated = $this->estimates->estimate($receptionDraft['catalog_lines']);
+                $receptionDraft['catalog_lines'] = collect($estimated['lines'])
+                    ->map(fn (array $line) => [
+                        'catalog_item_uuid' => $line['catalog_item_uuid'],
+                        'quantity' => $line['quantity'],
+                    ])
+                    ->values()
+                    ->all();
+            }
+
             $episode = $action->execute(
                 existingPatientUuid: $request->validated('patient_uuid'),
                 newPatientData: $request->filled('patient_uuid') ? null : $patientData,
@@ -228,6 +300,7 @@ class ReceptionController extends Controller
                             PatientType::Staff->value => EpisodeFinancialMode::Staff,
                             default => EpisodeFinancialMode::Self,
                         })),
+                receptionDraft: $request->boolean('is_emergency') ? null : $receptionDraft,
             );
         } catch (DuplicatePatientException $exception) {
             $duplicates = $exception->matches->map(fn (Patient $patient) => [
@@ -276,6 +349,9 @@ class ReceptionController extends Controller
                     'financial_mode' => $episode->financial_mode?->value,
                     'started_at' => $episode->started_at,
                 ],
+                'resume_url' => $episode->receptionJourneyDraft
+                    ? route('reception.passages.journey.show', $episode)
+                    : route('reception.passages.services.show', $episode),
             ], 201);
         }
 

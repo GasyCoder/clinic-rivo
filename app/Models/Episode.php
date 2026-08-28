@@ -109,6 +109,11 @@ class Episode extends Model
         return $this->hasMany(EpisodeServiceRequest::class);
     }
 
+    public function receptionJourneyDraft(): HasOne
+    {
+        return $this->hasOne(ReceptionJourneyDraft::class);
+    }
+
     public function careRecord(): HasOne
     {
         return $this->hasOne(CareRecord::class);

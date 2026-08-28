@@ -18,6 +18,7 @@ use App\Models\AddressEntry;
 use App\Models\Employee;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\ReceptionJourneyDraft;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -67,6 +68,7 @@ class RegisterArrivalAction
         array $mutualAttachments = [],
         array $episodeData = [],
         ?EpisodeFinancialMode $financialMode = null,
+        ?array $receptionDraft = null,
     ): Episode {
         $storedAttachmentPaths = [];
         $actor ??= Auth::user();
@@ -88,6 +90,7 @@ class RegisterArrivalAction
                 $mutualAttachments,
                 $episodeData,
                 $financialMode,
+                $receptionDraft,
                 &$storedAttachmentPaths,
             ): Episode {
                 $mutualOrganizationUuid = null;
@@ -195,6 +198,15 @@ class RegisterArrivalAction
                 }
 
                 $episode = $this->createEpisode->execute($patient, $priority, $actor, $episodeData);
+
+                if ($priority !== EpisodePriority::Emergency && $receptionDraft !== null) {
+                    ReceptionJourneyDraft::query()->create([
+                        'episode_id' => $episode->getKey(),
+                        'catalog_lines' => $receptionDraft['catalog_lines'],
+                        'designation_deferred' => $receptionDraft['designation_deferred'],
+                        'created_by' => $actor->getKey(),
+                    ]);
+                }
 
                 // The current screen still names this choice patient_type.
                 // During the UI transition it is translated once into the

@@ -199,6 +199,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/employees/patient-lookup', EmployeePatientLookupController::class)
         ->name('reception.employees.patient-lookup')
         ->middleware('can:employees.patient_lookup');
+    Route::get('/reception/passages/{episode}/prise-en-charge', [ReceptionController::class, 'resumeJourney'])
+        ->name('reception.passages.journey.show')
+        ->middleware('can:episodes.update');
     Route::get('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'show'])
         ->name('reception.passages.services.show')
         ->middleware('can:episodes.update');

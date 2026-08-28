@@ -130,11 +130,35 @@ class ReceptionJourneyTest extends TestCase
             'last_name' => 'Rakoto',
             'birth_date' => '1990-05-12',
             'sex' => 'M',
+            'reception_draft' => [
+                'designation_deferred' => false,
+                'catalog_lines' => [[
+                    'catalog_item_uuid' => $service->uuid,
+                    'quantity' => 2,
+                ]],
+            ],
         ])->assertCreated()
             ->assertJsonPath('episode.financial_mode', null);
 
         $episode = Episode::query()->sole();
+        $this->assertNotNull($episode->uuid);
+        $arrival->assertJsonPath(
+            'resume_url',
+            route('reception.passages.journey.show', $episode),
+        );
         $this->assertSame(1, $episode->patient->episodes()->count());
+        $this->assertDatabaseCount('reception_journey_drafts', 1);
+
+        $this->actingAs($actor)->get(route('reception.passages.journey.show', $episode))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Create')
+                ->where('resumeEpisode.uuid', $episode->uuid)
+                ->where('resumeEpisode.financial_mode', null)
+                ->where('receptionDraft.designation_deferred', false)
+                ->where('receptionDraft.catalog_lines.0.catalog_item_uuid', $service->uuid)
+                ->where('receptionDraft.catalog_lines.0.quantity', '2.00')
+                ->where('financialPreview', null));
 
         $context = $this->actingAs($actor)->postJson(
             route('reception.passages.financial-context.store', $episode),
@@ -159,6 +183,15 @@ class ReceptionJourneyTest extends TestCase
             ->assertJsonPath('preview.totals.patient_amount', '15000.00')
             ->assertJsonPath('preview.initial_destination.module', 'MEDICINE');
 
+        $this->actingAs($actor)->get(route('reception.passages.journey.show', $episode))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Create')
+                ->where('resumeEpisode.uuid', $episode->uuid)
+                ->where('resumeEpisode.financial_mode', 'MUTUAL')
+                ->where('resumeEpisode.mutual_coverage.mutual_organization_uuid', $organization->uuid)
+                ->where('financialPreview.totals.patient_amount', '15000.00'));
+
         $this->assertDatabaseCount('mutual_organizations', 1);
         $this->assertDatabaseCount('episode_mutual_coverages', 1);
         $this->assertDatabaseCount('episode_service_requests', 0);
@@ -180,7 +213,49 @@ class ReceptionJourneyTest extends TestCase
         $this->assertDatabaseCount('episode_orientations', 1);
         $this->assertDatabaseCount('billable_items', 1);
         $this->assertDatabaseCount('invoices', 1);
+        $this->assertDatabaseCount('reception_journey_drafts', 0);
         $this->assertSame('15000.00', Invoice::query()->sole()->total_amount);
+    }
+
+    public function test_unknown_need_accepts_an_intentionally_empty_catalog_and_resumes_the_same_episode(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'patients.view',
+            'episodes.create', 'episodes.update',
+        ]);
+
+        $arrival = $this->actingAs($actor)->postJson('/reception/patients', [
+            'patient_type' => 'STANDARD',
+            'first_name' => 'Craig',
+            'last_name' => 'Willis',
+            'age' => 63,
+            'sex' => 'M',
+            'reception_draft' => [
+                'designation_deferred' => true,
+                'catalog_lines' => [],
+            ],
+        ])->assertCreated();
+
+        $episode = Episode::query()->sole();
+        $draft = $episode->receptionJourneyDraft()->sole();
+
+        $this->assertTrue($draft->designation_deferred);
+        $this->assertSame([], $draft->catalog_lines);
+        $arrival->assertJsonPath(
+            'resume_url',
+            route('reception.passages.journey.show', $episode),
+        );
+
+        $this->actingAs($actor)->get(route('reception.passages.journey.show', $episode))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Create')
+                ->where('resumeEpisode.uuid', $episode->uuid)
+                ->where('receptionDraft.designation_deferred', true)
+                ->where('receptionDraft.catalog_lines', []));
+
+        $this->assertDatabaseCount('episodes', 1);
+        $this->assertDatabaseCount('reception_journey_drafts', 1);
     }
 
     public function test_staff_preview_simulates_block_credit_without_movement_then_commit_consumes_it(): void

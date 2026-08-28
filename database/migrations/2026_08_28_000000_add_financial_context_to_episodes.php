@@ -59,8 +59,10 @@ return new class extends Migration
         Schema::create('episode_mutual_coverage_attachments', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->foreignId('episode_mutual_coverage_id')
-                ->constrained('episode_mutual_coverages')
+            $table->foreignId('episode_mutual_coverage_id');
+            $table->foreign('episode_mutual_coverage_id', 'episode_mutual_attachment_coverage_fk')
+                ->references('id')
+                ->on('episode_mutual_coverages')
                 ->restrictOnDelete();
             $table->string('path');
             $table->string('original_name');

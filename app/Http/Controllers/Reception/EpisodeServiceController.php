@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reception;
 
 use App\Actions\Reception\CompleteEpisodeServicesAction;
 use App\Enums\ArrivalPaymentChoice;
+use App\Enums\EpisodeFinancialMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEpisodeServicesRequest;
 use App\Models\CashSession;
@@ -25,8 +26,9 @@ class EpisodeServiceController extends Controller
     ): Response|RedirectResponse {
         $episode->load([
             'patient:id,uuid,patient_number,patient_type,first_name,last_name',
-            'patient.activeMutualCoverage:id,patient_id,mutual_organization_id,membership_number,effective_until',
-            'patient.activeMutualCoverage.organization:id,uuid,name,coverage_rate',
+            'mutualCoverage:id,episode_id,mutual_organization_id,membership_number,organization_name_snapshot,coverage_rate_snapshot',
+            'staffCoverage:id,episode_id,employee_id',
+            'staffCoverage.employee:id,uuid,employee_number,first_name,last_name',
         ]);
 
         if ($episode->service_plan_finalized_at) {
@@ -34,9 +36,13 @@ class EpisodeServiceController extends Controller
                 ->with('status', "Le parcours du passage {$episode->episode_number} est déjà confirmé.");
         }
 
-        $billingCatalog = $catalog->services($episode->patient);
+        $billingCatalog = $catalog->services($episode);
         $tariffCategory = $billingCatalog->first()['tariff_category']
-            ?? ($episode->patient->patient_type->value === 'MUTUAL' ? 'MUTUAL' : 'STANDARD');
+            ?? match ($episode->financial_mode) {
+                EpisodeFinancialMode::Mutual => 'MUTUAL',
+                EpisodeFinancialMode::Self, EpisodeFinancialMode::Staff => 'STANDARD',
+                null => null,
+            };
 
         return Inertia::render('Reception/EpisodeServices', [
             'episode' => [
@@ -53,24 +59,29 @@ class EpisodeServiceController extends Controller
                     'patient_type' => $episode->patient->patient_type->value,
                     'first_name' => $episode->patient->first_name,
                     'last_name' => $episode->patient->last_name,
-                    'mutual_coverage' => $episode->patient->activeMutualCoverage ? [
-                        'organization_name' => $episode->patient->activeMutualCoverage->organization->name,
-                        'coverage_rate' => $episode->patient->activeMutualCoverage->organization->coverage_rate,
-                        'membership_number' => $episode->patient->activeMutualCoverage->membership_number,
+                    'mutual_coverage' => $episode->mutualCoverage ? [
+                        'organization_name' => $episode->mutualCoverage->organization_name_snapshot,
+                        'coverage_rate' => $episode->mutualCoverage->coverage_rate_snapshot,
+                        'membership_number' => $episode->mutualCoverage->membership_number,
                     ] : null,
                 ],
             ],
             'billingCatalog' => $billingCatalog,
             'pricingContext' => [
                 'category' => $tariffCategory,
-                'label' => $tariffCategory === 'MUTUAL' ? 'Tarif mutuelle' : 'Tarif sans mutuelle',
-                'organization_name' => $episode->patient->activeMutualCoverage?->organization?->name,
-                'coverage_rate' => $episode->patient->activeMutualCoverage?->organization?->coverage_rate,
-                'patient_rate' => $episode->patient->activeMutualCoverage?->organization
+                'financial_mode' => $episode->financial_mode?->value,
+                'label' => match ($tariffCategory) {
+                    'MUTUAL' => 'Tarif mutuelle',
+                    'STANDARD' => 'Tarif sans mutuelle',
+                    default => 'Contexte à régulariser',
+                },
+                'organization_name' => $episode->mutualCoverage?->organization_name_snapshot,
+                'coverage_rate' => $episode->mutualCoverage?->coverage_rate_snapshot,
+                'patient_rate' => $episode->mutualCoverage
                     ? Money::fromMinor(10_000 - Money::toMinor(
-                        $episode->patient->activeMutualCoverage->organization->coverage_rate,
+                        $episode->mutualCoverage->coverage_rate_snapshot,
                     ))
-                    : '100.00',
+                    : ($episode->financial_mode === EpisodeFinancialMode::Self ? '100.00' : null),
                 'missing_tariffs_count' => $billingCatalog->where('tariff_available', false)->count(),
             ],
             'paymentMethods' => $request->user()->can('payments.create')

@@ -3,38 +3,77 @@
 namespace App\Services\Billing;
 
 use App\Enums\CatalogTariffCategory;
-use App\Enums\PatientType;
+use App\Enums\EpisodeFinancialMode;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
-use App\Models\Patient;
+use App\Models\Episode;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Single server-side source of truth for the gross tariff category.
  *
- * A mutual tariff never falls back to Standard: that would silently bill a
- * patient with the wrong price. STAFF keeps the Standard gross tariff while
- * its eventual benefit/share is calculated separately by RH / Finance.
+ * A definitive price is resolved from the Episode, never from the legacy
+ * Patient.patient_type. A mutual tariff never falls back to Standard.
+ * STAFF keeps the Standard gross reference, but cannot be billed until the
+ * future RH / Finance benefit rules are implemented.
  */
 class CatalogTariffResolver
 {
-    public function categoryFor(Patient $patient): CatalogTariffCategory
+    public function categoryFor(Episode $episode, bool $required = true): ?CatalogTariffCategory
     {
-        return $patient->patient_type === PatientType::Mutual
-            ? CatalogTariffCategory::Mutual
-            : CatalogTariffCategory::Standard;
+        if ($episode->financial_mode === EpisodeFinancialMode::Mutual) {
+            return CatalogTariffCategory::Mutual;
+        }
+
+        if (in_array($episode->financial_mode, [
+            EpisodeFinancialMode::Self,
+            EpisodeFinancialMode::Staff,
+        ], true)) {
+            return CatalogTariffCategory::Standard;
+        }
+
+        // Compatibility is intentionally limited to an immutable request
+        // snapshot that already exists. We never infer a new Episode context
+        // from Patient.patient_type.
+        $legacyCategory = $episode->serviceRequests()
+            ->whereNotNull('catalog_tariff_id')
+            ->value('tariff_category');
+
+        if ($legacyCategory) {
+            return CatalogTariffCategory::tryFrom((string) $legacyCategory);
+        }
+
+        if ($required) {
+            throw ValidationException::withMessages([
+                'financial_mode' => 'Le contexte financier du passage doit être régularisé avant la facturation.',
+            ]);
+        }
+
+        return null;
     }
 
-    public function relationshipFor(Patient $patient): string
+    public function relationshipFor(Episode $episode): ?string
     {
-        return $this->categoryFor($patient) === CatalogTariffCategory::Mutual
+        $category = $this->categoryFor($episode, required: false);
+
+        if (! $category) {
+            return null;
+        }
+
+        return $category === CatalogTariffCategory::Mutual
             ? 'currentMutualTariff'
             : 'currentStandardTariff';
     }
 
-    public function assertPatientCanBeBilled(Patient $patient): void
+    public function assertEpisodeCanBeBilled(Episode $episode): void
     {
-        $this->coverageSnapshot($patient);
+        if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
+            throw ValidationException::withMessages([
+                'financial_mode' => 'La couverture Personnel doit être calculée par RH / Finance avant toute facturation.',
+            ]);
+        }
+
+        $this->coverageSnapshot($episode);
     }
 
     /**
@@ -44,9 +83,9 @@ class CatalogTariffResolver
      *
      * @return array{organization_uuid: ?string, organization_name: ?string, coverage_rate: ?string}
      */
-    public function coverageSnapshot(Patient $patient, bool $required = true): array
+    public function coverageSnapshot(Episode $episode, bool $required = true): array
     {
-        if ($patient->patient_type !== PatientType::Mutual) {
+        if ($episode->financial_mode === EpisodeFinancialMode::Self) {
             return [
                 'organization_uuid' => null,
                 'organization_name' => null,
@@ -54,17 +93,7 @@ class CatalogTariffResolver
             ];
         }
 
-        $patient->loadMissing('activeMutualCoverage.organization');
-        $coverage = $patient->activeMutualCoverage;
-        $organization = $coverage?->organization;
-
-        if (! $coverage || ! $organization) {
-            if ($required) {
-                throw ValidationException::withMessages([
-                    'patient' => 'La couverture mutuelle active doit être complétée avant la facturation.',
-                ]);
-            }
-
+        if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
             return [
                 'organization_uuid' => null,
                 'organization_name' => null,
@@ -72,20 +101,62 @@ class CatalogTariffResolver
             ];
         }
 
+        if ($episode->financial_mode === EpisodeFinancialMode::Mutual) {
+            $episode->loadMissing('mutualCoverage');
+            $coverage = $episode->mutualCoverage;
+
+            if (! $coverage) {
+                throw ValidationException::withMessages([
+                    'financial_mode' => 'La couverture mutuelle du passage doit être complétée avant la facturation.',
+                ]);
+            }
+
+            return [
+                'organization_uuid' => $coverage->organization_uuid_snapshot,
+                'organization_name' => $coverage->organization_name_snapshot,
+                'coverage_rate' => $coverage->coverage_rate_snapshot,
+            ];
+        }
+
+        $legacy = $episode->serviceRequests()
+            ->whereNotNull('catalog_tariff_id')
+            ->oldest('id')
+            ->first(['mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate']);
+
+        if ($legacy) {
+            return [
+                'organization_uuid' => $legacy->mutual_organization_uuid,
+                'organization_name' => $legacy->mutual_organization_name,
+                'coverage_rate' => $legacy->coverage_rate ?? '0.00',
+            ];
+        }
+
+        if ($required) {
+            throw ValidationException::withMessages([
+                'financial_mode' => 'Le contexte financier du passage doit être régularisé avant la facturation.',
+            ]);
+        }
+
         return [
-            'organization_uuid' => $organization->uuid,
-            'organization_name' => $organization->name,
-            'coverage_rate' => $organization->coverage_rate,
+            'organization_uuid' => null,
+            'organization_name' => null,
+            'coverage_rate' => null,
         ];
     }
 
     public function current(
         CatalogItem $item,
-        Patient $patient,
+        Episode $episode,
         bool $lockForUpdate = false,
     ): ?CatalogTariff {
+        $category = $this->categoryFor($episode, required: false);
+
+        if (! $category) {
+            return null;
+        }
+
         $query = $item->tariffs()
-            ->where('tariff_category', $this->categoryFor($patient)->value)
+            ->where('tariff_category', $category->value)
             ->where('active_key', 'CURRENT');
 
         if ($lockForUpdate) {

@@ -41,9 +41,14 @@ class MutualOrganization extends Model
         return $this->hasMany(PatientMutualCoverage::class);
     }
 
+    public function episodeCoverages(): HasMany
+    {
+        return $this->hasMany(EpisodeMutualCoverage::class);
+    }
+
     public function isForceDeleteProtected(): bool
     {
-        return $this->coverages()->exists();
+        return $this->coverages()->exists() || $this->episodeCoverages()->exists();
     }
 
     protected function auditModule(): ?string

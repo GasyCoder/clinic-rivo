@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\CatalogItemType;
-use App\Enums\PatientType;
+use App\Enums\EpisodeFinancialMode;
 use App\Models\Episode;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -23,9 +23,10 @@ class StoreEpisodeServicesRequest extends FormRequest
         }
 
         $lines = $this->input('catalog_lines', []);
-        $isStaff = $episode->patient?->patient_type === PatientType::Staff;
+        $isStaff = $episode->financial_mode === EpisodeFinancialMode::Staff;
+        $hasFinancialContext = $episode->financial_mode !== null;
 
-        if (is_array($lines) && $lines !== [] && ! $isStaff) {
+        if (is_array($lines) && $lines !== [] && ! $isStaff && $hasFinancialContext) {
             if (! $user->can('billing.create') || ! $user->can('billing.validate')) {
                 return false;
             }
@@ -112,7 +113,8 @@ class StoreEpisodeServicesRequest extends FormRequest
             }
 
             if ($hasLines
-                && $episode?->patient?->patient_type !== PatientType::Staff
+                && $episode?->financial_mode !== EpisodeFinancialMode::Staff
+                && $episode?->financial_mode !== null
                 && ! $this->filled('payment_choice')) {
                 $validator->errors()->add(
                     'payment_choice',
@@ -127,7 +129,7 @@ class StoreEpisodeServicesRequest extends FormRequest
                 );
             }
 
-            if ($episode?->patient?->patient_type === PatientType::Staff
+            if ($episode?->financial_mode === EpisodeFinancialMode::Staff
                 && $this->filled('payment_choice')) {
                 $validator->errors()->add(
                     'payment_choice',

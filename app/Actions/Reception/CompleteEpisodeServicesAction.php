@@ -8,7 +8,7 @@ use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Payment\RecordPaymentAction;
 use App\DTOs\Reception\ArrivalRegistrationResult;
 use App\Enums\ArrivalPaymentChoice;
-use App\Enums\PatientType;
+use App\Enums\EpisodeFinancialMode;
 use App\Models\Episode;
 use App\Models\User;
 use App\Support\Money;
@@ -52,7 +52,14 @@ class CompleteEpisodeServicesAction
         $this->planRouting->execute($episode, $catalogLines, $actor);
         $episode = $episode->fresh(['patient', 'serviceRequests', 'orientations']);
 
-        if ($episode->patient->patient_type === PatientType::Staff) {
+        if ($episode->financial_mode === null) {
+            return new ArrivalRegistrationResult(
+                $episode,
+                billingWarning: 'Parcours clinique enregistré. Le contexte financier du passage doit être régularisé avant facturation.',
+            );
+        }
+
+        if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
             return new ArrivalRegistrationResult(
                 $episode,
                 billingWarning: 'Prestations enregistrées. La couverture Personnel doit être calculée par RH / Finance avant facturation.',

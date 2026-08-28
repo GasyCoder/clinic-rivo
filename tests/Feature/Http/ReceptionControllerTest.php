@@ -6,6 +6,7 @@ use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
 use App\Enums\ReceptionPatientStep;
@@ -188,7 +189,7 @@ class ReceptionControllerTest extends TestCase
             CatalogModule::Care,
             $user,
         );
-        $orientation->update(['status' => \App\Enums\EpisodeOrientationStatus::Completed]);
+        $orientation->update(['status' => EpisodeOrientationStatus::Completed]);
         $episode->update([
             'administrative_status' => EpisodeAdministrativeStatus::Oriented,
             'service_plan_finalized_at' => now(),
@@ -250,7 +251,11 @@ class ReceptionControllerTest extends TestCase
         $this->assertFalse($patient->birth_date_is_approximate);
         $this->assertSame('1990-05-12', $patient->birth_date->toDateString());
         $this->assertSame(1, $patient->episodes()->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'update')->count());
+        $this->assertSame(0, AuditLog::query()
+            ->where('action', 'update')
+            ->where('entity_type', $patient->getMorphClass())
+            ->where('entity_id', $patient->id)
+            ->count());
 
         // ADR-034: unlike the identity fields above, the emergency contact
         // legitimately belongs to this arrival's episode, not the patient.

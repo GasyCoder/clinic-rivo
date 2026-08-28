@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\Reception\RegisterArrivalAction;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
 use App\Enums\ReceptionPatientStep;
@@ -189,6 +190,15 @@ class ReceptionController extends Controller
                 ] : null,
                 mutualAttachments: $request->file('mutual_attachments', []),
                 episodeData: $episodeData,
+                financialMode: $request->boolean('is_emergency')
+                    ? null
+                    : ($request->filled('patient_uuid')
+                        ? EpisodeFinancialMode::Self
+                        : match ($request->input('patient_type')) {
+                            PatientType::Mutual->value => EpisodeFinancialMode::Mutual,
+                            PatientType::Staff->value => EpisodeFinancialMode::Staff,
+                            default => EpisodeFinancialMode::Self,
+                        }),
             );
         } catch (DuplicatePatientException $exception) {
             return back()->withInput()->with('duplicates', $exception->matches->map(fn (Patient $patient) => [

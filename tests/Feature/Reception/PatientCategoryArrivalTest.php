@@ -4,6 +4,7 @@ namespace Tests\Feature\Reception;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\PatientType;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AddressEntry;
@@ -11,8 +12,8 @@ use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Employee;
 use App\Models\Episode;
+use App\Models\EpisodeMutualCoverage;
 use App\Models\Patient;
-use App\Models\PatientMutualCoverage;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -81,13 +82,16 @@ class PatientCategoryArrivalTest extends TestCase
         ]);
 
         $patient = Patient::query()->sole();
-        $coverage = PatientMutualCoverage::query()->with('attachments')->sole();
+        $coverage = EpisodeMutualCoverage::query()->with('attachments')->sole();
+        $episode = Episode::query()->sole();
 
-        $response->assertRedirect(route('reception.passages.services.show', Episode::query()->sole()));
-        $this->assertSame(PatientType::Mutual, $patient->patient_type);
-        $this->assertSame($patient->id, $coverage->patient_id);
+        $response->assertRedirect(route('reception.passages.services.show', $episode));
+        $this->assertSame(PatientType::Standard, $patient->patient_type);
+        $this->assertSame(EpisodeFinancialMode::Mutual, $episode->financial_mode);
+        $this->assertSame($episode->id, $coverage->episode_id);
         $this->assertSame('FAMILY_MEMBER', $coverage->beneficiary_type->value);
         $this->assertCount(2, $coverage->attachments);
+        $this->assertDatabaseCount('patient_mutual_coverages', 0);
 
         foreach ($coverage->attachments as $attachment) {
             Storage::disk('local')->assertExists($attachment->getRawOriginal('path'));
@@ -147,9 +151,11 @@ class PatientCategoryArrivalTest extends TestCase
 
         $first = $this->actingAs($actor)->post('/reception/patients', $payload);
         $patient = Patient::query()->sole();
-        $first->assertRedirect(route('reception.passages.services.show', Episode::query()->sole()));
+        $firstEpisode = Episode::query()->sole();
+        $first->assertRedirect(route('reception.passages.services.show', $firstEpisode));
 
-        $this->assertSame(PatientType::Staff, $patient->patient_type);
+        $this->assertSame(PatientType::Standard, $patient->patient_type);
+        $this->assertSame(EpisodeFinancialMode::Staff, $firstEpisode->financial_mode);
         $this->assertSame('Fara', $patient->first_name);
         $this->assertSame('Infirmière', $patient->profession);
         $this->assertDatabaseHas('patient_staff_links', [
@@ -168,6 +174,10 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertDatabaseCount('patients', 1);
         $this->assertDatabaseCount('patient_staff_links', 1);
         $this->assertDatabaseCount('episodes', 2);
+        $this->assertSame(
+            [EpisodeFinancialMode::Staff, EpisodeFinancialMode::Self],
+            Episode::query()->orderBy('id')->get()->pluck('financial_mode')->all(),
+        );
         $this->assertSame(
             ["{$patient->patient_number}-01", "{$patient->patient_number}-02"],
             Episode::query()->orderBy('id')->pluck('episode_number')->all(),
@@ -330,7 +340,7 @@ class PatientCategoryArrivalTest extends TestCase
                 'catalog_item_uuid' => $service->uuid,
                 'quantity' => 1,
             ]],
-        ])->assertSessionHasErrors('patient');
+        ])->assertSessionHasErrors('financial_mode');
 
         $this->assertDatabaseCount('billable_items', 0);
         $this->assertDatabaseCount('invoices', 0);

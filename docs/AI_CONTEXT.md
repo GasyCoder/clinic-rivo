@@ -548,15 +548,37 @@ financial reports
 ```
 
 À l’arrivée, Réception peut sélectionner les prestations `SERVICE`. Laravel
-résout le barème `STANDARD` ou `MUTUAL` selon le type du patient et crée son
-instantané ; le navigateur ne fournit jamais un prix fiable. Les deux grilles
-sont historisées indépendamment. Un tarif mutuelle manquant ne reprend jamais
-le tarif standard : la demande clinique et l’orientation sont conservées, mais
-la facturation reste en attente. `PAYER PLUS TARD` produit une facture
+résout le barème `STANDARD` ou `MUTUAL` selon le contexte financier de l'Episode
+et crée son instantané ; le navigateur ne fournit jamais un prix fiable. Les
+deux grilles sont historisées indépendamment. Un tarif mutuelle manquant ne
+reprend jamais le tarif standard : la demande clinique et l’orientation sont
+conservées, mais la facturation reste en attente. `PAYER PLUS TARD` produit une facture
 validée avec solde dû ; `PAYER MAINTENANT` exige une caisse ouverte et produit
 facture, paiement, mouvement de caisse et reçu. Aucun reçu n’existe sans
 encaissement réel. Une urgence ne dépend jamais de cette sélection ou du
 paiement. Voir ADR-028 et ADR-031.
+
+Le `Patient` est désormais une identité permanente. La prise en charge
+financière est configurée indépendamment sur chaque `Episode` avec `SELF`,
+`MUTUAL`, `STAFF` ou temporairement `NULL`. `MUTUAL` référence une
+`EpisodeMutualCoverage` qui réutilise `MutualOrganization` et en fige UUID, nom
+et taux. `STAFF` référence une `EpisodeStaffCoverage` et le véritable
+`Employee`, sans dupliquer ses données RH. `PatientStaffLink` confirme
+l'identité mais ne choisit jamais automatiquement le régime financier.
+
+`Patient.patient_type` et `PatientMutualCoverage` sont legacy : ils restent
+consultables pour les anciens dossiers mais ne pilotent plus la tarification
+d'un nouveau passage. Un épisode sans mode ne reçoit aucun fallback silencieux
+depuis le Patient ; seuls ses snapshots historiques existants peuvent être
+relus. Après création d'une prestation facturable ou d'une facture, le contexte
+ne peut plus être remplacé par le flux normal. Voir ADR-051.
+Le flux d'arrivée laisse `patient_type` à sa valeur legacy par défaut `STANDARD`
+pour les nouvelles identités et porte le choix `MUTUAL` ou `STAFF` sur l'Episode.
+
+L'estimation préalable est read-only, sans Patient ni Episode, et relit
+uniquement le tarif `STANDARD` courant des prestations `SERVICE` facturables et
+sélectionnables. Elle ne crée aucune donnée métier et ignore tout prix transmis
+par le navigateur. Elle ne constitue jamais une facture.
 
 ---
 
@@ -594,9 +616,11 @@ Ne pas introduire un autre design system sans validation.
 
 # Décision client du 22/08/2026 — accueil patient
 
-ADR-030 remplace le parcours uniforme de l'ADR-029 : le type administratif du
-patient est `STANDARD`, `MUTUAL` ou `STAFF`, puis les désignations configurées
-pilotent le parcours clinique (`MEDICINE_DIRECT`, `CARE_THEN_MEDICINE` ou
+ADR-030 remplace le parcours uniforme de l'ADR-029. Depuis ADR-051, les anciennes
+catégories permanentes sont legacy : le mode financier est choisi par Episode
+(`SELF`, `MUTUAL`, `STAFF` ou temporairement `NULL`), puis les désignations
+configurées pilotent le parcours clinique (`MEDICINE_DIRECT`,
+`CARE_THEN_MEDICINE` ou
 `CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.
 Une consultation spécialisée déjà identifiée est `MEDICINE_DIRECT`; la
 consultation générale reste `CARE_THEN_MEDICINE`.
@@ -608,8 +632,9 @@ ne fait qu'une recherche minimale et un lien patient-employé. Les pièces de
 mutuelle sont privées et limitées à cinq.
 
 La demande clinique doit être conservée indépendamment de la facturation. Pour
-un employé actif et éligible, les prestations sont prises en charge à 100 % hors
-bloc ; les actes du bloc consomment un crédit configurable et l'excédent reste à
+un Episode STAFF lié à un employé actif et éligible, les prestations seront
+prises en charge à 100 % hors bloc ; les actes du bloc consomment un crédit
+configurable et l'excédent reste à
 la charge du patient. Le montant brut demeure historisé : la couverture/crédit
 RH/Finance ne peut jamais être simulé par un tarif nul, une remise arbitraire ou
 un faux paiement. Tant que la période du crédit et le périmètre exact des actes

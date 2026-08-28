@@ -260,9 +260,14 @@ class PatientController extends Controller
             // The account screen creates a financial document directly. In
             // contrast with Reception routing, an unpriced service cannot be
             // offered here because there is no clinical-plan fallback.
-            $billingCatalog = $catalog->services($patient)
-                ->where('tariff_available', true)
-                ->values();
+            $billingEpisode = $patient->episodes
+                ->first(fn ($episode) => $episode->status !== EpisodeStatus::Cancelled);
+
+            if ($billingEpisode?->financial_mode !== null) {
+                $billingCatalog = $catalog->services($billingEpisode)
+                    ->where('tariff_available', true)
+                    ->values();
+            }
         }
 
         return Inertia::render('Patients/Show', [

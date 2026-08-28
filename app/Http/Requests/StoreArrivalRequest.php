@@ -45,11 +45,6 @@ class StoreArrivalRequest extends FormRequest
             return false;
         }
 
-        if ($this->input('patient_type') === PatientType::Mutual->value
-            && ! $user->can('patient_coverages.create')) {
-            return false;
-        }
-
         if ($this->filled('address_entry_uuid')
             && ! $user->can('address_entries.view')) {
             return false;

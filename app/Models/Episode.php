@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
@@ -31,7 +32,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 #[Fillable([
     'patient_id', 'visit_sequence', 'episode_number', 'status', 'priority', 'medical_status',
-    'financial_status', 'administrative_status', 'designation_deferred',
+    'financial_status', 'financial_mode', 'financial_context_completed_at',
+    'financial_context_completed_by', 'administrative_status', 'designation_deferred',
     'service_plan_finalized_at', 'started_at', 'ended_at', 'created_by',
     'emergency_contact_name', 'emergency_contact_phone',
     'emergency_contact_relationship', 'emergency_contact_email',
@@ -50,7 +52,9 @@ class Episode extends Model
             'status' => EpisodeStatus::class,
             'priority' => EpisodePriority::class,
             'medical_status' => EpisodeMedicalStatus::class,
+            'financial_mode' => EpisodeFinancialMode::class,
             'administrative_status' => EpisodeAdministrativeStatus::class,
+            'financial_context_completed_at' => 'datetime',
             'designation_deferred' => 'boolean',
             'service_plan_finalized_at' => 'datetime',
             'started_at' => 'datetime',
@@ -81,6 +85,21 @@ class Episode extends Model
     public function billableItems(): HasMany
     {
         return $this->hasMany(BillableItem::class);
+    }
+
+    public function mutualCoverage(): HasOne
+    {
+        return $this->hasOne(EpisodeMutualCoverage::class);
+    }
+
+    public function staffCoverage(): HasOne
+    {
+        return $this->hasOne(EpisodeStaffCoverage::class);
+    }
+
+    public function financialContextCompleter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'financial_context_completed_by');
     }
 
     public function serviceRequests(): HasMany

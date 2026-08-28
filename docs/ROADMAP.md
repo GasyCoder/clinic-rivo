@@ -37,7 +37,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 1 — Réception / Patients / Caisse
 
 - [ ] Patient
-- [x] Typologie patient Standard / Mutuelle / Personnel
+- [x] Identité Patient permanente séparée du mode financier du passage
+- [x] Mode financier Episode `SELF` / `MUTUAL` / `STAFF` nullable
+- [x] Couvertures Mutuelle et Personnel propres à chaque Episode avec références existantes
 - [x] Profil administratif enrichi (situation maritale, enfants, profession, adresse référencée)
 - [x] Couverture mutuelle et cinq justificatifs privés maximum
 - [x] Lien patient-personnel vers un véritable dossier Employé
@@ -57,7 +59,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Référentiel des prestations et produits facturables
 - [x] Tarifs historisés propres à chaque site
 - [x] Barèmes historisés séparés Sans mutuelle / Mutuelle
-- [x] Résolution du barème par type patient et snapshot sur le passage
+- [x] Résolution du barème par contexte financier Episode et snapshot sur le passage
+- [x] Estimation read-only au tarif Standard avant Patient/Episode
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes

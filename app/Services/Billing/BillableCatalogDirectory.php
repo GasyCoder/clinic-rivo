@@ -5,7 +5,7 @@ namespace App\Services\Billing;
 use App\Enums\CatalogItemType;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
-use App\Models\Patient;
+use App\Models\Episode;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 
@@ -21,26 +21,30 @@ class BillableCatalogDirectory
     public function __construct(private readonly CatalogTariffResolver $tariffs) {}
 
     /** @return Collection<int, array<string, mixed>> */
-    public function services(Patient $patient): Collection
+    public function services(Episode $episode): Collection
     {
-        $category = $this->tariffs->categoryFor($patient);
-        $relationship = $this->tariffs->relationshipFor($patient);
-        $coverage = $this->tariffs->coverageSnapshot($patient, required: false);
+        $category = $this->tariffs->categoryFor($episode, required: false);
+        $relationship = $this->tariffs->relationshipFor($episode);
+        $coverage = $this->tariffs->coverageSnapshot($episode, required: false);
 
-        return CatalogItem::query()
+        $query = CatalogItem::query()
             ->where('type', CatalogItemType::Service->value)
             ->where('billable', true)
             ->where('reception_selectable', true)
             ->whereNotNull('reception_routing_mode')
-            ->with([$relationship => fn ($query) => $query->select([
-                'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
-            ])])
             ->orderBy('module')
-            ->orderBy('name')
-            ->get()
+            ->orderBy('name');
+
+        if ($relationship) {
+            $query->with([$relationship => fn ($tariffQuery) => $tariffQuery->select([
+                'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
+            ])]);
+        }
+
+        return $query->get()
             ->map(function (CatalogItem $item) use ($category, $relationship, $coverage): array {
                 /** @var CatalogTariff|null $tariff */
-                $tariff = $item->getRelation($relationship);
+                $tariff = $relationship ? $item->getRelation($relationship) : null;
                 $grossMinor = $tariff ? Money::toMinor($tariff->amount) : null;
                 $coverageMinor = $grossMinor !== null && $coverage['coverage_rate'] !== null
                     ? Money::percentage($grossMinor, $coverage['coverage_rate'])
@@ -55,8 +59,8 @@ class BillableCatalogDirectory
                     'routing_mode' => $item->reception_routing_mode->value,
                     'routing_label' => $item->reception_routing_mode->label(),
                     'unit' => $item->unit,
-                    'tariff_category' => $category->value,
-                    'tariff_category_label' => $category->label(),
+                    'tariff_category' => $category?->value,
+                    'tariff_category_label' => $category?->label() ?? 'À régulariser',
                     'tariff_available' => $tariff !== null,
                     'tariff_amount' => $tariff?->amount,
                     'coverage_rate' => $coverage['coverage_rate'],

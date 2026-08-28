@@ -3,8 +3,8 @@
 namespace App\Actions\Billing;
 
 use App\Enums\BillableItemStatus;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\InvoiceStatus;
-use App\Enums\PatientType;
 use App\Models\BillableItem;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -27,16 +27,6 @@ class CreateInvoiceAction
      */
     public function execute(Patient $patient, array $data, User $actor): Invoice
     {
-        // ADR-030: a staff benefit is not a zero tariff or an arbitrary
-        // discount. Until RH / Finance has resolved the employee coverage
-        // and the surgery-credit share, creating a normal patient invoice
-        // here would overcharge the employee and bypass that ledger.
-        if ($patient->patient_type === PatientType::Staff) {
-            throw ValidationException::withMessages([
-                'patient' => 'La couverture Personnel doit être calculée par RH / Finance avant toute facturation.',
-            ]);
-        }
-
         return DB::transaction(function () use ($patient, $data, $actor) {
             $episode = $patient->episodes()
                 ->where('uuid', $data['episode_uuid'])
@@ -46,6 +36,15 @@ class CreateInvoiceAction
             if (! $episode) {
                 throw ValidationException::withMessages([
                     'episode_uuid' => 'Le passage sélectionné n’appartient pas à ce patient.',
+                ]);
+            }
+
+            // STAFF is a decision of this Episode, not a permanent Patient
+            // category. The future RH / Finance credit rules must calculate
+            // the share before this normal invoice path can be used.
+            if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
+                throw ValidationException::withMessages([
+                    'financial_mode' => 'La couverture Personnel doit être calculée par RH / Finance avant toute facturation.',
                 ]);
             }
 

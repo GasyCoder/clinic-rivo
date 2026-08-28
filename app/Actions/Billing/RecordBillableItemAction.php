@@ -30,8 +30,8 @@ class RecordBillableItemAction
     public function execute(Episode $episode, array $data, User $actor, ?Model $source = null): BillableItem
     {
         return DB::transaction(function () use ($episode, $data, $actor, $source) {
-            $episode->loadMissing('patient');
-            $this->tariffs->assertPatientCanBeBilled($episode->patient);
+            $episode->loadMissing(['mutualCoverage', 'staffCoverage']);
+            $this->tariffs->assertEpisodeCanBeBilled($episode);
             $item = CatalogItem::query()
                 ->where('uuid', $data['catalog_item_uuid'] ?? '')
                 ->where('billable', true)
@@ -52,11 +52,11 @@ class RecordBillableItemAction
 
             $tariff = $plannedRequest?->catalog_tariff_id
                 ? CatalogTariff::query()->lockForUpdate()->find($plannedRequest->catalog_tariff_id)
-                : $this->tariffs->current($item, $episode->patient, lockForUpdate: true);
+                : $this->tariffs->current($item, $episode, lockForUpdate: true);
 
             if (! $tariff) {
                 $category = $plannedRequest?->tariff_category
-                    ?? $this->tariffs->categoryFor($episode->patient);
+                    ?? $this->tariffs->categoryFor($episode);
 
                 throw ValidationException::withMessages([
                     'catalog_item_uuid' => "Le tarif {$category->label()} de cette prestation n’est pas configuré.",
@@ -80,7 +80,7 @@ class RecordBillableItemAction
                     'organization_name' => $plannedRequest->mutual_organization_name,
                     'coverage_rate' => $plannedRequest->coverage_rate,
                 ]
-                : $this->tariffs->coverageSnapshot($episode->patient);
+                : $this->tariffs->coverageSnapshot($episode);
             $coverageMinor = Money::percentage($totalMinor, $coverage['coverage_rate'] ?? '0.00');
 
             return BillableItem::create([

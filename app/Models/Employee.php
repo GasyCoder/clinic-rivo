@@ -63,6 +63,11 @@ class Employee extends Model
         return $this->hasOne(PatientStaffLink::class)->whereNull('ended_at');
     }
 
+    public function episodeStaffCoverages(): HasMany
+    {
+        return $this->hasMany(EpisodeStaffCoverage::class);
+    }
+
     public function isAvailableForPatientLink(): bool
     {
         return $this->active && ! $this->trashed();
@@ -70,7 +75,7 @@ class Employee extends Model
 
     public function isForceDeleteProtected(): bool
     {
-        return $this->patientLinks()->exists();
+        return $this->patientLinks()->exists() || $this->episodeStaffCoverages()->exists();
     }
 
     protected function auditModule(): ?string

@@ -6,10 +6,11 @@ use App\Actions\Administration\CreateAddressEntryAction;
 use App\Actions\Administration\LinkPatientToEmployeeAction;
 use App\Actions\Administration\ResolveMutualOrganizationAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\SetEpisodeFinancialContextAction;
+use App\Actions\Episode\StoreEpisodeMutualCoverageAttachmentsAction;
 use App\Actions\Patient\CreatePatientAction;
-use App\Actions\Patient\CreatePatientMutualCoverageAction;
-use App\Actions\Patient\StorePatientMutualCoverageAttachmentsAction;
 use App\Actions\Patient\UpdatePatientAction;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
 use App\Exceptions\DuplicatePatientException;
@@ -42,8 +43,8 @@ class RegisterArrivalAction
         private readonly CreateAddressEntryAction $createAddress,
         private readonly LinkPatientToEmployeeAction $linkEmployee,
         private readonly ResolveMutualOrganizationAction $resolveMutualOrganization,
-        private readonly CreatePatientMutualCoverageAction $createMutualCoverage,
-        private readonly StorePatientMutualCoverageAttachmentsAction $storeMutualAttachments,
+        private readonly SetEpisodeFinancialContextAction $setFinancialContext,
+        private readonly StoreEpisodeMutualCoverageAttachmentsAction $storeMutualAttachments,
     ) {}
 
     /**
@@ -65,6 +66,7 @@ class RegisterArrivalAction
         ?array $mutualData = null,
         array $mutualAttachments = [],
         array $episodeData = [],
+        ?EpisodeFinancialMode $financialMode = null,
     ): Episode {
         $storedAttachmentPaths = [];
         $actor ??= Auth::user();
@@ -85,8 +87,11 @@ class RegisterArrivalAction
                 $mutualData,
                 $mutualAttachments,
                 $episodeData,
+                $financialMode,
                 &$storedAttachmentPaths,
             ): Episode {
+                $mutualOrganizationUuid = null;
+
                 if ($existingPatientUuid) {
                     $patient = Patient::query()
                         ->with(['activeStaffLink.employee.addressEntry'])
@@ -94,22 +99,29 @@ class RegisterArrivalAction
                         ->lockForUpdate()
                         ->firstOrFail();
 
-                    if ($patient->patient_type === PatientType::Staff) {
+                    $linkedEmployee = $patient->activeStaffLink?->employee;
+
+                    if ($linkedEmployee) {
                         if ($existingPatientData !== null) {
                             throw ValidationException::withMessages([
-                                'patient_uuid' => 'Les informations d’un patient Personnel doivent être corrigées dans son dossier RH.',
+                                'patient_uuid' => 'Les informations d’un patient relié au Personnel doivent être corrigées dans son dossier RH.',
                             ]);
                         }
 
-                        $employee = $patient->activeStaffLink?->employee;
-
-                        if (! $employee || ! $employee->isAvailableForPatientLink()) {
+                        if (! $linkedEmployee->isAvailableForPatientLink()) {
                             throw ValidationException::withMessages([
                                 'patient_uuid' => 'Ce dossier Personnel n’est plus relié à un employé actif.',
                             ]);
                         }
 
-                        $patient = $this->synchronizeStaffPatient($patient, $employee);
+                        $patient = $this->synchronizeStaffPatient($patient, $linkedEmployee);
+                    } elseif ($patient->patient_type === PatientType::Staff) {
+                        // Compatibility guard for a legacy STAFF Patient whose
+                        // identity link is missing. The legacy category is not
+                        // used to choose the new Episode financial mode.
+                        throw ValidationException::withMessages([
+                            'patient_uuid' => 'Ce dossier Personnel legacy n’est plus relié à un employé actif.',
+                        ]);
                     } elseif ($existingPatientData !== null) {
                         $patient = $this->updatePatient->execute($patient, $existingPatientData);
                     }
@@ -133,16 +145,9 @@ class RegisterArrivalAction
                             ]);
                         }
 
-                        if ($patient->patient_type !== PatientType::Staff) {
-                            throw ValidationException::withMessages([
-                                'employee_uuid' => 'Le dossier patient lié doit être de type Personnel.',
-                            ]);
-                        }
-
                         // Employee remains the administrative source of truth
-                        // for a STAFF patient. Refresh the linked patient at
-                        // every arrival instead of allowing both records to
-                        // drift independently.
+                        // for the identity fields sourced from RH. The link
+                        // never implies that this Episode uses STAFF coverage.
                         $patient = $this->synchronizeStaffPatient($patient, $employee);
                     } else {
                         $patient = $this->createPatient->execute(
@@ -169,35 +174,60 @@ class RegisterArrivalAction
                     }
 
                     unset($newPatientData['address_entry_uuid'], $newPatientData['new_address_label']);
+                    // The current screen still calls the Episode choice
+                    // patient_type. Do not persist that financial choice on
+                    // the permanent identity; the existing database default
+                    // keeps this legacy presentation field at STANDARD.
+                    unset($newPatientData['patient_type']);
                     $patient = $this->createPatient->execute($newPatientData, $confirmDuplicate);
+                }
 
-                    if ($patient->patient_type === PatientType::Mutual) {
-                        if (! $mutualData) {
-                            throw new \LogicException('Les informations de mutuelle sont requises.');
-                        }
+                if ($financialMode === EpisodeFinancialMode::Mutual) {
+                    if (! $mutualData) {
+                        throw new \LogicException('Les informations de mutuelle sont requises.');
+                    }
 
-                        $organization = $this->resolveMutualOrganization->execute(
-                            $mutualData['organization_name'],
+                    $organization = $this->resolveMutualOrganization->execute(
+                        $mutualData['organization_name'],
+                        $actor,
+                    );
+                    $mutualOrganizationUuid = $organization->uuid;
+                }
+
+                $episode = $this->createEpisode->execute($patient, $priority, $actor, $episodeData);
+
+                // The current screen still names this choice patient_type.
+                // During the UI transition it is translated once into the
+                // Episode context; all downstream pricing ignores the legacy
+                // Patient column. Emergencies deliberately stay nullable.
+                if ($priority !== EpisodePriority::Emergency && $financialMode !== null) {
+                    $context = match ($financialMode) {
+                        EpisodeFinancialMode::Self => [],
+                        EpisodeFinancialMode::Mutual => [
+                            'mutual_organization_uuid' => $mutualOrganizationUuid,
+                            'employer_name' => $mutualData['employer_name'] ?? null,
+                            'beneficiary_type' => $mutualData['beneficiary_type'] ?? null,
+                            'membership_number' => $mutualData['membership_number'] ?? null,
+                        ],
+                        EpisodeFinancialMode::Staff => ['employee_uuid' => $employeeUuid],
+                    };
+
+                    $episode = $this->setFinancialContext->execute($episode, $financialMode, $context, $actor);
+
+                    if ($financialMode === EpisodeFinancialMode::Mutual && $mutualAttachments !== []) {
+                        $attachments = $this->storeMutualAttachments->execute(
+                            $episode->mutualCoverage,
+                            $mutualAttachments,
                             $actor,
                         );
-                        $coverage = $this->createMutualCoverage->execute($patient, [
-                            'mutual_organization_uuid' => $organization->uuid,
-                            'employer_name' => $mutualData['employer_name'],
-                            'beneficiary_type' => $mutualData['beneficiary_type'],
-                            'membership_number' => $mutualData['membership_number'],
-                        ], $actor);
-
-                        if ($mutualAttachments !== []) {
-                            $attachments = $this->storeMutualAttachments->execute($coverage, $mutualAttachments, $actor);
-                            $storedAttachmentPaths = $attachments
-                                ->map(fn ($attachment) => $attachment->getRawOriginal('path'))
-                                ->filter()
-                                ->all();
-                        }
+                        $storedAttachmentPaths = $attachments
+                            ->map(fn ($attachment) => $attachment->getRawOriginal('path'))
+                            ->filter()
+                            ->all();
                     }
                 }
 
-                return $this->createEpisode->execute($patient, $priority, $actor, $episodeData);
+                return $episode;
             });
         } catch (Throwable $exception) {
             // The attachment action cleans up its own failures. This second
@@ -213,7 +243,6 @@ class RegisterArrivalAction
     private function patientDataFromEmployee(Employee $employee): array
     {
         return [
-            'patient_type' => PatientType::Staff->value,
             'civility' => $employee->civility?->value,
             'first_name' => $employee->first_name,
             'last_name' => $employee->last_name,

@@ -2085,3 +2085,70 @@ encaisser : client, facture/passage, validation, montants, statut et actions.
 Le ticket Pharmacie n'est ni un paiement ni un reçu. Sa consultation et son
 impression utilisent `pharmacy.dispense.print`. Seule Réception/Caisse conserve
 `payments.*`, `cash.*` et l'émission du reçu après un encaissement réel.
+
+---
+
+# ADR-051 — Identité Patient permanente et couverture financière par Episode
+
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+
+Cette décision amende les aspects financiers des ADR-030, ADR-031 et ADR-047 :
+le `Patient` représente uniquement l'identité administrative permanente. Le
+responsable financier d'une prise en charge appartient au passage concerné. Un
+même patient peut donc avoir successivement des épisodes `SELF`, `MUTUAL`,
+`STAFF`, puis `SELF`, sans mutation de son identité permanente.
+
+`Patient.patient_type` et `PatientMutualCoverage` sont conservés comme données
+legacy pour afficher l'historique et maintenir les anciens écrans pendant leur
+transition. Ils ne déterminent plus le tarif d'un nouvel épisode. Aucune donnée
+ancienne n'est supprimée et aucune migration massive n'infère un mode depuis
+`patient_type`, car cette déduction pourrait falsifier l'historique.
+Le flux d'arrivée crée désormais l'identité avec la valeur legacy par défaut
+`STANDARD` et inscrit `MUTUAL` ou `STAFF` uniquement sur l'épisode concerné.
+
+`Episode.financial_mode` accepte :
+
+```text
+SELF     le patient supporte le tarif STANDARD
+MUTUAL   une mutuelle supporte tout ou partie du tarif MUTUAL
+STAFF    un régime Personnel, calcul RH/Finance encore à construire
+NULL     urgence ou ancien passage dont le contexte reste à régulariser
+```
+
+Cette colonne est indépendante de `financial_status`, qui conserve le statut du
+compte financier. La date et l'auteur de configuration sont tracés sur
+l'épisode. `MUTUAL` exige une `EpisodeMutualCoverage` reliée à l'unique
+`MutualOrganization` existante. Elle fige UUID, nom et taux de couverture de
+l'organisme, ainsi que l'employeur, la qualité du bénéficiaire et le matricule.
+Les justificatifs privés peuvent être rattachés à cette couverture, cinq au
+maximum. Une modification ultérieure de l'organisme ne réécrit jamais cet
+instantané.
+
+`STAFF` exige une `EpisodeStaffCoverage` reliée au véritable `Employee`. Elle ne
+recopie ni nom, ni prénom, ni fonction, ni service. `PatientStaffLink` reste la
+preuve d'identité Patient ↔ Employee, mais ne déclenche jamais automatiquement
+le mode `STAFF`. Un employé lié peut choisir `SELF` sur un autre passage. Le
+crédit forfaitaire Bloc n'est pas défini par cette ADR.
+
+`SetEpisodeFinancialContextAction` est l'unique chemin d'écriture pour ces trois
+modes. Une fois une `BillableItem` ou une `Invoice` créée, le contexte ne peut
+plus être remplacé par cette action. Une correction future exigera une procédure
+distincte et auditée. La résolution tarifaire définitive utilise uniquement
+l'épisode, son mode et sa couverture. Un tarif `MUTUAL` manquant ne retombe
+jamais sur `STANDARD`. Pour un épisode legacy sans mode, seuls les snapshots
+financiers déjà présents peuvent être relus ; le type permanent du patient ne
+sert pas de fallback.
+
+Avant la création d'un patient, `ReceptionEstimateService` peut calculer une
+estimation read-only à partir des prestations `SERVICE`, facturables et
+sélectionnables à la Réception, au tarif `STANDARD` courant. Le serveur relit
+toujours le tarif : un prix envoyé par le navigateur est ignoré. Une estimation
+ne crée aucun patient, épisode, demande, orientation, prestation facturable,
+facture ou paiement.
+
+Une urgence conserve son comportement prioritaire : Soins et Médecine sont
+ouverts immédiatement même lorsque `financial_mode` est `NULL`. L'absence de
+contexte financier ne peut jamais annuler ni bloquer la prise en charge
+clinique. Cette fondation n'ajoute ni `LABORATORY_DIRECT`, ni activation des
+analyses à la Réception, et ne modifie pas la vente comptoir externe Pharmacie
+sans Patient/Episode.

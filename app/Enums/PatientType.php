@@ -3,9 +3,11 @@
 namespace App\Enums;
 
 /**
- * Administrative registration category selected by Reception. This value
- * identifies the additional dossier expected for the patient; it is never,
- * by itself, proof that an invoice is covered or paid.
+ * Legacy administrative registration category.
+ *
+ * Kept for historical records and the transitional Reception screen only.
+ * It must never determine the financial context or tariff of a new Episode;
+ * EpisodeFinancialMode is the source of truth for those decisions.
  */
 enum PatientType: string
 {

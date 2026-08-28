@@ -5,6 +5,8 @@ namespace App\Http\Requests;
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\CatalogItemType;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\StaffCoveragePolicy;
+use App\Models\CatalogItem;
 use App\Models\Episode;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -26,7 +28,11 @@ class StoreEpisodeServicesRequest extends FormRequest
         $isStaff = $episode->financial_mode === EpisodeFinancialMode::Staff;
         $hasFinancialContext = $episode->financial_mode !== null;
 
-        if (is_array($lines) && $lines !== [] && ! $isStaff && $hasFinancialContext) {
+        $staffFinancePending = $isStaff
+            && is_array($lines)
+            && $this->containsUnclassifiedStaffLine($lines);
+
+        if (is_array($lines) && $lines !== [] && $hasFinancialContext && ! $staffFinancePending) {
             if (! $user->can('billing.create') || ! $user->can('billing.validate')) {
                 return false;
             }
@@ -37,6 +43,21 @@ class StoreEpisodeServicesRequest extends FormRequest
         }
 
         return true;
+    }
+
+    /** @param array<int, mixed> $lines */
+    private function containsUnclassifiedStaffLine(array $lines): bool
+    {
+        $uuids = collect($lines)
+            ->pluck('catalog_item_uuid')
+            ->filter(fn ($uuid) => is_string($uuid) && $uuid !== '')
+            ->unique();
+
+        return $uuids->isNotEmpty()
+            && CatalogItem::query()
+                ->whereIn('uuid', $uuids)
+                ->where('staff_coverage_policy', StaffCoveragePolicy::Unclassified->value)
+                ->exists();
     }
 
     public function rules(): array

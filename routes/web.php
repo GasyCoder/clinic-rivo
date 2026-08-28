@@ -2,6 +2,7 @@
 
 use App\Enums\ReceptionPatientStep;
 use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
+use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;
 use App\Http\Controllers\AnesthesiaController;
@@ -110,6 +111,12 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
 // auth which the gateway/admin deployments also use.
 Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deployment'])->group(function () {
     Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
+    Route::get('/administration/staff-block-credits', [StaffBlockCreditController::class, 'index'])
+        ->name('administration.staff-block-credits.index')
+        ->middleware('can:staff_block_credits.view');
+    Route::post('/administration/staff-block-credits/{employee}', [StaffBlockCreditController::class, 'store'])
+        ->name('administration.staff-block-credits.store')
+        ->middleware('can:staff_block_credits.allocate');
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
     Route::get('/pharmacy', PharmacyController::class)->name('pharmacy.index')->middleware('can:pharmacy.view');
     Route::post('/pharmacy/stock/entries', [PharmacyController::class, 'storeEntry'])

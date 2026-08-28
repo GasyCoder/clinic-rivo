@@ -281,7 +281,7 @@ class CatalogController extends Controller
     {
         $fields = [
             'name', 'module', 'unit', 'reception_selectable',
-            'reception_routing_mode', 'care_requires_allergy_check',
+            'reception_routing_mode', 'staff_coverage_policy', 'care_requires_allergy_check',
             'care_recommends_vitals', 'description',
         ];
 

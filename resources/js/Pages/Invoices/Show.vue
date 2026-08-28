@@ -28,6 +28,11 @@ const publicUrl = computed(() => page.props.site?.publicUrl ?? 'https://clinique
 const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''));
 const hasDiscount = computed(() => Number(props.invoice.discount_amount ?? 0) > 0);
 const hasCoverage = computed(() => Number(props.invoice.coverage_amount ?? 0) > 0);
+const isStaffInvoice = computed(() => props.invoice.financial_mode === 'STAFF');
+const hasStaffBlockCredit = computed(() => Number(props.invoice.staff_block_credit_used ?? 0) > 0);
+const coverageLabel = computed(() => isStaffInvoice.value
+    ? 'Prise en charge Personnel'
+    : `Pris en charge · ${props.invoice.mutual_organization_name}`);
 const customerName = computed(() => props.invoice.patient
     ? formatPatientName(props.invoice.patient)
     : (props.invoice.customer_name || 'Client comptoir'));
@@ -197,7 +202,9 @@ onBeforeUnmount(() => {
                         <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ customerName }}</p>
                         <p v-if="invoice.customer_phone" class="font-mono text-[11px] text-slate-500">{{ invoice.customer_phone }}</p>
                         <p v-if="externalPrescriber" class="font-mono text-[11px] text-slate-500">Prescripteur : {{ externalPrescriber }}</p>
-                        <p class="font-mono text-[11px] text-slate-500">{{ customerReference }}</p><p v-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
+                        <p class="font-mono text-[11px] text-slate-500">{{ customerReference }}</p>
+                        <p v-if="isStaffInvoice" class="mt-1 text-[10px] font-semibold text-emerald-700">Régime Personnel<span v-if="hasStaffBlockCredit"> · crédit Bloc utilisé {{ formatMoney(invoice.staff_block_credit_used) }}</span></p>
+                        <p v-else-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
                     </div>
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Passage</p>
@@ -257,7 +264,8 @@ onBeforeUnmount(() => {
                         <dl class="invoice-totals space-y-1 text-xs">
                             <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Total brut</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
                             <div v-if="hasDiscount" class="flex items-center justify-between gap-4"><dt class="text-slate-400">Remise</dt><dd class="font-medium text-slate-700 dark:text-white">− {{ formatMoney(invoice.discount_amount) }}</dd></div>
-                            <div v-if="hasCoverage" class="flex items-center justify-between gap-4"><dt class="text-slate-400">Pris en charge · {{ invoice.mutual_organization_name }}</dt><dd class="font-medium text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                            <div v-if="hasCoverage" class="flex items-center justify-between gap-4"><dt class="text-slate-400">{{ coverageLabel }}</dt><dd class="font-medium text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                            <div v-if="hasStaffBlockCredit" class="flex items-center justify-between gap-4 text-[10px]"><dt class="text-slate-400">dont crédit forfaitaire Bloc</dt><dd class="font-medium text-slate-500">{{ formatMoney(invoice.staff_block_credit_used) }}</dd></div>
                             <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-1.5 dark:border-gray-800"><dt class="font-bold text-slate-600 dark:text-slate-300">À charge patient</dt><dd class="text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
                             <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Payé</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</dd></div>
                             <div class="flex items-center justify-between gap-4 border-t border-slate-700 pt-1.5"><dt class="font-bold text-slate-700 dark:text-white">Reste à payer</dt><dd class="text-base font-black text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</dd></div>
@@ -298,7 +306,8 @@ onBeforeUnmount(() => {
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Référence</span><span class="text-end font-mono font-bold">{{ customerReference }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode?.episode_number ?? '—' }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Émise par</span><span class="text-end font-medium">{{ invoice.creator.name }}</span></div>
-                            <div v-if="hasCoverage" class="flex items-start justify-between gap-3"><span class="shrink-0">Mutuelle</span><span class="text-end font-bold">{{ invoice.mutual_organization_name }} · {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</span></div>
+                            <div v-if="isStaffInvoice" class="flex items-start justify-between gap-3"><span class="shrink-0">Couverture</span><span class="text-end font-bold">Régime Personnel</span></div>
+                            <div v-else-if="hasCoverage" class="flex items-start justify-between gap-3"><span class="shrink-0">Mutuelle</span><span class="text-end font-bold">{{ invoice.mutual_organization_name }} · {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</span></div>
                         </section>
 
                         <section class="border-b border-dashed border-slate-400 py-2.5">
@@ -307,7 +316,7 @@ onBeforeUnmount(() => {
                                 <div v-for="line in invoice.lines" :key="line.id" class="ticket-line py-1.5 text-[11px] first:pt-0 last:pb-0">
                                     <div class="flex items-start justify-between gap-3"><p class="min-w-0 font-bold leading-3.5">{{ line.description }}</p><p class="shrink-0 font-black">{{ formatMoney(line.gross_line_total ?? line.line_total) }}</p></div>
                                     <div class="flex items-center justify-between gap-3 text-[9px] text-slate-500"><span>{{ line.quantity }} × {{ formatMoney(line.unit_price) }}</span><span v-if="line.billable_item?.source_module" class="uppercase">{{ line.billable_item.source_module }}</span></div>
-                                    <div v-if="hasCoverage" class="mt-0.5 flex items-center justify-between gap-3 text-[9px]"><span>Mutuelle −{{ formatMoney(line.coverage_amount) }}</span><span>Patient {{ formatMoney(line.line_total) }}</span></div>
+                                    <div v-if="hasCoverage" class="mt-0.5 flex items-center justify-between gap-3 text-[9px]"><span>{{ isStaffInvoice ? 'Personnel' : 'Mutuelle' }} −{{ formatMoney(line.coverage_amount) }}</span><span>Patient {{ formatMoney(line.line_total) }}</span></div>
                                 </div>
                             </div>
                         </section>
@@ -315,7 +324,8 @@ onBeforeUnmount(() => {
                         <section class="border-b border-dashed border-slate-400 py-2.5">
                             <dl class="space-y-1 text-[11px]">
                                 <div class="flex items-center justify-between gap-3"><dt>Total brut</dt><dd class="font-bold">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
-                                <div v-if="hasCoverage" class="flex items-center justify-between gap-3"><dt>Part mutuelle</dt><dd class="font-bold">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                                <div v-if="hasCoverage" class="flex items-center justify-between gap-3"><dt>{{ isStaffInvoice ? 'Part Personnel' : 'Part mutuelle' }}</dt><dd class="font-bold">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                                <div v-if="hasStaffBlockCredit" class="flex items-center justify-between gap-3 text-[9px]"><dt>dont crédit Bloc</dt><dd>{{ formatMoney(invoice.staff_block_credit_used) }}</dd></div>
                                 <div class="flex items-center justify-between gap-3"><dt>Part patient</dt><dd class="font-bold">{{ formatMoney(invoice.total_amount) }}</dd></div>
                                 <div class="flex items-center justify-between gap-3"><dt>Payé</dt><dd class="font-bold">{{ formatMoney(invoice.paid_amount) }}</dd></div>
                                 <div class="mt-1.5 flex items-center justify-between gap-3 border-y border-slate-800 py-1.5"><dt class="font-black uppercase">Reste à payer</dt><dd class="text-sm font-black">{{ formatMoney(invoice.balance_amount) }}</dd></div>

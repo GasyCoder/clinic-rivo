@@ -14,8 +14,8 @@ use Illuminate\Validation\ValidationException;
  *
  * A definitive price is resolved from the Episode, never from the legacy
  * Patient.patient_type. A mutual tariff never falls back to Standard.
- * STAFF keeps the Standard gross reference, but cannot be billed until the
- * future RH / Finance benefit rules are implemented.
+ * STAFF keeps the Standard gross reference; its separate RH / Finance
+ * allocation is handled by StaffFinancialAllocationService.
  */
 class CatalogTariffResolver
 {
@@ -67,12 +67,6 @@ class CatalogTariffResolver
 
     public function assertEpisodeCanBeBilled(Episode $episode): void
     {
-        if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
-            throw ValidationException::withMessages([
-                'financial_mode' => 'La couverture Personnel doit être calculée par RH / Finance avant toute facturation.',
-            ]);
-        }
-
         $this->coverageSnapshot($episode);
     }
 

@@ -116,7 +116,11 @@ const invoiceDraftTotal = computed(() => {
     return selectedItemsTotal + catalogLinesTotal;
 });
 
-const addInvoiceLine = () => invoiceForm.catalog_lines.push({ catalog_item_uuid: '', quantity: 1 });
+const addInvoiceLine = () => invoiceForm.catalog_lines.push({
+    catalog_item_uuid: '',
+    quantity: 1,
+    idempotency_key: crypto.randomUUID(),
+});
 const removeInvoiceLine = (index) => {
     invoiceForm.catalog_lines.splice(index, 1);
 };
@@ -526,12 +530,13 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                                     <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ moduleLabels[line.source_module] ?? line.source_module }}</td>
                                     <td class="px-4 py-3 text-center text-sm tabular-nums text-slate-600 dark:text-slate-300">{{ formatQuantity(line.quantity) }}</td>
                                     <td class="px-4 py-3 text-end text-sm tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(line.unit_price) }}</td>
-                                    <td class="px-4 py-3 text-end"><p class="text-sm font-bold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</p><p v-if="Number(line.coverage_amount) > 0" class="mt-0.5 text-[10px] text-slate-400">Brut {{ formatMoney(line.gross_line_total) }} · mutuelle −{{ formatMoney(line.coverage_amount) }}</p></td>
+                                    <td class="px-4 py-3 text-end"><p class="text-sm font-bold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</p><p v-if="Number(line.coverage_amount) > 0" class="mt-0.5 text-[10px] text-slate-400">Brut {{ formatMoney(line.gross_line_total) }} · {{ invoice.financial_mode === 'STAFF' ? 'Personnel' : 'mutuelle' }} −{{ formatMoney(line.coverage_amount) }}<span v-if="Number(line.staff_block_credit_used) > 0"> (Bloc {{ formatMoney(line.staff_block_credit_used) }})</span></p></td>
                                 </tr>
                             </tbody>
                             <tfoot class="border-t border-gray-200 bg-gray-50/60 dark:border-gray-900 dark:bg-gray-1000/30">
                                 <tr v-if="Number(invoice.coverage_amount) > 0"><th colspan="4" class="px-4 pt-3 pb-1 text-end text-xs font-medium text-slate-500">Total brut</th><td class="px-4 pt-3 pb-1 text-end text-sm font-semibold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</td></tr>
-                                <tr v-if="Number(invoice.coverage_amount) > 0"><th colspan="4" class="px-4 py-1 text-end text-xs font-medium text-slate-500">Pris en charge · {{ invoice.mutual_organization_name }}</th><td class="px-4 py-1 text-end text-sm font-semibold tabular-nums text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</td></tr>
+                                <tr v-if="Number(invoice.coverage_amount) > 0"><th colspan="4" class="px-4 py-1 text-end text-xs font-medium text-slate-500">{{ invoice.financial_mode === 'STAFF' ? 'Prise en charge Personnel' : `Pris en charge · ${invoice.mutual_organization_name}` }}</th><td class="px-4 py-1 text-end text-sm font-semibold tabular-nums text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</td></tr>
+                                <tr v-if="Number(invoice.staff_block_credit_used) > 0"><th colspan="4" class="px-4 py-1 text-end text-[10px] font-medium text-slate-400">dont crédit forfaitaire Bloc</th><td class="px-4 py-1 text-end text-xs font-medium tabular-nums text-slate-500">{{ formatMoney(invoice.staff_block_credit_used) }}</td></tr>
                                 <tr>
                                     <th colspan="4" class="px-4 pt-3 pb-1 text-end text-xs font-medium text-slate-500">À charge patient</th>
                                     <td class="px-4 pt-3 pb-1 text-end text-sm font-bold tabular-nums text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</td>

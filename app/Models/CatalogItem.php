@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'code', 'name', 'type', 'module', 'unit', 'billable', 'stockable',
-    'reception_selectable', 'reception_routing_mode', 'description',
+    'reception_selectable', 'reception_routing_mode', 'staff_coverage_policy', 'description',
     'care_requires_allergy_check', 'care_recommends_vitals',
     'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
@@ -36,6 +37,7 @@ class CatalogItem extends Model
             'stockable' => 'boolean',
             'reception_selectable' => 'boolean',
             'reception_routing_mode' => ReceptionRoutingMode::class,
+            'staff_coverage_policy' => StaffCoveragePolicy::class,
             'care_requires_allergy_check' => 'boolean',
             'care_recommends_vitals' => 'boolean',
         ];

@@ -65,6 +65,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
 - [x] Résolution backend du tarif sans saisie libre par Réception
+- [x] Politiques Personnel explicites et snapshots brut / couverture / crédit Bloc / patient
+- [x] Registre immuable du crédit Bloc Employee avec allocation manuelle, consommation idempotente et réversion
 - [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
 - [x] Facture imprimable sans faux reçu pour un règlement ultérieur
 - [ ] Factures
@@ -200,7 +202,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Exceptions de permissions individuelles
 - [ ] Employés
 - [x] Socle Employé et lien sécurisé avec le dossier patient
-- [ ] Règles d'éligibilité du personnel et registre immuable du crédit bloc
+- [x] Classification explicite des prestations et registre immuable du crédit bloc
+- [ ] Période et renouvellement éventuel du crédit Bloc (règle métier non définie)
 - [ ] RH
 - [ ] Contrats
 - [ ] Présences

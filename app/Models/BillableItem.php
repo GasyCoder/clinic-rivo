@@ -4,21 +4,23 @@ namespace App\Models;
 
 use App\Enums\BillableItemStatus;
 use App\Enums\CatalogTariffCategory;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\ProtectsFinancialRecord;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 #[Fillable([
-    'episode_id', 'source_module', 'source_type', 'source_id', 'source_uuid',
-    'catalog_item_id', 'catalog_tariff_id', 'tariff_category',
+    'episode_id', 'source_module', 'source_type', 'source_id', 'source_uuid', 'idempotency_key',
+    'catalog_item_id', 'catalog_tariff_id', 'tariff_category', 'staff_coverage_policy',
     'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
     'description', 'quantity', 'unit_price', 'total_amount', 'gross_amount',
-    'coverage_amount', 'patient_amount', 'currency',
+    'coverage_amount', 'staff_covered_amount', 'staff_block_credit_used', 'patient_amount', 'currency',
     'payment_required_before_fulfillment', 'status', 'created_by',
     'cancelled_by', 'cancelled_at', 'cancellation_reason',
 ])]
@@ -35,12 +37,15 @@ class BillableItem extends Model
         return [
             'status' => BillableItemStatus::class,
             'tariff_category' => CatalogTariffCategory::class,
+            'staff_coverage_policy' => StaffCoveragePolicy::class,
             'quantity' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'total_amount' => 'decimal:2',
             'gross_amount' => 'decimal:2',
             'coverage_rate' => 'decimal:2',
             'coverage_amount' => 'decimal:2',
+            'staff_covered_amount' => 'decimal:2',
+            'staff_block_credit_used' => 'decimal:2',
             'patient_amount' => 'decimal:2',
             'payment_required_before_fulfillment' => 'boolean',
             'cancelled_at' => 'datetime',
@@ -80,6 +85,11 @@ class BillableItem extends Model
     public function invoiceLine(): HasOne
     {
         return $this->hasOne(InvoiceLine::class);
+    }
+
+    public function staffBlockCreditMovements(): HasMany
+    {
+        return $this->hasMany(StaffBlockCreditMovement::class);
     }
 
     protected function auditableSkipsChange(array $changes): bool

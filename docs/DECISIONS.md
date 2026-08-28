@@ -2111,7 +2111,7 @@ Le flux d'arrivée crée désormais l'identité avec la valeur legacy par défau
 ```text
 SELF     le patient supporte le tarif STANDARD
 MUTUAL   une mutuelle supporte tout ou partie du tarif MUTUAL
-STAFF    un régime Personnel, calcul RH/Finance encore à construire
+STAFF    un régime Personnel, allocation financière définie par l’ADR-052
 NULL     urgence ou ancien passage dont le contexte reste à régulariser
 ```
 
@@ -2128,7 +2128,8 @@ instantané.
 recopie ni nom, ni prénom, ni fonction, ni service. `PatientStaffLink` reste la
 preuve d'identité Patient ↔ Employee, mais ne déclenche jamais automatiquement
 le mode `STAFF`. Un employé lié peut choisir `SELF` sur un autre passage. Le
-crédit forfaitaire Bloc n'est pas défini par cette ADR.
+crédit forfaitaire Bloc n'est pas défini par cette ADR ; l’ADR-052 complète
+désormais cette responsabilité sans modifier le contexte financier de l’Episode.
 
 `SetEpisodeFinancialContextAction` est l'unique chemin d'écriture pour ces trois
 modes. Une fois une `BillableItem` ou une `Invoice` créée, le contexte ne peut
@@ -2152,3 +2153,60 @@ contexte financier ne peut jamais annuler ni bloquer la prise en charge
 clinique. Cette fondation n'ajoute ni `LABORATORY_DIRECT`, ni activation des
 analyses à la Réception, et ne modifie pas la vente comptoir externe Pharmacie
 sans Patient/Episode.
+
+---
+
+# ADR-052 — Couverture Personnel et registre du crédit forfaitaire Bloc
+
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+
+Cette décision complète les ADR-030 et ADR-051 sans déplacer la responsabilité
+du contexte financier : `EpisodeFinancialMode::STAFF` et
+`EpisodeStaffCoverage` indiquent toujours quel `Employee` bénéficie du régime
+Personnel pour un passage. Le compte de crédit forfaitaire Bloc appartient à
+`Employee`, jamais à `Patient` ni à `Episode`.
+
+Chaque élément facturable du catalogue possède une politique Personnel
+explicite :
+
+```text
+UNCLASSIFIED              résolution financière en attente
+ORDINARY_FULL_COVERAGE    prise en charge Personnel à 100 %
+BLOCK_CREDIT              consommation du crédit forfaitaire Bloc
+NOT_COVERED               montant intégral à la charge du patient
+```
+
+Les lignes historiques restent `UNCLASSIFIED`. Aucune classification ne peut
+être déduite du nom, du code, du libellé ou du module. En particulier,
+`CatalogModule::SURGERY` ne signifie jamais `BLOCK_CREDIT` : une consultation
+de chirurgien ou un contrôle postopératoire peut être une prestation ordinaire,
+et un nom contenant « Bloc » ne modifie pas la politique configurée.
+
+Le tarif brut d’un Episode STAFF est le tarif `STANDARD` réel et reste
+historisé. La politique répartit ensuite ce brut entre prise en charge Personnel,
+crédit Bloc et part patient. Un crédit insuffisant est consommé jusqu’au solde
+disponible et le reste demeure à la charge du patient ; un solde épuisé ne
+devient jamais négatif. `UNCLASSIFIED` interdit la création financière mais ne
+bloque ni la demande clinique, ni l’orientation, ni les Soins, ni la Médecine,
+ni une prise en charge chirurgicale urgente.
+
+Le crédit est alloué manuellement par montant configurable. Aucune période,
+date d’effet, fréquence, valeur par défaut ou règle de renouvellement n’est
+inventée. Le registre immuable conserve les allocations, consommations et
+réversions avec employé, montant, type, Episode et prestation éventuels, soldes
+avant/après, clé d’idempotence, motif, auteur et date. Une annulation ajoute une
+réversion ; elle ne supprime ou ne modifie jamais la consommation initiale.
+
+La consommation est réalisée dans une transaction qui verrouille le dossier
+`Employee` avant de relire le dernier solde. Une clé unique par `BillableItem`
+rend les doubles clics, retries et relances idempotents. Les snapshots STAFF
+sont conservés sur la demande clinique, la prestation facturable, la facture et
+sa ligne, en plus du montant brut.
+
+Les permissions `staff_block_credits.view` et
+`staff_block_credits.allocate` sont accordées par défaut à
+`ADMINISTRATION` (responsabilité RH/Finance). La Réception peut utiliser le
+résultat financier et encaisser uniquement la part patient, mais ne peut ni
+allouer, ni corriger le solde, ni modifier l’historique, ni créer une réversion
+manuelle. Le Super Administrateur central reste soumis à l’architecture API
+inter-sites et n’accède jamais directement à une base clinique.

@@ -68,6 +68,11 @@ class Employee extends Model
         return $this->hasMany(EpisodeStaffCoverage::class);
     }
 
+    public function staffBlockCreditMovements(): HasMany
+    {
+        return $this->hasMany(StaffBlockCreditMovement::class)->latest('id');
+    }
+
     public function isAvailableForPatientLink(): bool
     {
         return $this->active && ! $this->trashed();
@@ -75,7 +80,9 @@ class Employee extends Model
 
     public function isForceDeleteProtected(): bool
     {
-        return $this->patientLinks()->exists() || $this->episodeStaffCoverages()->exists();
+        return $this->patientLinks()->exists()
+            || $this->episodeStaffCoverages()->exists()
+            || $this->staffBlockCreditMovements()->exists();
     }
 
     protected function auditModule(): ?string

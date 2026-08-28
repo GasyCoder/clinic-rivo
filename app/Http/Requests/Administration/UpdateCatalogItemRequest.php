@@ -4,6 +4,7 @@ namespace App\Http\Requests\Administration;
 
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -29,6 +30,7 @@ class UpdateCatalogItemRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'module' => ['required', new Enum(CatalogModule::class)],
             'unit' => ['required', 'string', 'max:50'],
+            'staff_coverage_policy' => ['sometimes', new Enum(StaffCoveragePolicy::class)],
             'reception_selectable' => ['sometimes', 'boolean'],
             'reception_routing_mode' => [
                 'nullable',

@@ -9,7 +9,7 @@ defineOptions({ layout: AppLayout });
 const { can } = usePermissions();
 
 const areas = [
-    { title: 'Employés & RH', description: 'Dossiers employés et informations administratives.', icon: 'users', permission: 'employees.view' },
+    { title: 'Employés & RH', description: 'Crédit forfaitaire Bloc et registre des mouvements du personnel.', icon: 'users', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits' },
     { title: 'Contrats', description: 'Contrats et archivage administratif.', icon: 'file-docs', permission: 'contracts.view' },
     { title: 'Présences & congés', description: 'Présences, absences et demandes de congé.', icon: 'calendar', permission: 'attendance.view' },
     { title: 'Planning', description: 'Organisation des équipes et services.', icon: 'calender-date', permission: 'planning.view' },

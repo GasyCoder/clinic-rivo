@@ -109,6 +109,7 @@ const itemForm = useForm({
     stockable: false,
     reception_selectable: false,
     reception_routing_mode: null,
+    staff_coverage_policy: 'UNCLASSIFIED',
     care_requires_allergy_check: false,
     care_recommends_vitals: false,
     description: '',
@@ -187,6 +188,7 @@ watch(() => itemForm.type, (type) => {
     itemForm.stockable = Boolean(metadata?.stockable);
     itemForm.reception_selectable = false;
     itemForm.reception_routing_mode = null;
+    itemForm.staff_coverage_policy = 'UNCLASSIFIED';
 
     if (type === 'SERVICE') itemForm.unit = 'acte';
     if (type === 'MEDICINE' || type === 'CONSUMABLE') itemForm.unit = 'unité';
@@ -260,6 +262,7 @@ const openEdit = (item) => {
         stockable: item.stockable,
         reception_selectable: item.reception_selectable,
         reception_routing_mode: item.reception_routing_mode,
+        staff_coverage_policy: item.staff_coverage_policy,
         care_requires_allergy_check: item.care_requires_allergy_check,
         care_recommends_vitals: item.care_recommends_vitals,
         description: item.description ?? '',
@@ -285,6 +288,7 @@ const submitItem = () => {
             unit: data.unit,
             reception_selectable: data.reception_selectable,
             reception_routing_mode: data.reception_selectable ? data.reception_routing_mode : null,
+            staff_coverage_policy: data.staff_coverage_policy,
             care_requires_allergy_check: isCareService.value ? data.care_requires_allergy_check : false,
             care_recommends_vitals: isCareService.value ? data.care_recommends_vitals : false,
             description: data.description || null,
@@ -672,6 +676,8 @@ const formatDateTime = (value) => value
                     <div v-if="itemForm.type === 'SERVICE'" class="mt-5 rounded border border-gray-200 p-4 dark:border-gray-800"><label class="flex items-start gap-3"><input v-model="itemForm.reception_selectable" type="checkbox" class="mt-0.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"><span><span class="block text-sm font-bold text-slate-700 dark:text-white">Disponible à la Réception</span><span class="mt-0.5 block text-xs text-slate-500">La réceptionniste pourra choisir cette prestation lors de la création du passage.</span></span></label><div v-if="itemForm.reception_selectable" class="mt-4 max-w-xl"><label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Parcours clinique <span class="text-red-500">*</span></label><select v-model="itemForm.reception_routing_mode" class="h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option :value="null">Choisir le parcours</option><option v-for="mode in options.routing_modes" :key="mode.value" :value="mode.value">{{ mode.label }}</option></select><p v-if="itemForm.errors.reception_routing_mode" class="mt-1 text-xs text-red-600">{{ itemForm.errors.reception_routing_mode }}</p></div></div>
 
                     <div v-if="isCareService" class="mt-4 grid gap-3 rounded border border-gray-200 p-4 md:grid-cols-2 dark:border-gray-800"><label class="flex items-start gap-3"><input v-model="itemForm.care_requires_allergy_check" type="checkbox" class="mt-0.5 rounded border-gray-300 text-primary-600"><span><span class="block text-sm font-bold text-slate-700 dark:text-white">Vérifier les allergies</span><span class="text-xs text-slate-500">Recommandation affichée dans la fiche Soins.</span></span></label><label class="flex items-start gap-3"><input v-model="itemForm.care_recommends_vitals" type="checkbox" class="mt-0.5 rounded border-gray-300 text-primary-600"><span><span class="block text-sm font-bold text-slate-700 dark:text-white">Relever les constantes</span><span class="text-xs text-slate-500">Recommandation affichée à l’infirmier.</span></span></label></div>
+
+                    <div v-if="itemForm.billable" class="mt-4 rounded border border-gray-200 p-4 dark:border-gray-800"><label class="mb-1.5 block text-sm font-bold text-slate-700 dark:text-white">Politique Avantage Personnel</label><select v-model="itemForm.staff_coverage_policy" class="h-9 w-full max-w-xl rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option v-for="policy in options.staff_coverage_policies" :key="policy.value" :value="policy.value">{{ policy.label }}</option></select><p class="mt-1 text-xs text-slate-500">Le crédit Bloc dépend uniquement de cette classification explicite, jamais du nom, du code ou du module.</p><p v-if="itemForm.errors.staff_coverage_policy" class="mt-1 text-xs text-red-600">{{ itemForm.errors.staff_coverage_policy }}</p></div>
 
                     <div v-if="!editingItem && selectedType?.billable" class="mt-5 rounded border border-gray-200 p-4 dark:border-gray-800"><div class="mb-3"><h3 class="text-sm font-bold text-slate-700 dark:text-white">Tarifs initiaux</h3><p class="mt-0.5 text-xs text-slate-500">Le tarif standard est obligatoire. Le tarif mutuelle reste distinct et ne bénéficie d’aucun remplacement automatique.</p></div><div class="grid gap-4 md:grid-cols-3"><div><label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Sans mutuelle (Ar) <span class="text-red-500">*</span></label><input v-model="itemForm.tariff_amount" type="number" min="1" step="1" class="h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><p v-if="itemForm.errors.tariff_amount" class="mt-1 text-xs text-red-600">{{ itemForm.errors.tariff_amount }}</p></div><div><label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Mutuelle (Ar)</label><input v-model="itemForm.mutual_tariff_amount" type="number" min="1" step="1" class="h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><p v-if="itemForm.errors.mutual_tariff_amount" class="mt-1 text-xs text-red-600">{{ itemForm.errors.mutual_tariff_amount }}</p></div><div><label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label><input v-model="itemForm.tariff_reason" class="h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white" placeholder="Tarif initial validé"><p v-if="itemForm.errors.tariff_reason" class="mt-1 text-xs text-red-600">{{ itemForm.errors.tariff_reason }}</p></div></div></div>
                 </div>

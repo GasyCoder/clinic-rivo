@@ -55,6 +55,8 @@ class PermissionSeeder extends Seeder
         // Vue volontairement minimale du dossier RH pour relier un membre du
         // personnel à son dossier patient, sans exposer contrats ou données RH.
         'employees.patient_lookup' => 'Rechercher un employé pour son dossier patient',
+        'staff_block_credits.view' => 'Voir le crédit forfaitaire Bloc et son historique',
+        'staff_block_credits.allocate' => 'Allouer manuellement un crédit forfaitaire Bloc',
         'patient_staff_links.view' => 'Voir le lien patient-personnel',
         'patient_staff_links.create' => 'Relier un patient à un employé',
         'patient_staff_links.end' => 'Mettre fin à un lien patient-personnel',

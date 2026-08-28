@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\ProtectsFinancialRecord;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -10,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'invoice_id', 'billable_item_id', 'description', 'quantity', 'unit_price', 'line_total',
-    'gross_line_total', 'coverage_rate', 'coverage_amount',
+    'gross_line_total', 'staff_coverage_policy', 'coverage_rate', 'coverage_amount',
+    'staff_covered_amount', 'staff_block_credit_used',
     'source_type', 'source_uuid', 'status', 'created_by',
 ])]
 class InvoiceLine extends Model
@@ -24,8 +26,11 @@ class InvoiceLine extends Model
             'unit_price' => 'decimal:2',
             'line_total' => 'decimal:2',
             'gross_line_total' => 'decimal:2',
+            'staff_coverage_policy' => StaffCoveragePolicy::class,
             'coverage_rate' => 'decimal:2',
             'coverage_amount' => 'decimal:2',
+            'staff_covered_amount' => 'decimal:2',
+            'staff_block_credit_used' => 'decimal:2',
         ];
     }
 

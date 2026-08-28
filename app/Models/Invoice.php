@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\InvoiceStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
@@ -14,9 +15,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'patient_id', 'episode_id', 'customer_type', 'customer_name', 'customer_phone',
-    'source_module', 'invoice_number', 'status', 'currency',
+    'source_module', 'invoice_number', 'status', 'currency', 'financial_mode',
     'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
-    'subtotal_amount', 'discount_amount', 'coverage_amount', 'total_amount', 'paid_amount',
+    'subtotal_amount', 'discount_amount', 'coverage_amount', 'staff_covered_amount',
+    'staff_block_credit_used', 'total_amount', 'paid_amount',
     'balance_amount', 'created_by', 'validated_by', 'cancelled_by',
     'validated_at', 'cancelled_at', 'cancellation_reason',
 ])]
@@ -28,10 +30,13 @@ class Invoice extends Model
     {
         return [
             'status' => InvoiceStatus::class,
+            'financial_mode' => EpisodeFinancialMode::class,
             'subtotal_amount' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'coverage_rate' => 'decimal:2',
             'coverage_amount' => 'decimal:2',
+            'staff_covered_amount' => 'decimal:2',
+            'staff_block_credit_used' => 'decimal:2',
             'total_amount' => 'decimal:2',
             'paid_amount' => 'decimal:2',
             'balance_amount' => 'decimal:2',

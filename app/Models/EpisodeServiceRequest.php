@@ -5,11 +5,13 @@ namespace App\Models;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Immutable arrival snapshot of a known clinical service request.
@@ -19,12 +21,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * catalog route must never rewrite an existing episode's plan.
  */
 #[Fillable([
-    'episode_id', 'catalog_item_id', 'catalog_tariff_id', 'tariff_category',
+    'episode_id', 'catalog_item_id', 'catalog_tariff_id', 'tariff_category', 'staff_coverage_policy',
     'mutual_organization_uuid', 'mutual_organization_name', 'coverage_rate',
     'catalog_item_uuid', 'catalog_code',
     'designation', 'module', 'routing_mode', 'unit', 'unit_price',
     'care_requires_allergy_check', 'care_recommends_vitals',
-    'currency', 'quantity', 'gross_amount', 'coverage_amount', 'patient_amount', 'created_by',
+    'currency', 'quantity', 'gross_amount', 'coverage_amount', 'staff_covered_amount',
+    'staff_block_credit_used', 'patient_amount', 'created_by',
 ])]
 class EpisodeServiceRequest extends Model
 {
@@ -42,11 +45,14 @@ class EpisodeServiceRequest extends Model
             'care_requires_allergy_check' => 'boolean',
             'care_recommends_vitals' => 'boolean',
             'tariff_category' => CatalogTariffCategory::class,
+            'staff_coverage_policy' => StaffCoveragePolicy::class,
             'unit_price' => 'decimal:2',
             'quantity' => 'decimal:2',
             'coverage_rate' => 'decimal:2',
             'gross_amount' => 'decimal:2',
             'coverage_amount' => 'decimal:2',
+            'staff_covered_amount' => 'decimal:2',
+            'staff_block_credit_used' => 'decimal:2',
             'patient_amount' => 'decimal:2',
         ];
     }
@@ -69,6 +75,12 @@ class EpisodeServiceRequest extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function billableItem(): HasOne
+    {
+        return $this->hasOne(BillableItem::class, 'source_id')
+            ->where('source_type', $this->getMorphClass());
     }
 
     protected function auditModule(): ?string

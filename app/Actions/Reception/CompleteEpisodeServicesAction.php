@@ -9,6 +9,7 @@ use App\Actions\Payment\RecordPaymentAction;
 use App\DTOs\Reception\ArrivalRegistrationResult;
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Episode;
 use App\Models\User;
 use App\Support\Money;
@@ -60,10 +61,16 @@ class CompleteEpisodeServicesAction
         }
 
         if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
-            return new ArrivalRegistrationResult(
-                $episode,
-                billingWarning: 'Prestations enregistrées. La couverture Personnel doit être calculée par RH / Finance avant facturation.',
+            $hasUnclassifiedService = $episode->serviceRequests->contains(
+                fn ($request) => $request->staff_coverage_policy === StaffCoveragePolicy::Unclassified,
             );
+
+            if ($hasUnclassifiedService) {
+                return new ArrivalRegistrationResult(
+                    $episode,
+                    billingWarning: 'Prestations enregistrées. Une politique Personnel reste à classifier ; la couverture Personnel doit être calculée par RH / Finance et la facturation demeure en attente.',
+                );
+            }
         }
 
         try {

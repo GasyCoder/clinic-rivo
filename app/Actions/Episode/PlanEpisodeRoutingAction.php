@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
@@ -14,6 +15,7 @@ use App\Models\Episode;
 use App\Models\EpisodeServiceRequest;
 use App\Models\User;
 use App\Services\Billing\CatalogTariffResolver;
+use App\Services\Finance\StaffFinancialAllocationService;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +34,7 @@ class PlanEpisodeRoutingAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly CatalogTariffResolver $tariffs,
+        private readonly StaffFinancialAllocationService $staffFinancials,
     ) {}
 
     /**
@@ -95,6 +98,10 @@ class PlanEpisodeRoutingAction
                 $coverageMinor = $grossMinor !== null && $coverage['coverage_rate'] !== null
                     ? Money::percentage($grossMinor, $coverage['coverage_rate'])
                     : 0;
+                $staffAllocation = $lockedEpisode->financial_mode === EpisodeFinancialMode::Staff
+                    && $grossMinor !== null
+                        ? $this->staffFinancials->preview($item->staff_coverage_policy, $grossMinor)
+                        : null;
                 $existing = EpisodeServiceRequest::query()
                     ->where('episode_id', $lockedEpisode->getKey())
                     ->where('catalog_item_id', $item->getKey())
@@ -120,6 +127,7 @@ class PlanEpisodeRoutingAction
                     // has no financial context; no tariff or price is resolved
                     // in that case, so this is not a billing fallback.
                     'tariff_category' => $category ?? CatalogTariffCategory::Standard,
+                    'staff_coverage_policy' => $item->staff_coverage_policy,
                     'mutual_organization_uuid' => $coverage['organization_uuid'],
                     'mutual_organization_name' => $coverage['organization_name'],
                     'coverage_rate' => $coverage['coverage_rate'],
@@ -135,10 +143,24 @@ class PlanEpisodeRoutingAction
                     'currency' => $tariff?->currency ?? 'MGA',
                     'quantity' => $quantity,
                     'gross_amount' => $grossMinor !== null ? Money::fromMinor($grossMinor) : null,
-                    'coverage_amount' => Money::fromMinor($coverageMinor),
-                    'patient_amount' => $grossMinor !== null && $coverage['coverage_rate'] !== null
-                        ? Money::fromMinor($grossMinor - $coverageMinor)
-                        : null,
+                    'coverage_amount' => $staffAllocation
+                        ? ($staffAllocation->staffCoveredMinor !== null
+                            ? Money::fromMinor($staffAllocation->staffCoveredMinor)
+                            : '0.00')
+                        : Money::fromMinor($coverageMinor),
+                    'staff_covered_amount' => $staffAllocation?->staffCoveredMinor !== null
+                        ? Money::fromMinor($staffAllocation->staffCoveredMinor)
+                        : ($lockedEpisode->financial_mode === EpisodeFinancialMode::Staff ? null : '0.00'),
+                    'staff_block_credit_used' => $staffAllocation?->blockCreditUsedMinor !== null
+                        ? Money::fromMinor($staffAllocation->blockCreditUsedMinor)
+                        : ($lockedEpisode->financial_mode === EpisodeFinancialMode::Staff ? null : '0.00'),
+                    'patient_amount' => $staffAllocation
+                        ? ($staffAllocation->patientMinor !== null
+                            ? Money::fromMinor($staffAllocation->patientMinor)
+                            : null)
+                        : ($grossMinor !== null && $coverage['coverage_rate'] !== null
+                            ? Money::fromMinor($grossMinor - $coverageMinor)
+                            : null),
                     'created_by' => $actor->getKey(),
                 ]);
             }

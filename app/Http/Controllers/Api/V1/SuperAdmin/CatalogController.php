@@ -12,6 +12,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\CatalogReasonRequest;
 use App\Http\Requests\Api\V1\SuperAdmin\ArchiveCatalogTariffRequest;
@@ -402,6 +403,10 @@ class CatalogController extends Controller
                 'value' => $mode->value,
                 'label' => $mode->label(),
             ])->all(),
+            'staff_coverage_policies' => collect(StaffCoveragePolicy::cases())->map(fn ($policy) => [
+                'value' => $policy->value,
+                'label' => $policy->label(),
+            ])->all(),
             'tariff_categories' => collect(CatalogTariffCategory::cases())->map(fn ($category) => [
                 'value' => $category->value,
                 'label' => $category->label(),
@@ -429,6 +434,8 @@ class CatalogController extends Controller
             'reception_selectable' => $item->reception_selectable,
             'reception_routing_mode' => $item->reception_routing_mode?->value,
             'reception_routing_label' => $item->reception_routing_mode?->label(),
+            'staff_coverage_policy' => $item->staff_coverage_policy->value,
+            'staff_coverage_policy_label' => $item->staff_coverage_policy->label(),
             'care_requires_allergy_check' => $item->care_requires_allergy_check,
             'care_recommends_vitals' => $item->care_recommends_vitals,
             'description' => $item->description,

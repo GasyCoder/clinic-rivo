@@ -14,6 +14,7 @@ use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveCatalogTariffRequest;
 use App\Http\Requests\Administration\CatalogReasonRequest;
@@ -90,6 +91,10 @@ class CatalogController extends Controller
             'tariffCategories' => collect(CatalogTariffCategory::cases())->map(fn ($category) => [
                 'value' => $category->value,
                 'label' => $category->label(),
+            ]),
+            'staffCoveragePolicies' => collect(StaffCoveragePolicy::cases())->map(fn ($policy) => [
+                'value' => $policy->value,
+                'label' => $policy->label(),
             ]),
             'summary' => [
                 'active' => CatalogItem::query()->count(),
@@ -240,6 +245,8 @@ class CatalogController extends Controller
             'reception_selectable' => $item->reception_selectable,
             'reception_routing_mode' => $item->reception_routing_mode?->value,
             'reception_routing_label' => $item->reception_routing_mode?->label(),
+            'staff_coverage_policy' => $item->staff_coverage_policy->value,
+            'staff_coverage_policy_label' => $item->staff_coverage_policy->label(),
             'care_requires_allergy_check' => $item->care_requires_allergy_check,
             'care_recommends_vitals' => $item->care_recommends_vitals,
             'description' => $item->description,

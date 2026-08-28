@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
 use App\Services\Catalog\CatalogActor;
 use App\Support\Money;
@@ -26,6 +27,10 @@ class CreateCatalogItemAction
         $billable = (bool) $data['billable'];
         $stockable = (bool) $data['stockable'];
         $this->assertTypeRules($type, $billable, $stockable);
+        $staffCoveragePolicy = StaffCoveragePolicy::tryFrom(
+            (string) ($data['staff_coverage_policy'] ?? StaffCoveragePolicy::Unclassified->value),
+        ) ?? StaffCoveragePolicy::Unclassified;
+        $this->assertStaffCoveragePolicy($billable, $staffCoveragePolicy);
         [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
         [$requiresAllergyCheck, $recommendsVitals] = $this->careRequirements($type, $data);
 
@@ -33,7 +38,7 @@ class CreateCatalogItemAction
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
@@ -42,6 +47,7 @@ class CreateCatalogItemAction
                 'unit' => trim($data['unit']),
                 'billable' => $billable,
                 'stockable' => $stockable,
+                'staff_coverage_policy' => $staffCoveragePolicy,
                 'reception_selectable' => $receptionSelectable,
                 'reception_routing_mode' => $routingMode,
                 'care_requires_allergy_check' => $requiresAllergyCheck,
@@ -117,6 +123,15 @@ class CreateCatalogItemAction
 
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function assertStaffCoveragePolicy(bool $billable, StaffCoveragePolicy $policy): void
+    {
+        if (! $billable && $policy !== StaffCoveragePolicy::Unclassified) {
+            throw ValidationException::withMessages([
+                'staff_coverage_policy' => 'Une politique Personnel ne peut être appliquée qu’à un élément facturable.',
+            ]);
         }
     }
 

@@ -632,14 +632,25 @@ ne fait qu'une recherche minimale et un lien patient-employé. Les pièces de
 mutuelle sont privées et limitées à cinq.
 
 La demande clinique doit être conservée indépendamment de la facturation. Pour
-un Episode STAFF lié à un employé actif et éligible, les prestations seront
-prises en charge à 100 % hors bloc ; les actes du bloc consomment un crédit
-configurable et l'excédent reste à
-la charge du patient. Le montant brut demeure historisé : la couverture/crédit
-RH/Finance ne peut jamais être simulé par un tarif nul, une remise arbitraire ou
-un faux paiement. Tant que la période du crédit et le périmètre exact des actes
-du bloc ne sont pas configurés, la facturation `STAFF` reste en attente sans
-bloquer le parcours clinique.
+un Episode STAFF lié à un employé actif et éligible, chaque ligne du catalogue
+porte une politique Personnel explicite : `ORDINARY_FULL_COVERAGE`,
+`BLOCK_CREDIT`, `NOT_COVERED` ou `UNCLASSIFIED`. Le module `SURGERY`, le code et
+le libellé ne permettent jamais de déduire la politique. Les prestations
+ordinaires éligibles sont couvertes à 100 % ; `BLOCK_CREDIT` consomme le crédit
+manuel disponible de l’Employee et laisse l’excédent au patient ;
+`NOT_COVERED` laisse le brut au patient. `UNCLASSIFIED` maintient uniquement la
+résolution financière en attente, sans bloquer le parcours clinique. Le montant
+brut demeure historisé : la couverture/crédit RH/Finance ne peut jamais être
+simulé par un tarif nul, une remise arbitraire ou un faux paiement.
+
+Le crédit Bloc est un registre immuable attaché à `Employee` : allocations,
+consommations et réversions conservent leurs soldes avant/après, références,
+clé d’idempotence, motif, auteur et date. Le dossier Employee est verrouillé en
+transaction avant toute consommation ; un `BillableItem` ne peut débiter qu’une
+fois. Une annulation ajoute une réversion et ne supprime jamais l’historique.
+L’allocation est exclusivement manuelle et configurable par un utilisateur
+Administration/RH autorisé. Aucune période ou règle de renouvellement automatique
+n’est définie. Voir ADR-052.
 
 Les tarifs `STANDARD` (« Sans mutuelle ») et `MUTUAL` sont des montants bruts
 propres à chaque site. `STAFF` n'est pas une grille tarifaire : son avantage est

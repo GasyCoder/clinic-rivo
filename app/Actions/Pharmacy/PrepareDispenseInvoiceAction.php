@@ -84,7 +84,7 @@ class PrepareDispenseInvoiceAction
                 'catalog_item_uuid' => $line->medicine->catalogItem->uuid,
                 'quantity' => $line->quantity_requested,
                 'payment_required_before_fulfillment' => true,
-            ], $actor, $dispense);
+            ], $actor, $line);
             $line->update(['billable_item_id' => $item->getKey()]);
             $items->push($item);
         }

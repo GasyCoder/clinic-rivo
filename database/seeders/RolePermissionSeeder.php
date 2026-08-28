@@ -23,6 +23,7 @@ class RolePermissionSeeder extends Seeder
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',
             'employees.patient_lookup',
+            'staff_block_credits.view', 'staff_block_credits.allocate',
             'patient_staff_links.view', 'patient_staff_links.create', 'patient_staff_links.end',
             'address_entries.view', 'address_entries.create', 'address_entries.update',
             'address_entries.archive', 'address_entries.restore',

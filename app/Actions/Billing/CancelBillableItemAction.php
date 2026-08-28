@@ -6,12 +6,16 @@ use App\Enums\BillableItemStatus;
 use App\Models\BillableItem;
 use App\Models\User;
 use App\Services\Audit\Auditor;
+use App\Services\Finance\StaffBlockCreditLedger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CancelBillableItemAction
 {
-    public function __construct(private readonly Auditor $auditor) {}
+    public function __construct(
+        private readonly Auditor $auditor,
+        private readonly StaffBlockCreditLedger $staffBlockCredits,
+    ) {}
 
     public function execute(BillableItem $item, string $reason, User $actor): BillableItem
     {
@@ -37,6 +41,12 @@ class CancelBillableItemAction
                 'cancelled_at' => now(),
                 'cancellation_reason' => $reason,
             ])->save();
+
+            $this->staffBlockCredits->reverseConsumption(
+                $item,
+                "Réversion après annulation — {$reason}",
+                $actor,
+            );
 
             $this->auditor->record(
                 'billing.item.cancel',

@@ -5,6 +5,7 @@ namespace App\Actions\Catalog;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
 use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -44,6 +45,15 @@ class UpdateCatalogItemAction
             && ($data['module'] ?? null) === CatalogModule::Care->value;
         $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
         $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+        $staffCoveragePolicy = array_key_exists('staff_coverage_policy', $data)
+            ? StaffCoveragePolicy::from((string) $data['staff_coverage_policy'])
+            : $item->staff_coverage_policy;
+
+        if (! $item->billable && $staffCoveragePolicy !== StaffCoveragePolicy::Unclassified) {
+            throw ValidationException::withMessages([
+                'staff_coverage_policy' => 'Une politique Personnel ne peut être appliquée qu’à un élément facturable.',
+            ]);
+        }
 
         if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
             throw ValidationException::withMessages([
@@ -57,6 +67,7 @@ class UpdateCatalogItemAction
             'unit' => trim($data['unit']),
             'reception_selectable' => $selectable,
             'reception_routing_mode' => $route,
+            'staff_coverage_policy' => $staffCoveragePolicy,
             'care_requires_allergy_check' => $isCareService && $requiresAllergyCheck,
             'care_recommends_vitals' => $isCareService && $recommendsVitals,
             'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,

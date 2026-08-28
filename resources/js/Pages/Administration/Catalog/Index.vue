@@ -18,6 +18,7 @@ const props = defineProps({
     modules: Array,
     receptionRoutingModes: Array,
     tariffCategories: Array,
+    staffCoveragePolicies: Array,
     summary: Object,
     pendingMedicines: { type: Array, default: () => [] },
 });
@@ -45,6 +46,7 @@ const itemForm = useForm({
     stockable: false,
     reception_selectable: false,
     reception_routing_mode: null,
+    staff_coverage_policy: 'UNCLASSIFIED',
     care_requires_allergy_check: false,
     care_recommends_vitals: false,
     description: '',
@@ -99,6 +101,10 @@ watch(() => [itemForm.type, itemForm.module], ([type, module]) => {
     itemForm.care_recommends_vitals = false;
 });
 
+watch(() => itemForm.billable, (billable) => {
+    if (!billable) itemForm.staff_coverage_policy = 'UNCLASSIFIED';
+});
+
 const submitFilters = () => {
     router.get('/administration/catalog', {
         q: query.value || undefined,
@@ -119,6 +125,7 @@ const openCreate = () => {
     itemForm.stockable = false;
     itemForm.reception_selectable = false;
     itemForm.reception_routing_mode = null;
+    itemForm.staff_coverage_policy = 'UNCLASSIFIED';
     itemForm.care_requires_allergy_check = false;
     itemForm.care_recommends_vitals = false;
     formOpen.value = true;
@@ -136,6 +143,7 @@ const openEdit = (item) => {
     itemForm.stockable = item.stockable;
     itemForm.reception_selectable = item.reception_selectable;
     itemForm.reception_routing_mode = item.reception_routing_mode;
+    itemForm.staff_coverage_policy = item.staff_coverage_policy;
     itemForm.care_requires_allergy_check = item.care_requires_allergy_check;
     itemForm.care_recommends_vitals = item.care_recommends_vitals;
     itemForm.description = item.description ?? '';
@@ -162,6 +170,7 @@ const submitItem = () => {
             description: data.description || null,
             reception_selectable: data.reception_selectable,
             reception_routing_mode: data.reception_selectable ? data.reception_routing_mode : null,
+            staff_coverage_policy: data.staff_coverage_policy,
             care_requires_allergy_check: data.type === 'SERVICE' && data.module === 'CARE'
                 ? data.care_requires_allergy_check
                 : false,
@@ -545,6 +554,14 @@ const formatDateTime = (value) => value
                                 </div>
                                 <FormError v-if="itemForm.errors.care_requires_allergy_check">{{ itemForm.errors.care_requires_allergy_check }}</FormError>
                                 <FormError v-if="itemForm.errors.care_recommends_vitals">{{ itemForm.errors.care_recommends_vitals }}</FormError>
+                            </div>
+                            <div v-if="itemForm.billable" class="rounded border border-gray-200 p-3 dark:border-gray-800 sm:col-span-2">
+                                <label for="catalog_staff_policy" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Politique Avantage Personnel <span class="text-red-500">*</span></label>
+                                <select id="catalog_staff_policy" v-model="itemForm.staff_coverage_policy" class="block h-9 w-full max-w-xl rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                                    <option v-for="policy in staffCoveragePolicies" :key="policy.value" :value="policy.value">{{ policy.label }}</option>
+                                </select>
+                                <p class="mt-1 text-xs text-slate-400">Classification explicite : le nom, le code et le module Chirurgie ne déclenchent jamais le crédit Bloc.</p>
+                                <FormError v-if="itemForm.errors.staff_coverage_policy">{{ itemForm.errors.staff_coverage_policy }}</FormError>
                             </div>
                         </div>
 

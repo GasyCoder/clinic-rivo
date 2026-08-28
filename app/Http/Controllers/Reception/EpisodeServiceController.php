@@ -11,6 +11,7 @@ use App\Models\CashSession;
 use App\Models\Episode;
 use App\Models\PaymentMethod;
 use App\Services\Billing\BillableCatalogDirectory;
+use App\Services\Finance\StaffBlockCreditLedger;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class EpisodeServiceController extends Controller
         Request $request,
         Episode $episode,
         BillableCatalogDirectory $catalog,
+        StaffBlockCreditLedger $staffBlockCredits,
     ): Response|RedirectResponse {
         $episode->load([
             'patient:id,uuid,patient_number,patient_type,first_name,last_name',
@@ -49,6 +51,7 @@ class EpisodeServiceController extends Controller
                 'uuid' => $episode->uuid,
                 'episode_number' => $episode->episode_number,
                 'priority' => $episode->priority->value,
+                'financial_mode' => $episode->financial_mode?->value,
                 'administrative_status' => $episode->administrative_status->value,
                 'designation_deferred' => $episode->designation_deferred,
                 'service_plan_finalized_at' => $episode->service_plan_finalized_at,
@@ -72,7 +75,9 @@ class EpisodeServiceController extends Controller
                 'financial_mode' => $episode->financial_mode?->value,
                 'label' => match ($tariffCategory) {
                     'MUTUAL' => 'Tarif mutuelle',
-                    'STANDARD' => 'Tarif sans mutuelle',
+                    'STANDARD' => $episode->financial_mode === EpisodeFinancialMode::Staff
+                        ? 'Avantage Personnel · tarif brut Sans mutuelle'
+                        : 'Tarif sans mutuelle',
                     default => 'Contexte à régulariser',
                 },
                 'organization_name' => $episode->mutualCoverage?->organization_name_snapshot,
@@ -83,6 +88,13 @@ class EpisodeServiceController extends Controller
                     ))
                     : ($episode->financial_mode === EpisodeFinancialMode::Self ? '100.00' : null),
                 'missing_tariffs_count' => $billingCatalog->where('tariff_available', false)->count(),
+                'unclassified_staff_items_count' => $episode->financial_mode === EpisodeFinancialMode::Staff
+                    ? $billingCatalog->where('staff_coverage_policy', 'UNCLASSIFIED')->count()
+                    : 0,
+                'staff_block_credit' => $episode->financial_mode === EpisodeFinancialMode::Staff
+                    && $episode->staffCoverage?->employee
+                        ? $staffBlockCredits->summary($episode->staffCoverage->employee)
+                        : null,
             ],
             'paymentMethods' => $request->user()->can('payments.create')
                 ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name'])

@@ -10,10 +10,14 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AllergenReference;
+use App\Models\BillableItem;
 use App\Models\CareRecord;
 use App\Models\CareRecordProcedure;
 use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\EpisodeServiceRequest;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -640,6 +644,102 @@ class CareRecordFlowTest extends TestCase
             CareRecord::query()->sole()->no_procedure_reason,
         );
         $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
+    }
+
+    public function test_a_planned_care_act_bills_once_even_when_confirmed_twice(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        $this->giveActiveTariff($procedure, $nurse);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+
+        $payload = ['procedures' => [[
+            'catalog_item_uuid' => $procedure->uuid,
+            'quantity' => 1,
+        ]]];
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", $payload)
+            ->assertRedirect(route('care.orientations.show', $orientation));
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", $payload)
+            ->assertRedirect(route('care.orientations.show', $orientation));
+
+        $this->assertDatabaseCount('care_record_procedures', 2);
+
+        $billableItem = BillableItem::query()->sole();
+        $this->assertSame($orientation->episode_id, $billableItem->episode_id);
+        $this->assertSame($procedure->id, $billableItem->catalog_item_id);
+        $this->assertSame('PENDING', $billableItem->status->value);
+        $this->assertSame(EpisodeServiceRequest::class, $billableItem->source_type);
+    }
+
+    public function test_a_care_act_beyond_the_original_request_creates_its_own_pending_billable_item(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+        $extraProcedure = $this->procedure($nurse, 'PANSEMENT-EXTRA', 'Pansement supplémentaire non prévu');
+        $this->giveActiveTariff($extraProcedure, $nurse);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $extraProcedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $billableItem = BillableItem::query()->sole();
+        $this->assertSame($orientation->episode_id, $billableItem->episode_id);
+        $this->assertSame($extraProcedure->id, $billableItem->catalog_item_id);
+        $this->assertSame('PENDING', $billableItem->status->value);
+        $this->assertNull($billableItem->source_type);
+    }
+
+    public function test_an_act_without_an_active_tariff_still_saves_without_billing(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $procedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $this->assertDatabaseCount('care_record_procedures', 1);
+        $this->assertDatabaseCount('billable_items', 0);
+    }
+
+    private function giveActiveTariff(CatalogItem $item, User $actor, int $amountMinor = 15000): CatalogTariff
+    {
+        return CatalogTariff::query()->create([
+            'catalog_item_id' => $item->id,
+            'amount' => number_format($amountMinor, 2, '.', ''),
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif de test',
+            'created_by' => $actor->id,
+        ]);
+    }
+
+    private function markEpisodeSelfFunded(int $episodeId, User $actor): void
+    {
+        Episode::query()->whereKey($episodeId)->update([
+            'financial_mode' => 'SELF',
+            'financial_context_completed_at' => now(),
+            'financial_context_completed_by' => $actor->id,
+        ]);
     }
 
     /** @return array{0: EpisodeOrientation, 1: CatalogItem} */

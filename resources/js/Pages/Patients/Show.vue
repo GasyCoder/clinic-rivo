@@ -92,6 +92,16 @@ const cancellationForm = useForm({ reason: '' });
 const pendingItemsForEpisode = computed(() => (props.account?.billable_items ?? []).filter(
     (item) => item.status === 'PENDING' && item.episode.uuid === invoiceForm.episode_uuid,
 ));
+// Every submission of the "Nouvelle facture" form creates its own separate
+// Invoice (CreateInvoiceAction never merges into an existing one) — this
+// surfaces that up front so Reception isn't surprised to see a second
+// AF-xxxxx appear for a passage that already has one unpaid.
+const openInvoicesForEpisode = computed(() => (props.account?.invoices ?? []).filter(
+    (invoice) => invoice.episode.uuid === invoiceForm.episode_uuid && Number(invoice.balance_amount) > 0,
+));
+const openInvoicesForEpisodeTotal = computed(() => openInvoicesForEpisode.value.reduce(
+    (total, invoice) => total + Number(invoice.balance_amount), 0,
+));
 const cancelledBillableItems = computed(() => (props.account?.billable_items ?? []).filter(
     (item) => item.status === 'CANCELLED',
 ));
@@ -406,50 +416,58 @@ const invoiceStatusBadgeClass = (statusValue) => ({
         </div>
 
         <section v-if="account && activeSection === 'billing'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-col gap-3 border-b border-gray-200 bg-gradient-to-r from-primary-50/60 to-white px-5 py-4 dark:border-gray-900 dark:from-gray-900/30 dark:to-gray-950 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
-                    <span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon class="text-lg" name="wallet" /></span>
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
                     <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Compte patient</h2><p class="mt-0.5 text-xs text-slate-400">Factures, paiements successifs et reçus.</p></div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <span v-if="openCashSession" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Caisse ouverte</span>
-                    <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400"><span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Caisse fermée</span>
+                    <span v-if="openCashSession" class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Caisse ouverte</span>
+                    <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-400"><span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Caisse fermée</span>
                     <span v-if="patient.patient_type === 'STAFF'" class="text-xs font-medium text-slate-500">Couverture RH / Finance à calculer</span>
                     <Button v-else-if="can('billing.create') && patient.episodes.length" size="sm" :variant="showInvoiceForm ? 'white-outline' : 'primary'" type="button" @click="showInvoiceForm = !showInvoiceForm"><Icon class="text-base" :name="showInvoiceForm ? 'cross' : 'plus'" /><span class="ms-1.5">{{ showInvoiceForm ? 'Fermer' : 'Nouvelle facture' }}</span></Button>
                 </div>
             </div>
 
             <div class="grid grid-cols-2 divide-x divide-y divide-gray-200 border-b border-gray-200 dark:divide-gray-900 dark:border-gray-900 lg:grid-cols-4 lg:divide-y-0">
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">À facturer</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.unbilled_amount) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Part patient facturée</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Total payé</p><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.paid_amount) }}</p></div>
-                <div class="px-5 py-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500">Reste à payer</p><p :class="['mt-1.5 text-xl font-bold', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white']">{{ formatMoney(account.balance_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="clock" />À facturer</span><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.unbilled_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="file-text" />Part patient facturée</span><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="check-circle" />Total payé</span><p class="mt-1.5 text-xl font-bold text-emerald-600 dark:text-emerald-400">{{ formatMoney(account.paid_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500"><Icon class="text-sm" name="alert-circle" />Reste à payer</span><p :class="['mt-1.5 text-xl font-bold', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white']">{{ formatMoney(account.balance_amount) }}</p></div>
             </div>
 
             <form v-if="showInvoiceForm" class="border-b border-gray-200 bg-gray-50/60 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="createInvoice">
-                <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Créer une facture</h3><p class="mt-0.5 text-xs text-slate-400">Sélectionnez les prestations transmises par les services ou ajoutez une désignation du référentiel.</p></div>
-                    <p class="text-sm font-bold text-primary-600">Total : {{ formatMoney(invoiceDraftTotal) }}</p>
+                <div class="mb-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3.5 dark:border-gray-800 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-start gap-3">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon class="text-base" name="file-text" /></span>
+                        <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Créer une facture</h3><p class="mt-0.5 text-xs text-slate-400">Sélectionnez les prestations transmises par les services ou ajoutez une désignation du référentiel.</p></div>
+                    </div>
+                    <span class="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full bg-primary-50 px-3 py-1.5 text-sm font-bold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 sm:self-auto">Total : {{ formatMoney(invoiceDraftTotal) }}</span>
                 </div>
 
                 <FormGroup class="!mb-4 max-w-sm">
                     <FormLabel class="mb-1.5" for="invoice_episode">Passage concerné <span class="text-red-500">*</span></FormLabel>
-                    <select id="invoice_episode" v-model="invoiceForm.episode_uuid" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required>
+                    <select id="invoice_episode" v-model="invoiceForm.episode_uuid" class="block h-11 w-full rounded-md border border-gray-200 bg-white px-4 text-base text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:border-primary-600 dark:focus:ring-primary-950" required>
                         <option value="" disabled>Choisir un passage</option>
                         <option v-for="episode in patient.episodes" :key="episode.uuid" :value="episode.uuid" :disabled="episode.status === 'CANCELLED'">{{ episode.episode_number }} · {{ statusLabels[episode.status] }}</option>
                     </select>
                     <FormError v-if="invoiceForm.errors.episode_uuid">{{ invoiceForm.errors.episode_uuid }}</FormError>
                 </FormGroup>
 
-                <div v-if="pendingItemsForEpisode.length" class="mb-4 overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
-                    <div class="border-b border-gray-200 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800">Prestations en attente de facturation</div>
-                    <label v-for="item in pendingItemsForEpisode" :key="item.uuid" class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-900/50">
+                <div v-if="openInvoicesForEpisode.length" class="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                    <Icon class="mt-0.5 shrink-0" name="info" />
+                    <p><span class="font-semibold">{{ openInvoicesForEpisode.length }} facture{{ openInvoicesForEpisode.length > 1 ? 's' : '' }} déjà en attente de paiement</span> sur ce passage ({{ openInvoicesForEpisode.map((invoice) => invoice.invoice_number).join(', ') }}), pour {{ formatMoney(openInvoicesForEpisodeTotal) }} restant dû. Cette action créera une facture <span class="font-semibold">supplémentaire et distincte</span> — les factures existantes ne sont pas modifiées et devront être réglées séparément.</p>
+                </div>
+
+                <div v-if="pendingItemsForEpisode.length" class="mb-4 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                    <div class="flex items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800 dark:bg-gray-1000/50"><Icon class="text-sm text-slate-400" name="clock" />Prestations en attente de facturation<span class="ms-auto rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:bg-gray-800 dark:text-slate-300">{{ pendingItemsForEpisode.length }}</span></div>
+                    <label v-for="item in pendingItemsForEpisode" :key="item.uuid" class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 last:border-0 hover:bg-primary-50/40 dark:border-gray-900 dark:hover:bg-primary-950/10">
                         <input v-model="invoiceForm.billable_item_uuids" :value="item.uuid" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                         <span class="min-w-0 flex-1">
                             <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-slate-700 dark:text-slate-200">
                                 {{ item.description }}
                                 <span class="text-xs font-normal text-slate-400">{{ moduleLabels[item.source_module] ?? item.source_module }}</span>
-                                <span v-if="item.payment_required_before_fulfillment" class="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:border-gray-700 dark:text-slate-400">Paiement préalable requis</span>
+                                <span v-if="item.payment_required_before_fulfillment" class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">Paiement préalable requis</span>
                             </span>
                             <span class="mt-0.5 block text-xs text-slate-400">{{ item.quantity }} × {{ formatMoney(item.unit_price) }}</span>
                         </span>
@@ -457,27 +475,36 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     </label>
                 </div>
 
-                <p v-else class="mb-4 rounded border border-dashed border-gray-300 px-4 py-3 text-xs text-slate-400 dark:border-gray-700">Aucune prestation métier en attente pour ce passage.</p>
+                <div v-else class="mb-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-gray-300 px-5 py-6 text-center dark:border-gray-700">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon name="clock" /></span>
+                    <p class="text-xs text-slate-400">Aucune prestation métier en attente pour ce passage.</p>
+                </div>
 
-                <div class="space-y-2">
-                    <div v-for="(line, index) in invoiceForm.catalog_lines" :key="index" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_170px_36px]">
-                        <select v-model="line.catalog_item_uuid" :aria-label="`Désignation ${index + 1}`" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
-                            <option value="" disabled>Choisir une prestation</option>
-                            <option v-for="catalogItem in billingCatalog" :key="catalogItem.uuid" :value="catalogItem.uuid">{{ catalogItem.code }} · {{ catalogItem.name }} — patient {{ formatMoney(catalogItem.patient_amount ?? catalogItem.tariff_amount) }}</option>
-                        </select>
-                        <Input v-model="line.quantity" type="number" min="0.01" step="0.01" aria-label="Quantité" placeholder="Quantité" required />
-                        <div class="flex h-9 items-center justify-end rounded border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">
-                            {{ formatMoney((Number(line.quantity) || 0) * Number(catalogByUuid.get(line.catalog_item_uuid)?.patient_amount ?? catalogByUuid.get(line.catalog_item_uuid)?.tariff_amount ?? 0)) }}
+                <div v-if="invoiceForm.catalog_lines.length" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                    <div class="hidden gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:border-gray-800 dark:bg-gray-1000/50 sm:grid sm:grid-cols-[minmax(0,1fr)_110px_170px_36px]"><span>Désignation</span><span>Quantité</span><span class="text-end">Total patient</span><span></span></div>
+                    <div class="divide-y divide-gray-100 dark:divide-gray-900">
+                        <div v-for="(line, index) in invoiceForm.catalog_lines" :key="index" class="grid grid-cols-1 gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_110px_170px_36px] sm:items-center">
+                            <select v-model="line.catalog_item_uuid" :aria-label="`Désignation ${index + 1}`" class="block h-10 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
+                                <option value="" disabled>Choisir une prestation</option>
+                                <option v-for="catalogItem in billingCatalog" :key="catalogItem.uuid" :value="catalogItem.uuid">{{ catalogItem.code }} · {{ catalogItem.name }} — patient {{ formatMoney(catalogItem.patient_amount ?? catalogItem.tariff_amount) }}</option>
+                            </select>
+                            <Input v-model="line.quantity" type="number" min="0.01" step="0.01" aria-label="Quantité" placeholder="Quantité" required />
+                            <div class="flex h-10 items-center justify-end rounded border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">
+                                {{ formatMoney((Number(line.quantity) || 0) * Number(catalogByUuid.get(line.catalog_item_uuid)?.patient_amount ?? catalogByUuid.get(line.catalog_item_uuid)?.tariff_amount ?? 0)) }}
+                            </div>
+                            <Button icon size="rg" variant="danger-outline" type="button" aria-label="Retirer cette ligne" @click="removeInvoiceLine(index)"><Icon class="text-base" name="trash" /></Button>
                         </div>
-                        <Button icon size="rg" variant="danger-outline" type="button" aria-label="Retirer cette ligne" @click="removeInvoiceLine(index)"><Icon class="text-base" name="trash" /></Button>
                     </div>
                 </div>
                 <FormError v-if="invoiceForm.errors.catalog_lines" class="mt-2">{{ invoiceForm.errors.catalog_lines }}</FormError>
                 <FormError v-if="invoiceForm.errors['catalog_lines.0.catalog_item_uuid']" class="mt-2">{{ invoiceForm.errors['catalog_lines.0.catalog_item_uuid'] }}</FormError>
-                <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <button v-if="billingCatalog?.length" type="button" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:text-primary-700" @click="addInvoiceLine"><Icon name="plus" /> Ajouter depuis le référentiel</button>
-                    <span v-else class="text-xs text-slate-400">Aucune prestation avec tarif actif. Le Super Administrateur doit compléter le référentiel.</span>
-                    <Button size="rg" variant="primary" type="submit" :disabled="invoiceForm.processing"><Icon class="text-lg" name="file-text" /><span class="ms-2">{{ invoiceForm.processing ? 'Création…' : 'Créer le brouillon' }}</span></Button>
+
+                <button v-if="billingCatalog?.length" type="button" class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 py-2.5 text-xs font-bold text-primary-600 transition hover:border-primary-400 hover:bg-primary-50/40 dark:border-gray-700 dark:hover:border-primary-800 dark:hover:bg-primary-950/10" @click="addInvoiceLine"><Icon name="plus" /> Ajouter depuis le référentiel</button>
+                <p v-else class="mt-3 text-xs text-slate-400">Aucune prestation avec tarif actif. Le Super Administrateur doit compléter le référentiel.</p>
+
+                <div class="mt-5 flex flex-col-reverse gap-3 border-t border-gray-200 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+                    <p class="text-xs text-slate-400">Le brouillon peut être complété ou corrigé avant validation.</p>
+                    <Button size="lg" variant="primary" type="submit" :disabled="invoiceForm.processing"><Icon class="text-lg" name="file-text" /><span class="ms-2">{{ invoiceForm.processing ? 'Création…' : 'Créer le brouillon' }}</span></Button>
                 </div>
             </form>
 

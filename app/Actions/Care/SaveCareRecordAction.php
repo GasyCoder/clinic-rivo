@@ -2,6 +2,7 @@
 
 namespace App\Actions\Care;
 
+use App\Actions\Billing\RecordBillableItemAction;
 use App\Actions\Patient\RecordPatientAllergyAction;
 use App\Enums\AllergySeverity;
 use App\Enums\CareCompletionMode;
@@ -30,6 +31,7 @@ class SaveCareRecordAction
     public function __construct(
         private readonly RecordPatientAllergyAction $recordAllergy,
         private readonly CareWorkflow $careWorkflow,
+        private readonly RecordBillableItemAction $recordBillableItem,
     ) {}
 
     /**
@@ -90,6 +92,7 @@ class SaveCareRecordAction
             }
 
             $this->appendProcedures(
+                $locked->episode,
                 $record,
                 $procedures,
                 $actor,
@@ -316,6 +319,7 @@ class SaveCareRecordAction
      * @param  Collection<int, array<string, mixed>>  $procedures
      */
     private function appendProcedures(
+        Episode $episode,
         CareRecord $record,
         Collection $procedures,
         User $actor,
@@ -375,6 +379,45 @@ class SaveCareRecordAction
                 'performed_by' => $actor->getKey(),
                 'performed_at' => now(),
             ]);
+
+            $this->billProcedureIfPossible($episode, $item, $procedure['quantity'], $actor);
+        }
+    }
+
+    /**
+     * Soins never prices or invoices anything — it only triggers the shared
+     * billing entry point, which resolves the tariff server-side. When the
+     * same designation was already selected (and billed) by Réception at
+     * arrival, RecordBillableItemAction's own idempotency key — derived from
+     * that matching EpisodeServiceRequest — returns the existing item instead
+     * of creating a duplicate, so a confirmed act never double-charges the
+     * patient. A genuinely extra act (no matching request) gets its own new
+     * pending BillableItem, ready for Réception to invoice.
+     *
+     * Any billing failure (no tariff configured yet, financial context not
+     * resolved, unclassified Personnel policy…) must never block recording
+     * the clinical act itself — it is silently left for Réception to
+     * regularize from the patient account, exactly like every other
+     * "price may be missing, the clinical journey never is" rule in this app.
+     */
+    private function billProcedureIfPossible(
+        Episode $episode,
+        CatalogItem $item,
+        int|float|string $quantity,
+        User $actor,
+    ): void {
+        if (! $item->billable) {
+            return;
+        }
+
+        try {
+            $this->recordBillableItem->execute($episode, [
+                'catalog_item_uuid' => $item->uuid,
+                'quantity' => $quantity,
+            ], $actor);
+        } catch (ValidationException) {
+            // Not billable yet (missing tariff, unresolved financial mode,
+            // unclassified Personnel policy…) — Réception regularizes later.
         }
     }
 

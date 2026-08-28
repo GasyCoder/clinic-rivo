@@ -17,7 +17,7 @@ const deliveryLines = computed(() => (props.target?.lines ?? [])
     .filter((line) => line.remaining_quantity > 0)
     .map((line) => ({
         details: line,
-        formLine: props.form.lines.find((item) => item.id === line.id),
+        formLine: props.form.lines.find((item) => item.uuid === line.uuid),
     }))
     .filter((item) => item.formLine));
 const selectedQuantity = computed(() => deliveryLines.value.reduce(
@@ -125,7 +125,7 @@ const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFracti
                     </section>
 
                     <div class="space-y-3">
-                        <article v-for="item in deliveryLines" :key="item.details.id" :class="['rounded-xl border bg-white p-4 shadow-sm dark:bg-gray-950', Number(item.formLine.quantity) > 0 ? 'border-primary-300 dark:border-primary-900' : 'border-gray-200 opacity-75 dark:border-gray-800']">
+                        <article v-for="item in deliveryLines" :key="item.details.uuid" :class="['rounded-xl border bg-white p-4 shadow-sm dark:bg-gray-950', Number(item.formLine.quantity) > 0 ? 'border-primary-300 dark:border-primary-900' : 'border-gray-200 opacity-75 dark:border-gray-800']">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                     <p class="text-sm font-bold text-slate-700 dark:text-white">{{ item.details.medicine_name }}</p>

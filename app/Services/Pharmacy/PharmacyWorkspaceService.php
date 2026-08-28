@@ -33,6 +33,7 @@ class PharmacyWorkspaceService
             'can_create_lot' => $user->can('stock.lots.create'),
             'can_dispense' => $user->can('pharmacy.dispense'),
             'can_prepare_invoice' => $user->can('pharmacy.dispense.prepare_invoice'),
+            'can_print_ticket' => $user->can('pharmacy.dispense.print'),
             'can_create_counter_sale' => $user->can('pharmacy.counter_sales.create'),
             'can_adjust_stock' => $user->can('stock.adjust'),
             'can_view_alerts' => $user->can('stock.alerts.view'),
@@ -114,6 +115,7 @@ class PharmacyWorkspaceService
                 'can_view_prescriptions' => $canViewPrescriptions,
                 'can_view_categories' => $user->can('medicine_categories.view'),
                 'can_view_suppliers' => $user->can('medicine_suppliers.view'),
+                'can_print_ticket' => $user->can('pharmacy.dispense.print'),
                 'dispense_count' => $canViewPrescriptions
                     ? $this->prescriptionQueue->activeDispenseCount()
                     : 0,

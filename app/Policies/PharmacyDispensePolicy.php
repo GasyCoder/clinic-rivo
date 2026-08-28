@@ -16,6 +16,12 @@ class PharmacyDispensePolicy
             && $dispense->invoice_id === null;
     }
 
+    public function printTicket(User $user, PharmacyDispense $dispense): bool
+    {
+        return $user->can('pharmacy.dispense.print')
+            && $dispense->invoice_id !== null;
+    }
+
     public function dispense(User $user, PharmacyDispense $dispense): bool
     {
         $dispense->loadMissing('invoice');

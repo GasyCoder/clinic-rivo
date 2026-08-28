@@ -17,8 +17,8 @@ class StoreExternalDispenseRequest extends FormRequest
         return [
             'customer_name' => ['nullable', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:50'],
-            'external_prescription_reference' => ['nullable', 'string', 'max:255'],
             'external_prescriber' => ['nullable', 'string', 'max:255'],
+            'print_after_create' => ['sometimes', 'boolean'],
             'lines' => ['required', 'array', 'min:1', 'max:100'],
             'lines.*.medicine_uuid' => ['required', 'uuid', 'distinct', 'exists:medicines,uuid'],
             'lines.*.quantity' => ['required', 'integer', 'min:1', 'max:1000000'],

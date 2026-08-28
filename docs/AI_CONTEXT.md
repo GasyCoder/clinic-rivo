@@ -415,6 +415,39 @@ L'annulation d'une ordonnance libère la réservation. Médecine ne reçoit que
 `stock.availability.view`, jamais les droits de mutation `stock.*`. Voir
 ADR-036.
 
+Chaque demande de dispensation facturée possède un ticket Pharmacie. Son numéro
+de facture est la référence automatique encodée dans le QR. La Caisse peut
+scanner le QR ou saisir cette référence ; pour un patient interne, elle peut
+aussi rechercher le numéro de passage ou le numéro patient. Ce contrôle ne crée
+aucun paiement. Le ticket n'est jamais un reçu et son impression relève de
+`pharmacy.dispense.print`; l'encaissement et le reçu restent exclusivement à
+Réception/Caisse. La vente comptoir n'affiche et n'accepte aucun numéro de
+référence manuel : le numéro de facture backend est l'unique référence du
+ticket, y compris pour un produit signalé comme nécessitant une ordonnance. Le
+contrôle se trouve dans un onglet Caisse dédié avec la saisie manuelle
+sélectionnée par défaut. La file de dispensation sépare le statut des actions et
+n'affiche le détail des produits que dans la fenêtre ouverte par l'action Voir.
+La vente comptoir affiche uniquement « Créer et transmettre à la Caisse » : il
+n'existe aucun bouton d'impression autonome sur l'écran principal. Cette action
+ouvre une fenêtre de confirmation soignée avec le récapitulatif de la vente.
+Son bouton final, « Imprimer et transmettre à la Caisse », crée et transmet la
+vente, reste sur la page, imprime directement le ticket officiel, puis vide le
+formulaire pour le client suivant. Le nom, le téléphone et le prescripteur
+externe facultatifs apparaissent sur le ticket officiel lorsqu'ils sont
+renseignés. Les actions de la file distinguent l'ordonnance,
+les opérations métier et les opérations documentaires : une unique action
+« Voir » ouvre le détail. Il n'existe plus d'action « Aperçu » supplémentaire ;
+le ticket s'imprime directement depuis cette fenêtre, sans navigation ni
+changement de l'URL visible. Les identifiants exposés par les opérations
+Pharmacie (demande, ligne, réservation, bon, allocation, mouvement, médicament
+et lot) sont des UUID ; les IDs SQL restent internes. Préparation, impression,
+délivrance, entrée et ajustement gardent chacun leur permission Laravel. Dans
+l'onglet Caisse, la saisie/le scan et le champ de contrôle sont placés dans
+l'en-tête ; les résultats reprennent le tableau des factures à encaisser. Les
+factures Pharmacie sont séparées de la liste générale, sont affichées par défaut
+dans cet onglet et peuvent être filtrées dynamiquement par référence, client,
+patient ou passage. Voir ADR-050.
+
 ---
 
 # Laboratoire

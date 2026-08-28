@@ -142,6 +142,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Ligne d'ordonnance manuelle hors référentiel, sans stock ni prix, en attente de validation
 - [x] Préparation délivrance interne et vente directe comptoir
 - [x] Vérification du paiement/prise en charge par la Caisse
+- [x] Ticket Pharmacie sans référence manuelle, à référence automatique, et liste Caisse séparée avec contrôle dynamique par QR ou saisie
 - [x] Délivrance complète ou partielle en FEFO
 - [x] Déstockage uniquement lors de la délivrance autorisée
 - [ ] Retours

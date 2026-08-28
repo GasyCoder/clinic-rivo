@@ -66,6 +66,9 @@ class CashController extends Controller
                     InvoiceStatus::PartiallyPaid->value,
                 ])
                 ->where('balance_amount', '>', 0)
+                ->where(fn ($query) => $query
+                    ->whereNull('source_module')
+                    ->orWhere('source_module', '!=', 'PHARMACY'))
                 ->with([
                     'patient:id,uuid,patient_number,first_name,last_name',
                     'episode:id,uuid,episode_number',
@@ -111,7 +114,68 @@ class CashController extends Controller
             'paymentMethods' => $paymentMethods,
             'recentPayments' => $recentPayments,
             'recentSessions' => $recentSessions,
+            'pharmacyLookup' => $this->pharmacyLookup($request),
         ]);
+    }
+
+    /** @return array{reference: string, found: bool, matches: mixed}|null */
+    private function pharmacyLookup(Request $request): ?array
+    {
+        if (! $request->user()->can('billing.view')) {
+            return null;
+        }
+
+        $reference = trim((string) $request->query('pharmacy_reference', ''));
+
+        if (mb_strlen($reference) > 100) {
+            return [
+                'reference' => $reference,
+                'found' => false,
+                'matches' => [],
+            ];
+        }
+
+        $normalized = mb_strtoupper($reference);
+        $matchesQuery = Invoice::query()
+            ->where('source_module', 'PHARMACY');
+
+        if ($normalized !== '') {
+            $pattern = "%{$normalized}%";
+            $matchesQuery->where(function ($query) use ($pattern): void {
+                $query->whereRaw('UPPER(invoice_number) LIKE ?', [$pattern])
+                    ->orWhereRaw('UPPER(COALESCE(customer_name, ?)) LIKE ?', ['', $pattern])
+                    ->orWhereRaw('UPPER(COALESCE(customer_phone, ?)) LIKE ?', ['', $pattern])
+                    ->orWhereHas('episode', fn ($episodeQuery) => $episodeQuery
+                        ->whereRaw('UPPER(episode_number) LIKE ?', [$pattern]))
+                    ->orWhereHas('patient', fn ($patientQuery) => $patientQuery
+                        ->whereRaw('UPPER(patient_number) LIKE ?', [$pattern])
+                        ->orWhereRaw('UPPER(COALESCE(first_name, ?)) LIKE ?', ['', $pattern])
+                        ->orWhereRaw('UPPER(COALESCE(last_name, ?)) LIKE ?', ['', $pattern]));
+            });
+        }
+
+        $matches = $matchesQuery
+            ->with([
+                'patient:id,uuid,patient_number,first_name,last_name',
+                'episode:id,uuid,episode_number',
+            ])
+            ->withCount('lines')
+            ->when($normalized !== '', fn ($query) => $query
+                ->orderByRaw('CASE WHEN UPPER(invoice_number) = ? THEN 0 ELSE 1 END', [$normalized]))
+            ->latest('validated_at')
+            ->limit(50)
+            ->get([
+                'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
+                'customer_type', 'customer_name', 'customer_phone', 'source_module',
+                'status', 'total_amount', 'paid_amount', 'balance_amount',
+                'created_at', 'validated_at',
+            ]);
+
+        return [
+            'reference' => $reference,
+            'found' => $matches->isNotEmpty(),
+            'matches' => $matches,
+        ];
     }
 
     public function open(

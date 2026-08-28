@@ -126,6 +126,7 @@ class PharmacyWorkspaceTest extends TestCase
                 ->where('capabilities.can_view_stock', true)
                 ->where('capabilities.can_view_lots', true)
                 ->where('capabilities.can_view_expiration', true)
+                ->where('capabilities.can_print_ticket', true)
                 ->where('stock.summary.medicines', 1)
                 ->where('stock.summary.quantity_on_hand', 15)
                 ->where('stock.summary.available_quantity', 15)

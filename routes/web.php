@@ -125,9 +125,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.counter-sales.store')
         ->middleware('can:pharmacy.counter_sales.create');
     Route::post('/pharmacy/dispenses/{dispense}/invoice', [PharmacyController::class, 'prepareInvoice'])
-        ->name('pharmacy.dispenses.invoice.store');
+        ->name('pharmacy.dispenses.invoice.store')
+        ->middleware('can:pharmacy.dispense.prepare_invoice');
+    Route::get('/pharmacy/dispenses/{dispense}/ticket', [PharmacyController::class, 'ticket'])
+        ->name('pharmacy.dispenses.ticket.show')
+        ->middleware('can:pharmacy.dispense.print');
     Route::post('/pharmacy/dispenses/{dispense}/deliveries', [PharmacyController::class, 'dispense'])
-        ->name('pharmacy.dispenses.deliveries.store');
+        ->name('pharmacy.dispenses.deliveries.store')
+        ->middleware('can:pharmacy.dispense');
     Route::post('/pharmacy/setup/categories', [PharmacyController::class, 'storeCategory'])
         ->name('pharmacy.setup.categories.store')->middleware('can:medicine_categories.create');
     Route::post('/pharmacy/setup/suppliers', [PharmacyController::class, 'storeSupplier'])

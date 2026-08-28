@@ -171,6 +171,7 @@ class CashPaymentFlowTest extends TestCase
             'patient_id' => $patient->id,
             'episode_id' => $episode->id,
             'invoice_number' => 'AI-PRIVATE',
+            'source_module' => 'PHARMACY',
             'status' => 'VALIDATED',
             'currency' => 'MGA',
             'subtotal_amount' => '1000.00',
@@ -190,6 +191,11 @@ class CashPaymentFlowTest extends TestCase
                 ->has('outstandingInvoices', 0)
                 ->has('paymentMethods', 0)
                 ->has('recentPayments', 0));
+
+        $this->actingAs($user)->get('/cash?pharmacy_reference=AI-PRIVATE')
+            ->assertInertia(fn ($page) => $page
+                ->where('pharmacyLookup', null)
+                ->has('outstandingInvoices', 0));
     }
 
     public function test_invoice_is_computed_validated_and_exposed_on_the_patient_account(): void

@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -25,13 +25,24 @@ const props = defineProps({
     paymentMethods: Array,
     recentPayments: Array,
     recentSessions: Array,
+    pharmacyLookup: Object,
 });
 
 const { can } = usePermissions();
-const activeLedgerTab = ref(can('billing.view') ? 'invoices' : 'payments');
+const activeLedgerTab = ref(props.pharmacyLookup?.reference
+    ? 'pharmacy'
+    : (can('billing.view') ? 'invoices' : 'payments'));
 const invoiceSearch = ref('');
 const showCloseForm = ref(false);
 const paymentTarget = ref(null);
+const pharmacyReference = ref(props.pharmacyLookup?.reference ?? '');
+const pharmacyLookupMode = ref('manual');
+const scannerActive = ref(false);
+const scannerError = ref('');
+const scannerVideo = ref(null);
+let scannerStream = null;
+let scannerFrame = null;
+let pharmacyLookupTimer = null;
 
 const openForm = useForm({ opening_amount: 0, notes: '' });
 const closeForm = useForm({ actual_closing_amount: '', notes: '' });
@@ -57,9 +68,16 @@ const filteredOutstandingInvoices = computed(() => {
     ].some((value) => String(value ?? '').toLocaleLowerCase('fr').includes(normalizedInvoiceSearch.value)));
 });
 
-const invoiceStatusLabel = (invoice) => (
-    invoice.status === 'PARTIALLY_PAID' ? 'Paiement partiel' : 'À payer'
-);
+const invoiceStatusLabel = (invoice) => ({
+    DRAFT: 'Brouillon',
+    VALIDATED: 'À payer',
+    PARTIALLY_PAID: 'Paiement partiel',
+    PAID: 'Payée',
+    COVERED: 'Prise en charge',
+    CANCELLED: 'Annulée',
+}[invoice.status] ?? invoice.status);
+const invoiceCanBePaid = (invoice) => ['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status)
+    && Number(invoice.balance_amount) > 0;
 const invoiceCustomerName = (invoice) => invoice.patient
     ? formatPatientName(invoice.patient)
     : (invoice.customer_name || 'Client comptoir');
@@ -87,6 +105,106 @@ const closePaymentDialog = () => {
     if (!paymentForm.processing) paymentTarget.value = null;
 };
 
+const stopQrScanner = () => {
+    scannerActive.value = false;
+    if (scannerFrame !== null) cancelAnimationFrame(scannerFrame);
+    scannerFrame = null;
+    scannerStream?.getTracks().forEach((track) => track.stop());
+    scannerStream = null;
+    if (scannerVideo.value) scannerVideo.value.srcObject = null;
+};
+
+const submitPharmacyLookup = () => {
+    if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
+    pharmacyLookupTimer = null;
+    const reference = pharmacyReference.value.trim();
+    if (reference === (props.pharmacyLookup?.reference ?? '')) return;
+
+    stopQrScanner();
+    router.get('/cash', reference ? { pharmacy_reference: reference } : {}, {
+        preserveScroll: true,
+        preserveState: true,
+        replace: true,
+        only: ['pharmacyLookup'],
+    });
+};
+
+const startQrScanner = async () => {
+    scannerError.value = '';
+
+    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        scannerError.value = 'La caméra QR n’est pas prise en charge par ce navigateur. Utilisez un lecteur QR ou saisissez la référence.';
+        return;
+    }
+
+    try {
+        const supportedFormats = await window.BarcodeDetector.getSupportedFormats?.();
+        if (supportedFormats && !supportedFormats.includes('qr_code')) {
+            throw new Error('QR_UNSUPPORTED');
+        }
+
+        scannerActive.value = true;
+        await nextTick();
+        scannerStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+            audio: false,
+        });
+        scannerVideo.value.srcObject = scannerStream;
+        await scannerVideo.value.play();
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+
+        const detect = async () => {
+            if (!scannerActive.value || !scannerVideo.value) return;
+
+            try {
+                const codes = await detector.detect(scannerVideo.value);
+                const value = codes.find((code) => code.rawValue)?.rawValue?.trim();
+
+                if (value) {
+                    pharmacyReference.value = value;
+                    stopQrScanner();
+                    submitPharmacyLookup();
+                    return;
+                }
+            } catch {
+                // A transient frame decoding failure must not stop the camera.
+            }
+
+            if (scannerActive.value) scannerFrame = requestAnimationFrame(detect);
+        };
+
+        scannerFrame = requestAnimationFrame(detect);
+    } catch (error) {
+        stopQrScanner();
+        scannerError.value = error?.name === 'NotAllowedError'
+            ? 'Accès à la caméra refusé. Autorisez la caméra ou saisissez la référence.'
+            : 'Impossible de démarrer le scanner QR. Utilisez un lecteur QR ou saisissez la référence.';
+    }
+};
+
+const selectPharmacyLookupMode = (mode) => {
+    if (mode !== 'scan') stopQrScanner();
+    scannerError.value = '';
+    pharmacyLookupMode.value = mode;
+};
+
+watch(activeLedgerTab, (tab) => {
+    if (tab !== 'pharmacy') {
+        if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
+        pharmacyLookupTimer = null;
+        stopQrScanner();
+    }
+});
+
+watch(pharmacyReference, () => {
+    if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
+    pharmacyLookupTimer = null;
+
+    if (activeLedgerTab.value !== 'pharmacy' || pharmacyLookupMode.value !== 'manual') return;
+
+    pharmacyLookupTimer = setTimeout(submitPharmacyLookup, 350);
+});
+
 const recordPayment = () => {
     paymentForm.post(`/invoices/${paymentTarget.value.uuid}/payments`, {
         preserveScroll: true,
@@ -96,6 +214,11 @@ const recordPayment = () => {
         },
     });
 };
+
+onBeforeUnmount(() => {
+    if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
+    stopQrScanner();
+});
 </script>
 
 <template>
@@ -174,12 +297,26 @@ const recordPayment = () => {
                         role="tab"
                         :aria-selected="activeLedgerTab === 'invoices'"
                         aria-controls="cash-invoices-panel"
-                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-48 sm:flex-none', activeLedgerTab === 'invoices' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
+                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-40 sm:flex-none', activeLedgerTab === 'invoices' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
                         @click="activeLedgerTab = 'invoices'"
                     >
                         <Icon :class="['text-base', activeLedgerTab === 'invoices' ? 'text-primary-600' : 'text-slate-400']" name="file-text" />
                         <span class="truncate">Factures à encaisser</span>
                         <span :class="['inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px]', activeLedgerTab === 'invoices' ? 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300' : 'bg-gray-200 text-slate-500 dark:bg-gray-800 dark:text-slate-400']">{{ outstandingSummary?.count ?? 0 }}</span>
+                    </button>
+                    <button
+                        v-if="can('billing.view')"
+                        id="cash-pharmacy-ticket-tab"
+                        type="button"
+                        role="tab"
+                        :aria-selected="activeLedgerTab === 'pharmacy'"
+                        aria-controls="cash-pharmacy-ticket-panel"
+                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-40 sm:flex-none', activeLedgerTab === 'pharmacy' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
+                        @click="activeLedgerTab = 'pharmacy'"
+                    >
+                        <Icon :class="['text-base', activeLedgerTab === 'pharmacy' ? 'text-primary-600' : 'text-slate-400']" name="scan" />
+                        <span class="truncate">Contrôle ticket Pharmacie</span>
+                        <span :class="['inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px]', activeLedgerTab === 'pharmacy' ? 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300' : 'bg-gray-200 text-slate-500 dark:bg-gray-800 dark:text-slate-400']">{{ pharmacyLookup?.matches?.length ?? 0 }}</span>
                     </button>
                     <button
                         v-if="can('payments.view')"
@@ -188,7 +325,7 @@ const recordPayment = () => {
                         role="tab"
                         :aria-selected="activeLedgerTab === 'payments'"
                         aria-controls="cash-payments-panel"
-                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-48 sm:flex-none', activeLedgerTab === 'payments' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
+                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-40 sm:flex-none', activeLedgerTab === 'payments' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
                         @click="activeLedgerTab = 'payments'"
                     >
                         <Icon :class="['text-base', activeLedgerTab === 'payments' ? 'text-primary-600' : 'text-slate-400']" name="money" />
@@ -206,6 +343,49 @@ const recordPayment = () => {
                         <IconInput id="cash_invoice_search" v-model="invoiceSearch" icon="search" type="text" inputmode="search" class="!pe-10" placeholder="Patient, n° facture ou passage" aria-label="Rechercher une facture" />
                         <button v-if="invoiceSearch" type="button" class="absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200" aria-label="Effacer la recherche" title="Effacer la recherche" @click="invoiceSearch = ''"><Icon class="text-sm" name="cross" /></button>
                     </div>
+                </div>
+
+                <form v-if="activeLedgerTab === 'pharmacy' && can('billing.view')" class="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto" @submit.prevent="submitPharmacyLookup">
+                    <div class="inline-flex shrink-0 rounded bg-gray-100 p-1 dark:bg-gray-900" role="group" aria-label="Mode de contrôle du ticket Pharmacie">
+                        <button type="button" :class="['inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition', pharmacyLookupMode === 'manual' ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-950 dark:text-primary-300' : 'text-slate-500 dark:text-slate-300']" @click="selectPharmacyLookupMode('manual')"><Icon name="edit" /> Saisir</button>
+                        <button type="button" :class="['inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition', pharmacyLookupMode === 'scan' ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-950 dark:text-primary-300' : 'text-slate-500 dark:text-slate-300']" @click="selectPharmacyLookupMode('scan')"><Icon name="scan" /> Scanner QR</button>
+                    </div>
+                    <div class="relative min-w-0 flex-1 sm:w-72">
+                        <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-base text-slate-400" :name="pharmacyLookupMode === 'scan' ? 'scan' : 'search'" />
+                        <input v-model="pharmacyReference" type="search" maxlength="100" autocomplete="off" class="h-9 w-full rounded border border-gray-200 bg-white ps-9 pe-3 font-mono text-xs font-bold uppercase text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" :placeholder="pharmacyLookupMode === 'scan' ? 'Présentez le QR au lecteur…' : 'Ticket, client, patient ou passage'">
+                    </div>
+                    <Button v-if="pharmacyLookupMode === 'scan'" icon size="rg" variant="white-outline" type="button" :disabled="scannerActive" title="Ouvrir la caméra" aria-label="Ouvrir la caméra QR" @click="startQrScanner"><Icon name="camera" /></Button>
+                    <Button icon size="rg" type="submit" title="Rechercher" aria-label="Rechercher un ticket Pharmacie"><Icon name="search" /></Button>
+                </form>
+            </div>
+
+            <div v-if="activeLedgerTab === 'pharmacy' && can('billing.view')" id="cash-pharmacy-ticket-panel" role="tabpanel" aria-labelledby="cash-pharmacy-ticket-tab">
+                <div v-if="scannerActive || scannerError" class="border-b border-gray-200 p-4 dark:border-gray-900">
+                    <div v-if="scannerActive" class="relative mx-auto max-w-2xl overflow-hidden rounded-lg border border-primary-200 bg-slate-950 dark:border-primary-900">
+                        <video ref="scannerVideo" class="aspect-video w-full object-cover" playsinline muted />
+                        <div class="pointer-events-none absolute inset-0 flex items-center justify-center"><span class="h-44 w-44 rounded-lg border-2 border-white/80 shadow-[0_0_0_999px_rgba(15,23,42,.35)]" /></div>
+                        <button type="button" class="absolute end-3 top-3 inline-flex h-8 items-center gap-1.5 rounded bg-white px-2.5 text-xs font-bold text-slate-700 shadow" @click="stopQrScanner"><Icon name="cross" /> Fermer</button>
+                    </div>
+                    <p v-if="scannerError" class="mx-auto flex max-w-2xl items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"><Icon class="mt-0.5 shrink-0" name="alert-triangle" />{{ scannerError }}</p>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[1050px] border-collapse">
+                        <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient / client</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Facture / passage</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Validation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Déjà payé</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Reste à payer</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Statut</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Actions</th></tr></thead>
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
+                            <template v-if="pharmacyLookup?.found">
+                                <tr v-for="invoice in pharmacyLookup.matches" :key="invoice.uuid" class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30">
+                                    <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(invoice)" /><div class="min-w-0"><Link v-if="invoice.patient && can('patients.view')" :href="`/patients/${invoice.patient.uuid}`" class="block max-w-56 truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(invoice) }}</Link><span v-else class="block max-w-56 truncate text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(invoice) }}</span><span class="text-xs text-slate-400">{{ invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div></td>
+                                    <td class="px-4 py-3"><Link v-if="can('billing.print')" :href="`/invoices/${invoice.uuid}?from=cash`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoice.invoice_number }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</span><p class="mt-0.5 text-xs text-slate-400">{{ invoice.episode?.episode_number ?? 'Sans passage patient' }} · {{ invoice.lines_count }} ligne{{ invoice.lines_count > 1 ? 's' : '' }}</p></td>
+                                    <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.total_amount) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.paid_amount) }}</td><td class="px-4 py-3 text-end text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</td>
+                                    <td class="px-4 py-3"><span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ invoiceStatusLabel(invoice) }}</span></td>
+                                    <td class="px-4 py-3"><div class="flex items-center justify-end gap-2"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}?from=cash`" icon size="rg" title="Voir et imprimer la facture" variant="white-outline" aria-label="Voir et imprimer la facture"><Icon class="text-base" name="file-text" /></Button><Button v-if="invoiceCanBePaid(invoice) && can('payments.create')" size="sm" type="button" :disabled="!cashSession || paymentMethods.length === 0" @click="openPaymentDialog(invoice)"><Icon name="money" /><span class="ms-1.5">Encaisser</span></Button></div></td>
+                                </tr>
+                            </template>
+                            <tr v-else-if="pharmacyLookup"><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" :name="pharmacyLookup.reference ? 'cross-circle' : 'file-text'" /><p class="mt-2 text-sm font-medium text-slate-500"><template v-if="pharmacyLookup.reference">Aucun ticket Pharmacie trouvé pour <strong class="font-mono">{{ pharmacyLookup.reference }}</strong>.</template><template v-else>Aucune facture Pharmacie enregistrée.</template></p></td></tr>
+                            <tr v-else><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-medium text-slate-500">Saisissez ou scannez une référence pour afficher les factures Pharmacie.</p></td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

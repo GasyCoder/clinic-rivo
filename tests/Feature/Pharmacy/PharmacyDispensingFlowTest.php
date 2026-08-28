@@ -19,6 +19,7 @@ use App\Models\Patient;
 use App\Models\PaymentMethod;
 use App\Models\Permission;
 use App\Models\PharmacyDispense;
+use App\Models\PharmacyDispenseAllocation;
 use App\Models\PharmacyStockMovement;
 use App\Models\Role;
 use App\Models\User;
@@ -126,6 +127,7 @@ class PharmacyDispensingFlowTest extends TestCase
                 ->component('Pharmacy/CounterSales/Create')
                 ->where('navigation.can_view_stock', true)
                 ->where('navigation.can_view_prescriptions', true)
+                ->where('navigation.can_print_ticket', true)
                 ->where('navigation.dispense_count', 0)
                 ->has('medicines', 1)
                 ->where('medicines.0.uuid', $medicine->uuid)
@@ -135,6 +137,32 @@ class PharmacyDispensingFlowTest extends TestCase
         $this->actingAs($this->cashier)
             ->get('/pharmacy/counter-sales/create')
             ->assertForbidden();
+    }
+
+    public function test_dispense_queue_lists_the_most_recent_requests_first(): void
+    {
+        PharmacyDispense::query()->create([
+            'type' => 'EXTERNAL',
+            'customer_name' => 'Ancienne demande',
+            'status' => PharmacyDispenseStatus::AwaitingInvoice,
+            'requested_at' => now()->subHour(),
+            'requested_by' => $this->pharmacist->id,
+        ]);
+        PharmacyDispense::query()->create([
+            'type' => 'EXTERNAL',
+            'customer_name' => 'Demande récente',
+            'status' => PharmacyDispenseStatus::AwaitingInvoice,
+            'requested_at' => now(),
+            'requested_by' => $this->pharmacist->id,
+        ]);
+
+        $this->actingAs($this->pharmacist)
+            ->get('/pharmacy?tab=dispenses')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('queue.dispenses', 2)
+                ->where('queue.dispenses.0.customer_name', 'Demande récente')
+                ->where('queue.dispenses.1.customer_name', 'Ancienne demande'));
     }
 
     public function test_internal_prescription_is_invoiced_at_pharmacy_and_dispensed_from_its_fefo_reservations(): void
@@ -190,9 +218,35 @@ class PharmacyDispensingFlowTest extends TestCase
             ->assertRedirect();
         $dispense->refresh()->load('invoice', 'lines');
 
+        $this->actingAs($this->pharmacist)
+            ->get("/pharmacy/dispenses/{$dispense->uuid}/ticket")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Invoices/Show')
+                ->where('invoice.invoice_number', $dispense->invoice->invoice_number)
+                ->where('returnToPharmacy', true)
+                ->where('ticketOnly', false)
+                ->where('autoPrint', false)
+                ->where('closeAfterPrint', false));
+
+        $this->actingAs($this->pharmacist)
+            ->get("/pharmacy/dispenses/{$dispense->uuid}/ticket?print=1")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('autoPrint', true));
+        $this->actingAs($this->pharmacist)
+            ->get("/pharmacy/dispenses/{$dispense->id}/ticket")
+            ->assertNotFound();
+
         $this->assertSame(PharmacyDispenseStatus::AwaitingPayment, $dispense->status);
         $this->assertSame($patient->id, $dispense->invoice->patient_id);
         $this->assertSame('500.00', $dispense->invoice->total_amount);
+
+        $this->actingAs($this->cashier)
+            ->get('/cash?pharmacy_reference='.urlencode($episode->episode_number))
+            ->assertInertia(fn ($page) => $page
+                ->where('pharmacyLookup.found', true)
+                ->has('pharmacyLookup.matches', 1)
+                ->where('pharmacyLookup.matches.0.invoice_number', $dispense->invoice->invoice_number));
 
         $this->actingAs($this->cashier)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
         $cash = PaymentMethod::query()->where('code', 'CASH')->sole();
@@ -203,7 +257,11 @@ class PharmacyDispensingFlowTest extends TestCase
         ])->assertRedirect();
 
         $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
-            'lines' => [['id' => $dispense->lines->sole()->id, 'quantity' => 5]],
+            'lines' => [['uuid' => (string) $dispense->lines->sole()->id, 'quantity' => 5]],
+        ])->assertSessionHasErrors('lines.0.uuid');
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
+            'lines' => [['uuid' => $dispense->lines->sole()->uuid, 'quantity' => 5]],
         ])->assertRedirect();
 
         $this->assertSame(PharmacyDispenseStatus::Dispensed, $dispense->fresh()->status);
@@ -219,37 +277,96 @@ class PharmacyDispensingFlowTest extends TestCase
     {
         [$medicine, $early, $late] = $this->saleMedicine();
 
-        $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
+        $response = $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
             'customer_name' => 'Client comptoir identifié',
             'customer_phone' => '034 00 000 00',
+            'external_prescriber' => 'Dr Rakoto',
+            'print_after_create' => true,
             'lines' => [['medicine_uuid' => $medicine->uuid, 'quantity' => 5]],
-        ])->assertRedirect('/pharmacy?tab=dispenses')->assertSessionHas('status');
+        ])->assertSessionHas('status');
 
         $dispense = PharmacyDispense::query()->with(['invoice', 'lines.counterReservations'])->sole();
+        $response
+            ->assertRedirect('/pharmacy/counter-sales/create')
+            ->assertSessionHas('print_ticket_url', route('pharmacy.dispenses.ticket.show', [
+                'dispense' => $dispense,
+                'print' => 1,
+                'direct' => 1,
+            ]));
         $this->assertTrue(Str::isUuid($dispense->uuid));
+        $this->assertTrue(Str::isUuid($dispense->lines->sole()->uuid));
         $this->assertSame(PharmacyDispenseStatus::AwaitingPayment, $dispense->status);
+        $this->assertSame('Dr Rakoto', $dispense->external_prescriber);
         $this->assertNull($dispense->invoice->patient_id);
         $this->assertSame('EXTERNAL', $dispense->invoice->customer_type);
+        $this->assertSame('Client comptoir identifié', $dispense->invoice->customer_name);
+        $this->assertSame('034 00 000 00', $dispense->invoice->customer_phone);
         $this->assertSame('500.00', $dispense->invoice->total_amount);
         $this->assertSame(3, $dispense->lines->sole()->counterReservations->firstWhere('medicine_lot_id', $early->id)->remaining_quantity);
         $this->assertSame(2, $dispense->lines->sole()->counterReservations->firstWhere('medicine_lot_id', $late->id)->remaining_quantity);
         $this->assertSame(3, $early->fresh()->quantity_on_hand);
         $this->assertSame(10, $late->fresh()->quantity_on_hand);
 
+        $this->actingAs($this->pharmacist)
+            ->get("/pharmacy/dispenses/{$dispense->uuid}/ticket?print=1&direct=1")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Invoices/Show')
+                ->where('invoice.customer_name', 'Client comptoir identifié')
+                ->where('invoice.customer_phone', '034 00 000 00')
+                ->where('externalPrescriber', 'Dr Rakoto')
+                ->where('returnToPharmacy', false)
+                ->where('ticketOnly', true)
+                ->where('autoPrint', true)
+                ->where('closeAfterPrint', true));
+
+        $this->actingAs($this->pharmacist)
+            ->get("/pharmacy/dispenses/{$dispense->uuid}/ticket?print=1&embedded=1")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Invoices/Show')
+                ->where('returnToPharmacy', false)
+                ->where('ticketOnly', true)
+                ->where('autoPrint', true)
+                ->where('closeAfterPrint', false));
+
         $this->actingAs($this->pharmacist)->get('/pharmacy')->assertInertia(fn ($page) => $page
             ->where('queue.dispenses.0.type', 'EXTERNAL')
             ->where('queue.dispenses.0.customer_name', 'Client comptoir identifié')
             ->where('queue.dispenses.0.customer_phone', '034 00 000 00')
+            ->where('queue.dispenses.0.lines.0.uuid', $dispense->lines->sole()->uuid)
+            ->missing('queue.dispenses.0.lines.0.id')
             ->where('queue.dispenses.0.can_dispense', false));
 
         $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
-            'lines' => [['id' => $dispense->lines->sole()->id, 'quantity' => 1]],
+            'lines' => [['uuid' => $dispense->lines->sole()->uuid, 'quantity' => 1]],
         ])->assertForbidden();
 
         $this->actingAs($this->cashier)->get('/cash')->assertInertia(fn ($page) => $page
-            ->where('outstandingInvoices.0.patient', null)
-            ->where('outstandingInvoices.0.customer_name', 'Client comptoir identifié')
-            ->where('outstandingInvoices.0.source_module', 'PHARMACY'));
+            ->has('outstandingInvoices', 0)
+            ->where('pharmacyLookup.reference', '')
+            ->where('pharmacyLookup.found', true)
+            ->has('pharmacyLookup.matches', 1)
+            ->where('pharmacyLookup.matches.0.customer_name', 'Client comptoir identifié')
+            ->where('pharmacyLookup.matches.0.source_module', 'PHARMACY'));
+        $this->actingAs($this->cashier)
+            ->get('/cash?'.http_build_query(['pharmacy_reference' => 'comptoir ident']))
+            ->assertInertia(fn ($page) => $page
+                ->where('pharmacyLookup.reference', 'comptoir ident')
+                ->where('pharmacyLookup.found', true)
+                ->has('pharmacyLookup.matches', 1)
+                ->where('pharmacyLookup.matches.0.uuid', $dispense->invoice->uuid));
+        $this->actingAs($this->cashier)
+            ->get('/cash?pharmacy_reference='.urlencode($dispense->invoice->invoice_number))
+            ->assertInertia(fn ($page) => $page
+                ->where('pharmacyLookup.reference', $dispense->invoice->invoice_number)
+                ->where('pharmacyLookup.found', true)
+                ->has('pharmacyLookup.matches', 1)
+                ->where('pharmacyLookup.matches.0.uuid', $dispense->invoice->uuid)
+                ->where('pharmacyLookup.matches.0.balance_amount', '500.00'));
+        $this->actingAs($this->cashier)
+            ->get("/pharmacy/dispenses/{$dispense->uuid}/ticket")
+            ->assertForbidden();
         $this->actingAs($this->cashier)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
         $cash = PaymentMethod::query()->where('code', 'CASH')->sole();
         $this->actingAs($this->cashier)->post("/invoices/{$dispense->invoice->uuid}/payments", [
@@ -260,7 +377,7 @@ class PharmacyDispensingFlowTest extends TestCase
         $this->assertSame(PharmacyDispenseStatus::Ready, $dispense->fresh()->status);
 
         $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
-            'lines' => [['id' => $dispense->lines->sole()->id, 'quantity' => 4]],
+            'lines' => [['uuid' => $dispense->lines->sole()->uuid, 'quantity' => 4]],
             'notes' => 'Première délivrance contrôlée',
         ])->assertRedirect();
 
@@ -269,6 +386,9 @@ class PharmacyDispensingFlowTest extends TestCase
         $this->assertSame(9, $late->fresh()->quantity_on_hand);
         $this->assertDatabaseCount('pharmacy_dispense_events', 1);
         $this->assertDatabaseCount('pharmacy_dispense_allocations', 2);
+        $this->assertTrue(PharmacyDispenseAllocation::query()->get()->every(
+            fn (PharmacyDispenseAllocation $allocation): bool => Str::isUuid($allocation->uuid),
+        ));
         $this->assertSame(-4, PharmacyStockMovement::query()->sum('quantity_delta'));
 
         $payment = $dispense->invoice->payments()->sole();
@@ -283,7 +403,7 @@ class PharmacyDispensingFlowTest extends TestCase
         $this->assertDatabaseCount('cash_movements', 1);
 
         $this->actingAs($this->pharmacist)->post("/pharmacy/dispenses/{$dispense->uuid}/deliveries", [
-            'lines' => [['id' => $dispense->lines->sole()->id, 'quantity' => 1]],
+            'lines' => [['uuid' => $dispense->lines->sole()->uuid, 'quantity' => 1]],
         ])->assertRedirect();
 
         $this->assertSame(PharmacyDispenseStatus::Dispensed, $dispense->fresh()->status);
@@ -301,16 +421,20 @@ class PharmacyDispensingFlowTest extends TestCase
         ]);
     }
 
-    public function test_external_prescription_is_required_for_a_restricted_medicine(): void
+    public function test_external_counter_sale_uses_an_automatic_ticket_reference_for_a_restricted_medicine(): void
     {
         [$medicine] = $this->saleMedicine(true);
 
-        $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
+        $response = $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
+            'external_prescription_reference' => 'REFERENCE-MANUELLE-IGNOREE',
             'lines' => [['medicine_uuid' => $medicine->uuid, 'quantity' => 1]],
-        ])->assertSessionHasErrors('external_prescription_reference');
+        ])->assertSessionDoesntHaveErrors();
 
-        $this->assertDatabaseCount('pharmacy_dispenses', 0);
-        $this->assertDatabaseCount('invoices', 0);
+        $dispense = PharmacyDispense::query()->with('invoice')->sole();
+
+        $response->assertRedirect('/pharmacy/counter-sales/create');
+        $this->assertNull($dispense->external_prescription_reference);
+        $this->assertNotEmpty($dispense->invoice->invoice_number);
     }
 
     public function test_adjustment_cannot_consume_reserved_units_and_is_audited_when_valid(): void
@@ -354,6 +478,7 @@ class PharmacyDispensingFlowTest extends TestCase
             ->pluck('name');
 
         $this->assertTrue($pharmacyPermissions->contains('pharmacy.counter_sales.create'));
+        $this->assertTrue($pharmacyPermissions->contains('pharmacy.dispense.print'));
         $this->assertFalse($pharmacyPermissions->contains(fn (string $name) => str_starts_with($name, 'cash.')));
         $this->assertFalse($pharmacyPermissions->contains(fn (string $name) => str_starts_with($name, 'payments.')));
     }

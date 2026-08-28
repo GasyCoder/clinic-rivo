@@ -8,9 +8,10 @@ const props = defineProps({
     visible: { type: Boolean, default: false },
     form: { type: Object, required: true },
     medicines: { type: Array, default: () => [] },
+    canPrintTicket: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'submit']);
+const emit = defineEmits(['submit']);
 
 const search = ref('');
 const category = ref('ALL');
@@ -18,6 +19,7 @@ const catalogView = ref('grid');
 const mobileStep = ref('catalog');
 const catalogPage = ref(1);
 const cartPage = ref(1);
+const showCreateConfirmation = ref(false);
 const CATALOG_PAGE_SIZE = 6;
 const CART_PAGE_SIZE = 4;
 
@@ -64,16 +66,12 @@ const cartTotal = computed(() => cart.value.reduce(
     (total, item) => total + (Number(item.medicine.sale_price || 0) * Number(item.line.quantity || 0)),
     0,
 ));
-const requiresPrescription = computed(() => cart.value.some((item) => item.medicine.prescription_required));
-const prescriptionMissing = computed(() => requiresPrescription.value
-    && !String(props.form.external_prescription_reference || '').trim());
 const quantitiesAreValid = computed(() => cart.value.every((item) => {
     const quantity = Number(item.line.quantity || 0);
     return Number.isInteger(quantity) && quantity >= 1 && quantity <= Number(item.medicine.available_quantity);
 }));
 const canSubmit = computed(() => cart.value.length > 0
     && quantitiesAreValid.value
-    && !prescriptionMissing.value
     && !props.form.processing);
 
 watch([search, category], () => {
@@ -119,6 +117,15 @@ const removeLine = (uuid) => {
     props.form.lines = props.form.lines.filter((line) => line.medicine_uuid !== uuid);
 };
 
+const requestCreation = () => {
+    if (canSubmit.value) showCreateConfirmation.value = true;
+};
+
+const confirmCreation = () => {
+    showCreateConfirmation.value = false;
+    emit('submit');
+};
+
 const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(key)}"]`)?.focus();
 </script>
 
@@ -132,7 +139,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
     >
         <form
             class="flex w-full flex-col overflow-hidden rounded-xl border border-gray-200 bg-gray-50 shadow-sm dark:border-gray-900 dark:bg-gray-1000"
-            @submit.prevent="emit('submit')"
+            @submit.prevent="requestCreation"
         >
                 <header class="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-4 dark:border-gray-900 dark:bg-gray-950 sm:px-6">
                     <div class="flex min-w-0 items-center gap-3">
@@ -145,13 +152,10 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                             <p class="hidden text-xs text-slate-500 sm:block">Sélection, réservation FEFO, puis transmission automatique à la Caisse.</p>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div>
                         <span class="hidden items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300 md:inline-flex">
                             <Icon name="shield-check" /> Aucun encaissement ici
                         </span>
-                        <Button variant="white-outline" size="sm" type="button" @click="emit('close')">
-                            <Icon name="arrow-left" /><span class="ms-1.5 hidden sm:inline">Retour aux demandes</span>
-                        </Button>
                     </div>
                 </header>
 
@@ -279,12 +283,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                 <span class="rounded-lg bg-slate-700 px-3 py-2 text-sm font-bold text-white">{{ money(cartTotal) }}</span>
                             </div>
 
-                            <label class="mt-4 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                                Référence ordonnance externe <span v-if="requiresPrescription" class="text-red-500">*</span>
-                                <input v-model="form.external_prescription_reference" name="external_prescription_reference" maxlength="255" :class="['mt-1 h-10 w-full rounded border bg-white px-3 text-sm dark:bg-gray-950 dark:text-white', prescriptionMissing ? 'border-amber-400 focus:border-amber-500' : 'border-gray-200 dark:border-gray-800']" placeholder="Numéro ou référence vérifiable">
-                            </label>
-
-                            <details class="group mt-3 rounded-lg border border-gray-200 bg-gray-50 open:bg-white dark:border-gray-800 dark:bg-gray-900 dark:open:bg-gray-950">
+                            <details class="group mt-4 rounded-lg border border-gray-200 bg-gray-50 open:bg-white dark:border-gray-800 dark:bg-gray-900 dark:open:bg-gray-950">
                                 <summary class="flex cursor-pointer list-none flex-col gap-2 px-3 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
                                     <span class="inline-flex items-center gap-2"><Icon name="user" /> Client et prescripteur <span class="font-normal text-slate-400">(facultatifs)</span></span>
                                     <span class="inline-flex items-center gap-2 self-end sm:self-auto">
@@ -341,22 +340,57 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                         </div>
 
                         <footer class="shrink-0 border-t border-gray-200 bg-gray-50 p-4 dark:border-gray-900 dark:bg-gray-1000 sm:p-5">
-                            <div v-if="prescriptionMissing" class="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                                <Icon class="mt-0.5 shrink-0" name="alert-triangle" />
-                                <span>Une référence d’ordonnance est obligatoire pour au moins un produit du panier.</span>
-                            </div>
                             <div class="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs leading-5 text-sky-800 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
-                                <strong>Étape suivante :</strong> la facture sera visible à la Caisse. La délivrance restera bloquée jusqu’au règlement ou à la prise en charge intégrale.
+                                <strong>Étape suivante :</strong> vérifiez la vente dans la fenêtre de confirmation, puis imprimez le ticket officiel et transmettez-le à la Caisse.
                             </div>
-                            <div class="grid gap-2 xl:grid-cols-[auto_minmax(0,1fr)]">
-                                <Button class="justify-center" variant="white-outline" size="rg" type="button" @click="emit('close')">Retour aux demandes</Button>
-                                <Button class="flex-1 justify-center" size="rg" type="submit" :disabled="!canSubmit">
-                                    <Icon name="file-text" /><span class="ms-2">{{ form.processing ? 'Transmission…' : 'Créer et transmettre à la Caisse' }}</span>
-                                </Button>
-                            </div>
+                            <Button class="w-full justify-center" size="rg" type="submit" :disabled="!canSubmit">
+                                <Icon name="file-text" /><span class="ms-2">{{ form.processing ? 'Transmission…' : 'Créer et transmettre à la Caisse' }}</span>
+                            </Button>
                         </footer>
                     </aside>
                 </div>
         </form>
+
+        <Teleport to="body">
+            <div
+                v-if="showCreateConfirmation"
+                class="fixed inset-0 z-[1500] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="counter-sale-confirmation-title"
+                @click.self="showCreateConfirmation = false"
+            >
+                <section class="w-full max-w-md overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
+                    <header class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-xl text-primary-600 dark:bg-primary-950/30 dark:text-primary-300"><Icon name="shield-check" /></span>
+                        <div>
+                            <h2 id="counter-sale-confirmation-title" class="text-base font-bold text-slate-800 dark:text-white">Confirmer la vente comptoir</h2>
+                            <p class="mt-1 text-xs leading-5 text-slate-500">Cette validation créera la référence officielle et transmettra la facture à la Caisse.</p>
+                        </div>
+                    </header>
+
+                    <dl class="grid grid-cols-2 divide-x divide-gray-200 border-b border-gray-200 bg-gray-50/70 dark:divide-gray-800 dark:border-gray-800 dark:bg-gray-900/40">
+                        <div class="px-5 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Articles</dt><dd class="mt-1 text-sm font-bold text-slate-800 dark:text-white">{{ cartQuantity }}</dd></div>
+                        <div class="px-5 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</dt><dd class="mt-1 text-sm font-black text-slate-800 dark:text-white">{{ money(cartTotal) }}</dd></div>
+                    </dl>
+
+                    <div class="space-y-3 p-5">
+                        <p v-if="form.customer_name" class="text-sm text-slate-600 dark:text-slate-300">Client : <strong>{{ form.customer_name }}</strong></p>
+                        <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                            Après confirmation, le ticket officiel sera imprimé directement et le panier sera vidé pour le client suivant.
+                        </p>
+                    </div>
+
+                    <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-900/40 sm:flex-row sm:justify-end">
+                        <Button variant="white-outline" type="button" @click="showCreateConfirmation = false">Annuler</Button>
+                        <Button type="button" @click="confirmCreation">
+                            <Icon :name="canPrintTicket ? 'printer' : 'file-text'" />
+                            <span class="ms-2">{{ canPrintTicket ? 'Imprimer et transmettre à la Caisse' : 'Créer et transmettre à la Caisse' }}</span>
+                        </Button>
+                    </footer>
+                </section>
+            </div>
+        </Teleport>
+
     </section>
 </template>

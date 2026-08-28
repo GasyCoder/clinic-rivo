@@ -50,20 +50,10 @@ class CreateExternalDispenseAction
                 ]);
             }
 
-            if (blank($data['external_prescription_reference'] ?? null)
-                && $medicines->contains(fn (Medicine $medicine) => $medicine->prescription_required)) {
-                throw ValidationException::withMessages([
-                    'external_prescription_reference' => 'Une référence d’ordonnance est obligatoire pour au moins un médicament sélectionné.',
-                ]);
-            }
-
             $dispense = PharmacyDispense::query()->create([
                 'type' => PharmacyDispenseType::External,
                 'customer_name' => filled($data['customer_name'] ?? null) ? trim($data['customer_name']) : null,
                 'customer_phone' => filled($data['customer_phone'] ?? null) ? trim($data['customer_phone']) : null,
-                'external_prescription_reference' => filled($data['external_prescription_reference'] ?? null)
-                    ? trim($data['external_prescription_reference'])
-                    : null,
                 'external_prescriber' => filled($data['external_prescriber'] ?? null)
                     ? trim($data['external_prescriber'])
                     : null,

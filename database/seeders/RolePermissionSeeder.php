@@ -111,7 +111,7 @@ class RolePermissionSeeder extends Seeder
         // medicines.create/update and every catalog/tariff mutation remain
         // reserved to Super Admin by ADR-024.
         'PHARMACY' => [
-            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice',
+            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
             'pharmacy.counter_sales.create', 'pharmacy.return',
             'pharmacy.reports.view', 'pharmacy.reports.export',
             'prescriptions.view', 'medicines.view', 'medicine_categories.view',

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ use LogicException;
 ])]
 class PharmacyDispenseAllocation extends Model
 {
-    use Auditable;
+    use Auditable, HasUuid;
 
     protected static function booted(): void
     {

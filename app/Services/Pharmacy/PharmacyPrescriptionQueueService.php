@@ -112,8 +112,8 @@ class PharmacyPrescriptionQueueService
                         ->with('medicineLot:id,uuid,lot_number,expires_at'),
                 ]),
             ])
-            ->orderBy('requested_at')
-            ->orderBy('id')
+            ->orderByDesc('requested_at')
+            ->orderByDesc('id')
             ->get()
             ->map(function (PharmacyDispense $dispense) use ($includeLots, $includeExpiration): array {
                 $lines = $dispense->lines->map(function (PharmacyDispenseLine $line) use ($dispense, $includeLots, $includeExpiration): array {
@@ -132,7 +132,7 @@ class PharmacyPrescriptionQueueService
                         : [];
 
                     return [
-                        'id' => $line->getKey(),
+                        'uuid' => $line->uuid,
                         'medicine_name' => $line->medicine_name,
                         'medicine_code' => $line->medicine_code,
                         'unit' => $line->unit,

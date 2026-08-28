@@ -1,12 +1,12 @@
 <script setup>
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import ExternalCounterSaleWorkspace from '@/Pages/Pharmacy/Partials/ExternalCounterSaleWorkspace.vue';
 import PharmacyWorkspaceNav from '@/Pages/Pharmacy/Partials/PharmacyWorkspaceNav.vue';
 
 defineOptions({ layout: AppLayout });
 
-defineProps({
+const props = defineProps({
     navigation: { type: Object, required: true },
     medicines: { type: Array, default: () => [] },
 });
@@ -14,13 +14,52 @@ defineProps({
 const form = useForm({
     customer_name: '',
     customer_phone: '',
-    external_prescription_reference: '',
     external_prescriber: '',
+    print_after_create: false,
     lines: [],
 });
 
-const returnToDispenses = () => router.visit('/pharmacy?tab=dispenses');
-const submit = () => form.post('/pharmacy/counter-sales');
+const submit = () => {
+    let printWindow = null;
+    let printStarted = false;
+
+    if (props.navigation.can_print_ticket) {
+        printWindow = window.open('', '_blank', 'popup=yes,width=480,height=720');
+
+        if (!printWindow) {
+            window.alert('Autorisez les fenêtres surgissantes pour imprimer et transmettre cette vente.');
+            return;
+        }
+
+        printWindow.document.title = 'Création du ticket Pharmacie';
+        printWindow.document.body.textContent = 'Création et préparation de l’impression…';
+    }
+
+    form.print_after_create = props.navigation.can_print_ticket;
+
+    form.post('/pharmacy/counter-sales', {
+        preserveScroll: true,
+        onSuccess: (page) => {
+            const printUrl = page.props.flash?.print_ticket_url;
+
+            if (printWindow && printUrl) {
+                printStarted = true;
+                printWindow.location.replace(printUrl);
+                printWindow.focus();
+            } else {
+                printWindow?.close();
+            }
+
+            form.reset();
+        },
+        onError: () => { printWindow?.close(); },
+        onCancel: () => { printWindow?.close(); },
+        onFinish: () => {
+            form.print_after_create = false;
+            if (printWindow && !printStarted) printWindow.close();
+        },
+    });
+};
 </script>
 
 <template>
@@ -37,7 +76,7 @@ const submit = () => form.post('/pharmacy/counter-sales');
             :visible="true"
             :form="form"
             :medicines="medicines"
-            @close="returnToDispenses"
+            :can-print-ticket="navigation.can_print_ticket"
             @submit="submit"
         />
     </div>

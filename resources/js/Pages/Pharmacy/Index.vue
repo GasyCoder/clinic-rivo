@@ -24,11 +24,13 @@ const props = defineProps({
 
 const page = usePage();
 const requestedTab = new URLSearchParams(page.url.split('?')[1] ?? '').get('tab');
-const activeTab = ref(
-    requestedTab === 'dispenses' && props.capabilities.can_view_prescriptions
-        ? 'dispenses'
-        : (props.capabilities.can_view_stock ? 'stock' : 'dispenses'),
-);
+const availableTabs = {
+    dispenses: props.capabilities.can_view_prescriptions,
+    stock: props.capabilities.can_view_stock,
+    setup: props.capabilities.can_view_categories || props.capabilities.can_view_suppliers,
+};
+const defaultTab = ['dispenses', 'stock', 'setup'].find((tab) => availableTabs[tab]) ?? 'dispenses';
+const activeTab = ref(availableTabs[requestedTab] ? requestedTab : defaultTab);
 const search = ref('');
 const stockStatus = ref('ALL');
 const expandedMedicines = ref(new Set());
@@ -153,7 +155,7 @@ const openDelivery = (dispense) => {
     deliveryForm.clearErrors();
     deliveryForm.lines = dispense.lines
         .filter((line) => line.remaining_quantity > 0)
-        .map((line) => ({ id: line.id, quantity: line.remaining_quantity }));
+        .map((line) => ({ uuid: line.uuid, quantity: line.remaining_quantity }));
     deliveryForm.notes = '';
 };
 const submitDelivery = () => deliveryForm
@@ -161,7 +163,7 @@ const submitDelivery = () => deliveryForm
         ...data,
         lines: data.lines
             .filter((line) => Number(line.quantity) > 0)
-            .map((line) => ({ id: line.id, quantity: Number(line.quantity) })),
+            .map((line) => ({ uuid: line.uuid, quantity: Number(line.quantity) })),
     }))
     .post(`/pharmacy/dispenses/${deliveryTarget.value.uuid}/deliveries`, {
         preserveScroll: true,

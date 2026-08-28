@@ -14,6 +14,11 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     invoice: Object,
     returnToCash: Boolean,
+    returnToPharmacy: Boolean,
+    ticketOnly: Boolean,
+    autoPrint: Boolean,
+    closeAfterPrint: Boolean,
+    externalPrescriber: String,
 });
 const page = usePage();
 const brandName = computed(() => page.props.site?.brand ?? 'Clinique Saint Georges');
@@ -29,8 +34,15 @@ const customerName = computed(() => props.invoice.patient
 const customerReference = computed(() => props.invoice.patient?.patient_number
     ? `Patient ${props.invoice.patient.patient_number}`
     : (props.invoice.source_module === 'PHARMACY' ? 'Vente directe Pharmacie' : 'Client externe'));
-const returnHref = computed(() => (props.returnToCash || !props.invoice.patient ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
-const returnLabel = computed(() => (props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient'));
+const returnHref = computed(() => {
+    if (props.returnToPharmacy) return '/pharmacy?tab=dispenses';
+    return props.returnToCash || !props.invoice.patient ? '/cash' : `/patients/${props.invoice.patient.uuid}`;
+});
+const returnLabel = computed(() => {
+    if (props.returnToPharmacy) return 'Retour aux demandes';
+    return props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient';
+});
+const isPharmacyInvoice = computed(() => props.invoice.source_module === 'PHARMACY');
 const qrCodeDataUrl = ref('');
 const ticketRef = ref(null);
 const printPageStyleId = 'invoice-print-page-size';
@@ -47,7 +59,7 @@ const invoiceStatusLabel = computed(() => ({
 
 const generateQrCode = async () => {
     try {
-        qrCodeDataUrl.value = await QRCode.toDataURL(publicUrl.value, {
+        qrCodeDataUrl.value = await QRCode.toDataURL(props.invoice.invoice_number, {
             errorCorrectionLevel: 'M',
             margin: 1,
             width: 240,
@@ -87,6 +99,11 @@ const clearPrint = () => {
     document.getElementById(printPageStyleId)?.remove();
 };
 
+const handleAfterPrint = () => {
+    clearPrint();
+    if (props.closeAfterPrint) window.close();
+};
+
 const printDocument = async (mode) => {
     if (mode === 'ticket' && !qrCodeDataUrl.value) await generateQrCode();
     await nextTick();
@@ -99,44 +116,45 @@ const handleBeforePrint = () => {
     if (!document.body.dataset.invoicePrint) preparePrint('invoice');
 };
 
-onMounted(() => {
-    generateQrCode();
+onMounted(async () => {
     window.addEventListener('beforeprint', handleBeforePrint);
-    window.addEventListener('afterprint', clearPrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    await generateQrCode();
+    if (props.autoPrint) await printDocument('ticket');
 });
 
 onBeforeUnmount(() => {
     window.removeEventListener('beforeprint', handleBeforePrint);
-    window.removeEventListener('afterprint', clearPrint);
+    window.removeEventListener('afterprint', handleAfterPrint);
     clearPrint();
 });
 </script>
 
 <template>
-    <Head :title="`Facture ${invoice.invoice_number}`" />
+    <Head :title="`${ticketOnly ? 'Ticket Pharmacie' : 'Facture'} ${invoice.invoice_number}`" />
 
     <div class="invoice-page w-full space-y-3">
 
-        <div class="invoice-actions flex flex-wrap items-center justify-between gap-3">
+        <div v-if="!closeAfterPrint" class="invoice-actions flex flex-wrap items-center justify-between gap-3">
             <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">
                 <Icon class="text-lg" name="arrow-left" />
                 <span class="ms-2">{{ returnLabel }}</span>
             </Button>
             <div class="flex flex-wrap items-center justify-end gap-2">
-                <Button size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
+                <Button v-if="!ticketOnly" size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
                     <Icon class="text-lg" name="file-text" />
                     <span class="ms-2">Facture B5 / PDF</span>
                 </Button>
                 <Button size="rg" variant="primary" type="button" @click="printDocument('ticket')">
                     <Icon class="text-lg" name="printer" />
-                    <span class="ms-2">Ticket thermique</span>
+                    <span class="ms-2">Imprimer le ticket</span>
                 </Button>
             </div>
         </div>
 
         <div class="invoice-layout-scroll">
-            <div class="invoice-workspace">
-                <article class="invoice-document overflow-hidden rounded border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
+            <div :class="['invoice-workspace', ticketOnly ? 'invoice-workspace-ticket-only' : '']">
+                <article v-if="!ticketOnly" class="invoice-document overflow-hidden rounded border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
                 <header class="invoice-brand-header border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:px-6">
                     <div class="flex items-start justify-between gap-5">
                         <div class="flex min-w-0 items-start gap-3">
@@ -177,6 +195,8 @@ onBeforeUnmount(() => {
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Facturé à</p>
                         <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ customerName }}</p>
+                        <p v-if="invoice.customer_phone" class="font-mono text-[11px] text-slate-500">{{ invoice.customer_phone }}</p>
+                        <p v-if="externalPrescriber" class="font-mono text-[11px] text-slate-500">Prescripteur : {{ externalPrescriber }}</p>
                         <p class="font-mono text-[11px] text-slate-500">{{ customerReference }}</p><p v-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
                     </div>
                     <div>
@@ -265,7 +285,7 @@ onBeforeUnmount(() => {
                         <header class="border-b border-dashed border-slate-400 pb-2.5 text-center">
                             <p class="text-xs font-black uppercase tracking-wide">{{ brandName }}</p>
                             <p v-if="siteName !== brandName" class="text-[9px] font-bold uppercase tracking-[0.12em]">Site {{ siteName }}</p>
-                            <h1 class="mt-2 text-base font-black uppercase tracking-wide">Facture patient</h1>
+                            <h1 class="mt-2 text-base font-black uppercase tracking-wide">{{ isPharmacyInvoice ? 'Ticket Pharmacie' : 'Facture patient' }}</h1>
                             <p class="font-mono text-sm font-bold">{{ invoice.invoice_number }}</p>
                             <p class="text-[9px]">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</p>
                             <span class="mt-1 inline-flex border border-slate-700 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide">{{ invoiceStatusLabel }}</span>
@@ -273,6 +293,8 @@ onBeforeUnmount(() => {
 
                         <section class="space-y-1 border-b border-dashed border-slate-400 py-2.5 text-[11px]">
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Client</span><span class="text-end font-bold">{{ customerName }}</span></div>
+                            <div v-if="invoice.customer_phone" class="flex items-start justify-between gap-3"><span class="shrink-0">Téléphone</span><span class="text-end font-bold">{{ invoice.customer_phone }}</span></div>
+                            <div v-if="externalPrescriber" class="flex items-start justify-between gap-3"><span class="shrink-0">Prescripteur</span><span class="text-end font-bold">{{ externalPrescriber }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Référence</span><span class="text-end font-mono font-bold">{{ customerReference }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode?.episode_number ?? '—' }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Émise par</span><span class="text-end font-medium">{{ invoice.creator.name }}</span></div>
@@ -301,8 +323,9 @@ onBeforeUnmount(() => {
                         </section>
 
                         <section class="py-2.5 text-center">
-                            <img v-if="qrCodeDataUrl" :src="qrCodeDataUrl" alt="QR code du site officiel de la Clinique Saint Georges" class="invoice-qr mx-auto h-[22mm] w-[22mm]" />
-                            <p class="text-[9px] font-bold uppercase tracking-wide">Site officiel</p>
+                            <img v-if="qrCodeDataUrl" :src="qrCodeDataUrl" :alt="`QR de la référence caisse ${invoice.invoice_number}`" class="invoice-qr mx-auto h-[22mm] w-[22mm]" />
+                            <p class="text-[9px] font-bold uppercase tracking-wide">Référence caisse</p>
+                            <p class="mt-0.5 font-mono text-[10px] font-black">{{ invoice.invoice_number }}</p>
                         </section>
 
                         <footer class="border-t border-dashed border-slate-400 pt-2 text-center text-[9px] leading-3.5">
@@ -334,6 +357,12 @@ onBeforeUnmount(() => {
     width: 100%;
     min-width: 1140px;
     margin-inline: 0;
+}
+
+.invoice-workspace-ticket-only {
+    grid-template-columns: 360px;
+    justify-content: center;
+    min-width: 0;
 }
 
 .invoice-document {

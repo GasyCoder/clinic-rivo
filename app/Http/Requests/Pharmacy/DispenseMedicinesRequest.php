@@ -18,7 +18,7 @@ class DispenseMedicinesRequest extends FormRequest
     {
         return [
             'lines' => ['required', 'array', 'min:1', 'max:100'],
-            'lines.*.id' => ['required', 'integer', 'distinct'],
+            'lines.*.uuid' => ['required', 'uuid', 'distinct', 'exists:pharmacy_dispense_lines,uuid'],
             'lines.*.quantity' => ['required', 'integer', 'min:1', 'max:1000000'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];

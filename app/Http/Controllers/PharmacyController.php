@@ -69,9 +69,19 @@ class PharmacyController extends Controller
         CreateExternalDispenseAction $action,
     ): RedirectResponse {
         $dispense = $action->execute($request->validated(), $request->user());
-
-        return to_route('pharmacy.index', ['tab' => 'dispenses'])
+        $response = to_route('pharmacy.counter-sales.create')
             ->with('status', "Vente comptoir préparée. Facture {$dispense->invoice->invoice_number} transmise à la Caisse.");
+
+        if ($request->boolean('print_after_create')
+            && $request->user()->can('pharmacy.dispense.print')) {
+            $response->with('print_ticket_url', route('pharmacy.dispenses.ticket.show', [
+                'dispense' => $dispense,
+                'print' => 1,
+                'direct' => 1,
+            ]));
+        }
+
+        return $response;
     }
 
     public function prepareInvoice(
@@ -83,6 +93,32 @@ class PharmacyController extends Controller
         $dispense = $action->execute($dispense, $request->user());
 
         return back()->with('status', "Facture {$dispense->invoice->invoice_number} transmise à la Caisse.");
+    }
+
+    public function ticket(Request $request, PharmacyDispense $dispense): Response
+    {
+        Gate::forUser($request->user())->authorize('printTicket', $dispense);
+        $directPrint = $request->boolean('direct') && $request->boolean('print');
+        $embeddedPrint = $request->boolean('embedded') && $request->boolean('print');
+        $ticketOnly = $directPrint || $embeddedPrint;
+
+        $invoice = $dispense->invoice()->with([
+            'patient:id,uuid,patient_number,first_name,last_name',
+            'episode:id,uuid,episode_number',
+            'lines.billableItem:id,source_module',
+            'creator:id,name',
+            'validator:id,name',
+        ])->firstOrFail();
+
+        return Inertia::render('Invoices/Show', [
+            'invoice' => $invoice,
+            'returnToCash' => false,
+            'returnToPharmacy' => ! $ticketOnly,
+            'ticketOnly' => $ticketOnly,
+            'autoPrint' => $request->boolean('print'),
+            'closeAfterPrint' => $directPrint && ! $embeddedPrint,
+            'externalPrescriber' => $dispense->external_prescriber,
+        ]);
     }
 
     public function dispense(

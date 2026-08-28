@@ -49,10 +49,10 @@ class DispenseMedicinesAction
                 ]);
             }
 
-            $submitted = collect($data['lines'])->keyBy(fn (array $line) => (int) $line['id']);
+            $submitted = collect($data['lines'])->keyBy('uuid');
             $lines = PharmacyDispenseLine::query()
                 ->where('pharmacy_dispense_id', $dispense->getKey())
-                ->whereIn('id', $submitted->keys())
+                ->whereIn('uuid', $submitted->keys())
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
@@ -62,7 +62,7 @@ class DispenseMedicinesAction
             }
 
             foreach ($lines as $index => $line) {
-                $quantity = (int) $submitted[$line->getKey()]['quantity'];
+                $quantity = (int) $submitted[$line->uuid]['quantity'];
 
                 if ($quantity < 1 || $quantity > $line->remainingQuantity()) {
                     throw ValidationException::withMessages([
@@ -81,7 +81,7 @@ class DispenseMedicinesAction
             $movementSequence = 0;
 
             foreach ($lines as $line) {
-                $requested = (int) $submitted[$line->getKey()]['quantity'];
+                $requested = (int) $submitted[$line->uuid]['quantity'];
                 $reservations = $this->reservations($dispense, $line);
                 $reservable = (int) $reservations->sum('remaining_quantity');
 

@@ -147,6 +147,7 @@ class PermissionSeeder extends Seeder
         'pharmacy.view' => 'Accéder à la pharmacie',
         'pharmacy.dispense' => 'Délivrer les médicaments autorisés',
         'pharmacy.dispense.prepare_invoice' => 'Préparer la facture d’une demande de dispensation',
+        'pharmacy.dispense.print' => 'Voir et imprimer le ticket d’une demande de dispensation',
         'pharmacy.counter_sales.create' => 'Créer une vente directe au comptoir sans encaissement',
         'pharmacy.return' => 'Enregistrer un retour de pharmacie',
         'pharmacy.reports.view' => 'Voir les rapports de pharmacie',

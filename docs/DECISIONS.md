@@ -2018,3 +2018,70 @@ médicaments est création-only, atomique et rejette tout le fichier si une lign
 ou un code est invalide. Conformément à l'ADR-024, ces écritures de catalogue
 requièrent des permissions explicites et ne sont pas accordées au rôle
 `PHARMACY` par défaut.
+
+---
+
+# ADR-050 — Ticket Pharmacie et contrôle de référence à la Caisse
+
+**Status:** ACCEPTED (mise à jour 2026-08-28 — exigence explicite du propriétaire)
+
+Toute demande de dispensation facturée, qu'elle provienne d'une ordonnance
+interne ou d'une vente comptoir externe, possède un ticket imprimable. Le numéro
+unique de facture généré par le backend est la référence automatique de ce
+ticket ; aucun code financier libre n'est saisi par la Pharmacie.
+
+Le QR du ticket encode exclusivement cette référence de facture. À
+Réception/Caisse, l'agent peut scanner ce QR ou saisir la référence. Pour un
+patient interne, le numéro de passage ou le numéro patient permet également de
+retrouver les factures Pharmacie concernées. Le contrôle affiche le statut et le
+solde avant de proposer l'encaissement.
+
+La vente comptoir ne demande aucun numéro de référence à la Pharmacie, y compris
+pour un produit signalé comme nécessitant une ordonnance. Elle utilise
+uniquement la référence automatique de facture pour identifier le ticket ; le
+backend n'accepte ni ne fabrique une référence médicale d'ordonnance externe.
+
+À la Caisse, le contrôle du ticket Pharmacie est présenté dans un onglet dédié,
+au même niveau que les factures à encaisser et les paiements récents. Ouvrir une
+URL de contrôle avec une référence sélectionne directement cet onglet. Le mode
+de saisie manuelle y est sélectionné par défaut ; l'agent peut ensuite choisir
+le scanner QR. Les factures issues de la Pharmacie sont exclues de la liste
+générale « Factures à encaisser » et restent regroupées dans cet onglet, quel
+que soit leur statut. Sans filtre, les tickets Pharmacie récents sont listés ;
+la saisie filtre dynamiquement et partiellement par référence, client, patient
+ou passage.
+
+La création d'une vente comptoir ne présente ni action « Retour aux demandes »
+ni bouton d'impression autonome. Son pied présente uniquement « Créer et
+transmettre à la Caisse ». Cette action ouvre une fenêtre de confirmation avec
+le récapitulatif de la vente ; son action finale explicite est « Imprimer et
+transmettre à la Caisse ». La confirmation crée la vente et sa référence
+officielle, la rend immédiatement visible à la Caisse, lance directement
+l'impression du ticket officiel, reste sur la page Vente comptoir, puis vide le
+formulaire pour le client suivant. Le nom du client, son téléphone et le
+prescripteur externe renseignés sont conservés et imprimés sur le ticket
+officiel. La file de dispensation reste compacte : le statut et
+les actions sont deux colonnes distinctes, l'ordonnance et ses produits
+s'ouvrent dans une fenêtre dédiée par une unique action « Voir ». Le détail
+déjà présent dans cette fenêtre constitue le contrôle visuel : aucun
+bouton « Aperçu » supplémentaire n'est affiché. « Imprimer le ticket » ouvre
+directement le dialogue d'impression depuis cette fenêtre sans naviguer vers la
+page du ticket ni changer l'URL visible.
+
+Les identifiants exposés par les opérations Pharmacie sont des UUID : demande,
+ligne de dispensation, réservation, bon de sortie, allocation, mouvement de
+stock, médicament et lot. Les clés SQL numériques restent strictement internes
+aux relations locales. Chaque opération sensible conserve une autorisation
+Laravel distincte, notamment `pharmacy.dispense.prepare_invoice`,
+`pharmacy.dispense.print`, `pharmacy.dispense`, `stock.entry` et `stock.adjust` ;
+les contrôles Vue servent uniquement à l'ergonomie.
+
+Dans l'onglet Caisse consacré aux tickets Pharmacie, le mode Saisir/Scanner et
+le champ de référence occupent l'en-tête, au même emplacement que la recherche
+des factures à encaisser. Aucun second titre ni texte explicatif n'est affiché.
+Les résultats utilisent les mêmes colonnes tabulaires que les factures à
+encaisser : client, facture/passage, validation, montants, statut et actions.
+
+Le ticket Pharmacie n'est ni un paiement ni un reçu. Sa consultation et son
+impression utilisent `pharmacy.dispense.print`. Seule Réception/Caisse conserve
+`payments.*`, `cash.*` et l'émission du reçu après un encaissement réel.

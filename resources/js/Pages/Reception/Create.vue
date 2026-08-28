@@ -1,837 +1,681 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, toRef } from 'vue';
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
-import { Head, Link, router, useForm, usePage, useRemember } from '@inertiajs/vue3';
+import { computed, reactive, ref } from 'vue';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
 import Card from '@/Components/UI/Card.vue';
 import CardBody from '@/Components/UI/CardBody.vue';
-import CheckBox from '@/Components/UI/CheckBox.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
-import { usePermissions } from '@/composables/usePermissions';
-import { formatDate, formatDateTime, formatRelativeTime } from '@/utilities/date';
+import { formatMoney } from '@/utilities/money';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
-    step: String,
-    search: String,
-    matches: { type: Array, default: () => [] },
-    recentEpisodes: { type: Array, default: () => [] },
-    recentEpisodeFilter: String,
+    estimateCatalog: { type: Array, default: () => [] },
     addressEntries: { type: Array, default: () => [] },
-    staffEmployees: { type: Array, default: () => [] },
     mutualOrganizations: { type: Array, default: () => [] },
+    capabilities: { type: Object, default: () => ({}) },
 });
 
-const page = usePage();
-const { can } = usePermissions();
-const duplicates = computed(() => page.props.flash?.duplicates ?? []);
-const showArrivalFlow = computed(() => Boolean(props.step) || duplicates.value.length > 0);
-const query = ref(props.search ?? '');
+const steps = [
+    { number: 1, label: 'Besoin' },
+    { number: 2, label: 'Estimation' },
+    { number: 3, label: 'Patient' },
+    { number: 4, label: 'Épisode' },
+    { number: 5, label: 'Prise en charge' },
+    { number: 6, label: 'Confirmation' },
+    { number: 7, label: 'Routage' },
+];
+const currentStep = ref(1);
+const catalogQuery = ref('');
+const moduleFilter = ref('');
+const cart = ref([]);
+const estimate = ref(null);
+const estimateLoading = ref(false);
+const estimateError = ref('');
+const designationDeferred = ref(false);
+const isEmergency = ref(false);
+
+const patientMode = ref('search');
+const patientQuery = ref('');
+const patientMatches = ref([]);
+const patientSearchLoading = ref(false);
+const patientSearchPerformed = ref(false);
+const selectedPatient = ref(null);
+const duplicates = ref([]);
+const arrivalLoading = ref(false);
+const arrivalErrors = ref({});
+const arrivalMessage = ref('');
+const episode = ref(null);
+
+const birthMode = ref('date');
+const patientForm = reactive({
+    first_name: '', last_name: '', birth_date: '', age: '', sex: 'M',
+    phone: '', email: '', profession: '', address_entry_uuid: '', new_address_label: '',
+    emergency_contact_name: '', emergency_contact_phone: '',
+    emergency_contact_relationship: '', emergency_contact_email: '',
+});
+
+const financialMode = ref('SELF');
+const financialLoading = ref(false);
+const financialErrors = ref({});
+const preview = ref(null);
+const mutualForm = reactive({
+    mutual_organization_uuid: '', employer_name: '',
+    beneficiary_type: 'PRINCIPAL', membership_number: '',
+});
 const employeeQuery = ref('');
-const showNewAddress = ref(false);
-const fileInput = ref(null);
-const mutualAttachmentPreviews = ref([]);
-const activeMutualAttachment = ref(null);
-const mutualAttachmentClientError = ref('');
+const employeeMatches = ref([]);
+const employeeSearchLoading = ref(false);
+const employeeSearchPerformed = ref(false);
+const selectedEmployee = ref(null);
 
-const acceptedMutualAttachmentTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-const maxMutualAttachmentSize = 5 * 1024 * 1024;
-const maxMutualAttachments = 5;
+const finalForm = useForm({
+    defer_designation: false,
+    catalog_lines: [],
+    payment_choice: 'LATER',
+});
 
-const workflow = useRemember(reactive({
-    arrivalMode: props.search ? 'existing' : null,
-    patientCategory: 'STANDARD',
-    selectedPatient: null,
-    selectedEmployee: null,
-    birthMode: 'date',
-}), 'ReceptionPatientAdministrativeWorkflow');
+const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+const requestJson = async (url, options = {}) => {
+    const response = await fetch(url, {
+        credentials: 'same-origin',
+        ...options,
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken(),
+            ...(options.headers ?? {}),
+        },
+    });
+    const data = await response.json().catch(() => ({}));
 
-const arrivalMode = toRef(workflow, 'arrivalMode');
-const patientCategory = toRef(workflow, 'patientCategory');
-const selectedPatient = toRef(workflow, 'selectedPatient');
-const selectedEmployee = toRef(workflow, 'selectedEmployee');
-const birthMode = toRef(workflow, 'birthMode');
+    if (!response.ok) {
+        const error = new Error(data.message || 'La demande n’a pas pu être traitée.');
+        error.payload = data;
+        throw error;
+    }
 
-const allSteps = {
-    type: { key: 'type', slug: 'type', label: 'Type' },
-    identity: { key: 'identity', slug: 'identite', label: arrivalMode.value === 'existing' ? 'Patient' : 'Identité' },
-    contact: { key: 'contact', slug: 'contact', label: 'Contact' },
-    coverage: { key: 'coverage', slug: 'couverture', label: 'Couverture' },
-    confirmation: { key: 'confirmation', slug: 'confirmation', label: 'Confirmation' },
+    return data;
 };
 
-const visibleSteps = computed(() => {
-    // ADR-034: the contact reachable for this patient belongs to the
-    // passage being opened, not the permanent record — so every arrival
-    // collects it, including a returning patient or a staff member, even
-    // though those two skip the rest of the identity/contact fields.
-    if (arrivalMode.value === 'existing') {
-        return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.confirmation];
-    }
+const catalogMap = computed(() => new Map(props.estimateCatalog.map((item) => [item.catalog_item_uuid, item])));
+const catalogModules = computed(() => {
+    const modules = new Map();
 
-    if (patientCategory.value === 'STANDARD') {
-        return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.confirmation];
-    }
+    props.estimateCatalog.forEach((item) => {
+        const module = modules.get(item.module) ?? {
+            value: item.module,
+            label: item.module_label,
+            count: 0,
+        };
+        module.count += 1;
+        modules.set(item.module, module);
+    });
 
-    if (patientCategory.value === 'STAFF') {
-        return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.coverage, allSteps.confirmation];
-    }
-
-    return [allSteps.type, allSteps.identity, allSteps.contact, allSteps.coverage, allSteps.confirmation];
+    return Array.from(modules.values()).sort((left, right) => left.label.localeCompare(right.label, 'fr'));
 });
+const catalogCategoryOptions = computed(() => [
+    { value: '', label: 'Toutes', count: props.estimateCatalog.length },
+    ...catalogModules.value,
+]);
+const cartIds = computed(() => new Set(cart.value.map((line) => line.catalog_item_uuid)));
+const filteredCatalog = computed(() => {
+    const needle = catalogQuery.value.trim().toLocaleLowerCase('fr');
 
-const currentStep = computed(() => {
-    const bySlug = Object.values(allSteps).find((step) => step.slug === props.step);
+    return props.estimateCatalog.filter((item) => {
+        if (cartIds.value.has(item.catalog_item_uuid)) return false;
+        if (moduleFilter.value && item.module !== moduleFilter.value) return false;
 
-    if (!bySlug || !visibleSteps.value.some((step) => step.key === bySlug.key)) {
-        return 'type';
-    }
-
-    return bySlug.key;
+        return !needle || `${item.name} ${item.code} ${item.module_label}`
+            .toLocaleLowerCase('fr')
+            .includes(needle);
+    });
 });
-const currentVisibleIndex = computed(() => Math.max(
-    visibleSteps.value.findIndex((step) => step.key === currentStep.value),
-    0,
+const hasCatalogFilters = computed(() => catalogQuery.value.trim() !== '' || moduleFilter.value !== '');
+const estimateLineMap = computed(() => new Map(
+    (estimate.value?.lines ?? []).map((line) => [line.catalog_item_uuid, line]),
 ));
+const cartLines = computed(() => cart.value.map((line, index) => ({
+    index,
+    line,
+    catalog: catalogMap.value.get(line.catalog_item_uuid),
+    estimated: estimateLineMap.value.get(line.catalog_item_uuid),
+})));
+const selectedOrganization = computed(() => props.mutualOrganizations.find(
+    (organization) => organization.uuid === mutualForm.mutual_organization_uuid,
+) ?? null);
+const previewLines = computed(() => preview.value?.lines ?? []);
 
-const form = useForm('ReceptionPatientAdministrativeForm', {
-    patient_type: 'STANDARD',
-    employee_uuid: '',
-    first_name: '',
-    last_name: '',
-    birth_date: '',
-    age: '',
-    sex: 'M',
-    civility: null,
-    identity_document_type: null,
-    identity_document_number: '',
-    marital_status: null,
-    children_count: '',
-    profession: '',
-    phone: '',
-    email: '',
-    address_entry_uuid: '',
-    new_address_label: '',
-    emergency_contact_name: '',
-    emergency_contact_phone: '',
-    emergency_contact_email: '',
-    emergency_contact_relationship: '',
-    mutual_organization_name: '',
-    mutual_employer_name: '',
-    mutual_beneficiary_type: 'PRINCIPAL',
-    mutual_membership_number: '',
-    mutual_attachments: [],
-    is_emergency: false,
-    confirm_duplicate: false,
-});
+const addService = (item) => {
+    cart.value.push({ catalog_item_uuid: item.catalog_item_uuid, quantity: 1 });
+    estimate.value = null;
+    estimateError.value = '';
+    designationDeferred.value = false;
+};
+const resetCatalogFilters = () => {
+    catalogQuery.value = '';
+    moduleFilter.value = '';
+};
+const removeService = async (index) => {
+    cart.value.splice(index, 1);
+    estimate.value = null;
+    if (currentStep.value === 2 && cart.value.length) await recalculateEstimate();
+    if (!cart.value.length) currentStep.value = 1;
+};
+const cartPayload = () => cart.value.map((line) => ({
+    catalog_item_uuid: line.catalog_item_uuid,
+    quantity: Number(line.quantity),
+}));
+const recalculateEstimate = async () => {
+    if (!cart.value.length) return;
+    estimateLoading.value = true;
+    estimateError.value = '';
 
-const mutualAttachmentServerError = computed(() => {
-    const error = Object.entries(form.errors)
-        .find(([key]) => key === 'mutual_attachments' || key.startsWith('mutual_attachments.'));
-
-    return error?.[1] ?? '';
-});
-
-const syncMutualAttachments = () => {
-    form.mutual_attachments = mutualAttachmentPreviews.value.map((attachment) => attachment.file);
+    try {
+        estimate.value = await requestJson('/reception/estimates', {
+            method: 'POST',
+            body: JSON.stringify({ lines: cartPayload() }),
+        });
+    } catch (error) {
+        estimate.value = null;
+        estimateError.value = Object.values(error.payload?.errors ?? {}).flat()[0] ?? error.message;
+    } finally {
+        estimateLoading.value = false;
+    }
+};
+const showEstimate = async () => {
+    if (!cart.value.length) return;
+    currentStep.value = 2;
+    await recalculateEstimate();
+};
+const continueWithoutKnownDesignation = () => {
+    designationDeferred.value = true;
+    cart.value = [];
+    estimate.value = null;
+    isEmergency.value = false;
+    currentStep.value = 3;
+};
+const startEmergency = () => {
+    designationDeferred.value = false;
+    cart.value = [];
+    estimate.value = null;
+    isEmergency.value = true;
+    currentStep.value = 3;
+};
+const continueToPatient = () => {
+    isEmergency.value = false;
+    currentStep.value = 3;
 };
 
-const resetMutualAttachmentInput = () => {
-    if (fileInput.value) fileInput.value.value = '';
+const resetEpisodeContact = () => {
+    patientForm.emergency_contact_name = '';
+    patientForm.emergency_contact_phone = '';
+    patientForm.emergency_contact_relationship = '';
+    patientForm.emergency_contact_email = '';
 };
-
-const clearMutualAttachmentErrors = () => {
-    mutualAttachmentClientError.value = '';
-    Object.keys(form.errors)
-        .filter((key) => key === 'mutual_attachments' || key.startsWith('mutual_attachments.'))
-        .forEach((key) => form.clearErrors(key));
-};
-
-const revokeMutualAttachmentUrl = (attachment) => {
-    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-};
-
-const clearMutualAttachments = () => {
-    mutualAttachmentPreviews.value.forEach(revokeMutualAttachmentUrl);
-    mutualAttachmentPreviews.value = [];
-    activeMutualAttachment.value = null;
-    syncMutualAttachments();
-    clearMutualAttachmentErrors();
-    resetMutualAttachmentInput();
-};
-
-const resetDraft = () => {
-    clearMutualAttachments();
-    form.reset();
-    form.clearErrors();
-    workflow.arrivalMode = null;
-    workflow.patientCategory = 'STANDARD';
-    workflow.selectedPatient = null;
-    workflow.selectedEmployee = null;
-    workflow.birthMode = 'date';
-    query.value = '';
-    employeeQuery.value = '';
-    showNewAddress.value = false;
-};
-
-const navigate = (slug, data = {}) => router.get(`/reception/patients/${slug}`, data, {
-    preserveState: true,
-    preserveScroll: true,
-    replace: true,
-});
-
-const startArrival = () => {
-    resetDraft();
-    navigate('type');
-};
-
-const showPassages = () => {
-    resetDraft();
-    router.get('/reception/patients', {}, { preserveState: true });
-};
-
-const chooseExisting = () => {
-    arrivalMode.value = 'existing';
+const searchPatients = async () => {
+    if (patientQuery.value.trim().length < 2) return;
+    patientSearchLoading.value = true;
+    patientSearchPerformed.value = false;
     selectedPatient.value = null;
-    navigate('identite');
-};
+    resetEpisodeContact();
+    arrivalMessage.value = '';
 
-const chooseNew = () => {
-    arrivalMode.value = 'new';
-    selectedPatient.value = null;
+    try {
+        const result = await requestJson(`/reception/patients/search?q=${encodeURIComponent(patientQuery.value.trim())}`);
+        patientMatches.value = result.data ?? [];
+        patientSearchPerformed.value = true;
+    } catch (error) {
+        arrivalMessage.value = error.message;
+    } finally {
+        patientSearchLoading.value = false;
+    }
 };
-
-const restartAsNew = () => {
-    chooseNew();
-    navigate('type');
-};
-
-const chooseCategory = (category) => {
-    arrivalMode.value = 'new';
-    patientCategory.value = category;
-    form.patient_type = category;
-    selectedEmployee.value = null;
-    form.employee_uuid = '';
-    navigate('identite');
-};
-
-const submitSearch = () => navigate('identite', query.value ? { q: query.value } : {});
-const pickExistingPatient = (patient) => {
+const choosePatient = (patient) => {
     selectedPatient.value = patient;
-    navigate('contact');
+    duplicates.value = [];
+    arrivalErrors.value = {};
 };
-
-const filteredEmployees = computed(() => {
-    const needle = employeeQuery.value.trim().toLocaleLowerCase('fr');
-    if (!needle) return props.staffEmployees.slice(0, 12);
-
-    return props.staffEmployees.filter((employee) => `${employee.employee_number} ${employee.first_name ?? ''} ${employee.last_name}`
-        .toLocaleLowerCase('fr')
-        .includes(needle)).slice(0, 12);
-});
-
-const pickEmployee = (employee) => {
-    selectedEmployee.value = employee;
-    form.employee_uuid = employee.uuid;
+const chooseExistingPatient = () => {
+    patientMode.value = 'search';
+    selectedPatient.value = null;
+    duplicates.value = [];
+    arrivalErrors.value = {};
+    resetEpisodeContact();
 };
-
-const civilityOptions = [
-    { value: 'MR', label: 'M.', sex: 'M' },
-    { value: 'MRS', label: 'Mme', sex: 'F' },
-    { value: 'GIRL', label: 'Enfant fille', sex: 'F' },
-    { value: 'BOY', label: 'Enfant garçon', sex: 'M' },
-];
-const maritalOptions = [
-    { value: 'SINGLE', label: 'Célibataire' },
-    { value: 'MARRIED', label: 'Marié(e)' },
-    { value: 'DIVORCED', label: 'Divorcé(e)' },
-    { value: 'WIDOWED', label: 'Veuf / veuve' },
-];
-
-const chooseCivility = (event) => {
-    form.civility = event.target.value || null;
-    form.sex = civilityOptions.find((option) => option.value === form.civility)?.sex ?? form.sex;
+const chooseAnotherPatient = () => {
+    selectedPatient.value = null;
+    arrivalErrors.value = {};
+    resetEpisodeContact();
 };
-
+const chooseNewPatient = () => {
+    patientMode.value = 'create';
+    selectedPatient.value = null;
+    duplicates.value = [];
+    arrivalErrors.value = {};
+    resetEpisodeContact();
+};
 const setBirthMode = (mode) => {
     birthMode.value = mode;
-    if (mode === 'date') form.age = '';
-    else form.birth_date = '';
+    if (mode === 'date') patientForm.age = '';
+    else patientForm.birth_date = '';
 };
+const arrivalPayload = (confirmDuplicate = false) => {
+    const contact = {
+        emergency_contact_name: patientForm.emergency_contact_name || null,
+        emergency_contact_phone: patientForm.emergency_contact_phone || null,
+        emergency_contact_relationship: patientForm.emergency_contact_relationship || null,
+        emergency_contact_email: patientForm.emergency_contact_email || null,
+    };
 
-const exactAge = computed(() => {
-    if (!form.birth_date) return null;
-    const birth = new Date(`${form.birth_date}T00:00:00`);
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    if (today.getMonth() < birth.getMonth()
-        || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
-    return Math.max(age, 0);
-});
-
-const identityComplete = computed(() => {
-    if (patientCategory.value === 'STAFF') return Boolean(selectedEmployee.value);
-    return Boolean(form.last_name && form.sex && (form.birth_date || form.age));
-});
-
-const contactComplete = computed(() => true);
-const coverageComplete = computed(() => {
-    if (patientCategory.value === 'STAFF') return Boolean(selectedEmployee.value);
-    if (patientCategory.value !== 'MUTUAL') return true;
-    return Boolean(form.mutual_organization_name
-        && form.mutual_employer_name
-        && form.mutual_beneficiary_type
-        && form.mutual_membership_number);
-});
-
-const continueIdentity = () => {
-    if (!identityComplete.value) return;
-    navigate('contact');
-};
-const continueContact = () => {
-    if (!contactComplete.value) return;
-    if (arrivalMode.value === 'existing') {
-        navigate('confirmation');
-        return;
+    if (selectedPatient.value) {
+        return { patient_uuid: selectedPatient.value.uuid, is_emergency: isEmergency.value, ...contact };
     }
-    navigate(['MUTUAL', 'STAFF'].includes(patientCategory.value) ? 'couverture' : 'confirmation');
+
+    return {
+        patient_type: 'STANDARD',
+        first_name: patientForm.first_name || null,
+        last_name: patientForm.last_name,
+        birth_date: birthMode.value === 'date' ? patientForm.birth_date || null : null,
+        age: birthMode.value === 'age' ? Number(patientForm.age) || null : null,
+        sex: patientForm.sex,
+        phone: patientForm.phone || null,
+        email: patientForm.email || null,
+        profession: patientForm.profession || null,
+        address_entry_uuid: patientForm.address_entry_uuid || null,
+        new_address_label: patientForm.new_address_label || null,
+        confirm_duplicate: confirmDuplicate,
+        is_emergency: isEmergency.value,
+        ...contact,
+    };
 };
-const continueCoverage = () => {
-    if (coverageComplete.value) navigate('confirmation');
-};
+const createEpisode = async (confirmDuplicate = false) => {
+    if (!selectedPatient.value && patientMode.value !== 'create') return;
+    arrivalLoading.value = true;
+    arrivalErrors.value = {};
+    arrivalMessage.value = '';
 
-const goBack = () => {
-    const steps = visibleSteps.value;
-    const previous = steps[currentVisibleIndex.value - 1];
-    if (previous) navigate(previous.slug, previous.key === 'identity' && query.value ? { q: query.value } : {});
-    else showPassages();
-};
-
-const selectAddress = (event) => {
-    form.address_entry_uuid = event.target.value;
-    if (form.address_entry_uuid) {
-        form.new_address_label = '';
-        showNewAddress.value = false;
-    }
-};
-
-const toggleNewAddress = () => {
-    showNewAddress.value = !showNewAddress.value;
-    if (showNewAddress.value) form.address_entry_uuid = '';
-    else form.new_address_label = '';
-};
-
-const addMutualAttachments = (fileList) => {
-    clearMutualAttachmentErrors();
-
-    const files = Array.from(fileList ?? []);
-    const errors = [];
-    let ignoredCount = 0;
-
-    files.forEach((file) => {
-        if (mutualAttachmentPreviews.value.length >= maxMutualAttachments) {
-            ignoredCount++;
-            return;
-        }
-
-        if (!acceptedMutualAttachmentTypes.includes(file.type)) {
-            errors.push(`${file.name} : format non accepté.`);
-            return;
-        }
-
-        if (file.size > maxMutualAttachmentSize) {
-            errors.push(`${file.name} dépasse 5 Mo.`);
-            return;
-        }
-
-        const duplicate = mutualAttachmentPreviews.value.some((attachment) => (
-            attachment.file.name === file.name
-            && attachment.file.size === file.size
-            && attachment.file.lastModified === file.lastModified
-        ));
-
-        if (duplicate) {
-            errors.push(`${file.name} est déjà sélectionné.`);
-            return;
-        }
-
-        mutualAttachmentPreviews.value.push({
-            file,
-            isImage: file.type.startsWith('image/'),
-            previewUrl: URL.createObjectURL(file),
+    try {
+        const result = await requestJson('/reception/patients', {
+            method: 'POST',
+            body: JSON.stringify(arrivalPayload(confirmDuplicate)),
         });
-    });
+        selectedPatient.value = result.patient;
+        episode.value = result.episode;
+        duplicates.value = [];
 
-    if (ignoredCount > 0) {
-        errors.push(`${ignoredCount} fichier${ignoredCount > 1 ? 's ont' : ' a'} été ignoré${ignoredCount > 1 ? 's' : ''} : 5 fichiers maximum.`);
-    }
-
-    mutualAttachmentClientError.value = errors.join(' ');
-    syncMutualAttachments();
-    resetMutualAttachmentInput();
-};
-
-const selectAttachments = (event) => addMutualAttachments(event.target.files);
-const dropMutualAttachments = (event) => addMutualAttachments(event.dataTransfer?.files);
-
-const removeAttachment = (index) => {
-    const [removed] = mutualAttachmentPreviews.value.splice(index, 1);
-
-    if (activeMutualAttachment.value === removed) activeMutualAttachment.value = null;
-    revokeMutualAttachmentUrl(removed);
-    syncMutualAttachments();
-    clearMutualAttachmentErrors();
-    resetMutualAttachmentInput();
-};
-
-const formatFileSize = (bytes) => {
-    if (!bytes) return '0 Ko';
-
-    return bytes >= 1024 * 1024
-        ? `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
-        : `${Math.max(1, Math.round(bytes / 1024))} Ko`;
-};
-
-onBeforeUnmount(() => {
-    mutualAttachmentPreviews.value.forEach(revokeMutualAttachmentUrl);
-});
-
-const categoryLabels = {
-    STANDARD: 'Patient standard',
-    MUTUAL: 'Patient mutuelle',
-    STAFF: 'Personnel de la clinique',
-};
-
-const recapPatient = computed(() => selectedPatient.value ?? selectedEmployee.value);
-const recapName = computed(() => {
-    if (arrivalMode.value === 'existing' || patientCategory.value === 'STAFF') {
-        return formatPatientName(recapPatient.value ?? {});
-    }
-    return formatPatientName({ first_name: form.first_name, last_name: form.last_name });
-});
-
-const returnToInvalidStep = (errors) => {
-    const keys = Object.keys(errors);
-    if (keys.some((key) => key.startsWith('mutual_') || key === 'employee_uuid')) return navigate('couverture');
-    if (keys.some((key) => ['phone', 'email', 'address_entry_uuid', 'new_address_label'].includes(key)
-        || key.startsWith('emergency_contact_'))) return navigate('contact');
-    navigate('identite', query.value ? { q: query.value } : {});
-};
-
-const submitArrival = (confirmDuplicate = false) => {
-    form.confirm_duplicate = confirmDuplicate;
-    form.transform((data) => {
-        const emergencyContact = {
-            emergency_contact_name: data.emergency_contact_name,
-            emergency_contact_phone: data.emergency_contact_phone,
-            emergency_contact_relationship: data.emergency_contact_relationship,
-            emergency_contact_email: data.emergency_contact_email,
-        };
-
-        if (arrivalMode.value === 'existing') {
-            return { patient_uuid: selectedPatient.value.uuid, is_emergency: data.is_emergency, ...emergencyContact };
+        if (isEmergency.value) {
+            window.location.assign(`/patients/${result.patient.uuid}`);
+            return;
         }
 
-        if (patientCategory.value === 'STAFF') {
-            return {
-                patient_type: 'STAFF',
-                employee_uuid: selectedEmployee.value.uuid,
-                is_emergency: data.is_emergency,
-                ...emergencyContact,
-            };
-        }
-
-        return {
-            ...data,
-            patient_type: patientCategory.value,
-            employee_uuid: null,
-            birth_date: birthMode.value === 'date' ? data.birth_date : null,
-            age: birthMode.value === 'age' ? data.age : null,
-            mutual_organization_name: patientCategory.value === 'MUTUAL' ? data.mutual_organization_name : null,
-            mutual_employer_name: patientCategory.value === 'MUTUAL' ? data.mutual_employer_name : null,
-            mutual_beneficiary_type: patientCategory.value === 'MUTUAL' ? data.mutual_beneficiary_type : null,
-            mutual_membership_number: patientCategory.value === 'MUTUAL' ? data.mutual_membership_number : null,
-            mutual_attachments: patientCategory.value === 'MUTUAL' ? data.mutual_attachments : [],
-        };
-    }).post('/reception/patients', {
-        forceFormData: true,
-        preserveScroll: true,
-        onError: returnToInvalidStep,
-        onSuccess: resetDraft,
-    });
+        currentStep.value = 5;
+    } catch (error) {
+        arrivalErrors.value = error.payload?.errors ?? {};
+        duplicates.value = error.payload?.duplicates ?? [];
+        arrivalMessage.value = error.message;
+    } finally {
+        arrivalLoading.value = false;
+    }
 };
 
-const recentFilterOptions = [
-    { value: 'all', label: 'Tous' },
-    { value: 'normal', label: 'Normal' },
-    { value: 'emergency', label: 'Urgence' },
-    { value: 'pending', label: 'À orienter' },
-    { value: 'oriented', label: 'Orientés' },
-];
-const activeRecentFilter = computed(() => props.recentEpisodeFilter ?? 'all');
-const recentFilterHref = (value) => value === 'all' ? '/reception/patients' : `/reception/patients?filter=${value}`;
-const pathwayStatus = (episode) => {
-    const orientations = episode.orientations ?? [];
-    const medicine = orientations.find((item) => item.destination_module === 'MEDICINE' && ['PENDING', 'IN_PROGRESS'].includes(item.status));
-    const care = orientations.find((item) => item.destination_module === 'CARE' && ['PENDING', 'IN_PROGRESS'].includes(item.status));
-    if (medicine?.status === 'IN_PROGRESS') return 'En consultation';
-    if (medicine) return 'En attente Médecine';
-    if (care?.status === 'IN_PROGRESS') return 'En cours aux Soins';
-    if (care) return 'En attente aux Soins';
-    // ADR-030 CARE_ONLY : termine parfois entièrement aux Soins sans jamais
-    // ouvrir d'orientation Médecine — à distinguer d'un parcours simplement
-    // défini mais pas encore commencé.
-    const careCompleted = orientations.some((item) => item.destination_module === 'CARE' && item.status === 'COMPLETED');
-    const medicineOrientationExists = orientations.some((item) => item.destination_module === 'MEDICINE');
-    if (careCompleted && !medicineOrientationExists) return 'Soins terminés';
-    return episode.service_plan_finalized_at ? 'Parcours défini' : 'Prestations à définir';
+const selectFinancialMode = (mode) => {
+    financialMode.value = mode;
+    preview.value = null;
+    financialErrors.value = {};
+    selectedEmployee.value = null;
+    employeeSearchPerformed.value = false;
 };
-const pathwayStatusBadgeClass = (status) => ({
-    'Soins terminés': 'border-green-200 text-green-700 dark:border-green-900 dark:text-green-300',
-    'En consultation': 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
-    'En cours aux Soins': 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
-    'En attente Médecine': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
-    'En attente aux Soins': 'border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-300',
-}[status] ?? 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400');
+const searchEmployees = async () => {
+    if (employeeQuery.value.trim().length < 2) return;
+    employeeSearchLoading.value = true;
+    employeeSearchPerformed.value = false;
+    selectedEmployee.value = null;
+    financialErrors.value = {};
 
-// bg-none cancels @tailwindcss/forms' own chevron background-image on
-// <select> — without it, that arrow doubles up with the Icon we place on
-// top of these selects.
-const selectClass = 'block h-9 w-full appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
+    try {
+        const result = await requestJson(`/reception/employees/patient-lookup?q=${encodeURIComponent(employeeQuery.value.trim())}`);
+        employeeMatches.value = result.data ?? [];
+        employeeSearchPerformed.value = true;
+    } catch (error) {
+        financialErrors.value = { employee_uuid: [error.message] };
+    } finally {
+        employeeSearchLoading.value = false;
+    }
+};
+const employeeSelectable = (employee) => employee.eligible
+    && (!employee.linked_patient || employee.linked_patient.uuid === selectedPatient.value?.uuid);
+const chooseEmployee = (employee) => {
+    if (employeeSelectable(employee)) selectedEmployee.value = employee;
+};
+const chooseAnotherEmployee = () => {
+    selectedEmployee.value = null;
+    financialErrors.value = {};
+};
+const financialPayload = () => {
+    const payload = { financial_mode: financialMode.value, lines: cartPayload() };
+    if (financialMode.value === 'MUTUAL') Object.assign(payload, mutualForm);
+    if (financialMode.value === 'STAFF') payload.employee_uuid = selectedEmployee.value?.uuid;
+    return payload;
+};
+const configureFinancialContext = async () => {
+    financialLoading.value = true;
+    financialErrors.value = {};
+
+    try {
+        const result = await requestJson(`/reception/passages/${episode.value.uuid}/financial-context`, {
+            method: 'POST',
+            body: JSON.stringify(financialPayload()),
+        });
+        episode.value = { ...episode.value, ...result.episode };
+        preview.value = result.preview;
+        currentStep.value = 6;
+    } catch (error) {
+        financialErrors.value = error.payload?.errors ?? { financial_mode: [error.message] };
+    } finally {
+        financialLoading.value = false;
+    }
+};
+
+const confirmCare = () => {
+    finalForm.defer_designation = designationDeferred.value;
+    finalForm.catalog_lines = cartPayload();
+    finalForm.payment_choice = designationDeferred.value || financialMode.value === 'STAFF'
+        ? null
+        : 'LATER';
+    finalForm.post(`/reception/passages/${episode.value.uuid}/prestations`, { preserveScroll: true });
+};
+const firstError = (errors, key) => Array.isArray(errors?.[key]) ? errors[key][0] : errors?.[key];
+const modeLabel = computed(() => ({
+    SELF: 'Paiement personnel', MUTUAL: 'Mutuelle', STAFF: 'Personnel clinique',
+}[financialMode.value]));
+const selectClass = 'block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
+const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-white px-4 text-base text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:border-primary-600 dark:focus:ring-primary-950';
 </script>
 
 <template>
-    <Head title="Réception patient" />
+    <Head title="Nouvelle prise en charge" />
 
-    <div :class="['mx-auto w-full', showArrivalFlow ? 'max-w-screen-xl space-y-5' : 'max-w-screen-2xl space-y-4']">
-        <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex items-start gap-3">
-                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
-                    <Icon class="text-2xl" name="user-add" />
-                </span>
-                <div>
-                    <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Réception patient</h1>
-                    <p class="mt-1 text-sm text-slate-400">Créez le dossier administratif, puis préparez le passage clinique.</p>
-                </div>
+    <div class="mx-auto w-full max-w-screen-2xl space-y-5">
+        <header class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <p class="text-xs font-bold uppercase tracking-[0.16em] text-primary-600">Réception patient</p>
+                <h1 class="mt-1 font-heading text-2xl font-bold text-slate-700 dark:text-white">Nouvelle prise en charge</h1>
+                <p class="mt-1 text-sm text-slate-400">Le besoin d’abord, puis l’identité et le contexte financier du passage.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <Button :as="Link" href="/reception" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="arrow-left" />Accueil réception</Button>
-                <Button size="rg" :variant="showArrivalFlow ? 'white-outline' : 'primary'" type="button" @click="showArrivalFlow ? showPassages() : startArrival()">
-                    <Icon class="me-2 text-lg" :name="showArrivalFlow ? 'list' : 'user-add'" />{{ showArrivalFlow ? 'Voir les passages' : 'Nouvelle arrivée' }}
-                </Button>
+                <Button :as="Link" href="/reception" size="rg" variant="white-outline"><Icon class="me-2" name="list" />Passages récents</Button>
+                <Button v-if="currentStep > 1 && !episode" size="rg" variant="white-outline" @click="currentStep = Math.max(1, currentStep - 1)"><Icon class="me-2" name="arrow-left" />Retour</Button>
             </div>
         </header>
 
-        <Card v-if="showArrivalFlow" class="overflow-hidden shadow-sm">
-            <nav class="border-b border-gray-200 bg-gray-50/50 px-5 py-3 dark:border-gray-900 dark:bg-gray-1000/30" aria-label="Étapes de l'accueil">
-                <ol class="flex items-center">
-                    <li v-for="(stepItem, index) in visibleSteps" :key="stepItem.key" class="flex min-w-0 flex-1 items-center last:flex-none">
-                        <div class="flex items-center gap-2">
-                            <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold', index < currentVisibleIndex ? 'bg-primary-600 text-white' : index === currentVisibleIndex ? 'border-2 border-primary-600 bg-white text-primary-600 dark:bg-gray-950' : 'bg-gray-200 text-slate-400 dark:bg-gray-900']">
-                                <Icon v-if="index < currentVisibleIndex" name="check" />
-                                <span v-else>{{ index + 1 }}</span>
-                            </span>
-                            <span :class="['hidden text-sm font-semibold sm:block', index === currentVisibleIndex ? 'text-slate-700 dark:text-white' : 'text-slate-400']">{{ stepItem.label }}</span>
-                        </div>
-                        <span v-if="index < visibleSteps.length - 1" class="mx-3 h-px min-w-5 flex-1 bg-gray-200 dark:bg-gray-800"></span>
+        <Card class="overflow-hidden shadow-sm">
+            <nav class="overflow-x-auto border-b border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-gray-900 dark:bg-gray-1000/40" aria-label="Progression de la prise en charge">
+                <ol class="flex min-w-[780px] items-center">
+                    <li v-for="step in steps" :key="step.number" class="flex flex-1 items-center last:flex-none">
+                        <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold', step.number < currentStep ? 'bg-primary-600 text-white' : step.number === currentStep ? 'border-2 border-primary-600 bg-white text-primary-600 dark:bg-gray-950' : 'bg-gray-200 text-slate-400 dark:bg-gray-900']">
+                            <Icon v-if="step.number < currentStep" name="check" /><span v-else>{{ step.number }}</span>
+                        </span>
+                        <span :class="['ms-2 whitespace-nowrap text-xs font-semibold', step.number === currentStep ? 'text-slate-700 dark:text-white' : 'text-slate-400']">{{ step.label }}</span>
+                        <span v-if="step.number < steps.length" class="mx-3 h-px flex-1 bg-gray-200 dark:bg-gray-800"></span>
                     </li>
                 </ol>
             </nav>
 
-            <CardBody class="!p-5 sm:!p-7">
-                <section v-if="currentStep === 'type'">
-                    <div class="max-w-2xl">
-                        <h2 class="text-xl font-bold text-slate-700 dark:text-white">Quel patient se présente ?</h2>
-                        <p class="mt-1 text-sm text-slate-400">Commencez par identifier le dossier et le niveau de priorité.</p>
-                    </div>
-
-                    <label class="mt-5 flex cursor-pointer items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/40">
-                        <CheckBox id="is_emergency" v-model="form.is_emergency" size="sm" />
-                        <span>
-                            <span class="block text-sm font-semibold text-slate-700 dark:text-white">Admission en urgence</span>
-                            <span class="mt-0.5 block text-xs leading-5 text-slate-400">Soins et Médecine voient immédiatement le patient ; la famille complète le dossier sans bloquer la prise en charge.</span>
-                        </span>
-                    </label>
-
-                    <div class="mt-5 grid gap-3 sm:grid-cols-2">
-                        <button type="button" :class="['rounded-md border p-5 text-start transition', arrivalMode === 'existing' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-gray-300 dark:border-gray-800']" @click="chooseExisting">
-                            <Icon class="text-2xl text-primary-600" name="search" />
-                            <span class="mt-3 block text-base font-bold text-slate-700 dark:text-white">Patient existant</span>
-                            <span class="mt-1 block text-sm leading-5 text-slate-400">Retrouver son dossier et ouvrir son prochain passage.</span>
-                        </button>
-                        <button type="button" :class="['rounded-md border p-5 text-start transition', arrivalMode === 'new' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-gray-300 dark:border-gray-800']" @click="chooseNew">
-                            <Icon class="text-2xl text-primary-600" name="user-add" />
-                            <span class="mt-3 block text-base font-bold text-slate-700 dark:text-white">Nouveau dossier</span>
-                            <span class="mt-1 block text-sm leading-5 text-slate-400">Créer l’identité permanente avant le premier passage.</span>
-                        </button>
-                    </div>
-
-                    <div v-if="arrivalMode === 'new'" class="mt-6 border-t border-gray-200 pt-5 dark:border-gray-900">
-                        <h3 class="text-sm font-bold text-slate-700 dark:text-white">Type administratif du patient</h3>
-                        <p class="mt-1 text-xs text-slate-400">Ce choix détermine les informations de couverture à demander.</p>
-                        <div class="mt-3 grid gap-3 md:grid-cols-3">
-                            <button type="button" class="rounded-md border border-gray-200 p-4 text-start hover:border-primary-400 dark:border-gray-800" @click="chooseCategory('STANDARD')">
-                                <span class="text-sm font-bold text-slate-700 dark:text-white">Standard</span><span class="mt-1 block text-xs leading-5 text-slate-400">Dossier patient classique.</span>
-                            </button>
-                            <button type="button" class="rounded-md border border-gray-200 p-4 text-start hover:border-primary-400 dark:border-gray-800" @click="chooseCategory('MUTUAL')">
-                                <span class="text-sm font-bold text-slate-700 dark:text-white">Mutuelle</span><span class="mt-1 block text-xs leading-5 text-slate-400">Adhésion, entreprise et pièces justificatives.</span>
-                            </button>
-                            <button type="button" class="rounded-md border border-gray-200 p-4 text-start hover:border-primary-400 dark:border-gray-800" @click="chooseCategory('STAFF')">
-                                <span class="text-sm font-bold text-slate-700 dark:text-white">Personnel</span><span class="mt-1 block text-xs leading-5 text-slate-400">Informations récupérées depuis le dossier RH.</span>
-                            </button>
-                        </div>
-                    </div>
-                </section>
-
-                <section v-else-if="currentStep === 'identity' && arrivalMode === 'existing'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Retrouver le patient</h2>
-                    <p class="mt-1 text-sm text-slate-400">Recherchez par nom, numéro patient ou téléphone.</p>
-                    <form class="mt-5 flex max-w-2xl gap-2" @submit.prevent="submitSearch">
-                        <IconInput v-model="query" class="flex-1" icon="search" placeholder="Nom, numéro patient, téléphone…" autocomplete="off" />
-                        <Button size="rg" type="submit">Rechercher</Button>
-                    </form>
-                    <div v-if="matches.length" class="mt-5 max-w-4xl overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
-                        <button v-for="patient in matches" :key="patient.uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3 text-start last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="pickExistingPatient(patient)">
-                            <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(patient)" />
-                            <span class="min-w-0 flex-1"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</span><span class="mt-0.5 block text-xs text-slate-400">{{ patient.patient_number }} · {{ patient.phone || 'Téléphone non renseigné' }}</span></span>
-                            <Icon class="text-lg text-slate-400" name="chevron-right" />
-                        </button>
-                    </div>
-                    <div v-else-if="query" class="mt-5 max-w-2xl rounded-md border border-dashed border-gray-300 px-4 py-8 text-center dark:border-gray-700">
-                        <p class="text-sm font-semibold text-slate-600 dark:text-slate-200">Aucun dossier trouvé</p>
-                        <button type="button" class="mt-2 text-sm font-semibold text-primary-600" @click="restartAsNew">Créer un nouveau dossier</button>
-                    </div>
-                    <div class="mt-6 border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button></div>
-                </section>
-
-                <section v-else-if="currentStep === 'identity' && patientCategory === 'STAFF'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Identifier le personnel</h2>
-                    <p class="mt-1 text-sm text-slate-400">Le dossier patient sera créé à partir des données RH autorisées, jamais depuis un compte utilisateur.</p>
-                    <IconInput v-model="employeeQuery" class="mt-5 max-w-2xl" icon="search" placeholder="Matricule RH, nom ou prénom…" />
-                    <div class="mt-4 max-w-4xl overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
-                        <button v-for="employee in filteredEmployees" :key="employee.uuid" type="button" :class="['flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3 text-start last:border-0 dark:border-gray-900', selectedEmployee?.uuid === employee.uuid ? 'bg-primary-50/60 dark:bg-primary-950/20' : 'hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="pickEmployee(employee)">
-                            <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(employee)" />
-                            <span class="min-w-0 flex-1"><span class="block text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(employee) }}</span><span class="mt-0.5 block text-xs text-slate-400">{{ employee.employee_number }} · {{ employee.profession || 'Fonction non renseignée' }}</span></span>
-                            <Icon v-if="selectedEmployee?.uuid === employee.uuid" class="text-xl text-primary-600" name="check-circle" />
-                        </button>
-                        <p v-if="filteredEmployees.length === 0" class="px-4 py-8 text-center text-sm text-slate-400">Aucun personnel actif disponible. Le dossier doit d’abord être créé par l’Administration/RH.</p>
-                    </div>
-                    <FormError v-if="form.errors.employee_uuid" class="mt-3">{{ form.errors.employee_uuid }}</FormError>
-                    <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button><Button size="rg" :disabled="!identityComplete" @click="continueIdentity">Continuer<Icon class="ms-2" name="arrow-right" /></Button></div>
-                </section>
-
-                <section v-else-if="currentStep === 'identity'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Identité du patient</h2>
-                    <p class="mt-1 text-sm text-slate-400">{{ categoryLabels[patientCategory] }} · les champs marqués * sont obligatoires.</p>
-                    <div class="mt-6 grid gap-x-4 gap-y-5 lg:grid-cols-12">
-                        <label class="lg:col-span-2"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Civilité</span><span class="relative block"><select :class="selectClass" :value="form.civility ?? ''" @change="chooseCivility"><option value="">Choisir</option><option v-for="option in civilityOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span><FormError v-if="form.errors.civility" class="mt-1">{{ form.errors.civility }}</FormError></label>
-                        <label class="lg:col-span-5"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nom *</span><IconInput v-model="form.last_name" icon="user" autocomplete="off" /><FormError v-if="form.errors.last_name" class="mt-1">{{ form.errors.last_name }}</FormError></label>
-                        <label class="lg:col-span-5"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Prénom(s)</span><IconInput v-model="form.first_name" icon="user" autocomplete="off" /><FormError v-if="form.errors.first_name" class="mt-1">{{ form.errors.first_name }}</FormError></label>
-
-                        <div class="lg:col-span-4"><span class="mb-2 block text-sm font-medium text-slate-700 dark:text-white">Sexe *</span><div class="flex h-9 items-center gap-5"><label class="inline-flex items-center gap-2 text-sm text-slate-600"><input v-model="form.sex" type="radio" value="M" class="text-primary-600 focus:ring-primary-200" />Masculin</label><label class="inline-flex items-center gap-2 text-sm text-slate-600"><input v-model="form.sex" type="radio" value="F" class="text-primary-600 focus:ring-primary-200" />Féminin</label></div><FormError v-if="form.errors.sex" class="mt-1">{{ form.errors.sex }}</FormError></div>
-                        <div class="lg:col-span-8"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Pièce d’identité <span class="font-normal text-slate-400">(facultatif)</span></span><div class="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]"><span class="relative"><select v-model="form.identity_document_type" :class="selectClass"><option :value="null">Type</option><option value="CIN">CIN</option><option value="PASSPORT">Passeport</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span><IconInput v-model="form.identity_document_number" icon="card-view" placeholder="Numéro du document" /></div><FormError v-if="form.errors.identity_document_number" class="mt-1">{{ form.errors.identity_document_number }}</FormError></div>
-
-                        <div class="lg:col-span-6"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Naissance ou âge *</span><div class="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)]"><div class="inline-flex rounded border border-gray-200 p-0.5 dark:border-gray-800"><button type="button" :class="['rounded px-3 py-1.5 text-xs font-semibold', birthMode === 'date' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="setBirthMode('date')">Date de naissance</button><button type="button" :class="['rounded px-3 py-1.5 text-xs font-semibold', birthMode === 'age' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="setBirthMode('age')">Âge</button></div><Input v-if="birthMode === 'date'" v-model="form.birth_date" type="date" /><Input v-else v-model="form.age" type="number" min="0" max="130" placeholder="Âge en années" /></div><p v-if="birthMode === 'date' && exactAge !== null" class="mt-1 text-xs text-slate-400">Âge calculé automatiquement : {{ exactAge }} ans.</p><FormError v-if="form.errors.birth_date || form.errors.age" class="mt-1">{{ form.errors.birth_date || form.errors.age }}</FormError></div>
-                        <label class="lg:col-span-3"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Situation maritale</span><span class="relative block"><select v-model="form.marital_status" :class="selectClass"><option :value="null">Non renseignée</option><option v-for="option in maritalOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span><FormError v-if="form.errors.marital_status" class="mt-1">{{ form.errors.marital_status }}</FormError></label>
-                        <label class="lg:col-span-3"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nombre d’enfants</span><Input v-model="form.children_count" type="number" min="0" max="30" /><FormError v-if="form.errors.children_count" class="mt-1">{{ form.errors.children_count }}</FormError></label>
-                        <label class="lg:col-span-6"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profession</span><IconInput v-model="form.profession" icon="briefcase" placeholder="Métier ou activité" /><FormError v-if="form.errors.profession" class="mt-1">{{ form.errors.profession }}</FormError></label>
-                    </div>
-                    <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button><Button size="rg" :disabled="!identityComplete" @click="continueIdentity">Continuer<Icon class="ms-2" name="arrow-right" /></Button></div>
-                </section>
-
-                <section v-else-if="currentStep === 'contact'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">{{ arrivalMode === 'existing' || patientCategory === 'STAFF' ? 'Personne à contacter pour ce passage' : 'Coordonnées du patient' }}</h2>
-                    <p class="mt-1 text-sm text-slate-400">{{ arrivalMode === 'existing' || patientCategory === 'STAFF' ? 'Peut différer d’un passage à l’autre : à vérifier à chaque arrivée.' : 'Séparez les moyens de contact du bloc d’identité pour une saisie plus rapide.' }}</p>
-                    <div v-if="arrivalMode !== 'existing' && patientCategory !== 'STAFF'" class="mt-6 grid gap-5 md:grid-cols-2">
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Téléphone</span><IconInput v-model="form.phone" icon="call" autocomplete="tel" /><FormError v-if="form.errors.phone" class="mt-1">{{ form.errors.phone }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Email</span><IconInput v-model="form.email" icon="mail" type="email" autocomplete="email" /><FormError v-if="form.errors.email" class="mt-1">{{ form.errors.email }}</FormError></label>
-                        <div class="md:col-span-2"><div class="mb-1.5 flex items-center justify-between"><span class="text-sm font-medium text-slate-700 dark:text-white">Adresse</span><button type="button" class="inline-flex items-center gap-1 text-xs font-semibold text-primary-600" @click="toggleNewAddress"><Icon :name="showNewAddress ? 'minus' : 'plus'" />{{ showNewAddress ? 'Choisir dans la liste' : 'Ajouter une adresse' }}</button></div><div v-if="!showNewAddress" class="relative"><select :class="selectClass" :value="form.address_entry_uuid" @change="selectAddress"><option value="">Adresse non renseignée</option><option v-for="address in addressEntries" :key="address.uuid" :value="address.uuid">{{ address.label }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></div><IconInput v-else v-model="form.new_address_label" icon="map-pin" placeholder="Saisissez la nouvelle adresse" /><FormError v-if="form.errors.address_entry_uuid || form.errors.new_address_label" class="mt-1">{{ form.errors.address_entry_uuid || form.errors.new_address_label }}</FormError></div>
-                    </div>
-
-                    <div class="mt-6 rounded-md border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-1000/30">
-                        <h3 class="text-sm font-bold text-slate-700 dark:text-white">Personne à contacter <span class="font-normal text-slate-400">(facultatif)</span></h3>
-                        <div class="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                            <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Nom complet</span><IconInput v-model="form.emergency_contact_name" icon="user" /></label>
-                            <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Lien de parenté</span><Input v-model="form.emergency_contact_relationship" /></label>
-                            <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Téléphone</span><IconInput v-model="form.emergency_contact_phone" icon="call" /></label>
-                            <label><span class="mb-1.5 block text-xs font-medium text-slate-500">Email</span><IconInput v-model="form.emergency_contact_email" icon="mail" type="email" /></label>
-                        </div>
-                    </div>
-                    <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button><Button size="rg" @click="continueContact">Continuer<Icon class="ms-2" name="arrow-right" /></Button></div>
-                </section>
-
-                <section v-else-if="currentStep === 'coverage' && patientCategory === 'MUTUAL'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Informations de mutuelle</h2>
-                    <p class="mt-1 text-sm text-slate-400">Enregistrez l’adhésion administrative et ses justificatifs privés.</p>
-                    <div class="mt-6 grid gap-5 md:grid-cols-2">
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nom de la mutuelle *</span><Input v-model="form.mutual_organization_name" list="mutual-organizations" placeholder="Mutuelle ou organisme" /><datalist id="mutual-organizations"><option v-for="organization in mutualOrganizations" :key="organization.uuid" :value="organization.name" /></datalist><FormError v-if="form.errors.mutual_organization_name" class="mt-1">{{ form.errors.mutual_organization_name }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Entreprise du patient *</span><IconInput v-model="form.mutual_employer_name" icon="building" /><FormError v-if="form.errors.mutual_employer_name" class="mt-1">{{ form.errors.mutual_employer_name }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Bénéficiaire *</span><span class="relative block"><select v-model="form.mutual_beneficiary_type" :class="selectClass"><option value="PRINCIPAL">Principal</option><option value="FAMILY_MEMBER">Membre de famille</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span><FormError v-if="form.errors.mutual_beneficiary_type" class="mt-1">{{ form.errors.mutual_beneficiary_type }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Numéro matricule *</span><IconInput v-model="form.mutual_membership_number" icon="card-view" /><FormError v-if="form.errors.mutual_membership_number" class="mt-1">{{ form.errors.mutual_membership_number }}</FormError></label>
-                        <div class="md:col-span-2">
-                            <div class="mb-2 flex flex-wrap items-end justify-between gap-2">
-                                <div>
-                                    <span class="block text-sm font-medium text-slate-700 dark:text-white">Justificatifs <span class="font-normal text-slate-400">(facultatif)</span></span>
-                                    <span class="mt-0.5 block text-xs text-slate-400">Carte de mutuelle, pièce d’identité ou autre justificatif privé.</span>
-                                </div>
-                                <span class="text-xs font-medium text-slate-400">{{ mutualAttachmentPreviews.length }} / 5 fichiers</span>
-                            </div>
-
-                            <div
-                                :class="[
-                                    'overflow-hidden rounded-md border border-dashed transition-colors',
-                                    mutualAttachmentClientError || mutualAttachmentServerError
-                                        ? 'border-red-400 bg-red-50/40 dark:border-red-900 dark:bg-red-950/20'
-                                        : 'border-gray-300 bg-gray-50/60 hover:border-primary-400 dark:border-gray-800 dark:bg-gray-1000/30 dark:hover:border-primary-700',
-                                ]"
-                                @dragover.prevent
-                                @drop.prevent="dropMutualAttachments"
-                            >
-                                <input
-                                    id="mutual_attachments"
-                                    ref="fileInput"
-                                    type="file"
-                                    class="sr-only"
-                                    multiple
-                                    accept="image/jpeg,image/png,image/webp,application/pdf"
-                                    :aria-invalid="Boolean(mutualAttachmentClientError || mutualAttachmentServerError)"
-                                    @change="selectAttachments"
-                                />
-
-                                <label v-if="!mutualAttachmentPreviews.length" for="mutual_attachments" class="flex cursor-pointer flex-col items-center px-4 py-6 text-center">
-                                    <span class="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm dark:bg-gray-900 dark:text-slate-300">
-                                        <Icon class="text-xl" name="upload-cloud" />
-                                    </span>
-                                    <span class="mt-2 text-sm font-bold text-slate-700 dark:text-white">Ajouter les justificatifs</span>
-                                    <span class="mt-1 text-xs leading-5 text-slate-400">Images JPEG, PNG, WebP ou PDF · 5 Mo par fichier</span>
-                                    <span class="text-[11px] leading-5 text-slate-400">Cliquez ou déposez jusqu’à 5 fichiers ici.</span>
-                                </label>
-
-                                <div v-else class="p-3">
-                                    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                                        <article
-                                            v-for="(attachment, index) in mutualAttachmentPreviews"
-                                            :key="`${attachment.file.name}-${attachment.file.lastModified}-${index}`"
-                                            class="group overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
-                                        >
-                                            <div class="relative">
-                                                <button
-                                                    type="button"
-                                                    class="flex h-24 w-full items-center justify-center overflow-hidden bg-gray-100 text-slate-500 transition hover:bg-gray-200 dark:bg-gray-900 dark:text-slate-300 dark:hover:bg-gray-800"
-                                                    :aria-label="`Aperçu de ${attachment.file.name}`"
-                                                    @click="activeMutualAttachment = attachment"
-                                                >
-                                                    <img v-if="attachment.isImage" :src="attachment.previewUrl" :alt="attachment.file.name" class="h-full w-full object-cover" />
-                                                    <span v-else class="flex flex-col items-center">
-                                                        <Icon class="text-3xl" name="file-text" />
-                                                        <span class="mt-1 text-[10px] font-bold uppercase tracking-wide">PDF</span>
-                                                    </span>
-                                                    <span class="absolute inset-x-0 bottom-0 bg-slate-950/65 px-2 py-1 text-[10px] font-semibold text-white opacity-0 transition group-hover:opacity-100">Voir l’aperçu</span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="absolute end-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-sm transition hover:text-red-600 dark:bg-gray-950/95 dark:text-slate-300"
-                                                    :aria-label="`Retirer ${attachment.file.name}`"
-                                                    @click="removeAttachment(index)"
-                                                >
-                                                    <Icon name="cross" />
-                                                </button>
-                                            </div>
-                                            <div class="min-w-0 px-3 py-2.5">
-                                                <p class="truncate text-xs font-bold text-slate-700 dark:text-white" :title="attachment.file.name">{{ attachment.file.name }}</p>
-                                                <p class="mt-0.5 text-[11px] text-slate-400">{{ attachment.isImage ? 'Image' : 'Document PDF' }} · {{ formatFileSize(attachment.file.size) }}</p>
-                                            </div>
-                                        </article>
-
-                                        <label v-if="mutualAttachmentPreviews.length < maxMutualAttachments" for="mutual_attachments" class="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-gray-300 bg-white px-4 py-3 text-center transition hover:border-primary-400 dark:border-gray-800 dark:bg-gray-950">
-                                            <Icon class="text-xl text-slate-400" name="plus" />
-                                            <span class="mt-1.5 text-xs font-bold text-slate-600 dark:text-slate-200">Ajouter</span>
-                                            <span class="mt-0.5 text-[11px] text-slate-400">{{ maxMutualAttachments - mutualAttachmentPreviews.length }} place{{ maxMutualAttachments - mutualAttachmentPreviews.length > 1 ? 's' : '' }} restante{{ maxMutualAttachments - mutualAttachmentPreviews.length > 1 ? 's' : '' }}</span>
-                                        </label>
-                                    </div>
-
-                                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-800">
-                                        <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-400"><Icon name="lock" />Stockage privé, réservé aux utilisateurs autorisés.</span>
-                                        <button type="button" class="text-xs font-semibold text-red-600 hover:underline dark:text-red-300" @click="clearMutualAttachments">Tout retirer</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <FormError v-if="mutualAttachmentClientError" class="mt-1">{{ mutualAttachmentClientError }}</FormError>
-                            <FormError v-else-if="mutualAttachmentServerError" class="mt-1">{{ mutualAttachmentServerError }}</FormError>
-                        </div>
-                    </div>
-                    <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button><Button size="rg" :disabled="!coverageComplete" @click="continueCoverage">Continuer<Icon class="ms-2" name="arrow-right" /></Button></div>
-                </section>
-
-                <section v-else-if="currentStep === 'coverage' && patientCategory === 'STAFF'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Lien avec le personnel</h2>
-                    <p class="mt-1 text-sm text-slate-400">Vérifiez le dossier RH sélectionné avant de créer ou réutiliser son dossier patient.</p>
-                    <div v-if="selectedEmployee" class="mt-5 max-w-3xl rounded-md border border-gray-200 p-5 dark:border-gray-800"><div class="flex items-center gap-3"><Avatar rounded size="md" variant="slate-pale" :text="formatPatientInitials(selectedEmployee)" /><div><p class="font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedEmployee) }}</p><p class="mt-0.5 text-xs text-slate-400">{{ selectedEmployee.employee_number }} · {{ selectedEmployee.profession || 'Fonction non renseignée' }}</p></div></div><dl class="mt-4 grid gap-4 border-t border-gray-100 pt-4 text-sm sm:grid-cols-3 dark:border-gray-900"><div><dt class="text-xs text-slate-400">Téléphone</dt><dd class="mt-1 font-medium text-slate-600 dark:text-slate-200">{{ selectedEmployee.phone || 'Non renseigné' }}</dd></div><div><dt class="text-xs text-slate-400">Email</dt><dd class="mt-1 break-all font-medium text-slate-600 dark:text-slate-200">{{ selectedEmployee.email || 'Non renseigné' }}</dd></div><div><dt class="text-xs text-slate-400">Adresse</dt><dd class="mt-1 font-medium text-slate-600 dark:text-slate-200">{{ selectedEmployee.address || 'Non renseignée' }}</dd></div></dl></div>
-                    <div class="mt-4 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><strong>Couverture personnel :</strong> l’éligibilité est liée ici, mais le crédit bloc sera calculé par RH / Finance. La Réception ne modifie pas ce crédit et aucun faux paiement ne sera généré.</div>
-                    <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Retour</Button><Button size="rg" :disabled="!coverageComplete" @click="continueCoverage">Continuer<Icon class="ms-2" name="arrow-right" /></Button></div>
-                </section>
-
-                <section v-else-if="currentStep === 'confirmation'">
-                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Confirmer l’arrivée</h2>
-                    <p class="mt-1 text-sm text-slate-400">Le dossier patient et son nouveau numéro de passage seront créés ensemble.</p>
-                    <div v-if="form.is_emergency" class="mt-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"><strong>Urgence médicale :</strong> le patient sera immédiatement visible aux Soins et en Médecine.</div>
-                    <div class="mt-5 rounded-md border border-gray-200 dark:border-gray-800">
-                        <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-gray-800"><div class="flex items-center gap-3"><Avatar rounded size="md" variant="slate-pale" :text="formatPatientInitials(recapPatient ?? { first_name: form.first_name, last_name: form.last_name })" /><div><p class="text-base font-bold text-slate-700 dark:text-white">{{ recapName }}</p><p class="mt-0.5 text-xs text-slate-400">{{ arrivalMode === 'existing' ? selectedPatient?.patient_number : categoryLabels[patientCategory] }}</p></div></div><span class="w-fit rounded border border-gray-200 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800">{{ arrivalMode === 'existing' ? 'Dossier existant' : 'Nouveau dossier' }}</span></div>
-                        <dl v-if="arrivalMode !== 'existing' && patientCategory !== 'STAFF'" class="grid gap-px bg-gray-200 sm:grid-cols-2 lg:grid-cols-4 dark:bg-gray-800"><div class="bg-white px-5 py-3 dark:bg-gray-950"><dt class="text-xs text-slate-400">{{ birthMode === 'date' ? 'Date de naissance' : 'Âge' }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ birthMode === 'date' ? (form.birth_date ? `${formatDate(form.birth_date)} · ${exactAge} ans` : 'Non renseignée') : `${form.age} ans` }}</dd></div><div class="bg-white px-5 py-3 dark:bg-gray-950"><dt class="text-xs text-slate-400">Sexe</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ form.sex === 'M' ? 'Masculin' : 'Féminin' }}</dd></div><div class="bg-white px-5 py-3 dark:bg-gray-950"><dt class="text-xs text-slate-400">Téléphone</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ form.phone || 'Non renseigné' }}</dd></div><div class="bg-white px-5 py-3 dark:bg-gray-950"><dt class="text-xs text-slate-400">Couverture</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ categoryLabels[patientCategory] }}</dd></div></dl>
-                    </div>
-                    <div class="mt-4 rounded-md border border-dashed border-gray-300 px-4 py-3 text-xs leading-5 text-slate-500 dark:border-gray-700"><strong>Étape suivante :</strong> le système ouvre la page du passage. La Réception y sélectionnera ECG, échographie, consultation ou soins ; Laravel calculera le parcours clinique depuis le référentiel.</div>
-                    <div v-if="duplicates.length" class="mt-4 rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30"><p class="text-sm font-semibold text-amber-800 dark:text-amber-200">Un dossier similaire existe déjà.</p><ul class="mt-2 text-xs text-amber-700 dark:text-amber-300"><li v-for="match in duplicates" :key="match.uuid">{{ match.patient_number }} · {{ formatPatientName(match) }}</li></ul><Button class="mt-3" size="sm" variant="white-outline" :disabled="form.processing" @click="submitArrival(true)">Créer quand même</Button></div>
-                    <div class="mt-6 flex justify-between border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="rg" variant="white-outline" @click="goBack"><Icon class="me-2" name="arrow-left" />Modifier</Button><Button size="rg" :disabled="form.processing || (arrivalMode === 'existing' && !selectedPatient)" @click="submitArrival(false)"><Icon class="me-2" name="check" />{{ form.processing ? 'Enregistrement…' : 'Créer le passage' }}</Button></div>
-                </section>
-            </CardBody>
-        </Card>
-
-        <Card v-else class="overflow-hidden shadow-sm">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><div class="flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900"><Icon name="clock" /></span><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Passages patients</h2><p class="mt-0.5 text-xs text-slate-400">Arrivées récentes et état du parcours clinique.</p></div></div><span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-slate-500 dark:bg-gray-900">{{ recentEpisodes.length }} affiché{{ recentEpisodes.length > 1 ? 's' : '' }}</span></div>
-            <div class="flex items-center gap-3 border-b border-gray-200 bg-gray-50/50 px-5 py-3 dark:border-gray-900 dark:bg-gray-1000/30"><span class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Afficher</span><div class="inline-flex overflow-x-auto rounded-md border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950"><Link v-for="option in recentFilterOptions" :key="option.value" :href="recentFilterHref(option.value)" replace preserve-scroll :class="['shrink-0 rounded px-3 py-1.5 text-xs font-semibold', activeRecentFilter === option.value ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']">{{ option.label }}</Link></div></div>
-            <div v-if="!recentEpisodes.length" class="px-5 py-12 text-center"><p class="text-sm font-semibold text-slate-600 dark:text-slate-200">Aucun passage dans cette vue</p><Button class="mt-4" size="sm" @click="startArrival">Nouvelle arrivée</Button></div>
-            <div v-else class="overflow-x-auto"><table class="w-full min-w-[920px]"><thead><tr class="bg-gray-50/60 text-start text-xs uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40"><th class="px-5 py-2.5 text-start">Patient</th><th class="px-5 py-2.5 text-start">Passage</th><th class="px-5 py-2.5 text-start">Arrivée</th><th class="px-5 py-2.5 text-start">Priorité</th><th class="px-5 py-2.5 text-start">Parcours</th><th class="px-5 py-2.5 text-end">Action</th></tr></thead><tbody><tr v-for="episode in recentEpisodes" :key="episode.uuid" class="border-t border-gray-200 hover:bg-gray-50/50 dark:border-gray-900 dark:hover:bg-gray-1000/30"><td class="px-5 py-3"><div class="flex items-center gap-3"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" /><div><Link v-if="can('patients.view')" :href="`/patients/${episode.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(episode.patient) }}</Link><p class="mt-0.5 text-xs text-slate-400">{{ episode.patient.patient_number }}</p></div></div></td><td class="px-5 py-3 font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ episode.episode_number }}</td><td class="px-5 py-3"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ formatDateTime(episode.started_at) }}</span><span class="text-xs text-slate-400">{{ formatRelativeTime(episode.started_at) }}</span></td><td class="px-5 py-3"><span :class="['text-xs font-semibold', episode.priority === 'EMERGENCY' ? 'text-red-600' : 'text-slate-500']">{{ episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normale' }}</span></td><td class="px-5 py-3"><span :class="['rounded border px-2 py-1 text-xs font-semibold', pathwayStatusBadgeClass(pathwayStatus(episode))]">{{ pathwayStatus(episode) }}</span></td><td class="px-5 py-3 text-end"><Button v-if="can('episodes.update') && !episode.service_plan_finalized_at" :as="Link" :href="`/reception/passages/${episode.uuid}/prestations`" size="sm" variant="white-outline">Préparer</Button><Button v-else-if="can('patients.view')" :as="Link" :href="`/patients/${episode.patient.uuid}`" icon size="sm" variant="white-outline"><Icon name="eye" /></Button></td></tr></tbody></table></div>
-        </Card>
-    </div>
-
-    <Dialog :open="Boolean(activeMutualAttachment)" as="div" class="relative z-[1200]" @close="activeMutualAttachment = null">
-        <div class="fixed inset-0 bg-slate-950/70" aria-hidden="true"></div>
-        <div class="fixed inset-0 overflow-y-auto p-4">
-            <div class="flex min-h-full items-center justify-center">
-                <DialogPanel v-if="activeMutualAttachment" class="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
-                <header class="flex items-center justify-between gap-4 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-                    <div class="min-w-0">
-                        <DialogTitle class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ activeMutualAttachment.file.name }}</DialogTitle>
-                        <p class="mt-0.5 text-xs text-slate-400">{{ activeMutualAttachment.isImage ? 'Image' : 'Document PDF' }} · {{ formatFileSize(activeMutualAttachment.file.size) }}</p>
-                    </div>
-                    <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-gray-100 hover:text-slate-700 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer l’aperçu" @click="activeMutualAttachment = null">
-                        <Icon class="text-xl" name="cross" />
-                    </button>
-                </header>
-
-                <div class="flex min-h-64 flex-1 items-center justify-center overflow-auto bg-gray-100 p-4 dark:bg-gray-1000/60 sm:min-h-[28rem]">
-                    <img v-if="activeMutualAttachment.isImage" :src="activeMutualAttachment.previewUrl" :alt="activeMutualAttachment.file.name" class="max-h-[72vh] max-w-full object-contain" />
-                    <div v-else class="flex flex-col items-center text-center">
-                        <span class="flex h-20 w-20 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm dark:bg-gray-900 dark:text-slate-300">
-                            <Icon class="text-4xl" name="file-text" />
-                        </span>
-                        <p class="mt-4 text-sm font-bold text-slate-700 dark:text-white">Document PDF prêt à être joint</p>
-                        <p class="mt-1 text-xs text-slate-400">Ouvrez-le dans un nouvel onglet pour vérifier son contenu.</p>
-                        <a :href="activeMutualAttachment.previewUrl" target="_blank" rel="noopener" class="mt-4 inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">
-                            <Icon name="eye" />Ouvrir le PDF
-                        </a>
+            <CardBody v-if="currentStep === 1" class="!p-5 lg:!p-7">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div><h2 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Quel est votre besoin aujourd’hui ?</h2><p class="mt-1 text-sm text-slate-400">Choisissez les prestations configurées pour la Réception. Aucun dossier patient n’est créé à cette étape.</p></div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <Button v-if="capabilities.can_open_pharmacy_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" size="rg" variant="white-outline"><Icon class="me-2" name="shopping-cart" />Vente comptoir Pharmacie</Button>
+                        <Button size="rg" variant="danger" @click="startEmergency"><Icon class="me-2" name="activity" />Admission en urgence</Button>
                     </div>
                 </div>
-                </DialogPanel>
-            </div>
-        </div>
-    </Dialog>
+
+                <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <section>
+                        <div v-if="estimateCatalog.length" class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/40">
+                            <div class="mb-2 flex items-center justify-between gap-3 px-1">
+                                <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Catégories de prestations</p>
+                                <p class="text-xs text-slate-400">{{ estimateCatalog.length }} disponible{{ estimateCatalog.length > 1 ? 's' : '' }}</p>
+                            </div>
+                            <div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Filtrer par catégorie">
+                                <button v-for="category in catalogCategoryOptions" :key="category.value || 'all'" type="button" :aria-pressed="moduleFilter === category.value" :class="['inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition', moduleFilter === category.value ? 'border-primary-600 bg-primary-600 text-white shadow-sm' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-700 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']" @click="moduleFilter = category.value">
+                                    <span>{{ category.label }}</span>
+                                    <span :class="['rounded-full px-1.5 py-0.5 text-[10px] font-bold', moduleFilter === category.value ? 'bg-white/20 text-white' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400']">{{ category.count }}</span>
+                                </button>
+                            </div>
+                        </div>
+                        <IconInput v-if="estimateCatalog.length" v-model="catalogQuery" class="mt-3" icon="search" placeholder="Rechercher une désignation, un code ou un service…" autocomplete="off" />
+                        <div v-if="estimateCatalog.length && filteredCatalog.length" class="mt-3 max-h-[480px] overflow-y-auto rounded-md border border-gray-200 dark:border-gray-800">
+                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" class="grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-4 py-3 text-start transition last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="addService(item)"><span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-primary-600 dark:border-gray-800"><Icon name="plus" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.routing_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'À configurer' }}</span><span class="text-[11px] text-slate-400">{{ item.unit }}</span></span></button>
+                        </div>
+                        <div v-else-if="!estimateCatalog.length" class="rounded-md border border-amber-200 bg-amber-50/70 px-5 py-6 dark:border-amber-900 dark:bg-amber-950/20">
+                            <div class="flex items-start gap-4">
+                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xl text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"><Icon name="alert-circle" /></span>
+                                <div>
+                                    <h3 class="text-sm font-bold text-amber-900 dark:text-amber-200">Catalogue Réception non configuré</h3>
+                                    <p class="mt-1 max-w-2xl text-xs leading-5 text-amber-800 dark:text-amber-300">Aucune prestation active, facturable, sélectionnable et routée n’est disponible sur ce site. Le référentiel doit être configuré par l’Administration avant toute sélection.</p>
+                                    <Button v-if="capabilities.can_manage_catalog" class="mt-3" :as="Link" href="/administration/catalog" size="sm" variant="white-outline"><Icon class="me-2" name="settings" />Ouvrir Désignations & tarifs</Button>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="mt-3 rounded-md border border-dashed border-gray-300 px-5 py-8 text-center dark:border-gray-700">
+                            <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
+                            <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucune prestation disponible dans cette catégorie</p>
+                            <p class="mt-1 text-xs text-slate-400">Modifiez la recherche ou choisissez une autre catégorie. Les prestations déjà sélectionnées sont masquées.</p>
+                            <button v-if="hasCatalogFilters" type="button" class="mt-3 text-xs font-bold text-primary-600 hover:text-primary-700" @click="resetCatalogFilters">Afficher toutes les prestations</button>
+                        </div>
+                    </section>
+
+                    <aside class="space-y-3 self-start xl:sticky xl:top-20">
+                        <div class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                            <div class="flex items-center justify-between bg-gray-50 px-4 py-3 dark:bg-gray-1000"><span class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><Icon name="cart" />Sélection</span><span class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-bold text-primary-700">{{ cart.length }}</span></div>
+                            <div v-if="cartLines.length" class="divide-y divide-gray-100 dark:divide-gray-900"><div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="flex items-center gap-3 px-4 py-3"><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ entry.catalog.name }}</span><span class="text-xs text-slate-400">{{ entry.catalog.module_label }}</span></span><button type="button" class="text-slate-400 hover:text-red-600" @click="removeService(entry.index)"><Icon name="cross" /></button></div></div>
+                            <p v-else class="px-4 py-8 text-center text-sm text-slate-400">Ajoutez au moins une prestation.</p>
+                            <div class="border-t border-gray-200 p-3 dark:border-gray-800"><Button class="w-full justify-center" size="rg" :disabled="!cart.length" @click="showEstimate">Voir l’estimation<Icon class="ms-2" name="arrow-right" /></Button></div>
+                        </div>
+                        <button type="button" class="group w-full rounded-md border border-dashed border-amber-300 bg-amber-50/60 p-4 text-start transition hover:border-amber-400 hover:bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:border-amber-800" @click="continueWithoutKnownDesignation">
+                            <span class="flex items-start gap-3">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-100 text-lg text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><Icon name="info" /></span>
+                                <span class="min-w-0 flex-1"><span class="block text-sm font-bold text-slate-700 dark:text-slate-100">Besoin à préciser après évaluation</span><span class="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">La prestation et son montant seront définis après l’évaluation par les Soins.</span></span>
+                                <Icon class="mt-1 shrink-0 text-slate-400 transition group-hover:translate-x-0.5" name="arrow-right" />
+                            </span>
+                        </button>
+                    </aside>
+                </div>
+            </CardBody>
+
+            <CardBody v-else-if="currentStep === 2" class="!p-5 lg:!p-7">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Estimation au tarif STANDARD</h2><p class="mt-1 text-sm text-slate-400">Le montant est recalculé par Laravel à partir des identifiants et quantités.</p></div><span class="rounded border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:border-gray-800">Estimation · pas une facture</span></div>
+                <div class="mt-6 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800"><div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="grid gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_110px_150px_36px] sm:items-center dark:border-gray-900"><div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ entry.catalog.name }}</p><p class="mt-0.5 text-xs text-slate-400">{{ entry.catalog.code }} · {{ entry.catalog.module_label }}</p></div><label><span class="mb-1 block text-[11px] font-semibold uppercase text-slate-400">Quantité</span><Input v-model="entry.line.quantity" type="number" min="0.01" max="9999.99" step="0.01" @change="recalculateEstimate" /></label><div class="sm:text-end"><p class="text-[11px] font-semibold uppercase text-slate-400">Sous-total</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ entry.estimated ? formatMoney(entry.estimated.line_total) : '—' }}</p><p class="text-[11px] text-slate-400">{{ entry.estimated ? `${formatMoney(entry.estimated.unit_price)} / ${entry.catalog.unit}` : 'Tarif indisponible' }}</p></div><button type="button" class="flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600" @click="removeService(entry.index)"><Icon name="cross" /></button></div></div>
+                <div v-if="estimateError" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">{{ estimateError }} Le parcours clinique pourra néanmoins être conservé sans inventer de tarif.</div>
+                <div class="mt-4 flex flex-col gap-3 rounded-md bg-slate-900 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between"><div><p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Total standard estimé</p><p class="mt-1 font-heading text-2xl font-bold">{{ estimate ? formatMoney(estimate.total_amount) : 'À confirmer' }}</p></div><p class="max-w-md text-xs leading-5 text-slate-300">Le montant définitif peut varier selon le mode de prise en charge. Aucun Patient, Episode, facture ou paiement n’a encore été créé.</p></div>
+                <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><Button size="rg" variant="white-outline" @click="currentStep = 1"><Icon class="me-2" name="arrow-left" />Modifier le besoin</Button><div class="flex flex-col gap-2 sm:flex-row"><Button :as="Link" href="/reception" size="rg" variant="white-outline">Je voulais seulement connaître le prix</Button><Button size="rg" :disabled="estimateLoading" @click="continueToPatient">Continuer la prise en charge<Icon class="ms-2" name="arrow-right" /></Button></div></div>
+            </CardBody>
+
+            <CardBody v-else-if="currentStep === 3" class="!p-5 lg:!p-7">
+                <div>
+                    <p v-if="isEmergency" class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">Urgence : la création du passage alertera immédiatement Soins et Médecine, sans attendre un mode financier.</p>
+                    <h2 class="text-xl font-bold text-slate-700 dark:text-white">Identifier le Patient</h2>
+                    <p class="mt-1 text-sm text-slate-400">Recherchez d’abord le dossier permanent. Créez-en un uniquement si le patient n’existe pas.</p>
+                </div>
+
+                <div class="mt-5 inline-flex rounded-md border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-gray-950">
+                    <button type="button" :class="['rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'search' ? 'bg-gray-100 text-slate-700 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" @click="chooseExistingPatient"><Icon class="me-2" name="search" />Patient existant</button>
+                    <button v-if="capabilities.can_create_patient" type="button" :class="['rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'create' ? 'bg-gray-100 text-slate-700 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" @click="chooseNewPatient"><Icon class="me-2" name="user-add" />Nouveau Patient</button>
+                </div>
+
+                <section v-if="patientMode === 'search'" class="mt-5 w-full">
+                    <div class="rounded-md border border-gray-200 bg-gray-50/60 p-4 sm:p-5 dark:border-gray-800 dark:bg-gray-1000/40">
+                        <div class="mb-3">
+                            <h3 class="text-sm font-bold text-slate-700 dark:text-white">Rechercher dans les dossiers patients</h3>
+                            <p class="mt-1 text-xs text-slate-400">Numéro de dossier, nom, prénom, téléphone ou numéro de pièce d’identité.</p>
+                        </div>
+                        <form class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" @submit.prevent="searchPatients">
+                            <IconInput v-model="patientQuery" size="lg" icon="search" placeholder="Ex. M-26-0001, Rakoto, 034…" autocomplete="off" @update:model-value="patientSearchPerformed = false" />
+                            <Button size="lg" type="submit" class="justify-center" :disabled="patientQuery.trim().length < 2 || patientSearchLoading"><Icon class="me-2" :name="patientSearchLoading ? 'loader' : 'search'" />{{ patientSearchLoading ? 'Recherche…' : 'Rechercher' }}</Button>
+                        </form>
+                    </div>
+
+                    <div v-if="selectedPatient" class="mt-4 flex flex-col gap-4 rounded-md border border-primary-200 bg-primary-50/50 p-4 sm:flex-row sm:items-center dark:border-primary-900 dark:bg-primary-950/20">
+                        <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(selectedPatient)" />
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <p class="truncate text-base font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</p>
+                                <span class="rounded-full bg-primary-100 px-2 py-0.5 text-[11px] font-bold text-primary-700 dark:bg-primary-900/50 dark:text-primary-200"><Icon class="me-1" name="check-circle" />Patient sélectionné</span>
+                            </div>
+                            <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-300">
+                                <span class="font-mono font-semibold">{{ selectedPatient.patient_number }}</span>
+                                <span><Icon class="me-1 text-slate-400" name="phone" />{{ selectedPatient.phone || 'Téléphone non renseigné' }}</span>
+                                <span v-if="selectedPatient.age !== null"><Icon class="me-1 text-slate-400" name="calendar" />{{ selectedPatient.age }} ans</span>
+                            </div>
+                        </div>
+                        <Button size="sm" variant="white-outline" @click="chooseAnotherPatient">Changer de patient</Button>
+                    </div>
+
+                    <div v-else-if="patientMatches.length" class="mt-4 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                        <div class="border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000">{{ patientMatches.length }} dossier{{ patientMatches.length > 1 ? 's' : '' }} trouvé{{ patientMatches.length > 1 ? 's' : '' }}</div>
+                        <button v-for="patient in patientMatches" :key="patient.uuid" type="button" class="grid w-full gap-3 border-b border-gray-100 px-4 py-3.5 text-start transition last:border-0 hover:bg-primary-50/50 sm:grid-cols-[44px_minmax(0,1fr)_minmax(180px,0.45fr)_auto] sm:items-center dark:border-gray-900 dark:hover:bg-primary-950/20" @click="choosePatient(patient)">
+                            <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(patient)" />
+                            <span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</span><span class="mt-0.5 block font-mono text-xs text-slate-400">{{ patient.patient_number }}</span></span>
+                            <span class="min-w-0 text-xs text-slate-500"><span class="block truncate"><Icon class="me-1 text-slate-400" name="phone" />{{ patient.phone || 'Téléphone non renseigné' }}</span><span v-if="patient.age !== null" class="mt-0.5 block"><Icon class="me-1 text-slate-400" name="calendar" />{{ patient.age }} ans</span></span>
+                            <span class="inline-flex items-center text-xs font-bold text-primary-600">Sélectionner<Icon class="ms-1" name="arrow-right" /></span>
+                        </button>
+                    </div>
+
+                    <div v-else-if="patientSearchPerformed && !patientSearchLoading" class="mt-4 rounded-md border border-dashed border-gray-300 px-5 py-8 text-center dark:border-gray-700">
+                        <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
+                        <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucun dossier patient trouvé</p>
+                        <p class="mt-1 text-xs text-slate-400">Vérifiez la saisie ou créez un nouveau dossier si nécessaire.</p>
+                        <Button v-if="capabilities.can_create_patient" class="mt-3" size="sm" variant="white-outline" @click="chooseNewPatient"><Icon class="me-2" name="user-add" />Créer un nouveau Patient</Button>
+                    </div>
+                </section>
+
+                <section v-else class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                    <div class="border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/50">
+                        <h3 class="text-sm font-bold text-slate-700 dark:text-white">Identité permanente du Patient</h3>
+                        <p class="mt-1 text-xs text-slate-400">Les informations ci-dessous seront conservées dans le dossier administratif.</p>
+                    </div>
+                    <div class="space-y-5 p-5">
+                        <div class="grid gap-4 md:grid-cols-2">
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nom *</span><IconInput v-model="patientForm.last_name" size="lg" icon="user" autocomplete="family-name" placeholder="Nom de famille" :aria-invalid="Boolean(firstError(arrivalErrors, 'last_name'))" /><FormError v-if="firstError(arrivalErrors, 'last_name')" class="mt-1">{{ firstError(arrivalErrors, 'last_name') }}</FormError></label>
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Prénom(s)</span><IconInput v-model="patientForm.first_name" size="lg" icon="user" autocomplete="given-name" placeholder="Prénom(s)" :aria-invalid="Boolean(firstError(arrivalErrors, 'first_name'))" /><FormError v-if="firstError(arrivalErrors, 'first_name')" class="mt-1">{{ firstError(arrivalErrors, 'first_name') }}</FormError></label>
+                        </div>
+                        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            <div>
+                                <div class="mb-1.5 flex items-center justify-between gap-3"><span class="text-sm font-medium text-slate-700 dark:text-white">Naissance ou âge *</span><span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950"><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', birthMode === 'date' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="setBirthMode('date')">Date</button><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', birthMode === 'age' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="setBirthMode('age')">Âge</button></span></div>
+                                <Input v-if="birthMode === 'date'" v-model="patientForm.birth_date" size="lg" type="date" :aria-invalid="Boolean(firstError(arrivalErrors, 'birth_date'))" />
+                                <Input v-else v-model="patientForm.age" size="lg" type="number" min="0" max="130" placeholder="Âge déclaré" :aria-invalid="Boolean(firstError(arrivalErrors, 'age'))" />
+                                <FormError v-if="firstError(arrivalErrors, 'birth_date') || firstError(arrivalErrors, 'age')" class="mt-1">{{ firstError(arrivalErrors, 'birth_date') || firstError(arrivalErrors, 'age') }}</FormError>
+                            </div>
+                            <div>
+                                <span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Sexe *</span>
+                                <div class="flex h-11 items-center gap-5 rounded-md border border-gray-200 bg-white px-4 dark:border-gray-800 dark:bg-gray-950"><label class="inline-flex items-center gap-2 text-sm"><input v-model="patientForm.sex" type="radio" value="M" class="text-primary-600" />Masculin</label><label class="inline-flex items-center gap-2 text-sm"><input v-model="patientForm.sex" type="radio" value="F" class="text-primary-600" />Féminin</label></div>
+                                <FormError v-if="firstError(arrivalErrors, 'sex')" class="mt-1">{{ firstError(arrivalErrors, 'sex') }}</FormError>
+                            </div>
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Téléphone</span><IconInput v-model="patientForm.phone" size="lg" icon="phone" type="tel" autocomplete="tel" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'phone'))" /><FormError v-if="firstError(arrivalErrors, 'phone')" class="mt-1">{{ firstError(arrivalErrors, 'phone') }}</FormError></label>
+                        </div>
+                        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Email</span><IconInput v-model="patientForm.email" size="lg" icon="mail" type="email" autocomplete="email" placeholder="patient@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'email'))" /><FormError v-if="firstError(arrivalErrors, 'email')" class="mt-1">{{ firstError(arrivalErrors, 'email') }}</FormError></label>
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profession</span><IconInput v-model="patientForm.profession" size="lg" icon="briefcase" autocomplete="organization-title" placeholder="Profession" :aria-invalid="Boolean(firstError(arrivalErrors, 'profession'))" /><FormError v-if="firstError(arrivalErrors, 'profession')" class="mt-1">{{ firstError(arrivalErrors, 'profession') }}</FormError></label>
+                            <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Adresse</span><select v-model="patientForm.address_entry_uuid" :class="selectLgClass" :aria-invalid="Boolean(firstError(arrivalErrors, 'address_entry_uuid'))"><option value="">Non renseignée</option><option v-for="address in addressEntries" :key="address.uuid" :value="address.uuid">{{ address.label }}</option></select><FormError v-if="firstError(arrivalErrors, 'address_entry_uuid')" class="mt-1">{{ firstError(arrivalErrors, 'address_entry_uuid') }}</FormError></label>
+                        </div>
+                    </div>
+                </section>
+
+                <section v-if="patientMode === 'create' || selectedPatient" class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                    <div class="flex items-start gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/50">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-lg text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon name="users" /></span>
+                        <div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Personne à contacter pour ce passage <span class="font-normal text-slate-400">(facultatif)</span></h3><p class="mt-1 text-xs text-slate-400">Ces coordonnées appartiennent uniquement au nouvel Episode et peuvent changer à chaque passage.</p></div>
+                    </div>
+                    <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nom du contact</span><IconInput v-model="patientForm.emergency_contact_name" size="lg" icon="user" autocomplete="off" placeholder="Nom complet" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_name'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_name')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_name') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Téléphone du contact</span><IconInput v-model="patientForm.emergency_contact_phone" size="lg" icon="phone" type="tel" autocomplete="off" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_phone'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_phone')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_phone') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Lien avec le patient</span><IconInput v-model="patientForm.emergency_contact_relationship" size="lg" icon="users" autocomplete="off" placeholder="Ex. Conjoint, parent, enfant…" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_relationship'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_relationship')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_relationship') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Email du contact</span><IconInput v-model="patientForm.emergency_contact_email" size="lg" icon="mail" type="email" autocomplete="off" placeholder="contact@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_email'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_email')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_email') }}</FormError></label>
+                    </div>
+                </section>
+
+                <div v-if="duplicates.length" class="mt-4 w-full rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><p class="text-sm font-bold text-amber-800 dark:text-amber-200">Un dossier similaire existe déjà.</p><div class="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300"><p v-for="patient in duplicates" :key="patient.uuid">{{ patient.patient_number }} · {{ formatPatientName(patient) }}</p></div><div class="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="white-outline" @click="patientMode = 'search'; patientMatches = duplicates; patientSearchPerformed = true">Utiliser un dossier existant</Button><Button size="sm" :disabled="arrivalLoading" @click="createEpisode(true)">Créer quand même</Button></div></div>
+                <FormError v-if="arrivalMessage && !duplicates.length" class="mt-4 w-full">{{ arrivalMessage }}</FormError>
+                <div v-if="patientMode === 'create' || selectedPatient" class="mt-6 flex justify-end border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : (isEmergency ? 'Créer le passage urgence' : 'Créer l’Episode') }}<Icon class="ms-2" name="arrow-right" /></Button></div>
+            </CardBody>
+
+            <CardBody v-else-if="currentStep === 5" class="!p-5 lg:!p-7">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Mode de prise en charge</h2><p class="mt-1 text-sm text-slate-400">Ce choix s’applique uniquement à l’Episode {{ episode.episode_number }}.</p></div>
+                    <div class="flex items-center gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-1000/40"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(selectedPatient)" /><span><strong class="block text-sm text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</strong><span class="font-mono text-xs text-slate-400">{{ selectedPatient.patient_number }}</span></span></div>
+                </div>
+
+                <div class="mt-6 grid gap-3 md:grid-cols-3">
+                    <button type="button" :aria-pressed="financialMode === 'SELF'" :class="['relative rounded-md border p-5 text-start transition lg:p-6', financialMode === 'SELF' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('SELF')"><Icon v-if="financialMode === 'SELF'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="wallet" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Paiement personnel</span><span class="mt-1 block text-xs leading-5 text-slate-400">Tarif STANDARD, à la charge du patient.</span></button>
+                    <button type="button" :disabled="!capabilities.can_use_mutual" :aria-pressed="financialMode === 'MUTUAL'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'MUTUAL' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('MUTUAL')"><Icon v-if="financialMode === 'MUTUAL'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="shield-check" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Mutuelle</span><span class="mt-1 block text-xs leading-5 text-slate-400">Organisme existant et tarif MUTUAL du site.</span></button>
+                    <button type="button" :disabled="!capabilities.can_use_staff || !capabilities.can_link_staff" :aria-pressed="financialMode === 'STAFF'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'STAFF' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('STAFF')"><Icon v-if="financialMode === 'STAFF'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="briefcase" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Personnel clinique</span><span class="mt-1 block text-xs leading-5 text-slate-400">Employé RH existant et règles Personnel serveur.</span></button>
+                </div>
+
+                <section v-if="financialMode === 'MUTUAL'" class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                    <div class="flex flex-col gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-gray-800 dark:bg-gray-1000/50">
+                        <div class="flex items-start gap-3"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-lg text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon name="shield-check" /></span><div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Couverture mutuelle de cet Episode</h3><p class="mt-1 text-xs text-slate-400">Sélectionnez un organisme existant et renseignez l’adhésion pour ce passage.</p></div></div>
+                        <span v-if="selectedOrganization" class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"><Icon class="me-1.5" name="check-circle" />{{ Number(selectedOrganization.coverage_rate).toLocaleString('fr-FR') }} % de couverture</span>
+                    </div>
+                    <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Organisme *</span><select v-model="mutualForm.mutual_organization_uuid" :class="selectLgClass" :aria-invalid="Boolean(firstError(financialErrors, 'mutual_organization_uuid'))"><option value="">Choisir un organisme</option><option v-for="organization in mutualOrganizations" :key="organization.uuid" :value="organization.uuid">{{ organization.name }} · {{ Number(organization.coverage_rate).toLocaleString('fr-FR') }} %</option></select><FormError v-if="firstError(financialErrors, 'mutual_organization_uuid')" class="mt-1">{{ firstError(financialErrors, 'mutual_organization_uuid') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Entreprise *</span><IconInput v-model="mutualForm.employer_name" size="lg" icon="building" placeholder="Nom de l’entreprise" :aria-invalid="Boolean(firstError(financialErrors, 'employer_name'))" /><FormError v-if="firstError(financialErrors, 'employer_name')" class="mt-1">{{ firstError(financialErrors, 'employer_name') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Qualité du bénéficiaire *</span><select v-model="mutualForm.beneficiary_type" :class="selectLgClass" :aria-invalid="Boolean(firstError(financialErrors, 'beneficiary_type'))"><option value="PRINCIPAL">Principal</option><option value="FAMILY_MEMBER">Membre de la famille</option></select><FormError v-if="firstError(financialErrors, 'beneficiary_type')" class="mt-1">{{ firstError(financialErrors, 'beneficiary_type') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Matricule d’adhésion *</span><IconInput v-model="mutualForm.membership_number" size="lg" icon="card-view" placeholder="Numéro de matricule" :aria-invalid="Boolean(firstError(financialErrors, 'membership_number'))" /><FormError v-if="firstError(financialErrors, 'membership_number')" class="mt-1">{{ firstError(financialErrors, 'membership_number') }}</FormError></label>
+                    </div>
+                </section>
+
+                <section v-if="financialMode === 'STAFF'" class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                    <div class="flex items-start gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/50"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-lg text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon name="briefcase" /></span><div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Identifier l’Employé RH</h3><p class="mt-1 text-xs text-slate-400">Recherchez le dossier Employé existant puis confirmez la personne liée à ce Patient.</p></div></div>
+                    <div class="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.7fr)]">
+                        <div class="min-w-0">
+                            <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Employé de la clinique *</label>
+                            <form class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" @submit.prevent="searchEmployees">
+                                <IconInput v-model="employeeQuery" size="lg" icon="search" placeholder="Matricule, nom, prénom, téléphone ou pièce d’identité…" autocomplete="off" @update:model-value="employeeSearchPerformed = false" />
+                                <Button size="lg" type="submit" class="justify-center" :disabled="employeeQuery.trim().length < 2 || employeeSearchLoading"><Icon class="me-2" :name="employeeSearchLoading ? 'loader' : 'search'" />{{ employeeSearchLoading ? 'Recherche…' : 'Rechercher' }}</Button>
+                            </form>
+
+                            <div v-if="selectedEmployee" class="mt-4 flex flex-col gap-3 rounded-md border border-primary-200 bg-primary-50/50 p-4 sm:flex-row sm:items-center dark:border-primary-900 dark:bg-primary-950/20">
+                                <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(selectedEmployee)" />
+                                <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><p class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedEmployee) }}</p><span class="rounded-full bg-primary-100 px-2 py-0.5 text-[11px] font-bold text-primary-700 dark:bg-primary-900/50 dark:text-primary-200"><Icon class="me-1" name="check-circle" />Employé sélectionné</span></div><p class="mt-1 text-xs text-slate-500 dark:text-slate-300"><span class="font-mono font-semibold">{{ selectedEmployee.employee_number }}</span><span class="mx-2 text-slate-300">·</span>{{ selectedEmployee.profession || 'Fonction non renseignée' }}</p></div>
+                                <Button size="sm" variant="white-outline" @click="chooseAnotherEmployee">Changer d’employé</Button>
+                            </div>
+
+                            <div v-else-if="employeeSearchPerformed && employeeMatches.length" class="mt-4 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                                <div class="border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000">{{ employeeMatches.length }} employé{{ employeeMatches.length > 1 ? 's' : '' }} trouvé{{ employeeMatches.length > 1 ? 's' : '' }}</div>
+                                <button v-for="employee in employeeMatches" :key="employee.uuid" type="button" :disabled="!employeeSelectable(employee)" :class="['grid w-full gap-3 border-b border-gray-100 px-4 py-3.5 text-start transition last:border-0 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:items-center dark:border-gray-900', employeeSelectable(employee) ? 'hover:bg-primary-50/50 dark:hover:bg-primary-950/20' : 'cursor-not-allowed bg-gray-50/70 opacity-60 dark:bg-gray-1000/40']" @click="chooseEmployee(employee)"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(employee)" /><span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(employee) }}</span><span class="mt-0.5 block text-xs text-slate-400"><span class="font-mono">{{ employee.employee_number }}</span> · {{ employee.profession || 'Fonction non renseignée' }}</span></span><span :class="['inline-flex items-center rounded-full px-2 py-1 text-[11px] font-bold', employeeSelectable(employee) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300']"><Icon class="me-1" :name="employeeSelectable(employee) ? 'check-circle' : 'alert-circle'" />{{ employeeSelectable(employee) ? 'Sélectionner' : 'Relié à un autre Patient' }}</span></button>
+                            </div>
+
+                            <div v-else-if="employeeSearchPerformed && !employeeSearchLoading" class="mt-4 rounded-md border border-dashed border-gray-300 px-5 py-7 text-center dark:border-gray-700"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucun Employé RH trouvé</p><p class="mt-1 text-xs text-slate-400">Vérifiez le matricule, l’identité ou le numéro saisi.</p></div>
+                            <FormError v-if="firstError(financialErrors, 'employee_uuid')" class="mt-2">{{ firstError(financialErrors, 'employee_uuid') }}</FormError>
+                        </div>
+
+                        <aside class="space-y-3">
+                            <div class="rounded-md border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/20"><div class="flex items-start gap-3"><Icon class="mt-0.5 text-xl text-sky-600" name="info" /><div><h4 class="text-sm font-bold text-sky-900 dark:text-sky-200">Identification limitée</h4><p class="mt-1 text-xs leading-5 text-sky-700 dark:text-sky-300">La Réception voit uniquement le matricule, l’identité, la fonction et l’état du lien Patient. Aucun historique RH ou financier n’est exposé.</p></div></div></div>
+                            <div class="rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><div class="flex items-start gap-3"><Icon class="mt-0.5 text-xl text-amber-600" name="alert-circle" /><div><h4 class="text-sm font-bold text-amber-900 dark:text-amber-200">Prévisualisation sans débit</h4><p class="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-300">Le calcul ne consomme aucun crédit Bloc. Une consommation réelle n’a lieu qu’à la création de la prestation facturable.</p></div></div></div>
+                        </aside>
+                    </div>
+                </section>
+                <FormError v-if="firstError(financialErrors, 'financial_mode')" class="mt-4">{{ firstError(financialErrors, 'financial_mode') }}</FormError>
+                <div class="mt-6 flex justify-end border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="lg" :disabled="financialLoading || (financialMode === 'MUTUAL' && (!mutualForm.mutual_organization_uuid || !mutualForm.employer_name || !mutualForm.membership_number)) || (financialMode === 'STAFF' && !selectedEmployee)" @click="configureFinancialContext">{{ financialLoading ? 'Calcul Laravel…' : 'Calculer la prise en charge' }}<Icon class="ms-2" name="arrow-right" /></Button></div>
+            </CardBody>
+
+            <CardBody v-else-if="currentStep === 6" class="!p-5 lg:!p-7">
+                <div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Confirmer la prise en charge</h2><p class="mt-1 text-sm text-slate-400">Les montants ci-dessous ont été recalculés depuis le contexte de l’Episode. La confirmation figera les prestations puis déclenchera le routage.</p></div>
+                <div class="mt-5 grid gap-3 sm:grid-cols-3"><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Patient</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</p><p class="text-xs text-slate-400">{{ selectedPatient.patient_number }}</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Episode</p><p class="mt-1 font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</p><p class="text-xs text-slate-400">Un seul passage pour toutes les prestations</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Mode financier</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ modeLabel }}</p><p v-if="preview?.organization_name" class="text-xs text-slate-400">{{ preview.organization_name }} · {{ Number(preview.coverage_rate).toLocaleString('fr-FR') }} %</p></div></div>
+                <div class="mt-5 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800"><div v-if="designationDeferred" class="px-4 py-5"><p class="text-sm font-bold text-slate-700 dark:text-white">Besoin à définir après évaluation</p><p class="mt-1 text-xs text-slate-400">Prestation et montant à définir après l’évaluation. Destination initiale : Soins.</p></div><div v-for="line in previewLines" v-else :key="line.catalog_item_uuid" class="grid gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px_130px] sm:items-center dark:border-gray-900"><div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.name }}</p><p class="text-xs text-slate-400">{{ line.code }} · {{ line.routing_label }}</p></div><p class="text-sm text-slate-500">× {{ Number(line.quantity).toLocaleString('fr-FR') }}</p><div><p class="text-[10px] font-bold uppercase text-slate-400">Brut</p><p class="text-sm font-semibold">{{ line.gross_amount ? formatMoney(line.gross_amount) : 'En attente' }}</p></div><div><p class="text-[10px] font-bold uppercase text-slate-400">Couverture</p><p class="text-sm font-semibold text-emerald-600">{{ line.coverage_amount !== null ? formatMoney(line.coverage_amount) : 'En attente' }}</p></div><div><p class="text-[10px] font-bold uppercase text-slate-400">Patient</p><p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.patient_amount !== null ? formatMoney(line.patient_amount) : 'En attente' }}</p></div></div></div>
+                <div class="mt-4 grid gap-3 sm:grid-cols-4"><div class="rounded-md bg-gray-50 p-4 dark:bg-gray-1000"><p class="text-[11px] font-bold uppercase text-slate-400">Montant brut</p><p class="mt-1 text-lg font-bold text-slate-700 dark:text-white">{{ preview?.totals.gross_amount ? formatMoney(preview.totals.gross_amount) : '—' }}</p></div><div class="rounded-md bg-emerald-50 p-4 dark:bg-emerald-950/20"><p class="text-[11px] font-bold uppercase text-emerald-600">Couverture</p><p class="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-300">{{ preview && preview.totals.coverage_amount !== null ? formatMoney(preview.totals.coverage_amount) : '—' }}</p></div><div class="rounded-md bg-amber-50 p-4 dark:bg-amber-950/20"><p class="text-[11px] font-bold uppercase text-amber-600">Reste patient</p><p class="mt-1 text-lg font-bold text-amber-700 dark:text-amber-300">{{ preview && preview.totals.patient_amount !== null ? formatMoney(preview.totals.patient_amount) : '—' }}</p></div><div class="rounded-md bg-primary-50 p-4 dark:bg-primary-950/20"><p class="text-[11px] font-bold uppercase text-primary-600">Destination initiale</p><p class="mt-1 text-lg font-bold text-primary-700 dark:text-primary-300">{{ designationDeferred ? 'Soins' : (preview?.initial_destination?.label || 'À calculer') }}</p></div></div>
+                <div v-if="preview?.totals.resolution_pending" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">Une ligne reste financièrement en attente (tarif manquant ou politique Personnel non classifiée). Sa demande clinique et son routage seront conservés ; aucun montant ne sera inventé.</div>
+                <FormError v-if="finalForm.errors.catalog_lines || finalForm.errors.financial_mode" class="mt-4">{{ finalForm.errors.catalog_lines || finalForm.errors.financial_mode }}</FormError>
+                <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><Button size="rg" variant="white-outline" @click="currentStep = 5"><Icon class="me-2" name="arrow-left" />Modifier le mode</Button><Button size="rg" :disabled="finalForm.processing" @click="confirmCare"><Icon class="me-2" name="check" />{{ finalForm.processing ? 'Confirmation…' : 'Confirmer la prise en charge' }}</Button></div>
+            </CardBody>
+        </Card>
+    </div>
 </template>

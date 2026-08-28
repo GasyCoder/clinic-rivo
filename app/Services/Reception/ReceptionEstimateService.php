@@ -27,6 +27,7 @@ class ReceptionEstimateService
             ->where('type', CatalogItemType::Service->value)
             ->where('billable', true)
             ->where('reception_selectable', true)
+            ->whereNotNull('reception_routing_mode')
             ->with(['currentStandardTariff' => fn ($query) => $query->select([
                 'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
             ])])
@@ -82,6 +83,7 @@ class ReceptionEstimateService
             ->where('type', CatalogItemType::Service->value)
             ->where('billable', true)
             ->where('reception_selectable', true)
+            ->whereNotNull('reception_routing_mode')
             ->with(['currentStandardTariff' => fn ($query) => $query->select([
                 'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
             ])])
@@ -141,7 +143,10 @@ class ReceptionEstimateService
             'code' => $item->code,
             'name' => $item->name,
             'module' => $item->module->value,
+            'module_label' => $item->module->label(),
             'unit' => $item->unit,
+            'routing_mode' => $item->reception_routing_mode->value,
+            'routing_label' => $item->reception_routing_mode->label(),
             'tariff_category' => CatalogTariffCategory::Standard->value,
             'tariff_available' => $tariff !== null,
             'unit_price' => $tariff?->amount,

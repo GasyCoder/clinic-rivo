@@ -63,6 +63,31 @@ class ReceptionControllerTest extends TestCase
         $this->actingAs($user)->get('/reception/patients/type')->assertForbidden();
     }
 
+    public function test_reception_index_keeps_recent_passages_readable_when_the_patient_is_archived(): void
+    {
+        $user = $this->userWithPermissions(['reception.view', 'episodes.view', 'episodes.create']);
+        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
+        $episode = Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => 'ME-000001',
+            'status' => 'OPEN',
+            'administrative_status' => 'PENDING_ORIENTATION',
+            'started_at' => now(),
+        ]);
+
+        $patient->delete_reason = 'Dossier archivé pour le test';
+        $patient->delete();
+
+        $this->actingAs($user)->get('/reception')
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Index')
+                ->has('recentEpisodes', 1)
+                ->where('recentEpisodes.0.uuid', $episode->uuid)
+                ->where('recentEpisodes.0.patient.uuid', $patient->uuid)
+                ->where('recentEpisodes.0.patient.deleted_at', fn ($value) => filled($value))
+            );
+    }
+
     public function test_search_returns_matching_patients(): void
     {
         $user = $this->userWithPermissions(['episodes.create']);

@@ -64,7 +64,9 @@ class Episode extends Model
 
     public function patient(): BelongsTo
     {
-        return $this->belongsTo(Patient::class);
+        // An Episode is an immutable historical passage. Its Patient must
+        // remain readable when the administrative dossier is soft-deleted.
+        return $this->belongsTo(Patient::class)->withTrashed();
     }
 
     public function consultations(): HasMany

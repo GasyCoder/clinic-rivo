@@ -580,6 +580,23 @@ uniquement le tarif `STANDARD` courant des prestations `SERVICE` facturables et
 sélectionnables. Elle ne crée aucune donnée métier et ignore tout prix transmis
 par le navigateur. Elle ne constitue jamais une facture.
 
+Depuis ADR-053, le parcours normal de Réception commence par le besoin et non
+par le financement : besoin, estimation temporaire, recherche/création du
+Patient, création d'un Episode unique, choix `SELF`/`MUTUAL`/`STAFF`,
+confirmation puis routage. Le catalogue initial exige aussi un routage
+Réception configuré. La branche « Achat de médicaments uniquement » renvoie à
+la Vente comptoir Pharmacie existante et ne duplique ni médicaments ni panier
+dans Réception. Aucune analyse Laboratoire n'est activée par cette évolution.
+
+Après le choix du mode, `ReceptionFinancialPreviewService` recalcule côté
+Laravel les montants brut, couvert et patient. La projection STAFF peut simuler
+le crédit Bloc disponible, mais ne crée jamais de mouvement ; seule la création
+réelle du `BillableItem` consomme le registre de façon idempotente. La projection
+Employé fournie à Réception reste minimale et n'expose aucun historique de
+crédit. La confirmation progressive utilise le règlement ultérieur : elle peut
+créer une facture, jamais un paiement ou un reçu sans une action de Caisse.
+Voir ADR-053.
+
 ---
 
 # UI
@@ -616,9 +633,10 @@ Ne pas introduire un autre design system sans validation.
 
 # Décision client du 22/08/2026 — accueil patient
 
-ADR-030 remplace le parcours uniforme de l'ADR-029. Depuis ADR-051, les anciennes
+ADR-030 remplace le parcours uniforme de l'ADR-029. Depuis ADR-051 et ADR-053, les anciennes
 catégories permanentes sont legacy : le mode financier est choisi par Episode
-(`SELF`, `MUTUAL`, `STAFF` ou temporairement `NULL`), puis les désignations
+(`SELF`, `MUTUAL`, `STAFF` ou temporairement `NULL`) après la création du
+passage, puis les désignations
 configurées pilotent le parcours clinique (`MEDICINE_DIRECT`,
 `CARE_THEN_MEDICINE` ou
 `CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.

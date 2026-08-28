@@ -2210,3 +2210,60 @@ résultat financier et encaisser uniquement la part patient, mais ne peut ni
 allouer, ni corriger le solde, ni modifier l’historique, ni créer une réversion
 manuelle. Le Super Administrateur central reste soumis à l’architecture API
 inter-sites et n’accède jamais directement à une base clinique.
+
+---
+
+# ADR-053 — Expérience Réception progressive pilotée par le besoin
+
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+
+Pour un passage normal, l’accueil ne commence plus par une catégorie
+financière du Patient. L’ordre opérationnel est désormais :
+
+```text
+BESOIN -> ESTIMATION -> PATIENT -> EPISODE -> MODE FINANCIER
+        -> CONFIRMATION DES PRESTATIONS -> ROUTAGE
+```
+
+L’écran initial demande « Quel est votre besoin aujourd’hui ? » et charge le
+catalogue réel. Une prestation y apparaît uniquement lorsqu’elle est un
+`SERVICE` actif, facturable, `reception_selectable` et dotée d’un routage
+Réception. La liste et les destinations ne sont jamais codées dans Vue. Cette
+décision n’ajoute pas `LABORATORY_DIRECT` et n’active aucune analyse. La
+configuration existante du Laboratoire reste inchangée.
+
+« Achat de médicaments uniquement » ne crée pas un panier Pharmacie dans la
+Réception. Cette branche renvoie vers la Vente comptoir Pharmacie existante,
+qui conserve son fonctionnement sans Patient ni Episode clinique obligatoire.
+
+Avant toute identité, `ReceptionEstimateService` recalcule une estimation au
+tarif `STANDARD` à partir des seuls UUID et quantités. Quitter après cette
+estimation ne laisse aucun Patient, Episode, demande, orientation,
+`BillableItem`, facture ou paiement. Les prix, totaux et répartitions envoyés
+par un navigateur sont refusés ou ignorés comme sources de vérité.
+
+Après « Continuer la prise en charge », la Réception recherche ou crée
+l’identité permanente avec les validations et la protection anti-doublon
+existantes. `RegisterArrivalAction` crée ensuite exactement un Episode pour
+toutes les prestations sélectionnées. Le mode `SELF`, `MUTUAL` ou `STAFF` est
+choisi seulement après cette création et enregistré exclusivement par
+`SetEpisodeFinancialContextAction`.
+
+`MUTUAL` sélectionne un `MutualOrganization` actif existant et ne permet
+aucune création d’organisme depuis ce parcours. `STAFF` sélectionne un
+`Employee` actif via la projection minimale autorisée et réutilise le lien
+d’identité Patient/Employé. La Réception ne reçoit ni historique du registre,
+ni allocation, ni réversion, ni mutation du crédit Bloc.
+
+La confirmation présente une projection Laravel du brut, de la couverture, du
+reste patient et de la destination initiale. Pour `BLOCK_CREDIT`, cette
+projection simule le solde disponible uniquement en mémoire : elle ne crée
+aucun `StaffBlockCreditMovement`. La consommation réelle reste dans la création
+idempotente du `BillableItem`. `UNCLASSIFIED` ou un tarif manquant laisse la
+finance en attente sans empêcher la demande clinique ni le routage.
+
+La confirmation finale réutilise `CompleteEpisodeServicesAction`. Dans cette
+expérience progressive, elle prépare une facture à régler ultérieurement et ne
+crée aucun paiement ou reçu. L’encaissement demeure exclusivement à
+Réception/Caisse. Le parcours d’urgence ne change pas : son Episode conserve
+un `financial_mode` nullable et ouvre immédiatement Soins et Médecine.

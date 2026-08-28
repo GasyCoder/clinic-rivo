@@ -61,6 +61,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Barèmes historisés séparés Sans mutuelle / Mutuelle
 - [x] Résolution du barème par contexte financier Episode et snapshot sur le passage
 - [x] Estimation read-only au tarif Standard avant Patient/Episode
+- [x] Expérience progressive Besoin → Estimation → Patient → Episode → mode financier → confirmation → routage
+- [x] Prévisualisation financière SELF/MUTUAL/STAFF sans débit anticipé du crédit Bloc
+- [x] Branche Réception vers la Vente comptoir Pharmacie sans panier médicament dupliqué
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes

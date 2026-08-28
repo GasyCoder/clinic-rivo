@@ -21,6 +21,10 @@ const { can } = usePermissions();
 const canReceivePatients = computed(() => can('episodes.create'));
 const canViewVisitors = computed(() => can('visitors.view'));
 
+const episodePatientHref = (episode) => episode.patient?.uuid && !episode.patient.deleted_at
+    ? `/patients/${episode.patient.uuid}`
+    : null;
+
 const visitorInitials = (visitor) => visitor.full_name
     .trim()
     .split(/\s+/)
@@ -110,21 +114,24 @@ const visitorCategoryLabel = (category) => category === 'PROFESSIONAL'
                 </div>
 
                 <div v-if="recentEpisodes.length" class="divide-y divide-gray-200 dark:divide-gray-900">
-                    <Link
+                    <component
+                        :is="episodePatientHref(episode) ? Link : 'div'"
                         v-for="episode in recentEpisodes"
                         :key="episode.id"
-                        :href="`/patients/${episode.patient.uuid}`"
-                        class="flex items-center gap-3 px-5 py-3 transition hover:bg-gray-50 dark:hover:bg-gray-1000"
+                        :href="episodePatientHref(episode) || undefined"
+                        :class="['flex items-center gap-3 px-5 py-3', episodePatientHref(episode) ? 'transition hover:bg-gray-50 dark:hover:bg-gray-1000' : 'bg-gray-50/50 dark:bg-gray-1000/30']"
                     >
                         <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" aria-hidden="true" />
                         <span class="min-w-0 flex-1">
                             <span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(episode.patient) }}</span>
                             <span class="mt-0.5 block text-xs text-slate-400">{{ episode.episode_number }} · {{ formatRelativeTime(episode.started_at) }}</span>
                         </span>
+                        <span v-if="episode.patient?.deleted_at" class="inline-flex shrink-0 items-center gap-1 rounded border border-gray-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon name="archive" /> Dossier archivé</span>
+                        <span v-else-if="!episode.patient" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[10px] font-bold uppercase text-amber-700 dark:border-amber-900 dark:text-amber-300"><Icon name="alert-circle" /> Patient indisponible</span>
                         <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex shrink-0 items-center gap-1 rounded border border-red-200 px-2 py-1 text-[10px] font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
                             <Icon name="alert-circle" /> Urgence
                         </span>
-                    </Link>
+                    </component>
                 </div>
                 <p v-else class="px-5 py-10 text-center text-sm text-slate-400">Aucun passage récent.</p>
             </Card>

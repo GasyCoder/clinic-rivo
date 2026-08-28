@@ -11,11 +11,12 @@ use App\Enums\ReceptionPatientStep;
 use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
 use App\Models\AddressEntry;
-use App\Models\Employee;
 use App\Models\Episode;
 use App\Models\MutualOrganization;
 use App\Models\Patient;
 use App\Models\VisitorVisit;
+use App\Services\Reception\ReceptionEstimateService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -24,11 +25,13 @@ use Inertia\Response;
 /** Reception entry point for patient arrivals and the recent passage board. */
 class ReceptionController extends Controller
 {
+    public function __construct(private readonly ReceptionEstimateService $estimates) {}
+
     public function index(Request $request): Response
     {
         $recentEpisodes = $request->user()->can('episodes.view')
             ? Episode::query()
-                ->with('patient:id,uuid,patient_number,first_name,last_name')
+                ->with('patient:id,uuid,patient_number,first_name,last_name,deleted_at')
                 ->latest('started_at')
                 ->limit(8)
                 ->get([
@@ -69,6 +72,32 @@ class ReceptionController extends Controller
     public function patientStep(Request $request, string $step): Response
     {
         return $this->renderPatientReception($request, ReceptionPatientStep::from($step));
+    }
+
+    public function searchPatients(Request $request): JsonResponse
+    {
+        abort_unless($request->user()?->can('episodes.create'), 403);
+
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'min:2', 'max:100'],
+        ]);
+        $search = trim($validated['q']);
+
+        $matches = Patient::query()
+            ->where(function ($query) use ($search) {
+                $query->where('patient_number', 'like', "%{$search}%")
+                    ->orWhere('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('identity_document_number', 'like', "%{$search}%");
+            })
+            ->orderBy('last_name')
+            ->orderBy('first_name')
+            ->limit(10)
+            ->get()
+            ->map(fn (Patient $patient) => $this->patientSearchPayload($patient));
+
+        return response()->json(['data' => $matches]);
     }
 
     private function renderPatientReception(
@@ -133,29 +162,27 @@ class ReceptionController extends Controller
             'addressEntries' => $request->user()->can('address_entries.view')
                 ? AddressEntry::query()->where('active', true)->orderBy('label')->limit(250)->get(['uuid', 'label'])
                 : [],
-            'staffEmployees' => $request->user()->can('employees.patient_lookup')
-                ? Employee::query()
-                    ->with([
-                        'addressEntry:id,uuid,label',
-                        'activePatientLink.patient:id,uuid,patient_number,first_name,last_name',
-                    ])
-                    ->where('active', true)
-                    ->orderBy('last_name')
-                    ->orderBy('first_name')
-                    ->limit(100)
-                    ->get()
-                    ->map(fn (Employee $employee) => $this->employeeLookupPayload($employee))
-                : [],
             'mutualOrganizations' => $request->user()->can('mutual_organizations.view')
-                ? MutualOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name'])
+                ? MutualOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name', 'coverage_rate'])
                 : [],
+            'estimateCatalog' => $this->estimates->catalog(),
+            'capabilities' => [
+                'can_create_patient' => $request->user()->can('patients.create'),
+                'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
+                'can_use_staff' => $request->user()->can('employees.patient_lookup'),
+                'can_link_staff' => $request->user()->can('patient_staff_links.create'),
+                'can_open_pharmacy_counter_sale' => $request->user()->can('pharmacy.counter_sales.create'),
+                'can_manage_catalog' => $request->user()->can('catalog.items.view'),
+            ],
         ]);
     }
 
     public function storePatient(
         StoreArrivalRequest $request,
         RegisterArrivalAction $action,
-    ): RedirectResponse {
+    ): RedirectResponse|JsonResponse {
+        $jsonWorkflow = $request->expectsJson();
+
         try {
             $patientData = $request->safe()->only([
                 'patient_type', 'first_name', 'last_name', 'birth_date', 'age',
@@ -181,26 +208,44 @@ class ReceptionController extends Controller
                     ? EpisodePriority::Emergency
                     : EpisodePriority::Normal,
                 actor: $request->user(),
-                employeeUuid: $request->validated('employee_uuid'),
-                mutualData: $request->input('patient_type') === PatientType::Mutual->value ? [
+                employeeUuid: $jsonWorkflow ? null : $request->validated('employee_uuid'),
+                mutualData: ! $jsonWorkflow && $request->input('patient_type') === PatientType::Mutual->value ? [
                     'organization_name' => $request->validated('mutual_organization_name'),
                     'employer_name' => $request->validated('mutual_employer_name'),
                     'beneficiary_type' => $request->validated('mutual_beneficiary_type'),
                     'membership_number' => $request->validated('mutual_membership_number'),
                 ] : null,
-                mutualAttachments: $request->file('mutual_attachments', []),
+                mutualAttachments: $jsonWorkflow ? [] : $request->file('mutual_attachments', []),
                 episodeData: $episodeData,
                 financialMode: $request->boolean('is_emergency')
                     ? null
-                    : ($request->filled('patient_uuid')
+                    : ($jsonWorkflow
+                        ? null
+                        : ($request->filled('patient_uuid')
                         ? EpisodeFinancialMode::Self
                         : match ($request->input('patient_type')) {
                             PatientType::Mutual->value => EpisodeFinancialMode::Mutual,
                             PatientType::Staff->value => EpisodeFinancialMode::Staff,
                             default => EpisodeFinancialMode::Self,
-                        }),
+                        })),
             );
         } catch (DuplicatePatientException $exception) {
+            $duplicates = $exception->matches->map(fn (Patient $patient) => [
+                'uuid' => $patient->uuid,
+                'patient_number' => $patient->patient_number,
+                'first_name' => $patient->first_name,
+                'last_name' => $patient->last_name,
+                'birth_date' => $patient->birth_date?->toDateString(),
+                'declared_age' => $patient->declared_age,
+            ])->all();
+
+            if ($jsonWorkflow) {
+                return response()->json([
+                    'message' => 'Un dossier patient similaire existe déjà.',
+                    'duplicates' => $duplicates,
+                ], 422);
+            }
+
             return back()->withInput()->with('duplicates', $exception->matches->map(fn (Patient $patient) => [
                 'uuid' => $patient->uuid,
                 'patient_number' => $patient->patient_number,
@@ -214,6 +259,25 @@ class ReceptionController extends Controller
         $message = $episode->priority === EpisodePriority::Emergency
             ? "Passage urgence {$episode->episode_number} créé ; Soins et Médecine sont déjà alertés."
             : "Passage {$episode->episode_number} créé. Sélectionnez maintenant les prestations demandées.";
+
+        if ($jsonWorkflow) {
+            // patientSearchPayload also presents birth/sex/contact fields;
+            // load the complete local model, then expose only its explicit
+            // UUID-based projection below (never the SQL id).
+            $episode->load('patient');
+
+            return response()->json([
+                'message' => $message,
+                'patient' => $this->patientSearchPayload($episode->patient),
+                'episode' => [
+                    'uuid' => $episode->uuid,
+                    'episode_number' => $episode->episode_number,
+                    'priority' => $episode->priority->value,
+                    'financial_mode' => $episode->financial_mode?->value,
+                    'started_at' => $episode->started_at,
+                ],
+            ], 201);
+        }
 
         return redirect()->route('reception.passages.services.show', $episode)
             ->with('status', $message);
@@ -235,27 +299,6 @@ class ReceptionController extends Controller
             'sex' => $patient->sex->value,
             'phone' => $patient->phone,
             'email' => $patient->email,
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function employeeLookupPayload(Employee $employee): array
-    {
-        return [
-            'uuid' => $employee->uuid,
-            'employee_number' => $employee->employee_number,
-            'first_name' => $employee->first_name,
-            'last_name' => $employee->last_name,
-            'birth_date' => $employee->birth_date?->toDateString(),
-            'sex' => $employee->sex->value,
-            'profession' => $employee->profession,
-            'phone' => $employee->phone,
-            'email' => $employee->email,
-            'address' => $employee->addressEntry?->label ?? $employee->address,
-            'linked_patient' => $employee->activePatientLink?->patient ? [
-                'uuid' => $employee->activePatientLink->patient->uuid,
-                'patient_number' => $employee->activePatientLink->patient->patient_number,
-            ] : null,
         ];
     }
 }

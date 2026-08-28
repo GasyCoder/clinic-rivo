@@ -193,7 +193,7 @@ const submit = () => {
 
                     <label class="mt-3 flex cursor-pointer items-start gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2.5 dark:border-gray-700">
                         <CheckBox id="defer_designation" :model-value="form.defer_designation" size="sm" :disabled="selectedServices.length > 0" @update:model-value="chooseDeferred" />
-                        <span><span class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Besoin à définir après évaluation</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">Aucune désignation ni montant fictif ; le patient est d’abord orienté vers les Soins.</span></span>
+                        <span><span class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Besoin à définir après évaluation</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">La prestation et son montant seront définis après l’évaluation par les Soins.</span></span>
                     </label>
                     <FormError v-if="form.errors.catalog_lines || form.errors.defer_designation" class="mt-2">{{ form.errors.catalog_lines || form.errors.defer_designation }}</FormError>
 

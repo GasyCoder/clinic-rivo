@@ -23,7 +23,9 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PharmacyController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
+use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
+use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
@@ -180,6 +182,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // non-clinical visitor workflows. A visitor never creates an episode.
     Route::get('/reception', [ReceptionController::class, 'index'])->name('reception.index')->middleware('can:reception.view');
     Route::get('/reception/patients', [ReceptionController::class, 'patients'])->name('reception.patients.create')->middleware('can:episodes.create');
+    Route::get('/reception/patients/search', [ReceptionController::class, 'searchPatients'])
+        ->name('reception.patients.search')
+        ->middleware('can:episodes.create');
+    Route::post('/reception/estimates', ReceptionEstimateController::class)
+        ->name('reception.estimates.store')
+        ->middleware('can:episodes.create');
     // Legacy wizard URL kept as a safe redirect after ADR-030 moved service
     // selection to the newly created passage itself.
     Route::get('/reception/patients/prestations', fn () => redirect()->route('reception.patients.create'));
@@ -193,6 +201,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->middleware('can:employees.patient_lookup');
     Route::get('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'show'])
         ->name('reception.passages.services.show')
+        ->middleware('can:episodes.update');
+    Route::post('/reception/passages/{episode}/financial-context', [EpisodeFinancialContextController::class, 'store'])
+        ->name('reception.passages.financial-context.store')
         ->middleware('can:episodes.update');
     Route::post('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'store'])
         ->name('reception.passages.services.store')

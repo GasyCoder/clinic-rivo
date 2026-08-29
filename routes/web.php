@@ -237,6 +237,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
 
+    // Vue d'ensemble en lecture seule d'un passage — agrège Soins, Médecine
+    // et facturation déjà accessibles séparément par module ; aucune action
+    // n'est réalisée ici, chaque section reste protégée par la permission du
+    // module qui possède réellement la donnée.
+    Route::get('/passages/{episode}', [EpisodeController::class, 'show'])->name('passages.show')->middleware('can:patients.view');
+
     // Facturation / caisse : une seule caisse fonctionnelle par site. Les
     // prestations peuvent être facturées ici, mais seul ce module encaisse.
     Route::get('/cash', [CashController::class, 'index'])->name('cash.index')->middleware('can:cash.view');

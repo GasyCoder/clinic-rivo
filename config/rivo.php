@@ -62,6 +62,7 @@ return [
     */
 
     'brand' => env('RIVO_BRAND', 'Clinique Saint Georges'),
+    'auth_cover_url' => env('RIVO_AUTH_COVER_URL') ?: '/images/brand/clinic-saint-georges-cover.jpg',
 
     /*
     |--------------------------------------------------------------------------
@@ -122,7 +123,7 @@ return [
     */
 
     'documents' => [
-        'logo_url' => env('RIVO_DOCUMENT_LOGO_URL'),
+        'logo_url' => env('RIVO_DOCUMENT_LOGO_URL') ?: '/images/brand/clinic-saint-georges-logo.png',
         'nif' => env('RIVO_LEGAL_NIF'),
         'stat' => env('RIVO_LEGAL_STAT'),
         'address' => env('RIVO_LEGAL_ADDRESS'),

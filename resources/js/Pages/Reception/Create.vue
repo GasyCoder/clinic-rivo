@@ -1,6 +1,6 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -294,6 +294,75 @@ const chooseExistingPatient = () => {
     arrivalErrors.value = {};
     resetEpisodeContact();
 };
+// Éditer le dossier reste dans le même onglet (plus prévisible pour un
+// utilisateur peu familier des onglets) : l'état de la prise en charge en
+// cours est donc sauvegardé ici puis restauré au retour, voir
+// `resumeAfterPatientEdit` ci-dessous.
+const RECEPTION_RESUME_KEY = 'rivo:reception:resume-after-patient-edit';
+const editSelectedPatient = () => {
+    if (!selectedPatient.value) return;
+
+    try {
+        sessionStorage.setItem(RECEPTION_RESUME_KEY, JSON.stringify({
+            currentStep: currentStep.value,
+            cart: cart.value,
+            designationDeferred: designationDeferred.value,
+            isEmergency: isEmergency.value,
+            patientQuery: patientQuery.value,
+            patientNumber: selectedPatient.value.patient_number,
+        }));
+    } catch {
+        // Navigation privée ou stockage désactivé — le bouton fonctionne
+        // quand même, la prise en charge ne sera simplement pas restaurée.
+    }
+
+    router.visit(`/patients/${selectedPatient.value.uuid}/edit?return_to=reception`);
+};
+const resumeAfterPatientEdit = async () => {
+    let raw;
+
+    try {
+        raw = sessionStorage.getItem(RECEPTION_RESUME_KEY);
+        if (raw) sessionStorage.removeItem(RECEPTION_RESUME_KEY);
+    } catch {
+        raw = null;
+    }
+
+    if (!raw) return;
+
+    let saved;
+
+    try {
+        saved = JSON.parse(raw);
+    } catch {
+        return;
+    }
+
+    if (saved.patientNumber) {
+        try {
+            const result = await requestJson(`/reception/patients/search?q=${encodeURIComponent(saved.patientNumber)}`);
+            const refreshed = (result.data ?? []).find((patient) => patient.patient_number === saved.patientNumber);
+            if (refreshed) {
+                selectedPatient.value = refreshed;
+                patientMode.value = 'search';
+            }
+        } catch {
+            // Le dossier n’a pas pu être rechargé — la prise en charge
+            // reprend quand même, il suffit de rechercher à nouveau.
+        }
+    }
+
+    patientQuery.value = saved.patientQuery ?? '';
+    cart.value = Array.isArray(saved.cart) ? saved.cart : [];
+    designationDeferred.value = Boolean(saved.designationDeferred);
+    isEmergency.value = Boolean(saved.isEmergency);
+    currentStep.value = saved.currentStep ?? currentStep.value;
+
+    if (currentStep.value === 2 && cart.value.length) await recalculateEstimate();
+};
+
+onMounted(resumeAfterPatientEdit);
+
 const chooseAnotherPatient = () => {
     selectedPatient.value = null;
     arrivalErrors.value = {};
@@ -592,7 +661,10 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                                 <span v-if="selectedPatient.age !== null"><Icon class="me-1 text-slate-400" name="calendar" />{{ selectedPatient.age }} ans</span>
                             </div>
                         </div>
-                        <Button size="sm" variant="white-outline" @click="chooseAnotherPatient">Changer de patient</Button>
+                        <div class="flex shrink-0 flex-wrap items-center gap-2">
+                            <Button v-if="capabilities.can_update_patient" type="button" size="sm" variant="white-outline" title="Corrigez le dossier puis revenez : la prise en charge en cours est conservée" @click="editSelectedPatient"><Icon class="me-2" name="edit" />Modifier le dossier</Button>
+                            <Button size="sm" variant="white-outline" @click="chooseAnotherPatient">Changer de patient</Button>
+                        </div>
                     </div>
 
                     <div v-else-if="patientMatches.length" class="mt-4 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">

@@ -227,6 +227,7 @@ class ReceptionController extends Controller
             'financialPreview' => $financialPreview,
             'capabilities' => [
                 'can_create_patient' => $request->user()->can('patients.create'),
+                'can_update_patient' => $request->user()->can('patients.update'),
                 'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
                 'can_use_staff' => $request->user()->can('employees.patient_lookup'),
                 'can_link_staff' => $request->user()->can('patient_staff_links.create'),

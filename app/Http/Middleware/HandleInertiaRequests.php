@@ -68,6 +68,7 @@ class HandleInertiaRequests extends Middleware
                 'type' => config('rivo.site.type'),
                 'gatewayUrl' => config('rivo.gateway_url'),
                 'publicUrl' => config('rivo.public_url'),
+                'authCoverUrl' => config('rivo.auth_cover_url'),
                 'documents' => config('rivo.documents'),
             ],
             'flash' => [

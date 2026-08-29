@@ -393,6 +393,15 @@ class PatientController extends Controller
     ): RedirectResponse {
         $action->execute($patient, $request->validated(), $request->user());
 
+        // A fixed, whitelisted flag only — never a raw URL — so this can
+        // never become an open redirect. Lets Réception correct a patient's
+        // record mid-arrival and land back on its own journey instead of the
+        // dossier page.
+        if ($request->query('return_to') === 'reception') {
+            return redirect()->route('reception.patients.create')
+                ->with('status', "Dossier {$patient->patient_number} mis à jour.");
+        }
+
         return redirect()->route('patients.show', $patient)
             ->with('status', "Dossier {$patient->patient_number} mis à jour.");
     }

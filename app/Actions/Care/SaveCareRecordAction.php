@@ -2,19 +2,23 @@
 
 namespace App\Actions\Care;
 
+use App\Actions\Billing\AttachBillableItemToUnpaidInvoiceAction;
 use App\Actions\Billing\RecordBillableItemAction;
 use App\Actions\Patient\RecordPatientAllergyAction;
 use App\Enums\AllergySeverity;
+use App\Enums\BillableItemStatus;
 use App\Enums\CareCompletionMode;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
+use App\Enums\InvoiceStatus;
 use App\Models\AllergenReference;
 use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientAllergy;
 use App\Models\User;
@@ -32,6 +36,7 @@ class SaveCareRecordAction
         private readonly RecordPatientAllergyAction $recordAllergy,
         private readonly CareWorkflow $careWorkflow,
         private readonly RecordBillableItemAction $recordBillableItem,
+        private readonly AttachBillableItemToUnpaidInvoiceAction $attachToUnpaidInvoice,
     ) {}
 
     /**
@@ -411,13 +416,35 @@ class SaveCareRecordAction
         }
 
         try {
-            $this->recordBillableItem->execute($episode, [
+            $billableItem = $this->recordBillableItem->execute($episode, [
                 'catalog_item_uuid' => $item->uuid,
                 'quantity' => $quantity,
             ], $actor);
         } catch (ValidationException) {
             // Not billable yet (missing tariff, unresolved financial mode,
             // unclassified Personnel policy…) — Réception regularizes later.
+            return;
+        }
+
+        // A brand-new item (not an idempotent replay of one already on an
+        // invoice) can join an existing invoice of the same episode as long
+        // as nothing has been cashed against it yet (DRAFT or VALIDATED with
+        // paid_amount still zero) — see AttachBillableItemToUnpaidInvoiceAction
+        // for the exact guard. Left Pending if no such invoice exists;
+        // Réception invoices it separately.
+        if ($billableItem->status !== BillableItemStatus::Pending) {
+            return;
+        }
+
+        $unpaidInvoice = Invoice::query()
+            ->where('episode_id', $episode->getKey())
+            ->whereIn('status', [InvoiceStatus::Draft->value, InvoiceStatus::Validated->value])
+            ->where('paid_amount', 0)
+            ->latest()
+            ->first();
+
+        if ($unpaidInvoice) {
+            $this->attachToUnpaidInvoice->execute($unpaidInvoice, $billableItem);
         }
     }
 

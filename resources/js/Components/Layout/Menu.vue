@@ -8,10 +8,13 @@ const visibility = defineModel('visibility');
 
 const page = usePage();
 const { can } = usePermissions();
+const overviewLabel = computed(() => (
+    page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
+));
 
 const clinicMenu = computed(() => [
     { heading: 'Principal' },
-    { icon: 'growth', text: 'Tableau de bord', link: '/' },
+    { icon: 'growth', text: overviewLabel.value, link: '/' },
     { heading: 'Gestion clinique' },
     { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'reception.view' },
     { icon: 'wallet', text: 'Caisse', link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view' },
@@ -36,8 +39,8 @@ const clinicMenu = computed(() => [
 ]);
 
 const adminMenu = computed(() => [
-    { heading: 'Vue d’ensemble' },
-    { icon: 'growth', text: 'Tableau de bord global', link: '/' },
+    { heading: 'Pilotage central' },
+    { icon: 'growth', text: overviewLabel.value, link: '/' },
     { heading: 'Sites' },
     ...(page.props.adminNavigation ?? []).map((site) => ({
         icon: 'building',
@@ -67,7 +70,7 @@ const rawMenu = computed(() => page.props.site?.type === 'admin' ? adminMenu.val
 
 // A heading is only rendered when at least one item under it is visible —
 // Every operational item is gated by a dynamic permission. The only item
-// intentionally shared by all active accounts is the dashboard. Modules that
+// intentionally shared by all active accounts is the overview. Modules that
 // have no implemented permission catalog yet (Laboratoire, Pharmacie) are not
 // shown at all; they will be added when their routes and permissions exist.
 const menuData = computed(() => {

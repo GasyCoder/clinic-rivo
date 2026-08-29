@@ -18,6 +18,7 @@ use App\Models\CatalogTariff;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\EpisodeServiceRequest;
+use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -718,6 +719,174 @@ class CareRecordFlowTest extends TestCase
 
         $this->assertDatabaseCount('care_record_procedures', 1);
         $this->assertDatabaseCount('billable_items', 0);
+    }
+
+    public function test_a_new_act_joins_an_existing_draft_invoice_of_the_same_episode(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        $extraProcedure = $this->procedure($nurse, 'PANSEMENT-EXTRA', 'Pansement supplémentaire non prévu');
+        $this->giveActiveTariff($extraProcedure, $nurse, 15000);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        $invoice = $this->createInvoiceForEpisode(
+            Episode::find($orientation->episode_id),
+            $nurse,
+            'DRAFT',
+            10000,
+        );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $extraProcedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $invoice->refresh();
+        $this->assertSame('DRAFT', $invoice->status->value);
+        $this->assertSame('25000.00', $invoice->total_amount);
+        $this->assertSame('25000.00', $invoice->balance_amount);
+        $this->assertDatabaseCount('invoice_lines', 2);
+
+        $newItem = BillableItem::query()->where('description', 'Pansement supplémentaire non prévu')->sole();
+        $this->assertSame('INVOICED', $newItem->status->value);
+        $this->assertDatabaseHas('invoice_lines', [
+            'invoice_id' => $invoice->id,
+            'billable_item_id' => $newItem->id,
+        ]);
+    }
+
+    public function test_a_new_act_joins_an_already_validated_but_still_unpaid_invoice(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        $extraProcedure = $this->procedure($nurse, 'PANSEMENT-EXTRA', 'Pansement supplémentaire non prévu');
+        $this->giveActiveTariff($extraProcedure, $nurse, 15000);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        $invoice = $this->createInvoiceForEpisode(
+            Episode::find($orientation->episode_id),
+            $nurse,
+            'VALIDATED',
+            10000,
+        );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $extraProcedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $invoice->refresh();
+        $this->assertSame('VALIDATED', $invoice->status->value);
+        $this->assertSame('25000.00', $invoice->total_amount);
+        $this->assertSame('25000.00', $invoice->balance_amount);
+        $this->assertDatabaseCount('invoice_lines', 2);
+
+        $newItem = BillableItem::query()->where('description', 'Pansement supplémentaire non prévu')->sole();
+        $this->assertSame('INVOICED', $newItem->status->value);
+    }
+
+    public function test_a_new_act_does_not_join_an_invoice_that_already_received_a_payment(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse);
+        $extraProcedure = $this->procedure($nurse, 'PANSEMENT-EXTRA', 'Pansement supplémentaire non prévu');
+        $this->giveActiveTariff($extraProcedure, $nurse, 15000);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        $invoice = $this->createInvoiceForEpisode(
+            Episode::find($orientation->episode_id),
+            $nurse,
+            'PARTIALLY_PAID',
+            10000,
+            paidAmountMinor: 5000,
+        );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $extraProcedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $invoice->refresh();
+        $this->assertSame('10000.00', $invoice->total_amount);
+        $this->assertDatabaseCount('invoice_lines', 1);
+
+        $newItem = BillableItem::query()->where('description', 'Pansement supplémentaire non prévu')->sole();
+        $this->assertSame('PENDING', $newItem->status->value);
+    }
+
+    private function createInvoiceForEpisode(
+        Episode $episode,
+        User $actor,
+        string $status,
+        int $existingAmountMinor,
+        int $paidAmountMinor = 0,
+    ): Invoice {
+        $amount = number_format($existingAmountMinor, 2, '.', '');
+        $paidAmount = number_format($paidAmountMinor, 2, '.', '');
+        $balanceAmount = number_format($existingAmountMinor - $paidAmountMinor, 2, '.', '');
+        $otherItem = BillableItem::create([
+            'episode_id' => $episode->id,
+            'source_module' => 'CARE',
+            'description' => 'Prestation déjà facturée',
+            'quantity' => '1.00',
+            'unit_price' => $amount,
+            'total_amount' => $amount,
+            'gross_amount' => $amount,
+            'coverage_amount' => '0.00',
+            'staff_covered_amount' => '0.00',
+            'staff_block_credit_used' => '0.00',
+            'patient_amount' => $amount,
+            'currency' => 'MGA',
+            'status' => 'INVOICED',
+            'created_by' => $actor->id,
+        ]);
+        $invoice = Invoice::create([
+            'patient_id' => $episode->patient_id,
+            'episode_id' => $episode->id,
+            'invoice_number' => 'AF-'.fake()->unique()->numerify('######'),
+            'status' => $status,
+            'currency' => 'MGA',
+            'financial_mode' => 'SELF',
+            'subtotal_amount' => $amount,
+            'discount_amount' => '0.00',
+            'coverage_amount' => '0.00',
+            'staff_covered_amount' => '0.00',
+            'staff_block_credit_used' => '0.00',
+            'total_amount' => $amount,
+            'paid_amount' => $paidAmount,
+            'balance_amount' => $balanceAmount,
+            'created_by' => $actor->id,
+            'validated_at' => $status !== 'DRAFT' ? now() : null,
+            'validated_by' => $status !== 'DRAFT' ? $actor->id : null,
+        ]);
+        $invoice->lines()->create([
+            'billable_item_id' => $otherItem->id,
+            'description' => $otherItem->description,
+            'quantity' => $otherItem->quantity,
+            'unit_price' => $otherItem->unit_price,
+            'line_total' => $amount,
+            'gross_line_total' => $amount,
+            'coverage_rate' => '0.00',
+            'coverage_amount' => '0.00',
+            'staff_covered_amount' => '0.00',
+            'staff_block_credit_used' => '0.00',
+            'status' => 'ACTIVE',
+            'created_by' => $actor->id,
+        ]);
+
+        return $invoice;
     }
 
     private function giveActiveTariff(CatalogItem $item, User $actor, int $amountMinor = 15000): CatalogTariff

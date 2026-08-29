@@ -15,13 +15,13 @@ const page = usePage();
 </script>
 
 <template>
-    <Head title="Vue d’ensemble" />
+    <Head title="Dashboard" />
 
     <div class="w-full space-y-5">
         <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
                 <p class="text-xs font-medium uppercase tracking-wide text-slate-400">Super Administration</p>
-                <h1 class="mt-1 font-heading text-2xl font-bold text-slate-700 dark:text-white">Vue d’ensemble</h1>
+                <h1 class="mt-1 font-heading text-2xl font-bold text-slate-700 dark:text-white">Dashboard</h1>
                 <p class="mt-1 text-sm text-slate-500">Pilotage central de {{ page.props.site.brand }} pour les trois sites opérationnels.</p>
             </div>
             <Button :as="Link" href="/super-admin/workspaces/audit" size="rg" variant="white-outline">

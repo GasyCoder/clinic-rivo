@@ -48,7 +48,7 @@ const submit = () => {
     <Head title="Réinitialiser le mot de passe" />
 
     <div class="relative flex min-h-screen">
-        <div class="relative flex w-full flex-shrink-0 flex-col bg-white dark:bg-gray-950 lg:w-[45%]">
+        <div class="relative z-10 flex w-full flex-shrink-0 flex-col bg-white dark:bg-gray-950 lg:w-[45%]">
             <div class="m-auto w-full max-w-[420px] p-5 2xl:me-[90px]">
                 <BrandMark />
 

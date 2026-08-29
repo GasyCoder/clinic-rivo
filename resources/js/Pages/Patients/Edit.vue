@@ -109,6 +109,13 @@ const toggleNewAddress = () => {
     if (showNewAddress.value) form.address_entry_uuid = '';
     else form.new_address_label = '';
 };
+// A fixed flag read from the URL only — reception links here with
+// ?return_to=reception so a mid-arrival correction lands back on that
+// journey instead of the dossier page. Never treated as a raw redirect URL.
+const returnsToReception = new URLSearchParams(window.location.search).get('return_to') === 'reception';
+const backHref = returnsToReception ? '/reception/patients' : `/patients/${props.patient.uuid}`;
+const backLabel = returnsToReception ? 'Retour à la réception' : 'Retour au dossier';
+
 const submit = () => {
     form.transform((data) => ({
         ...data,
@@ -116,7 +123,7 @@ const submit = () => {
         age: birthDateMode.value === 'age' ? data.age : null,
         address_entry_uuid: showNewAddress.value ? null : (data.address_entry_uuid || null),
         new_address_label: showNewAddress.value ? (data.new_address_label || null) : null,
-    })).put(`/patients/${props.patient.uuid}`, { preserveScroll: true });
+    })).put(`/patients/${props.patient.uuid}${returnsToReception ? '?return_to=reception' : ''}`, { preserveScroll: true });
 };
 
 const acceptedAttachmentTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
@@ -251,7 +258,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                     <p class="mt-0.5 truncate font-mono text-xs text-slate-400">{{ patient.patient_number }}</p>
                 </div>
             </div>
-            <Button :as="Link" :href="`/patients/${patient.uuid}`" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Retour au dossier</span></Button>
+            <Button :as="Link" :href="backHref" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">{{ backLabel }}</span></Button>
         </header>
 
         <section v-if="isStaffPatient" class="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-900 dark:bg-gray-950">
@@ -328,7 +335,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                     </div>
                 </section>
 
-                <footer class="flex flex-col-reverse gap-3 rounded-lg border border-gray-200 bg-white px-5 py-4 dark:border-gray-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between"><p class="text-xs text-slate-400">Les modifications administratives sont historisées.</p><div class="flex flex-col-reverse gap-2 sm:flex-row"><Button :as="Link" :href="`/patients/${patient.uuid}`" size="lg" variant="white-outline">Annuler</Button><Button size="lg" variant="primary" type="submit" :disabled="form.processing || !canSubmit"><Icon class="text-lg" name="check" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer les modifications' }}</span></Button></div></footer>
+                <footer class="flex flex-col-reverse gap-3 rounded-lg border border-gray-200 bg-white px-5 py-4 dark:border-gray-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between"><p class="text-xs text-slate-400">Les modifications administratives sont historisées.</p><div class="flex flex-col-reverse gap-2 sm:flex-row"><Button :as="Link" :href="backHref" size="lg" variant="white-outline">Annuler</Button><Button size="lg" variant="primary" type="submit" :disabled="form.processing || !canSubmit"><Icon class="text-lg" name="check" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer les modifications' }}</span></Button></div></footer>
             </form>
 
             <aside v-if="isMutualPatient" class="space-y-4 xl:sticky xl:top-4">

@@ -26,6 +26,12 @@ watch(query, (value) => {
     debounceTimer = setTimeout(() => visit({ ...(value ? { q: value } : {}), ...(props.filter !== 'all' ? { filter: props.filter } : {}) }), 350);
 });
 
+const waitingSince = (orientation) => {
+    const minutes = Math.max(0, Math.round((Date.now() - new Date(orientation.oriented_at).getTime()) / 60000));
+    if (minutes < 60) return `${minutes} min`;
+    return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
+};
+
 const designationSummary = (orientation) => {
     const items = orientation.episode.designations ?? [];
     if (items.length === 0) return 'Motif à préciser en consultation';
@@ -72,20 +78,26 @@ const tabs = [
             </div>
 
             <div class="overflow-x-auto">
-                <table class="w-full min-w-[1040px] border-collapse">
+                <table class="w-full min-w-[1140px] border-collapse">
                     <caption class="sr-only">File des patients en Médecine</caption>
                     <thead class="bg-gray-50/70 dark:bg-gray-1000/40">
                         <tr>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">N°</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Passage</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Motif / désignation</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Orienté</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Provenance</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Attente</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Statut</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
                         <tr v-for="orientation in orientations.data" :key="orientation.uuid" class="hover:bg-gray-50/70 dark:hover:bg-gray-1000/40">
+                            <td class="px-5 py-3">
+                                <span v-if="orientation.queue_number" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ orientation.queue_number }}</span>
+                                <span v-else class="text-slate-300 dark:text-slate-700">—</span>
+                            </td>
                             <td class="px-5 py-3">
                                 <div class="flex min-w-[230px] items-center gap-3">
                                     <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(orientation.episode.patient)" />
@@ -100,8 +112,9 @@ const tabs = [
                                 <span class="font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ orientation.episode.episode_number }}</span>
                                 <span :class="['mt-1 flex items-center gap-1.5 text-xs font-semibold', orientation.episode.priority === 'EMERGENCY' ? 'text-red-600 dark:text-red-300' : 'text-slate-400']"><span :class="['h-1.5 w-1.5 rounded-full', orientation.episode.priority === 'EMERGENCY' ? 'bg-red-500' : 'bg-slate-300']" />{{ orientation.episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normal' }}</span>
                             </td>
-                            <td class="max-w-[320px] px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ designationSummary(orientation) }}</td>
+                            <td class="max-w-[280px] px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ designationSummary(orientation) }}</td>
                             <td class="px-5 py-3"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ orientation.source_label }}</span><span class="text-xs text-slate-400">{{ formatDateTime(orientation.oriented_at) }}</span></td>
+                            <td class="px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ waitingSince(orientation) }}</td>
                             <td class="px-5 py-3"><span class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300"><span :class="['h-1.5 w-1.5 rounded-full', orientation.status === 'IN_PROGRESS' ? 'bg-primary-500' : 'bg-amber-500']" />{{ orientation.status === 'IN_PROGRESS' ? 'En consultation' : 'En attente' }}</span><span v-if="orientation.accepted_by" class="mt-1 block text-xs text-slate-400">par {{ orientation.accepted_by }}</span></td>
                             <td class="px-5 py-3 text-end">
                                 <Link v-if="orientation.status === 'PENDING' && can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button size="sm">Prendre en charge</Button></Link>
@@ -109,7 +122,7 @@ const tabs = [
                                 <Link v-else-if="can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button size="sm" variant="white-outline"><Icon class="me-1.5 text-base" name="eye" />Ouvrir le dossier</Button></Link>
                             </td>
                         </tr>
-                        <tr v-if="orientations.data.length === 0"><td colspan="6" class="px-5 py-12 text-center"><Icon class="text-2xl text-slate-300" name="activity" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p><p class="mt-1 text-xs text-slate-400">Les patients apparaissent ici selon la désignation, la transmission des Soins ou l’urgence.</p></td></tr>
+                        <tr v-if="orientations.data.length === 0"><td colspan="8" class="px-5 py-12 text-center"><Icon class="text-2xl text-slate-300" name="activity" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p><p class="mt-1 text-xs text-slate-400">Les patients apparaissent ici selon la désignation, la transmission des Soins ou l’urgence.</p></td></tr>
                     </tbody>
                 </table>
             </div>

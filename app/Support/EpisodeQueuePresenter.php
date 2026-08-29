@@ -2,14 +2,78 @@
 
 namespace App\Support;
 
+use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
+use App\Enums\EpisodePriority;
 use App\Models\EpisodeOrientation;
+use Illuminate\Support\Collection;
 
 class EpisodeQueuePresenter
 {
+    /**
+     * SQL mirror of isQueueEligible() below, for ORDER BY clauses: pins a
+     * row ahead of arrival order only while it is a still fast-tracked
+     * Emergency (Médecine hasn't completed a first consultation for that
+     * episode yet). Once eligible, first arrived is first in the list,
+     * emergency or not.
+     */
+    public const PIN_UNSEEN_EMERGENCY_SQL = <<<'SQL'
+        CASE WHEN EXISTS (
+            SELECT 1 FROM episodes
+            WHERE episodes.id = episode_orientations.episode_id
+            AND episodes.priority = 'EMERGENCY'
+        ) AND NOT EXISTS (
+            SELECT 1 FROM episode_orientations eo_medicine_seen
+            WHERE eo_medicine_seen.episode_id = episode_orientations.episode_id
+            AND eo_medicine_seen.destination_module = 'MEDICINE'
+            AND eo_medicine_seen.status = 'COMPLETED'
+        ) THEN 0 ELSE 1 END
+        SQL;
+
     public function __construct(private readonly CareWorkflow $careWorkflow) {}
 
+    /**
+     * Sequential queue position (1, 2, 3…) in arrival order. A Normal
+     * patient gets one immediately; an Emergency patient only joins once
+     * Médecine has completed its first consultation for that episode — no
+     * longer being fast-tracked ahead of everyone waiting. Computed over
+     * the whole active collection (not just the current page) so the
+     * numbering stays correct regardless of pagination.
+     *
+     * @param  Collection<int, EpisodeOrientation>  $orientations
+     * @return array<int, int> queue number keyed by EpisodeOrientation::id
+     */
+    public function assignQueueNumbers(Collection $orientations): array
+    {
+        $numbers = [];
+        $rank = 0;
+
+        foreach ($orientations->sortBy('oriented_at') as $orientation) {
+            if (! $this->isQueueEligible($orientation)) {
+                continue;
+            }
+
+            $numbers[$orientation->getKey()] = ++$rank;
+        }
+
+        return $numbers;
+    }
+
+    private function isQueueEligible(EpisodeOrientation $orientation): bool
+    {
+        if ($orientation->episode->priority !== EpisodePriority::Emergency) {
+            return true;
+        }
+
+        return EpisodeOrientation::query()
+            ->where('episode_id', $orientation->episode_id)
+            ->where('destination_module', CatalogModule::Medicine->value)
+            ->where('status', EpisodeOrientationStatus::Completed->value)
+            ->exists();
+    }
+
     /** @return array<string, mixed> */
-    public function present(EpisodeOrientation $orientation): array
+    public function present(EpisodeOrientation $orientation, ?int $queueNumber = null): array
     {
         $episode = $orientation->episode;
         $patient = $episode->patient;
@@ -20,6 +84,7 @@ class EpisodeQueuePresenter
 
         return [
             'uuid' => $orientation->uuid,
+            'queue_number' => $queueNumber,
             'status' => $orientation->status->value,
             'status_label' => $orientation->status->label(),
             'source_module' => $orientation->source_module->value,
@@ -37,6 +102,7 @@ class EpisodeQueuePresenter
                 'episode_number' => $episode->episode_number,
                 'priority' => $episode->priority->value,
                 'started_at' => $episode->started_at,
+                'financial_mode' => $episode->financial_mode?->value,
                 'administrative_status' => $episode->administrative_status->value,
                 'designation_deferred' => $episode->designation_deferred,
                 'care_completion_mode' => $careCompletionMode->value,

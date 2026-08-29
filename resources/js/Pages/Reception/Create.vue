@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -19,6 +20,7 @@ const props = defineProps({
     estimateCatalog: { type: Array, default: () => [] },
     addressEntries: { type: Array, default: () => [] },
     mutualOrganizations: { type: Array, default: () => [] },
+    partnerOrganizations: { type: Array, default: () => [] },
     capabilities: { type: Object, default: () => ({}) },
     resumeEpisode: { type: Object, default: null },
     receptionDraft: { type: Object, default: null },
@@ -42,7 +44,6 @@ const estimate = ref(null);
 const estimateLoading = ref(false);
 const estimateError = ref('');
 const designationDeferred = ref(Boolean(props.receptionDraft?.designation_deferred));
-const isEmergency = ref(false);
 
 const patientMode = ref('search');
 const patientQuery = ref('');
@@ -93,6 +94,9 @@ const mutualForm = reactive({
     beneficiary_type: props.resumeEpisode?.mutual_coverage?.beneficiary_type ?? 'PRINCIPAL',
     membership_number: props.resumeEpisode?.mutual_coverage?.membership_number ?? '',
 });
+const partnerForm = reactive({
+    partner_organization_uuid: props.resumeEpisode?.partner_coverage?.partner_organization_uuid ?? '',
+});
 const employeeQuery = ref('');
 const employeeMatches = ref([]);
 const employeeSearchLoading = ref(false);
@@ -104,6 +108,7 @@ const finalForm = useForm({
     catalog_lines: [],
     payment_choice: 'LATER',
 });
+const emergencyForm = useForm({});
 
 const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 const requestJson = async (url, options = {}) => {
@@ -222,22 +227,13 @@ const continueWithoutKnownDesignation = () => {
     designationDeferred.value = true;
     cart.value = [];
     estimate.value = null;
-    isEmergency.value = false;
-    currentStep.value = 3;
-};
-const startEmergency = () => {
-    designationDeferred.value = false;
-    cart.value = [];
-    estimate.value = null;
-    isEmergency.value = true;
     currentStep.value = 3;
 };
 const continueToPatient = () => {
-    isEmergency.value = false;
     currentStep.value = 3;
 };
 const patientBackTarget = computed(() => (
-    !isEmergency.value && !designationDeferred.value && cart.value.length ? 2 : 1
+    !designationDeferred.value && cart.value.length ? 2 : 1
 ));
 const patientBackLabel = computed(() => (
     patientBackTarget.value === 2 ? 'Retour à l’estimation' : 'Modifier le besoin'
@@ -253,7 +249,6 @@ const returnFromPatientStep = async () => {
         return;
     }
 
-    isEmergency.value = false;
     designationDeferred.value = false;
     currentStep.value = 1;
 };
@@ -307,7 +302,6 @@ const editSelectedPatient = () => {
             currentStep: currentStep.value,
             cart: cart.value,
             designationDeferred: designationDeferred.value,
-            isEmergency: isEmergency.value,
             patientQuery: patientQuery.value,
             patientNumber: selectedPatient.value.patient_number,
         }));
@@ -355,7 +349,6 @@ const resumeAfterPatientEdit = async () => {
     patientQuery.value = saved.patientQuery ?? '';
     cart.value = Array.isArray(saved.cart) ? saved.cart : [];
     designationDeferred.value = Boolean(saved.designationDeferred);
-    isEmergency.value = Boolean(saved.isEmergency);
     currentStep.value = saved.currentStep ?? currentStep.value;
 
     if (currentStep.value === 2 && cart.value.length) await recalculateEstimate();
@@ -387,7 +380,7 @@ const arrivalPayload = (confirmDuplicate = false) => {
         emergency_contact_relationship: patientForm.emergency_contact_relationship || null,
         emergency_contact_email: patientForm.emergency_contact_email || null,
     };
-    const journey = isEmergency.value ? {} : {
+    const journey = {
         reception_draft: {
             designation_deferred: designationDeferred.value,
             catalog_lines: cartPayload(),
@@ -395,7 +388,7 @@ const arrivalPayload = (confirmDuplicate = false) => {
     };
 
     if (selectedPatient.value) {
-        return { patient_uuid: selectedPatient.value.uuid, is_emergency: isEmergency.value, ...contact, ...journey };
+        return { patient_uuid: selectedPatient.value.uuid, ...contact, ...journey };
     }
 
     return {
@@ -416,7 +409,6 @@ const arrivalPayload = (confirmDuplicate = false) => {
         address_entry_uuid: patientForm.address_entry_uuid || null,
         new_address_label: patientForm.new_address_label || null,
         confirm_duplicate: confirmDuplicate,
-        is_emergency: isEmergency.value,
         ...contact,
         ...journey,
     };
@@ -435,11 +427,6 @@ const createEpisode = async (confirmDuplicate = false) => {
         selectedPatient.value = result.patient;
         episode.value = result.episode;
         duplicates.value = [];
-
-        if (isEmergency.value) {
-            window.location.assign(`/patients/${result.patient.uuid}`);
-            return;
-        }
 
         window.location.replace(result.resume_url);
     } catch (error) {
@@ -488,6 +475,7 @@ const financialPayload = () => {
     const payload = { financial_mode: financialMode.value, lines: cartPayload() };
     if (financialMode.value === 'MUTUAL') Object.assign(payload, mutualForm);
     if (financialMode.value === 'STAFF') payload.employee_uuid = selectedEmployee.value?.uuid;
+    if (financialMode.value === 'PARTNER') Object.assign(payload, partnerForm);
     return payload;
 };
 const configureFinancialContext = async () => {
@@ -509,6 +497,23 @@ const configureFinancialContext = async () => {
     }
 };
 
+const showEmergencyConfirm = ref(false);
+const markEpisodeEmergency = () => {
+    if (!episode.value || emergencyForm.processing) return;
+
+    showEmergencyConfirm.value = true;
+};
+const closeEmergencyConfirm = () => {
+    if (emergencyForm.processing) return;
+
+    showEmergencyConfirm.value = false;
+};
+const confirmMarkEmergency = () => {
+    emergencyForm.post(`/reception/passages/${episode.value.uuid}/urgence`, {
+        onSuccess: () => { showEmergencyConfirm.value = false; },
+    });
+};
+
 const confirmCare = () => {
     finalForm.defer_designation = designationDeferred.value;
     finalForm.catalog_lines = cartPayload();
@@ -519,7 +524,7 @@ const confirmCare = () => {
 };
 const firstError = (errors, key) => Array.isArray(errors?.[key]) ? errors[key][0] : errors?.[key];
 const modeLabel = computed(() => ({
-    SELF: 'Paiement personnel', MUTUAL: 'Mutuelle', STAFF: 'Personnel clinique',
+    SELF: 'Paiement personnel', MUTUAL: 'Mutuelle', STAFF: 'Personnel clinique', PARTNER: 'Partenaire',
 }[financialMode.value]));
 const selectClass = 'block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
 const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-white px-4 text-base text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:border-primary-600 dark:focus:ring-primary-950';
@@ -556,10 +561,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
             <CardBody v-if="currentStep === 1" class="!p-5 lg:!p-7">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div><h2 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Quel est votre besoin aujourd’hui ?</h2><p class="mt-1 text-sm text-slate-400">Choisissez les prestations configurées pour la Réception. Aucun dossier patient n’est créé à cette étape.</p></div>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <Button v-if="capabilities.can_open_pharmacy_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" size="rg" variant="white-outline"><Icon class="me-2" name="shopping-cart" />Vente comptoir Pharmacie</Button>
-                        <Button size="rg" variant="danger" @click="startEmergency"><Icon class="me-2" name="activity" />Admission en urgence</Button>
-                    </div>
+                    <Button v-if="capabilities.can_open_pharmacy_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" size="rg" variant="white-outline"><Icon class="me-2" name="shopping-cart" />Vente comptoir Pharmacie</Button>
                 </div>
 
                 <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -626,7 +628,6 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
 
             <CardBody v-else-if="currentStep === 3" class="!p-5 lg:!p-7">
                 <div>
-                    <p v-if="isEmergency" class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">Urgence : la création du passage alertera immédiatement Soins et Médecine, sans attendre un mode financier.</p>
                     <h2 class="text-xl font-bold text-slate-700 dark:text-white">Identifier le Patient</h2>
                     <p class="mt-1 text-sm text-slate-400">Recherchez d’abord le dossier permanent. Créez-en un uniquement si le patient n’existe pas.</p>
                 </div>
@@ -744,7 +745,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                 <FormError v-if="arrivalMessage && !duplicates.length" class="mt-4 w-full">{{ arrivalMessage }}</FormError>
                 <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900">
                     <Button size="lg" variant="white-outline" @click="returnFromPatientStep"><Icon class="me-2" name="arrow-left" />{{ patientBackLabel }}</Button>
-                    <Button v-if="patientMode === 'create' || selectedPatient" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : (isEmergency ? 'Créer le passage urgence' : 'Créer l’Episode') }}<Icon class="ms-2" name="arrow-right" /></Button>
+                    <Button v-if="patientMode === 'create' || selectedPatient" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer l’Episode' }}<Icon class="ms-2" name="arrow-right" /></Button>
                 </div>
             </CardBody>
 
@@ -754,10 +755,19 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                     <div class="flex items-center gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-1000/40"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(selectedPatient)" /><span><strong class="block text-sm text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</strong><span class="font-mono text-xs text-slate-400">{{ selectedPatient.patient_number }}</span></span></div>
                 </div>
 
-                <div class="mt-6 grid gap-3 md:grid-cols-3">
+                <section v-if="capabilities.can_mark_emergency && episode.priority !== 'EMERGENCY'" class="mt-5 flex flex-col gap-4 rounded-md border border-red-200 bg-red-50/60 px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950/20">
+                    <div class="min-w-0">
+                        <h3 class="text-sm font-bold text-red-800 dark:text-red-200">Ce passage doit-il être traité en urgence ?</h3>
+                        <p class="mt-1 max-w-3xl text-xs leading-5 text-red-700 dark:text-red-300">La décision concerne uniquement l’Épisode {{ episode.episode_number }}.</p>
+                    </div>
+                    <Button class="shrink-0" size="rg" variant="danger" :disabled="emergencyForm.processing" @click="markEpisodeEmergency"><Icon class="me-2" name="activity" />Classer ce passage en urgence</Button>
+                </section>
+
+                <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <button type="button" :aria-pressed="financialMode === 'SELF'" :class="['relative rounded-md border p-5 text-start transition lg:p-6', financialMode === 'SELF' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('SELF')"><Icon v-if="financialMode === 'SELF'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="wallet" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Paiement personnel</span><span class="mt-1 block text-xs leading-5 text-slate-400">Tarif STANDARD, à la charge du patient.</span></button>
                     <button type="button" :disabled="!capabilities.can_use_mutual" :aria-pressed="financialMode === 'MUTUAL'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'MUTUAL' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('MUTUAL')"><Icon v-if="financialMode === 'MUTUAL'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="shield-check" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Mutuelle</span><span class="mt-1 block text-xs leading-5 text-slate-400">Organisme existant et tarif MUTUAL du site.</span></button>
                     <button type="button" :disabled="!capabilities.can_use_staff || !capabilities.can_link_staff" :aria-pressed="financialMode === 'STAFF'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'STAFF' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('STAFF')"><Icon v-if="financialMode === 'STAFF'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="briefcase" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Personnel clinique</span><span class="mt-1 block text-xs leading-5 text-slate-400">Employé RH existant et règles Personnel serveur.</span></button>
+                    <button type="button" :disabled="!capabilities.can_use_partner" :aria-pressed="financialMode === 'PARTNER'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'PARTNER' ? 'border-primary-500 bg-primary-50/40 ring-1 ring-primary-100 dark:bg-primary-950/20' : 'border-gray-200 hover:border-primary-300 dark:border-gray-800']" @click="selectFinancialMode('PARTNER')"><Icon v-if="financialMode === 'PARTNER'" class="absolute end-4 top-4 text-lg text-primary-600" name="check-circle" /><Icon class="text-2xl text-primary-600" name="link" /><span class="mt-3 block text-sm font-bold text-slate-700 dark:text-white">Partenaires</span><span class="mt-1 block text-xs leading-5 text-slate-400">Organisme partenaire existant (ISPSG, TsaraShop…).</span></button>
                 </div>
 
                 <section v-if="financialMode === 'MUTUAL'" class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
@@ -769,13 +779,13 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Organisme *</span><select v-model="mutualForm.mutual_organization_uuid" :class="selectLgClass" :aria-invalid="Boolean(firstError(financialErrors, 'mutual_organization_uuid'))"><option value="">Choisir un organisme</option><option v-for="organization in mutualOrganizations" :key="organization.uuid" :value="organization.uuid">{{ organization.name }} · {{ Number(organization.coverage_rate).toLocaleString('fr-FR') }} %</option></select><FormError v-if="firstError(financialErrors, 'mutual_organization_uuid')" class="mt-1">{{ firstError(financialErrors, 'mutual_organization_uuid') }}</FormError></label>
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Entreprise *</span><IconInput v-model="mutualForm.employer_name" size="lg" icon="building" placeholder="Nom de l’entreprise" :aria-invalid="Boolean(firstError(financialErrors, 'employer_name'))" /><FormError v-if="firstError(financialErrors, 'employer_name')" class="mt-1">{{ firstError(financialErrors, 'employer_name') }}</FormError></label>
                         <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Qualité du bénéficiaire *</span><select v-model="mutualForm.beneficiary_type" :class="selectLgClass" :aria-invalid="Boolean(firstError(financialErrors, 'beneficiary_type'))"><option value="PRINCIPAL">Principal</option><option value="FAMILY_MEMBER">Membre de la famille</option></select><FormError v-if="firstError(financialErrors, 'beneficiary_type')" class="mt-1">{{ firstError(financialErrors, 'beneficiary_type') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Matricule d’adhésion *</span><IconInput v-model="mutualForm.membership_number" size="lg" icon="card-view" placeholder="Numéro de matricule" :aria-invalid="Boolean(firstError(financialErrors, 'membership_number'))" /><FormError v-if="firstError(financialErrors, 'membership_number')" class="mt-1">{{ firstError(financialErrors, 'membership_number') }}</FormError></label>
+                        <label><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Matricule d’adhésion</span><IconInput v-model="mutualForm.membership_number" size="lg" icon="card-view" placeholder="Numéro de matricule (si connu)" :aria-invalid="Boolean(firstError(financialErrors, 'membership_number'))" /><FormError v-if="firstError(financialErrors, 'membership_number')" class="mt-1">{{ firstError(financialErrors, 'membership_number') }}</FormError></label>
                     </div>
                 </section>
 
                 <section v-if="financialMode === 'STAFF'" class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
                     <div class="flex items-start gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/50"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-lg text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon name="briefcase" /></span><div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Identifier l’Employé RH</h3><p class="mt-1 text-xs text-slate-400">Recherchez le dossier Employé existant puis confirmez la personne liée à ce Patient.</p></div></div>
-                    <div class="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.7fr)]">
+                    <div class="p-5">
                         <div class="min-w-0">
                             <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Employé de la clinique *</label>
                             <form class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" @submit.prevent="searchEmployees">
@@ -797,20 +807,23 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                             <div v-else-if="employeeSearchPerformed && !employeeSearchLoading" class="mt-4 rounded-md border border-dashed border-gray-300 px-5 py-7 text-center dark:border-gray-700"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucun Employé RH trouvé</p><p class="mt-1 text-xs text-slate-400">Vérifiez le matricule, l’identité ou le numéro saisi.</p></div>
                             <FormError v-if="firstError(financialErrors, 'employee_uuid')" class="mt-2">{{ firstError(financialErrors, 'employee_uuid') }}</FormError>
                         </div>
-
-                        <aside class="space-y-3">
-                            <div class="rounded-md border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/20"><div class="flex items-start gap-3"><Icon class="mt-0.5 text-xl text-sky-600" name="info" /><div><h4 class="text-sm font-bold text-sky-900 dark:text-sky-200">Identification limitée</h4><p class="mt-1 text-xs leading-5 text-sky-700 dark:text-sky-300">La Réception voit uniquement le matricule, l’identité, la fonction et l’état du lien Patient. Aucun historique RH ou financier n’est exposé.</p></div></div></div>
-                            <div class="rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><div class="flex items-start gap-3"><Icon class="mt-0.5 text-xl text-amber-600" name="alert-circle" /><div><h4 class="text-sm font-bold text-amber-900 dark:text-amber-200">Prévisualisation sans débit</h4><p class="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-300">Le calcul ne consomme aucun crédit Bloc. Une consommation réelle n’a lieu qu’à la création de la prestation facturable.</p></div></div></div>
-                        </aside>
                     </div>
                 </section>
+
+                <section v-if="financialMode === 'PARTNER'" class="mt-5 w-full overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                    <div class="flex items-start gap-3 border-b border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/50"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-lg text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon name="link" /></span><div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Partenaire de cet Episode</h3><p class="mt-1 text-xs text-slate-400">Sélectionnez un organisme partenaire existant pour ce passage.</p></div></div>
+                    <div class="grid gap-4 p-5 md:grid-cols-2">
+                        <label class="md:col-span-2"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Organisme partenaire *</span><select v-model="partnerForm.partner_organization_uuid" :class="selectLgClass" :aria-invalid="Boolean(firstError(financialErrors, 'partner_organization_uuid'))"><option value="">Choisir un partenaire</option><option v-for="organization in partnerOrganizations" :key="organization.uuid" :value="organization.uuid">{{ organization.name }}</option></select><FormError v-if="firstError(financialErrors, 'partner_organization_uuid')" class="mt-1">{{ firstError(financialErrors, 'partner_organization_uuid') }}</FormError></label>
+                    </div>
+                </section>
+
                 <FormError v-if="firstError(financialErrors, 'financial_mode')" class="mt-4">{{ firstError(financialErrors, 'financial_mode') }}</FormError>
-                <div class="mt-6 flex justify-end border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="lg" :disabled="financialLoading || (financialMode === 'MUTUAL' && (!mutualForm.mutual_organization_uuid || !mutualForm.employer_name || !mutualForm.membership_number)) || (financialMode === 'STAFF' && !selectedEmployee)" @click="configureFinancialContext">{{ financialLoading ? 'Calcul Laravel…' : 'Calculer la prise en charge' }}<Icon class="ms-2" name="arrow-right" /></Button></div>
+                <div class="mt-6 flex justify-end border-t border-gray-200 pt-5 dark:border-gray-900"><Button size="lg" :disabled="financialLoading || (financialMode === 'MUTUAL' && (!mutualForm.mutual_organization_uuid || !mutualForm.employer_name)) || (financialMode === 'STAFF' && !selectedEmployee) || (financialMode === 'PARTNER' && !partnerForm.partner_organization_uuid)" @click="configureFinancialContext">{{ financialLoading ? 'Calcul Laravel…' : 'Calculer la prise en charge' }}<Icon class="ms-2" name="arrow-right" /></Button></div>
             </CardBody>
 
             <CardBody v-else-if="currentStep === 6" class="!p-5 lg:!p-7">
                 <div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Confirmer la prise en charge</h2><p class="mt-1 text-sm text-slate-400">Les montants ci-dessous ont été recalculés depuis le contexte de l’Episode. La confirmation figera les prestations puis déclenchera le routage.</p></div>
-                <div class="mt-5 grid gap-3 sm:grid-cols-3"><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Patient</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</p><p class="text-xs text-slate-400">{{ selectedPatient.patient_number }}</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Episode</p><p class="mt-1 font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</p><p class="text-xs text-slate-400">Un seul passage pour toutes les prestations</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Mode financier</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ modeLabel }}</p><p v-if="preview?.organization_name" class="text-xs text-slate-400">{{ preview.organization_name }} · {{ Number(preview.coverage_rate).toLocaleString('fr-FR') }} %</p></div></div>
+                <div class="mt-5 grid gap-3 sm:grid-cols-3"><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Patient</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</p><p class="text-xs text-slate-400">{{ selectedPatient.patient_number }}</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Episode</p><p class="mt-1 font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</p><p class="text-xs text-slate-400">Un seul passage pour toutes les prestations</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Mode financier</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ modeLabel }}</p><p v-if="preview?.organization_name" class="text-xs text-slate-400">{{ preview.organization_name }}<template v-if="preview.coverage_rate !== null"> · {{ Number(preview.coverage_rate).toLocaleString('fr-FR') }} %</template><template v-else> · Facturation en attente</template></p></div></div>
                 <div class="mt-5 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800"><div v-if="designationDeferred" class="px-4 py-5"><p class="text-sm font-bold text-slate-700 dark:text-white">Besoin à définir après évaluation</p><p class="mt-1 text-xs text-slate-400">Prestation et montant à définir après l’évaluation. Destination initiale : Soins.</p></div><div v-for="line in previewLines" v-else :key="line.catalog_item_uuid" class="grid gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px_130px] sm:items-center dark:border-gray-900"><div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.name }}</p><p class="text-xs text-slate-400">{{ line.code }} · {{ line.routing_label }}</p></div><p class="text-sm text-slate-500">× {{ Number(line.quantity).toLocaleString('fr-FR') }}</p><div><p class="text-[10px] font-bold uppercase text-slate-400">Brut</p><p class="text-sm font-semibold">{{ line.gross_amount ? formatMoney(line.gross_amount) : 'En attente' }}</p></div><div><p class="text-[10px] font-bold uppercase text-slate-400">Couverture</p><p class="text-sm font-semibold text-emerald-600">{{ line.coverage_amount !== null ? formatMoney(line.coverage_amount) : 'En attente' }}</p></div><div><p class="text-[10px] font-bold uppercase text-slate-400">Patient</p><p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.patient_amount !== null ? formatMoney(line.patient_amount) : 'En attente' }}</p></div></div></div>
                 <div class="mt-4 grid gap-3 sm:grid-cols-4"><div class="rounded-md bg-gray-50 p-4 dark:bg-gray-1000"><p class="text-[11px] font-bold uppercase text-slate-400">Montant brut</p><p class="mt-1 text-lg font-bold text-slate-700 dark:text-white">{{ preview?.totals.gross_amount ? formatMoney(preview.totals.gross_amount) : '—' }}</p></div><div class="rounded-md bg-emerald-50 p-4 dark:bg-emerald-950/20"><p class="text-[11px] font-bold uppercase text-emerald-600">Couverture</p><p class="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-300">{{ preview && preview.totals.coverage_amount !== null ? formatMoney(preview.totals.coverage_amount) : '—' }}</p></div><div class="rounded-md bg-amber-50 p-4 dark:bg-amber-950/20"><p class="text-[11px] font-bold uppercase text-amber-600">Reste patient</p><p class="mt-1 text-lg font-bold text-amber-700 dark:text-amber-300">{{ preview && preview.totals.patient_amount !== null ? formatMoney(preview.totals.patient_amount) : '—' }}</p></div><div class="rounded-md bg-primary-50 p-4 dark:bg-primary-950/20"><p class="text-[11px] font-bold uppercase text-primary-600">Destination initiale</p><p class="mt-1 text-lg font-bold text-primary-700 dark:text-primary-300">{{ designationDeferred ? 'Soins' : (preview?.initial_destination?.label || 'À calculer') }}</p></div></div>
                 <div v-if="preview?.totals.resolution_pending" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">Une ligne reste financièrement en attente (tarif manquant ou politique Personnel non classifiée). Sa demande clinique et son routage seront conservés ; aucun montant ne sera inventé.</div>
@@ -818,5 +831,32 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                 <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><Button size="rg" variant="white-outline" @click="currentStep = 5"><Icon class="me-2" name="arrow-left" />Modifier le mode</Button><Button size="rg" :disabled="finalForm.processing" @click="confirmCare"><Icon class="me-2" name="check" />{{ finalForm.processing ? 'Confirmation…' : 'Confirmer la prise en charge' }}</Button></div>
             </CardBody>
         </Card>
+
+        <Dialog :open="showEmergencyConfirm" as="div" class="relative z-[1300]" @close="closeEmergencyConfirm">
+            <div class="fixed inset-0 bg-slate-950/55 backdrop-blur-[1px]" aria-hidden="true"></div>
+            <div class="fixed inset-0 overflow-y-auto p-4">
+                <div class="flex min-h-full items-center justify-center">
+                    <DialogPanel v-if="showEmergencyConfirm" class="w-full max-w-md overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
+                        <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+                            <div class="flex min-w-0 items-start gap-3">
+                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"><Icon class="text-xl" name="activity" /></span>
+                                <div class="min-w-0">
+                                    <DialogTitle class="font-heading text-base font-bold text-slate-700 dark:text-white">Classer ce passage en urgence ?</DialogTitle>
+                                    <p class="mt-1 text-xs leading-5 text-slate-400">Episode {{ episode?.episode_number }}</p>
+                                </div>
+                            </div>
+                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer la confirmation" :disabled="emergencyForm.processing" @click="closeEmergencyConfirm"><Icon class="text-xl" name="cross" /></button>
+                        </header>
+                        <div class="px-5 py-4">
+                            <FormError :message="emergencyForm.errors.episode" />
+                        </div>
+                        <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/30 sm:flex-row sm:justify-end">
+                            <Button type="button" size="rg" variant="white-outline" :disabled="emergencyForm.processing" @click="closeEmergencyConfirm">Annuler</Button>
+                            <Button type="button" size="rg" variant="danger" :disabled="emergencyForm.processing" @click="confirmMarkEmergency"><Icon class="me-2 text-base" name="activity" />{{ emergencyForm.processing ? 'Classement…' : 'Confirmer l’urgence' }}</Button>
+                        </footer>
+                    </DialogPanel>
+                </div>
+            </div>
+        </Dialog>
     </div>
 </template>

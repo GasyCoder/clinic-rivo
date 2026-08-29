@@ -222,6 +222,12 @@ class RegisterArrivalAction
                             'membership_number' => $mutualData['membership_number'] ?? null,
                         ],
                         EpisodeFinancialMode::Staff => ['employee_uuid' => $employeeUuid],
+                        // Partner is only ever chosen from the Episode's own
+                        // "prise en charge" step (SetEpisodeFinancialContextAction),
+                        // never from this legacy arrival-time screen.
+                        EpisodeFinancialMode::Partner => throw new \LogicException(
+                            'Le mode Partenaire ne peut pas être choisi à l’arrivée.',
+                        ),
                     };
 
                     $episode = $this->setFinancialContext->execute($episode, $financialMode, $context, $actor);

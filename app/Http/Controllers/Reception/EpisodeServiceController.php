@@ -42,7 +42,7 @@ class EpisodeServiceController extends Controller
         $tariffCategory = $billingCatalog->first()['tariff_category']
             ?? match ($episode->financial_mode) {
                 EpisodeFinancialMode::Mutual => 'MUTUAL',
-                EpisodeFinancialMode::Self, EpisodeFinancialMode::Staff => 'STANDARD',
+                EpisodeFinancialMode::Self, EpisodeFinancialMode::Staff, EpisodeFinancialMode::Partner => 'STANDARD',
                 null => null,
             };
 

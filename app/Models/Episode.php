@@ -99,6 +99,11 @@ class Episode extends Model
         return $this->hasOne(EpisodeStaffCoverage::class);
     }
 
+    public function partnerCoverage(): HasOne
+    {
+        return $this->hasOne(EpisodePartnerCoverage::class);
+    }
+
     public function financialContextCompleter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'financial_context_completed_by');

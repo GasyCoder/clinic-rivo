@@ -51,7 +51,17 @@ class CreatePrescriptionAction
                 }
             }
 
-            $prescription = $consultation->prescriptions()->create([
+            // One ordonnance per consultation: adding more lines later (the
+            // doctor remembers another drug, or the search takes several
+            // submissions) extends the same active prescription instead of
+            // spawning a second document to print separately. A cancelled
+            // prescription is never reused — a genuinely new one follows.
+            $prescription = $consultation->prescriptions()
+                ->where('status', PrescriptionStatus::Active->value)
+                ->latest('id')
+                ->first();
+
+            $prescription ??= $consultation->prescriptions()->create([
                 'status' => PrescriptionStatus::Active,
                 'prescribed_by' => $actor->getKey(),
                 'prescribed_at' => now(),

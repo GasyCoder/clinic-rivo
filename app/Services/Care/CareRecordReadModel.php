@@ -36,14 +36,19 @@ class CareRecordReadModel
 
         $record->loadMissing([
             'episode.patient',
+            'episode.serviceRequests',
             'creator:id,name',
             'updater:id,name',
             'procedures.performer:id,name',
+            'procedures.careOrderItem',
         ]);
 
         $canViewVitals = $viewer->can('vitals.view');
         $canViewAllergies = $viewer->can('patients.medical_history.view');
         $patientAge = $this->patientAgeAtEpisode($record);
+        $requestedCatalogUuids = $record->episode?->serviceRequests
+            ->pluck('catalog_item_uuid')
+            ->all() ?? [];
 
         return [
             'uuid' => $record->uuid,
@@ -65,6 +70,7 @@ class CareRecordReadModel
                 'temperature_celsius' => $record->temperature_celsius,
                 'temperature_assessment' => $this->temperatureAssessment->classify($record->temperature_celsius),
                 'known_diabetes' => $record->known_diabetes,
+                'diabetes_note' => $record->diabetes_note,
                 'height_cm' => $record->height_cm,
                 'weight_kg' => $record->weight_kg,
                 'bmi' => $record->bmi,
@@ -93,6 +99,11 @@ class CareRecordReadModel
                 'allergy_checked_at' => $procedure->allergy_checked_at,
                 'performed_by' => $procedure->performer?->name,
                 'performed_at' => $procedure->performed_at,
+                'source' => match (true) {
+                    $procedure->care_order_item_id !== null => 'MEDICAL_ORDER',
+                    in_array($procedure->catalog_item_uuid, $requestedCatalogUuids, true) => 'RECEPTION',
+                    default => 'ADDED_ON_SITE',
+                },
             ])->values(),
         ];
     }

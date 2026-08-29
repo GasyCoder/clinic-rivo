@@ -3,23 +3,31 @@
 namespace Tests\Feature\Episode;
 
 use App\Actions\Administration\LinkPatientToEmployeeAction;
+use App\Actions\Billing\RecordBillableItemAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\SetEpisodeFinancialContextAction;
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\AuditLog;
 use App\Models\BillableItem;
+use App\Models\CatalogItem;
+use App\Models\CatalogTariff;
 use App\Models\Employee;
 use App\Models\Episode;
 use App\Models\Invoice;
 use App\Models\MutualOrganization;
+use App\Models\PartnerOrganization;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Billing\CatalogTariffResolver;
+use App\Services\Reception\ReceptionFinancialPreviewService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -41,6 +49,7 @@ class EpisodeFinancialContextTest extends TestCase
         foreach ([
             'episodes.create', 'episodes.update', 'patient_staff_links.create',
             'mutual_organizations.view', 'employees.patient_lookup',
+            'partner_organizations.view',
         ] as $name) {
             $permission = Permission::query()->create(['name' => $name]);
             $role->permissions()->attach($permission);
@@ -270,6 +279,111 @@ class EpisodeFinancialContextTest extends TestCase
         $this->assertDatabaseCount('episode_mutual_coverages', 0);
     }
 
+    public function test_a_partner_episode_snapshots_the_organization_and_switching_mode_removes_it(): void
+    {
+        $organization = $this->partnerOrganization('ISPSG');
+        $episode = $this->set(
+            $this->episode($this->patient()),
+            EpisodeFinancialMode::Partner,
+            ['partner_organization_uuid' => $organization->uuid],
+        );
+
+        $this->assertSame(EpisodeFinancialMode::Partner, $episode->financial_mode);
+        $this->assertSame($organization->id, $episode->partnerCoverage->partner_organization_id);
+        $this->assertSame('ISPSG', $episode->partnerCoverage->organization_name_snapshot);
+        $this->assertDatabaseCount('episode_partner_coverages', 1);
+
+        $selfEpisode = $this->set($episode, EpisodeFinancialMode::Self);
+
+        $this->assertNull($selfEpisode->partnerCoverage);
+        $this->assertDatabaseCount('episode_partner_coverages', 0);
+    }
+
+    public function test_an_archived_partner_organization_is_rejected(): void
+    {
+        $organization = $this->partnerOrganization('TsaraShop', active: false);
+
+        $this->expectException(ValidationException::class);
+
+        $this->set(
+            $this->episode($this->patient()),
+            EpisodeFinancialMode::Partner,
+            ['partner_organization_uuid' => $organization->uuid],
+        );
+    }
+
+    public function test_setting_partner_mode_requires_the_granular_permission(): void
+    {
+        $role = Role::query()->create(['code' => 'RECEPTION_LIMITED', 'name' => 'Réception limitée']);
+        $role->permissions()->attach(Permission::query()->firstOrCreate(['name' => 'episodes.create']));
+        $role->permissions()->attach(Permission::query()->firstOrCreate(['name' => 'episodes.update']));
+        $limitedActor = User::factory()->create(['role_id' => $role->id]);
+        $organization = $this->partnerOrganization();
+
+        $this->expectException(AuthorizationException::class);
+
+        app(SetEpisodeFinancialContextAction::class)->execute(
+            $this->episode($this->patient()),
+            EpisodeFinancialMode::Partner,
+            ['partner_organization_uuid' => $organization->uuid],
+            $limitedActor,
+        );
+    }
+
+    public function test_a_partner_episode_bills_like_self_until_a_coverage_rule_exists(): void
+    {
+        // No per-prestation Partner coverage exists yet (no Hospitalisation
+        // catalogue): billing must stay fully functional — the patient can
+        // pay directly, now or later — rather than being blocked, so it
+        // resolves at 0% coverage exactly like Self.
+        $organization = $this->partnerOrganization();
+        $episode = $this->set(
+            $this->episode($this->patient()),
+            EpisodeFinancialMode::Partner,
+            ['partner_organization_uuid' => $organization->uuid],
+        );
+        $item = CatalogItem::query()->create([
+            'code' => 'ROOM-001',
+            'name' => 'Chambre',
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Administration,
+            'unit' => 'nuit',
+            'billable' => true,
+            'stockable' => false,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect,
+            'created_by' => $this->actor->id,
+            'updated_by' => $this->actor->id,
+        ]);
+        CatalogTariff::query()->create([
+            'catalog_item_id' => $item->id,
+            'amount' => '20000.00',
+            'currency' => 'MGA',
+            'effective_from' => now(),
+            'active_key' => 'CURRENT',
+            'change_reason' => 'Tarif de test',
+            'created_by' => $this->actor->id,
+        ]);
+
+        $preview = app(ReceptionFinancialPreviewService::class)->preview($episode, [
+            ['catalog_item_uuid' => $item->uuid, 'quantity' => '1'],
+        ]);
+
+        $this->assertFalse($preview['totals']['resolution_pending']);
+        $this->assertSame('20000.00', $preview['totals']['gross_amount']);
+        $this->assertSame('0.00', $preview['totals']['coverage_amount']);
+        $this->assertSame('20000.00', $preview['totals']['patient_amount']);
+        $this->assertFalse($preview['lines'][0]['financial_resolution_pending']);
+
+        $billableItem = app(RecordBillableItemAction::class)->execute($episode, [
+            'catalog_item_uuid' => $item->uuid,
+            'quantity' => '1',
+        ], $this->actor);
+
+        $this->assertSame('0.00', $billableItem->coverage_amount);
+        $this->assertSame('20000.00', $billableItem->patient_amount);
+    }
+
     private function patient(PatientType $type = PatientType::Standard): Patient
     {
         return Patient::query()->create([
@@ -301,6 +415,11 @@ class EpisodeFinancialContextTest extends TestCase
             'coverage_rate' => $rate,
             'active' => true,
         ]);
+    }
+
+    private function partnerOrganization(string $name = 'ISPSG', bool $active = true): PartnerOrganization
+    {
+        return PartnerOrganization::query()->create(['name' => $name, 'active' => $active]);
     }
 
     private function episode(Patient $patient): Episode

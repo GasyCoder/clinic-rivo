@@ -32,13 +32,13 @@ class CreateCatalogItemAction
         ) ?? StaffCoveragePolicy::Unclassified;
         $this->assertStaffCoveragePolicy($billable, $staffCoveragePolicy);
         [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
-        [$requiresAllergyCheck, $recommendsVitals] = $this->careRequirements($type, $data);
+        [$requiresAllergyCheck, $recommendsVitals, $clinicianOrderable] = $this->careRequirements($type, $data);
 
         if ($billable && $actor->cannot('catalog.tariffs.create')) {
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals, $clinicianOrderable) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
@@ -52,6 +52,7 @@ class CreateCatalogItemAction
                 'reception_routing_mode' => $routingMode,
                 'care_requires_allergy_check' => $requiresAllergyCheck,
                 'care_recommends_vitals' => $recommendsVitals,
+                'clinician_orderable' => $clinicianOrderable,
                 'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
                 'created_by' => $actor->localUserId(),
                 'updated_by' => $actor->localUserId(),
@@ -177,13 +178,18 @@ class CreateCatalogItemAction
             && ($data['module'] ?? null) === CatalogModule::Care->value;
         $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
         $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+        $clinicianOrderable = (bool) ($data['clinician_orderable'] ?? false);
 
-        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
+        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals || $clinicianOrderable)) {
             throw ValidationException::withMessages([
                 'care_requires_allergy_check' => 'Ces exigences sont réservées aux prestations du module Soins.',
             ]);
         }
 
-        return [$isCareService && $requiresAllergyCheck, $isCareService && $recommendsVitals];
+        return [
+            $isCareService && $requiresAllergyCheck,
+            $isCareService && $recommendsVitals,
+            $isCareService && $clinicianOrderable,
+        ];
     }
 }

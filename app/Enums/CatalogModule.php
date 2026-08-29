@@ -11,6 +11,17 @@ enum CatalogModule: string
     case Pharmacy = 'PHARMACY';
     case Surgery = 'SURGERY';
     case Administration = 'ADMINISTRATION';
+    // ECG / échographie demandées en consultation. Contrairement à
+    // Laboratoire, aucun workspace dédié n'existe : la demande et le
+    // résultat restent portés par Médecine (voir ImagingRequest).
+    case Imaging = 'IMAGING';
+    // Referral-only destinations (ADR pending): Médecine may orient a
+    // patient here, but no dedicated workspace exists yet — see
+    // CreateServiceReferralAction.
+    case Maternity = 'MATERNITY';
+    case Hospitalization = 'HOSPITALIZATION';
+    case Transfer = 'TRANSFER';
+    case Pediatrics = 'PEDIATRICS';
 
     public function label(): string
     {
@@ -22,6 +33,11 @@ enum CatalogModule: string
             self::Pharmacy => 'Pharmacie',
             self::Surgery => 'Chirurgie',
             self::Administration => 'Administration',
+            self::Maternity => 'Maternité',
+            self::Hospitalization => 'Hospitalisation',
+            self::Transfer => 'Transfert',
+            self::Pediatrics => 'Pédiatrie',
+            self::Imaging => 'Imagerie',
         };
     }
 }

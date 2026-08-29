@@ -61,7 +61,7 @@ class UpdateCareRecordRequest extends FormRequest
             'blood_group',
             'blood_pressure_systolic', 'blood_pressure_diastolic',
             'heart_rate', 'spo2',
-            'temperature_celsius', 'known_diabetes',
+            'temperature_celsius', 'known_diabetes', 'diabetes_note',
             'height_cm', 'weight_kg', 'smoker',
         ])
             ->contains(fn (string $field) => $this->input($field) !== null
@@ -109,6 +109,10 @@ class UpdateCareRecordRequest extends FormRequest
             'spo2' => ['nullable', 'integer', 'min:0', 'max:100'],
             'temperature_celsius' => ['nullable', 'numeric', 'min:25', 'max:45', 'decimal:0,2'],
             'known_diabetes' => ['nullable', 'boolean'],
+            'diabetes_note' => [
+                Rule::prohibitedIf($this->boolean('known_diabetes') !== true),
+                'nullable', 'string', 'max:1000',
+            ],
             'height_cm' => ['nullable', 'numeric', 'min:20', 'max:250', 'decimal:0,2'],
             'weight_kg' => ['nullable', 'numeric', 'min:0.1', 'max:500', 'decimal:0,2'],
             'allergy_note' => [Rule::prohibitedIf(! $canViewAllergies), 'nullable', 'string', 'max:2000'],
@@ -161,6 +165,7 @@ class UpdateCareRecordRequest extends FormRequest
             'procedures.*.quantity' => ['required', 'numeric', 'min:0.01', 'max:999', 'decimal:0,2'],
             'procedures.*.notes' => ['nullable', 'string', 'max:1000'],
             'procedures.*.allergy_checked' => ['sometimes', 'boolean'],
+            'procedures.*.care_order_item_uuid' => ['nullable', 'uuid'],
         ];
     }
 

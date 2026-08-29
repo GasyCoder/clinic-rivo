@@ -76,6 +76,14 @@ class PermissionSeeder extends Seeder
         'mutual_organizations.restore' => 'Restaurer un organisme de mutuelle',
         'mutual_organizations.import' => 'Importer les organismes et leurs taux de couverture',
         'mutual_organizations.export' => 'Exporter les organismes et leurs taux de couverture',
+
+        // Partenaire commercial/institutionnel (ISPSG, TsaraShop…), distinct
+        // de la Mutuelle : couverture scopée à des prestations précises
+        // (chambre, lit), jamais un taux sur toute la grille tarifaire.
+        // Référentiel minimal pour l'instant — pas de gestion dédiée (voir
+        // EpisodeFinancialMode::Partner).
+        'partner_organizations.view' => 'Voir les organismes partenaires',
+
         'patient_coverages.view' => 'Voir la couverture administrative du patient',
         'patient_coverages.create' => 'Enregistrer une couverture mutuelle',
         'patient_coverages.update' => 'Modifier une couverture mutuelle',
@@ -210,6 +218,7 @@ class PermissionSeeder extends Seeder
         'episodes.view' => 'Voir les épisodes',
         'episodes.create' => 'Créer un épisode',
         'episodes.update' => 'Modifier un épisode',
+        'episodes.mark_emergency' => 'Classer un épisode en urgence',
         'episodes.cancel' => 'Annuler un épisode',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
@@ -264,6 +273,34 @@ class PermissionSeeder extends Seeder
         'vitals.create' => 'Enregistrer des constantes',
         'vitals.update' => 'Modifier des constantes',
         'medical_orders.view' => 'Voir les ordres médicaux',
+
+        // Phase B — ordre de soins Médecine → Soins (CDC §15). Distincte de
+        // medical_orders.view (générique, non consommée par un écran réel) :
+        // celle-ci gouverne précisément la création/consultation d'un
+        // CareOrder.
+        'care_orders.create' => 'Demander un ordre de soins depuis une consultation',
+        'care_orders.view' => 'Voir les ordres de soins',
+
+        // Paraclinique et orientations depuis Médecine. surgery.request est
+        // volontairement distincte de surgery.create (jamais accordée à
+        // MEDICINE) : demander une intervention n'est pas piloter le
+        // dossier chirurgical.
+        'laboratory_orders.create' => 'Demander des analyses depuis une consultation',
+        'laboratory_orders.view' => 'Voir les demandes d’analyses',
+        'laboratory_results.view' => 'Voir les résultats d’analyses',
+        'laboratory_results.create' => 'Saisir un résultat d’analyse',
+
+        // ECG / échographie : aucun workspace dédié n'existe encore, donc
+        // demande et compte rendu restent tous deux portés par Médecine.
+        'imaging_orders.create' => 'Demander un examen d’imagerie depuis une consultation',
+        'imaging_orders.view' => 'Voir les demandes d’imagerie',
+        'imaging_results.create' => 'Saisir un compte rendu d’imagerie',
+
+        'surgery.request' => 'Demander une intervention chirurgicale depuis Médecine',
+        'hospitalization.request' => 'Demander une hospitalisation depuis Médecine',
+        'maternity.request' => 'Demander une orientation Maternité depuis Médecine',
+        'transfer.request' => 'Demander un transfert/référence depuis Médecine',
+        'pediatrics.request' => 'Demander une orientation Pédiatrie depuis Médecine',
 
         // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-048 en fait un
         // espace autorisé séparément : ces permissions sont attribuées aux

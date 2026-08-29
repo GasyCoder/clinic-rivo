@@ -349,7 +349,7 @@ class ReceptionControllerTest extends TestCase
         $this->assertNotNull($patient->declared_age_at);
     }
 
-    public function test_store_marks_an_emergency_arrival_and_orients_it_immediately(): void
+    public function test_store_rejects_emergency_until_the_episode_exists(): void
     {
         $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         config(['rivo.site.code' => 'M']);
@@ -359,26 +359,22 @@ class ReceptionControllerTest extends TestCase
             'is_emergency' => true,
         ]);
 
-        $episode = Episode::first();
-        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
-        $response->assertSessionHas('status', "Passage urgence {$episode->episode_number} créé ; Soins et Médecine sont déjà alertés.");
-        $this->assertSame(EpisodePriority::Emergency, $episode->priority);
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
+        $response->assertSessionHasErrors('is_emergency');
+        $this->assertSame(0, Episode::count());
     }
 
-    public function test_store_can_mark_an_existing_patient_arrival_as_emergency(): void
+    public function test_existing_patient_emergency_flag_is_rejected_before_the_new_episode_exists(): void
     {
         $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
-        $this->actingAs($user)->post('/reception/patients', [
+        $response = $this->actingAs($user)->post('/reception/patients', [
             'patient_uuid' => $patient->uuid,
             'is_emergency' => true,
         ]);
 
-        $episode = $patient->episodes()->first();
-        $this->assertSame(EpisodePriority::Emergency, $episode->priority);
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
+        $response->assertSessionHasErrors('is_emergency');
+        $this->assertSame(0, $patient->episodes()->count());
     }
 
     public function test_store_rejects_an_invalid_emergency_flag(): void

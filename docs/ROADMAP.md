@@ -104,7 +104,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Antécédents patient exposés via un point d'entrée générique, consultables et ajoutables depuis Médecine
 - [x] Clôture administrative automatique (PENDING_SETTLEMENT) d'un parcours Soins seul réellement terminé, sans sortie médicale fictive
 - [x] Page transversale « Détail du passage » en lecture seule, sécurisée section par section côté serveur
-- [ ] Ordres de soins
+- [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
 - [ ] Hospitalisation

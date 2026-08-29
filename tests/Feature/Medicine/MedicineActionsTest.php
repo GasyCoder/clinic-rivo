@@ -17,6 +17,8 @@ use App\Models\Episode;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\Patient;
+use App\Models\PharmacyDispense;
+use App\Models\Prescription;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -133,6 +135,57 @@ class MedicineActionsTest extends TestCase
 
         $this->assertSame(PrescriptionStatus::Active, $prescription->status);
         $this->assertSame(2, $prescription->lines()->count());
+    }
+
+    public function test_a_second_submission_extends_the_same_active_prescription(): void
+    {
+        $episode = $this->makeEpisode();
+        $doctor = User::factory()->create();
+        $this->actingAs($doctor);
+        $consultation = $this->app->make(CreateConsultationAction::class)->execute($episode, ['reason' => 'Douleur']);
+        $paracetamol = $this->stockedMedicine($doctor, 'Paracétamol');
+        $amoxicilline = $this->stockedMedicine($doctor, 'Amoxicilline');
+
+        $first = $this->app->make(CreatePrescriptionAction::class)->execute($consultation, [
+            ['medicine_uuid' => $paracetamol->catalogItem->uuid, 'quantity' => 3, 'dosage' => '1g', 'frequency' => '3x/jour'],
+        ], $doctor);
+
+        // The doctor remembers a second drug a minute later — same
+        // ordonnance, not a second document to print separately.
+        $second = $this->app->make(CreatePrescriptionAction::class)->execute($consultation, [
+            ['medicine_uuid' => $amoxicilline->catalogItem->uuid, 'quantity' => 2, 'dosage' => '500mg'],
+        ], $doctor);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, Prescription::query()->count());
+        $this->assertSame(2, $second->lines()->count());
+
+        // The same PharmacyDispense request was extended, not duplicated.
+        $this->assertSame(1, PharmacyDispense::query()->count());
+        $this->assertSame(2, $second->fresh(['pharmacyDispense.lines'])->pharmacyDispense->lines->count());
+    }
+
+    public function test_a_new_prescription_starts_fresh_after_the_previous_one_was_cancelled(): void
+    {
+        $episode = $this->makeEpisode();
+        $doctor = User::factory()->create();
+        $this->actingAs($doctor);
+        $consultation = $this->app->make(CreateConsultationAction::class)->execute($episode, ['reason' => 'Douleur']);
+        $paracetamol = $this->stockedMedicine($doctor, 'Paracétamol');
+        $amoxicilline = $this->stockedMedicine($doctor, 'Amoxicilline');
+
+        $first = $this->app->make(CreatePrescriptionAction::class)->execute($consultation, [
+            ['medicine_uuid' => $paracetamol->catalogItem->uuid, 'quantity' => 1],
+        ], $doctor);
+        $this->app->make(CancelPrescriptionAction::class)->execute($first, 'Erreur de saisie', $doctor);
+
+        $second = $this->app->make(CreatePrescriptionAction::class)->execute($consultation, [
+            ['medicine_uuid' => $amoxicilline->catalogItem->uuid, 'quantity' => 1],
+        ], $doctor);
+
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertSame(2, Prescription::query()->count());
+        $this->assertSame(1, $second->lines()->count());
     }
 
     public function test_cancel_prescription_action_cancels_with_a_reason(): void

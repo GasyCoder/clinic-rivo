@@ -488,6 +488,11 @@ medical discharge
 
 La Médecine ne peut pas encaisser.
 
+Avec `episodes.mark_emergency`, Médecine peut requalifier l'Épisode de la
+Consultation active en urgence. L'action partagée avec Réception conserve la
+Consultation et tout état `IN_CARE`, ouvre de façon idempotente les files Soins
+et Médecine, et n'écrit jamais l'urgence sur le Patient. Voir ADR-056.
+
 Les constantes et alertes de la fiche Soins (tension, FC, SpO2, température,
 IMC) affichées en Médecine proviennent de `CareRecordReadModel`, la même
 projection que Soins et Chirurgie/Anesthésie (ADR-048, ADR-054) : aucun seuil
@@ -507,6 +512,21 @@ parcours clinique est terminé, la suite est administrative/financière.
 Aucune `MedicalDischarge` n'est jamais fabriquée par ce mécanisme, et une
 Urgence dont l'orientation Médecine reste active n'est jamais close ainsi.
 Voir ADR-054.
+
+Depuis une Consultation active, le médecin peut demander un ou plusieurs
+actes à Soins via `CareOrder`/`CareOrderItem` (`care_orders.create`) — un
+modèle dédié, distinct d'`EpisodeServiceRequest` (plan Réception uniquement).
+Un `CareOrderItem` sélectionne un `CatalogItem` `SERVICE`/`CARE` explicitement
+`clinician_orderable`, jamais déduit du nom/code. La création réutilise
+uniquement `CreateEpisodeOrientationAction` ; pour un passage `NORMAL`,
+l'orientation Médecine active est terminée avant l'ouverture de Soins (une
+seule orientation clinique active à la fois), tandis qu'une Urgence conserve
+ses files parallèles. `requires_return_to_medicine`, choisi par le médecin à
+la demande, gouverne ensuite la complétion Soins : retour vers une nouvelle
+Consultation Médecine (la première n'est jamais réécrite) ou
+`PENDING_SETTLEMENT` selon la même règle que l'ADR-054. La facturation d'un
+acte demandé suit le circuit existant, déclenchée par l'enregistrement du
+`CareRecordProcedure`, jamais par le `CareOrder` lui-même. Voir ADR-055.
 
 ---
 
@@ -680,7 +700,11 @@ catégories permanentes sont legacy : le mode financier est choisi par Episode
 passage, puis les désignations
 configurées pilotent le parcours clinique (`MEDICINE_DIRECT`,
 `CARE_THEN_MEDICINE` ou
-`CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.
+`CARE_ONLY`). Depuis ADR-056, l'urgence est décidée seulement après la création
+de l'Épisode : Réception peut requalifier le passage à l'étape Prise en charge,
+et Médecine pendant une Consultation active. Seul cet Épisode devient
+`EMERGENCY`; le Patient et ses autres passages restent inchangés. Une fois
+requalifié, il est visible immédiatement aux Soins et en Médecine.
 Une consultation spécialisée déjà identifiée est `MEDICINE_DIRECT`; la
 consultation générale reste `CARE_THEN_MEDICINE`.
 

@@ -1,10 +1,12 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Head, Link, usePage } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import QRCode from 'qrcode';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
+import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import Input from '@/Components/UI/Input.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientName } from '@/utilities/patient';
@@ -19,6 +21,9 @@ const props = defineProps({
     autoPrint: Boolean,
     closeAfterPrint: Boolean,
     externalPrescriber: String,
+    capabilities: { type: Object, default: () => ({}) },
+    paymentMethods: { type: Array, default: () => [] },
+    openCashSession: { type: Object, default: null },
 });
 const page = usePage();
 const brandName = computed(() => page.props.site?.brand ?? 'Clinique Saint Georges');
@@ -48,6 +53,23 @@ const returnLabel = computed(() => {
     return props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient';
 });
 const isPharmacyInvoice = computed(() => props.invoice.source_module === 'PHARMACY');
+const isPayable = computed(() => ['VALIDATED', 'PARTIALLY_PAID'].includes(props.invoice.status)
+    && Number(props.invoice.balance_amount) > 0);
+
+const paymentForm = useForm({
+    invoice_uuid: props.invoice.uuid,
+    payment_method_id: '',
+    amount: props.invoice.balance_amount,
+    reference: '',
+    notes: '',
+});
+const submitPayment = () => paymentForm.post(`/invoices/${props.invoice.uuid}/payments`, {
+    preserveScroll: true,
+    onSuccess: () => {
+        paymentForm.reset('reference', 'notes', 'payment_method_id');
+        paymentForm.amount = props.invoice.balance_amount;
+    },
+});
 const qrCodeDataUrl = ref('');
 const ticketRef = ref(null);
 const printPageStyleId = 'invoice-print-page-size';
@@ -163,6 +185,50 @@ onBeforeUnmount(() => {
                     <Icon class="text-lg" name="printer" />
                     <span class="ms-2">Imprimer le ticket</span>
                 </Button>
+            </div>
+        </div>
+
+        <div v-if="!closeAfterPrint && !ticketOnly && isPayable" class="invoice-actions overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Encaissement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
+            </div>
+
+            <form v-if="capabilities.can_pay && openCashSession" class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
+                    <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                        <option value="">Choisir…</option>
+                        <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
+                    </select>
+                    <FormError :message="paymentForm.errors.payment_method_id" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
+                    <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
+                    <FormError :message="paymentForm.errors.amount" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Référence</label>
+                    <Input v-model="paymentForm.reference" placeholder="N° transaction, chèque…" />
+                    <FormError :message="paymentForm.errors.reference" />
+                </div>
+                <div class="flex items-end">
+                    <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
+                </div>
+                <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
+            </form>
+            <p v-else-if="!capabilities.can_pay" class="px-4 py-4 text-sm text-slate-400">Votre compte ne dispose pas du droit d’encaissement.</p>
+            <p v-else class="px-4 py-4 text-sm text-amber-700 dark:text-amber-300">Ouvrez la caisse pour encaisser cette facture.</p>
+
+            <div v-if="invoice.payments?.length" class="border-t border-gray-200 px-4 py-3 dark:border-gray-800">
+                <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Paiements enregistrés</p>
+                <ul class="space-y-1 text-xs">
+                    <li v-for="payment in invoice.payments" :key="payment.uuid" class="flex items-center justify-between gap-3 text-slate-600 dark:text-slate-300">
+                        <span>{{ formatDateTime(payment.paid_at) }} · {{ payment.method?.name }}<template v-if="payment.reference"> · {{ payment.reference }}</template></span>
+                        <span class="font-semibold text-slate-700 dark:text-white">{{ formatMoney(payment.amount) }}</span>
+                    </li>
+                </ul>
             </div>
         </div>
 

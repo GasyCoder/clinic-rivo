@@ -130,6 +130,13 @@ class RecordBillableItemAction
                     'coverage_rate' => $plannedRequest->coverage_rate,
                 ]
                 : $this->tariffs->coverageSnapshot($episode);
+
+            if (! $isStaff && $coverage['coverage_rate'] === null) {
+                throw ValidationException::withMessages([
+                    'financial_mode' => 'Le contexte financier de ce passage reste en attente pour cette prestation.',
+                ]);
+            }
+
             $coverageMinor = $isStaff
                 ? 0
                 : Money::percentage($totalMinor, $coverage['coverage_rate'] ?? '0.00');

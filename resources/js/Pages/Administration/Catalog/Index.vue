@@ -49,6 +49,7 @@ const itemForm = useForm({
     staff_coverage_policy: 'UNCLASSIFIED',
     care_requires_allergy_check: false,
     care_recommends_vitals: false,
+    clinician_orderable: false,
     description: '',
     tariff_amount: '',
     mutual_tariff_amount: '',
@@ -99,6 +100,7 @@ watch(() => [itemForm.type, itemForm.module], ([type, module]) => {
 
     itemForm.care_requires_allergy_check = false;
     itemForm.care_recommends_vitals = false;
+    itemForm.clinician_orderable = false;
 });
 
 watch(() => itemForm.billable, (billable) => {
@@ -128,6 +130,7 @@ const openCreate = () => {
     itemForm.staff_coverage_policy = 'UNCLASSIFIED';
     itemForm.care_requires_allergy_check = false;
     itemForm.care_recommends_vitals = false;
+    itemForm.clinician_orderable = false;
     formOpen.value = true;
 };
 
@@ -146,6 +149,7 @@ const openEdit = (item) => {
     itemForm.staff_coverage_policy = item.staff_coverage_policy;
     itemForm.care_requires_allergy_check = item.care_requires_allergy_check;
     itemForm.care_recommends_vitals = item.care_recommends_vitals;
+    itemForm.clinician_orderable = item.clinician_orderable;
     itemForm.description = item.description ?? '';
     itemForm.tariff_amount = '';
     itemForm.mutual_tariff_amount = '';
@@ -177,6 +181,9 @@ const submitItem = () => {
             care_recommends_vitals: data.type === 'SERVICE' && data.module === 'CARE'
                 ? data.care_recommends_vitals
                 : false,
+            clinician_orderable: data.type === 'SERVICE' && data.module === 'CARE'
+                ? data.clinician_orderable
+                : false,
         })).put(`/administration/catalog/${editingItem.value.uuid}`, {
             preserveScroll: true,
             onSuccess: closeItemForm,
@@ -191,6 +198,9 @@ const submitItem = () => {
             : false,
         care_recommends_vitals: data.type === 'SERVICE' && data.module === 'CARE'
             ? data.care_recommends_vitals
+            : false,
+        clinician_orderable: data.type === 'SERVICE' && data.module === 'CARE'
+            ? data.clinician_orderable
             : false,
     })).post('/administration/catalog', {
         preserveScroll: true,
@@ -551,9 +561,14 @@ const formatDateTime = (value) => value
                                         <input v-model="itemForm.care_recommends_vitals" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                                         <span><span class="block font-semibold text-slate-700 dark:text-white">Recommander les constantes</span><span class="mt-0.5 block text-xs text-slate-400">Ouvre la section clinique par défaut, sans inventer de valeur obligatoire.</span></span>
                                     </label>
+                                    <label class="flex items-start gap-2 rounded border border-gray-200 p-3 text-sm text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                                        <input v-model="itemForm.clinician_orderable" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        <span><span class="block font-semibold text-slate-700 dark:text-white">Prescriptible par un médecin</span><span class="mt-0.5 block text-xs text-slate-400">Rend cet acte sélectionnable dans un ordre de soins Médecine → Soins.</span></span>
+                                    </label>
                                 </div>
                                 <FormError v-if="itemForm.errors.care_requires_allergy_check">{{ itemForm.errors.care_requires_allergy_check }}</FormError>
                                 <FormError v-if="itemForm.errors.care_recommends_vitals">{{ itemForm.errors.care_recommends_vitals }}</FormError>
+                                <FormError v-if="itemForm.errors.clinician_orderable">{{ itemForm.errors.clinician_orderable }}</FormError>
                             </div>
                             <div v-if="itemForm.billable" class="rounded border border-gray-200 p-3 dark:border-gray-800 sm:col-span-2">
                                 <label for="catalog_staff_policy" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Politique Avantage Personnel <span class="text-red-500">*</span></label>

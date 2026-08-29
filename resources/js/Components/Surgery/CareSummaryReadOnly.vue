@@ -5,9 +5,10 @@ import { formatDateTime } from '@/utilities/date';
 
 const props = defineProps({
     careSummary: { type: Object, required: true },
+    defaultOpen: { type: Boolean, default: false },
 });
 
-const open = ref(false);
+const open = ref(props.defaultOpen);
 const bloodPressure = computed(() => {
     const systolic = props.careSummary.blood_pressure_systolic;
     const diastolic = props.careSummary.blood_pressure_diastolic;
@@ -25,7 +26,9 @@ const vitalItems = computed(() => [
     ['Poids', props.careSummary.weight_kg ? `${props.careSummary.weight_kg} kg` : '—'],
     ['Taille', props.careSummary.height_cm ? `${props.careSummary.height_cm} cm` : '—'],
     ['IMC', props.careSummary.bmi || '—'],
-    ['Diabète connu', props.careSummary.known_diabetes === true ? 'Oui' : props.careSummary.known_diabetes === false ? 'Non' : '—'],
+    ['Diabète connu', props.careSummary.known_diabetes === true
+        ? `Oui${props.careSummary.diabetes_note ? ` · ${props.careSummary.diabetes_note}` : ''}`
+        : props.careSummary.known_diabetes === false ? 'Non' : '—'],
 ]);
 </script>
 

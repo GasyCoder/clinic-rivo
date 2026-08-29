@@ -133,8 +133,10 @@ class StoreEpisodeServicesRequest extends FormRequest
                 );
             }
 
+            $isStaffMode = $episode?->financial_mode === EpisodeFinancialMode::Staff;
+
             if ($hasLines
-                && $episode?->financial_mode !== EpisodeFinancialMode::Staff
+                && ! $isStaffMode
                 && $episode?->financial_mode !== null
                 && ! $this->filled('payment_choice')) {
                 $validator->errors()->add(
@@ -150,8 +152,7 @@ class StoreEpisodeServicesRequest extends FormRequest
                 );
             }
 
-            if ($episode?->financial_mode === EpisodeFinancialMode::Staff
-                && $this->filled('payment_choice')) {
+            if ($isStaffMode && $this->filled('payment_choice')) {
                 $validator->errors()->add(
                     'payment_choice',
                     'La couverture personnel doit être déterminée par RH / Finance avant tout encaissement.',

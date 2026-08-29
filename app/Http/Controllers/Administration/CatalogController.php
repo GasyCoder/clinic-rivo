@@ -249,6 +249,7 @@ class CatalogController extends Controller
             'staff_coverage_policy_label' => $item->staff_coverage_policy->label(),
             'care_requires_allergy_check' => $item->care_requires_allergy_check,
             'care_recommends_vitals' => $item->care_recommends_vitals,
+            'clinician_orderable' => $item->clinician_orderable,
             'description' => $item->description,
             'archived' => $item->trashed(),
             'archived_at' => $item->deleted_at,

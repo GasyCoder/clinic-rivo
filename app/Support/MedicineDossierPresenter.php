@@ -2,12 +2,19 @@
 
 namespace App\Support;
 
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Enums\ConsultationDecision;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\EpisodePriority;
 use App\Enums\MedicalDischargeType;
 use App\Enums\PrescriptionStatus;
+use App\Models\CareOrder;
+use App\Models\CatalogItem;
 use App\Models\EpisodeOrientation;
+use App\Models\ImagingRequest;
+use App\Models\LabRequest;
 use App\Models\User;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Pharmacy\MedicineStockService;
@@ -35,8 +42,44 @@ class MedicineDossierPresenter
         $canViewPrescriptions = $user->can('prescriptions.view');
         $canViewPharmacyAvailability = $user->can('medicines.view')
             && $user->can('stock.availability.view');
+        $canViewCareOrders = $user->can('care_orders.view');
+        $canViewLabRequests = $user->can('laboratory_orders.view');
+        $canViewImagingRequests = $user->can('imaging_orders.view');
         $isActive = $orientation->status === EpisodeOrientationStatus::InProgress
             && $episode->medicalDischarge === null;
+        $referralDestinations = [
+            CatalogModule::Maternity->value => CatalogModule::Maternity->label(),
+            CatalogModule::Hospitalization->value => CatalogModule::Hospitalization->label(),
+            CatalogModule::Transfer->value => CatalogModule::Transfer->label(),
+            CatalogModule::Pediatrics->value => CatalogModule::Pediatrics->label(),
+        ];
+
+        // Whether "Continuer la prise en charge" is a genuine option rather
+        // than an escape hatch from a real decision (item 12): only true
+        // when something clinically justifies waiting.
+        $pendingLabCount = $consultation
+            ? LabRequest::query()->where('consultation_id', $consultation->getKey())->with('items')
+                ->get()->filter(fn (LabRequest $r) => $r->displayStatus() !== 'COMPLETED')->count()
+            : 0;
+        $pendingImagingCount = $consultation
+            ? ImagingRequest::query()->where('consultation_id', $consultation->getKey())->with('items')
+                ->get()->filter(fn (ImagingRequest $r) => $r->displayStatus() !== 'COMPLETED')->count()
+            : 0;
+        $pendingCareOrderCount = $consultation
+            ? CareOrder::query()->where('consultation_id', $consultation->getKey())->with('items.careRecordProcedures')
+                ->get()->filter(fn (CareOrder $o) => $o->displayStatus() !== 'COMPLETED')->count()
+            : 0;
+        $pendingReasons = array_values(array_filter([
+            $pendingLabCount > 0
+                ? ($pendingLabCount > 1 ? "{$pendingLabCount} analyses en attente de résultat" : '1 analyse en attente de résultat')
+                : null,
+            $pendingImagingCount > 0
+                ? ($pendingImagingCount > 1 ? "{$pendingImagingCount} examens d’imagerie en attente de compte rendu" : '1 examen d’imagerie en attente de compte rendu')
+                : null,
+            $pendingCareOrderCount > 0
+                ? ($pendingCareOrderCount > 1 ? "{$pendingCareOrderCount} ordres de soins en cours" : '1 ordre de soins en cours')
+                : null,
+        ]));
 
         $base = $this->queuePresenter->present($orientation);
         $base['episode']['medical_status'] = $episode->medical_status?->value;
@@ -135,7 +178,121 @@ class MedicineDossierPresenter
                             ])->values(),
                         ])->values()
                     : [],
+                'care_orders' => $canViewCareOrders
+                    ? CareOrder::query()
+                        ->where('consultation_id', $consultation->getKey())
+                        ->with(['items.careRecordProcedures', 'requestedBy:id,name'])
+                        ->latest('ordered_at')
+                        ->get()
+                        ->map(fn (CareOrder $careOrder) => [
+                            'uuid' => $careOrder->uuid,
+                            'requested_by' => $careOrder->requestedBy?->name,
+                            'instructions' => $careOrder->instructions,
+                            'requires_return_to_medicine' => $careOrder->requires_return_to_medicine,
+                            'status' => $careOrder->displayStatus(),
+                            'ordered_at' => $careOrder->ordered_at,
+                            'completed_at' => $careOrder->completed_at,
+                            'items' => $careOrder->items->map(fn ($item) => [
+                                'uuid' => $item->uuid,
+                                'name' => $item->catalog_item_name_snapshot,
+                                'code' => $item->catalog_item_code_snapshot,
+                                'quantity' => $item->quantity,
+                                'realized_quantity' => $item->realizedQuantity(),
+                                'remaining_quantity' => $item->remainingQuantity(),
+                                'not_performed_at' => $item->not_performed_at,
+                                'not_performed_reason' => $item->not_performed_reason,
+                                'instructions' => $item->instructions,
+                            ])->values(),
+                        ])->values()
+                    : [],
+                'lab_requests' => $canViewLabRequests
+                    ? LabRequest::query()
+                        ->where('consultation_id', $consultation->getKey())
+                        ->with(['items.resultedBy:id,name', 'requestedBy:id,name'])
+                        ->latest('requested_at')
+                        ->get()
+                        ->map(fn (LabRequest $labRequest) => [
+                            'uuid' => $labRequest->uuid,
+                            'requested_by' => $labRequest->requestedBy?->name,
+                            'notes' => $labRequest->notes,
+                            'status' => $labRequest->displayStatus(),
+                            'requested_at' => $labRequest->requested_at,
+                            'items' => $labRequest->items->map(fn ($item) => [
+                                'uuid' => $item->uuid,
+                                'name' => $item->catalog_item_name_snapshot,
+                                'code' => $item->catalog_item_code_snapshot,
+                                'result_value' => $item->result_value,
+                                'result_notes' => $item->result_notes,
+                                'resulted_at' => $item->resulted_at,
+                                'resulted_by' => $item->resultedBy?->name,
+                            ])->values(),
+                        ])->values()
+                    : [],
+                'imaging_requests' => $canViewImagingRequests
+                    ? ImagingRequest::query()
+                        ->where('consultation_id', $consultation->getKey())
+                        ->with(['items.resultedBy:id,name', 'requestedBy:id,name'])
+                        ->latest('requested_at')
+                        ->get()
+                        ->map(fn (ImagingRequest $imagingRequest) => [
+                            'uuid' => $imagingRequest->uuid,
+                            'requested_by' => $imagingRequest->requestedBy?->name,
+                            'notes' => $imagingRequest->notes,
+                            'status' => $imagingRequest->displayStatus(),
+                            'requested_at' => $imagingRequest->requested_at,
+                            'items' => $imagingRequest->items->map(fn ($item) => [
+                                'uuid' => $item->uuid,
+                                'name' => $item->catalog_item_name_snapshot,
+                                'code' => $item->catalog_item_code_snapshot,
+                                'result_value' => $item->result_value,
+                                'result_notes' => $item->result_notes,
+                                'resulted_at' => $item->resulted_at,
+                                'resulted_by' => $item->resultedBy?->name,
+                            ])->values(),
+                        ])->values()
+                    : [],
+                'surgical_requests' => $user->can('surgery.request')
+                    ? $episode->surgicalRequests()
+                        ->latest('created_at')
+                        ->get()
+                        ->map(fn ($request) => [
+                            'uuid' => $request->uuid,
+                            'procedure_name' => $request->procedure_name,
+                            'procedure_details' => $request->procedure_details,
+                            'notes' => $request->notes,
+                            'status' => $request->status->value,
+                        ])->values()
+                    : [],
+                'referrals' => $canViewMedicalRecord
+                    ? $episode->orientations()
+                        ->whereIn('destination_module', array_keys($referralDestinations))
+                        ->latest('oriented_at')
+                        ->get()
+                        ->map(fn ($referral) => [
+                            'uuid' => $referral->uuid,
+                            'destination' => $referral->destination_module->value,
+                            'destination_label' => $referral->destination_module->label(),
+                            'reason' => $referral->reason,
+                            'status' => $referral->status->value,
+                            'status_label' => $referral->status->label(),
+                            'oriented_at' => $referral->oriented_at,
+                        ])->values()
+                    : [],
             ] : null,
+            'previous_consultations' => $canViewMedicalRecord
+                ? $episode->consultations()
+                    ->where('id', '!=', $consultation?->getKey())
+                    ->with('doctor:id,name')
+                    ->latest('consulted_at')
+                    ->get()
+                    ->map(fn ($previous) => [
+                        'id' => $previous->getKey(),
+                        'doctor' => $previous->doctor?->name,
+                        'reason' => $previous->reason,
+                        'decision_label' => $previous->decision?->label(),
+                        'consulted_at' => $previous->consulted_at,
+                    ])->values()
+                : [],
             'medical_discharge' => $canViewMedicalRecord && $episode->medicalDischarge ? [
                 'uuid' => $episode->medicalDischarge->uuid,
                 'type' => $episode->medicalDischarge->type->value,
@@ -169,7 +326,41 @@ class MedicineDossierPresenter
                 'medicines' => $canViewPharmacyAvailability && $includeMedicineCatalog
                     ? $this->medicineStock->availableCatalog()
                     : [],
+                'care_order_catalog' => $isActive && $user->can('care_orders.create')
+                    ? CatalogItem::query()
+                        ->where('type', CatalogItemType::Service->value)
+                        ->where('module', CatalogModule::Care->value)
+                        ->where('clinician_orderable', true)
+                        ->orderBy('name')
+                        ->get(['uuid', 'code', 'name'])
+                    : [],
+                'lab_catalog' => $isActive && $user->can('laboratory_orders.create')
+                    ? CatalogItem::query()
+                        ->where('type', CatalogItemType::Service->value)
+                        ->where('module', CatalogModule::Laboratory->value)
+                        ->orderBy('name')
+                        ->get(['uuid', 'code', 'name'])
+                    : [],
+                'imaging_catalog' => $isActive && $user->can('imaging_orders.create')
+                    ? CatalogItem::query()
+                        ->where('type', CatalogItemType::Service->value)
+                        ->where('module', CatalogModule::Imaging->value)
+                        ->orderBy('name')
+                        ->get(['uuid', 'code', 'name'])
+                    : [],
+                'surgery_catalog' => $isActive && $user->can('surgery.request')
+                    ? CatalogItem::query()
+                        ->where('type', CatalogItemType::Service->value)
+                        ->where('module', CatalogModule::Surgery->value)
+                        ->orderBy('name')
+                        ->get(['uuid', 'code', 'name'])
+                    : [],
+                'referral_destinations' => collect($referralDestinations)->map(fn ($label, $value) => [
+                    'value' => $value,
+                    'label' => $label,
+                ])->values(),
             ],
+            'pending_reasons' => $pendingReasons,
             'capabilities' => [
                 'can_view_medical_record' => $canViewMedicalRecord,
                 'can_update_consultation' => $isActive && $user->can('consultations.update'),
@@ -182,6 +373,22 @@ class MedicineDossierPresenter
                 'can_update_prescription' => $isActive && $user->can('prescriptions.update'),
                 'can_discharge' => $isActive && $user->can('medical_discharge.create'),
                 'can_manage_medical_history' => $user->can('patients.medical_history.manage'),
+                'can_mark_emergency' => $isActive
+                    && $episode->priority !== EpisodePriority::Emergency
+                    && $user->can('episodes.mark_emergency'),
+                'can_create_care_order' => $isActive && $user->can('care_orders.create'),
+                'can_view_care_orders' => $canViewCareOrders,
+                'can_create_lab_request' => $isActive && $user->can('laboratory_orders.create'),
+                'can_view_lab_requests' => $canViewLabRequests,
+                'can_create_imaging_request' => $isActive && $user->can('imaging_orders.create'),
+                'can_view_imaging_requests' => $canViewImagingRequests,
+                'can_record_imaging_result' => $user->can('imaging_results.create'),
+                'can_request_surgery' => $isActive && $user->can('surgery.request'),
+                'can_request_maternity' => $isActive && $user->can('maternity.request'),
+                'can_request_hospitalization' => $isActive && $user->can('hospitalization.request'),
+                'can_request_transfer' => $isActive && $user->can('transfer.request'),
+                'can_request_pediatrics' => $isActive && $user->can('pediatrics.request'),
+                'can_defer_decision' => $isActive && $pendingReasons !== [],
             ],
         ];
     }

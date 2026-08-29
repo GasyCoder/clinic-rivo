@@ -30,6 +30,7 @@ class EpisodeFinancialContextController extends Controller
                 'beneficiary_type', 'membership_number',
             ]),
             EpisodeFinancialMode::Staff => $request->safe()->only(['employee_uuid']),
+            EpisodeFinancialMode::Partner => $request->safe()->only(['partner_organization_uuid']),
         };
 
         $episode = DB::transaction(function () use (
@@ -68,6 +69,7 @@ class EpisodeFinancialContextController extends Controller
             'patient:id,uuid,patient_number,first_name,last_name',
             'mutualCoverage',
             'staffCoverage.employee:id,uuid,employee_number,first_name,last_name,profession,active',
+            'partnerCoverage',
         ]);
 
         return response()->json([

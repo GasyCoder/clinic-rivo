@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** Append-only snapshot of an act actually performed by the care team. */
 #[Fillable([
-    'care_record_id', 'catalog_item_id', 'catalog_item_uuid',
+    'care_record_id', 'catalog_item_id', 'catalog_item_uuid', 'care_order_item_id',
     'procedure_code', 'procedure_name', 'quantity', 'notes',
     'allergy_checked_at', 'performed_by', 'performed_at',
 ])]
@@ -35,6 +35,11 @@ class CareRecordProcedure extends Model
     public function catalogItem(): BelongsTo
     {
         return $this->belongsTo(CatalogItem::class);
+    }
+
+    public function careOrderItem(): BelongsTo
+    {
+        return $this->belongsTo(CareOrderItem::class);
     }
 
     public function performer(): BelongsTo

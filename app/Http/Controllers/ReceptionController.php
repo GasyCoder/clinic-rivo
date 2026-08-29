@@ -13,6 +13,7 @@ use App\Http\Requests\StoreArrivalRequest;
 use App\Models\AddressEntry;
 use App\Models\Episode;
 use App\Models\MutualOrganization;
+use App\Models\PartnerOrganization;
 use App\Models\Patient;
 use App\Models\VisitorVisit;
 use App\Services\Reception\ReceptionEstimateService;
@@ -85,6 +86,7 @@ class ReceptionController extends Controller
             'receptionJourneyDraft',
             'mutualCoverage',
             'staffCoverage.employee',
+            'partnerCoverage',
         ]);
 
         if ($episode->service_plan_finalized_at || $episode->priority === EpisodePriority::Emergency) {
@@ -196,6 +198,9 @@ class ReceptionController extends Controller
             'mutualOrganizations' => $request->user()->can('mutual_organizations.view')
                 ? MutualOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name', 'coverage_rate'])
                 : [],
+            'partnerOrganizations' => $request->user()->can('partner_organizations.view')
+                ? PartnerOrganization::query()->where('active', true)->orderBy('name')->get(['uuid', 'name'])
+                : [],
             'estimateCatalog' => $this->estimates->catalog(),
             'resumeEpisode' => $episode ? [
                 'uuid' => $episode->uuid,
@@ -219,6 +224,9 @@ class ReceptionController extends Controller
                         'eligible' => $episode->staffCoverage->employee->active,
                     ],
                 ] : null,
+                'partner_coverage' => $episode->partnerCoverage ? [
+                    'partner_organization_uuid' => $episode->partnerCoverage->organization_uuid_snapshot,
+                ] : null,
             ] : null,
             'receptionDraft' => $draft ? [
                 'catalog_lines' => $draftLines,
@@ -229,10 +237,15 @@ class ReceptionController extends Controller
                 'can_create_patient' => $request->user()->can('patients.create'),
                 'can_update_patient' => $request->user()->can('patients.update'),
                 'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
+                'can_use_partner' => $request->user()->can('partner_organizations.view'),
+                'can_create_partner' => $request->user()->can('partner_organizations.create'),
                 'can_use_staff' => $request->user()->can('employees.patient_lookup'),
                 'can_link_staff' => $request->user()->can('patient_staff_links.create'),
                 'can_open_pharmacy_counter_sale' => $request->user()->can('pharmacy.counter_sales.create'),
                 'can_manage_catalog' => $request->user()->can('catalog.items.view'),
+                'can_mark_emergency' => $episode !== null
+                    && $episode->priority !== EpisodePriority::Emergency
+                    && $request->user()->can('episodes.mark_emergency'),
             ],
         ]);
     }
@@ -277,9 +290,7 @@ class ReceptionController extends Controller
                 existingPatientUuid: $request->validated('patient_uuid'),
                 newPatientData: $request->filled('patient_uuid') ? null : $patientData,
                 confirmDuplicate: $request->boolean('confirm_duplicate'),
-                priority: $request->boolean('is_emergency')
-                    ? EpisodePriority::Emergency
-                    : EpisodePriority::Normal,
+                priority: EpisodePriority::Normal,
                 actor: $request->user(),
                 employeeUuid: $jsonWorkflow ? null : $request->validated('employee_uuid'),
                 mutualData: ! $jsonWorkflow && $request->input('patient_type') === PatientType::Mutual->value ? [
@@ -290,18 +301,16 @@ class ReceptionController extends Controller
                 ] : null,
                 mutualAttachments: $jsonWorkflow ? [] : $request->file('mutual_attachments', []),
                 episodeData: $episodeData,
-                financialMode: $request->boolean('is_emergency')
+                financialMode: $jsonWorkflow
                     ? null
-                    : ($jsonWorkflow
-                        ? null
-                        : ($request->filled('patient_uuid')
+                    : ($request->filled('patient_uuid')
                         ? EpisodeFinancialMode::Self
                         : match ($request->input('patient_type')) {
                             PatientType::Mutual->value => EpisodeFinancialMode::Mutual,
                             PatientType::Staff->value => EpisodeFinancialMode::Staff,
                             default => EpisodeFinancialMode::Self,
-                        })),
-                receptionDraft: $request->boolean('is_emergency') ? null : $receptionDraft,
+                        }),
+                receptionDraft: $receptionDraft,
             );
         } catch (DuplicatePatientException $exception) {
             $duplicates = $exception->matches->map(fn (Patient $patient) => [
@@ -330,9 +339,7 @@ class ReceptionController extends Controller
             ])->all());
         }
 
-        $message = $episode->priority === EpisodePriority::Emergency
-            ? "Passage urgence {$episode->episode_number} créé ; Soins et Médecine sont déjà alertés."
-            : "Passage {$episode->episode_number} créé. Sélectionnez maintenant les prestations demandées.";
+        $message = "Passage {$episode->episode_number} créé. Sélectionnez maintenant les prestations demandées.";
 
         if ($jsonWorkflow) {
             // patientSearchPayload also presents birth/sex/contact fields;

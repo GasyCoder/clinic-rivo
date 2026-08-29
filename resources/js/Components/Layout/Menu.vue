@@ -11,6 +11,13 @@ const { can } = usePermissions();
 const overviewLabel = computed(() => (
     page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
 ));
+// Purely cosmetic: the professional profile never grants a permission on its
+// own (ADR-033), it only relabels this same /care entry for the account.
+const careLabel = computed(() => ({
+    REGISTERED_NURSE: 'Soins infirmier',
+    MIDWIFE: 'Soins maternité',
+    ANESTHETIST: 'Anesthésie',
+}[page.props.auth?.user?.professional_profile?.code] ?? 'Soins'));
 
 const clinicMenu = computed(() => [
     { heading: 'Principal' },
@@ -20,7 +27,7 @@ const clinicMenu = computed(() => [
     { icon: 'wallet', text: 'Caisse', link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view' },
     { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
     { icon: 'activity', text: 'Médecine', link: '/medicine', permission: 'consultations.view' },
-    { icon: 'user-check', text: 'Soins', link: '/care', permission: 'care.view' },
+    { icon: 'user-check', text: careLabel.value, link: '/care', permission: 'care.view' },
     { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
     { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
     {

@@ -383,6 +383,50 @@ class CashPaymentFlowTest extends TestCase
         Invoice::query()->delete();
     }
 
+    public function test_the_invoice_page_exposes_a_working_payment_form(): void
+    {
+        $user = $this->userWithPermissions([
+            'patients.view', 'billing.view', 'billing.create', 'billing.validate', 'billing.print',
+            'payments.create', 'cash.open', 'cash.view', 'receipts.view',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $cashMethod = PaymentMethod::query()->where('code', 'CASH')->sole();
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+
+        // Before the cash session is open, the form is hidden with an
+        // explicit reason rather than silently absent.
+        $this->actingAs($user)->get("/invoices/{$invoice->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->component('Invoices/Show')
+                ->where('capabilities.can_pay', true)
+                ->where('openCashSession', null)
+                ->has('paymentMethods', 5));
+
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
+
+        $this->actingAs($user)->get("/invoices/{$invoice->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->has('openCashSession'));
+
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cashMethod->id,
+            'amount' => '1500.50',
+        ])->assertRedirect("/invoices/{$invoice->uuid}");
+
+        $this->assertSame('PARTIALLY_PAID', $invoice->fresh()->status->value);
+        $this->assertSame('1500.50', $invoice->fresh()->paid_amount);
+        $this->assertSame('2500.50', $invoice->fresh()->balance_amount);
+
+        $this->actingAs($user)->get("/invoices/{$invoice->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('invoice.balance_amount', '2500.50')
+                ->has('invoice.payments', 1)
+                ->where('invoice.payments.0.amount', '1500.50'));
+    }
+
     public function test_payment_cancellation_reverses_the_open_cash_and_preserves_history(): void
     {
         config()->set('rivo.site.code', 'MAMPIKONY');

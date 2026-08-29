@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
@@ -342,9 +343,11 @@ class ReceptionJourneyTest extends TestCase
         $this->assertSame('40000.00', Invoice::query()->sole()->total_amount);
     }
 
-    public function test_json_emergency_arrival_stays_financially_null_and_opens_care_and_medicine_immediately(): void
+    public function test_json_arrival_is_requalified_only_after_its_episode_exists(): void
     {
-        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+        $actor = $this->receptionist([
+            'patients.create', 'patients.view', 'episodes.create', 'episodes.mark_emergency',
+        ]);
 
         $this->actingAs($actor)->postJson('/reception/patients', [
             'patient_type' => 'STANDARD',
@@ -352,13 +355,20 @@ class ReceptionJourneyTest extends TestCase
             'last_name' => 'Patient',
             'birth_date' => '1980-01-01',
             'sex' => 'M',
-            'is_emergency' => true,
         ])->assertCreated()
-            ->assertJsonPath('episode.priority', 'EMERGENCY')
+            ->assertJsonPath('episode.priority', 'NORMAL')
             ->assertJsonPath('episode.financial_mode', null);
 
         $episode = Episode::query()->with('orientations')->sole();
+        $this->assertDatabaseCount('episode_orientations', 0);
+
+        $this->actingAs($actor)
+            ->post(route('reception.passages.emergency.store', $episode))
+            ->assertRedirect();
+
+        $episode->refresh()->load('orientations');
         $this->assertNull($episode->financial_mode);
+        $this->assertSame(EpisodePriority::Emergency, $episode->priority);
         $this->assertSame(
             [CatalogModule::Care, CatalogModule::Medicine],
             $episode->orientations->pluck('destination_module')->sortBy(fn ($module) => $module->value)->values()->all(),

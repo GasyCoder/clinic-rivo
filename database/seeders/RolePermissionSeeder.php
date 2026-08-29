@@ -60,13 +60,14 @@ class RolePermissionSeeder extends Seeder
             'patient_staff_links.view', 'patient_staff_links.create',
             'address_entries.view', 'address_entries.create',
             'mutual_organizations.view', 'mutual_organizations.create',
+            'partner_organizations.view',
             'patient_coverages.view', 'patient_coverages.create',
             'patient_coverage_documents.view', 'patient_coverage_documents.create',
             'visitors.view', 'visitors.create', 'visitors.close',
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
             'patients.restore', 'patients.view_deleted',
             'patients.medical_history.view', 'patients.medical_history.manage',
-            'episodes.view', 'episodes.create', 'episodes.update', 'episodes.cancel',
+            'episodes.view', 'episodes.create', 'episodes.update', 'episodes.mark_emergency', 'episodes.cancel',
             'billing.view', 'billing.create', 'billing.validate',
             'billing.print',
             'payments.view', 'payments.create', 'payments.cancel',
@@ -82,10 +83,23 @@ class RolePermissionSeeder extends Seeder
             'medicines.view', 'stock.availability.view',
             'prescriptions.cancel', 'medical_discharge.create', 'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
+            // Le médecin peut requalifier ce passage précis pendant la
+            // consultation ; ce droit ne modifie jamais le Patient.
+            'episodes.mark_emergency',
             // Same read-only projection of the Soins worksheet Surgery reads
             // through CareRecordReadModel (ADR-048): view only, never
             // care.update/vitals.update — Médecine never edits the fiche.
             'care.view', 'vitals.view',
+            // Phase B: a doctor may request Soins acts from a consultation,
+            // never edit the resulting fiche itself.
+            'care_orders.create', 'care_orders.view',
+            // Paraclinique/orientation requests only — never the receiving
+            // module's own create/manage permission (surgery.create stays
+            // reserved to SURGERY; laboratory_results.create to LABORATORY).
+            'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
+            'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create',
+            'surgery.request', 'hospitalization.request', 'maternity.request',
+            'transfer.request', 'pediatrics.request',
         ],
         // Shared baseline for every paramedical profile. Anesthesia belongs
         // only to accounts explicitly assigned those permissions (normally
@@ -95,6 +109,8 @@ class RolePermissionSeeder extends Seeder
             'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
             'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
+            // Reads a doctor's Soins request — never creates one itself.
+            'care_orders.view',
         ],
         // SURGERY is the surgeon/operating-team baseline. Access to the
         // separate Anesthesia workspace is granted explicitly per account;
@@ -128,9 +144,11 @@ class RolePermissionSeeder extends Seeder
             'stock.expiration.view', 'stock.alerts.view',
             'stock.cost.view', 'stock.cost.record',
         ],
-        // The laboratory interface is not implemented yet. Keeping this
-        // array explicit removes any stale grant left by older seeds.
-        'LABORATORY' => [],
+        // Minimal follow-through only (request tracking + result entry) —
+        // sample/analysis workflow itself remains unbuilt.
+        'LABORATORY' => [
+            'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
+        ],
     ];
 
     public function run(): void

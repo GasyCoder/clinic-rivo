@@ -17,6 +17,7 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     orientations: Object,
     counts: Object,
+    priorityCounts: { type: Object, default: () => ({}) },
     filter: String,
     search: String,
     priority: String,
@@ -24,7 +25,6 @@ const props = defineProps({
 
 const { can } = usePermissions();
 const query = ref(props.search ?? '');
-const priorityFilter = ref(props.priority ?? '');
 
 const visit = (params) => router.get('/care', params, {
     preserveState: true,
@@ -35,12 +35,12 @@ const visit = (params) => router.get('/care', params, {
 const buildParams = (overrides = {}) => ({
     ...(query.value ? { q: query.value } : {}),
     ...(props.filter !== 'active' ? { filter: props.filter } : {}),
-    ...(priorityFilter.value ? { priority: priorityFilter.value } : {}),
+    ...(props.priority ? { priority: props.priority } : {}),
     ...overrides,
 });
 
 const selectFilter = (filter) => visit(buildParams({ filter: filter !== 'active' ? filter : undefined }));
-const submitPriority = () => visit(buildParams());
+const selectPriority = (priority) => visit(buildParams({ priority: priority || undefined }));
 
 let debounceTimer = null;
 watch(query, (value) => {
@@ -137,7 +137,17 @@ const openGroup = ref(null);
                             <Icon class="text-lg" name="search" />
                         </span>
                     </div>
-                    <span class="relative"><select v-model="priorityFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitPriority"><option value="">Toute priorité</option><option value="emergency">Urgence</option><option value="normal">Normal</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
+                    <div class="inline-flex w-fit rounded border border-gray-200 bg-gray-50 p-1 dark:border-gray-900 dark:bg-gray-1000">
+                        <button type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', !priority ? 'bg-white text-slate-700 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600']" @click="selectPriority('')">
+                            Tous <span class="ms-1 text-xs text-slate-400">{{ priorityCounts.all }}</span>
+                        </button>
+                        <button type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', priority === 'emergency' ? 'bg-white text-red-600 shadow-sm dark:bg-gray-900 dark:text-red-300' : 'text-slate-400 hover:text-slate-600']" @click="selectPriority('emergency')">
+                            Urgence <span class="ms-1 text-xs text-slate-400">{{ priorityCounts.emergency }}</span>
+                        </button>
+                        <button type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', priority === 'normal' ? 'bg-white text-slate-700 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600']" @click="selectPriority('normal')">
+                            Normale <span class="ms-1 text-xs text-slate-400">{{ priorityCounts.normal }}</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -146,6 +156,7 @@ const openGroup = ref(null);
                     <caption class="sr-only">File des patients aux Soins</caption>
                     <thead class="bg-gray-50/70 dark:bg-gray-1000/40">
                         <tr>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">N°</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Passage</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Demande connue</th>
@@ -156,6 +167,10 @@ const openGroup = ref(null);
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
                         <tr v-for="group in groupedRows" :key="group.patient.uuid" class="hover:bg-gray-50/70 dark:hover:bg-gray-1000/40">
+                            <td class="px-5 py-3">
+                                <span v-if="group.orientations.length === 1 && group.orientations[0].queue_number" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ group.orientations[0].queue_number }}</span>
+                                <span v-else class="text-slate-300 dark:text-slate-700">—</span>
+                            </td>
                             <td class="px-5 py-3">
                                 <div class="flex min-w-[230px] items-center gap-3">
                                     <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(group.patient)" />
@@ -221,7 +236,7 @@ const openGroup = ref(null);
                             </template>
                         </tr>
                         <tr v-if="groupedRows.length === 0">
-                            <td colspan="6" class="px-5 py-12 text-center">
+                            <td colspan="7" class="px-5 py-12 text-center">
                                 <Icon class="text-2xl text-slate-300" name="user-check" />
                                 <p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun patient dans cette file</p>
                                 <p class="mt-1 text-xs text-slate-400">Les nouveaux passages apparaîtront ici automatiquement.</p>
@@ -234,6 +249,7 @@ const openGroup = ref(null);
             <div class="divide-y divide-gray-200 md:hidden dark:divide-gray-900">
                 <article v-for="group in groupedRows" :key="group.patient.uuid" class="p-4">
                     <div class="flex items-start gap-3">
+                        <span v-if="group.orientations.length === 1 && group.orientations[0].queue_number" class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ group.orientations[0].queue_number }}</span>
                         <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(group.patient)" />
                         <div class="min-w-0 flex-1">
                             <p class="font-bold text-slate-700 dark:text-white">{{ formatPatientName(group.patient) }}</p>

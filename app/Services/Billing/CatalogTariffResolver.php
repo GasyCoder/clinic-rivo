@@ -28,6 +28,7 @@ class CatalogTariffResolver
         if (in_array($episode->financial_mode, [
             EpisodeFinancialMode::Self,
             EpisodeFinancialMode::Staff,
+            EpisodeFinancialMode::Partner,
         ], true)) {
             return CatalogTariffCategory::Standard;
         }
@@ -92,6 +93,28 @@ class CatalogTariffResolver
                 'organization_uuid' => null,
                 'organization_name' => null,
                 'coverage_rate' => null,
+            ];
+        }
+
+        if ($episode->financial_mode === EpisodeFinancialMode::Partner) {
+            $episode->loadMissing('partnerCoverage');
+            $coverage = $episode->partnerCoverage;
+
+            if (! $coverage) {
+                throw ValidationException::withMessages([
+                    'financial_mode' => 'Le partenaire du passage doit être complété avant la facturation.',
+                ]);
+            }
+
+            // No per-prestation coverage scoping exists yet (no
+            // Hospitalisation catalogue): the partner covers nothing until
+            // that rule is designed, so billing behaves like Self — the
+            // patient can pay directly, now or later — rather than being
+            // blocked. coverage_rate is a real 0.00, never invented.
+            return [
+                'organization_uuid' => $coverage->organization_uuid_snapshot,
+                'organization_name' => $coverage->organization_name_snapshot,
+                'coverage_rate' => '0.00',
             ];
         }
 

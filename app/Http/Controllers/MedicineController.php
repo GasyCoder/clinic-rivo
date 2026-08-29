@@ -6,8 +6,14 @@ use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CancelDiagnosisAction;
 use App\Actions\Medicine\CancelPrescriptionAction;
 use App\Actions\Medicine\CorrectDiagnosisAction;
+use App\Actions\Medicine\CreateCareOrderAction;
+use App\Actions\Medicine\CreateImagingRequestAction;
+use App\Actions\Medicine\CreateLabRequestAction;
 use App\Actions\Medicine\CreatePrescriptionAction;
+use App\Actions\Medicine\CreateServiceReferralAction;
+use App\Actions\Medicine\CreateSurgicalReferralAction;
 use App\Actions\Medicine\RecordDiagnosisAction;
+use App\Actions\Medicine\RecordImagingResultAction;
 use App\Actions\Medicine\RecordMedicalDischargeAction;
 use App\Actions\Medicine\SaveConsultationAction;
 use App\Actions\Medicine\UpdatePrescriptionAction;
@@ -17,14 +23,21 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\PrescriptionStatus;
 use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
+use App\Http\Requests\RecordImagingResultRequest;
+use App\Http\Requests\StoreCareOrderRequest;
+use App\Http\Requests\StoreImagingRequestRequest;
+use App\Http\Requests\StoreLabRequestRequest;
 use App\Http\Requests\StoreMedicalDischargeRequest;
 use App\Http\Requests\StoreMedicineDiagnosisRequest;
 use App\Http\Requests\StoreMedicinePrescriptionRequest;
+use App\Http\Requests\StoreServiceReferralRequest;
+use App\Http\Requests\StoreSurgicalReferralRequest;
 use App\Http\Requests\UpdateMedicineConsultationRequest;
 use App\Http\Requests\UpdateMedicineDiagnosisRequest;
 use App\Http\Requests\UpdateMedicinePrescriptionRequest;
 use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
+use App\Models\ImagingRequestItem;
 use App\Models\Prescription;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\MedicineDossierPresenter;
@@ -93,11 +106,20 @@ class MedicineController extends Controller
                         });
                 });
             })
-            ->orderByRaw("CASE WHEN EXISTS (SELECT 1 FROM episodes WHERE episodes.id = episode_orientations.episode_id AND episodes.priority = 'EMERGENCY') THEN 0 ELSE 1 END")
+            // Only a still fast-tracked Emergency (Médecine hasn't yet
+            // completed a first consultation for it) is pinned ahead of
+            // arrival order — matches EpisodeQueuePresenter::isQueueEligible.
+            // Once eligible, first arrived is always first in the list.
+            ->orderByRaw(EpisodeQueuePresenter::PIN_UNSEEN_EMERGENCY_SQL)
             ->orderBy('oriented_at')
             ->paginate(20)
-            ->withQueryString()
-            ->through(fn (EpisodeOrientation $orientation) => $presenter->present($orientation));
+            ->withQueryString();
+
+        $queueNumbers = $presenter->assignQueueNumbers($orientations->getCollection());
+        $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present(
+            $orientation,
+            $queueNumbers[$orientation->getKey()] ?? null,
+        ));
 
         return Inertia::render('Medicine/Index', [
             'orientations' => $orientations,
@@ -312,6 +334,107 @@ class MedicineController extends Controller
                 ])->values(),
             ],
         ]);
+    }
+
+    public function storeCareOrder(
+        StoreCareOrderRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CreateCareOrderAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            $request->validated('items'),
+            $request->boolean('requires_return_to_medicine'),
+            $request->input('instructions'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.index')
+            ->with('status', 'Ordre de soins transmis. Le patient est orienté vers Soins.');
+    }
+
+    public function storeLabRequest(
+        StoreLabRequestRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CreateLabRequestAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            $request->validated('items'),
+            $request->input('notes'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
+            ->with('status', 'Demande d’analyses transmise au Laboratoire.');
+    }
+
+    public function storeImagingRequest(
+        StoreImagingRequestRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CreateImagingRequestAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            $request->validated('items'),
+            $request->input('notes'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
+            ->with('status', 'Demande d’imagerie enregistrée.');
+    }
+
+    public function recordImagingResult(
+        RecordImagingResultRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        ImagingRequestItem $imagingRequestItem,
+        RecordImagingResultAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $imagingRequestItem,
+            $request->validated('result_value'),
+            $request->input('result_notes'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
+            ->with('status', 'Compte rendu enregistré.');
+    }
+
+    public function storeSurgicalReferral(
+        StoreSurgicalReferralRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CreateSurgicalReferralAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            $request->validated('catalog_item_uuid'),
+            $request->validated('diagnostic'),
+            $request->input('indication'),
+            $request->validated('priority'),
+            $request->input('notes'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'decision'])
+            ->with('status', 'Demande de chirurgie transmise.');
+    }
+
+    public function storeReferral(
+        StoreServiceReferralRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CreateServiceReferralAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            CatalogModule::from($request->validated('destination')),
+            $request->validated('reason'),
+            $request->user(),
+        );
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'decision'])
+            ->with('status', 'Demande transmise.');
     }
 
     public function discharge(

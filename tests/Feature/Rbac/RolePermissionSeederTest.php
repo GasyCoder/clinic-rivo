@@ -121,6 +121,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('patients.delete', $names);
         $this->assertContains('patients.medical_history.manage', $names);
         $this->assertContains('episodes.create', $names);
+        $this->assertContains('episodes.mark_emergency', $names);
         $this->assertContains('billing.create', $names);
         $this->assertContains('payments.create', $names);
         $this->assertContains('payments.cancel', $names);
@@ -147,6 +148,9 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('patients.medical_history.manage', $names);
         $this->assertContains('patients.view', $names);
         $this->assertContains('episodes.view', $names);
+        $this->assertContains('episodes.mark_emergency', $names);
+        $this->assertContains('care_orders.create', $names);
+        $this->assertContains('care_orders.view', $names);
 
         // Exact-match matchers must not leak into unrelated permissions
         // that merely share the same prefix.
@@ -167,6 +171,7 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('medical_orders.view', $names);
         $this->assertContains('patients.view', $names);
         $this->assertContains('patients.medical_history.manage', $names);
+        $this->assertContains('care_orders.view', $names);
 
         // No CDC-defined "maternité" catalog exists — nothing to grant.
         $this->assertNotContains('consultations.create', $names);
@@ -175,6 +180,8 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('anesthesia.validate', $names);
         $this->assertNotContains('patients.update', $names);
         $this->assertNotContains('patients.delete', $names);
+        // NURSE reads a doctor's order, never creates one (Phase B).
+        $this->assertNotContains('care_orders.create', $names);
     }
 
     public function test_no_business_or_administration_role_can_collect_money(): void
@@ -313,11 +320,33 @@ class RolePermissionSeederTest extends TestCase
         $this->assertContains('stock.availability.view', $medicineNames);
     }
 
-    public function test_unimplemented_laboratory_role_has_no_stale_grants(): void
+    public function test_laboratory_gets_result_entry_only_never_cash_or_catalog(): void
     {
         $this->seedRbac();
 
-        $this->assertSame([], $this->permissionNamesFor('LABORATORY'));
+        $names = $this->permissionNamesFor('LABORATORY');
+
+        $this->assertContains('laboratory_results.create', $names);
+        $this->assertContains('laboratory_orders.view', $names);
+        $this->assertNotContains('laboratory_orders.create', $names);
+        $this->assertNotContains('payments.create', $names);
+        $this->assertNotContains('cash.view', $names);
+    }
+
+    public function test_medicine_gets_referral_requests_never_the_receiving_modules_own_create_permission(): void
+    {
+        $this->seedRbac();
+
+        $names = $this->permissionNamesFor('MEDICINE');
+
+        $this->assertContains('laboratory_orders.create', $names);
+        $this->assertContains('surgery.request', $names);
+        $this->assertContains('hospitalization.request', $names);
+        $this->assertContains('maternity.request', $names);
+        $this->assertContains('transfer.request', $names);
+        $this->assertContains('pediatrics.request', $names);
+        $this->assertNotContains('surgery.create', $names);
+        $this->assertNotContains('laboratory_results.create', $names);
     }
 
     public function test_obsolete_physical_user_delete_permission_is_removed(): void

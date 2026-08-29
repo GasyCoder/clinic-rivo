@@ -14,6 +14,7 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\AllergenReference;
+use App\Models\CareOrderItem;
 use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\Episode;
@@ -98,6 +99,7 @@ class SaveCareRecordAction
 
             $this->appendProcedures(
                 $locked->episode,
+                $locked->getKey(),
                 $record,
                 $procedures,
                 $actor,
@@ -124,11 +126,13 @@ class SaveCareRecordAction
             'blood_group',
             'blood_pressure_systolic', 'blood_pressure_diastolic',
             'heart_rate', 'spo2',
-            'temperature_celsius', 'known_diabetes',
+            'temperature_celsius', 'known_diabetes', 'diabetes_note',
             'height_cm', 'weight_kg', 'smoker',
         ];
 
         if (collect($vitalFields)->contains(fn (string $field) => array_key_exists($field, $data))) {
+            $knownDiabetes = array_key_exists('known_diabetes', $data) ? $data['known_diabetes'] : null;
+
             $attributes += [
                 'blood_group' => $data['blood_group'] ?? null,
                 'blood_pressure_systolic' => $data['blood_pressure_systolic'] ?? null,
@@ -136,7 +140,10 @@ class SaveCareRecordAction
                 'heart_rate' => $data['heart_rate'] ?? null,
                 'spo2' => $data['spo2'] ?? null,
                 'temperature_celsius' => $data['temperature_celsius'] ?? null,
-                'known_diabetes' => array_key_exists('known_diabetes', $data) ? $data['known_diabetes'] : null,
+                'known_diabetes' => $knownDiabetes,
+                // Only meaningful once known_diabetes is really Oui — never
+                // kept around as a stale note under a different answer.
+                'diabetes_note' => $knownDiabetes === true ? $this->nullableText($data['diabetes_note'] ?? null) : null,
                 'height_cm' => $height,
                 'weight_kg' => $weight,
                 'bmi' => $this->calculateBmi($height, $weight),
@@ -325,6 +332,7 @@ class SaveCareRecordAction
      */
     private function appendProcedures(
         Episode $episode,
+        int $orientationId,
         CareRecord $record,
         Collection $procedures,
         User $actor,
@@ -348,11 +356,36 @@ class SaveCareRecordAction
             ]);
         }
 
+        $careOrderItemUuids = $procedures->pluck('care_order_item_uuid')->filter();
+        $careOrderItems = $careOrderItemUuids->isNotEmpty()
+            ? CareOrderItem::query()
+                ->whereIn('uuid', $careOrderItemUuids)
+                ->whereHas('careOrder', fn ($query) => $query->where('care_orientation_id', $orientationId))
+                ->with('careRecordProcedures')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('uuid')
+            : collect();
+
         foreach ($procedures as $index => $procedure) {
             $item = $items->get($procedure['catalog_item_uuid']);
             $notes = $this->nullableText(Arr::get($procedure, 'notes'));
             $requiresAllergyCheck = $item->care_requires_allergy_check
                 || $plannedAllergyCheckUuids->contains($item->uuid);
+            $careOrderItemUuid = Arr::get($procedure, 'care_order_item_uuid');
+            $careOrderItem = $careOrderItemUuid ? $careOrderItems->get($careOrderItemUuid) : null;
+
+            if ($careOrderItemUuid && ! $careOrderItem) {
+                throw ValidationException::withMessages([
+                    "procedures.{$index}.care_order_item_uuid" => 'Cet acte demandé n’appartient pas à ce passage aux Soins.',
+                ]);
+            }
+
+            if ($careOrderItem && (float) $procedure['quantity'] > (float) $careOrderItem->remainingQuantity()) {
+                throw ValidationException::withMessages([
+                    "procedures.{$index}.quantity" => 'La quantité dépasse ce qui reste à réaliser pour cet acte demandé.',
+                ]);
+            }
 
             if ($item->code === 'CARE-OTHER' && $notes === null) {
                 throw ValidationException::withMessages([
@@ -376,6 +409,7 @@ class SaveCareRecordAction
             $record->procedures()->create([
                 'catalog_item_id' => $item->getKey(),
                 'catalog_item_uuid' => $item->uuid,
+                'care_order_item_id' => $careOrderItem?->getKey(),
                 'procedure_code' => $item->code,
                 'procedure_name' => $item->name,
                 'quantity' => $procedure['quantity'],

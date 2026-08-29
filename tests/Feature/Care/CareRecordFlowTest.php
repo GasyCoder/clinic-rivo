@@ -51,6 +51,7 @@ class CareRecordFlowTest extends TestCase
             'spo2' => 92,
             'temperature_celsius' => '38.20',
             'known_diabetes' => true,
+            'diabetes_note' => 'Type 2, sous metformine',
             'height_cm' => '175',
             'weight_kg' => '70',
             'allergy_note' => 'Pénicilline signalée',
@@ -74,6 +75,7 @@ class CareRecordFlowTest extends TestCase
         $this->assertSame(92, $record->spo2);
         $this->assertSame('38.20', $record->temperature_celsius);
         $this->assertTrue($record->known_diabetes);
+        $this->assertSame('Type 2, sous metformine', $record->diabetes_note);
         $this->assertFalse($record->smoker);
         $this->assertSame($nurse->id, $record->created_by);
         $this->assertDatabaseHas('care_record_procedures', [
@@ -122,6 +124,7 @@ class CareRecordFlowTest extends TestCase
                 ->where('temperatureReference.fever_from', 38)
                 ->where('temperatureReference.high_danger_from', 40)
                 ->where('careRecord.known_diabetes', true)
+                ->where('careRecord.diabetes_note', 'Type 2, sous metformine')
                 ->where('careRecord.bmi', '22.86')
                 ->where('careRecord.bmi_assessment.code', 'NORMAL')
                 ->where('bmiReference.adult_min_age', 20)
@@ -131,6 +134,22 @@ class CareRecordFlowTest extends TestCase
                 ->has('careRecord.procedures', 1)
                 ->where('careRecord.procedures.0.name', 'Injection IM')
             );
+    }
+
+    public function test_diabetes_note_is_rejected_unless_known_diabetes_is_yes(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'known_diabetes' => false,
+            'diabetes_note' => 'Ne devrait jamais être enregistré',
+        ])->assertSessionHasErrors('diabetes_note');
+
+        $this->assertDatabaseCount('care_records', 0);
     }
 
     public function test_care_only_never_collects_hospitalization_or_medical_transmission_fields(): void
@@ -1130,6 +1149,35 @@ class CareRecordFlowTest extends TestCase
     }
 
     /** @return array{0: EpisodeOrientation, 1: CatalogItem} */
+    public function test_care_record_procedures_expose_their_correct_origin_source(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+            'patients.medical_history.view',
+        ]);
+        [$orientation, $plannedProcedure] = $this->activeCareOrientation($nurse);
+        $addedOnSite = $this->procedure($nurse, 'PANSEMENT-S', 'Pansement simple');
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [
+                ['catalog_item_uuid' => $plannedProcedure->uuid, 'quantity' => 1],
+                ['catalog_item_uuid' => $addedOnSite->uuid, 'quantity' => 1],
+            ],
+        ])->assertRedirect();
+
+        $this->actingAs($nurse)->get(route('care.orientations.show', $orientation))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Care/Show')
+                ->where('careRecord.procedures', fn ($procedures) => collect($procedures)
+                    ->pluck('source')
+                    ->sort()
+                    ->values()
+                    ->all() === ['ADDED_ON_SITE', 'RECEPTION'])
+            );
+    }
+
     private function activeCareOrientation(
         User $nurse,
         ReceptionRoutingMode $routingMode = ReceptionRoutingMode::CareOnly,

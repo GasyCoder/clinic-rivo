@@ -34,8 +34,11 @@ class AcceptMedicineOrientationAction
             $locked->episode->startCare();
             $locked->episode->update(['medical_status' => EpisodeMedicalStatus::InCare]);
 
-            $initialReason = $locked->reason
-                ?: $locked->episode->serviceRequests->pluck('designation')->filter()->join(' · ')
+            // Deliberately never seeded from $locked->reason: that field is
+            // the EpisodeOrientation's technical routing note (e.g.
+            // "Orientation vers Médecine selon le parcours planifié."), not
+            // a clinical motif — the doctor must enter the real one.
+            $initialReason = $locked->episode->serviceRequests->pluck('designation')->filter()->join(' · ')
                 ?: 'Motif à préciser';
 
             Consultation::query()->firstOrCreate(

@@ -230,13 +230,20 @@ const printDocument = () => window.print();
 
 .rx-lines {
     flex: 1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    column-gap: 20px;
+    row-gap: 16px;
     margin: 0;
     padding: 0;
     list-style: none;
 }
 
 .rx-line {
-    margin-bottom: 16px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px dotted #999;
+    border-radius: 4px;
 }
 
 .rx-line-name {

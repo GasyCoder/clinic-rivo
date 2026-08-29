@@ -27,6 +27,7 @@ class SetReceptionEpisodeFinancialContextRequest extends FormRequest
         $mode = (string) $this->input('financial_mode');
         $isMutual = $mode === EpisodeFinancialMode::Mutual->value;
         $isStaff = $mode === EpisodeFinancialMode::Staff->value;
+        $isPartner = $mode === EpisodeFinancialMode::Partner->value;
 
         return [
             'financial_mode' => ['required', new Enum(EpisodeFinancialMode::class)],
@@ -50,7 +51,6 @@ class SetReceptionEpisodeFinancialContextRequest extends FormRequest
                 'nullable', new Enum(MutualBeneficiaryType::class),
             ],
             'membership_number' => [
-                Rule::requiredIf($isMutual),
                 Rule::prohibitedIf(! $isMutual),
                 'nullable', 'string', 'max:100',
             ],
@@ -60,6 +60,15 @@ class SetReceptionEpisodeFinancialContextRequest extends FormRequest
                 'nullable',
                 'uuid',
                 Rule::exists('employees', 'uuid')->where(fn ($query) => $query
+                    ->where('active', true)
+                    ->whereNull('deleted_at')),
+            ],
+            'partner_organization_uuid' => [
+                Rule::requiredIf($isPartner),
+                Rule::prohibitedIf(! $isPartner),
+                'nullable',
+                'uuid',
+                Rule::exists('partner_organizations', 'uuid')->where(fn ($query) => $query
                     ->where('active', true)
                     ->whereNull('deleted_at')),
             ],

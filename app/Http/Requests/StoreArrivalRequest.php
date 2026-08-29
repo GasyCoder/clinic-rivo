@@ -73,7 +73,9 @@ class StoreArrivalRequest extends FormRequest
                     'uuid',
                     Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
                 ],
-                'is_emergency' => ['sometimes', 'boolean'],
+                // Emergency is a decision on the stable Episode UUID, never
+                // an arrival flag carried before the passage exists.
+                'is_emergency' => ['prohibited'],
                 ...$this->emergencyContactRules(),
                 ...$this->receptionDraftRules(),
             ];
@@ -184,7 +186,7 @@ class StoreArrivalRequest extends FormRequest
             ],
 
             'confirm_duplicate' => ['sometimes', 'boolean'],
-            'is_emergency' => ['sometimes', 'boolean'],
+            'is_emergency' => ['prohibited'],
             ...$this->receptionDraftRules(),
         ];
     }
@@ -310,6 +312,13 @@ class StoreArrivalRequest extends FormRequest
             'mutual_membership_number' => 'numéro matricule',
             'mutual_attachments' => 'pièces de mutuelle',
             'mutual_attachments.*' => 'pièce de mutuelle',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'is_emergency.prohibited' => 'Créez d’abord l’Épisode, puis classez ce passage précis en urgence depuis sa prise en charge.',
         ];
     }
 }

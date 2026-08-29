@@ -6,8 +6,10 @@ use App\Actions\Billing\CreateInvoiceAction;
 use App\Actions\Billing\ValidateInvoiceAction;
 use App\Enums\InvoiceStatus;
 use App\Http\Requests\StoreInvoiceRequest;
+use App\Models\CashSession;
 use App\Models\Invoice;
 use App\Models\Patient;
+use App\Models\PaymentMethod;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -23,12 +25,27 @@ class BillingController extends Controller
             'lines.billableItem:id,source_module',
             'creator:id,name',
             'validator:id,name',
+            'payments' => fn ($query) => $query->where('status', 'COMPLETED')->latest('paid_at'),
+            'payments.method:id,name',
+            'payments.receipt:id,payment_id,receipt_number',
         ]);
+
+        $canPay = $request->user()->can('payments.create');
 
         return Inertia::render('Invoices/Show', [
             'invoice' => $invoice,
             'returnToCash' => $request->query('from') === 'cash'
                 && $request->user()->can('cash.view'),
+            'capabilities' => [
+                'can_pay' => $canPay,
+                'can_view_receipts' => $request->user()->can('receipts.view'),
+            ],
+            'paymentMethods' => $canPay
+                ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name'])
+                : [],
+            'openCashSession' => $canPay
+                ? CashSession::query()->where('active_key', 'SINGLE_OPEN_CASH')->first(['uuid', 'session_number', 'opened_at'])
+                : null,
         ]);
     }
 

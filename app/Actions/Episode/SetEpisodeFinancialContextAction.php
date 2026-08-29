@@ -7,8 +7,10 @@ use App\Enums\MutualBeneficiaryType;
 use App\Models\Employee;
 use App\Models\Episode;
 use App\Models\EpisodeMutualCoverage;
+use App\Models\EpisodePartnerCoverage;
 use App\Models\EpisodeStaffCoverage;
 use App\Models\MutualOrganization;
+use App\Models\PartnerOrganization;
 use App\Models\PatientStaffLink;
 use App\Models\User;
 use App\Services\Audit\Auditor;
@@ -43,7 +45,7 @@ class SetEpisodeFinancialContextAction
 
         return DB::transaction(function () use ($episode, $mode, $context, $actor): Episode {
             $episode = Episode::query()
-                ->with(['mutualCoverage', 'staffCoverage.employee'])
+                ->with(['mutualCoverage', 'staffCoverage.employee', 'partnerCoverage'])
                 ->lockForUpdate()
                 ->findOrFail($episode->getKey());
 
@@ -79,7 +81,7 @@ class SetEpisodeFinancialContextAction
                 'financial_context_completed_by' => $actor->getKey(),
             ])->save();
 
-            $episode->load(['mutualCoverage', 'staffCoverage.employee']);
+            $episode->load(['mutualCoverage', 'staffCoverage.employee', 'partnerCoverage']);
 
             $this->auditor->record(
                 'financial_context.set',
@@ -114,7 +116,7 @@ class SetEpisodeFinancialContextAction
                 'mutual_organization_uuid' => ['required', 'uuid'],
                 'employer_name' => ['required', 'string', 'max:255'],
                 'beneficiary_type' => ['required', new Enum(MutualBeneficiaryType::class)],
-                'membership_number' => ['required', 'string', 'max:100'],
+                'membership_number' => ['nullable', 'string', 'max:100'],
             ])->validate();
 
             $organization = MutualOrganization::query()
@@ -137,7 +139,38 @@ class SetEpisodeFinancialContextAction
                 'coverage_rate' => $organization->coverage_rate,
                 'employer_name' => str($validated['employer_name'])->squish()->toString(),
                 'beneficiary_type' => $validated['beneficiary_type'],
-                'membership_number' => str($validated['membership_number'])->squish()->toString(),
+                'membership_number' => filled($validated['membership_number'] ?? null)
+                    ? str($validated['membership_number'])->squish()->toString()
+                    : null,
+            ];
+        }
+
+        if ($mode === EpisodeFinancialMode::Partner) {
+            if ($actor->cannot('partner_organizations.view')) {
+                throw new AuthorizationException('Vous ne pouvez pas utiliser le référentiel des partenaires.');
+            }
+
+            $validated = validator($context, [
+                'partner_organization_uuid' => ['required', 'uuid'],
+            ])->validate();
+
+            $organization = PartnerOrganization::query()
+                ->where('uuid', $validated['partner_organization_uuid'])
+                ->where('active', true)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $organization) {
+                throw ValidationException::withMessages([
+                    'partner_organization_uuid' => 'Le partenaire sélectionné est indisponible ou archivé.',
+                ]);
+            }
+
+            return [
+                'financial_mode' => $mode->value,
+                'partner_organization_id' => $organization->getKey(),
+                'partner_organization_uuid' => $organization->uuid,
+                'partner_organization_name' => $organization->name,
             ];
         }
 
@@ -196,6 +229,10 @@ class SetEpisodeFinancialContextAction
             $episode->staffCoverage?->delete();
         }
 
+        if ($mode !== EpisodeFinancialMode::Partner) {
+            $episode->partnerCoverage?->delete();
+        }
+
         if ($mode === EpisodeFinancialMode::Mutual) {
             EpisodeMutualCoverage::query()->updateOrCreate(
                 ['episode_id' => $episode->getKey()],
@@ -219,6 +256,19 @@ class SetEpisodeFinancialContextAction
                 [
                     'employee_id' => $context['employee_id'],
                     'created_by' => $episode->staffCoverage?->created_by ?? $actor->getKey(),
+                    'updated_by' => $actor->getKey(),
+                ],
+            );
+        }
+
+        if ($mode === EpisodeFinancialMode::Partner) {
+            EpisodePartnerCoverage::query()->updateOrCreate(
+                ['episode_id' => $episode->getKey()],
+                [
+                    'partner_organization_id' => $context['partner_organization_id'],
+                    'organization_uuid_snapshot' => $context['partner_organization_uuid'],
+                    'organization_name_snapshot' => $context['partner_organization_name'],
+                    'created_by' => $episode->partnerCoverage?->created_by ?? $actor->getKey(),
                     'updated_by' => $actor->getKey(),
                 ],
             );
@@ -249,6 +299,14 @@ class SetEpisodeFinancialContextAction
             ];
         }
 
+        if ($mode === EpisodeFinancialMode::Partner && $episode->partnerCoverage) {
+            return [
+                'financial_mode' => $mode->value,
+                'partner_organization_uuid' => $episode->partnerCoverage->organization_uuid_snapshot,
+                'partner_organization_name' => $episode->partnerCoverage->organization_name_snapshot,
+            ];
+        }
+
         return ['financial_mode' => $mode?->value];
     }
 
@@ -257,7 +315,7 @@ class SetEpisodeFinancialContextAction
     {
         return collect($old)->map(fn ($value) => $value instanceof \BackedEnum ? $value->value : (string) $value)->all()
             === collect($new)
-                ->except(['mutual_organization_id', 'employee_id'])
+                ->except(['mutual_organization_id', 'employee_id', 'partner_organization_id'])
                 ->map(fn ($value) => $value instanceof \BackedEnum ? $value->value : (string) $value)
                 ->all();
     }

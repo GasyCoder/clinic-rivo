@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 #[Fillable([
     'code', 'name', 'type', 'module', 'unit', 'billable', 'stockable',
     'reception_selectable', 'reception_routing_mode', 'staff_coverage_policy', 'description',
-    'care_requires_allergy_check', 'care_recommends_vitals',
+    'care_requires_allergy_check', 'care_recommends_vitals', 'clinician_orderable',
     'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
     'external_updated_by_uuid', 'external_updated_by_name',
@@ -40,6 +40,7 @@ class CatalogItem extends Model
             'staff_coverage_policy' => StaffCoveragePolicy::class,
             'care_requires_allergy_check' => 'boolean',
             'care_recommends_vitals' => 'boolean',
+            'clinician_orderable' => 'boolean',
         ];
     }
 
@@ -80,6 +81,11 @@ class CatalogItem extends Model
         return $this->hasMany(EpisodeServiceRequest::class);
     }
 
+    public function careOrderItems(): HasMany
+    {
+        return $this->hasMany(CareOrderItem::class);
+    }
+
     public function medicine(): HasOne
     {
         return $this->hasOne(Medicine::class);
@@ -100,6 +106,7 @@ class CatalogItem extends Model
         return $this->tariffs()->exists()
             || $this->billableItems()->exists()
             || $this->episodeServiceRequests()->exists()
+            || $this->careOrderItems()->exists()
             || $this->medicine()->exists();
     }
 

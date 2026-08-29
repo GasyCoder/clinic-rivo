@@ -39,6 +39,7 @@ class UpdateCatalogItemRequest extends FormRequest
             ],
             'care_requires_allergy_check' => ['sometimes', 'boolean'],
             'care_recommends_vitals' => ['sometimes', 'boolean'],
+            'clinician_orderable' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string', 'max:2000'],
         ];
     }

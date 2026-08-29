@@ -469,6 +469,10 @@ En cas de conflit entre une ancienne partie du CDC et une décision récente pr�
 
 **Status:** ACCEPTED (2026-08-19 — exigence explicite de l’équipe)
 
+**Amendement de séquence :** ADR-056 (2026-08-29) impose désormais la
+création de l’Épisode avant sa requalification en urgence. Les invariants
+ci-dessous restent applicables une fois le passage classé `EMERGENCY`.
+
 L’urgence est une priorité du passage (`episode`), jamais un statut permanent
 du patient.
 
@@ -2413,3 +2417,97 @@ par cette stabilisation : `ConsultationDecision::NursingCare` actionnable,
 ordre de soins Médecine → Soins, `surgery.request`, `SurgicalRequest` créée
 depuis Médecine, Laboratoire, `LABORATORY_DIRECT`, Hospitalisation,
 `MedicalOrder` générique, Maternité, Pédiatrie.
+
+---
+
+# ADR-055 — Ordre de soins Médecine → Soins (CareOrder)
+
+**Status:** ACCEPTED (2026-08-29 — exigence explicite du propriétaire)
+
+Le médecin peut, depuis une Consultation active, demander un ou plusieurs
+actes au service Soins. Ce besoin est porté par `CareOrder` (DEMANDE) et
+`CareOrderItem`, un modèle dédié — jamais par `EpisodeServiceRequest`, dont le
+contrat reste strictement le plan de la Réception à l'arrivée, ni fusionné
+avec l'ORIENTATION (`EpisodeOrientation`), l'ACTE RÉALISÉ
+(`CareRecordProcedure`) ou la FACTURATION (`BillableItem`).
+
+Un `CareOrderItem` sélectionne un `CatalogItem` actif de type `SERVICE` et de
+module `CARE` marqué `clinician_orderable` — une propriété explicite,
+distincte de `reception_selectable`/`reception_routing_mode` (propres à la
+Réception), jamais déduite du nom ou du code d'un acte. Chaque ligne fige un
+instantané (`catalog_item_code_snapshot`, `catalog_item_name_snapshot`) :
+une évolution ultérieure du catalogue ne réécrit jamais une demande déjà
+faite.
+
+`CreateCareOrderAction` réutilise exclusivement `CreateEpisodeOrientationAction`
+pour créer l'orientation Médecine → Soins ; aucune nouvelle file d'attente
+n'est introduite. Pour un patient `NORMAL`, l'orientation Médecine active est
+terminée avant l'ouverture de Soins, afin qu'une seule orientation clinique
+active existe à la fois. Une Urgence conserve sa logique parallèle existante
+(Soins et Médecine restent ouverts simultanément, ADR-021).
+
+Le médecin choisit, au moment de la demande, si le patient doit revenir en
+Médecine (`requires_return_to_medicine`). Ce choix — jamais redemandé à
+l'infirmier — gouverne la complétion : `CompleteCareAndOrientToMedicineAction`
+détecte un `CareOrder` actif rattaché à l'orientation Soins et applique alors
+sa propre règle plutôt que celle de `CareWorkflow` (qui ne décrit que le plan
+d'arrivée, étranger à cette visite). Si `true`, une nouvelle orientation
+Soins → Médecine est créée (même Episode, aucun nouvel Episode) ;
+`AcceptMedicineOrientationAction`, inchangée, y ouvre alors une nouvelle
+Consultation sans jamais réécrire la première. Si `false`, l'épisode passe en
+`PENDING_SETTLEMENT` selon la même règle que l'ADR-054, sans sortie médicale
+fictive.
+
+`ConsultationDecision::NursingCare` reste une synchronisation, jamais un
+déclencheur : seule l'action explicite « Demander un soin », validée côté
+serveur, crée un `CareOrder`. Un brouillon ou un changement de `decision` ne
+crée jamais d'orientation.
+
+La facturation d'un acte demandé suit exactement le circuit déjà en place
+(ADR-054) : c'est l'enregistrement du `CareRecordProcedure` par Soins qui
+déclenche `RecordBillableItemAction`, jamais la création du `CareOrder`
+elle-même.
+
+Permissions :
+
+```text
+care_orders.create   MEDICINE uniquement
+care_orders.view     MEDICINE, NURSE
+```
+
+`NURSE` ne reçoit jamais `care_orders.create` ni `consultations.*`.
+
+---
+
+# ADR-056 — Urgence décidée après création de l’Épisode
+
+**Status:** ACCEPTED (2026-08-29 — décision explicite de la réunion métier)
+
+Le choix d’urgence intervient uniquement après la création de l’Épisode et de
+son UUID. L’ancien indicateur d’arrivée `is_emergency`, envoyé avant que le
+passage existe, est supprimé du flux Réception. Une arrivée crée donc d’abord
+un Épisode `NORMAL`, puis la Réception peut requalifier ce passage précis
+depuis l’étape « Prise en charge ».
+
+L’urgence reste exclusivement une propriété de `Episode.priority`, jamais du
+`Patient`. Si un même Patient possède quatre passages, un seul peut être
+`EMERGENCY` sans modifier les trois autres. La requalification ne crée ni un
+nouveau Patient, ni un nouvel Épisode et ne supprime aucun besoin, contexte
+financier, acte ou document déjà enregistré.
+
+La Médecine peut appliquer la même requalification pendant une Consultation
+active. Cette transition ne régresse jamais `administrative_status` : un
+passage déjà `IN_CARE` reste `IN_CARE` et la Consultation en cours demeure
+ouverte. Un passage fermé, annulé ou médicalement sorti ne peut plus être
+requalifié.
+
+Après requalification, les files Soins et Médecine sont ouvertes
+immédiatement via l’unique `CreateEpisodeOrientationAction`. Son `active_key`
+rend l’opération idempotente : une orientation Médecine déjà active est
+réutilisée et seule l’orientation Soins manquante est créée. Aucun paiement ni
+contexte financier ne conditionne ce déclenchement clinique.
+
+La transition est atomique et auditée sous `episode.mark_emergency`. Elle est
+protégée par la permission granulaire du même nom, accordée par défaut à
+`RECEPTION` et `MEDICINE`. Cette permission n’accorde aucun droit générique
+`episodes.update` à Médecine.

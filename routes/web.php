@@ -14,7 +14,9 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\EpisodeController;
+use App\Http\Controllers\EpisodeEmergencyController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
@@ -202,6 +204,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/passages/{episode}/prise-en-charge', [ReceptionController::class, 'resumeJourney'])
         ->name('reception.passages.journey.show')
         ->middleware('can:episodes.update');
+    Route::post('/reception/passages/{episode}/urgence', [EpisodeEmergencyController::class, 'fromReception'])
+        ->name('reception.passages.emergency.store')
+        ->middleware('can:episodes.mark_emergency');
     Route::get('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'show'])
         ->name('reception.passages.services.show')
         ->middleware('can:episodes.update');
@@ -274,14 +279,18 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
+    Route::post('/care/orientations/{episodeOrientation}/care-order-items/{careOrderItem}/not-performed', [CareController::class, 'markCareOrderItemNotPerformed'])->name('care.care-order-items.not-performed')->middleware('can:care.update');
 
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
-        ->whereIn('step', ['dossier', 'consultation', 'diagnostic', 'ordonnance', 'decision'])
+        ->whereIn('step', ['dossier', 'consultation', 'examen', 'paraclinique', 'diagnostic', 'ordonnance', 'decision'])
         ->name('medicine.orientations.step')
         ->middleware('can:consultations.view');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])
+        ->name('medicine.orientations.emergency.store')
+        ->middleware('can:episodes.mark_emergency');
     Route::put('/medicine/orientations/{episodeOrientation}/consultation', [MedicineController::class, 'updateConsultation'])->name('medicine.consultations.update')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'storeDiagnosis'])->name('medicine.diagnoses.store')->middleware('can:diagnoses.create');
     Route::put('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'updateDiagnosis'])->name('medicine.diagnoses.update')->middleware('can:diagnoses.update');
@@ -290,7 +299,18 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}', [MedicineController::class, 'updatePrescription'])->name('medicine.prescriptions.update')->middleware('can:prescriptions.update');
     Route::post('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/cancel', [MedicineController::class, 'cancelPrescription'])->name('medicine.prescriptions.cancel')->middleware('can:prescriptions.cancel');
     Route::get('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/print', [MedicineController::class, 'printPrescription'])->name('medicine.prescriptions.print')->middleware('can:prescriptions.view');
+    Route::post('/medicine/orientations/{episodeOrientation}/care-orders', [MedicineController::class, 'storeCareOrder'])->name('medicine.care-orders.store')->middleware('can:care_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/lab-requests', [MedicineController::class, 'storeLabRequest'])->name('medicine.lab-requests.store')->middleware('can:laboratory_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests', [MedicineController::class, 'storeImagingRequest'])->name('medicine.imaging-requests.store')->middleware('can:imaging_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result', [MedicineController::class, 'recordImagingResult'])->name('medicine.imaging-requests.result')->middleware('can:imaging_results.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/surgical-referrals', [MedicineController::class, 'storeSurgicalReferral'])->name('medicine.surgical-referrals.store')->middleware('can:surgery.request');
+    Route::post('/medicine/orientations/{episodeOrientation}/referrals', [MedicineController::class, 'storeReferral'])->name('medicine.referrals.store');
     Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
+
+    // Laboratoire — minimal, côté suivi/résultat uniquement : la demande
+    // vient de Médecine (CreateLabRequestAction), l'orientation existe déjà.
+    Route::get('/laboratory', [LaboratoryController::class, 'index'])->name('laboratory.index')->middleware('can:laboratory_results.view');
+    Route::post('/laboratory/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('laboratory.items.result')->middleware('can:laboratory_results.create');
 
     // Espace anesthésiste autonome. Il partage les mêmes dossiers cliniques
     // avec Chirurgie mais n'accorde jamais implicitement surgery.view.

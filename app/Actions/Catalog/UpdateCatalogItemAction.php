@@ -45,6 +45,7 @@ class UpdateCatalogItemAction
             && ($data['module'] ?? null) === CatalogModule::Care->value;
         $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
         $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+        $clinicianOrderable = (bool) ($data['clinician_orderable'] ?? false);
         $staffCoveragePolicy = array_key_exists('staff_coverage_policy', $data)
             ? StaffCoveragePolicy::from((string) $data['staff_coverage_policy'])
             : $item->staff_coverage_policy;
@@ -55,7 +56,7 @@ class UpdateCatalogItemAction
             ]);
         }
 
-        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
+        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals || $clinicianOrderable)) {
             throw ValidationException::withMessages([
                 'care_requires_allergy_check' => 'Ces exigences sont réservées aux prestations du module Soins.',
             ]);
@@ -70,6 +71,7 @@ class UpdateCatalogItemAction
             'staff_coverage_policy' => $staffCoveragePolicy,
             'care_requires_allergy_check' => $isCareService && $requiresAllergyCheck,
             'care_recommends_vitals' => $isCareService && $recommendsVitals,
+            'clinician_orderable' => $isCareService && $clinicianOrderable,
             'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
             'updated_by' => $actor->localUserId(),
             ...$actor->externalAttribution('updated'),

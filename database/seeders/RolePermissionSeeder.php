@@ -82,6 +82,10 @@ class RolePermissionSeeder extends Seeder
             'medicines.view', 'stock.availability.view',
             'prescriptions.cancel', 'medical_discharge.create', 'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
+            // Same read-only projection of the Soins worksheet Surgery reads
+            // through CareRecordReadModel (ADR-048): view only, never
+            // care.update/vitals.update — Médecine never edits the fiche.
+            'care.view', 'vitals.view',
         ],
         // Shared baseline for every paramedical profile. Anesthesia belongs
         // only to accounts explicitly assigned those permissions (normally

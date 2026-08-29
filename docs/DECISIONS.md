@@ -2275,3 +2275,141 @@ expérience progressive, elle prépare une facture à régler ultérieurement et
 crée aucun paiement ou reçu. L’encaissement demeure exclusivement à
 Réception/Caisse. Le parcours d’urgence ne change pas : son Episode conserve
 un `financial_mode` nullable et ouvre immédiatement Soins et Médecine.
+
+---
+
+# ADR-054 — Stabilisation Soins/Médecine : facturation des actes, clôture administrative et projection CareRecord partagée
+
+**Status:** ACCEPTED (2026-08-29 — audit Soins/Médecine, validé par le propriétaire)
+
+Cette décision documente la « Phase A » de stabilisation qui a suivi l’audit
+Soins/Médecine : elle ne redéfinit aucune règle déjà actée par les ADR-030,
+ADR-032, ADR-035, ADR-047, ADR-048 et ADR-051, mais fixe le comportement de
+quatre mécanismes déjà implémentés qui n’étaient pas encore consignés ici.
+
+## Trois notions distinctes autour de la fiche Soins
+
+```text
+CareRecord              triage / constantes du passage (tension, FC, SpO2,
+                         température, IMC, allergies du passage)
+CareRecordProcedure     acte Soins réellement exécuté, historisé append-only
+BillableItem            prestation à facturer, créée séparément si l’acte
+                         est facturable
+```
+
+`CareRecord` reste la fiche de triage/constantes définie par l’ADR-032 ; elle
+n’est jamais un acte facturable en elle-même. `CareRecordProcedure` est la
+trace clinique de ce qui a été réellement fait — elle existe indépendamment
+de toute conséquence financière. Un acte facturable ne produit un
+`BillableItem` que par un appel explicite à `RecordBillableItemAction`
+(`app/Actions/Care/SaveCareRecordAction.php::billProcedureIfPossible()`),
+jamais par un effet de bord de l’enregistrement clinique.
+
+## Une erreur financière ne bloque jamais l’acte clinique
+
+`billProcedureIfPossible()` capture toute `ValidationException` levée par
+`RecordBillableItemAction` (tarif absent, contexte financier non résolu,
+politique Personnel non classifiée…) et l’ignore silencieusement : le
+`CareRecordProcedure`, déjà créé avant cet appel dans la même transaction,
+n’est jamais annulé. C’est ce mécanisme qui permet à une Urgence — dont
+`Episode.financial_mode` reste `NULL` tant que la famille n’a pas complété le
+dossier (ADR-021, ADR-051) — d’enregistrer normalement les actes Soins sans
+jamais être bloquée par la facturation.
+
+## Idempotence de la facturation d’un acte
+
+Une prestation déjà planifiée à la Réception (`EpisodeServiceRequest`) ne
+peut jamais être refacturée deux fois pour le même acte : `RecordBillableItemAction`
+dérive une clé d’idempotence déterministe de la demande de service
+correspondante et rejoue l’élément déjà créé plutôt que d’en produire un
+second. Un acte réalisé au-delà de la demande initiale (acte supplémentaire
+non prévu à la Réception) produit en revanche son propre `BillableItem`
+`PENDING`, indépendant.
+
+## Rattachement à une facture non encore encaissée
+
+`AttachBillableItemToUnpaidInvoiceAction` rattache un nouvel élément
+facturable à une facture existante du même passage uniquement si :
+
+```text
+Invoice.status IN (DRAFT, VALIDATED)
+ET Invoice.paid_amount = 0
+```
+
+Ce test par liste explicite est nécessaire et volontaire : une facture
+`COVERED` a elle aussi `paid_amount = 0` (une prise en charge à 100 % ne
+fabrique aucun paiement, ADR-047) et serait donc rattachable si le contrôle
+portait uniquement sur `paid_amount`. `PARTIALLY_PAID`, `PAID`, `COVERED` et
+`CANCELLED` sont donc tous exclus par construction, jamais mutés
+silencieusement une fois qu’un encaissement ou un règlement a eu lieu.
+
+## CARE_ONLY final : PENDING_SETTLEMENT
+
+`CompleteCareAndOrientToMedicineAction::settleAdministrativelyIfPathwayComplete()`
+fait progresser `Episode.administrative_status` uniquement lorsque le
+workflow confirme que le parcours clinique prévu est réellement terminé :
+
+```text
+CareWorkflow::completionMode() === Finish
+ET Episode.administrative_status === IN_CARE
+ET aucune EpisodeOrientation Médecine active (PENDING/IN_PROGRESS) pour ce passage
+```
+
+L’orientation Soins passe à `COMPLETED` (inchangé), `Episode.administrative_status`
+passe à `PENDING_SETTLEMENT`, `Episode.status` reste `OPEN`. Aucune
+`MedicalDischarge` fictive n’est créée, aucune fausse `Consultation` n’est
+ouverte : `PENDING_SETTLEMENT` signifie seulement que la suite du passage est
+désormais administrative/financière, jamais que le patient est médicalement
+sorti.
+
+Cette transition ne s’applique jamais à `CARE_THEN_MEDICINE` (l’orientation
+Médecine créée empêche la condition ci-dessus) ni à une Urgence dont
+l’orientation Médecine ouverte en parallèle à l’arrivée
+(`PlanEpisodeRoutingAction::openInitialQueues()`) est toujours active :
+`CareWorkflow::completionMode()` ignore `Episode.priority` et ne suffit donc
+jamais seul à décider de cette transition — la vérification explicite de
+l’orientation Médecine active est ce qui protège l’Urgence contre une
+clôture administrative prématurée.
+
+## Page « Détail du passage »
+
+`EpisodeController::show()` / `Episodes/Show.vue` (`/passages/{episode}`)
+agrège en lecture seule ce qui est déjà accessible séparément par module :
+orientations, fiche Soins, consultations/diagnostics/prescriptions Médecine,
+sortie médicale, facturation. Chaque section reste gardée côté serveur par la
+permission qui possède réellement la donnée (`care.view`/`vitals.view` pour
+la fiche Soins, `medical_record.view` pour le dossier, `diagnoses.view` et
+`prescriptions.view` indépendamment l’un de l’autre pour leurs sous-sections,
+`billing.view` pour la facturation) : `patients.view` seul, qui protège la
+route, ne suffit à exposer aucune de ces sections.
+
+## Constantes partagées via CareRecordReadModel
+
+`app/Services/Care/CareRecordReadModel.php` est la projection unique des
+constantes et de leurs seuils d’alerte (`BmiAssessment`, `BloodPressureAssessment`,
+`HeartRateAssessment`, `OxygenSaturationAssessment`, `TemperatureAssessment`,
+ADR-038 à ADR-041). Soins, Chirurgie/Anesthésie (ADR-048) et désormais
+`MedicineDossierPresenter` la consomment tous les trois ; aucun seuil n’est
+recalculé indépendamment dans un module. Comme pour `SURGERY` (ADR-048),
+exposer cette projection à `MEDICINE` exige les permissions en lecture seule
+`care.view` et `vitals.view` — accordées au rôle par défaut, sans aucun droit
+`care.update`/`vitals.update` : Médecine consulte la fiche Soins, ne la
+modifie jamais.
+
+## Antécédents patient
+
+L’audit avait signalé `RecordPatientAntecedentAction` comme déjà
+implémentée, testée, mais sans route exposée. `PatientController::storeAntecedent()`
+(`POST /patients/{patient}/antecedents`, permission `patients.medical_history.manage`)
+est ce point d’entrée générique, réutilisable par tout appelant autorisé —
+Médecine y ajoute sa propre UI dans `Medicine/Show.vue`. Un antécédent reste
+une donnée permanente du `Patient` (§19), jamais un champ de `Consultation` ;
+aucune donnée n’est dupliquée entre les deux.
+
+## Hors périmètre
+
+Cette ADR ne couvre aucun des éléments suivants, volontairement non traités
+par cette stabilisation : `ConsultationDecision::NursingCare` actionnable,
+ordre de soins Médecine → Soins, `surgery.request`, `SurgicalRequest` créée
+depuis Médecine, Laboratoire, `LABORATORY_DIRECT`, Hospitalisation,
+`MedicalOrder` générique, Maternité, Pédiatrie.

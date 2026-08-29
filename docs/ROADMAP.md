@@ -72,6 +72,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Registre immuable du crédit Bloc Employee avec allocation manuelle, consommation idempotente et réversion
 - [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
 - [x] Facture imprimable sans faux reçu pour un règlement ultérieur
+- [x] Facturation automatique et idempotente d'un acte Soins facturable, sans blocage clinique en cas d'erreur financière
+- [x] Rattachement d'un nouvel acte à une facture du même passage non encore encaissée (DRAFT/VALIDATED, paid_amount = 0)
 - [ ] Factures
 - [ ] Facture lignes
 - [ ] Caisse unique
@@ -98,6 +100,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Soins
 - [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
 - [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
+- [x] Projection partagée des constantes et alertes (CareRecordReadModel) entre Soins, Médecine et Chirurgie/Anesthésie
+- [x] Antécédents patient exposés via un point d'entrée générique, consultables et ajoutables depuis Médecine
+- [x] Clôture administrative automatique (PENDING_SETTLEMENT) d'un parcours Soins seul réellement terminé, sans sortie médicale fictive
+- [x] Page transversale « Détail du passage » en lecture seule, sécurisée section par section côté serveur
 - [ ] Ordres de soins
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie

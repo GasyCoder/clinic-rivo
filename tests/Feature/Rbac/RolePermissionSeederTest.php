@@ -281,6 +281,38 @@ class RolePermissionSeederTest extends TestCase
         $this->assertNotContains('cash.view', $names);
     }
 
+    /**
+     * Phase A (Soins/Médecine stabilization) locks in the clinical/financial
+     * boundaries the audit relied on, without asserting the permanent
+     * absence of permissions not yet defined at all (e.g. surgery.request,
+     * care_orders.create): those are simply undefined today, not
+     * deliberately withheld, and must remain free to be added later.
+     */
+    public function test_nurse_and_medicine_stay_locked_out_of_diagnosis_stock_mutation_and_staff_credit_permissions(): void
+    {
+        $this->seedRbac();
+
+        $nurseNames = $this->permissionNamesFor('NURSE');
+        foreach (['diagnoses.view', 'diagnoses.create', 'diagnoses.update'] as $permission) {
+            $this->assertNotContains($permission, $nurseNames);
+        }
+        foreach (['consultations.view', 'consultations.create', 'consultations.update'] as $permission) {
+            $this->assertNotContains($permission, $nurseNames);
+        }
+        foreach (['staff_block_credits.view', 'staff_block_credits.allocate'] as $permission) {
+            $this->assertNotContains($permission, $nurseNames);
+        }
+
+        $medicineNames = $this->permissionNamesFor('MEDICINE');
+        foreach (['staff_block_credits.view', 'staff_block_credits.allocate'] as $permission) {
+            $this->assertNotContains($permission, $medicineNames);
+        }
+        foreach (['stock.entry', 'stock.exit', 'stock.adjust', 'stock.inventory', 'stock.transfer', 'stock.approve'] as $permission) {
+            $this->assertNotContains($permission, $medicineNames);
+        }
+        $this->assertContains('stock.availability.view', $medicineNames);
+    }
+
     public function test_unimplemented_laboratory_role_has_no_stale_grants(): void
     {
         $this->seedRbac();

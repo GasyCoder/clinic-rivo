@@ -236,6 +236,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ]);
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
+    // Generic endpoint: an antecedent is a permanent Patient record, never a
+    // Consultation field — any caller with the permission uses this one
+    // route (Médecine included), never a module-specific duplicate.
+    Route::post('/patients/{patient}/antecedents', [PatientController::class, 'storeAntecedent'])
+        ->name('patients.antecedents.store')
+        ->middleware('can:patients.medical_history.manage');
 
     // Vue d'ensemble en lecture seule d'un passage — agrège Soins, Médecine
     // et facturation déjà accessibles séparément par module ; aucune action

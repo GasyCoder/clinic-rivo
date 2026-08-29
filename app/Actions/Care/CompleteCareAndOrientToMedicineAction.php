@@ -5,8 +5,10 @@ namespace App\Actions\Care;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CareCompletionMode;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Exceptions\InvalidEpisodeOrientationTransitionException;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
 use App\Support\CareWorkflow;
@@ -83,6 +85,8 @@ class CompleteCareAndOrientToMedicineAction
                         ? 'Orientation explicite après évaluation d’un besoin initialement inconnu.'
                         : 'Orientation vers Médecine selon le parcours planifié.',
                 );
+            } elseif ($completionMode === CareCompletionMode::Finish) {
+                $this->settleAdministrativelyIfPathwayComplete($locked->episode);
             }
 
             return $locked->fresh(['episode.patient']);
@@ -95,5 +99,34 @@ class CompleteCareAndOrientToMedicineAction
         User $actor,
     ): EpisodeOrientation {
         return $this->execute($orientation, $actor, orientUnknownNeedToMedicine: true);
+    }
+
+    /**
+     * A CARE_ONLY pathway ends the clinical routing, never the episode
+     * itself: only the administrative/financial side is unblocked so
+     * Réception/Caisse can proceed (ADR-030 defines no discharge for a
+     * Care-only visit). Guarded on the current status so this stays a
+     * no-op once already past IN_CARE, and on the absence of an active
+     * Medicine orientation because an Emergency episode opens Care and
+     * Medicine in parallel at arrival regardless of routing_mode
+     * (PlanEpisodeRoutingAction) — CareCompletionMode::Finish only ever
+     * describes the Care side of the pathway, never the whole episode.
+     */
+    private function settleAdministrativelyIfPathwayComplete(Episode $episode): void
+    {
+        if ($episode->administrative_status !== EpisodeAdministrativeStatus::InCare) {
+            return;
+        }
+
+        $hasActiveMedicineOrientation = EpisodeOrientation::query()
+            ->where('active_key', $episode->getKey().':'.CatalogModule::Medicine->value)
+            ->exists();
+
+        if ($hasActiveMedicineOrientation) {
+            return;
+        }
+
+        $episode->administrative_status = EpisodeAdministrativeStatus::PendingSettlement;
+        $episode->save();
     }
 }

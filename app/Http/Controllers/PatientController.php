@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Patient\DeletePatientsAction;
+use App\Actions\Patient\RecordPatientAntecedentAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\BillableItemStatus;
 use App\Enums\EpisodePriority;
@@ -11,6 +12,7 @@ use App\Enums\InvoiceStatus;
 use App\Enums\PatientType;
 use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
+use App\Http\Requests\StorePatientAntecedentRequest;
 use App\Http\Requests\UpdatePatientRequest;
 use App\Models\AddressEntry;
 use App\Models\BillableItem;
@@ -404,6 +406,23 @@ class PatientController extends Controller
 
         return redirect()->route('patients.show', $patient)
             ->with('status', "Dossier {$patient->patient_number} mis à jour.");
+    }
+
+    /**
+     * Antecedents are a permanent record of the Patient, not of a single
+     * Consultation (§19's inter-site transfer payload carries them at the
+     * patient level) — this is the one generic endpoint every caller with
+     * patients.medical_history.manage uses, Médecine included, rather than
+     * a module-specific duplicate.
+     */
+    public function storeAntecedent(
+        StorePatientAntecedentRequest $request,
+        Patient $patient,
+        RecordPatientAntecedentAction $action,
+    ): RedirectResponse {
+        $action->execute($patient, $request->validated('description'));
+
+        return back()->with('status', 'Antécédent ajouté au dossier patient.');
     }
 
     public function destroy(

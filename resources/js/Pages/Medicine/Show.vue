@@ -11,6 +11,7 @@ import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
 import RadioButton from '@/Components/UI/RadioButton.vue';
+import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
@@ -31,6 +32,17 @@ const props = defineProps({
 const episode = computed(() => props.orientation.episode);
 const patient = computed(() => episode.value.patient);
 const isEmergency = computed(() => episode.value.priority === 'EMERGENCY');
+const careRecordBloodPressure = computed(() => {
+    const systolic = props.care_record?.blood_pressure_systolic;
+    const diastolic = props.care_record?.blood_pressure_diastolic;
+    return systolic && diastolic ? `${systolic}/${diastolic}` : null;
+});
+
+const antecedentForm = useForm({ description: '' });
+const submitAntecedent = () => antecedentForm.post(`/patients/${patient.value.uuid}/antecedents`, {
+    preserveScroll: true,
+    onSuccess: () => antecedentForm.reset(),
+});
 const isClosed = computed(() => Boolean(props.medical_discharge));
 const consultationRecorded = computed(() => Boolean(
     props.consultation?.reason?.trim()
@@ -344,12 +356,6 @@ const submitDischarge = () => dischargeForm.post(
     { preserveScroll: true },
 );
 
-const yesNoLabel = (value) => {
-    if (value === true) return 'Oui';
-    if (value === false) return 'Non';
-    return 'N/R';
-};
-
 const splitLines = (value) => (value ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
 
 const patientAge = computed(() => patient.value.age !== null && patient.value.age !== undefined
@@ -431,7 +437,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     <span :class="['h-2 w-2 shrink-0 rounded-full', isEmergency ? 'bg-red-500' : 'bg-slate-300']" />
                     <div><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Priorité</p><p :class="['mt-0.5 text-sm font-bold', isEmergency ? 'text-red-600 dark:text-red-300' : 'text-slate-700 dark:text-white']">{{ isEmergency ? 'Urgence' : 'Normale' }}</p></div>
                 </div>
-                <div class="px-4 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Tension artérielle</p><p class="mt-0.5 text-sm font-bold text-slate-700 dark:text-white">{{ care_record?.blood_pressure || 'N/R' }}<span v-if="care_record?.blood_pressure" class="ms-1 text-xs font-normal text-slate-400">mmHg</span></p></div>
+                <div class="px-4 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Tension artérielle</p><p class="mt-0.5 text-sm font-bold text-slate-700 dark:text-white">{{ careRecordBloodPressure || 'N/R' }}<span v-if="careRecordBloodPressure" class="ms-1 text-xs font-normal text-slate-400">mmHg</span></p></div>
                 <div class="px-4 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Température</p><p class="mt-0.5 text-sm font-bold text-slate-700 dark:text-white">{{ care_record?.temperature_celsius ? `${care_record.temperature_celsius} °C` : 'N/R' }}</p></div>
                 <div class="px-4 py-3"><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Allergies connues</p><p :class="['mt-0.5 truncate text-sm font-bold', allergies.length ? 'text-red-600 dark:text-red-300' : 'text-slate-700 dark:text-white']">{{ allergies.length ? allergies.map((allergy) => allergy.substance).join(', ') : 'Aucune enregistrée' }}</p></div>
             </div>
@@ -878,31 +884,26 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
             </main>
 
             <aside v-if="current_step === 'dossier'" class="space-y-4 xl:sticky xl:top-4 xl:col-span-4">
-                <Card class="overflow-hidden shadow-sm">
+                <CareSummaryReadOnly v-if="care_record" :care-summary="care_record" />
+                <Card v-else class="overflow-hidden shadow-sm">
                     <div class="border-b border-gray-200 px-4 py-3 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Transmission des Soins</h2><p class="mt-1 text-xs text-slate-400">Données relevées pendant ce passage.</p></div>
-                    <div v-if="care_record" class="p-4">
-                        <dl class="grid grid-cols-2 gap-x-4 gap-y-3">
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Tension artérielle</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.blood_pressure || 'N/R' }}<span v-if="care_record.blood_pressure" class="ms-1 text-xs font-normal text-slate-400">mmHg</span></dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Fréquence cardiaque</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.heart_rate || 'N/R' }}<span v-if="care_record.heart_rate" class="ms-1 text-xs font-normal text-slate-400">btt/mn</span></dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">SpO2</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.spo2 ?? 'N/R' }}<span v-if="care_record.spo2 !== null && care_record.spo2 !== undefined" class="ms-1 text-xs font-normal text-slate-400">%</span></dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Température</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.temperature_celsius ? `${care_record.temperature_celsius} °C` : 'N/R' }}</dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Groupe sanguin</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.blood_group || 'N/R' }}</dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Taille / poids</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.height_cm || '—' }} cm · {{ care_record.weight_kg || '—' }} kg</dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">IMC</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ care_record.bmi || 'N/R' }}</dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Diabète connu</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ yesNoLabel(care_record.known_diabetes) }}</dd></div>
-                            <div><dt class="text-[10px] font-semibold uppercase text-slate-400">Tabac</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-white">{{ yesNoLabel(care_record.smoker) }}</dd></div>
-                        </dl>
-                        <div v-if="care_record.diagnostic_note || care_record.transmission_reason" class="mt-4 space-y-3 border-t border-gray-200 pt-4 dark:border-gray-900"><div v-if="care_record.diagnostic_note"><p class="text-[10px] font-semibold uppercase text-slate-400">Diagnostic communiqué</p><p class="mt-1 whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">{{ care_record.diagnostic_note }}</p></div><div v-if="care_record.transmission_reason"><p class="text-[10px] font-semibold uppercase text-slate-400">Observations transmises</p><p class="mt-1 whitespace-pre-line text-sm text-slate-600 dark:text-slate-300">{{ care_record.transmission_reason }}</p></div></div>
-                        <div v-if="care_record.procedures.length" class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-900"><p class="mb-2 text-[10px] font-semibold uppercase text-slate-400">Actes réalisés</p><ul class="space-y-2"><li v-for="procedure in care_record.procedures" :key="procedure.uuid" class="rounded bg-gray-50 px-3 py-2 dark:bg-gray-1000"><p class="text-xs font-semibold text-slate-700 dark:text-white">{{ procedure.name }} <span class="font-normal text-slate-400">× {{ procedure.quantity }}</span></p><p class="mt-0.5 text-[11px] text-slate-400">{{ formatDateTime(procedure.performed_at) }}<template v-if="procedure.performed_by"> · {{ procedure.performed_by }}</template></p></li></ul></div>
-                    </div>
-                    <p v-else class="px-4 py-5 text-sm text-slate-400">Aucune fiche Soins disponible pour ce passage direct.</p>
+                    <p class="px-4 py-5 text-sm text-slate-400">Aucune fiche Soins disponible pour ce passage direct.</p>
                 </Card>
 
                 <Card class="overflow-hidden shadow-sm">
                     <div class="border-b border-gray-200 px-4 py-3 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Repères médicaux permanents</h2><p class="mt-1 text-xs text-slate-400">À interpréter avec le contexte de la consultation.</p></div>
                     <div class="space-y-4 p-4">
                         <div><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Allergies</p><div v-if="allergies.length" class="mt-2 flex flex-wrap gap-2"><span v-for="allergy in allergies" :key="allergy.uuid" class="rounded border border-red-100 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 dark:border-red-950 dark:bg-red-950/20 dark:text-red-300">{{ allergy.substance }}<template v-if="allergy.reaction"> · {{ allergy.reaction }}</template></span></div><p v-else class="mt-1 text-sm text-slate-400">Aucune allergie enregistrée.</p></div>
-                        <div><p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Antécédents</p><ul v-if="antecedents.length" class="mt-2 space-y-2"><li v-for="antecedent in antecedents" :key="antecedent.uuid" class="flex gap-2 text-sm text-slate-600 dark:text-slate-300"><span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-400" /><span>{{ antecedent.description }}</span></li></ul><p v-else class="mt-1 text-sm text-slate-400">Aucun antécédent enregistré.</p></div>
+                        <div>
+                            <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Antécédents</p>
+                            <ul v-if="antecedents.length" class="mt-2 space-y-2"><li v-for="antecedent in antecedents" :key="antecedent.uuid" class="flex gap-2 text-sm text-slate-600 dark:text-slate-300"><span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-400" /><span>{{ antecedent.description }}</span></li></ul>
+                            <p v-else class="mt-1 text-sm text-slate-400">Aucun antécédent enregistré.</p>
+                            <form v-if="capabilities.can_manage_medical_history" class="mt-3 space-y-2 border-t border-gray-200 pt-3 dark:border-gray-900" @submit.prevent="submitAntecedent">
+                                <textarea v-model="antecedentForm.description" rows="2" placeholder="Ajouter un antécédent au dossier permanent…" :class="textareaClass" />
+                                <FormError :message="antecedentForm.errors.description" />
+                                <div class="flex justify-end"><Button type="submit" size="sm" variant="white-outline" :disabled="antecedentForm.processing || !antecedentForm.description.trim()"><Icon class="me-1.5 text-sm" name="plus" />Ajouter l’antécédent</Button></div>
+                            </form>
+                        </div>
                     </div>
                 </Card>
 

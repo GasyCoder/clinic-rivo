@@ -488,6 +488,26 @@ medical discharge
 
 La Médecine ne peut pas encaisser.
 
+Les constantes et alertes de la fiche Soins (tension, FC, SpO2, température,
+IMC) affichées en Médecine proviennent de `CareRecordReadModel`, la même
+projection que Soins et Chirurgie/Anesthésie (ADR-048, ADR-054) : aucun seuil
+n'est recalculé dans `MedicineDossierPresenter`. Voir cette projection exige
+les permissions en lecture seule `care.view`/`vitals.view`, accordées par
+défaut à `MEDICINE` sans aucun droit `care.update`/`vitals.update`.
+
+Un antécédent permanent s'ajoute depuis Médecine (avec
+`patients.medical_history.manage`) via l'unique point d'entrée générique
+`PatientController::storeAntecedent()`, partagé par tout module autorisé —
+jamais un champ de `Consultation`. Voir ADR-054.
+
+Une orientation Soins réellement terminée sans transmission Médecine
+restante (`CareCompletionMode::Finish`, aucune orientation Médecine active)
+fait passer `Episode.administrative_status` à `PENDING_SETTLEMENT` : le
+parcours clinique est terminé, la suite est administrative/financière.
+Aucune `MedicalDischarge` n'est jamais fabriquée par ce mécanisme, et une
+Urgence dont l'orientation Médecine reste active n'est jamais close ainsi.
+Voir ADR-054.
+
 ---
 
 # Chirurgie
@@ -600,6 +620,23 @@ Employé fournie à Réception reste minimale et n'expose aucun historique de
 crédit. La confirmation progressive utilise le règlement ultérieur : elle peut
 créer une facture, jamais un paiement ou un reçu sans une action de Caisse.
 Voir ADR-053.
+
+Un acte réellement réalisé aux Soins et facturable produit son propre
+`BillableItem` via `RecordBillableItemAction`, idempotent par rapport à la
+demande de service planifiée à la Réception (pas de double facturation d'un
+même acte prévu). Une erreur financière (tarif absent, contexte non résolu)
+n'annule jamais l'acte clinique déjà enregistré. Un nouvel élément rejoint
+automatiquement une facture existante du même passage tant qu'elle n'a reçu
+aucun encaissement (`DRAFT` ou `VALIDATED` avec `paid_amount = 0`) ; une
+facture `PARTIALLY_PAID`, `PAID`, `COVERED` ou `CANCELLED` n'est jamais
+modifiée silencieusement. Voir ADR-054.
+
+La page `/passages/{episode}` (« Détail du passage ») agrège en lecture seule
+orientations, fiche Soins, consultations Médecine et facturation d'un même
+passage, déjà accessibles séparément par module. Chaque section reste
+protégée côté serveur par la permission qui possède réellement la donnée ;
+`patients.view`, qui protège la route elle-même, ne suffit à en exposer
+aucune. Voir ADR-054.
 
 ---
 

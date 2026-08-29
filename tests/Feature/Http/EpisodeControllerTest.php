@@ -4,6 +4,7 @@ namespace Tests\Feature\Http;
 
 use App\Models\BillableItem;
 use App\Models\CareRecord;
+use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\Diagnosis;
 use App\Models\Episode;
@@ -76,6 +77,38 @@ class EpisodeControllerTest extends TestCase
                 ->where('billing', null)
                 ->where('capabilities.can_view_care', false)
                 ->where('capabilities.can_view_billing', false)
+            );
+    }
+
+    /**
+     * diagnoses.view, prescriptions.view and vitals.view each gate a
+     * narrower slice than medical_record.view/care.view — a viewer who can
+     * open the dossier and the fiche Soins at all must still not see the
+     * diagnoses, prescriptions or constants those three finer permissions
+     * specifically own.
+     */
+    public function test_medical_record_and_care_view_alone_do_not_leak_diagnoses_prescriptions_or_vitals(): void
+    {
+        $doctor = $this->userWithPermissions(['patients.view'], 'MEDICINE_AUTHOR');
+        $viewer = $this->userWithPermissions([
+            'patients.view', 'care.view', 'medical_record.view',
+        ]);
+        $episode = $this->episodeWithFullClinicalTrail($doctor);
+
+        $this->actingAs($viewer)->get("/passages/{$episode->uuid}")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Episodes/Show')
+                ->where('capabilities.can_view_diagnoses', false)
+                ->where('capabilities.can_view_prescriptions', false)
+                ->where('capabilities.can_view_vitals', false)
+                ->missing('episode.care_record.blood_group')
+                ->missing('episode.care_record.blood_pressure_systolic')
+                ->has('episode.care_record.procedures', 1)
+                ->has('episode.consultations', 1)
+                ->where('episode.consultations.0.reason', 'Douleur abdominale')
+                ->has('episode.consultations.0.diagnoses', 0)
+                ->has('episode.consultations.0.prescriptions', 0)
             );
     }
 
@@ -216,9 +249,9 @@ class EpisodeControllerTest extends TestCase
         return $episode->fresh();
     }
 
-    private function careCatalogItem(User $actor): \App\Models\CatalogItem
+    private function careCatalogItem(User $actor): CatalogItem
     {
-        return \App\Models\CatalogItem::create([
+        return CatalogItem::create([
             'code' => 'PANSEMENT-S',
             'name' => 'Pansement simple',
             'type' => 'SERVICE',

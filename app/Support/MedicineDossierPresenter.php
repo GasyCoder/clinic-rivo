@@ -9,6 +9,7 @@ use App\Enums\MedicalDischargeType;
 use App\Enums\PrescriptionStatus;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
+use App\Services\Care\CareRecordReadModel;
 use App\Services\Pharmacy\MedicineStockService;
 
 class MedicineDossierPresenter
@@ -16,6 +17,7 @@ class MedicineDossierPresenter
     public function __construct(
         private readonly EpisodeQueuePresenter $queuePresenter,
         private readonly MedicineStockService $medicineStock,
+        private readonly CareRecordReadModel $careRecord,
     ) {}
 
     /** @return array<string, mixed> */
@@ -55,33 +57,10 @@ class MedicineDossierPresenter
 
         return [
             'orientation' => $base,
-            'care_record' => $canViewMedicalRecord && $careRecord ? [
-                'blood_group' => $careRecord->blood_group,
-                'blood_pressure' => $this->bloodPressure(
-                    $careRecord->blood_pressure_systolic,
-                    $careRecord->blood_pressure_diastolic,
-                ),
-                'heart_rate' => $careRecord->heart_rate,
-                'spo2' => $careRecord->spo2,
-                'temperature_celsius' => $careRecord->temperature_celsius,
-                'known_diabetes' => $careRecord->known_diabetes,
-                'height_cm' => $careRecord->height_cm,
-                'weight_kg' => $careRecord->weight_kg,
-                'bmi' => $careRecord->bmi,
-                'smoker' => $careRecord->smoker,
-                'diagnostic_note' => $careRecord->diagnostic_note,
-                'transmission_reason' => $careRecord->transmission_reason,
-                'allergy_snapshot' => $careRecord->allergy_snapshot ?? [],
-                'procedures' => $careRecord->procedures->map(fn ($procedure) => [
-                    'uuid' => $procedure->uuid,
-                    'code' => $procedure->procedure_code,
-                    'name' => $procedure->procedure_name,
-                    'quantity' => $procedure->quantity,
-                    'notes' => $procedure->notes,
-                    'performed_at' => $procedure->performed_at,
-                    'performed_by' => $procedure->performer?->name,
-                ])->values(),
-            ] : null,
+            // Same permission-aware projection Care and Surgery/Anesthesia
+            // read from (ADR-048): a single place computes the constants'
+            // threshold assessments, so Médecine never re-derives them.
+            'care_record' => $this->careRecord->present($careRecord, $user),
             'allergies' => $user->can('patients.medical_history.view')
                 ? $patient->allergies->map(fn ($allergy) => [
                     'uuid' => $allergy->uuid,
@@ -202,14 +181,8 @@ class MedicineDossierPresenter
                 'can_cancel_prescription' => $isActive && $user->can('prescriptions.cancel'),
                 'can_update_prescription' => $isActive && $user->can('prescriptions.update'),
                 'can_discharge' => $isActive && $user->can('medical_discharge.create'),
+                'can_manage_medical_history' => $user->can('patients.medical_history.manage'),
             ],
         ];
-    }
-
-    private function bloodPressure(?int $systolic, ?int $diastolic): ?string
-    {
-        return $systolic !== null && $diastolic !== null
-            ? "{$systolic}/{$diastolic}"
-            : null;
     }
 }

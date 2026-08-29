@@ -8,6 +8,7 @@ use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\AllergenCategory;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AllergenReference;
 use App\Models\BillableItem;
@@ -577,6 +578,16 @@ class CareRecordFlowTest extends TestCase
             'episode_id' => $orientation->episode_id,
             'destination_module' => CatalogModule::Medicine->value,
         ]);
+
+        // A final CARE_ONLY pathway ends the clinical routing, never the
+        // episode itself: only the administrative/financial side unblocks
+        // so Réception/Caisse can proceed. No MedicalDischarge, no fake
+        // Consultation, no change to Episode.status.
+        $episode = Episode::find($orientation->episode_id);
+        $this->assertSame('PENDING_SETTLEMENT', $episode->administrative_status->value);
+        $this->assertSame('OPEN', $episode->status->value);
+        $this->assertDatabaseCount('medical_discharges', 0);
+        $this->assertDatabaseCount('consultations', 0);
     }
 
     public function test_recording_a_care_act_does_not_require_permission_to_edit_vitals(): void
@@ -615,6 +626,10 @@ class CareRecordFlowTest extends TestCase
             ->assertSessionHasErrors('procedures');
 
         $this->assertSame('IN_PROGRESS', $orientation->fresh()->status->value);
+        $this->assertSame(
+            'IN_CARE',
+            Episode::find($orientation->episode_id)->administrative_status->value,
+        );
     }
 
     public function test_an_unknown_need_requires_a_reason_to_finish_without_an_act(): void
@@ -645,6 +660,120 @@ class CareRecordFlowTest extends TestCase
             CareRecord::query()->sole()->no_procedure_reason,
         );
         $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
+    }
+
+    public function test_care_then_medicine_completion_opens_medicine_without_settling_administratively(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation, $procedure] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put(
+            "/care/orientations/{$orientation->uuid}/record-and-complete",
+            [
+                'procedures' => [[
+                    'catalog_item_uuid' => $procedure->uuid,
+                    'quantity' => 1,
+                ]],
+                'orient_to_medicine' => false,
+            ],
+        )->assertRedirect(route('care.index'));
+
+        $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
+        $this->assertDatabaseHas('episode_orientations', [
+            'episode_id' => $orientation->episode_id,
+            'destination_module' => CatalogModule::Medicine->value,
+            'status' => 'PENDING',
+        ]);
+        $this->assertSame(
+            'IN_CARE',
+            Episode::find($orientation->episode_id)->administrative_status->value,
+        );
+    }
+
+    /**
+     * An Emergency episode opens Care and Medicine in parallel at arrival
+     * regardless of routing_mode (PlanEpisodeRoutingAction::openInitialQueues).
+     * CareWorkflow::completionMode() ignores priority entirely and looks only
+     * at the service requests, so a CARE_ONLY-routed request can still make
+     * it return Finish here — the settlement guard must independently check
+     * for an active Medicine orientation, not trust completionMode() alone.
+     */
+    public function test_emergency_care_completion_does_not_settle_while_medicine_orientation_is_still_active(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        $episode = $this->app->make(CreateEpisodeAction::class)
+            ->execute($this->patient(), EpisodePriority::Emergency, $nurse);
+        $procedure = $this->procedure($nurse, 'INJECTION-IM', 'Injection IM', true, ReceptionRoutingMode::CareOnly);
+        $this->app->make(PlanEpisodeRoutingAction::class)->execute($episode, [[
+            'catalog_item_uuid' => $procedure->uuid,
+            'quantity' => 1,
+        ]], $nurse);
+
+        $careOrientation = $episode->orientations()
+            ->where('destination_module', CatalogModule::Care->value)
+            ->sole();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $nurse);
+        $this->assertSame('IN_CARE', Episode::find($episode->id)->administrative_status->value);
+
+        $this->actingAs($nurse)->put(
+            "/care/orientations/{$careOrientation->uuid}/record-and-complete",
+            [
+                'procedures' => [[
+                    'catalog_item_uuid' => $procedure->uuid,
+                    'quantity' => 1,
+                ]],
+                'orient_to_medicine' => false,
+            ],
+        )->assertRedirect(route('care.index'));
+
+        $this->assertSame('COMPLETED', $careOrientation->fresh()->status->value);
+        $this->assertDatabaseHas('episode_orientations', [
+            'episode_id' => $episode->id,
+            'destination_module' => CatalogModule::Medicine->value,
+            'status' => 'PENDING',
+        ]);
+        $this->assertSame(
+            'IN_CARE',
+            Episode::find($episode->id)->administrative_status->value,
+        );
+    }
+
+    public function test_an_unknown_need_with_explicit_medicine_choice_opens_medicine_without_settling(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
+        $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        $orientation = $episode->orientations()->sole();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
+        $this->assertSame('IN_CARE', Episode::find($episode->id)->administrative_status->value);
+
+        $this->actingAs($nurse)->put(
+            "/care/orientations/{$orientation->uuid}/record-and-complete",
+            [
+                'no_procedure_reason' => 'Évaluation initiale peu concluante, orientation directe vers Médecine.',
+                'orient_to_medicine' => true,
+            ],
+        )->assertRedirect(route('care.index'));
+
+        $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
+        $this->assertDatabaseHas('episode_orientations', [
+            'episode_id' => $episode->id,
+            'destination_module' => CatalogModule::Medicine->value,
+            'status' => 'PENDING',
+        ]);
+        $this->assertSame(
+            'IN_CARE',
+            Episode::find($episode->id)->administrative_status->value,
+        );
     }
 
     public function test_a_planned_care_act_bills_once_even_when_confirmed_twice(): void
@@ -824,6 +953,95 @@ class CareRecordFlowTest extends TestCase
 
         $newItem = BillableItem::query()->where('description', 'Pansement supplémentaire non prévu')->sole();
         $this->assertSame('PENDING', $newItem->status->value);
+    }
+
+    /**
+     * COVERED settles at paid_amount = 0 just like DRAFT/VALIDATED (a 100%
+     * mutual/staff coverage never fabricates a payment, ADR-047) — so the
+     * status allowlist in AttachBillableItemToUnpaidInvoiceAction, not
+     * paid_amount alone, is what keeps a settled invoice from being
+     * silently reopened. This locks in PAID, COVERED and CANCELLED
+     * alongside the PARTIALLY_PAID case already covered above.
+     */
+    public function test_a_new_act_never_joins_a_paid_invoice(): void
+    {
+        $this->assertNewActNeverJoinsA('PAID', paidAmountMinor: 10000);
+    }
+
+    public function test_a_new_act_never_joins_a_covered_invoice(): void
+    {
+        $this->assertNewActNeverJoinsA('COVERED', paidAmountMinor: 0);
+    }
+
+    public function test_a_new_act_never_joins_a_cancelled_invoice(): void
+    {
+        $this->assertNewActNeverJoinsA('CANCELLED', paidAmountMinor: 0);
+    }
+
+    private function assertNewActNeverJoinsA(string $status, int $paidAmountMinor): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse);
+        $extraProcedure = $this->procedure($nurse, 'PANSEMENT-'.$status, 'Pansement '.$status);
+        $this->giveActiveTariff($extraProcedure, $nurse, 15000);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        $invoice = $this->createInvoiceForEpisode(
+            Episode::find($orientation->episode_id),
+            $nurse,
+            $status,
+            10000,
+            paidAmountMinor: $paidAmountMinor,
+        );
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $extraProcedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $orientation));
+
+        $invoice->refresh();
+        $this->assertSame('10000.00', $invoice->total_amount);
+        $this->assertSame(1, $invoice->lines()->count());
+
+        $newItem = BillableItem::query()->where('description', 'Pansement '.$status)->sole();
+        $this->assertSame('PENDING', $newItem->status->value);
+    }
+
+    /**
+     * Emergency starts without a resolved financial_mode (ADR-021/ADR-051):
+     * RecordBillableItemAction's coverage check fails validation in that
+     * case, and SaveCareRecordAction::billProcedureIfPossible() catches it
+     * — the CareRecordProcedure created just before must survive regardless.
+     */
+    public function test_an_emergency_act_is_recorded_even_though_the_financial_context_is_not_resolved_yet(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        $episode = $this->app->make(CreateEpisodeAction::class)
+            ->execute($this->patient(), EpisodePriority::Emergency, $nurse);
+        $this->assertNull(Episode::find($episode->id)->financial_mode);
+        $procedure = $this->procedure($nurse, 'INJECTION-IM', 'Injection IM', true, ReceptionRoutingMode::CareOnly);
+        $this->giveActiveTariff($procedure, $nurse, 15000);
+        $careOrientation = $episode->orientations()
+            ->where('destination_module', CatalogModule::Care->value)
+            ->sole();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $nurse);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$careOrientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $procedure->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertRedirect(route('care.orientations.show', $careOrientation));
+
+        $this->assertDatabaseCount('care_record_procedures', 1);
+        $this->assertDatabaseCount('billable_items', 0);
     }
 
     private function createInvoiceForEpisode(

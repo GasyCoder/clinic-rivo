@@ -21,12 +21,17 @@ class RolePermissionSeeder extends Seeder
     private const GRANTS = [
         'ADMINISTRATION' => [
             'employees.view', 'employees.create', 'employees.update',
-            'employees.delete', 'employees.restore',
+            'employees.delete',
             'employees.patient_lookup',
+            'staff_block_credits.view', 'staff_block_credits.allocate',
             'patient_staff_links.view', 'patient_staff_links.create', 'patient_staff_links.end',
-            'address_entries.view', 'address_entries.create', 'address_entries.update', 'address_entries.archive',
+            'address_entries.view', 'address_entries.create', 'address_entries.update',
+            'address_entries.archive',
+            'address_entries.import', 'address_entries.export',
             'mutual_organizations.view', 'mutual_organizations.create',
             'mutual_organizations.update', 'mutual_organizations.archive',
+            'mutual_organizations.import',
+            'mutual_organizations.export',
             'patient_coverages.view', 'patient_coverages.update', 'patient_coverages.end',
             'patient_coverage_documents.view', 'patient_coverage_documents.archive',
             'contracts.view', 'contracts.create', 'contracts.update', 'contracts.archive',
@@ -34,13 +39,20 @@ class RolePermissionSeeder extends Seeder
             'leave.view', 'leave.create', 'leave.approve', 'leave.cancel',
             'planning.view', 'planning.create', 'planning.update',
             'hr_reports.view', 'hr_reports.export',
+            'cash_registers.view', 'cash_registers.create', 'cash_registers.update',
+            'cash_registers.activate', 'cash_registers.deactivate',
+            'cash_registers.archive',
+            'diagnostic_catalog.view', 'diagnostic_catalog.manage',
+            'analysis_catalog.view', 'analysis_catalog.create', 'analysis_catalog.update',
+            'analysis_catalog.activate', 'analysis_catalog.deactivate',
+            'analysis_catalog.import', 'analysis_catalog.export',
         ],
         'LOGISTICS' => [
             'logistics.view', 'logistics.manage',
             'administrative_stock.view', 'administrative_stock.entry',
             'administrative_stock.exit', 'administrative_stock.inventory',
             'equipment.view', 'equipment.create', 'equipment.update',
-            'equipment.delete', 'equipment.restore', 'equipment.assign',
+            'equipment.delete', 'equipment.assign',
             'equipment.inventory', 'equipment.maintenance.manage',
             'equipment.decommission',
         ],
@@ -55,28 +67,45 @@ class RolePermissionSeeder extends Seeder
             'patient_staff_links.view', 'patient_staff_links.create',
             'address_entries.view', 'address_entries.create',
             'mutual_organizations.view', 'mutual_organizations.create',
+            'partner_organizations.view',
             'patient_coverages.view', 'patient_coverages.create',
             'patient_coverage_documents.view', 'patient_coverage_documents.create',
             'visitors.view', 'visitors.create', 'visitors.close',
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
-            'patients.restore', 'patients.view_deleted',
             'patients.medical_history.view', 'patients.medical_history.manage',
-            'episodes.view', 'episodes.create', 'episodes.update', 'episodes.cancel',
+            'episodes.view', 'episodes.create', 'episodes.update', 'episodes.mark_emergency', 'episodes.cancel',
             'billing.view', 'billing.create', 'billing.validate',
             'billing.print',
             'payments.view', 'payments.create', 'payments.cancel',
-            'cash.view', 'cash.open', 'cash.close',
+            'cash.view', 'cash.open', 'cash.close', 'cash_registers.view',
             'receipts.view', 'receipts.print',
         ],
         'MEDICINE' => [
             'medical_record.view',
             'consultations.view', 'consultations.create', 'consultations.update',
-            'consultations.delete', 'consultations.restore',
+            'consultations.delete',
             'diagnoses.view', 'diagnoses.create', 'diagnoses.update',
             'prescriptions.view', 'prescriptions.create', 'prescriptions.update',
             'medicines.view', 'stock.availability.view',
             'prescriptions.cancel', 'medical_discharge.create', 'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
+            // Le médecin peut requalifier ce passage précis pendant la
+            // consultation ; ce droit ne modifie jamais le Patient.
+            'episodes.mark_emergency',
+            // Same read-only projection of the Soins worksheet Surgery reads
+            // through CareRecordReadModel (ADR-048): view only, never
+            // care.update/vitals.update — Médecine never edits the fiche.
+            'care.view', 'vitals.view',
+            // Phase B: a doctor may request Soins acts from a consultation,
+            // never edit the resulting fiche itself.
+            'care_orders.create', 'care_orders.view',
+            // Paraclinique/orientation requests only — never the receiving
+            // module's own create/manage permission (surgery.create stays
+            // reserved to SURGERY; laboratory_results.create to LABORATORY).
+            'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
+            'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create',
+            'surgery.request', 'hospitalization.request', 'maternity.request',
+            'transfer.request', 'pediatrics.request',
         ],
         // Shared baseline for every paramedical profile. Anesthesia belongs
         // only to accounts explicitly assigned those permissions (normally
@@ -86,9 +115,12 @@ class RolePermissionSeeder extends Seeder
             'vitals.view', 'vitals.create', 'vitals.update', 'medical_orders.view',
             'patients.medical_history.view',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
+            // Reads a doctor's Soins request — never creates one itself.
+            'care_orders.view',
         ],
-        // Surgery keeps its module baseline. A NURSE/ANESTHETIST account may
-        // receive the same anesthesia permissions through individual ALLOWs.
+        // SURGERY is the surgeon/operating-team baseline. Access to the
+        // separate Anesthesia workspace is granted explicitly per account;
+        // it is never implied by surgery.view (ADR-048).
         'SURGERY' => [
             'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule',
             'surgery.preoperative.view', 'surgery.preoperative.validate',
@@ -97,25 +129,32 @@ class RolePermissionSeeder extends Seeder
             'surgery.complications.create', 'surgery.discharge.create',
             'surgery.preparation.update', 'surgery.consumables.create',
             'surgery.care.create', 'surgery.postoperative_care.create',
-            'anesthesia.view', 'anesthesia.create', 'anesthesia.update',
-            'anesthesia.validate', 'episodes.view',
+            // The Soins worksheet is reused in read-only mode during block
+            // preparation; no care/vitals/history mutation is granted here.
+            'care.view', 'vitals.view', 'patients.medical_history.view',
+            'episodes.view',
         ],
         // Pharmacy owns medication stock operations, never cash or payment.
         // medicines.create/update and every catalog/tariff mutation remain
         // reserved to Super Admin by ADR-024.
         'PHARMACY' => [
-            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.return',
+            'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
+            'pharmacy.counter_sales.create', 'pharmacy.return',
             'pharmacy.reports.view', 'pharmacy.reports.export',
-            'prescriptions.view', 'medicines.view', 'stock.availability.view',
+            'prescriptions.view', 'medicines.view', 'medicine_categories.view',
+            'medicine_suppliers.view', 'stock.availability.view',
             'stock.view', 'stock.entry', 'stock.exit', 'stock.adjust',
             'stock.inventory', 'stock.validate', 'stock.transfer',
             'stock.approve', 'stock.import', 'stock.export',
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
-            'stock.expiration.view',
+            'stock.expiration.view', 'stock.alerts.view',
+            'stock.cost.view', 'stock.cost.record',
         ],
-        // The laboratory interface is not implemented yet. Keeping this
-        // array explicit removes any stale grant left by older seeds.
-        'LABORATORY' => [],
+        // Minimal follow-through only (request tracking + result entry) —
+        // sample/analysis workflow itself remains unbuilt.
+        'LABORATORY' => [
+            'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
+        ],
     ];
 
     public function run(): void

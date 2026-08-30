@@ -2,7 +2,6 @@
 
 namespace App\Actions\Administration;
 
-use App\Enums\PatientType;
 use App\Models\Employee;
 use App\Models\Patient;
 use App\Models\PatientStaffLink;
@@ -22,12 +21,6 @@ class LinkPatientToEmployeeAction
         return DB::transaction(function () use ($patient, $employee, $actor) {
             $patient = Patient::query()->lockForUpdate()->findOrFail($patient->id);
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
-
-            if ($patient->patient_type !== PatientType::Staff) {
-                throw ValidationException::withMessages([
-                    'patient_type' => 'Le dossier doit être de type Personnel.',
-                ]);
-            }
 
             if (! $employee->isAvailableForPatientLink()) {
                 throw ValidationException::withMessages([

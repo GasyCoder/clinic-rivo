@@ -8,29 +8,54 @@ const visibility = defineModel('visibility');
 
 const page = usePage();
 const { can } = usePermissions();
+const overviewLabel = computed(() => (
+    page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
+));
+// Purely cosmetic: the professional profile never grants a permission on its
+// own (ADR-033), it only relabels this same /care entry for the account.
+const careLabel = computed(() => ({
+    REGISTERED_NURSE: 'Soins infirmier',
+    MIDWIFE: 'Soins maternité',
+    ANESTHETIST: 'Anesthésie',
+}[page.props.auth?.user?.professional_profile?.code] ?? 'Soins'));
 
-const clinicMenu = [
+const clinicMenu = computed(() => [
     { heading: 'Principal' },
-    { icon: 'growth', text: 'Tableau de bord', link: '/' },
+    { icon: 'growth', text: overviewLabel.value, link: '/' },
     { heading: 'Gestion clinique' },
     { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'reception.view' },
     { icon: 'wallet', text: 'Caisse', link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view' },
     { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
     { icon: 'activity', text: 'Médecine', link: '/medicine', permission: 'consultations.view' },
-    { icon: 'user-check', text: 'Soins', link: '/care', permission: 'care.view' },
+    { icon: 'activity', text: 'Laboratoire', link: '/laboratory', permission: 'laboratory_orders.view' },
+    // care.view alone also powers the read-only projection embedded in
+    // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
+    // care.update instead keeps the full Soins queue's menu entry for the
+    // role that actually operates it (NURSE), without exposing it to roles
+    // that only ever consult that projection.
+    { icon: 'user-check', text: careLabel.value, link: '/care', permission: 'care.update' },
     { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
-    { icon: 'capsule', text: 'Pharmacie', link: '/pharmacy', permission: 'pharmacy.view' },
+    { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
+    {
+        icon: 'capsule',
+        text: 'Pharmacie',
+        link: can('pharmacy.counter_sales.create') ? '/pharmacy/counter-sales/create' : '/pharmacy',
+        activeLinks: ['/pharmacy'],
+        permission: 'pharmacy.view',
+    },
     { heading: 'Gestion' },
     { icon: 'briefcase', text: 'Ressources humaines', link: '/administration', exact: true, permission: 'employees.view' },
     { icon: 'package', text: 'Logistique', link: '/logistics', permission: 'logistics.view' },
     { icon: 'shield-check', text: 'Gardiennage', link: '/reception/visitors', permission: 'guarding.view' },
     { icon: 'users', text: 'Utilisateurs & accès', link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view' },
     { icon: 'setting-alt', text: 'Référentiels & tarifs', link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view' },
-];
+    { icon: 'activity', text: 'Catalogue analyses', link: '/administration/analyses', activeLinks: ['/administration/analyses'], permission: 'analysis_catalog.view' },
+    { icon: 'trash', text: 'Corbeille', link: '/trash', permission: 'trash.view' },
+]);
 
 const adminMenu = computed(() => [
-    { heading: 'Vue d’ensemble' },
-    { icon: 'growth', text: 'Tableau de bord global', link: '/' },
+    { heading: 'Pilotage central' },
+    { icon: 'growth', text: overviewLabel.value, link: '/' },
     { heading: 'Sites' },
     ...(page.props.adminNavigation ?? []).map((site) => ({
         icon: 'building',
@@ -46,19 +71,22 @@ const adminMenu = computed(() => [
     { icon: 'briefcase', text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
     { icon: 'package', text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: 'shield-check', text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
-    { icon: 'list-index', text: 'Désignations & tarifs', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
+    { icon: 'list-index', text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
+    { icon: 'capsule', text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
+    { icon: 'map-pin', text: 'Référentiel adresses', link: '/super-admin/addresses', permission: 'address_entries.view' },
+    { icon: 'wallet', text: 'Caisses', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { heading: 'Accès & système' },
-    { icon: 'users', text: 'Gestion utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
+    { icon: 'trash', text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
     { icon: 'shield-check', text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: 'setting-alt', text: 'Paramètres', link: '/super-admin/workspaces/settings', permission: 'settings.view' },
     { icon: 'history', text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },
 ]);
 
-const rawMenu = computed(() => page.props.site?.type === 'admin' ? adminMenu.value : clinicMenu);
+const rawMenu = computed(() => page.props.site?.type === 'admin' ? adminMenu.value : clinicMenu.value);
 
 // A heading is only rendered when at least one item under it is visible —
 // Every operational item is gated by a dynamic permission. The only item
-// intentionally shared by all active accounts is the dashboard. Modules that
+// intentionally shared by all active accounts is the overview. Modules that
 // have no implemented permission catalog yet (Laboratoire, Pharmacie) are not
 // shown at all; they will be added when their routes and permissions exist.
 const menuData = computed(() => {

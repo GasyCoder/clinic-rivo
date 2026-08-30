@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
-#[Fillable(['name', 'active'])]
+#[Fillable(['name', 'coverage_rate', 'active'])]
 class MutualOrganization extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
@@ -30,7 +30,10 @@ class MutualOrganization extends Model
 
     protected function casts(): array
     {
-        return ['active' => 'boolean'];
+        return [
+            'coverage_rate' => 'decimal:2',
+            'active' => 'boolean',
+        ];
     }
 
     public function coverages(): HasMany
@@ -38,9 +41,14 @@ class MutualOrganization extends Model
         return $this->hasMany(PatientMutualCoverage::class);
     }
 
+    public function episodeCoverages(): HasMany
+    {
+        return $this->hasMany(EpisodeMutualCoverage::class);
+    }
+
     public function isForceDeleteProtected(): bool
     {
-        return $this->coverages()->exists();
+        return $this->coverages()->exists() || $this->episodeCoverages()->exists();
     }
 
     protected function auditModule(): ?string

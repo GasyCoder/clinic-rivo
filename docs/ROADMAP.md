@@ -29,7 +29,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Soft Delete
 - [ ] Audit
 - [ ] UUID
-- [ ] Base API `/api/v1`
+- [x] Base API `/api/v1` pour la supervision Stock/Adresses/Catalogue Super Admin
 - [ ] Queue / Jobs
 
 ---
@@ -37,7 +37,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 1 — Réception / Patients / Caisse
 
 - [ ] Patient
-- [x] Typologie patient Standard / Mutuelle / Personnel
+- [x] Identité Patient permanente séparée du mode financier du passage
+- [x] Mode financier Episode `SELF` / `MUTUAL` / `STAFF` nullable
+- [x] Couvertures Mutuelle et Personnel propres à chaque Episode avec références existantes
 - [x] Profil administratif enrichi (situation maritale, enfants, profession, adresse référencée)
 - [x] Couverture mutuelle et cinq justificatifs privés maximum
 - [x] Lien patient-personnel vers un véritable dossier Employé
@@ -57,12 +59,21 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Référentiel des prestations et produits facturables
 - [x] Tarifs historisés propres à chaque site
 - [x] Barèmes historisés séparés Sans mutuelle / Mutuelle
-- [x] Résolution du barème par type patient et snapshot sur le passage
+- [x] Résolution du barème par contexte financier Episode et snapshot sur le passage
+- [x] Estimation read-only au tarif Standard avant Patient/Episode
+- [x] Expérience progressive Besoin → Estimation → Patient → Episode → mode financier → confirmation → routage
+- [x] Prévisualisation financière SELF/MUTUAL/STAFF sans débit anticipé du crédit Bloc
+- [x] Branche Réception vers la Vente comptoir Pharmacie sans panier médicament dupliqué
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
-- [ ] Répartition contractuelle part mutuelle / part patient
+- [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
+- [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
 - [x] Résolution backend du tarif sans saisie libre par Réception
+- [x] Politiques Personnel explicites et snapshots brut / couverture / crédit Bloc / patient
+- [x] Registre immuable du crédit Bloc Employee avec allocation manuelle, consommation idempotente et réversion
 - [x] Sélection des prestations et choix payer maintenant / plus tard à l’arrivée
 - [x] Facture imprimable sans faux reçu pour un règlement ultérieur
+- [x] Facturation automatique et idempotente d'un acte Soins facturable, sans blocage clinique en cas d'erreur financière
+- [x] Rattachement d'un nouvel acte à une facture du même passage non encore encaissée (DRAFT/VALIDATED, paid_amount = 0)
 - [ ] Factures
 - [ ] Facture lignes
 - [ ] Caisse unique
@@ -89,7 +100,11 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Soins
 - [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
 - [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
-- [ ] Ordres de soins
+- [x] Projection partagée des constantes et alertes (CareRecordReadModel) entre Soins, Médecine et Chirurgie/Anesthésie
+- [x] Antécédents patient exposés via un point d'entrée générique, consultables et ajoutables depuis Médecine
+- [x] Clôture administrative automatique (PENDING_SETTLEMENT) d'un parcours Soins seul réellement terminé, sans sortie médicale fictive
+- [x] Page transversale « Détail du passage » en lecture seule, sécurisée section par section côté serveur
+- [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
 - [ ] Hospitalisation
@@ -100,7 +115,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 
 # Phase 3 — Laboratoire
 
-- [ ] Catalogue analyses
+- [x] Catalogue analyses structuré, références par profil et import/export Excel
 - [ ] Demande analyse
 - [ ] Analyse interne
 - [ ] Analyse externe
@@ -127,25 +142,26 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 # Phase 4 — Pharmacie / Stocks
 
 - [x] Fondation médicaments spécialisés liés au référentiel
-- [ ] Produits
+- [x] Produits, catégories, fournisseurs et import de création Excel/CSV
 - [x] DCI et formes pharmaceutiques
 - [x] Dosages
 - [x] Fondation lots locaux
 - [x] Exclusion des lots périmés de la disponibilité
 - [x] Disponibilité physique moins réservations actives
-- [ ] Entrées
-- [ ] Sorties
-- [ ] Inventaires
-- [ ] Ajustements
+- [x] Entrées locales auditées par lot et fournisseur
+- [x] Sorties immuables par bon de délivrance
+- [x] Inventaires par ajustement au comptage physique
+- [x] Ajustements péremption, casse/perte et inventaire
 - [x] Prescription Médecine reliée au médicament et réservation FEFO
 - [x] Ligne d'ordonnance manuelle hors référentiel, sans stock ni prix, en attente de validation
-- [ ] Préparation délivrance
-- [ ] Vérification statut financier si nécessaire
-- [ ] Délivrance
-- [ ] Déstockage
+- [x] Préparation délivrance interne et vente directe comptoir
+- [x] Vérification du paiement/prise en charge par la Caisse
+- [x] Ticket Pharmacie sans référence manuelle, à référence automatique, et liste Caisse séparée avec contrôle dynamique par QR ou saisie
+- [x] Délivrance complète ou partielle en FEFO
+- [x] Déstockage uniquement lors de la délivrance autorisée
 - [ ] Retours
-- [ ] Alertes stock
-- [ ] Alertes péremption
+- [x] Alertes automatiques de seuil minimal et rupture
+- [x] Alertes et visibilité des lots proches de la péremption
 - [ ] Transfert stock
 - [ ] Rapports
 
@@ -160,19 +176,24 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 
 # Phase 5 — Chirurgie
 
-- [ ] Demande chirurgie
-- [ ] Programmation
-- [ ] Préopératoire
-- [ ] Validation préopératoire
-- [ ] Intervention
-- [ ] Anesthésie
-- [ ] Equipe bloc
-- [ ] Consommables
-- [ ] Compte rendu
-- [ ] Complications
-- [ ] Postopératoire
-- [ ] Sortie
+- [x] Demande chirurgie
+- [x] Programmation
+- [x] Référentiel contrôlé des interventions avec choix « Autres » documenté
+- [x] Espaces Chirurgie et Anesthésie séparés par permission, dossier partagé
+- [x] Parcours guidés par étapes pour Chirurgie et Anesthésie
+- [x] Consultation pré-anesthésique et examen paraclinique structurés
+- [x] Validation anesthésique séparée, auditée et verrouillée côté backend
+- [x] Préparation et validation chirurgicales préopératoires distinctes
+- [x] Intervention
+- [x] Anesthésie
+- [x] Equipe bloc
+- [x] Consommables
+- [x] Compte rendu et verrouillage après validation
+- [x] Complications
+- [x] Entrée/sortie du bloc et suivi postopératoire structuré
+- [x] Sortie
 - [ ] Prestations facturables
+- [ ] Rapport financier Chirurgie Prévu/Réel/Écart/Dette NP alimenté par factures et paiements
 
 Règle :
 
@@ -190,7 +211,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Exceptions de permissions individuelles
 - [ ] Employés
 - [x] Socle Employé et lien sécurisé avec le dossier patient
-- [ ] Règles d'éligibilité du personnel et registre immuable du crédit bloc
+- [x] Classification explicite des prestations et registre immuable du crédit bloc
+- [ ] Période et renouvellement éventuel du crédit Bloc (règle métier non définie)
 - [ ] RH
 - [ ] Contrats
 - [ ] Présences
@@ -210,25 +232,27 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 
 # Phase 7 — API inter-sites
 
-- [ ] `/api/v1`
-- [ ] Authentification API
+- [x] `/api/v1` pour les endpoints Stock/Adresses/Catalogue du portail central
+- [x] Authentification API par jeton distinct par site pour ce périmètre
 - [ ] Service accounts
 - [ ] Permissions API
 - [ ] UUID
-- [ ] Request UUID
-- [ ] Idempotency
+- [x] Request UUID sur les endpoints Stock/Adresses
+- [x] Idempotency sur les commandes Adresses
 - [ ] Queue
-- [ ] Retry
+- [x] Retry et isolation des pannes pour le client central Stock/Adresses
 - [ ] Backoff
-- [ ] Timeout
+- [x] Timeout configurable pour le client central Stock/Adresses
+- [x] Banc local distribué Mampikony/Ambondromamy/Boriziny avec une base SQLite isolée par API
 - [ ] Journal API
 - [ ] Recherche patient distante
 - [ ] Transfert patient
 - [ ] Réception transfert
 - [ ] Accusé réception
 - [ ] Transfert stock
-- [ ] Synchronisation référentiel et tarifs par UUID
-- [ ] Idempotence des commandes de catalogue multi-site
+- [x] Pilotage du référentiel et des tarifs de chaque site par UUID via API
+- [x] Idempotence des commandes distantes de catalogue
+- [x] Gestion des mutuelles et partenaires de chaque site par UUID via API
 - [ ] Autres échanges métier
 
 ---
@@ -252,13 +276,20 @@ admin.rivo.mg
 - [ ] Patients
 - [ ] Activités
 - [ ] Caisse
+- [x] Fiche de supervision des caisses par site avec mouvements, historique, verrouillage réversible et clôture centrale auditée par API
 - [ ] Finance
 - [ ] Laboratoire
 - [ ] Pharmacie
-- [ ] Stocks
-- [ ] Référentiels et tarifs propres à chaque site
+- [x] Supervision consolidée des stocks, lots et péremptions avec import/export Excel audité par site
+- [x] Référentiels et tarifs propres à chaque site
 - [x] Navigation Super Admin vers les désignations et deux grilles par site
-- [ ] Commandes distantes de tarifs via API sécurisée des sites
+- [x] Référentiel d’adresses par site : CRUD logique et import/export Excel via API
+- [x] Commandes distantes de tarifs via API sécurisée des sites
+- [x] Référentiel des mutuelles et partenaires par site avec archivage/restauration audités
+- [x] Taux de couverture par organisme (100 % par défaut) et import/export Excel via API
+- [x] Répartition financière brute / mutuelle / patient historisée sur les factures
+- [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
+- [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel
 - [ ] Chirurgie

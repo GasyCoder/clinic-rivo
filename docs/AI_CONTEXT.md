@@ -165,6 +165,18 @@ Depuis `admin.rivo.mg`, une action multi-site appelle séparément les APIs de
 Mampikony, Ambondromamy et Boriziny avec UUID, idempotence, audit et reprise sur
 échec partiel. Aucun accès SQL inter-site n’est autorisé. Voir ADR-024.
 
+La Super Administration importe et exporte les adresses et le stock pharmacie
+au format Excel `.xlsx`. Elle pilote aussi les désignations et les tarifs
+`STANDARD`/`MUTUAL` de chaque site exclusivement par les API
+`/api/v1/super-admin/catalog*`. L’API du site réautorise la permission précise,
+historise les prix et attribue l’action à l’acteur central UUID/nom. L'import
+d'adresses normalise les doublons. L'import
+de stock accepte seulement `STOCK_INITIAL` pour un lot nouveau ou `ENTREE` pour
+ajouter une quantité ; chaque ligne crée dans le site cible un mouvement
+immuable, transactionnel, idempotent et audité avec l'identité de l'acteur
+central. Aucun ajustement, sortie ou délivrance n'est créé par cet import. Voir
+ADR-042.
+
 Le portail Super Administration possède une navigation distincte des sites
 opérationnels. Il présente le tableau de bord consolidé, chaque site et ses
 modules, les rapports financiers, les espaces Administration, utilisateurs,
@@ -365,6 +377,14 @@ est l'unique autorité d'encaissement.
 
 Tous les paiements doivent être effectués dans ce module.
 
+La Super Administration supervise les caisses uniquement via l’API de chaque
+site (ADR-057). Sa fiche affiche l’agent d’ouverture, les heures, les
+mouvements, les totaux, le comptage et l’écart. Un verrouillage central laisse
+la session active et unique mais bloque tout encaissement ; il est réversible.
+Une clôture centrale est définitive, exige les espèces réellement comptées et
+un motif, puis laisse le site recalculer lui-même le montant attendu. Les
+acteurs centraux sont attribués par UUID externe, jamais par un compte local.
+
 ---
 
 # Pharmacie
@@ -402,6 +422,39 @@ déstocke pas : seule la future délivrance Pharmacie réalise la sortie physiqu
 L'annulation d'une ordonnance libère la réservation. Médecine ne reçoit que
 `stock.availability.view`, jamais les droits de mutation `stock.*`. Voir
 ADR-036.
+
+Chaque demande de dispensation facturée possède un ticket Pharmacie. Son numéro
+de facture est la référence automatique encodée dans le QR. La Caisse peut
+scanner le QR ou saisir cette référence ; pour un patient interne, elle peut
+aussi rechercher le numéro de passage ou le numéro patient. Ce contrôle ne crée
+aucun paiement. Le ticket n'est jamais un reçu et son impression relève de
+`pharmacy.dispense.print`; l'encaissement et le reçu restent exclusivement à
+Réception/Caisse. La vente comptoir n'affiche et n'accepte aucun numéro de
+référence manuel : le numéro de facture backend est l'unique référence du
+ticket, y compris pour un produit signalé comme nécessitant une ordonnance. Le
+contrôle se trouve dans un onglet Caisse dédié avec la saisie manuelle
+sélectionnée par défaut. La file de dispensation sépare le statut des actions et
+n'affiche le détail des produits que dans la fenêtre ouverte par l'action Voir.
+La vente comptoir affiche uniquement « Créer et transmettre à la Caisse » : il
+n'existe aucun bouton d'impression autonome sur l'écran principal. Cette action
+ouvre une fenêtre de confirmation soignée avec le récapitulatif de la vente.
+Son bouton final, « Imprimer et transmettre à la Caisse », crée et transmet la
+vente, reste sur la page, imprime directement le ticket officiel, puis vide le
+formulaire pour le client suivant. Le nom, le téléphone et le prescripteur
+externe facultatifs apparaissent sur le ticket officiel lorsqu'ils sont
+renseignés. Les actions de la file distinguent l'ordonnance,
+les opérations métier et les opérations documentaires : une unique action
+« Voir » ouvre le détail. Il n'existe plus d'action « Aperçu » supplémentaire ;
+le ticket s'imprime directement depuis cette fenêtre, sans navigation ni
+changement de l'URL visible. Les identifiants exposés par les opérations
+Pharmacie (demande, ligne, réservation, bon, allocation, mouvement, médicament
+et lot) sont des UUID ; les IDs SQL restent internes. Préparation, impression,
+délivrance, entrée et ajustement gardent chacun leur permission Laravel. Dans
+l'onglet Caisse, la saisie/le scan et le champ de contrôle sont placés dans
+l'en-tête ; les résultats reprennent le tableau des factures à encaisser. Les
+factures Pharmacie sont séparées de la liste générale, sont affichées par défaut
+dans cet onglet et peuvent être filtrées dynamiquement par référence, client,
+patient ou passage. Voir ADR-050.
 
 ---
 
@@ -443,6 +496,46 @@ medical discharge
 
 La Médecine ne peut pas encaisser.
 
+Avec `episodes.mark_emergency`, Médecine peut requalifier l'Épisode de la
+Consultation active en urgence. L'action partagée avec Réception conserve la
+Consultation et tout état `IN_CARE`, ouvre de façon idempotente les files Soins
+et Médecine, et n'écrit jamais l'urgence sur le Patient. Voir ADR-056.
+
+Les constantes et alertes de la fiche Soins (tension, FC, SpO2, température,
+IMC) affichées en Médecine proviennent de `CareRecordReadModel`, la même
+projection que Soins et Chirurgie/Anesthésie (ADR-048, ADR-054) : aucun seuil
+n'est recalculé dans `MedicineDossierPresenter`. Voir cette projection exige
+les permissions en lecture seule `care.view`/`vitals.view`, accordées par
+défaut à `MEDICINE` sans aucun droit `care.update`/`vitals.update`.
+
+Un antécédent permanent s'ajoute depuis Médecine (avec
+`patients.medical_history.manage`) via l'unique point d'entrée générique
+`PatientController::storeAntecedent()`, partagé par tout module autorisé —
+jamais un champ de `Consultation`. Voir ADR-054.
+
+Une orientation Soins réellement terminée sans transmission Médecine
+restante (`CareCompletionMode::Finish`, aucune orientation Médecine active)
+fait passer `Episode.administrative_status` à `PENDING_SETTLEMENT` : le
+parcours clinique est terminé, la suite est administrative/financière.
+Aucune `MedicalDischarge` n'est jamais fabriquée par ce mécanisme, et une
+Urgence dont l'orientation Médecine reste active n'est jamais close ainsi.
+Voir ADR-054.
+
+Depuis une Consultation active, le médecin peut demander un ou plusieurs
+actes à Soins via `CareOrder`/`CareOrderItem` (`care_orders.create`) — un
+modèle dédié, distinct d'`EpisodeServiceRequest` (plan Réception uniquement).
+Un `CareOrderItem` sélectionne un `CatalogItem` `SERVICE`/`CARE` explicitement
+`clinician_orderable`, jamais déduit du nom/code. La création réutilise
+uniquement `CreateEpisodeOrientationAction` ; pour un passage `NORMAL`,
+l'orientation Médecine active est terminée avant l'ouverture de Soins (une
+seule orientation clinique active à la fois), tandis qu'une Urgence conserve
+ses files parallèles. `requires_return_to_medicine`, choisi par le médecin à
+la demande, gouverne ensuite la complétion Soins : retour vers une nouvelle
+Consultation Médecine (la première n'est jamais réécrite) ou
+`PENDING_SETTLEMENT` selon la même règle que l'ADR-054. La facturation d'un
+acte demandé suit le circuit existant, déclenchée par l'enregistrement du
+`CareRecordProcedure`, jamais par le `CareOrder` lui-même. Voir ADR-055.
+
 ---
 
 # Chirurgie
@@ -461,7 +554,19 @@ post-operative
 medical discharge
 ```
 
+Les espaces `/surgery` et `/anesthesia` sont indépendants et respectivement
+protégés par `surgery.view` et `anesthesia.view`, mais partagent le même dossier
+chirurgical afin de préserver la continuité. Les deux interfaces sont guidées
+par étapes. Les interventions sont choisies dans le catalogue `SURGERY` avec
+instantané du libellé ; les éléments d'anesthésie suivent une liste contrôlée
+avec instantané de leur code, libellé et catégorie. Voir ADR-048.
+
 La Chirurgie ne peut pas encaisser.
+
+Le rapport par acte `Prévu / Réel / Écart / Dette NP` appartient à Finance et
+ne peut être alimenté qu'à partir des prestations facturables, factures et
+paiements de Réception/Caisse. Tant que ce circuit n'est pas relié, aucune
+valeur `Ar0` ne doit être fabriquée depuis les dossiers cliniques.
 
 ---
 
@@ -491,15 +596,75 @@ financial reports
 ```
 
 À l’arrivée, Réception peut sélectionner les prestations `SERVICE`. Laravel
-résout le barème `STANDARD` ou `MUTUAL` selon le type du patient et crée son
-instantané ; le navigateur ne fournit jamais un prix fiable. Les deux grilles
-sont historisées indépendamment. Un tarif mutuelle manquant ne reprend jamais
-le tarif standard : la demande clinique et l’orientation sont conservées, mais
-la facturation reste en attente. `PAYER PLUS TARD` produit une facture
+résout le barème `STANDARD` ou `MUTUAL` selon le contexte financier de l'Episode
+et crée son instantané ; le navigateur ne fournit jamais un prix fiable. Les
+deux grilles sont historisées indépendamment. Un tarif mutuelle manquant ne
+reprend jamais le tarif standard : la demande clinique et l’orientation sont
+conservées, mais la facturation reste en attente. `PAYER PLUS TARD` produit une facture
 validée avec solde dû ; `PAYER MAINTENANT` exige une caisse ouverte et produit
 facture, paiement, mouvement de caisse et reçu. Aucun reçu n’existe sans
 encaissement réel. Une urgence ne dépend jamais de cette sélection ou du
 paiement. Voir ADR-028 et ADR-031.
+
+Le `Patient` est désormais une identité permanente. La prise en charge
+financière est configurée indépendamment sur chaque `Episode` avec `SELF`,
+`MUTUAL`, `STAFF` ou temporairement `NULL`. `MUTUAL` référence une
+`EpisodeMutualCoverage` qui réutilise `MutualOrganization` et en fige UUID, nom
+et taux. `STAFF` référence une `EpisodeStaffCoverage` et le véritable
+`Employee`, sans dupliquer ses données RH. `PatientStaffLink` confirme
+l'identité mais ne choisit jamais automatiquement le régime financier.
+
+`Patient.patient_type` et `PatientMutualCoverage` sont legacy : ils restent
+consultables pour les anciens dossiers mais ne pilotent plus la tarification
+d'un nouveau passage. Un épisode sans mode ne reçoit aucun fallback silencieux
+depuis le Patient ; seuls ses snapshots historiques existants peuvent être
+relus. Après création d'une prestation facturable ou d'une facture, le contexte
+ne peut plus être remplacé par le flux normal. Voir ADR-051.
+Le flux d'arrivée laisse `patient_type` à sa valeur legacy par défaut `STANDARD`
+pour les nouvelles identités et porte le choix `MUTUAL` ou `STAFF` sur l'Episode.
+
+L'estimation préalable est read-only, sans Patient ni Episode, et relit
+uniquement le tarif `STANDARD` courant des prestations `SERVICE` facturables et
+sélectionnables. Elle ne crée aucune donnée métier et ignore tout prix transmis
+par le navigateur. Elle ne constitue jamais une facture.
+
+Depuis ADR-053, le parcours normal de Réception commence par le besoin et non
+par le financement : besoin, estimation temporaire, recherche/création du
+Patient, création d'un Episode unique, choix `SELF`/`MUTUAL`/`STAFF`,
+confirmation puis routage. Le catalogue initial exige aussi un routage
+Réception configuré. La branche « Achat de médicaments uniquement » renvoie à
+la Vente comptoir Pharmacie existante et ne duplique ni médicaments ni panier
+dans Réception. Aucune analyse Laboratoire n'est activée par cette évolution.
+Après création, l’URL de prise en charge contient l’UUID de l’Episode et un
+brouillon serveur temporaire restaure la sélection après actualisation. Ce
+brouillon est supprimé dès la confirmation et ne constitue aucune demande ou
+écriture financière.
+
+Après le choix du mode, `ReceptionFinancialPreviewService` recalcule côté
+Laravel les montants brut, couvert et patient. La projection STAFF peut simuler
+le crédit Bloc disponible, mais ne crée jamais de mouvement ; seule la création
+réelle du `BillableItem` consomme le registre de façon idempotente. La projection
+Employé fournie à Réception reste minimale et n'expose aucun historique de
+crédit. La confirmation progressive utilise le règlement ultérieur : elle peut
+créer une facture, jamais un paiement ou un reçu sans une action de Caisse.
+Voir ADR-053.
+
+Un acte réellement réalisé aux Soins et facturable produit son propre
+`BillableItem` via `RecordBillableItemAction`, idempotent par rapport à la
+demande de service planifiée à la Réception (pas de double facturation d'un
+même acte prévu). Une erreur financière (tarif absent, contexte non résolu)
+n'annule jamais l'acte clinique déjà enregistré. Un nouvel élément rejoint
+automatiquement une facture existante du même passage tant qu'elle n'a reçu
+aucun encaissement (`DRAFT` ou `VALIDATED` avec `paid_amount = 0`) ; une
+facture `PARTIALLY_PAID`, `PAID`, `COVERED` ou `CANCELLED` n'est jamais
+modifiée silencieusement. Voir ADR-054.
+
+La page `/passages/{episode}` (« Détail du passage ») agrège en lecture seule
+orientations, fiche Soins, consultations Médecine et facturation d'un même
+passage, déjà accessibles séparément par module. Chaque section reste
+protégée côté serveur par la permission qui possède réellement la donnée ;
+`patients.view`, qui protège la route elle-même, ne suffit à en exposer
+aucune. Voir ADR-054.
 
 ---
 
@@ -537,10 +702,17 @@ Ne pas introduire un autre design system sans validation.
 
 # Décision client du 22/08/2026 — accueil patient
 
-ADR-030 remplace le parcours uniforme de l'ADR-029 : le type administratif du
-patient est `STANDARD`, `MUTUAL` ou `STAFF`, puis les désignations configurées
-pilotent le parcours clinique (`MEDICINE_DIRECT`, `CARE_THEN_MEDICINE` ou
-`CARE_ONLY`). L'urgence reste visible immédiatement aux Soins et en Médecine.
+ADR-030 remplace le parcours uniforme de l'ADR-029. Depuis ADR-051 et ADR-053, les anciennes
+catégories permanentes sont legacy : le mode financier est choisi par Episode
+(`SELF`, `MUTUAL`, `STAFF` ou temporairement `NULL`) après la création du
+passage, puis les désignations
+configurées pilotent le parcours clinique (`MEDICINE_DIRECT`,
+`CARE_THEN_MEDICINE` ou
+`CARE_ONLY`). Depuis ADR-056, l'urgence est décidée seulement après la création
+de l'Épisode : Réception peut requalifier le passage à l'étape Prise en charge,
+et Médecine pendant une Consultation active. Seul cet Épisode devient
+`EMERGENCY`; le Patient et ses autres passages restent inchangés. Une fois
+requalifié, il est visible immédiatement aux Soins et en Médecine.
 Une consultation spécialisée déjà identifiée est `MEDICINE_DIRECT`; la
 consultation générale reste `CARE_THEN_MEDICINE`.
 
@@ -551,20 +723,41 @@ ne fait qu'une recherche minimale et un lien patient-employé. Les pièces de
 mutuelle sont privées et limitées à cinq.
 
 La demande clinique doit être conservée indépendamment de la facturation. Pour
-un employé actif et éligible, les prestations sont prises en charge à 100 % hors
-bloc ; les actes du bloc consomment un crédit configurable et l'excédent reste à
-la charge du patient. Le montant brut demeure historisé : la couverture/crédit
-RH/Finance ne peut jamais être simulé par un tarif nul, une remise arbitraire ou
-un faux paiement. Tant que la période du crédit et le périmètre exact des actes
-du bloc ne sont pas configurés, la facturation `STAFF` reste en attente sans
-bloquer le parcours clinique.
+un Episode STAFF lié à un employé actif et éligible, chaque ligne du catalogue
+porte une politique Personnel explicite : `ORDINARY_FULL_COVERAGE`,
+`BLOCK_CREDIT`, `NOT_COVERED` ou `UNCLASSIFIED`. Le module `SURGERY`, le code et
+le libellé ne permettent jamais de déduire la politique. Les prestations
+ordinaires éligibles sont couvertes à 100 % ; `BLOCK_CREDIT` consomme le crédit
+manuel disponible de l’Employee et laisse l’excédent au patient ;
+`NOT_COVERED` laisse le brut au patient. `UNCLASSIFIED` maintient uniquement la
+résolution financière en attente, sans bloquer le parcours clinique. Le montant
+brut demeure historisé : la couverture/crédit RH/Finance ne peut jamais être
+simulé par un tarif nul, une remise arbitraire ou un faux paiement.
+
+Le crédit Bloc est un registre immuable attaché à `Employee` : allocations,
+consommations et réversions conservent leurs soldes avant/après, références,
+clé d’idempotence, motif, auteur et date. Le dossier Employee est verrouillé en
+transaction avant toute consommation ; un `BillableItem` ne peut débiter qu’une
+fois. Une annulation ajoute une réversion et ne supprime jamais l’historique.
+L’allocation est exclusivement manuelle et configurable par un utilisateur
+Administration/RH autorisé. Aucune période ou règle de renouvellement automatique
+n’est définie. Voir ADR-052.
 
 Les tarifs `STANDARD` (« Sans mutuelle ») et `MUTUAL` sont des montants bruts
 propres à chaque site. `STAFF` n'est pas une grille tarifaire : son avantage est
 calculé séparément. Le PDF Ambondromamy de juin 2023 confirme les deux grilles,
 mais reste une référence historique non importée automatiquement car plusieurs
-lignes sont ambiguës ou variables. La part payée par une mutuelle et la part du
-patient ne sont pas encore définies par le client.
+lignes sont ambiguës ou variables.
+
+Le 23/08/2026, le client a précisé que le taux de prise en charge dépend de
+l'organisme : la majorité couvre 100 %, tandis que certaines conventions
+couvrent par exemple 80 % et laissent 20 % au patient. Le tarif `MUTUAL` reste
+le montant brut commun au site ; le taux appartient à `mutual_organizations`.
+La Réception/Caisse n'encaisse que la part patient. Une couverture à 100 %
+valide la facture comme prise en charge, sans paiement ni reçu fictif. Les parts
+brute, mutuelle et patient sont figées sur le passage, la prestation facturable
+et la facture afin qu'une modification future de convention ne recalcule jamais
+l'historique. Voir ADR-047.
 
 Le 23/08/2026, le client a validé une fiche de soins `NURSE` par passage :
 constantes, IMC calculé, observations, transmission conditionnelle
@@ -669,6 +862,29 @@ https://github.com/GasyCoder/cdc-clinic-george
 ```
 
 Avant toute implémentation importante.
+
+En développement local, la Super Administration reste sur `:8000` et les API
+cliniques isolées se lancent avec `composer local:apis` sur les ports 8001 à
+8003. Chacune utilise sa propre base SQLite sous `storage/app/local-sites/`.
+Ne jamais remplacer ce banc local par une connexion directe à la base du
+portail ; voir ADR-043.
+
+Les organismes de mutuelle et partenaires sont administrés séparément dans
+chaque base clinique via l’API du site et `mutual_organizations` (ADR-045).
+« Sans mutuelle » désigne la grille tarifaire `STANDARD`, et « Avantage
+Personnel » relève du dispositif RH/Finance : aucun des deux ne doit être créé
+comme organisme. La grille `MUTUAL` reste commune au site tant que le client
+n’a pas validé une convention tarifaire distincte pour chaque organisme. Chaque
+organisme porte en revanche son taux de couverture contractuel, 100 % par
+défaut, importable et exportable en Excel avec son reste patient calculé. Les
+deux grilles tarifaires `STANDARD` et `MUTUAL` sont elles aussi importables et
+exportables en Excel par site. Voir ADR-047.
+
+Les sélections multiples du portail central restent limitées à 100 UUID d’un
+seul site. Adresses, désignations et organismes autorisent un archivage ou une
+restauration atomique, idempotente et auditée. Le Stock autorise seulement
+l’export Excel ciblé avec tous les lots ; une sélection UI ne crée jamais un
+mouvement ni un ajustement de quantité. Voir ADR-046.
 
 Lire également :
 

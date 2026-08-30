@@ -269,6 +269,7 @@ class ReceptionBillingFlowTest extends TestCase
     {
         $actor = $this->userWithPermissions([
             'patients.create', 'episodes.create', 'episodes.update',
+            'episodes.mark_emergency',
             'billing.create', 'billing.validate', 'payments.create',
         ]);
         $service = $this->service($actor);
@@ -278,7 +279,10 @@ class ReceptionBillingFlowTest extends TestCase
             'active' => true,
             'affects_cash_balance' => true,
         ]);
-        $episode = $this->registerArrival($actor, ['is_emergency' => true]);
+        $episode = $this->registerArrival($actor);
+        $this->actingAs($actor)
+            ->post(route('reception.passages.emergency.store', $episode))
+            ->assertRedirect();
 
         $response = $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
             'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],

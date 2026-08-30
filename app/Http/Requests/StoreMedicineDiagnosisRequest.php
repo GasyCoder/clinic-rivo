@@ -26,7 +26,10 @@ class StoreMedicineDiagnosisRequest extends FormRequest
     {
         return [
             'type' => ['required', Rule::enum(DiagnosisType::class)],
-            'description' => ['required', 'string', 'max:5000'],
+            'diagnostic_catalog_uuid' => ['nullable', 'uuid', 'prohibits:description,manual_code'],
+            'description' => ['nullable', 'required_without:diagnostic_catalog_uuid', 'string', 'max:5000'],
+            'manual_code' => ['nullable', 'string', 'max:50'],
+            'notes' => ['nullable', 'string', 'max:5000'],
         ];
     }
 
@@ -34,6 +37,8 @@ class StoreMedicineDiagnosisRequest extends FormRequest
     {
         return [
             'description.required' => 'Saisissez l’hypothèse ou le diagnostic.',
+            'description.required_without' => 'Saisissez le libellé du diagnostic manuel.',
+            'diagnostic_catalog_uuid.prohibits' => 'Choisissez soit le catalogue, soit la saisie manuelle.',
         ];
     }
 }

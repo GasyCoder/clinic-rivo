@@ -4,7 +4,9 @@ namespace App\Http\Requests;
 
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\CatalogItemType;
-use App\Enums\PatientType;
+use App\Enums\EpisodeFinancialMode;
+use App\Enums\StaffCoveragePolicy;
+use App\Models\CatalogItem;
 use App\Models\Episode;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -23,9 +25,14 @@ class StoreEpisodeServicesRequest extends FormRequest
         }
 
         $lines = $this->input('catalog_lines', []);
-        $isStaff = $episode->patient?->patient_type === PatientType::Staff;
+        $isStaff = $episode->financial_mode === EpisodeFinancialMode::Staff;
+        $hasFinancialContext = $episode->financial_mode !== null;
 
-        if (is_array($lines) && $lines !== [] && ! $isStaff) {
+        $staffFinancePending = $isStaff
+            && is_array($lines)
+            && $this->containsUnclassifiedStaffLine($lines);
+
+        if (is_array($lines) && $lines !== [] && $hasFinancialContext && ! $staffFinancePending) {
             if (! $user->can('billing.create') || ! $user->can('billing.validate')) {
                 return false;
             }
@@ -36,6 +43,21 @@ class StoreEpisodeServicesRequest extends FormRequest
         }
 
         return true;
+    }
+
+    /** @param array<int, mixed> $lines */
+    private function containsUnclassifiedStaffLine(array $lines): bool
+    {
+        $uuids = collect($lines)
+            ->pluck('catalog_item_uuid')
+            ->filter(fn ($uuid) => is_string($uuid) && $uuid !== '')
+            ->unique();
+
+        return $uuids->isNotEmpty()
+            && CatalogItem::query()
+                ->whereIn('uuid', $uuids)
+                ->where('staff_coverage_policy', StaffCoveragePolicy::Unclassified->value)
+                ->exists();
     }
 
     public function rules(): array
@@ -74,6 +96,12 @@ class StoreEpisodeServicesRequest extends FormRequest
                 'string',
                 'max:255',
             ],
+            'cash_register_uuid' => [
+                Rule::prohibitedIf($this->input('payment_choice') !== ArrivalPaymentChoice::Now->value),
+                'nullable',
+                'uuid',
+                Rule::exists('cash_registers', 'uuid'),
+            ],
         ];
     }
 
@@ -111,8 +139,11 @@ class StoreEpisodeServicesRequest extends FormRequest
                 );
             }
 
+            $isStaffMode = $episode?->financial_mode === EpisodeFinancialMode::Staff;
+
             if ($hasLines
-                && $episode?->patient?->patient_type !== PatientType::Staff
+                && ! $isStaffMode
+                && $episode?->financial_mode !== null
                 && ! $this->filled('payment_choice')) {
                 $validator->errors()->add(
                     'payment_choice',
@@ -127,8 +158,7 @@ class StoreEpisodeServicesRequest extends FormRequest
                 );
             }
 
-            if ($episode?->patient?->patient_type === PatientType::Staff
-                && $this->filled('payment_choice')) {
+            if ($isStaffMode && $this->filled('payment_choice')) {
                 $validator->errors()->add(
                     'payment_choice',
                     'La couverture personnel doit être déterminée par RH / Finance avant tout encaissement.',

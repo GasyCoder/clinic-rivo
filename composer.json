@@ -13,7 +13,8 @@
         "inertiajs/inertia-laravel": "*",
         "laravel-lang/common": "^6.8",
         "laravel/framework": "^13.17",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "phpoffice/phpspreadsheet": "^5.9"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -49,6 +50,10 @@
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "@php artisan dev"
+        ],
+        "local:apis": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan rivo:local-apis"
         ],
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",

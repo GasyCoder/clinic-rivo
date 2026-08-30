@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'episode_id', 'blood_group',
     'blood_pressure_systolic', 'blood_pressure_diastolic',
     'heart_rate', 'spo2',
-    'temperature_celsius', 'known_diabetes',
+    'temperature_celsius', 'known_diabetes', 'diabetes_note',
     'height_cm', 'weight_kg', 'bmi',
     'allergy_note', 'allergy_snapshot', 'smoker', 'no_procedure_reason',
     'hospitalization_reason', 'hospitalized_at',

@@ -8,9 +8,11 @@ use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Payment\RecordPaymentAction;
 use App\DTOs\Reception\ArrivalRegistrationResult;
 use App\Enums\ArrivalPaymentChoice;
-use App\Enums\PatientType;
+use App\Enums\EpisodeFinancialMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Episode;
 use App\Models\User;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -41,21 +43,37 @@ class CompleteEpisodeServicesAction
         ArrivalPaymentChoice $paymentChoice = ArrivalPaymentChoice::Later,
         ?int $paymentMethodId = null,
         ?string $paymentReference = null,
+        ?string $cashRegisterUuid = null,
     ): ArrivalRegistrationResult {
         if ($designationDeferred) {
             $episode = $this->planRouting->planUnknownNeed($episode, $actor);
+            $episode->receptionJourneyDraft()->delete();
 
             return new ArrivalRegistrationResult($episode);
         }
 
         $this->planRouting->execute($episode, $catalogLines, $actor);
+        $episode->receptionJourneyDraft()->delete();
         $episode = $episode->fresh(['patient', 'serviceRequests', 'orientations']);
 
-        if ($episode->patient->patient_type === PatientType::Staff) {
+        if ($episode->financial_mode === null) {
             return new ArrivalRegistrationResult(
                 $episode,
-                billingWarning: 'Prestations enregistrées. La couverture Personnel doit être calculée par RH / Finance avant facturation.',
+                billingWarning: 'Parcours clinique enregistré. Le contexte financier du passage doit être régularisé avant facturation.',
             );
+        }
+
+        if ($episode->financial_mode === EpisodeFinancialMode::Staff) {
+            $hasUnclassifiedService = $episode->serviceRequests->contains(
+                fn ($request) => $request->staff_coverage_policy === StaffCoveragePolicy::Unclassified,
+            );
+
+            if ($hasUnclassifiedService) {
+                return new ArrivalRegistrationResult(
+                    $episode,
+                    billingWarning: 'Prestations enregistrées. Une politique Personnel reste à classifier ; la couverture Personnel doit être calculée par RH / Finance et la facturation demeure en attente.',
+                );
+            }
         }
 
         try {
@@ -66,6 +84,7 @@ class CompleteEpisodeServicesAction
                 $paymentChoice,
                 $paymentMethodId,
                 $paymentReference,
+                $cashRegisterUuid,
             ): ArrivalRegistrationResult {
                 $invoice = $this->createInvoice->execute($episode->patient, [
                     'episode_uuid' => $episode->uuid,
@@ -77,12 +96,17 @@ class CompleteEpisodeServicesAction
                     return new ArrivalRegistrationResult($episode, $invoice);
                 }
 
+                if (Money::toMinor($invoice->balance_amount) === 0) {
+                    return new ArrivalRegistrationResult($episode, $invoice);
+                }
+
                 $payment = $this->recordPayment->execute($episode->patient, [
                     'invoice_uuid' => $invoice->uuid,
                     'payment_method_id' => $paymentMethodId,
                     'amount' => $invoice->balance_amount,
                     'reference' => $paymentReference,
                     'notes' => "Encaissement à l’arrivée — passage {$episode->episode_number}",
+                    'cash_register_uuid' => $cashRegisterUuid,
                 ], $actor);
 
                 return new ArrivalRegistrationResult(

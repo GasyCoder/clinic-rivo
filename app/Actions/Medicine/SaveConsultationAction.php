@@ -7,11 +7,14 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class SaveConsultationAction
 {
+    public function __construct(private readonly ClinicalRichTextSanitizer $richText) {}
+
     /**
      * @param  array{reason: string, clinical_exam?: ?string, decision?: ?string, decision_notes?: ?string}  $data
      */
@@ -38,8 +41,10 @@ class SaveConsultationAction
             }
 
             $locked->consultation->update([
-                'reason' => $data['reason'],
-                'clinical_exam' => $data['clinical_exam'] ?? null,
+                'reason' => $this->richText->sanitize($data['reason']),
+                'clinical_exam' => isset($data['clinical_exam'])
+                    ? $this->richText->sanitize($data['clinical_exam'])
+                    : null,
                 'decision' => $data['decision'] ?? null,
                 'decision_notes' => $data['decision_notes'] ?? null,
             ]);

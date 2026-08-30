@@ -47,10 +47,35 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * Off by default — every ordinary code path stays blocked. Set only for
+     * the duration of ForceDeleteUserAction's own sanctioned delete call, so
+     * an accidental ->delete() anywhere else in the codebase still throws.
+     */
+    private static bool $physicalDeletionAllowed = false;
+
+    public static function allowPhysicalDeletion(\Closure $callback): mixed
+    {
+        static::$physicalDeletionAllowed = true;
+
+        try {
+            return $callback();
+        } finally {
+            static::$physicalDeletionAllowed = false;
+        }
+    }
+
+    public static function physicalDeletionAllowed(): bool
+    {
+        return static::$physicalDeletionAllowed;
+    }
+
     protected static function booted(): void
     {
         static::deleting(function () {
-            throw new LogicException('User accounts cannot be deleted. Deactivate the account instead.');
+            if (! static::physicalDeletionAllowed()) {
+                throw new LogicException('User accounts cannot be deleted. Deactivate the account instead.');
+            }
         });
     }
 

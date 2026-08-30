@@ -5,6 +5,7 @@ namespace App\Actions\User;
 use App\Models\User;
 use App\Services\Audit\Auditor;
 use App\Services\Authorization\UserAdministrationGuard;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -16,13 +17,18 @@ class DeactivateUserAction
         private readonly Auditor $auditor,
     ) {}
 
-    public function execute(User $user, string $reason, User $actor): User
+    public function execute(User $user, string $reason, User|CatalogActor $actor): User
     {
         if ($actor->cannot('users.deactivate')) {
             throw new AuthorizationException('Vous ne pouvez pas désactiver un utilisateur.');
         }
 
-        return DB::transaction(function () use ($user, $reason, $actor) {
+        // Auditor::record() takes an Authenticatable, never a CatalogActor —
+        // for a remote Super Admin this resolves to null, and Auditor falls
+        // back to the external_actor_uuid/name already on the request.
+        $actorUser = $actor instanceof User ? $actor : $actor->user();
+
+        return DB::transaction(function () use ($user, $reason, $actor, $actorUser) {
             $user = User::query()->with('role')->lockForUpdate()->findOrFail($user->id);
 
             $this->guard->assertCanManageTarget($actor, $user);
@@ -37,7 +43,8 @@ class DeactivateUserAction
 
             $user->forceFill([
                 'active' => false,
-                'deactivated_by' => $actor->id,
+                'deactivated_by' => $actor instanceof User ? $actor->id : null,
+                ...($actor instanceof CatalogActor ? $actor->externalAttribution('deactivated') : []),
                 'deactivated_at' => now(),
                 'deactivation_reason' => $reason,
                 'remember_token' => null,
@@ -54,7 +61,7 @@ class DeactivateUserAction
                 oldValues: ['active' => true],
                 reason: $reason,
                 module: 'administration',
-                actor: $actor,
+                actor: $actorUser,
             );
 
             return $user->load('deactivator');

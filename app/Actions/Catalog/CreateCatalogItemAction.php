@@ -6,8 +6,9 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 class CreateCatalogItemAction
 {
     /** @param array<string, mixed> $data */
-    public function execute(array $data, User $actor): CatalogItem
+    public function execute(array $data, CatalogActor $actor): CatalogItem
     {
         if ($actor->cannot('catalog.items.create')) {
             throw new AuthorizationException('Vous ne pouvez pas créer un élément du référentiel.');
@@ -26,14 +27,18 @@ class CreateCatalogItemAction
         $billable = (bool) $data['billable'];
         $stockable = (bool) $data['stockable'];
         $this->assertTypeRules($type, $billable, $stockable);
+        $staffCoveragePolicy = StaffCoveragePolicy::tryFrom(
+            (string) ($data['staff_coverage_policy'] ?? StaffCoveragePolicy::Unclassified->value),
+        ) ?? StaffCoveragePolicy::Unclassified;
+        $this->assertStaffCoveragePolicy($billable, $staffCoveragePolicy);
         [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
-        [$requiresAllergyCheck, $recommendsVitals] = $this->careRequirements($type, $data);
+        [$requiresAllergyCheck, $recommendsVitals, $clinicianOrderable] = $this->careRequirements($type, $data);
 
         if ($billable && $actor->cannot('catalog.tariffs.create')) {
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals, $clinicianOrderable) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
@@ -42,13 +47,17 @@ class CreateCatalogItemAction
                 'unit' => trim($data['unit']),
                 'billable' => $billable,
                 'stockable' => $stockable,
+                'staff_coverage_policy' => $staffCoveragePolicy,
                 'reception_selectable' => $receptionSelectable,
                 'reception_routing_mode' => $routingMode,
                 'care_requires_allergy_check' => $requiresAllergyCheck,
                 'care_recommends_vitals' => $recommendsVitals,
+                'clinician_orderable' => $clinicianOrderable,
                 'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
-                'created_by' => $actor->id,
-                'updated_by' => $actor->id,
+                'created_by' => $actor->localUserId(),
+                'updated_by' => $actor->localUserId(),
+                ...$actor->externalAttribution('created'),
+                ...$actor->externalAttribution('updated'),
             ]);
 
             if ($billable) {
@@ -67,7 +76,8 @@ class CreateCatalogItemAction
                     'effective_from' => now(),
                     'active_key' => 'CURRENT',
                     'change_reason' => trim($data['tariff_reason']),
-                    'created_by' => $actor->id,
+                    'created_by' => $actor->localUserId(),
+                    ...$actor->externalAttribution('created'),
                 ]);
 
                 if (filled($data['mutual_tariff_amount'] ?? null)) {
@@ -86,7 +96,8 @@ class CreateCatalogItemAction
                         'effective_from' => now(),
                         'active_key' => 'CURRENT',
                         'change_reason' => trim($data['tariff_reason']),
-                        'created_by' => $actor->id,
+                        'created_by' => $actor->localUserId(),
+                        ...$actor->externalAttribution('created'),
                     ]);
                 }
             }
@@ -113,6 +124,15 @@ class CreateCatalogItemAction
 
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function assertStaffCoveragePolicy(bool $billable, StaffCoveragePolicy $policy): void
+    {
+        if (! $billable && $policy !== StaffCoveragePolicy::Unclassified) {
+            throw ValidationException::withMessages([
+                'staff_coverage_policy' => 'Une politique Personnel ne peut être appliquée qu’à un élément facturable.',
+            ]);
         }
     }
 
@@ -158,13 +178,18 @@ class CreateCatalogItemAction
             && ($data['module'] ?? null) === CatalogModule::Care->value;
         $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
         $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+        $clinicianOrderable = (bool) ($data['clinician_orderable'] ?? false);
 
-        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
+        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals || $clinicianOrderable)) {
             throw ValidationException::withMessages([
                 'care_requires_allergy_check' => 'Ces exigences sont réservées aux prestations du module Soins.',
             ]);
         }
 
-        return [$isCareService && $requiresAllergyCheck, $isCareService && $recommendsVitals];
+        return [
+            $isCareService && $requiresAllergyCheck,
+            $isCareService && $recommendsVitals,
+            $isCareService && $clinicianOrderable,
+        ];
     }
 }

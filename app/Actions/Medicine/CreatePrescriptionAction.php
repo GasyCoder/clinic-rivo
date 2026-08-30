@@ -2,6 +2,7 @@
 
 namespace App\Actions\Medicine;
 
+use App\Actions\Pharmacy\CreateInternalDispenseRequestAction;
 use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\PrescriptionStatus;
 use App\Models\Consultation;
@@ -13,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class CreatePrescriptionAction
 {
-    public function __construct(private readonly MedicineStockService $stock) {}
+    public function __construct(
+        private readonly MedicineStockService $stock,
+        private readonly CreateInternalDispenseRequestAction $createDispenseRequest,
+    ) {}
 
     /**
      * A line is either resolved against the Pharmacy catalog (`manual`
@@ -47,7 +51,17 @@ class CreatePrescriptionAction
                 }
             }
 
-            $prescription = $consultation->prescriptions()->create([
+            // One ordonnance per consultation: adding more lines later (the
+            // doctor remembers another drug, or the search takes several
+            // submissions) extends the same active prescription instead of
+            // spawning a second document to print separately. A cancelled
+            // prescription is never reused — a genuinely new one follows.
+            $prescription = $consultation->prescriptions()
+                ->where('status', PrescriptionStatus::Active->value)
+                ->latest('id')
+                ->first();
+
+            $prescription ??= $consultation->prescriptions()->create([
                 'status' => PrescriptionStatus::Active,
                 'prescribed_by' => $actor->getKey(),
                 'prescribed_at' => now(),
@@ -94,7 +108,9 @@ class CreatePrescriptionAction
                 ]);
             }
 
-            return $prescription->fresh(['lines.stockReservations']);
+            $this->createDispenseRequest->execute($prescription);
+
+            return $prescription->fresh(['lines.stockReservations', 'pharmacyDispense.lines']);
         });
     }
 }

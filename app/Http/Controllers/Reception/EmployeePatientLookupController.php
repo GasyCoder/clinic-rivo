@@ -25,7 +25,6 @@ class EmployeePatientLookupController extends Controller
 
         $employees = Employee::query()
             ->with([
-                'addressEntry:id,uuid,label',
                 'activePatientLink.patient:id,uuid,patient_number,first_name,last_name',
             ])
             ->where('active', true)
@@ -43,23 +42,11 @@ class EmployeePatientLookupController extends Controller
             ->map(fn (Employee $employee) => [
                 'uuid' => $employee->uuid,
                 'employee_number' => $employee->employee_number,
-                'civility' => $employee->civility?->value,
                 'first_name' => $employee->first_name,
                 'last_name' => $employee->last_name,
-                'sex' => $employee->sex->value,
-                'birth_date' => $employee->birth_date?->toDateString(),
-                'identity_document_type' => $employee->identity_document_type?->value,
-                'identity_document_number' => $employee->identity_document_number,
-                'marital_status' => $employee->marital_status?->value,
-                'children_count' => $employee->children_count,
                 'profession' => $employee->profession,
-                'phone' => $employee->phone,
-                'email' => $employee->email,
-                'address' => $employee->address,
-                'address_entry' => $employee->addressEntry ? [
-                    'uuid' => $employee->addressEntry->uuid,
-                    'label' => $employee->addressEntry->label,
-                ] : null,
+                'active' => $employee->active,
+                'eligible' => $employee->isAvailableForPatientLink(),
                 'linked_patient' => $employee->activePatientLink?->patient ? [
                     'uuid' => $employee->activePatientLink->patient->uuid,
                     'patient_number' => $employee->activePatientLink->patient->patient_number,

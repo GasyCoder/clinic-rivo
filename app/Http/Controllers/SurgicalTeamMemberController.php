@@ -22,9 +22,9 @@ class SurgicalTeamMemberController extends Controller
         return back()->with('status', "Membre d'équipe ajouté.");
     }
 
-    public function destroy(SurgicalRequest $surgicalRequest, SurgicalTeamMember $member, RemoveSurgicalTeamMemberAction $action): RedirectResponse
+    public function destroy(SurgicalRequest $surgicalRequest, SurgicalTeamMember $teamMember, RemoveSurgicalTeamMemberAction $action): RedirectResponse
     {
-        $action->execute($member);
+        $action->execute($teamMember);
 
         return back()->with('status', "Membre d'équipe retiré.");
     }

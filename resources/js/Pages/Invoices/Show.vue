@@ -1,10 +1,12 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Head, Link, usePage } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import QRCode from 'qrcode';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
+import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import Input from '@/Components/UI/Input.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientName } from '@/utilities/patient';
@@ -14,6 +16,14 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     invoice: Object,
     returnToCash: Boolean,
+    returnToPharmacy: Boolean,
+    ticketOnly: Boolean,
+    autoPrint: Boolean,
+    closeAfterPrint: Boolean,
+    externalPrescriber: String,
+    capabilities: { type: Object, default: () => ({}) },
+    paymentMethods: { type: Array, default: () => [] },
+    openCashSessions: { type: Array, default: () => [] },
 });
 const page = usePage();
 const brandName = computed(() => page.props.site?.brand ?? 'Clinique Saint Georges');
@@ -22,8 +32,45 @@ const legalDetails = computed(() => page.props.site?.documents ?? {});
 const publicUrl = computed(() => page.props.site?.publicUrl ?? 'https://cliniquesaintgeorges.mg');
 const publicSiteLabel = computed(() => publicUrl.value.replace(/^https?:\/\//, '').replace(/\/$/, ''));
 const hasDiscount = computed(() => Number(props.invoice.discount_amount ?? 0) > 0);
-const returnHref = computed(() => (props.returnToCash ? '/cash' : `/patients/${props.invoice.patient.uuid}`));
-const returnLabel = computed(() => (props.returnToCash ? 'Retour à la caisse' : 'Retour au patient'));
+const hasCoverage = computed(() => Number(props.invoice.coverage_amount ?? 0) > 0);
+const isStaffInvoice = computed(() => props.invoice.financial_mode === 'STAFF');
+const hasStaffBlockCredit = computed(() => Number(props.invoice.staff_block_credit_used ?? 0) > 0);
+const coverageLabel = computed(() => isStaffInvoice.value
+    ? 'Prise en charge Personnel'
+    : `Pris en charge · ${props.invoice.mutual_organization_name}`);
+const customerName = computed(() => props.invoice.patient
+    ? formatPatientName(props.invoice.patient)
+    : (props.invoice.customer_name || 'Client comptoir'));
+const customerReference = computed(() => props.invoice.patient?.patient_number
+    ? `Patient ${props.invoice.patient.patient_number}`
+    : (props.invoice.source_module === 'PHARMACY' ? 'Vente directe Pharmacie' : 'Client externe'));
+const returnHref = computed(() => {
+    if (props.returnToPharmacy) return '/pharmacy?tab=dispenses';
+    return props.returnToCash || !props.invoice.patient ? '/cash' : `/patients/${props.invoice.patient.uuid}`;
+});
+const returnLabel = computed(() => {
+    if (props.returnToPharmacy) return 'Retour aux demandes';
+    return props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient';
+});
+const isPharmacyInvoice = computed(() => props.invoice.source_module === 'PHARMACY');
+const isPayable = computed(() => ['VALIDATED', 'PARTIALLY_PAID'].includes(props.invoice.status)
+    && Number(props.invoice.balance_amount) > 0);
+
+const paymentForm = useForm({
+    invoice_uuid: props.invoice.uuid,
+    payment_method_id: '',
+    amount: props.invoice.balance_amount,
+    reference: '',
+    notes: '',
+    cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
+});
+const submitPayment = () => paymentForm.post(`/invoices/${props.invoice.uuid}/payments`, {
+    preserveScroll: true,
+    onSuccess: () => {
+        paymentForm.reset('reference', 'notes', 'payment_method_id');
+        paymentForm.amount = props.invoice.balance_amount;
+    },
+});
 const qrCodeDataUrl = ref('');
 const ticketRef = ref(null);
 const printPageStyleId = 'invoice-print-page-size';
@@ -34,12 +81,22 @@ const invoiceStatusLabel = computed(() => ({
     VALIDATED: 'À payer',
     PARTIALLY_PAID: 'Paiement partiel',
     PAID: 'Acquittée',
+    COVERED: 'Prise en charge',
     CANCELLED: 'Annulée',
 })[props.invoice.status] ?? props.invoice.status);
 
+const invoiceStatusBadgeClass = computed(() => ({
+    DRAFT: 'border-gray-300 bg-gray-100 text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-slate-300',
+    VALIDATED: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+    PARTIALLY_PAID: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300',
+    PAID: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+    COVERED: 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-800 dark:bg-teal-900/30 dark:text-teal-300',
+    CANCELLED: 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300',
+}[props.invoice.status] ?? 'border-gray-300 bg-gray-100 text-slate-600'));
+
 const generateQrCode = async () => {
     try {
-        qrCodeDataUrl.value = await QRCode.toDataURL(publicUrl.value, {
+        qrCodeDataUrl.value = await QRCode.toDataURL(props.invoice.invoice_number, {
             errorCorrectionLevel: 'M',
             margin: 1,
             width: 240,
@@ -79,6 +136,11 @@ const clearPrint = () => {
     document.getElementById(printPageStyleId)?.remove();
 };
 
+const handleAfterPrint = () => {
+    clearPrint();
+    if (props.closeAfterPrint) window.close();
+};
+
 const printDocument = async (mode) => {
     if (mode === 'ticket' && !qrCodeDataUrl.value) await generateQrCode();
     await nextTick();
@@ -91,54 +153,108 @@ const handleBeforePrint = () => {
     if (!document.body.dataset.invoicePrint) preparePrint('invoice');
 };
 
-onMounted(() => {
-    generateQrCode();
+onMounted(async () => {
     window.addEventListener('beforeprint', handleBeforePrint);
-    window.addEventListener('afterprint', clearPrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    await generateQrCode();
+    if (props.autoPrint) await printDocument('ticket');
 });
 
 onBeforeUnmount(() => {
     window.removeEventListener('beforeprint', handleBeforePrint);
-    window.removeEventListener('afterprint', clearPrint);
+    window.removeEventListener('afterprint', handleAfterPrint);
     clearPrint();
 });
 </script>
 
 <template>
-    <Head :title="`Facture ${invoice.invoice_number}`" />
+    <Head :title="`${ticketOnly ? 'Ticket Pharmacie' : 'Facture'} ${invoice.invoice_number}`" />
 
-    <div class="invoice-page w-full space-y-3">
+    <div class="invoice-page w-full space-y-4 rounded-2xl bg-gradient-to-b from-gray-100/70 to-transparent p-3 dark:from-gray-900/30 sm:p-5">
 
-        <div class="invoice-actions flex flex-wrap items-center justify-between gap-3">
+        <div v-if="!closeAfterPrint" class="invoice-actions sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-gray-800 dark:bg-gray-950/90">
             <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">
                 <Icon class="text-lg" name="arrow-left" />
                 <span class="ms-2">{{ returnLabel }}</span>
             </Button>
             <div class="flex flex-wrap items-center justify-end gap-2">
-                <Button size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
+                <Button v-if="!ticketOnly" size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
                     <Icon class="text-lg" name="file-text" />
                     <span class="ms-2">Facture B5 / PDF</span>
                 </Button>
                 <Button size="rg" variant="primary" type="button" @click="printDocument('ticket')">
                     <Icon class="text-lg" name="printer" />
-                    <span class="ms-2">Ticket thermique</span>
+                    <span class="ms-2">Imprimer le ticket</span>
                 </Button>
             </div>
         </div>
 
+        <div v-if="!closeAfterPrint && !ticketOnly && isPayable" class="invoice-actions overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Encaissement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
+            </div>
+
+            <form v-if="capabilities.can_pay && openCashSessions.length > 0" class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
+                <div v-if="openCashSessions.length > 1">
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
+                    <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                        <option value="">Choisir…</option>
+                        <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
+                    </select>
+                    <FormError :message="paymentForm.errors.cash_register_uuid" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
+                    <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                        <option value="">Choisir…</option>
+                        <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
+                    </select>
+                    <FormError :message="paymentForm.errors.payment_method_id" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
+                    <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
+                    <FormError :message="paymentForm.errors.amount" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Référence</label>
+                    <Input v-model="paymentForm.reference" placeholder="N° transaction, chèque…" />
+                    <FormError :message="paymentForm.errors.reference" />
+                </div>
+                <div class="flex items-end">
+                    <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
+                </div>
+                <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
+                <FormError v-if="openCashSessions.length <= 1" class="sm:col-span-4" :message="paymentForm.errors.cash_register_uuid" />
+            </form>
+            <p v-else-if="!capabilities.can_pay" class="px-4 py-4 text-sm text-slate-400">Votre compte ne dispose pas du droit d’encaissement.</p>
+            <p v-else class="px-4 py-4 text-sm text-amber-700 dark:text-amber-300">Ouvrez la caisse pour encaisser cette facture.</p>
+
+            <div v-if="invoice.payments?.length" class="border-t border-gray-200 px-4 py-3 dark:border-gray-800">
+                <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Paiements enregistrés</p>
+                <ul class="space-y-1 text-xs">
+                    <li v-for="payment in invoice.payments" :key="payment.uuid" class="flex items-center justify-between gap-3 text-slate-600 dark:text-slate-300">
+                        <span>{{ formatDateTime(payment.paid_at) }} · {{ payment.method?.name }}<template v-if="payment.reference"> · {{ payment.reference }}</template></span>
+                        <span class="font-semibold text-slate-700 dark:text-white">{{ formatMoney(payment.amount) }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
         <div class="invoice-layout-scroll">
-            <div class="invoice-workspace">
-                <article class="invoice-document overflow-hidden rounded border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <header class="invoice-brand-header border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:px-6">
+            <div :class="['invoice-workspace', ticketOnly ? 'invoice-workspace-ticket-only' : '']">
+                <article v-if="!ticketOnly" class="invoice-document overflow-hidden rounded-xl border border-gray-200 bg-white shadow-md ring-1 ring-black/[0.03] dark:border-gray-900 dark:bg-gray-950">
+                <header class="invoice-brand-header border-b border-gray-200 bg-gradient-to-br from-primary-50/70 via-white to-white px-5 py-5 dark:border-gray-900 dark:from-gray-900/40 dark:via-gray-950 dark:to-gray-950 sm:px-6">
                     <div class="flex items-start justify-between gap-5">
                         <div class="flex min-w-0 items-start gap-3">
-                            <div class="invoice-logo flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800">
+                            <div class="invoice-logo flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-800">
                                 <img v-if="legalDetails.logo_url" :src="legalDetails.logo_url" :alt="`Logo ${brandName}`" class="h-full w-full object-contain p-1" />
-                                <span v-else class="font-heading text-base font-black tracking-tight text-slate-700">CSG</span>
+                                <span v-else class="font-heading text-base font-black tracking-tight text-primary-600">CSG</span>
                             </div>
                             <div class="min-w-0">
                                 <p class="invoice-brand-name font-heading text-base font-bold text-slate-800 dark:text-white">{{ brandName }}</p>
-                                <p v-if="siteName !== brandName" class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Site {{ siteName }}</p>
+                                <p v-if="siteName !== brandName" class="text-[10px] font-bold uppercase tracking-[0.14em] text-primary-600">Site {{ siteName }}</p>
                                 <div class="mt-1.5 space-y-0.5 text-[11px] leading-4 text-slate-500">
                                     <p v-if="legalDetails.address">{{ legalDetails.address }}</p>
                                     <p v-if="legalDetails.phone || legalDetails.email">
@@ -156,10 +272,10 @@ onBeforeUnmount(() => {
 
                         <div class="shrink-0 text-end">
                             <p class="invoice-title font-heading text-xl font-black uppercase tracking-[0.12em] text-slate-800 dark:text-white">Facture</p>
-                            <p class="invoice-number font-mono text-sm font-bold text-slate-700 dark:text-slate-200">{{ invoice.invoice_number }}</p>
-                            <div class="mt-1 flex items-center justify-end gap-2">
+                            <p class="invoice-number font-mono text-sm font-bold text-primary-600">{{ invoice.invoice_number }}</p>
+                            <div class="mt-1.5 flex items-center justify-end gap-2">
                                 <p class="invoice-date text-[10px] text-slate-500">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</p>
-                                <span class="invoice-status inline-flex rounded-sm border border-gray-300 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:border-gray-700 dark:text-slate-300">{{ invoiceStatusLabel }}</span>
+                                <span :class="['invoice-status inline-flex rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wide', invoiceStatusBadgeClass]">{{ invoiceStatusLabel }}</span>
                             </div>
                         </div>
                     </div>
@@ -168,12 +284,16 @@ onBeforeUnmount(() => {
                 <section class="invoice-meta-grid border-b border-gray-200 px-5 py-3 dark:border-gray-900 sm:px-6">
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Facturé à</p>
-                        <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ formatPatientName(invoice.patient) }}</p>
-                        <p class="font-mono text-[11px] text-slate-500">Patient {{ invoice.patient.patient_number }}</p>
+                        <p class="mt-1 font-heading text-sm font-bold text-slate-800 dark:text-white">{{ customerName }}</p>
+                        <p v-if="invoice.customer_phone" class="font-mono text-[11px] text-slate-500">{{ invoice.customer_phone }}</p>
+                        <p v-if="externalPrescriber" class="font-mono text-[11px] text-slate-500">Prescripteur : {{ externalPrescriber }}</p>
+                        <p class="font-mono text-[11px] text-slate-500">{{ customerReference }}</p>
+                        <p v-if="isStaffInvoice" class="mt-1 text-[10px] font-semibold text-emerald-700">Régime Personnel<span v-if="hasStaffBlockCredit"> · crédit Bloc utilisé {{ formatMoney(invoice.staff_block_credit_used) }}</span></p>
+                        <p v-else-if="hasCoverage" class="mt-1 text-[10px] font-semibold text-emerald-700">{{ invoice.mutual_organization_name }} · couverture {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</p>
                     </div>
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Passage</p>
-                        <p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{{ invoice.episode.episode_number }}</p>
+                        <p class="mt-1 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{{ invoice.episode?.episode_number ?? 'Sans passage patient' }}</p>
                     </div>
                     <div>
                         <p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Émission</p>
@@ -192,27 +312,30 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="invoice-table-wrap overflow-x-auto">
-                        <table class="invoice-table w-full min-w-[620px] text-xs">
+                        <table class="invoice-table w-full min-w-[700px] text-xs">
                             <colgroup>
                                 <col class="invoice-col-description" />
                                 <col class="invoice-col-quantity" />
                                 <col class="invoice-col-price" />
                                 <col class="invoice-col-total" />
+                                <col v-if="hasCoverage" class="invoice-col-total" />
                             </colgroup>
                             <thead class="border-y border-gray-200 text-[9px] uppercase tracking-wide text-slate-400 dark:border-gray-800">
                                 <tr>
                                     <th class="px-2.5 py-2 text-start font-bold">Désignation</th>
                                     <th class="px-2.5 py-2 text-end font-bold">Qté</th>
                                     <th class="px-2.5 py-2 text-end font-bold">Tarif</th>
-                                    <th class="px-2.5 py-2 text-end font-bold">Total</th>
+                                    <th class="px-2.5 py-2 text-end font-bold">Total brut</th>
+                                    <th v-if="hasCoverage" class="px-2.5 py-2 text-end font-bold">Part patient</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                                <tr v-for="line in invoice.lines" :key="line.id">
+                                <tr v-for="line in invoice.lines" :key="line.id" class="transition-colors even:bg-gray-50/60 hover:bg-primary-50/40 dark:even:bg-gray-900/30 dark:hover:bg-primary-900/10">
                                     <td class="px-2.5 py-2.5 font-medium text-slate-700 dark:text-slate-200">{{ line.description }} <span v-if="line.billable_item?.source_module" class="ms-1 text-[9px] font-normal uppercase tracking-wide text-slate-400">{{ line.billable_item.source_module }}</span></td>
                                     <td class="px-2.5 py-2.5 text-end text-slate-500">{{ line.quantity }}</td>
                                     <td class="px-2.5 py-2.5 text-end text-slate-500">{{ formatMoney(line.unit_price) }}</td>
-                                    <td class="px-2.5 py-2.5 text-end font-bold text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</td>
+                                    <td class="px-2.5 py-2.5 text-end font-bold text-slate-700 dark:text-white">{{ formatMoney(line.gross_line_total ?? line.line_total) }}</td>
+                                    <td v-if="hasCoverage" class="px-2.5 py-2.5 text-end font-bold text-slate-700 dark:text-white">{{ formatMoney(line.line_total) }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -224,11 +347,13 @@ onBeforeUnmount(() => {
                             <p class="mt-1 font-medium text-slate-500">Un reçu est émis uniquement après un encaissement réel.</p>
                         </div>
                         <dl class="invoice-totals space-y-1 text-xs">
-                            <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Sous-total</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
+                            <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Total brut</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
                             <div v-if="hasDiscount" class="flex items-center justify-between gap-4"><dt class="text-slate-400">Remise</dt><dd class="font-medium text-slate-700 dark:text-white">− {{ formatMoney(invoice.discount_amount) }}</dd></div>
-                            <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-1.5 dark:border-gray-800"><dt class="font-bold text-slate-600 dark:text-slate-300">Total</dt><dd class="text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
+                            <div v-if="hasCoverage" class="flex items-center justify-between gap-4"><dt class="text-slate-400">{{ coverageLabel }}</dt><dd class="font-medium text-emerald-700">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                            <div v-if="hasStaffBlockCredit" class="flex items-center justify-between gap-4 text-[10px]"><dt class="text-slate-400">dont crédit forfaitaire Bloc</dt><dd class="font-medium text-slate-500">{{ formatMoney(invoice.staff_block_credit_used) }}</dd></div>
+                            <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-1.5 dark:border-gray-800"><dt class="font-bold text-slate-600 dark:text-slate-300">À charge patient</dt><dd class="text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.total_amount) }}</dd></div>
                             <div class="flex items-center justify-between gap-4"><dt class="text-slate-400">Payé</dt><dd class="font-medium text-slate-700 dark:text-white">{{ formatMoney(invoice.paid_amount) }}</dd></div>
-                            <div class="flex items-center justify-between gap-4 border-t border-slate-700 pt-1.5"><dt class="font-bold text-slate-700 dark:text-white">Reste à payer</dt><dd class="text-base font-black text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</dd></div>
+                            <div :class="['invoice-balance-row flex items-center justify-between gap-4 rounded-md border-t border-slate-700 px-2.5 pt-1.5', invoice.balance_amount > 0 ? 'bg-rose-50 dark:bg-rose-900/20' : 'bg-emerald-50 dark:bg-emerald-900/20']"><dt :class="['font-bold', invoice.balance_amount > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300']">Reste à payer</dt><dd :class="['text-base font-black', invoice.balance_amount > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300']">{{ formatMoney(invoice.balance_amount) }}</dd></div>
                         </dl>
                     </div>
                 </section>
@@ -239,54 +364,63 @@ onBeforeUnmount(() => {
                 </footer>
             </article>
 
-                <aside class="invoice-ticket-panel overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <div class="ticket-panel-header flex items-center justify-between gap-3 border-b border-gray-200 px-3 py-2.5 dark:border-gray-900">
+                <aside class="invoice-ticket-panel overflow-hidden rounded-xl border border-gray-200 bg-white shadow-md dark:border-gray-900 dark:bg-gray-950">
+                <div class="ticket-panel-header flex items-center justify-between gap-3 border-b border-gray-200 bg-gradient-to-r from-primary-50/60 to-white px-3 py-2.5 dark:border-gray-900 dark:from-gray-900/40 dark:to-gray-950">
                     <div class="flex min-w-0 items-center gap-3">
-                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400"><Icon class="text-base" name="printer" /></span>
+                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-base" name="printer" /></span>
                         <div class="min-w-0"><h2 class="text-xs font-bold text-slate-700 dark:text-white">Aperçu ticket</h2><p class="text-[10px] text-slate-400">Imprimante thermique</p></div>
                     </div>
-                    <span class="rounded-sm border border-gray-200 px-2 py-0.5 text-[9px] font-bold text-slate-500 dark:border-gray-800">80 mm</span>
+                    <span class="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[9px] font-bold text-slate-500 dark:border-gray-800 dark:bg-gray-900">80 mm</span>
                 </div>
 
-                <div class="ticket-preview-frame bg-gray-50 p-2 dark:bg-gray-900/40">
-                    <article ref="ticketRef" class="invoice-ticket mx-auto w-full max-w-[80mm] bg-white p-3 text-slate-800 shadow-sm">
+                <div class="ticket-preview-frame bg-gradient-to-b from-gray-100 to-gray-50 p-4 dark:from-gray-900/60 dark:to-gray-900/20">
+                    <article ref="ticketRef" class="invoice-ticket mx-auto w-full max-w-[80mm] rounded-lg bg-white p-3 text-slate-800 shadow-md ring-1 ring-black/5">
                         <header class="border-b border-dashed border-slate-400 pb-2.5 text-center">
                             <p class="text-xs font-black uppercase tracking-wide">{{ brandName }}</p>
                             <p v-if="siteName !== brandName" class="text-[9px] font-bold uppercase tracking-[0.12em]">Site {{ siteName }}</p>
-                            <h1 class="mt-2 text-base font-black uppercase tracking-wide">Facture patient</h1>
+                            <h1 class="mt-2 text-base font-black uppercase tracking-wide">{{ isPharmacyInvoice ? 'Ticket Pharmacie' : 'Facture patient' }}</h1>
                             <p class="font-mono text-sm font-bold">{{ invoice.invoice_number }}</p>
                             <p class="text-[9px]">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</p>
                             <span class="mt-1 inline-flex border border-slate-700 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide">{{ invoiceStatusLabel }}</span>
                         </header>
 
                         <section class="space-y-1 border-b border-dashed border-slate-400 py-2.5 text-[11px]">
-                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Patient</span><span class="text-end font-bold">{{ formatPatientName(invoice.patient) }}</span></div>
-                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">N° patient</span><span class="text-end font-mono font-bold">{{ invoice.patient.patient_number }}</span></div>
-                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode.episode_number }}</span></div>
+                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Client</span><span class="text-end font-bold">{{ customerName }}</span></div>
+                            <div v-if="invoice.customer_phone" class="flex items-start justify-between gap-3"><span class="shrink-0">Téléphone</span><span class="text-end font-bold">{{ invoice.customer_phone }}</span></div>
+                            <div v-if="externalPrescriber" class="flex items-start justify-between gap-3"><span class="shrink-0">Prescripteur</span><span class="text-end font-bold">{{ externalPrescriber }}</span></div>
+                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Référence</span><span class="text-end font-mono font-bold">{{ customerReference }}</span></div>
+                            <div class="flex items-start justify-between gap-3"><span class="shrink-0">Passage</span><span class="text-end font-mono font-bold">{{ invoice.episode?.episode_number ?? '—' }}</span></div>
                             <div class="flex items-start justify-between gap-3"><span class="shrink-0">Émise par</span><span class="text-end font-medium">{{ invoice.creator.name }}</span></div>
+                            <div v-if="isStaffInvoice" class="flex items-start justify-between gap-3"><span class="shrink-0">Couverture</span><span class="text-end font-bold">Régime Personnel</span></div>
+                            <div v-else-if="hasCoverage" class="flex items-start justify-between gap-3"><span class="shrink-0">Mutuelle</span><span class="text-end font-bold">{{ invoice.mutual_organization_name }} · {{ Number(invoice.coverage_rate).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) }} %</span></div>
                         </section>
 
                         <section class="border-b border-dashed border-slate-400 py-2.5">
                             <h2 class="mb-1.5 text-center text-[9px] font-black uppercase tracking-wider">Détail des prestations</h2>
                             <div class="divide-y divide-dashed divide-slate-300">
                                 <div v-for="line in invoice.lines" :key="line.id" class="ticket-line py-1.5 text-[11px] first:pt-0 last:pb-0">
-                                    <div class="flex items-start justify-between gap-3"><p class="min-w-0 font-bold leading-3.5">{{ line.description }}</p><p class="shrink-0 font-black">{{ formatMoney(line.line_total) }}</p></div>
+                                    <div class="flex items-start justify-between gap-3"><p class="min-w-0 font-bold leading-3.5">{{ line.description }}</p><p class="shrink-0 font-black">{{ formatMoney(line.gross_line_total ?? line.line_total) }}</p></div>
                                     <div class="flex items-center justify-between gap-3 text-[9px] text-slate-500"><span>{{ line.quantity }} × {{ formatMoney(line.unit_price) }}</span><span v-if="line.billable_item?.source_module" class="uppercase">{{ line.billable_item.source_module }}</span></div>
+                                    <div v-if="hasCoverage" class="mt-0.5 flex items-center justify-between gap-3 text-[9px]"><span>{{ isStaffInvoice ? 'Personnel' : 'Mutuelle' }} −{{ formatMoney(line.coverage_amount) }}</span><span>Patient {{ formatMoney(line.line_total) }}</span></div>
                                 </div>
                             </div>
                         </section>
 
                         <section class="border-b border-dashed border-slate-400 py-2.5">
                             <dl class="space-y-1 text-[11px]">
-                                <div class="flex items-center justify-between gap-3"><dt>Total</dt><dd class="font-bold">{{ formatMoney(invoice.total_amount) }}</dd></div>
+                                <div class="flex items-center justify-between gap-3"><dt>Total brut</dt><dd class="font-bold">{{ formatMoney(invoice.subtotal_amount) }}</dd></div>
+                                <div v-if="hasCoverage" class="flex items-center justify-between gap-3"><dt>{{ isStaffInvoice ? 'Part Personnel' : 'Part mutuelle' }}</dt><dd class="font-bold">− {{ formatMoney(invoice.coverage_amount) }}</dd></div>
+                                <div v-if="hasStaffBlockCredit" class="flex items-center justify-between gap-3 text-[9px]"><dt>dont crédit Bloc</dt><dd>{{ formatMoney(invoice.staff_block_credit_used) }}</dd></div>
+                                <div class="flex items-center justify-between gap-3"><dt>Part patient</dt><dd class="font-bold">{{ formatMoney(invoice.total_amount) }}</dd></div>
                                 <div class="flex items-center justify-between gap-3"><dt>Payé</dt><dd class="font-bold">{{ formatMoney(invoice.paid_amount) }}</dd></div>
                                 <div class="mt-1.5 flex items-center justify-between gap-3 border-y border-slate-800 py-1.5"><dt class="font-black uppercase">Reste à payer</dt><dd class="text-sm font-black">{{ formatMoney(invoice.balance_amount) }}</dd></div>
                             </dl>
                         </section>
 
                         <section class="py-2.5 text-center">
-                            <img v-if="qrCodeDataUrl" :src="qrCodeDataUrl" alt="QR code du site officiel de la Clinique Saint Georges" class="invoice-qr mx-auto h-[22mm] w-[22mm]" />
-                            <p class="text-[9px] font-bold uppercase tracking-wide">Site officiel</p>
+                            <img v-if="qrCodeDataUrl" :src="qrCodeDataUrl" :alt="`QR de la référence caisse ${invoice.invoice_number}`" class="invoice-qr mx-auto h-[22mm] w-[22mm]" />
+                            <p class="text-[9px] font-bold uppercase tracking-wide">Référence caisse</p>
+                            <p class="mt-0.5 font-mono text-[10px] font-black">{{ invoice.invoice_number }}</p>
                         </section>
 
                         <footer class="border-t border-dashed border-slate-400 pt-2 text-center text-[9px] leading-3.5">
@@ -318,6 +452,12 @@ onBeforeUnmount(() => {
     width: 100%;
     min-width: 1140px;
     margin-inline: 0;
+}
+
+.invoice-workspace-ticket-only {
+    grid-template-columns: 360px;
+    justify-content: center;
+    min-width: 0;
 }
 
 .invoice-document {
@@ -611,6 +751,49 @@ onBeforeUnmount(() => {
         height: 22mm !important;
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
+    }
+}
+
+/*
+ * Safety net for the screen-only redesign above (gradients, tinted rows, colored
+ * status pill, rounded cards): neutralizes every new decorative background/shadow/
+ * radius inside the printable areas so the generated invoice/ticket stays exactly
+ * as before. Nothing here changes what already prints today.
+ */
+@media print {
+    .invoice-page {
+        background: transparent !important;
+    }
+
+    body[data-invoice-print="invoice"] .invoice-document,
+    body[data-invoice-print="invoice"] .invoice-document * {
+        background: transparent !important;
+        background-image: none !important;
+        box-shadow: none !important;
+    }
+
+    body[data-invoice-print="invoice"] .invoice-document,
+    body[data-invoice-print="invoice"] .invoice-document footer,
+    body[data-invoice-print="invoice"] .invoice-document thead {
+        background: #fff !important;
+    }
+
+    body[data-invoice-print="invoice"] .invoice-status {
+        border-radius: 2px !important;
+    }
+
+    body[data-invoice-print="invoice"] .invoice-balance-row {
+        padding: 6px 0 0 !important;
+        border-radius: 0 !important;
+    }
+
+    body[data-invoice-print="ticket"] .invoice-ticket * {
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    body[data-invoice-print="ticket"] .invoice-ticket {
+        border-radius: 0 !important;
     }
 }
 </style>

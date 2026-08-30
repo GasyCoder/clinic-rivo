@@ -1,14 +1,13 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
+import ClinicalPatientHeader from '@/Components/Clinical/ClinicalPatientHeader.vue';
 import { formatDateTime } from '@/utilities/date';
-import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
 
@@ -23,6 +22,9 @@ const props = defineProps({
     patientAllergies: Array,
     allergenReference: Array,
     procedureCatalog: Array,
+    careOrders: { type: Array, default: () => [] },
+    hasActiveMedicineOrientation: { type: Boolean, default: false },
+    latestDiagnosis: { type: Object, default: null },
     capabilities: Object,
 });
 
@@ -65,6 +67,7 @@ const form = useForm({
     spo2: props.careRecord?.spo2 ?? '',
     temperature_celsius: props.careRecord?.temperature_celsius ?? '',
     known_diabetes: props.careRecord?.known_diabetes === true ? '1' : props.careRecord?.known_diabetes === false ? '0' : '',
+    diabetes_note: props.careRecord?.diabetes_note ?? '',
     height_cm: props.careRecord?.height_cm ?? '',
     weight_kg: props.careRecord?.weight_kg ?? '',
     allergy_note: props.careRecord?.allergy_note ?? '',
@@ -424,6 +427,86 @@ const toggleProcedure = (item) => {
     });
 };
 
+const realizeOrderItem = (orderItem) => {
+    if (!props.capabilities.can_edit) return;
+    if (form.procedures.some((procedure) => procedure.care_order_item_uuid === orderItem.uuid)) return;
+
+    const catalogEntry = props.procedureCatalog.find((entry) => entry.code === orderItem.code);
+    noProcedureSelected.value = false;
+    form.no_procedure_reason = '';
+    form.procedures.push({
+        catalog_item_uuid: catalogEntry?.uuid,
+        care_order_item_uuid: orderItem.uuid,
+        code: orderItem.code,
+        name: orderItem.name,
+        quantity: orderItem.remaining_quantity,
+        notes: '',
+        care_requires_allergy_check: Boolean(catalogEntry?.care_requires_allergy_check),
+        care_recommends_vitals: Boolean(catalogEntry?.care_recommends_vitals),
+        allergy_checked: false,
+    });
+};
+
+const notPerformedTarget = ref(null);
+const notPerformedReason = ref('');
+const markNotPerformed = (item) => {
+    notPerformedTarget.value = item;
+    notPerformedReason.value = '';
+};
+const confirmNotPerformed = () => {
+    if (!notPerformedReason.value.trim()) return;
+    router.post(
+        `/care/orientations/${props.orientation.uuid}/care-order-items/${notPerformedTarget.value.uuid}/not-performed`,
+        { reason: notPerformedReason.value },
+        { preserveScroll: true, onSuccess: () => { notPerformedTarget.value = null; } },
+    );
+};
+
+const activeCareOrder = computed(() => props.careOrders.find((order) => order.status !== 'COMPLETED') ?? null);
+const careOrderUnresolvedCount = computed(() => activeCareOrder.value?.items.filter((item) => Number(item.remaining_quantity) > 0 && !item.not_performed_at).length ?? 0);
+const isEmergency = computed(() => episode.value.priority === 'EMERGENCY');
+
+// Purely a label: the actual destination/settlement rule is decided
+// backend-side (CompleteCareAndOrientToMedicineAction) from the very same
+// facts (activeCareOrder, care_completion_mode, hasActiveMedicineOrientation).
+const completionLabel = computed(() => {
+    if (activeCareOrder.value) {
+        return activeCareOrder.value.requires_return_to_medicine
+            ? 'Terminer et retourner à Médecine'
+            : 'Terminer la prise en charge Soins';
+    }
+    if (isEmergency.value && props.hasActiveMedicineOrientation) return 'Terminer le travail Soins';
+    if (episode.value.care_completion_mode === 'MEDICINE') return 'Enregistrer et transmettre à Médecine';
+    if (episode.value.care_completion_mode === 'FINISH') return 'Terminer les soins';
+    return 'Enregistrer et terminer';
+});
+const completionWarning = computed(() => {
+    if (activeCareOrder.value && careOrderUnresolvedCount.value > 0) {
+        const n = careOrderUnresolvedCount.value;
+        return `${n} acte${n > 1 ? 's' : ''} demandé${n > 1 ? 's' : ''} reste${n > 1 ? 'nt' : ''} à réaliser ou à marquer non réalisé.`;
+    }
+    if (isEmergency.value && props.hasActiveMedicineOrientation) {
+        return 'La fin du travail Soins ne ferme pas la prise en charge Médecine.';
+    }
+    if (activeCareOrder.value?.requires_return_to_medicine || episode.value.care_completion_mode === 'MEDICINE') {
+        return 'Après validation, le patient sera réorienté vers Médecine.';
+    }
+    return 'Après validation, le parcours Soins sera terminé.';
+});
+
+const procedureSourceLabel = (source) => ({
+    RECEPTION: 'Accueil',
+    MEDICAL_ORDER: 'Ordre médical',
+    ADDED_ON_SITE: 'Ajouté sur place',
+}[source] ?? '—');
+
+const orderStatusLabel = (status) => ({ PENDING: 'En attente', IN_PROGRESS: 'En cours', COMPLETED: 'Terminé' }[status] ?? status);
+const orderStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px] font-bold uppercase', {
+    PENDING: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+    IN_PROGRESS: 'bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-200',
+    COMPLETED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200',
+}[status] ?? 'bg-gray-100 text-slate-600 dark:bg-gray-900'];
+
 const toggleNoProcedure = () => {
     noProcedureSelected.value = !noProcedureSelected.value;
     if (noProcedureSelected.value) {
@@ -449,12 +532,14 @@ const buildPayload = (data, orientToMedicine = undefined) => {
                 ? (data.temperature_celsius.trim().replace(',', '.') || null)
                 : (data.temperature_celsius || null),
             known_diabetes: data.known_diabetes === '' ? null : data.known_diabetes === '1',
+            diabetes_note: data.known_diabetes === '1' ? (data.diabetes_note.trim() || null) : null,
             height_cm: data.height_cm || null,
             weight_kg: data.weight_kg || null,
             smoker: data.smoker === '' ? null : data.smoker === '1',
             no_procedure_reason: data.no_procedure_reason.trim() || null,
-            procedures: data.procedures.map(({ catalog_item_uuid, quantity, notes, allergy_checked }) => ({
+            procedures: data.procedures.map(({ catalog_item_uuid, care_order_item_uuid, quantity, notes, allergy_checked }) => ({
                 catalog_item_uuid,
+                care_order_item_uuid,
                 quantity,
                 notes,
                 allergy_checked,
@@ -469,6 +554,7 @@ const buildPayload = (data, orientToMedicine = undefined) => {
         delete payload.spo2;
         delete payload.temperature_celsius;
         delete payload.known_diabetes;
+        delete payload.diabetes_note;
         delete payload.height_cm;
         delete payload.weight_kg;
         delete payload.smoker;
@@ -527,31 +613,18 @@ const submitAndComplete = (orientToMedicine = false) => {
     <Head :title="`Soins ${episode.episode_number}`" />
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-5">
+        <ClinicalPatientHeader :patient="patient" :episode="episode" :reason="orientation.reason" back-href="/care" back-label="File Soins" />
+
+        <div class="flex items-center gap-2">
+            <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold', orientation.status === 'IN_PROGRESS' ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/40 dark:text-primary-300' : orientation.status === 'PENDING' ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' : orientation.status === 'COMPLETED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-gray-200 bg-gray-50 text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-300']"><span class="h-1.5 w-1.5 rounded-full bg-current" />{{ orientation.status_label }}</span>
+            <span class="text-xs text-slate-400">Pris en charge {{ orientation.accepted_at ? formatDateTime(orientation.accepted_at) : '—' }}<span v-if="orientation.accepted_by"> par {{ orientation.accepted_by }}</span></span>
+        </div>
+
         <header class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm shadow-slate-200/30 dark:border-gray-900 dark:bg-gray-950 dark:shadow-none">
-            <div class="px-5 py-4">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div class="flex min-w-0 items-center gap-4">
-                        <Avatar rounded size="rg" variant="slate-pale" :text="formatPatientInitials(patient)" />
-                        <div class="min-w-0">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h1 class="truncate font-heading text-2xl font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</h1>
-                                <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold', orientation.status === 'IN_PROGRESS' ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/40 dark:text-primary-300' : orientation.status === 'PENDING' ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' : orientation.status === 'COMPLETED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-gray-200 bg-gray-50 text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-300']"><span class="h-1.5 w-1.5 rounded-full bg-current" />{{ orientation.status_label }}</span>
-                                <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500" />Urgence</span>
-                            </div>
-                            <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-                                <span><span class="me-1 uppercase tracking-wide">Passage</span><strong class="font-mono font-semibold text-slate-600 dark:text-slate-200">{{ episode.episode_number }}</strong></span>
-                                <span class="hidden h-3 w-px bg-gray-200 dark:bg-gray-800 sm:block" />
-                                <span><span class="me-1 uppercase tracking-wide">Patient</span><strong class="font-mono font-semibold text-slate-600 dark:text-slate-200">{{ patient.patient_number }}</strong></span>
-                            </div>
-                        </div>
-                    </div>
-                    <Button :as="Link" href="/care" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Retour à la file</span></Button>
-                </div>
-            </div>
-            <div class="border-t border-gray-200 bg-gray-50/40 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/20">
+            <div class="border-t-0 bg-gray-50/40 px-5 py-4 dark:bg-gray-1000/20">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Prestations demandées à l’accueil</h2>
+                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">A · Demande accueil / Réception</h2>
                         <p class="mt-1 text-xs text-slate-400">Elles déterminent le parcours et la facturation, mais ne signifient pas que l’acte a déjà été réalisé.</p>
                     </div>
                     <span class="text-xs text-slate-400">Pris en charge {{ orientation.accepted_at ? formatDateTime(orientation.accepted_at) : '—' }}<span v-if="orientation.accepted_by"> par {{ orientation.accepted_by }}</span></span>
@@ -574,6 +647,43 @@ const submitAndComplete = (orientToMedicine = false) => {
                     </li>
                 </ul>
             </div>
+
+            <div v-if="careOrders.length" class="border-t border-gray-200 bg-white px-5 py-4 dark:border-gray-900 dark:bg-gray-950">
+                <h2 class="text-sm font-bold text-slate-700 dark:text-white">B · Ordre médical</h2>
+                <p class="mt-1 text-xs text-slate-400">Demandé par le médecin pendant la consultation — distinct des prestations de l’accueil ci-dessus.</p>
+                <ul class="mt-3 grid gap-3 md:grid-cols-2">
+                    <li v-for="order in careOrders" :key="order.uuid" class="rounded-md border border-primary-100 bg-primary-50/40 px-3.5 py-3 dark:border-primary-950 dark:bg-primary-950/10">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="text-sm font-semibold text-slate-700 dark:text-white">Dr {{ order.requested_by }} · {{ formatDateTime(order.ordered_at) }}</p>
+                            <span :class="orderStatusBadgeClass(order.status)">{{ orderStatusLabel(order.status) }}</span>
+                        </div>
+                        <ul class="mt-2 space-y-1.5 border-t border-primary-100 pt-2 dark:border-primary-950">
+                            <li v-for="item in order.items" :key="item.uuid" class="text-sm text-slate-600 dark:text-slate-300">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span>{{ item.name }}</span>
+                                    <span v-if="item.not_performed_at" class="text-[11px] font-semibold text-red-600 dark:text-red-300">Non réalisé</span>
+                                    <span v-else class="text-[11px] font-semibold text-slate-400">{{ item.realized_quantity }}/{{ item.quantity }}</span>
+                                </div>
+                                <p v-if="item.not_performed_reason" class="mt-0.5 text-[11px] text-slate-400">Motif : {{ item.not_performed_reason }}</p>
+                                <div v-else-if="Number(item.remaining_quantity) > 0 && orientation.status === 'IN_PROGRESS' && capabilities.can_edit" class="mt-1 flex items-center gap-3">
+                                    <button type="button" class="text-[11px] font-semibold text-primary-600 hover:underline dark:text-primary-300" @click="realizeOrderItem(item)">Réaliser</button>
+                                    <button type="button" class="text-[11px] font-semibold text-red-500 hover:underline" @click="markNotPerformed(item)">Non réalisé</button>
+                                </div>
+                                <div v-if="notPerformedTarget && notPerformedTarget.uuid === item.uuid" class="mt-2 flex items-center gap-2">
+                                    <Input v-model="notPerformedReason" size="sm" placeholder="Motif obligatoire" class="flex-1" />
+                                    <Button type="button" size="sm" variant="danger-outline" @click="confirmNotPerformed">OK</Button>
+                                    <button type="button" class="text-xs text-slate-400" @click="notPerformedTarget = null">Annuler</button>
+                                </div>
+                            </li>
+                        </ul>
+                        <div v-if="order.instructions" class="mt-2 border-t border-primary-100 pt-2 dark:border-primary-950">
+                            <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Instructions</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-300">{{ order.instructions }}</p>
+                        </div>
+                        <p class="mt-2 text-[11px] font-semibold text-slate-500 dark:text-slate-300">Retour médecin : {{ order.requires_return_to_medicine ? 'Oui' : 'Non' }}</p>
+                    </li>
+                </ul>
+            </div>
         </header>
 
         <div v-if="orientation.status === 'PENDING'" class="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
@@ -592,7 +702,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="activity" /></span>
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Constantes et observations</h2>
+                                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">C · Constantes de ce passage</h2>
                                         <span v-if="!episode.care_vitals_recommended" class="rounded bg-gray-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-gray-900 dark:text-slate-300">Facultatif</span>
                                         <span v-else class="inline-flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />Recommandé</span>
                                     </div>
@@ -657,6 +767,10 @@ const submitAndComplete = (orientToMedicine = false) => {
                                             <label v-for="option in yesNoOptions" :key="`diabetes-${option.value}`" :title="option.title" :class="['flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors', form.known_diabetes === option.value ? 'bg-white text-slate-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-900 dark:text-white dark:ring-gray-700' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200', !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.known_diabetes" class="sr-only" type="radio" name="known_diabetes" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
                                         </div>
                                         <FormError class="mt-1" :message="form.errors.known_diabetes" />
+                                        <div v-if="form.known_diabetes === '1'" class="mt-2">
+                                            <Input v-model="form.diabetes_note" placeholder="Type, traitement…" :disabled="!capabilities.can_edit_vitals" />
+                                            <FormError class="mt-1" :message="form.errors.diabetes_note" />
+                                        </div>
                                     </fieldset>
                                     <fieldset class="min-w-0">
                                         <legend class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-200">Tabac</legend>
@@ -688,7 +802,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                             <section v-if="capabilities.can_view_allergies" class="px-5 py-5">
                                 <div class="space-y-3">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div><h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Allergies signalées</h3><p class="mt-1 text-[11px] text-slate-400">Sélectionnez une allergie connue ou ajoutez une substance absente du référentiel.</p></div>
+                                    <div><h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">D · Repères permanents du patient — Allergies</h3><p class="mt-1 text-[11px] text-slate-400">Dossier permanent du patient : sélectionnez une allergie connue ou ajoutez une substance absente du référentiel.</p></div>
                                     <button v-if="capabilities.can_edit && capabilities.can_manage_allergies" type="button" class="inline-flex h-9 items-center gap-1.5 rounded border border-gray-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300" @click="showNewAllergy = !showNewAllergy"><Icon name="plus" />Ajouter manuellement</button>
                                 </div>
 
@@ -721,7 +835,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                                         <span><span class="block">{{ allergy.substance }}</span><span v-if="allergy.reaction || allergy.severity" class="mt-0.5 block text-[10px] font-normal opacity-70">{{ [allergy.reaction, severityLabels[allergy.severity]].filter(Boolean).join(' · ') }}</span></span>
                                     </button>
                                 </div>
-                                <p v-else class="rounded border border-dashed border-gray-200 px-3 py-3 text-xs text-slate-400 dark:border-gray-800">Aucune allergie n’est encore enregistrée pour ce patient. Utilisez le référentiel ci-dessus ou l’ajout manuel.</p>
+                                <p v-else class="rounded border border-dashed border-gray-200 px-3 py-3 text-xs text-slate-400 dark:border-gray-800"><strong class="font-semibold text-slate-500 dark:text-slate-300">Non renseigné.</strong> Aucune allergie n’a encore été enregistrée pour ce patient — cela ne signifie pas qu’il n’en a aucune. Utilisez le référentiel ci-dessus ou l’ajout manuel si une allergie est connue.</p>
 
                                 <div v-if="form.new_allergies.length" class="flex flex-wrap gap-2">
                                     <span v-for="(allergy, index) in form.new_allergies" :key="`${allergy.substance}-${index}`" class="inline-flex items-center gap-2 rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/20 dark:text-red-200"><span>Nouvelle : {{ allergy.substance }}</span><button type="button" aria-label="Retirer cette nouvelle allergie" @click="removeNewAllergy(index)"><Icon name="cross" /></button></span>
@@ -745,10 +859,22 @@ const submitAndComplete = (orientToMedicine = false) => {
                     </section>
 
                     <section v-if="episode.care_transmission_expected" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                        <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Transmission vers Médecine</h2><p class="mt-1 text-xs text-slate-400">Visible uniquement lorsque le parcours continue vers Médecine ou en urgence.</p></div>
+                        <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                            <div class="flex flex-wrap items-center gap-2"><h2 class="text-sm font-bold text-slate-700 dark:text-white">G · Transmission clinique</h2><span class="inline-flex items-center gap-1 rounded bg-primary-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">Transmission vers Médecine</span></div>
+                            <p class="mt-1 text-xs text-slate-400">Ce qui doit être su avant la suite du parcours.</p>
+                        </div>
                         <div class="grid gap-4 p-5">
-                            <div><label for="diagnostic_note" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Diagnostic communiqué <span class="font-normal text-slate-400">(si déjà établi)</span></label><textarea id="diagnostic_note" v-model="form.diagnostic_note" rows="2" :disabled="!capabilities.can_edit" placeholder="Information communiquée par le médecin ou l’équipe précédente" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000" /><FormError class="mt-1" :message="form.errors.diagnostic_note" /></div>
-                            <div><label for="transmission_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Observations à transmettre</label><textarea id="transmission_reason" v-model="form.transmission_reason" rows="3" :disabled="!capabilities.can_edit" placeholder="État du patient, actes réalisés et points de vigilance pour Médecine" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000" /><FormError class="mt-1" :message="form.errors.transmission_reason" /></div>
+                            <div v-if="latestDiagnosis" class="rounded border border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/40">
+                                <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Diagnostic transmis <span class="rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-gray-800 dark:text-slate-300">Lecture seule</span></p>
+                                <p class="mt-1.5 text-sm font-semibold text-slate-700 dark:text-white">{{ latestDiagnosis.description }}</p>
+                                <p class="mt-1 text-[11px] text-slate-400">Dr {{ latestDiagnosis.doctor }} · {{ formatDateTime(latestDiagnosis.recorded_at) }}</p>
+                            </div>
+                            <div>
+                                <label for="diagnostic_note" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Information médicale complémentaire <span class="font-normal text-slate-400">(si communiquée verbalement)</span></label>
+                                <textarea id="diagnostic_note" v-model="form.diagnostic_note" rows="2" :disabled="!capabilities.can_edit" placeholder="Ne pas inventer un diagnostic : uniquement ce qui a été réellement communiqué" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000" />
+                                <FormError class="mt-1" :message="form.errors.diagnostic_note" />
+                            </div>
+                            <div><label for="transmission_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Observations / transmission infirmière</label><textarea id="transmission_reason" v-model="form.transmission_reason" rows="3" :disabled="!capabilities.can_edit" placeholder="État du patient, actes réalisés, réaction, surveillance, points de vigilance" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000" /><FormError class="mt-1" :message="form.errors.transmission_reason" /></div>
                         </div>
                     </section>
                 </div>
@@ -756,7 +882,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                 <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:sticky xl:top-5">
                     <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900">
                         <div class="flex items-center justify-between gap-3">
-                            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Actes infirmiers effectués</h2><p class="mt-1 text-xs text-slate-400">Confirmez uniquement ce qui a réellement été réalisé pendant ce passage.</p></div>
+                            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">E · Actes à réaliser</h2><p class="mt-1 text-xs text-slate-400">Sélection en cours d’enregistrement — confirmez uniquement ce qui a réellement été réalisé.</p></div>
                             <span class="rounded bg-gray-100 px-2 py-1 text-xs font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ form.procedures.length }}</span>
                         </div>
                     </div>
@@ -792,7 +918,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                             </div>
                         </div>
 
-                        <div v-if="episode.care_completion_mode === 'CHOICE'" class="p-4">
+                        <div v-if="episode.care_completion_mode === 'CHOICE' && !activeCareOrder" class="p-4">
                             <div class="rounded border border-dashed border-gray-300 p-3 dark:border-gray-700">
                                 <button type="button" class="flex w-full items-start gap-2 text-start" @click="toggleNoProcedure"><span :class="['mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border', noProcedureSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-300 dark:border-gray-700']"><Icon v-if="noProcedureSelected" name="check" class="text-xs" /></span><span><span class="block text-xs font-bold text-slate-700 dark:text-white">Aucun acte effectué</span><span class="mt-0.5 block text-[11px] text-slate-400">Utilisez cette option seulement pour clôturer l’évaluation sans acte ni orientation médicale.</span></span></button>
                                 <div v-if="noProcedureSelected" class="mt-3"><label for="no_procedure_reason" class="mb-1 block text-[11px] font-medium text-slate-500">Motif *</label><Input id="no_procedure_reason" v-model="form.no_procedure_reason" placeholder="Ex. patient reparti avant le soin" /><FormError class="mt-1" :message="form.errors.no_procedure_reason" /></div>
@@ -805,26 +931,34 @@ const submitAndComplete = (orientToMedicine = false) => {
             </div>
 
             <section v-if="careRecord?.procedures?.length" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des actes</h2><p class="mt-1 text-xs text-slate-400">Les actes enregistrés restent dans l’historique et ne sont pas supprimés.</p></div>
-                <div class="overflow-x-auto"><table class="w-full min-w-[760px] border-collapse"><thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Acte</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Qté</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Observation</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Réalisé par</th><th class="px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400">Date / heure</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-900"><tr v-for="procedure in careRecord.procedures" :key="procedure.uuid"><td class="px-5 py-3"><span class="block text-sm font-bold text-slate-700 dark:text-white">{{ procedure.name }}</span><span class="font-mono text-xs text-slate-400">{{ procedure.code }}</span></td><td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ procedure.quantity }}</td><td class="max-w-sm px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ procedure.notes || '—' }}</td><td class="px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ procedure.performed_by || '—' }}</td><td class="px-5 py-3 text-end text-sm text-slate-500 dark:text-slate-300">{{ formatDateTime(procedure.performed_at) }}</td></tr></tbody></table></div>
+                <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">F · Actes réalisés</h2><p class="mt-1 text-xs text-slate-400">Les actes enregistrés restent dans l’historique et ne sont pas supprimés.</p></div>
+                <div class="overflow-x-auto"><table class="w-full min-w-[820px] border-collapse"><thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Acte</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Source</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Qté</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Observation</th><th class="px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400">Réalisé par</th><th class="px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400">Date / heure</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-900"><tr v-for="procedure in careRecord.procedures" :key="procedure.uuid"><td class="px-5 py-3"><span class="block text-sm font-bold text-slate-700 dark:text-white">{{ procedure.name }}</span><span class="font-mono text-xs text-slate-400">{{ procedure.code }}</span></td><td class="px-5 py-3 text-xs text-slate-500 dark:text-slate-300">{{ procedureSourceLabel(procedure.source) }}</td><td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ procedure.quantity }}</td><td class="max-w-sm px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ procedure.notes || '—' }}</td><td class="px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ procedure.performed_by || '—' }}</td><td class="px-5 py-3 text-end text-sm text-slate-500 dark:text-slate-300">{{ formatDateTime(procedure.performed_at) }}</td></tr></tbody></table></div>
             </section>
 
-            <div v-if="capabilities.can_edit && (form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected)" class="space-y-3 border-t border-gray-200 pt-5 dark:border-gray-900">
+            <div v-if="activeCareOrder || capabilities.can_complete" class="rounded-lg border px-4 py-3 text-sm" :class="careOrderUnresolvedCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200' : 'border-primary-200 bg-primary-50 text-primary-800 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-200'">
+                <p class="font-semibold">{{ completionWarning }}</p>
+            </div>
+
+            <div v-if="capabilities.can_edit && (form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected || activeCareOrder)" class="space-y-3 border-t border-gray-200 pt-5 dark:border-gray-900">
                 <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p class="text-xs font-medium text-slate-500 dark:text-slate-300">
                         <span v-if="form.procedures.length">Les actes seront enregistrés avec l’identité du soignant et l’heure de validation.</span>
                         <span v-else>Enregistrez uniquement les informations réellement constatées.</span>
                     </p>
                     <div class="flex flex-wrap justify-end gap-2">
-                        <template v-if="capabilities.can_complete && episode.care_completion_mode === 'FINISH' && form.procedures.length">
+                        <template v-if="activeCareOrder">
+                            <Button v-if="form.procedures.length" type="button" size="rg" variant="white-outline" :disabled="form.processing" @click="submit">Enregistrer</Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || careOrderUnresolvedCount > 0" @click="submitAndComplete(false)"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
+                        </template>
+                        <template v-else-if="capabilities.can_complete && episode.care_completion_mode === 'FINISH' && form.procedures.length">
                             <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : 'Enregistrer l’acte et terminer' }}</span></Button>
                         </template>
                         <template v-else-if="capabilities.can_complete && episode.care_completion_mode === 'MEDICINE'">
-                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : 'Enregistrer et transmettre' }}</span></Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
                         </template>
                         <template v-else-if="capabilities.can_complete && episode.care_completion_mode === 'CHOICE' && (form.procedures.length || hasNoProcedureReason)">
                             <Button type="button" size="rg" variant="white-outline" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(true)">Enregistrer et orienter</Button>
-                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : 'Enregistrer et terminer' }}</span></Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
                         </template>
                         <Button v-else-if="episode.care_completion_mode === 'CHOICE' && noProcedureSelected" type="button" size="rg" variant="primary" disabled>Indiquez le motif</Button>
                         <Button v-else type="submit" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady"><Icon name="check" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la fiche' }}</span></Button>
@@ -834,9 +968,9 @@ const submitAndComplete = (orientToMedicine = false) => {
         </form>
 
         <section v-if="capabilities.can_complete && !form.isDirty && form.procedures.length === 0 && !noProcedureSelected" class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Fin de prise en charge</h2><p class="mt-1 text-xs text-slate-400">{{ canCompleteWithoutSaving || episode.care_completion_mode === 'MEDICINE' ? 'La fiche est enregistrée. Vous pouvez maintenant terminer cette prise en charge.' : 'Enregistrez un acte réalisé avant de terminer les soins.' }}</p></div>
+            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">H · Fin de prise en charge</h2><p class="mt-1 text-xs text-slate-400">{{ canCompleteWithoutSaving || episode.care_completion_mode === 'MEDICINE' ? completionWarning : 'Enregistrez un acte réalisé avant de terminer les soins.' }}</p></div>
             <div class="flex flex-wrap gap-2">
-                <Link v-if="canCompleteWithoutSaving" :href="`/care/orientations/${orientation.uuid}/complete`" method="post" as="button" preserve-scroll><Button size="rg" :variant="episode.care_completion_mode === 'MEDICINE' ? 'primary' : 'white-outline'"><Icon name="check" /><span class="ms-2">{{ episode.care_completion_mode === 'MEDICINE' ? 'Terminer et transmettre' : 'Terminer les soins' }}</span></Button></Link>
+                <Link v-if="canCompleteWithoutSaving" :href="`/care/orientations/${orientation.uuid}/complete`" method="post" as="button" preserve-scroll><Button size="rg" :variant="episode.care_completion_mode === 'MEDICINE' ? 'primary' : 'white-outline'"><Icon name="check" /><span class="ms-2">{{ completionLabel }}</span></Button></Link>
                 <Link v-if="episode.care_completion_mode === 'CHOICE'" :href="`/care/orientations/${orientation.uuid}/complete-and-orient`" method="post" as="button" preserve-scroll><Button size="rg" variant="primary">Vers Médecine</Button></Link>
             </div>
         </section>

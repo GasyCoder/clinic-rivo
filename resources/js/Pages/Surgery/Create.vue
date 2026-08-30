@@ -19,6 +19,7 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     episodes: Array,
     search: String,
+    procedures: Array,
 });
 
 const query = ref(props.search ?? '');
@@ -49,11 +50,19 @@ const selectEpisode = (episode) => {
 
 const form = useForm({
     episode_uuid: selectedEpisode.value?.uuid ?? '',
-    procedure_name: '',
+    catalog_item_uuid: '',
+    procedure_details: '',
     notes: '',
 });
 
-const canSubmit = computed(() => Boolean(form.episode_uuid) && form.procedure_name.trim() !== '');
+const selectedProcedure = computed(() => props.procedures.find((procedure) => procedure.uuid === form.catalog_item_uuid) ?? null);
+const isOtherProcedure = computed(() => selectedProcedure.value?.code === 'SURG-OTHER');
+watch(() => form.catalog_item_uuid, () => {
+    if (!isOtherProcedure.value) form.procedure_details = '';
+});
+const canSubmit = computed(() => Boolean(form.episode_uuid)
+    && Boolean(form.catalog_item_uuid)
+    && (!isOtherProcedure.value || form.procedure_details.trim() !== ''));
 
 const submit = () => form.post('/surgery');
 </script>
@@ -61,7 +70,7 @@ const submit = () => form.post('/surgery');
 <template>
     <Head title="Nouvelle demande de chirurgie" />
 
-    <div class="mx-auto w-full max-w-screen-2xl space-y-6 lg:space-y-8">
+    <div class="mx-auto w-full max-w-[1500px] space-y-5">
         <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-start gap-3">
                 <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300">
@@ -69,7 +78,7 @@ const submit = () => form.post('/surgery');
                 </span>
                 <div>
                     <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Nouvelle demande de chirurgie</h1>
-                    <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-400">Rattachez la demande à un passage ouvert et décrivez l'acte prévu.</p>
+                    <p class="mt-0.5 max-w-2xl text-sm leading-5 text-slate-400">Rattachez la demande à un passage ouvert et décrivez l'acte prévu.</p>
                 </div>
             </div>
             <Button :as="Link" href="/surgery" size="rg" variant="white-outline">
@@ -77,8 +86,8 @@ const submit = () => form.post('/surgery');
             </Button>
         </header>
 
-        <form class="grid grid-cols-1 gap-6 xl:grid-cols-3 xl:items-start" @submit.prevent="submit">
-            <Card class="shadow-sm xl:col-span-2">
+        <form class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start" @submit.prevent="submit">
+            <Card class="shadow-sm">
                 <CardBody>
                     <div class="mb-5 flex items-center gap-2 border-b border-gray-200 pb-4 dark:border-gray-900">
                         <span class="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400">
@@ -136,9 +145,19 @@ const submit = () => form.post('/surgery');
 
                     <div class="grid grid-cols-1 gap-5">
                         <FormGroup class="!mb-0">
-                            <FormLabel class="mb-1.5" for="procedure_name">Acte <span class="text-red-500">*</span></FormLabel>
-                            <Input id="procedure_name" v-model="form.procedure_name" placeholder="Ex. Appendicectomie" required />
-                            <FormError v-if="form.errors.procedure_name">{{ form.errors.procedure_name }}</FormError>
+                            <FormLabel class="mb-1.5" for="catalog_item_uuid">Intervention prévue <span class="text-red-500">*</span></FormLabel>
+                            <select id="catalog_item_uuid" v-model="form.catalog_item_uuid" class="block min-h-11 w-full rounded-md border border-gray-200 bg-white px-4 py-2.5 text-base text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
+                                <option value="" disabled>Choisir dans le référentiel Chirurgie</option>
+                                <option v-for="procedure in procedures" :key="procedure.uuid" :value="procedure.uuid">{{ procedure.name }}</option>
+                            </select>
+                            <FormError v-if="form.errors.catalog_item_uuid">{{ form.errors.catalog_item_uuid }}</FormError>
+                            <p v-if="procedures.length === 0" class="mt-2 text-xs text-amber-600">Le référentiel Chirurgie est vide. Il doit être initialisé avant de créer une demande.</p>
+                        </FormGroup>
+
+                        <FormGroup v-if="isOtherProcedure" class="!mb-0">
+                            <FormLabel class="mb-1.5" for="procedure_details">Précision obligatoire <span class="text-red-500">*</span></FormLabel>
+                            <Input id="procedure_details" v-model="form.procedure_details" placeholder="Nom exact de l’intervention" required />
+                            <FormError v-if="form.errors.procedure_details">{{ form.errors.procedure_details }}</FormError>
                         </FormGroup>
 
                         <FormGroup class="!mb-0">
@@ -156,7 +175,7 @@ const submit = () => form.post('/surgery');
                 </CardBody>
             </Card>
 
-            <Card class="shadow-sm">
+            <Card class="shadow-sm xl:sticky xl:top-16">
                 <CardBody>
                     <h2 class="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Récapitulatif</h2>
                     <dl class="space-y-3 text-sm">
@@ -170,7 +189,8 @@ const submit = () => form.post('/surgery');
                         </div>
                         <div>
                             <dt class="text-xs text-slate-400">Acte</dt>
-                            <dd class="mt-0.5 font-medium text-slate-700 dark:text-white">{{ form.procedure_name || '—' }}</dd>
+                            <dd class="mt-0.5 font-medium text-slate-700 dark:text-white">{{ selectedProcedure?.name ?? '—' }}</dd>
+                            <dd v-if="form.procedure_details" class="mt-0.5 text-xs text-slate-400">{{ form.procedure_details }}</dd>
                         </div>
                     </dl>
 

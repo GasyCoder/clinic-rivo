@@ -4,17 +4,23 @@ namespace App\Http\Controllers;
 
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
+use App\Actions\Care\MarkCareOrderItemNotPerformedAction;
 use App\Actions\Care\SaveAndCompleteCareAction;
 use App\Actions\Care\SaveCareRecordAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
+use App\Http\Requests\MarkCareOrderItemNotPerformedRequest;
 use App\Http\Requests\UpdateCareRecordRequest;
 use App\Models\AllergenReference;
-use App\Models\CareRecord;
+use App\Models\CareOrder;
+use App\Models\CareOrderItem;
 use App\Models\CatalogItem;
+use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
+use App\Services\Care\CareRecordReadModel;
 use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
 use App\Support\EpisodeQueuePresenter;
@@ -52,6 +58,24 @@ class CareController extends Controller
                 ->count(),
         ];
 
+        $scopeToCurrentStatus = fn ($query) => $query->when(
+            $filter === 'oriented',
+            fn ($q) => $q->where('status', EpisodeOrientationStatus::Completed->value),
+            fn ($q) => $q->whereIn('status', [
+                EpisodeOrientationStatus::Pending->value,
+                EpisodeOrientationStatus::InProgress->value,
+            ]),
+        );
+        $priorityCounts = [
+            'all' => $scopeToCurrentStatus((clone $baseQuery))->count(),
+            'emergency' => $scopeToCurrentStatus((clone $baseQuery))
+                ->whereHas('episode', fn ($q) => $q->where('priority', EpisodePriority::Emergency->value))
+                ->count(),
+            'normal' => $scopeToCurrentStatus((clone $baseQuery))
+                ->whereHas('episode', fn ($q) => $q->where('priority', '!=', EpisodePriority::Emergency->value))
+                ->count(),
+        ];
+
         $orientations = $baseQuery
             ->with([
                 'episode.patient',
@@ -83,15 +107,37 @@ class CareController extends Controller
             ->when($priority === 'normal', fn ($query) => $query
                 ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
                     ->where('priority', '!=', EpisodePriority::Emergency->value)))
-            ->orderByRaw("CASE WHEN EXISTS (SELECT 1 FROM episodes WHERE episodes.id = episode_orientations.episode_id AND episodes.priority = 'EMERGENCY') THEN 0 ELSE 1 END")
-            ->orderByDesc($filter === 'oriented' ? 'completed_at' : 'oriented_at')
+            // Only a still fast-tracked Emergency (Médecine hasn't yet
+            // completed a first consultation for it) is pinned ahead of
+            // arrival order — matches EpisodeQueuePresenter::isQueueEligible
+            // below. Once eligible, first arrived is always first in the
+            // list, emergency or not.
+            ->orderByRaw(EpisodeQueuePresenter::PIN_UNSEEN_EMERGENCY_SQL)
+            // Oriented (completed) history reads best newest-first; the
+            // active/waiting queue must read oldest-first — first arrived,
+            // first served — to match the queue numbers below.
+            ->when(
+                $filter === 'oriented',
+                fn ($query) => $query->orderByDesc('completed_at'),
+                fn ($query) => $query->orderBy('oriented_at'),
+            )
             ->paginate(20)
-            ->withQueryString()
-            ->through(fn (EpisodeOrientation $orientation) => $presenter->present($orientation));
+            ->withQueryString();
+
+        // Queue numbers only make sense for people still waiting, never for
+        // the already-oriented history.
+        $queueNumbers = $filter === 'oriented'
+            ? []
+            : $presenter->assignQueueNumbers($orientations->getCollection());
+        $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present(
+            $orientation,
+            $queueNumbers[$orientation->getKey()] ?? null,
+        ));
 
         return Inertia::render('Care/Index', [
             'orientations' => $orientations,
             'counts' => $counts,
+            'priorityCounts' => $priorityCounts,
             'filter' => $filter,
             'search' => $search,
             'priority' => $priority,
@@ -107,6 +153,7 @@ class CareController extends Controller
         HeartRateAssessment $heartRateAssessment,
         OxygenSaturationAssessment $oxygenSaturationAssessment,
         TemperatureAssessment $temperatureAssessment,
+        CareRecordReadModel $careRecordReadModel,
     ): Response {
         $episodeOrientation->load([
             'episode.patient',
@@ -134,20 +181,34 @@ class CareController extends Controller
             && $request->user()->can($record ? 'care.update' : 'care.create');
         $canEditVitals = $canEdit
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
+        $canViewCareOrders = $request->user()->can('care_orders.view');
+
+        // Same fact CompleteCareAndOrientToMedicineAction::settleAdministrativelyIfPathwayComplete()
+        // checks before settling — surfaced read-only so Vue can label the
+        // completion button correctly without re-deciding the rule itself.
+        $hasActiveMedicineOrientation = EpisodeOrientation::query()
+            ->where('active_key', $episodeOrientation->episode_id.':MEDICINE')
+            ->exists();
+
+        $latestDiagnosis = $canViewAllergies || $canEdit
+            ? Diagnosis::query()
+                ->whereHas('consultation', fn ($query) => $query->where('episode_id', $episodeOrientation->episode_id))
+                ->where('type', DiagnosisType::Final->value)
+                ->whereDoesntHave('cancellation')
+                ->with(['recordedBy:id,name', 'consultation.doctor:id,name'])
+                ->latest('created_at')
+                ->first()
+            : null;
 
         return Inertia::render('Care/Show', [
             'orientation' => $presenter->present($episodeOrientation),
-            'careRecord' => $this->recordPayload(
-                $record,
-                $canViewVitals,
-                $canViewAllergies,
-                $bmiAssessment,
-                $bloodPressureAssessment,
-                $heartRateAssessment,
-                $oxygenSaturationAssessment,
-                $temperatureAssessment,
-                $patientAge,
-            ),
+            'hasActiveMedicineOrientation' => $hasActiveMedicineOrientation,
+            'latestDiagnosis' => $latestDiagnosis ? [
+                'description' => $latestDiagnosis->description,
+                'doctor' => $latestDiagnosis->consultation->doctor?->name ?? $latestDiagnosis->recordedBy?->name,
+                'recorded_at' => $latestDiagnosis->created_at,
+            ] : null,
+            'careRecord' => $careRecordReadModel->present($record, $request->user()),
             'bmiReference' => $canViewVitals ? $bmiAssessment->reference($patientAge) : null,
             'bloodPressureReference' => $canViewVitals ? $bloodPressureAssessment->reference() : null,
             'heartRateReference' => $canViewVitals ? $heartRateAssessment->reference($patientAge) : null,
@@ -192,6 +253,36 @@ class CareController extends Controller
                     'care_requires_allergy_check' => $item->care_requires_allergy_check,
                     'care_recommends_vitals' => $item->care_recommends_vitals,
                 ]),
+            'careOrders' => $canViewCareOrders
+                ? CareOrder::query()
+                    ->where('care_orientation_id', $episodeOrientation->getKey())
+                    ->with(['items.careRecordProcedures', 'requestedBy:id,name', 'consultation'])
+                    ->latest('ordered_at')
+                    ->get()
+                    ->map(fn (CareOrder $careOrder) => [
+                        'uuid' => $careOrder->uuid,
+                        'requested_by' => $careOrder->requestedBy?->name,
+                        'consultation_number' => $careOrder->consultation_id,
+                        'instructions' => $careOrder->instructions,
+                        'requires_return_to_medicine' => $careOrder->requires_return_to_medicine,
+                        'status' => $careOrder->displayStatus(),
+                        'has_unresolved_items' => $careOrder->hasUnresolvedItems(),
+                        'ordered_at' => $careOrder->ordered_at,
+                        'completed_at' => $careOrder->completed_at,
+                        'items' => $careOrder->items->map(fn (CareOrderItem $item) => [
+                            'uuid' => $item->uuid,
+                            'name' => $item->catalog_item_name_snapshot,
+                            'code' => $item->catalog_item_code_snapshot,
+                            'quantity' => $item->quantity,
+                            'realized_quantity' => $item->realizedQuantity(),
+                            'remaining_quantity' => $item->remainingQuantity(),
+                            'instructions' => $item->instructions,
+                            'not_performed_at' => $item->not_performed_at,
+                            'not_performed_reason' => $item->not_performed_reason,
+                            'resolved' => $item->isResolved(),
+                        ])->values(),
+                    ])->values()
+                : [],
             'capabilities' => [
                 'can_view_vitals' => $canViewVitals,
                 'can_view_allergies' => $canViewAllergies,
@@ -200,6 +291,7 @@ class CareController extends Controller
                 'can_edit_vitals' => $canEditVitals,
                 'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
                     && $request->user()->can('care.complete'),
+                'can_view_care_orders' => $canViewCareOrders,
             ],
         ]);
     }
@@ -234,6 +326,18 @@ class CareController extends Controller
                 ? 'Actes enregistrés. Le patient est maintenant en attente en Médecine.'
                 : 'Actes enregistrés et prise en charge terminée.',
         );
+    }
+
+    public function markCareOrderItemNotPerformed(
+        MarkCareOrderItemNotPerformedRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CareOrderItem $careOrderItem,
+        MarkCareOrderItemNotPerformedAction $action,
+    ): RedirectResponse {
+        $action->execute($careOrderItem, $request->validated('reason'), $request->user());
+
+        return redirect()->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Acte marqué non réalisé.');
     }
 
     public function accept(
@@ -275,68 +379,6 @@ class CareController extends Controller
         $action->executeForUnknownNeed($episodeOrientation, $request->user());
 
         return back()->with('status', 'Évaluation terminée. Le patient est orienté vers Médecine.');
-    }
-
-    /** @return array<string, mixed>|null */
-    private function recordPayload(
-        ?CareRecord $record,
-        bool $canViewVitals,
-        bool $canViewAllergies,
-        BmiAssessment $bmiAssessment,
-        BloodPressureAssessment $bloodPressureAssessment,
-        HeartRateAssessment $heartRateAssessment,
-        OxygenSaturationAssessment $oxygenSaturationAssessment,
-        TemperatureAssessment $temperatureAssessment,
-        ?int $patientAge,
-    ): ?array {
-        if (! $record) {
-            return null;
-        }
-
-        return [
-            'uuid' => $record->uuid,
-            ...($canViewVitals ? [
-                'blood_group' => $record->blood_group,
-                'blood_pressure_systolic' => $record->blood_pressure_systolic,
-                'blood_pressure_diastolic' => $record->blood_pressure_diastolic,
-                'blood_pressure_assessment' => $bloodPressureAssessment->classify(
-                    $record->blood_pressure_systolic,
-                    $record->blood_pressure_diastolic,
-                ),
-                'heart_rate' => $record->heart_rate,
-                'heart_rate_assessment' => $heartRateAssessment->classify($record->heart_rate, $patientAge),
-                'spo2' => $record->spo2,
-                'spo2_assessment' => $oxygenSaturationAssessment->classify($record->spo2),
-                'temperature_celsius' => $record->temperature_celsius,
-                'temperature_assessment' => $temperatureAssessment->classify($record->temperature_celsius),
-                'known_diabetes' => $record->known_diabetes,
-                'height_cm' => $record->height_cm,
-                'weight_kg' => $record->weight_kg,
-                'bmi' => $record->bmi,
-                'bmi_assessment' => $bmiAssessment->classify($record->bmi, $patientAge),
-                'smoker' => $record->smoker,
-            ] : []),
-            ...($canViewAllergies ? [
-                'allergy_note' => $record->allergy_note,
-                'allergy_snapshot' => $record->allergy_snapshot ?? [],
-            ] : []),
-            'no_procedure_reason' => $record->no_procedure_reason,
-            'diagnostic_note' => $record->diagnostic_note,
-            'transmission_reason' => $record->transmission_reason,
-            'created_by' => $record->creator?->name,
-            'updated_by' => $record->updater?->name,
-            'updated_at' => $record->updated_at,
-            'procedures' => $record->procedures->map(fn ($procedure) => [
-                'uuid' => $procedure->uuid,
-                'code' => $procedure->procedure_code,
-                'name' => $procedure->procedure_name,
-                'quantity' => $procedure->quantity,
-                'notes' => $procedure->notes,
-                'allergy_checked_at' => $procedure->allergy_checked_at,
-                'performed_by' => $procedure->performer?->name,
-                'performed_at' => $procedure->performed_at,
-            ])->values(),
-        ];
     }
 
     private function patientAgeAtEpisode(EpisodeOrientation $orientation): ?int

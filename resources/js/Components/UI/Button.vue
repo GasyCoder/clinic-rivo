@@ -16,6 +16,8 @@ const compClass = computed(() => ({
     'border-slate-700 text-white bg-slate-700 hover:bg-slate-800 hover:border-slate-800 active:bg-slate-900 disabled:opacity-60 disabled:pointer-events-none': props.variant === 'secondary',
     'border-red-600 text-white bg-red-600 hover:bg-red-700 hover:border-red-700 active:bg-red-800 disabled:opacity-60 disabled:pointer-events-none': props.variant === 'danger',
     'border-red-200 text-red-600 bg-white hover:bg-red-600 hover:border-red-600 hover:text-white active:bg-red-700 dark:border-red-900 dark:bg-gray-950 dark:text-red-300 disabled:opacity-60 disabled:pointer-events-none': props.variant === 'danger-outline',
+    'border-emerald-600 text-white bg-emerald-600 hover:bg-emerald-700 hover:border-emerald-700 active:bg-emerald-800 disabled:opacity-60 disabled:pointer-events-none': props.variant === 'success',
+    'border-amber-500 text-white bg-amber-500 hover:bg-amber-600 hover:border-amber-600 active:bg-amber-700 disabled:opacity-60 disabled:pointer-events-none': props.variant === 'warning',
     'border-gray-300 dark:border-gray-900 text-slate-600 dark:text-slate-200 bg-white dark:bg-gray-900 hover:bg-slate-600 hover:dark:bg-gray-800 hover:text-white hover:border-slate-600 hover:dark:border-gray-800 active:bg-slate-700 active:text-white disabled:opacity-60 disabled:pointer-events-none': props.variant === 'white-outline',
     'text-xxs font-bold leading-5 px-2 tracking-wide': props.size === 'xs' && !props.icon,
     'text-xs font-bold leading-5 px-3 py-1 tracking-wide': props.size === 'sm' && !props.icon,

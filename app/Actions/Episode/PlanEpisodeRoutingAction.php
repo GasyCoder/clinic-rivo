@@ -4,7 +4,9 @@ namespace App\Actions\Episode;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\CatalogTariffCategory;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
@@ -13,6 +15,7 @@ use App\Models\Episode;
 use App\Models\EpisodeServiceRequest;
 use App\Models\User;
 use App\Services\Billing\CatalogTariffResolver;
+use App\Services\Finance\StaffFinancialAllocationService;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +34,7 @@ class PlanEpisodeRoutingAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly CatalogTariffResolver $tariffs,
+        private readonly StaffFinancialAllocationService $staffFinancials,
     ) {}
 
     /**
@@ -47,7 +51,7 @@ class PlanEpisodeRoutingAction
 
         return DB::transaction(function () use ($episode, $catalogLines, $actor): Collection {
             $lockedEpisode = Episode::query()->lockForUpdate()->findOrFail($episode->getKey());
-            $lockedEpisode->loadMissing('patient');
+            $lockedEpisode->loadMissing(['mutualCoverage', 'staffCoverage']);
 
             if ($lockedEpisode->status !== EpisodeStatus::Open) {
                 throw ValidationException::withMessages([
@@ -60,6 +64,9 @@ class PlanEpisodeRoutingAction
             if ($lockedEpisode->service_plan_finalized_at !== null) {
                 return $this->replayFinalizedPlan($lockedEpisode, $normalized);
             }
+
+            $category = $this->tariffs->categoryFor($lockedEpisode, required: false);
+            $coverage = $this->tariffs->coverageSnapshot($lockedEpisode, required: false);
 
             $items = CatalogItem::query()
                 ->whereIn('uuid', $normalized->keys())
@@ -82,9 +89,19 @@ class PlanEpisodeRoutingAction
                 $item = $items->get($uuid);
                 $tariff = $this->tariffs->current(
                     $item,
-                    $lockedEpisode->patient,
+                    $lockedEpisode,
                     lockForUpdate: true,
                 );
+                $grossMinor = $tariff
+                    ? Money::multiply($quantity, $tariff->amount)
+                    : null;
+                $coverageMinor = $grossMinor !== null && $coverage['coverage_rate'] !== null
+                    ? Money::percentage($grossMinor, $coverage['coverage_rate'])
+                    : 0;
+                $staffAllocation = $lockedEpisode->financial_mode === EpisodeFinancialMode::Staff
+                    && $grossMinor !== null
+                        ? $this->staffFinancials->preview($item->staff_coverage_policy, $grossMinor)
+                        : null;
                 $existing = EpisodeServiceRequest::query()
                     ->where('episode_id', $lockedEpisode->getKey())
                     ->where('catalog_item_id', $item->getKey())
@@ -105,7 +122,15 @@ class PlanEpisodeRoutingAction
                     'episode_id' => $lockedEpisode->getKey(),
                     'catalog_item_id' => $item->getKey(),
                     'catalog_tariff_id' => $tariff?->getKey(),
-                    'tariff_category' => $this->tariffs->categoryFor($lockedEpisode->patient),
+                    // The historical column is non-null. STANDARD is only a
+                    // technical placeholder when an urgent/ambiguous Episode
+                    // has no financial context; no tariff or price is resolved
+                    // in that case, so this is not a billing fallback.
+                    'tariff_category' => $category ?? CatalogTariffCategory::Standard,
+                    'staff_coverage_policy' => $item->staff_coverage_policy,
+                    'mutual_organization_uuid' => $coverage['organization_uuid'],
+                    'mutual_organization_name' => $coverage['organization_name'],
+                    'coverage_rate' => $coverage['coverage_rate'],
                     'catalog_item_uuid' => $item->uuid,
                     'catalog_code' => $item->code,
                     'designation' => $item->name,
@@ -117,6 +142,25 @@ class PlanEpisodeRoutingAction
                     'unit_price' => $tariff?->amount,
                     'currency' => $tariff?->currency ?? 'MGA',
                     'quantity' => $quantity,
+                    'gross_amount' => $grossMinor !== null ? Money::fromMinor($grossMinor) : null,
+                    'coverage_amount' => $staffAllocation
+                        ? ($staffAllocation->staffCoveredMinor !== null
+                            ? Money::fromMinor($staffAllocation->staffCoveredMinor)
+                            : '0.00')
+                        : Money::fromMinor($coverageMinor),
+                    'staff_covered_amount' => $staffAllocation?->staffCoveredMinor !== null
+                        ? Money::fromMinor($staffAllocation->staffCoveredMinor)
+                        : ($lockedEpisode->financial_mode === EpisodeFinancialMode::Staff ? null : '0.00'),
+                    'staff_block_credit_used' => $staffAllocation?->blockCreditUsedMinor !== null
+                        ? Money::fromMinor($staffAllocation->blockCreditUsedMinor)
+                        : ($lockedEpisode->financial_mode === EpisodeFinancialMode::Staff ? null : '0.00'),
+                    'patient_amount' => $staffAllocation
+                        ? ($staffAllocation->patientMinor !== null
+                            ? Money::fromMinor($staffAllocation->patientMinor)
+                            : null)
+                        : ($grossMinor !== null && $coverage['coverage_rate'] !== null
+                            ? Money::fromMinor($grossMinor - $coverageMinor)
+                            : null),
                     'created_by' => $actor->getKey(),
                 ]);
             }

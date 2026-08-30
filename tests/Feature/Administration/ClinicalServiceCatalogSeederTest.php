@@ -35,7 +35,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 30);
+        $this->assertDatabaseCount('catalog_items', 55);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame(
             16,
@@ -89,6 +89,17 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         ]);
         $this->assertSame(10, CatalogItem::query()->where('reception_selectable', true)->count());
         $this->assertSame(18, CatalogItem::query()->where('module', 'CARE')->count());
+        $this->assertSame(27, CatalogItem::query()->where('module', 'SURGERY')->count());
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'SURG-APPENDICITE',
+            'name' => 'Appendicite',
+            'module' => 'SURGERY',
+            'reception_selectable' => false,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'SURG-OTHER',
+            'billable' => false,
+        ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'CARE-ABL-SONDE',
             'name' => 'Ablation sonde',
@@ -128,7 +139,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 30);
+        $this->assertDatabaseCount('catalog_items', 55);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame('27500.00', $ecg->fresh()->currentTariff->amount);
     }
@@ -165,7 +176,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 30);
+        $this->assertDatabaseCount('catalog_items', 55);
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.items.create'));
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.tariffs.create'));
     }

@@ -1,5 +1,48 @@
 <?php
 
+$localSiteApisEnabled = filter_var(
+    env('RIVO_LOCAL_SITE_APIS', env('APP_ENV', 'production') === 'local'),
+    FILTER_VALIDATE_BOOL,
+);
+$localSiteApiDefinitions = [
+    'M' => [
+        'code' => 'M',
+        'name' => 'Mampikony',
+        'host' => '127.0.0.1',
+        'port' => (int) env('RIVO_LOCAL_API_MAMPIKONY_PORT', 8001),
+        'token' => 'rivo-local-mampikony-api-2026',
+    ],
+    'A' => [
+        'code' => 'A',
+        'name' => 'Ambondromamy',
+        'host' => '127.0.0.1',
+        'port' => (int) env('RIVO_LOCAL_API_AMBONDROMAMY_PORT', 8002),
+        'token' => 'rivo-local-ambondromamy-api-2026',
+    ],
+    'B' => [
+        'code' => 'B',
+        'name' => 'Boriziny',
+        'host' => '127.0.0.1',
+        'port' => (int) env('RIVO_LOCAL_API_BORIZINY_PORT', 8003),
+        'token' => 'rivo-local-boriziny-api-2026',
+    ],
+];
+
+$localApiUrl = static fn (string $code): string => sprintf(
+    'http://%s:%d/api/v1',
+    $localSiteApiDefinitions[$code]['host'],
+    $localSiteApiDefinitions[$code]['port'],
+);
+$siteApiValue = static function (string $key, ?string $localValue = null) use ($localSiteApisEnabled): ?string {
+    $configuredValue = trim((string) env($key, ''));
+
+    if ($configuredValue !== '') {
+        return $configuredValue;
+    }
+
+    return $localSiteApisEnabled ? $localValue : null;
+};
+
 return [
 
     /*
@@ -19,6 +62,7 @@ return [
     */
 
     'brand' => env('RIVO_BRAND', 'Clinique Saint Georges'),
+    'auth_cover_url' => env('RIVO_AUTH_COVER_URL') ?: '/images/brand/clinic-saint-georges-cover.jpg',
 
     /*
     |--------------------------------------------------------------------------
@@ -79,7 +123,7 @@ return [
     */
 
     'documents' => [
-        'logo_url' => env('RIVO_DOCUMENT_LOGO_URL'),
+        'logo_url' => env('RIVO_DOCUMENT_LOGO_URL') ?: '/images/brand/clinic-saint-georges-logo.png',
         'nif' => env('RIVO_LEGAL_NIF'),
         'stat' => env('RIVO_LEGAL_STAT'),
         'address' => env('RIVO_LEGAL_ADDRESS'),
@@ -120,20 +164,57 @@ return [
             'code' => 'M',
             'name' => 'Mampikony',
             'url' => env('RIVO_SITE_MAMPIKONY_URL', 'https://clinique-m.rivo.mg'),
-            'api_url' => env('RIVO_API_MAMPIKONY_URL'),
+            'api_url' => $siteApiValue('RIVO_API_MAMPIKONY_URL', $localApiUrl('M')),
+            'api_token' => $siteApiValue('RIVO_API_MAMPIKONY_TOKEN', $localSiteApiDefinitions['M']['token']),
         ],
         [
             'code' => 'A',
             'name' => 'Ambondromamy',
             'url' => env('RIVO_SITE_AMBONDROMAMY_URL', 'https://clinique-a.rivo.mg'),
-            'api_url' => env('RIVO_API_AMBONDROMAMY_URL'),
+            'api_url' => $siteApiValue('RIVO_API_AMBONDROMAMY_URL', $localApiUrl('A')),
+            'api_token' => $siteApiValue('RIVO_API_AMBONDROMAMY_TOKEN', $localSiteApiDefinitions['A']['token']),
         ],
         [
             'code' => 'B',
             'name' => 'Boriziny',
             'url' => env('RIVO_SITE_BORIZINY_URL', 'https://clinique-b.rivo.mg'),
-            'api_url' => env('RIVO_API_BORIZINY_URL'),
+            'api_url' => $siteApiValue('RIVO_API_BORIZINY_URL', $localApiUrl('B')),
+            'api_token' => $siteApiValue('RIVO_API_BORIZINY_TOKEN', $localSiteApiDefinitions['B']['token']),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Local distributed clinic APIs
+    |--------------------------------------------------------------------------
+    |
+    | Local development keeps the production topology: one admin portal calls
+    | three HTTP APIs backed by three independent SQLite databases. The tokens
+    | below are fixed local-only credentials and are never used outside local.
+    |
+    */
+
+    'local_site_apis' => [
+        'enabled' => $localSiteApisEnabled,
+        'database_directory' => storage_path('app/local-sites'),
+        'sites' => array_values($localSiteApiDefinitions),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Secured site API
+    |--------------------------------------------------------------------------
+    |
+    | Each clinic accepts one deployment secret for the fixed, read-mostly
+    | Super Administration API scope. The central portal keeps one distinct
+    | token per clinic. These values are secrets and must never be committed.
+    |
+    */
+
+    'site_api' => [
+        'token' => env('RIVO_SITE_API_TOKEN'),
+        'timeout' => (int) env('RIVO_SITE_API_TIMEOUT', 5),
+        'retry_times' => (int) env('RIVO_SITE_API_RETRY_TIMES', 2),
     ],
 
 ];

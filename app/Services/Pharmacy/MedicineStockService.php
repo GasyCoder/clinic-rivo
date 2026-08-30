@@ -8,6 +8,7 @@ use App\Enums\MedicineStockReservationStatus;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MedicineStockReservation;
+use App\Models\PharmacyDispenseLotReservation;
 use App\Models\PrescriptionLine;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -16,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class MedicineStockService
 {
+    public function __construct(private readonly MedicineStockAlertService $alerts) {}
+
     /**
      * Read-only aggregate intended for Medicine. The doctor never receives
      * stock mutation controls or direct access to individual movements.
@@ -37,9 +40,13 @@ class MedicineStockService
                 'lots' => fn ($query) => $query
                     ->where('active', true)
                     ->withSum([
-                        'reservations as reserved_quantity' => fn ($reservationQuery) => $reservationQuery
+                        'reservations as prescription_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
                             ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'quantity')
+                    ], 'remaining_quantity')
+                    ->withSum([
+                        'counterReservations as counter_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
+                            ->where('status', MedicineStockReservationStatus::Reserved->value),
+                    ], 'remaining_quantity')
                     ->orderBy('expires_at')
                     ->orderBy('id'),
             ])
@@ -50,10 +57,10 @@ class MedicineStockService
                 $usableLots = $medicine->lots
                     ->filter(fn (MedicineLot $lot) => $lot->expires_at->gte($today));
                 $availableQuantity = $usableLots->sum(
-                    fn (MedicineLot $lot) => max(0, $lot->quantity_on_hand - (int) ($lot->reserved_quantity ?? 0)),
+                    fn (MedicineLot $lot) => max(0, $lot->quantity_on_hand - $this->reservedQuantity($lot)),
                 );
                 $nearestExpiration = $usableLots
-                    ->filter(fn (MedicineLot $lot) => $lot->quantity_on_hand > (int) ($lot->reserved_quantity ?? 0))
+                    ->filter(fn (MedicineLot $lot) => $lot->quantity_on_hand > $this->reservedQuantity($lot))
                     ->min('expires_at');
 
                 return [
@@ -127,12 +134,23 @@ class MedicineStockService
         $reservedByLot = MedicineStockReservation::query()
             ->whereIn('medicine_lot_id', $lots->modelKeys())
             ->where('status', MedicineStockReservationStatus::Reserved->value)
-            ->selectRaw('medicine_lot_id, SUM(quantity) as reserved_quantity')
+            ->selectRaw('medicine_lot_id, SUM(remaining_quantity) as reserved_quantity')
+            ->groupBy('medicine_lot_id')
+            ->pluck('reserved_quantity', 'medicine_lot_id');
+        $counterReservedByLot = PharmacyDispenseLotReservation::query()
+            ->whereIn('medicine_lot_id', $lots->modelKeys())
+            ->where('status', MedicineStockReservationStatus::Reserved->value)
+            ->selectRaw('medicine_lot_id, SUM(remaining_quantity) as reserved_quantity')
             ->groupBy('medicine_lot_id')
             ->pluck('reserved_quantity', 'medicine_lot_id');
 
         $availableByLot = $lots->mapWithKeys(fn (MedicineLot $lot) => [
-            $lot->getKey() => max(0, $lot->quantity_on_hand - (int) ($reservedByLot[$lot->getKey()] ?? 0)),
+            $lot->getKey() => max(
+                0,
+                $lot->quantity_on_hand
+                    - (int) ($reservedByLot[$lot->getKey()] ?? 0)
+                    - (int) ($counterReservedByLot[$lot->getKey()] ?? 0),
+            ),
         ]);
         $availableBefore = (int) $availableByLot->sum();
 
@@ -165,6 +183,7 @@ class MedicineStockService
                 'prescription_line_id' => $line->getKey(),
                 'medicine_lot_id' => $lot->getKey(),
                 'quantity' => $allocated,
+                'remaining_quantity' => $allocated,
                 'status' => MedicineStockReservationStatus::Reserved,
                 'reserved_at' => now(),
                 'reserved_by' => $actor->getKey(),
@@ -176,6 +195,8 @@ class MedicineStockService
                 break;
             }
         }
+
+        $this->alerts->synchronize($medicine);
 
         return [
             'available_before' => $availableBefore,
@@ -220,11 +241,22 @@ class MedicineStockService
             ->whereIn('medicine_lot_id', $lots->modelKeys())
             ->where('prescription_line_id', '!=', $line->getKey())
             ->where('status', MedicineStockReservationStatus::Reserved->value)
-            ->selectRaw('medicine_lot_id, SUM(quantity) as reserved_quantity')
+            ->selectRaw('medicine_lot_id, SUM(remaining_quantity) as reserved_quantity')
+            ->groupBy('medicine_lot_id')
+            ->pluck('reserved_quantity', 'medicine_lot_id');
+        $counterReservedByLot = PharmacyDispenseLotReservation::query()
+            ->whereIn('medicine_lot_id', $lots->modelKeys())
+            ->where('status', MedicineStockReservationStatus::Reserved->value)
+            ->selectRaw('medicine_lot_id, SUM(remaining_quantity) as reserved_quantity')
             ->groupBy('medicine_lot_id')
             ->pluck('reserved_quantity', 'medicine_lot_id');
         $availableByLot = $lots->mapWithKeys(fn (MedicineLot $lot) => [
-            $lot->getKey() => max(0, $lot->quantity_on_hand - (int) ($otherReservedByLot[$lot->getKey()] ?? 0)),
+            $lot->getKey() => max(
+                0,
+                $lot->quantity_on_hand
+                    - (int) ($otherReservedByLot[$lot->getKey()] ?? 0)
+                    - (int) ($counterReservedByLot[$lot->getKey()] ?? 0),
+            ),
         ]);
         $availableBefore = (int) $availableByLot->sum();
 
@@ -265,6 +297,7 @@ class MedicineStockService
 
             $reservation->update([
                 'status' => MedicineStockReservationStatus::Released,
+                'remaining_quantity' => 0,
                 'released_at' => now(),
                 'released_by' => $actor->getKey(),
                 'release_reason' => 'Réallocation après modification de l’ordonnance.',
@@ -277,6 +310,7 @@ class MedicineStockService
             if ($reservation) {
                 $reservation->update([
                     'quantity' => $quantity,
+                    'remaining_quantity' => $quantity,
                     'status' => MedicineStockReservationStatus::Reserved,
                     'reserved_at' => now(),
                     'reserved_by' => $actor->getKey(),
@@ -292,11 +326,14 @@ class MedicineStockService
                 'prescription_line_id' => $line->getKey(),
                 'medicine_lot_id' => $lotId,
                 'quantity' => $quantity,
+                'remaining_quantity' => $quantity,
                 'status' => MedicineStockReservationStatus::Reserved,
                 'reserved_at' => now(),
                 'reserved_by' => $actor->getKey(),
             ]);
         }
+
+        $this->alerts->synchronize($medicine);
 
         return [
             'available_before' => $availableBefore,
@@ -305,5 +342,11 @@ class MedicineStockService
                 ?->expires_at
                 ?->toDateString(),
         ];
+    }
+
+    private function reservedQuantity(MedicineLot $lot): int
+    {
+        return (int) ($lot->prescription_reserved_quantity ?? 0)
+            + (int) ($lot->counter_reserved_quantity ?? 0);
     }
 }

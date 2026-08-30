@@ -4,9 +4,13 @@ namespace App\Actions\Care;
 
 use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CareCompletionMode;
+use App\Enums\CareOrderStatus;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Exceptions\InvalidEpisodeOrientationTransitionException;
+use App\Models\CareOrder;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
 use App\Support\CareWorkflow;
@@ -42,6 +46,16 @@ class CompleteCareAndOrientToMedicineAction
                     EpisodeOrientationStatus::Completed->value,
                     $locked->status->value,
                 );
+            }
+
+            $activeCareOrder = CareOrder::query()
+                ->where('care_orientation_id', $locked->getKey())
+                ->where('status', CareOrderStatus::Pending)
+                ->lockForUpdate()
+                ->first();
+
+            if ($activeCareOrder) {
+                return $this->completeCareOrderPathway($locked, $activeCareOrder, $actor);
             }
 
             $completionMode = $this->careWorkflow->completionMode($locked->episode);
@@ -83,6 +97,8 @@ class CompleteCareAndOrientToMedicineAction
                         ? 'Orientation explicite après évaluation d’un besoin initialement inconnu.'
                         : 'Orientation vers Médecine selon le parcours planifié.',
                 );
+            } elseif ($completionMode === CareCompletionMode::Finish) {
+                $this->settleAdministrativelyIfPathwayComplete($locked->episode);
             }
 
             return $locked->fresh(['episode.patient']);
@@ -95,5 +111,82 @@ class CompleteCareAndOrientToMedicineAction
         User $actor,
     ): EpisodeOrientation {
         return $this->execute($orientation, $actor, orientUnknownNeedToMedicine: true);
+    }
+
+    /**
+     * A CARE_ONLY pathway ends the clinical routing, never the episode
+     * itself: only the administrative/financial side is unblocked so
+     * Réception/Caisse can proceed (ADR-030 defines no discharge for a
+     * Care-only visit). Guarded on the current status so this stays a
+     * no-op once already past IN_CARE, and on the absence of an active
+     * Medicine orientation because an Emergency episode opens Care and
+     * Medicine in parallel at arrival regardless of routing_mode
+     * (PlanEpisodeRoutingAction) — CareCompletionMode::Finish only ever
+     * describes the Care side of the pathway, never the whole episode.
+     */
+    private function settleAdministrativelyIfPathwayComplete(Episode $episode): void
+    {
+        if ($episode->administrative_status !== EpisodeAdministrativeStatus::InCare) {
+            return;
+        }
+
+        $hasActiveMedicineOrientation = EpisodeOrientation::query()
+            ->where('active_key', $episode->getKey().':'.CatalogModule::Medicine->value)
+            ->exists();
+
+        if ($hasActiveMedicineOrientation) {
+            return;
+        }
+
+        $episode->administrative_status = EpisodeAdministrativeStatus::PendingSettlement;
+        $episode->save();
+    }
+
+    /**
+     * A Care orientation opened by a doctor's CareOrder (Phase B) follows
+     * its own, independent completion rule instead of CareWorkflow: the
+     * original arrival routing plan has nothing to say about a visit it
+     * never planned. requires_return_to_medicine — decided by the doctor at
+     * order time, never re-asked of the nurse — governs it entirely.
+     */
+    private function completeCareOrderPathway(
+        EpisodeOrientation $locked,
+        CareOrder $careOrder,
+        User $actor,
+    ): EpisodeOrientation {
+        $procedureCount = $locked->episode->careRecord?->procedures->count() ?? 0;
+
+        if ($procedureCount === 0) {
+            throw ValidationException::withMessages([
+                'procedures' => 'Enregistrez au moins un acte réellement réalisé avant de terminer les soins.',
+            ]);
+        }
+
+        $careOrder->load(['items.careRecordProcedures']);
+
+        if ($careOrder->hasUnresolvedItems()) {
+            throw ValidationException::withMessages([
+                'care_order' => 'Un acte demandé reste à réaliser ou à marquer non réalisé.',
+            ]);
+        }
+
+        $locked->complete($actor);
+        $careOrder->status = CareOrderStatus::Completed;
+        $careOrder->completed_at = now();
+        $careOrder->save();
+
+        if ($careOrder->requires_return_to_medicine) {
+            $this->createOrientation->execute(
+                $locked->episode,
+                CatalogModule::Care,
+                CatalogModule::Medicine,
+                $actor,
+                'Retour vers Médecine demandé par l’ordre de soins.',
+            );
+        } else {
+            $this->settleAdministrativelyIfPathwayComplete($locked->episode);
+        }
+
+        return $locked->fresh(['episode.patient']);
     }
 }

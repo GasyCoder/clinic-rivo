@@ -5,15 +5,16 @@ namespace App\Actions\Catalog;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 
 class UpdateCatalogItemAction
 {
     /** @param array<string, mixed> $data */
-    public function execute(CatalogItem $item, array $data, User $actor): CatalogItem
+    public function execute(CatalogItem $item, array $data, CatalogActor $actor): CatalogItem
     {
         if ($actor->cannot('catalog.items.update')) {
             throw new AuthorizationException('Vous ne pouvez pas modifier le référentiel.');
@@ -44,8 +45,18 @@ class UpdateCatalogItemAction
             && ($data['module'] ?? null) === CatalogModule::Care->value;
         $requiresAllergyCheck = (bool) ($data['care_requires_allergy_check'] ?? false);
         $recommendsVitals = (bool) ($data['care_recommends_vitals'] ?? false);
+        $clinicianOrderable = (bool) ($data['clinician_orderable'] ?? false);
+        $staffCoveragePolicy = array_key_exists('staff_coverage_policy', $data)
+            ? StaffCoveragePolicy::from((string) $data['staff_coverage_policy'])
+            : $item->staff_coverage_policy;
 
-        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals)) {
+        if (! $item->billable && $staffCoveragePolicy !== StaffCoveragePolicy::Unclassified) {
+            throw ValidationException::withMessages([
+                'staff_coverage_policy' => 'Une politique Personnel ne peut être appliquée qu’à un élément facturable.',
+            ]);
+        }
+
+        if (! $isCareService && ($requiresAllergyCheck || $recommendsVitals || $clinicianOrderable)) {
             throw ValidationException::withMessages([
                 'care_requires_allergy_check' => 'Ces exigences sont réservées aux prestations du module Soins.',
             ]);
@@ -57,10 +68,13 @@ class UpdateCatalogItemAction
             'unit' => trim($data['unit']),
             'reception_selectable' => $selectable,
             'reception_routing_mode' => $route,
+            'staff_coverage_policy' => $staffCoveragePolicy,
             'care_requires_allergy_check' => $isCareService && $requiresAllergyCheck,
             'care_recommends_vitals' => $isCareService && $recommendsVitals,
+            'clinician_orderable' => $isCareService && $clinicianOrderable,
             'description' => filled($data['description'] ?? null) ? trim($data['description']) : null,
-            'updated_by' => $actor->id,
+            'updated_by' => $actor->localUserId(),
+            ...$actor->externalAttribution('updated'),
         ])->save();
 
         return $item->fresh(['currentTariff']);

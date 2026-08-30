@@ -469,6 +469,10 @@ En cas de conflit entre une ancienne partie du CDC et une décision récente pr�
 
 **Status:** ACCEPTED (2026-08-19 — exigence explicite de l’équipe)
 
+**Amendement de séquence :** ADR-056 (2026-08-29) impose désormais la
+création de l’Épisode avant sa requalification en urgence. Les invariants
+ci-dessous restent applicables une fois le passage classé `EMERGENCY`.
+
 L’urgence est une priorité du passage (`episode`), jamais un statut permanent
 du patient.
 
@@ -500,7 +504,12 @@ mais ne précise pas encore le parcours d’admission en urgence.
 
 # ADR-022 — Comptes utilisateurs locaux et cycle d’accès
 
-**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe) ; l’interdiction
+de suppression physique reçoit une exception étroite et explicite par
+**ADR-062** (2026-08-30, même jour que la fonctionnalité Rôles & permissions) —
+uniquement pour un compte n’ayant jamais servi. Le reste de cette décision
+(désactivation, motif, révocation de session, dernier Super Admin protégé)
+reste pleinement en vigueur pour tout compte ayant une activité réelle.
 
 Chaque site opérationnel gère ses propres utilisateurs dans sa propre base.
 Un compte local ne devient pas automatiquement utilisable sur un autre site.
@@ -1294,11 +1303,16 @@ existants. Toute affectation de rôle, de profil et de permission individuelle
 est auditée.
 
 Le socle `NURSE` conserve les Soins, constantes, lecture des ordres et accès
-clinique minimal au patient. `ANESTHETIST` recommande `surgery.view` et les
+clinique minimal au patient. `ANESTHETIST` recommande uniquement les
 permissions `anesthesia.*`, mais celles-ci doivent être attribuées au compte
 concerné ; elles ne sont plus héritées par toutes les infirmières et
-sages-femmes. Aucun droit Maternité n'est inventé tant que son module et son
-catalogue ne sont pas définis.
+sages-femmes. Le socle `SURGERY` n'accorde aucune permission `anesthesia.*` :
+le chirurgien qui doit consulter l'évaluation nécessaire au bloc reçoit
+explicitement `anesthesia.view`, sans droit de créer, corriger ou valider la
+consultation pré-anesthésique et l'examen paraclinique. Ces actions relèvent des
+permissions individuelles `anesthesia.create/update/validate`. Aucun droit
+Maternité n'est inventé tant que son module et son catalogue ne sont pas
+définis.
 
 `SUPPORT` et `MAINTENANCE` n'ont aucun droit métier global. Le profil `GUARD`
 recommande le registre de gardiennage et des visiteurs. `CLEANER` n'ajoute aucun
@@ -1668,3 +1682,1224 @@ Références :
 https://www.heart.org/en/health-topics/high-blood-pressure/understanding-blood-pressure-readings
 https://www.nhs.uk/conditions/low-blood-pressure-hypotension/
 ```
+
+---
+
+# ADR-042 — Supervision centrale du stock Pharmacie et référentiel d’adresses par site
+
+**Status:** ACCEPTED (2026-08-23 — amendée le même jour par exigence explicite du propriétaire)
+
+La Super Administration expose deux espaces indépendants :
+
+```text
+Stock médicaments   vue consolidée, import et export Excel par site
+Adresses             référentiel administrable séparément sur chaque site
+```
+
+Le stock physique reste exploité au quotidien par la Pharmacie du site. Le
+portail central peut lire les médicaments, quantités physiques, réservations,
+disponibilités, lots et péremptions et exporter cette photographie en Excel,
+avec une ligne par lot.
+
+L'exigence explicite du propriétaire autorise aussi un import Excel central.
+Pour ne jamais transformer une quantité ambiguë en ajustement silencieux, chaque
+ligne indique obligatoirement une seule opération :
+
+```text
+STOCK_INITIAL  crée uniquement un nouveau lot et son mouvement d'ouverture
+ENTREE         ajoute une quantité et crée un mouvement d'entrée
+```
+
+`STOCK_INITIAL` est refusé si le lot existe déjà. L'import ne propose ni sortie,
+ni ajustement, ni inventaire, ni délivrance. Le médicament doit déjà exister et
+être actif dans le référentiel du site ; le lot, la péremption, la quantité et
+le motif sont obligatoires. L'ensemble du fichier est validé dans une
+transaction : une ligne invalide annule tout l'import. Les mouvements créés
+restent immuables conformément à l'ADR-036.
+
+Les adresses peuvent être ajoutées, renommées, archivées et restaurées depuis
+le portail central, mais la commande est exécutée dans la base du site cible.
+Une adresse archivée n’est plus proposée aux nouveaux dossiers ; les patients
+et employés déjà liés conservent leur référence historique. Les doublons sont
+comparés après normalisation des accents, espaces et majuscules.
+
+Le référentiel d'un site peut également être exporté en Excel et alimenté par
+un fichier `.xlsx` dont la colonne obligatoire est `Adresse`. L'import est limité à 1 000 lignes,
+normalise les doublons, est atomique, idempotent et audité dans la base du site
+cible. Une adresse archivée doit toujours être restaurée explicitement : un
+import ne la réactive pas silencieusement.
+
+`admin.rivo.mg` ne se connecte jamais directement aux bases des cliniques. Les
+deux modules utilisent des endpoints `/api/v1/super-admin/*` authentifiés avec
+un secret propre à chaque site. Toute requête porte un UUID ; toute écriture
+porte une clé d’idempotence et conserve l’identité UUID/nom de l’acteur central
+dans l’audit local. L’indisponibilité d’un site ne masque ni ne bloque les
+résultats des autres sites.
+
+Permissions :
+
+```text
+stock.view
+stock.import
+stock.export
+address_entries.view
+address_entries.create
+address_entries.update
+address_entries.archive
+address_entries.restore
+address_entries.import
+address_entries.export
+```
+
+---
+
+# ADR-043 — Banc d’API multi-site strictement local
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Pour ne pas bloquer le développement du portail Super Administration avant le
+déploiement des trois domaines cliniques, l’environnement `local` fournit un
+banc d’API distribué démarré par :
+
+```text
+composer local:apis
+```
+
+Le portail conserve son serveur et sa base habituels sur `127.0.0.1:8000`. Les
+sites sont servis séparément et ne partagent aucune base :
+
+```text
+Mampikony      127.0.0.1:8001   storage/app/local-sites/mampikony.sqlite
+Ambondromamy   127.0.0.1:8002   storage/app/local-sites/ambondromamy.sqlite
+Boriziny       127.0.0.1:8003   storage/app/local-sites/boriziny.sqlite
+```
+
+Chaque processus démarre comme `RIVO_SITE_TYPE=clinic`, avec son identité, son
+jeton local et sa base SQLite. Le portail accède aux stocks et aux adresses
+uniquement par les endpoints REST sécurisés `/api/v1/super-admin/*`. Il n’existe
+donc aucun raccourci SQL entre le portail et les sites, même pendant le
+développement.
+
+Les jetons déterministes et les ports par défaut sont exclusivement activés
+avec `APP_ENV=local`. En production, les URL et secrets restent obligatoirement
+explicites. Les bases sont créées et peuplées à leur première préparation ; un
+redémarrage conserve les modifications de test. Leur recréation exige l’option
+explicite `--reset` et est refusée tant que l’API concernée tourne.
+
+---
+
+# ADR-044 — Pilotage central des désignations et tarifs par API de site
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+L’espace Super Administration `Désignations & tarifs` n’est plus une maquette.
+Il interroge séparément les API de Mampikony, Ambondromamy et Boriziny et permet,
+sur le site explicitement choisi :
+
+```text
+créer et modifier une désignation
+archiver et restaurer une désignation
+créer ou remplacer le tarif STANDARD (sans mutuelle)
+créer ou remplacer le tarif MUTUAL (mutuelle)
+suspendre un tarif actif
+consulter l’historique tarifaire
+```
+
+Le portail central ne lit et n’écrit jamais directement une base clinique.
+Chaque écriture distante porte un UUID de requête, une clé d’idempotence,
+l’UUID/nom du Super Administrateur et ses permissions granulaires. L’API cible
+réexécute l’autorisation métier et conserve l’identité distante dans les lignes
+concernées et l’audit local. Une panne d’un site ne bloque pas les autres.
+
+Les deux catégories tarifaires restent indépendantes. Un tarif mutuelle absent
+ne reprend jamais le tarif standard. Tout remplacement clôt la version active
+et crée une nouvelle version ; aucun passage ni facture historique n’est
+recalculé. L’archivage d’une désignation est un Soft Delete audité.
+
+Le banc local de l’ADR-043 expose ces mêmes endpoints. Les prestations de test
+sont ajoutées seulement lorsqu’aucune prestation clinique n’existe encore sur
+le site : un redémarrage ne recrée donc pas un tarif suspendu et n’écrase jamais
+une décision tarifaire saisie pendant les tests.
+
+---
+
+# ADR-045 — Référentiel des mutuelles et partenaires par site
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Chaque site clinique possède son propre référentiel `mutual_organizations`.
+La Super Administration peut le consulter, créer un organisme, le renommer,
+l’archiver et le restaurer exclusivement par l’API du site cible. Les
+couvertures patient déjà enregistrées conservent leur relation avec un
+organisme archivé ; celui-ci n’est simplement plus proposé pour une nouvelle
+couverture.
+
+Les noms sont comparés après normalisation des accents, espaces et majuscules.
+Un organisme archivé doit être restauré explicitement et ne peut jamais être
+recréé comme doublon. Toutes les écritures sont autorisées par permissions
+granulaires, idempotentes, auditées dans la base clinique et portent l’identité
+du Super Administrateur distant.
+
+Classification validée :
+
+```text
+Sans mutuelle       catégorie tarifaire STANDARD, pas un organisme
+Avantage Personnel dispositif RH/Finance du personnel, pas une mutuelle
+Funhece, ADEFI, G4S, BOA, BNI, PAMF, ISPG, TFC et les partenaires
+« Personnels … »    organismes/partenaires du référentiel
+```
+
+Cette décision valide la gestion des organismes, mais ne définit pas une grille
+de prix différente pour chacun. Jusqu’à validation d’une convention détaillée,
+le tarif `MUTUAL` reste une seule catégorie propre au site et n’utilise jamais
+le tarif `STANDARD` comme remplacement silencieux.
+
+Permissions :
+
+```text
+mutual_organizations.view
+mutual_organizations.create
+mutual_organizations.update
+mutual_organizations.archive
+mutual_organizations.restore
+mutual_organizations.import
+mutual_organizations.export
+```
+
+---
+
+# ADR-046 — Actions multiples sûres dans les référentiels Super Administration
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Les écrans Adresses, Stock médicaments et Désignations & tarifs acceptent une
+sélection multiple limitée à 100 lignes et toujours rattachée à un seul site.
+Une sélection ne peut jamais déclencher implicitement la même commande sur
+plusieurs cliniques.
+
+Les commandes d'archivage et de restauration multiples concernent uniquement
+les adresses, les désignations et les organismes mutualistes. Elles réutilisent
+les permissions granulaires existantes, portent une clé d'idempotence, sont
+auditées pour chaque entité et s'exécutent dans une transaction locale du site.
+La liste complète des UUID doit être compatible avec l'opération : si une seule
+ligne est absente, déjà archivée ou déjà active, la commande entière est
+refusée sans modification partielle. Un motif commun est obligatoire pour tout
+archivage.
+
+Dans le Stock, l'action multiple est volontairement limitée à l'export Excel
+des médicaments sélectionnés avec tous leurs lots. Aucun ajustement, mouvement,
+inventaire, archivage ou suppression de stock en masse n'est déduit d'une simple
+sélection d'interface. Les écritures de stock conservent les processus explicites
+et audités définis par les ADR-036 et ADR-042.
+
+---
+
+# ADR-047 — Taux de couverture mutuelle et répartition financière figée
+
+**Status:** ACCEPTED (2026-08-23 — précision explicite du client)
+
+Le montant `MUTUAL` d'une désignation reste le tarif brut contractuel du site.
+Chaque organisme actif porte séparément un `coverage_rate` compris entre 0 et
+100 %, avec 100 % comme valeur par défaut. Le reste patient est calculé par le
+backend :
+
+```text
+part mutuelle = tarif brut × taux de couverture
+part patient  = tarif brut − part mutuelle
+```
+
+Le calcul utilise les unités monétaires entières et un arrondi déterministe. Par
+exemple, une prestation de 20 000 MGA couverte à 80 % produit 16 000 MGA de
+prise en charge et 4 000 MGA à payer par le patient.
+
+La couverture n'est ni une remise, ni un encaissement, ni un paiement. La
+Réception/Caisse reste le seul module autorisé à encaisser la part patient. Une
+facture couverte à 100 % est validée avec le statut `COVERED`; aucun paiement et
+aucun reçu de paiement ne sont fabriqués. Le document conserve néanmoins le
+tarif brut et la part de l'organisme.
+
+Le nom/UUID de l'organisme, son taux, le brut, la prise en charge et le reste
+patient sont figés sur la demande du passage, la prestation facturable et les
+lignes de facture. Une modification ultérieure du taux ou du tarif ne recalcule
+jamais un historique clinique ou financier.
+
+Le portail Super Administration importe et exporte en Excel `.xlsx` :
+
+```text
+les deux colonnes tarifaires STANDARD et MUTUAL par désignation et par site
+la liste des organismes et leur taux de couverture par site
+```
+
+Les imports sont limités, validés intégralement avant application, atomiques,
+idempotents et audités dans la base du site cible via `/api/v1`. Un organisme
+archivé doit être restauré explicitement. Le portail central ne communique
+jamais directement avec la base d'un site.
+
+Permissions complémentaires :
+
+```text
+catalog.tariffs.import
+catalog.tariffs.export
+mutual_organizations.import
+mutual_organizations.export
+```
+
+---
+
+# ADR-048 — Espaces Chirurgie/Anesthésie, référentiels et rapport financier
+
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du propriétaire)
+
+Chirurgie et Anesthésie disposent de deux espaces de travail distincts :
+`/surgery` exige `surgery.view`, tandis que `/anesthesia` exige
+`anesthesia.view`. Une permission n'accorde jamais l'autre implicitement. Le
+socle du rôle ou une permission individuelle `ALLOW` constitue une autorisation
+explicite ; un `DENY` individuel reste prioritaire. Sans `anesthesia.view`, les
+données anesthésiques ne sont pas sérialisées dans la page Chirurgie.
+
+La séparation des interfaces ne duplique pas le dossier. Les deux espaces
+travaillent sur le même `SurgicalRequest` et son unique `AnesthesiaRecord`, ce
+qui garantit la continuité clinique et l'historique. L'interface Anesthésie est
+organisée en trois étapes (consultation, paraclinique/décision, conduite
+peropératoire) et l'interface Chirurgie en cinq étapes (dossier, préparation,
+intervention, sortie de bloc, suivi/clôture).
+
+La fiche `CareRecord` du même épisode reste également la source unique pour les
+informations déjà saisies aux Soins. Chirurgie et Anesthésie les reçoivent dans
+une projection explicitement en lecture seule, filtrée côté Laravel par
+`care.view`, `vitals.view` et `patients.medical_history.view`. La relation brute
+n'est pas sérialisée. Le rôle `SURGERY` reçoit ces trois droits de lecture, mais
+aucun droit `care.update`, `vitals.update` ou de gestion des antécédents. Un
+`DENY` individuel continue à masquer la partie concernée.
+
+Dans ces espaces, tension, température, poids, taille, groupe sanguin, allergies
+et actes réalisés aux Soins ne sont donc ni préremplis dans un second formulaire,
+ni ressaisis. Les formulaires ne demandent que les observations propres à
+l'anesthésie ou au passage au bloc. La consultation et le bilan anesthésiques
+sont présentés en accordéons progressifs avec enregistrement entre sous-étapes.
+Le « feu vert chirurgical avant bloc » demeure un contrôle organisationnel de
+l'équipe chirurgicale et la transition vers le bloc ; il ne valide ni l'état
+clinique du patient, ni la décision de l'anesthésiste.
+
+L'intervention prévue est choisie dans le référentiel `CatalogItem` du module
+`SURGERY`. Le dossier conserve à la fois la référence et un instantané du
+libellé afin qu'une correction future du catalogue ne réécrive jamais
+l'historique clinique. Le choix « Autres » exige une précision. Les produits,
+matériels et techniques d'anesthésie utilisent également une liste contrôlée ;
+chaque enregistrement conserve code, libellé et catégorie en instantané.
+
+Le tableau `Prévu / Réel / Écart / Dette NP` appartient aux rapports financiers,
+jamais à l'espace clinique Chirurgie. `Réel` et `Dette NP` doivent provenir des
+éléments facturables, factures et paiements de la Réception/Caisse. Aucun
+montant, zéro ou dette ne peut être déduit d'un dossier chirurgical seul. Tant
+que la création des prestations facturables Chirurgie et l'API de rapport ne
+sont pas implémentées, l'interface Finance affiche donc des valeurs
+indisponibles (`—`) plutôt que de faux `Ar0`.
+
+---
+
+# ADR-049 — Parcours Pharmacie, facturation Caisse et stock local
+
+**Status:** ACCEPTED (2026-08-26 — validation explicite du propriétaire)
+
+Les stocks Pharmacie sont indépendants par site. Une ordonnance interne crée
+automatiquement une demande de dispensation et réserve les lots en FEFO. Une
+vente directe au comptoir peut être créée sans patient ni passage, mais elle
+réserve également les lots en FEFO. Dans les deux cas, la Pharmacie prépare un
+élément facturable et une facture ; elle n'encaisse jamais.
+
+La Réception/Caisse reste l'unique module autorisé à enregistrer un paiement et
+à émettre un reçu. La quantité physique d'un lot ne diminue qu'après paiement
+intégral ou prise en charge intégrale. Une délivrance partielle est autorisée :
+chaque bon de sortie, allocation de lot et mouvement est conservé, audité et
+immuable. Une annulation financière est refusée dès qu'une délivrance physique
+a commencé.
+
+Les entrées enregistrent lot, péremption, origine, destination et, lorsque le
+droit le permet, fournisseur et prix d'achat. Les ajustements de péremption,
+casse/perte et inventaire ne peuvent jamais réduire le stock physique sous les
+quantités déjà réservées. Un seuil minimal par médicament crée et résout
+automatiquement une alerte locale.
+
+Le paramétrage comprend DCI, forme, dosage, fabricant, code-barres, catégorie,
+fournisseurs, statut d'ordonnance, seuil minimal et tarif de vente. L'import de
+médicaments est création-only, atomique et rejette tout le fichier si une ligne
+ou un code est invalide. Conformément à l'ADR-024, ces écritures de catalogue
+requièrent des permissions explicites et ne sont pas accordées au rôle
+`PHARMACY` par défaut.
+
+---
+
+# ADR-050 — Ticket Pharmacie et contrôle de référence à la Caisse
+
+**Status:** ACCEPTED (mise à jour 2026-08-28 — exigence explicite du propriétaire)
+
+Toute demande de dispensation facturée, qu'elle provienne d'une ordonnance
+interne ou d'une vente comptoir externe, possède un ticket imprimable. Le numéro
+unique de facture généré par le backend est la référence automatique de ce
+ticket ; aucun code financier libre n'est saisi par la Pharmacie.
+
+Le QR du ticket encode exclusivement cette référence de facture. À
+Réception/Caisse, l'agent peut scanner ce QR ou saisir la référence. Pour un
+patient interne, le numéro de passage ou le numéro patient permet également de
+retrouver les factures Pharmacie concernées. Le contrôle affiche le statut et le
+solde avant de proposer l'encaissement.
+
+La vente comptoir ne demande aucun numéro de référence à la Pharmacie, y compris
+pour un produit signalé comme nécessitant une ordonnance. Elle utilise
+uniquement la référence automatique de facture pour identifier le ticket ; le
+backend n'accepte ni ne fabrique une référence médicale d'ordonnance externe.
+
+À la Caisse, le contrôle du ticket Pharmacie est présenté dans un onglet dédié,
+au même niveau que les factures à encaisser et les paiements récents. Ouvrir une
+URL de contrôle avec une référence sélectionne directement cet onglet. Le mode
+de saisie manuelle y est sélectionné par défaut ; l'agent peut ensuite choisir
+le scanner QR. Les factures issues de la Pharmacie sont exclues de la liste
+générale « Factures à encaisser » et restent regroupées dans cet onglet, quel
+que soit leur statut. Sans filtre, les tickets Pharmacie récents sont listés ;
+la saisie filtre dynamiquement et partiellement par référence, client, patient
+ou passage.
+
+La création d'une vente comptoir ne présente ni action « Retour aux demandes »
+ni bouton d'impression autonome. Son pied présente uniquement « Créer et
+transmettre à la Caisse ». Cette action ouvre une fenêtre de confirmation avec
+le récapitulatif de la vente ; son action finale explicite est « Imprimer et
+transmettre à la Caisse ». La confirmation crée la vente et sa référence
+officielle, la rend immédiatement visible à la Caisse, lance directement
+l'impression du ticket officiel, reste sur la page Vente comptoir, puis vide le
+formulaire pour le client suivant. Le nom du client, son téléphone et le
+prescripteur externe renseignés sont conservés et imprimés sur le ticket
+officiel. La file de dispensation reste compacte : le statut et
+les actions sont deux colonnes distinctes, l'ordonnance et ses produits
+s'ouvrent dans une fenêtre dédiée par une unique action « Voir ». Le détail
+déjà présent dans cette fenêtre constitue le contrôle visuel : aucun
+bouton « Aperçu » supplémentaire n'est affiché. « Imprimer le ticket » ouvre
+directement le dialogue d'impression depuis cette fenêtre sans naviguer vers la
+page du ticket ni changer l'URL visible.
+
+Les identifiants exposés par les opérations Pharmacie sont des UUID : demande,
+ligne de dispensation, réservation, bon de sortie, allocation, mouvement de
+stock, médicament et lot. Les clés SQL numériques restent strictement internes
+aux relations locales. Chaque opération sensible conserve une autorisation
+Laravel distincte, notamment `pharmacy.dispense.prepare_invoice`,
+`pharmacy.dispense.print`, `pharmacy.dispense`, `stock.entry` et `stock.adjust` ;
+les contrôles Vue servent uniquement à l'ergonomie.
+
+Dans l'onglet Caisse consacré aux tickets Pharmacie, le mode Saisir/Scanner et
+le champ de référence occupent l'en-tête, au même emplacement que la recherche
+des factures à encaisser. Aucun second titre ni texte explicatif n'est affiché.
+Les résultats utilisent les mêmes colonnes tabulaires que les factures à
+encaisser : client, facture/passage, validation, montants, statut et actions.
+
+Le ticket Pharmacie n'est ni un paiement ni un reçu. Sa consultation et son
+impression utilisent `pharmacy.dispense.print`. Seule Réception/Caisse conserve
+`payments.*`, `cash.*` et l'émission du reçu après un encaissement réel.
+
+---
+
+# ADR-051 — Identité Patient permanente et couverture financière par Episode
+
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+
+Cette décision amende les aspects financiers des ADR-030, ADR-031 et ADR-047 :
+le `Patient` représente uniquement l'identité administrative permanente. Le
+responsable financier d'une prise en charge appartient au passage concerné. Un
+même patient peut donc avoir successivement des épisodes `SELF`, `MUTUAL`,
+`STAFF`, puis `SELF`, sans mutation de son identité permanente.
+
+`Patient.patient_type` et `PatientMutualCoverage` sont conservés comme données
+legacy pour afficher l'historique et maintenir les anciens écrans pendant leur
+transition. Ils ne déterminent plus le tarif d'un nouvel épisode. Aucune donnée
+ancienne n'est supprimée et aucune migration massive n'infère un mode depuis
+`patient_type`, car cette déduction pourrait falsifier l'historique.
+Le flux d'arrivée crée désormais l'identité avec la valeur legacy par défaut
+`STANDARD` et inscrit `MUTUAL` ou `STAFF` uniquement sur l'épisode concerné.
+
+`Episode.financial_mode` accepte :
+
+```text
+SELF     le patient supporte le tarif STANDARD
+MUTUAL   une mutuelle supporte tout ou partie du tarif MUTUAL
+STAFF    un régime Personnel, allocation financière définie par l’ADR-052
+NULL     urgence ou ancien passage dont le contexte reste à régulariser
+```
+
+Cette colonne est indépendante de `financial_status`, qui conserve le statut du
+compte financier. La date et l'auteur de configuration sont tracés sur
+l'épisode. `MUTUAL` exige une `EpisodeMutualCoverage` reliée à l'unique
+`MutualOrganization` existante. Elle fige UUID, nom et taux de couverture de
+l'organisme, ainsi que l'employeur, la qualité du bénéficiaire et le matricule.
+Les justificatifs privés peuvent être rattachés à cette couverture, cinq au
+maximum. Une modification ultérieure de l'organisme ne réécrit jamais cet
+instantané.
+
+`STAFF` exige une `EpisodeStaffCoverage` reliée au véritable `Employee`. Elle ne
+recopie ni nom, ni prénom, ni fonction, ni service. `PatientStaffLink` reste la
+preuve d'identité Patient ↔ Employee, mais ne déclenche jamais automatiquement
+le mode `STAFF`. Un employé lié peut choisir `SELF` sur un autre passage. Le
+crédit forfaitaire Bloc n'est pas défini par cette ADR ; l’ADR-052 complète
+désormais cette responsabilité sans modifier le contexte financier de l’Episode.
+
+`SetEpisodeFinancialContextAction` est l'unique chemin d'écriture pour ces trois
+modes. Une fois une `BillableItem` ou une `Invoice` créée, le contexte ne peut
+plus être remplacé par cette action. Une correction future exigera une procédure
+distincte et auditée. La résolution tarifaire définitive utilise uniquement
+l'épisode, son mode et sa couverture. Un tarif `MUTUAL` manquant ne retombe
+jamais sur `STANDARD`. Pour un épisode legacy sans mode, seuls les snapshots
+financiers déjà présents peuvent être relus ; le type permanent du patient ne
+sert pas de fallback.
+
+Avant la création d'un patient, `ReceptionEstimateService` peut calculer une
+estimation read-only à partir des prestations `SERVICE`, facturables et
+sélectionnables à la Réception, au tarif `STANDARD` courant. Le serveur relit
+toujours le tarif : un prix envoyé par le navigateur est ignoré. Une estimation
+ne crée aucun patient, épisode, demande, orientation, prestation facturable,
+facture ou paiement.
+
+Une urgence conserve son comportement prioritaire : Soins et Médecine sont
+ouverts immédiatement même lorsque `financial_mode` est `NULL`. L'absence de
+contexte financier ne peut jamais annuler ni bloquer la prise en charge
+clinique. Cette fondation n'ajoute ni `LABORATORY_DIRECT`, ni activation des
+analyses à la Réception, et ne modifie pas la vente comptoir externe Pharmacie
+sans Patient/Episode.
+
+---
+
+# ADR-052 — Couverture Personnel et registre du crédit forfaitaire Bloc
+
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+
+Cette décision complète les ADR-030 et ADR-051 sans déplacer la responsabilité
+du contexte financier : `EpisodeFinancialMode::STAFF` et
+`EpisodeStaffCoverage` indiquent toujours quel `Employee` bénéficie du régime
+Personnel pour un passage. Le compte de crédit forfaitaire Bloc appartient à
+`Employee`, jamais à `Patient` ni à `Episode`.
+
+Chaque élément facturable du catalogue possède une politique Personnel
+explicite :
+
+```text
+UNCLASSIFIED              résolution financière en attente
+ORDINARY_FULL_COVERAGE    prise en charge Personnel à 100 %
+BLOCK_CREDIT              consommation du crédit forfaitaire Bloc
+NOT_COVERED               montant intégral à la charge du patient
+```
+
+Les lignes historiques restent `UNCLASSIFIED`. Aucune classification ne peut
+être déduite du nom, du code, du libellé ou du module. En particulier,
+`CatalogModule::SURGERY` ne signifie jamais `BLOCK_CREDIT` : une consultation
+de chirurgien ou un contrôle postopératoire peut être une prestation ordinaire,
+et un nom contenant « Bloc » ne modifie pas la politique configurée.
+
+Le tarif brut d’un Episode STAFF est le tarif `STANDARD` réel et reste
+historisé. La politique répartit ensuite ce brut entre prise en charge Personnel,
+crédit Bloc et part patient. Un crédit insuffisant est consommé jusqu’au solde
+disponible et le reste demeure à la charge du patient ; un solde épuisé ne
+devient jamais négatif. `UNCLASSIFIED` interdit la création financière mais ne
+bloque ni la demande clinique, ni l’orientation, ni les Soins, ni la Médecine,
+ni une prise en charge chirurgicale urgente.
+
+Le crédit est alloué manuellement par montant configurable. Aucune période,
+date d’effet, fréquence, valeur par défaut ou règle de renouvellement n’est
+inventée. Le registre immuable conserve les allocations, consommations et
+réversions avec employé, montant, type, Episode et prestation éventuels, soldes
+avant/après, clé d’idempotence, motif, auteur et date. Une annulation ajoute une
+réversion ; elle ne supprime ou ne modifie jamais la consommation initiale.
+
+La consommation est réalisée dans une transaction qui verrouille le dossier
+`Employee` avant de relire le dernier solde. Une clé unique par `BillableItem`
+rend les doubles clics, retries et relances idempotents. Les snapshots STAFF
+sont conservés sur la demande clinique, la prestation facturable, la facture et
+sa ligne, en plus du montant brut.
+
+Les permissions `staff_block_credits.view` et
+`staff_block_credits.allocate` sont accordées par défaut à
+`ADMINISTRATION` (responsabilité RH/Finance). La Réception peut utiliser le
+résultat financier et encaisser uniquement la part patient, mais ne peut ni
+allouer, ni corriger le solde, ni modifier l’historique, ni créer une réversion
+manuelle. Le Super Administrateur central reste soumis à l’architecture API
+inter-sites et n’accède jamais directement à une base clinique.
+
+---
+
+# ADR-053 — Expérience Réception progressive pilotée par le besoin
+
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+
+Pour un passage normal, l’accueil ne commence plus par une catégorie
+financière du Patient. L’ordre opérationnel est désormais :
+
+```text
+BESOIN -> ESTIMATION -> PATIENT -> EPISODE -> MODE FINANCIER
+        -> CONFIRMATION DES PRESTATIONS -> ROUTAGE
+```
+
+L’écran initial demande « Quel est votre besoin aujourd’hui ? » et charge le
+catalogue réel. Une prestation y apparaît uniquement lorsqu’elle est un
+`SERVICE` actif, facturable, `reception_selectable` et dotée d’un routage
+Réception. La liste et les destinations ne sont jamais codées dans Vue. Cette
+décision n’ajoute pas `LABORATORY_DIRECT` et n’active aucune analyse. La
+configuration existante du Laboratoire reste inchangée.
+
+« Achat de médicaments uniquement » ne crée pas un panier Pharmacie dans la
+Réception. Cette branche renvoie vers la Vente comptoir Pharmacie existante,
+qui conserve son fonctionnement sans Patient ni Episode clinique obligatoire.
+
+Avant toute identité, `ReceptionEstimateService` recalcule une estimation au
+tarif `STANDARD` à partir des seuls UUID et quantités. Quitter après cette
+estimation ne laisse aucun Patient, Episode, demande, orientation,
+`BillableItem`, facture ou paiement. Les prix, totaux et répartitions envoyés
+par un navigateur sont refusés ou ignorés comme sources de vérité.
+
+Après « Continuer la prise en charge », la Réception recherche ou crée
+l’identité permanente avec les validations et la protection anti-doublon
+existantes. `RegisterArrivalAction` crée ensuite exactement un Episode pour
+toutes les prestations sélectionnées. Le mode `SELF`, `MUTUAL` ou `STAFF` est
+choisi seulement après cette création et enregistré exclusivement par
+`SetEpisodeFinancialContextAction`.
+
+Dès la création de l’Episode, le navigateur rejoint une URL stable contenant
+son UUID (`/reception/passages/{uuid}/prise-en-charge`). La sélection encore
+non confirmée est conservée dans un brouillon technique rattaché à l’Episode :
+une actualisation reprend donc le même passage et la même étape sans créer un
+second Episode. Ce brouillon n’est ni une demande clinique, ni une prestation
+facturable, ni une facture ; il est supprimé après la confirmation définitive
+du routage.
+
+`MUTUAL` sélectionne un `MutualOrganization` actif existant et ne permet
+aucune création d’organisme depuis ce parcours. `STAFF` sélectionne un
+`Employee` actif via la projection minimale autorisée et réutilise le lien
+d’identité Patient/Employé. La Réception ne reçoit ni historique du registre,
+ni allocation, ni réversion, ni mutation du crédit Bloc.
+
+La confirmation présente une projection Laravel du brut, de la couverture, du
+reste patient et de la destination initiale. Pour `BLOCK_CREDIT`, cette
+projection simule le solde disponible uniquement en mémoire : elle ne crée
+aucun `StaffBlockCreditMovement`. La consommation réelle reste dans la création
+idempotente du `BillableItem`. `UNCLASSIFIED` ou un tarif manquant laisse la
+finance en attente sans empêcher la demande clinique ni le routage.
+
+La confirmation finale réutilise `CompleteEpisodeServicesAction`. Dans cette
+expérience progressive, elle prépare une facture à régler ultérieurement et ne
+crée aucun paiement ou reçu. L’encaissement demeure exclusivement à
+Réception/Caisse. Le parcours d’urgence ne change pas : son Episode conserve
+un `financial_mode` nullable et ouvre immédiatement Soins et Médecine.
+
+---
+
+# ADR-054 — Stabilisation Soins/Médecine : facturation des actes, clôture administrative et projection CareRecord partagée
+
+**Status:** ACCEPTED (2026-08-29 — audit Soins/Médecine, validé par le propriétaire)
+
+Cette décision documente la « Phase A » de stabilisation qui a suivi l’audit
+Soins/Médecine : elle ne redéfinit aucune règle déjà actée par les ADR-030,
+ADR-032, ADR-035, ADR-047, ADR-048 et ADR-051, mais fixe le comportement de
+quatre mécanismes déjà implémentés qui n’étaient pas encore consignés ici.
+
+## Trois notions distinctes autour de la fiche Soins
+
+```text
+CareRecord              triage / constantes du passage (tension, FC, SpO2,
+                         température, IMC, allergies du passage)
+CareRecordProcedure     acte Soins réellement exécuté, historisé append-only
+BillableItem            prestation à facturer, créée séparément si l’acte
+                         est facturable
+```
+
+`CareRecord` reste la fiche de triage/constantes définie par l’ADR-032 ; elle
+n’est jamais un acte facturable en elle-même. `CareRecordProcedure` est la
+trace clinique de ce qui a été réellement fait — elle existe indépendamment
+de toute conséquence financière. Un acte facturable ne produit un
+`BillableItem` que par un appel explicite à `RecordBillableItemAction`
+(`app/Actions/Care/SaveCareRecordAction.php::billProcedureIfPossible()`),
+jamais par un effet de bord de l’enregistrement clinique.
+
+## Une erreur financière ne bloque jamais l’acte clinique
+
+`billProcedureIfPossible()` capture toute `ValidationException` levée par
+`RecordBillableItemAction` (tarif absent, contexte financier non résolu,
+politique Personnel non classifiée…) et l’ignore silencieusement : le
+`CareRecordProcedure`, déjà créé avant cet appel dans la même transaction,
+n’est jamais annulé. C’est ce mécanisme qui permet à une Urgence — dont
+`Episode.financial_mode` reste `NULL` tant que la famille n’a pas complété le
+dossier (ADR-021, ADR-051) — d’enregistrer normalement les actes Soins sans
+jamais être bloquée par la facturation.
+
+## Idempotence de la facturation d’un acte
+
+Une prestation déjà planifiée à la Réception (`EpisodeServiceRequest`) ne
+peut jamais être refacturée deux fois pour le même acte : `RecordBillableItemAction`
+dérive une clé d’idempotence déterministe de la demande de service
+correspondante et rejoue l’élément déjà créé plutôt que d’en produire un
+second. Un acte réalisé au-delà de la demande initiale (acte supplémentaire
+non prévu à la Réception) produit en revanche son propre `BillableItem`
+`PENDING`, indépendant.
+
+## Rattachement à une facture non encore encaissée
+
+`AttachBillableItemToUnpaidInvoiceAction` rattache un nouvel élément
+facturable à une facture existante du même passage uniquement si :
+
+```text
+Invoice.status IN (DRAFT, VALIDATED)
+ET Invoice.paid_amount = 0
+```
+
+Ce test par liste explicite est nécessaire et volontaire : une facture
+`COVERED` a elle aussi `paid_amount = 0` (une prise en charge à 100 % ne
+fabrique aucun paiement, ADR-047) et serait donc rattachable si le contrôle
+portait uniquement sur `paid_amount`. `PARTIALLY_PAID`, `PAID`, `COVERED` et
+`CANCELLED` sont donc tous exclus par construction, jamais mutés
+silencieusement une fois qu’un encaissement ou un règlement a eu lieu.
+
+## CARE_ONLY final : PENDING_SETTLEMENT
+
+`CompleteCareAndOrientToMedicineAction::settleAdministrativelyIfPathwayComplete()`
+fait progresser `Episode.administrative_status` uniquement lorsque le
+workflow confirme que le parcours clinique prévu est réellement terminé :
+
+```text
+CareWorkflow::completionMode() === Finish
+ET Episode.administrative_status === IN_CARE
+ET aucune EpisodeOrientation Médecine active (PENDING/IN_PROGRESS) pour ce passage
+```
+
+L’orientation Soins passe à `COMPLETED` (inchangé), `Episode.administrative_status`
+passe à `PENDING_SETTLEMENT`, `Episode.status` reste `OPEN`. Aucune
+`MedicalDischarge` fictive n’est créée, aucune fausse `Consultation` n’est
+ouverte : `PENDING_SETTLEMENT` signifie seulement que la suite du passage est
+désormais administrative/financière, jamais que le patient est médicalement
+sorti.
+
+Cette transition ne s’applique jamais à `CARE_THEN_MEDICINE` (l’orientation
+Médecine créée empêche la condition ci-dessus) ni à une Urgence dont
+l’orientation Médecine ouverte en parallèle à l’arrivée
+(`PlanEpisodeRoutingAction::openInitialQueues()`) est toujours active :
+`CareWorkflow::completionMode()` ignore `Episode.priority` et ne suffit donc
+jamais seul à décider de cette transition — la vérification explicite de
+l’orientation Médecine active est ce qui protège l’Urgence contre une
+clôture administrative prématurée.
+
+## Page « Détail du passage »
+
+`EpisodeController::show()` / `Episodes/Show.vue` (`/passages/{episode}`)
+agrège en lecture seule ce qui est déjà accessible séparément par module :
+orientations, fiche Soins, consultations/diagnostics/prescriptions Médecine,
+sortie médicale, facturation. Chaque section reste gardée côté serveur par la
+permission qui possède réellement la donnée (`care.view`/`vitals.view` pour
+la fiche Soins, `medical_record.view` pour le dossier, `diagnoses.view` et
+`prescriptions.view` indépendamment l’un de l’autre pour leurs sous-sections,
+`billing.view` pour la facturation) : `patients.view` seul, qui protège la
+route, ne suffit à exposer aucune de ces sections.
+
+## Constantes partagées via CareRecordReadModel
+
+`app/Services/Care/CareRecordReadModel.php` est la projection unique des
+constantes et de leurs seuils d’alerte (`BmiAssessment`, `BloodPressureAssessment`,
+`HeartRateAssessment`, `OxygenSaturationAssessment`, `TemperatureAssessment`,
+ADR-038 à ADR-041). Soins, Chirurgie/Anesthésie (ADR-048) et désormais
+`MedicineDossierPresenter` la consomment tous les trois ; aucun seuil n’est
+recalculé indépendamment dans un module. Comme pour `SURGERY` (ADR-048),
+exposer cette projection à `MEDICINE` exige les permissions en lecture seule
+`care.view` et `vitals.view` — accordées au rôle par défaut, sans aucun droit
+`care.update`/`vitals.update` : Médecine consulte la fiche Soins, ne la
+modifie jamais.
+
+## Antécédents patient
+
+L’audit avait signalé `RecordPatientAntecedentAction` comme déjà
+implémentée, testée, mais sans route exposée. `PatientController::storeAntecedent()`
+(`POST /patients/{patient}/antecedents`, permission `patients.medical_history.manage`)
+est ce point d’entrée générique, réutilisable par tout appelant autorisé —
+Médecine y ajoute sa propre UI dans `Medicine/Show.vue`. Un antécédent reste
+une donnée permanente du `Patient` (§19), jamais un champ de `Consultation` ;
+aucune donnée n’est dupliquée entre les deux.
+
+## Hors périmètre
+
+Cette ADR ne couvre aucun des éléments suivants, volontairement non traités
+par cette stabilisation : `ConsultationDecision::NursingCare` actionnable,
+ordre de soins Médecine → Soins, `surgery.request`, `SurgicalRequest` créée
+depuis Médecine, Laboratoire, `LABORATORY_DIRECT`, Hospitalisation,
+`MedicalOrder` générique, Maternité, Pédiatrie.
+
+---
+
+# ADR-055 — Ordre de soins Médecine → Soins (CareOrder)
+
+**Status:** ACCEPTED (2026-08-29 — exigence explicite du propriétaire)
+
+Le médecin peut, depuis une Consultation active, demander un ou plusieurs
+actes au service Soins. Ce besoin est porté par `CareOrder` (DEMANDE) et
+`CareOrderItem`, un modèle dédié — jamais par `EpisodeServiceRequest`, dont le
+contrat reste strictement le plan de la Réception à l'arrivée, ni fusionné
+avec l'ORIENTATION (`EpisodeOrientation`), l'ACTE RÉALISÉ
+(`CareRecordProcedure`) ou la FACTURATION (`BillableItem`).
+
+Un `CareOrderItem` sélectionne un `CatalogItem` actif de type `SERVICE` et de
+module `CARE` marqué `clinician_orderable` — une propriété explicite,
+distincte de `reception_selectable`/`reception_routing_mode` (propres à la
+Réception), jamais déduite du nom ou du code d'un acte. Chaque ligne fige un
+instantané (`catalog_item_code_snapshot`, `catalog_item_name_snapshot`) :
+une évolution ultérieure du catalogue ne réécrit jamais une demande déjà
+faite.
+
+`CreateCareOrderAction` réutilise exclusivement `CreateEpisodeOrientationAction`
+pour créer l'orientation Médecine → Soins ; aucune nouvelle file d'attente
+n'est introduite. Pour un patient `NORMAL`, l'orientation Médecine active est
+terminée avant l'ouverture de Soins, afin qu'une seule orientation clinique
+active existe à la fois. Une Urgence conserve sa logique parallèle existante
+(Soins et Médecine restent ouverts simultanément, ADR-021).
+
+Le médecin choisit, au moment de la demande, si le patient doit revenir en
+Médecine (`requires_return_to_medicine`). Ce choix — jamais redemandé à
+l'infirmier — gouverne la complétion : `CompleteCareAndOrientToMedicineAction`
+détecte un `CareOrder` actif rattaché à l'orientation Soins et applique alors
+sa propre règle plutôt que celle de `CareWorkflow` (qui ne décrit que le plan
+d'arrivée, étranger à cette visite). Si `true`, une nouvelle orientation
+Soins → Médecine est créée (même Episode, aucun nouvel Episode) ;
+`AcceptMedicineOrientationAction`, inchangée, y ouvre alors une nouvelle
+Consultation sans jamais réécrire la première. Si `false`, l'épisode passe en
+`PENDING_SETTLEMENT` selon la même règle que l'ADR-054, sans sortie médicale
+fictive.
+
+`ConsultationDecision::NursingCare` reste une synchronisation, jamais un
+déclencheur : seule l'action explicite « Demander un soin », validée côté
+serveur, crée un `CareOrder`. Un brouillon ou un changement de `decision` ne
+crée jamais d'orientation.
+
+La facturation d'un acte demandé suit exactement le circuit déjà en place
+(ADR-054) : c'est l'enregistrement du `CareRecordProcedure` par Soins qui
+déclenche `RecordBillableItemAction`, jamais la création du `CareOrder`
+elle-même.
+
+Permissions :
+
+```text
+care_orders.create   MEDICINE uniquement
+care_orders.view     MEDICINE, NURSE
+```
+
+`NURSE` ne reçoit jamais `care_orders.create` ni `consultations.*`.
+
+---
+
+# ADR-056 — Urgence décidée après création de l’Épisode
+
+**Status:** ACCEPTED (2026-08-29 — décision explicite de la réunion métier)
+
+Le choix d’urgence intervient uniquement après la création de l’Épisode et de
+son UUID. L’ancien indicateur d’arrivée `is_emergency`, envoyé avant que le
+passage existe, est supprimé du flux Réception. Une arrivée crée donc d’abord
+un Épisode `NORMAL`, puis la Réception peut requalifier ce passage précis
+depuis l’étape « Prise en charge ».
+
+L’urgence reste exclusivement une propriété de `Episode.priority`, jamais du
+`Patient`. Si un même Patient possède quatre passages, un seul peut être
+`EMERGENCY` sans modifier les trois autres. La requalification ne crée ni un
+nouveau Patient, ni un nouvel Épisode et ne supprime aucun besoin, contexte
+financier, acte ou document déjà enregistré.
+
+La Médecine peut appliquer la même requalification pendant une Consultation
+active. Cette transition ne régresse jamais `administrative_status` : un
+passage déjà `IN_CARE` reste `IN_CARE` et la Consultation en cours demeure
+ouverte. Un passage fermé, annulé ou médicalement sorti ne peut plus être
+requalifié.
+
+Après requalification, les files Soins et Médecine sont ouvertes
+immédiatement via l’unique `CreateEpisodeOrientationAction`. Son `active_key`
+rend l’opération idempotente : une orientation Médecine déjà active est
+réutilisée et seule l’orientation Soins manquante est créée. Aucun paiement ni
+contexte financier ne conditionne ce déclenchement clinique.
+
+La transition est atomique et auditée sous `episode.mark_emergency`. Elle est
+protégée par la permission granulaire du même nom, accordée par défaut à
+`RECEPTION` et `MEDICINE`. Cette permission n’accorde aucun droit générique
+`episodes.update` à Médecine.
+
+---
+
+# ADR-057 — Supervision centrale des sessions de caisse
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Le portail Super Administration expose, pour chaque caisse nommée et toujours
+via l’API du site opérationnel, une fiche de supervision comprenant la session
+active, l’agent qui l’a ouverte, les dates et heures, les mouvements, les
+montants attendus/comptés, les écarts et l’historique récent. Aucun accès SQL
+direct aux bases des cliniques n’est ajouté.
+
+Le **verrouillage** et la **clôture** sont deux opérations différentes. Un
+verrouillage suspend tout nouvel encaissement et toute annulation de paiement,
+mais conserve la session financière active et son `active_key` : il ne crée
+aucune clôture fictive et n’autorise pas l’ouverture d’une autre caisse. Le
+déverrouillage permet la reprise sur la même session.
+
+La clôture centrale est définitive. Elle exige les espèces réellement
+comptées et un motif ; le site recalcule lui-même le montant attendu à partir
+des mouvements, enregistre l’écart, libère l’unique `active_key` puis clôture
+la session. Le portail central ne fournit jamais le montant attendu comme
+vérité comptable.
+
+Les trois transitions sont atomiques, idempotentes au niveau API et auditées
+sous `cash.lock`, `cash.unlock` et `cash.close`. L’identité UUID du Super
+Administrateur est enregistrée comme acteur externe, sans créer d’utilisateur
+local. Les permissions dédiées sont `cash_registers.lock`,
+`cash_registers.unlock` et `cash_registers.close`, réservées par défaut au
+profil `SUPER_ADMIN` du portail central.
+
+---
+
+# ADR-058 — Caisses concurrentes par poste nommé
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Cette décision amende l’ADR-011 : chaque site ne possède plus nécessairement
+une seule caisse fonctionnelle, mais une caisse fonctionnelle **par poste
+nommé** lorsque des postes sont configurés (`CashRegister`), et une seule
+caisse fonctionnelle site-large lorsqu’aucun poste n’est configuré — le
+comportement historique reste inchangé à l’octet près dans ce second cas.
+
+```text
+Site sans poste configuré → une seule session de caisse, comme avant
+Site avec Caisse 1, Caisse 2 → Caisse 1 et Caisse 2 ouvrables et
+                                utilisables simultanément, chacune sa
+                                propre session
+```
+
+Caisse 1 et Caisse 2 ne s’excluent jamais l’une l’autre : ouvrir l’une
+n’empêche plus d’ouvrir l’autre. La seule règle qui subsiste est que le
+**même** poste ne peut jamais avoir deux sessions ouvertes à la fois. Cette
+décision rejette explicitement l’alternative envisagée d’un verrouillage
+« exclusif à l’ouvreur » — n’importe quel utilisateur autorisé
+(`payments.create`/`cash.*`) continue d’opérer n’importe quelle session
+ouverte, exactement comme aujourd’hui pour la session unique du site ; seul
+le périmètre change, du site entier vers le poste précis sur lequel
+l’utilisateur travaille.
+
+Le mécanisme réutilise sans migration la colonne `cash_sessions.active_key`
+déjà unique et nullable : `CashSession::activeKeyFor()` calcule
+`'REGISTER_'.$cashRegister->id` pour un poste nommé, et conserve la valeur
+historique `'SINGLE_OPEN_CASH'` en l’absence de poste. Deux postes différents
+produisent deux valeurs distinctes et n’entrent donc jamais en collision sur
+l’index unique ; le même poste rouvert reproduit la même valeur et déclenche
+la même collision qu’avant. Cette même clé pilote désormais aussi la
+supervision centrale de l’ADR-057 : verrouiller, déverrouiller ou clôturer à
+distance cible le poste précisé, jamais « la » session du site.
+
+Aucun paiement enregistré sans contexte de caisse explicite (facture, compte
+patient, arrivée Réception) n’est jamais attribué à l’aveugle à une caisse
+ambiguë : `RecordPaymentAction` n’auto-résout la session que si une seule est
+ouverte sur le site, et exige sinon que l’appelant précise
+`cash_register_uuid`, avec une erreur explicite plutôt qu’une mauvaise
+attribution silencieuse.
+
+---
+
+# ADR-059 — Exclusivité locale du titulaire d’une session, détachement central
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire) ; le
+détachement central (`cash_registers.release`) décrit plus bas est
+**SUPERSEDED par l’ADR-060** (2026-08-30, même jour) — le reste de cette
+décision (exclusivité locale de l’ouvreur) reste pleinement en vigueur.
+
+Cette décision amende l’ADR-058 le jour même : l’alternative « verrouillage
+exclusif à l’ouvreur », explicitement rejetée par l’ADR-058, est en fait
+retenue. Une session ouverte ne peut plus être utilisée localement — pour
+encaisser, clôturer ou annuler un paiement — par un autre compte que celui
+qui l’a ouverte (`cash_sessions.opened_by`). Un compte différent qui tente
+d’y accéder est bloqué avec un message explicite et orienté vers une autre
+caisse disponible, plutôt que de continuer silencieusement à opérer la
+session d’un collègue absent.
+
+```text
+Florent ouvre Caisse 1 → seul Florent peut y encaisser ou la clôturer
+Andry visite /cash/1     → bloqué : « Caisse 1 est utilisée par Florent »
+Andry ouvre Caisse 2     → Caisse 2 lui appartient, indépendamment de Caisse 1
+```
+
+L’application se fait à trois niveaux, jamais seulement dans l’interface :
+`RecordPaymentAction`, `CloseCashSessionAction` et `CancelPaymentAction`
+refusent chacun l’action si l’acteur local diffère de `opened_by`, même en
+forçant l’UUID de la caisse. Côté UI, le sélecteur de caisse et l’espace de
+travail rapportent l’état par poste (`is_mine`) plutôt qu’un simple « ouvert
+ou non », afin que le blocage soit visible avant toute tentative.
+
+**Détachement central — l’échappatoire délibérée (SUPERSEDED par l’ADR-060,
+retiré le jour même).** Un titulaire absent qui
+n’a pas clôturé sa session ne doit pas bloquer indéfiniment une caisse. Le
+Super Administrateur dispose de `cash_registers.release`
+(`ReleaseCashSessionAction`, action `session/release`) : elle retire le
+titulaire (`opened_by` devient `null`) sans clôturer ni modifier les
+montants, l’historique ou l’état verrouillé/ouvert de la session. Cette
+action est distincte de `cash_registers.close` (ADR-057) — elle ne clôture
+rien et n’exige aucun comptage — et distincte d’une réattribution : le
+portail central ne choisit jamais explicitement quel compte local reprend la
+caisse (ADR-027 tient les comptes centraux à l’écart des rosters locaux).
+
+Une session détachée reste ouverte et devient réclamable : le premier acteur
+local qui l’utilise réellement — un encaissement ou une clôture, jamais une
+simple consultation — en devient automatiquement le nouveau titulaire,
+tracé sous l’action d’audit dédiée `cash.claim`. `cash_sessions.opened_by`
+est donc désormais nullable ; les colonnes `released_by`,
+`external_released_by_uuid/name`, `released_at` et `release_reason`
+suivent le même schéma que le verrouillage central de l’ADR-057.
+
+---
+
+# ADR-060 — Retrait du détachement central : seule la clôture libère une caisse
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Cette décision retire, le jour même de son introduction, le mécanisme de
+« détachement central » de l’ADR-059 (`cash_registers.release`,
+`ReleaseCashSessionAction`, action `session/release`). Pour la traçabilité,
+aucune action — locale ou centrale — ne doit jamais transférer la garde
+d’une caisse encore ouverte à un autre titulaire sans un comptage réel des
+espèces. Le détachement permettait précisément l’inverse : faire disparaître
+un titulaire sans compter l’argent qu’il avait sous sa garde.
+
+```text
+Avant (ADR-059)                         Après (ADR-060)
+Florent absent, caisse ouverte          Florent absent, caisse ouverte
+→ Super Admin « Détache » (pas de       → Super Admin doit « Clôturer »
+  comptage, session reste ouverte,        (comptage obligatoire, écart
+  titulaire suivant repris au premier      tracé, session définitivement
+  encaissement)                            close)
+                                         → N'importe qui peut ensuite ouvrir
+                                            une NOUVELLE session normalement
+```
+
+L’exclusivité locale de l’ouvreur (ADR-059, première partie) reste
+pleinement en vigueur et n’est pas concernée par ce retrait : un compte
+différent de l’ouvreur reste bloqué sur `RecordPaymentAction`,
+`CloseCashSessionAction` et `CancelPaymentAction`. La seule différence est
+qu’il n’existe plus aucune façon de faire cesser cette garde sans
+`cash_registers.close` (ADR-057) — jamais de transfert silencieux, jamais
+sans comptage.
+
+Retirés : le contrôleur `release()` (API site et portail), le client
+`releaseCashRegisterSession()`, les routes `session/release`, l’action
+`ReleaseCashSessionAction`, le bouton « Détacher le titulaire » et sa
+fenêtre de confirmation, ainsi que la logique de réclamation automatique
+(« claim on first use ») dans `RecordPaymentAction` et
+`CloseCashSessionAction` — ces deux actions redeviennent une simple
+comparaison stricte avec `opened_by`, sans cas particulier pour une valeur
+`null`.
+
+Conservés, volontairement, sans retour en arrière risqué sur une base déjà
+migrée : la colonne `cash_sessions.opened_by` reste nullable, ainsi que les
+colonnes `released_by`, `external_released_by_uuid/name`, `released_at` et
+`release_reason` — inertes, jamais réécrites par aucun code depuis cette
+décision, mais nécessaires pour lire sans erreur l’historique déjà produit
+par le mécanisme retiré (des sessions déjà détachées avant ce retrait
+peuvent encore porter `opened_by = null` ; seule une clôture centrale peut
+désormais les libérer).
+
+---
+
+# ADR-061 — Corbeille centrale multi-sites et restauration réservée
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Le portail Super Administration fournit une Corbeille unique qui agrège, via
+les API REST des sites et jamais par accès SQL direct, les suppressions
+réversibles actuellement prises en charge : Patients, prestations/produits du
+catalogue, adresses, organismes mutuels et caisses nommées. La liste expose le
+site propriétaire, la catégorie, l’UUID ou la référence métier, la date,
+l’acteur et le motif de suppression ; elle est filtrable par site, catégorie,
+période et recherche textuelle.
+
+La restauration est unitaire, idempotente et exécutée dans la base du site
+propriétaire. L’UUID d’origine est conservé. Le portail exige
+`trash.restore`, puis l’API exige à nouveau ce droit **et** la permission de
+restauration de la catégorie (`patients.restore`, `catalog.items.restore`,
+`address_entries.restore`, `mutual_organizations.restore` ou
+`cash_registers.restore`). Ces droits de restauration ne sont plus accordés
+par défaut aux rôles opérationnels ; ils appartiennent par défaut uniquement
+au `SUPER_ADMIN` central. La vérification reste fondée sur les permissions
+dynamiques, sans contournement basé uniquement sur le nom du rôle.
+
+Chaque catégorie appelle sa règle métier existante : contrôles de doublon des
+adresses, mutuelles et caisses, attribution distante du catalogue, puis audit
+du `restore` avec l’identité UUID du Super Administrateur. Une erreur ou un
+conflit sur un site ne modifie aucun autre site.
+
+Cette Corbeille n’est pas un `restore()` générique sur toutes les tables.
+Consultations, antécédents, allergies, actes chirurgicaux et autres données
+cliniques critiques restent exclus tant qu’un workflow métier explicite de
+correction/restauration n’est pas décidé. Les paiements, factures, reçus,
+clôtures et autres écritures financières ne sont jamais placés dans cette
+Corbeille : ils suivent exclusivement les mécanismes annuler/corriger/inverser
+prévus par le CDC.
+
+---
+
+# ADR-062 — Exception étroite à ADR-022 : suppression physique d’un compte jamais utilisé
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire, après
+signalement explicite de la contradiction avec ADR-022)
+
+Cette décision n’abroge pas ADR-022. Un compte utilisateur reste un acteur
+historique et la désactivation demeure l’unique action normale. Elle ouvre
+une exception unique, volontairement étroite : un Super Administrateur peut
+supprimer physiquement un compte qui n’a **strictement jamais servi** —
+jamais connecté, jamais l’auteur d’une seule ligne d’audit, où qu’elle soit
+dans le site.
+
+```text
+Compte jamais connecté ET jamais acteur d’un audit_logs.user_id → suppression possible
+Tout autre compte                                              → désactivation uniquement
+```
+
+Cette restriction n’est pas arbitraire : `users.id` est référencé en clé
+étrangère par des dizaines de tables cliniques, financières et d’audit. La
+majorité (`payments`, `receipts`, `billable_items`, `catalog_items`,
+`care_records`, les mouvements Pharmacie, …) refuse déjà la suppression au
+niveau base de données (`restrictOnDelete`). Mais plusieurs tables cliniques
+sensibles (`episodes.created_by`, `diagnoses.recorded_by`,
+`patient_antecedents.recorded_by`, …) et surtout `audit_logs.user_id`
+lui-même utilisent `nullOnDelete` : sans ce contrôle applicatif, supprimer un
+compte ayant une activité réelle effacerait silencieusement l’identité de
+l’auteur dans son propre historique d’audit — l’inverse exact de ce
+qu’ADR-022 protège. `ForceDeleteUserAction` vérifie donc explicitement
+l’absence totale d’activité avant toute suppression, et intercepte en plus
+toute violation de contrainte restante comme filet de sécurité — jamais un
+`user_id` mis à `null` sur une ligne d’audit ou clinique existante.
+
+La suppression reste soumise aux mêmes garde-fous que la désactivation :
+impossible sur soi-même, sur le dernier Super Administrateur actif, ou sur un
+compte `SUPER_ADMIN` géré depuis un site opérationnel. Elle est irréversible,
+distincte de la désactivation, protégée par la permission dédiée
+`users.force_delete` (réservée par défaut au seul rôle `SUPER_ADMIN`, jamais
+accordée automatiquement à `ADMINISTRATION`), auditée (`user.force_delete`)
+et exécutée exclusivement via l’API du site — jamais un accès direct depuis
+le portail central.
+
+Le modèle `User` reste protégé par défaut : sa requête de suppression et
+l’évènement `deleting` continuent de lever une exception dans tout le reste
+du code. `User::allowPhysicalDeletion()` n’ouvre cette voie que pour la durée
+de l’appel sanctionné par `ForceDeleteUserAction`, jamais plus largement.
+
+---
+
+# ADR-063 — Catalogue d’analyses séparé des prestations et références historisées
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Une analyse prescrivable et éventuellement facturable reste une prestation
+`catalog_items` de module `LABORATORY`. Sa structure technique est portée par
+`analysis_catalogs` : groupe, sous-analyse, type de résultat, unité, valeurs
+prédéfinies, ordre d’affichage et références générale/homme/femme/enfant.
+Cette séparation évite de placer des données cliniques variables dans le
+référentiel tarifaire ; le prix demeure exclusivement dans
+`catalog_tariffs`.
+
+Les références sont choisies selon l’âge et le sexe disponibles dans le
+dossier, avec repli vers la référence générale. Elles constituent une aide de
+saisie à valider selon la méthode, les réactifs et les unités du laboratoire
+du site. Au moment où un résultat est enregistré, les définitions et la
+référence présentées sont copiées dans `lab_request_items.reference_snapshot` :
+une modification ultérieure du catalogue ne réécrit jamais l’historique d’un
+résultat clinique.
+
+La gestion locale exige les permissions granulaires `analysis_catalog.*`.
+L’import/export utilise Excel `.xlsx`; l’import est transactionnel, limité,
+met à jour par code et annule entièrement l’opération si une ligne est
+invalide. Les examens ECG/échographie restent des prestations
+`catalog_items` du module `IMAGING`, distinctes des analyses Laboratoire.
+
+---
+
+# ADR-064 — Socle de permissions d’un rôle éditable depuis le portail
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Jusqu’ici, le socle de permissions d’un rôle (« tout compte `MEDICINE` a par
+défaut `consultations.create` ») n’existait que dans le code, sous
+`RolePermissionSeeder::GRANTS`, appliqué par `php artisan db:seed`. Modifier
+ce socle exigeait donc un déploiement. Cette décision ajoute un second chemin
+d’écriture, exclusivement depuis `admin.rivo.mg` : un Super Administrateur
+peut désormais cocher ou décocher les permissions par défaut d’un rôle
+directement dans l’écran `Rôles & permissions`, par site, sans toucher au
+code ni redéployer.
+
+Cette capacité est strictement additive. Elle ne modifie ni ne remplace la
+logique déjà construite d’exceptions individuelles `user_permissions`
+(`allow`/`deny` par compte, DENY prioritaire) : un compte garde exactement
+les mêmes exceptions qu’avant, appliquées ensuite par-dessus le nouveau
+socle du rôle, exactement comme aujourd’hui.
+
+```text
+Permission effective du compte =
+    DENY individuel                                  (le plus prioritaire)
+    > ALLOW individuel
+    > socle du rôle             <- modifiable ici, désormais aussi par l’UI
+```
+
+L’édition est exécutée par site via l’API existante
+(`PUT /api/v1/super-admin/roles/{role}/permissions`,
+`UpdateRolePermissionsAction`), jamais par accès direct à une base clinique
+(ADR-004/025/027). Elle exige la permission `users.manage` (déjà présente au
+catalogue, jusque-là inutilisée) et remplace intégralement l’ensemble des
+permissions du rôle par la liste transmise (`sync`), à la manière du seeder
+lui-même. Le socle `SUPER_ADMIN` reste hors de portée de cet écran : il
+continue de recevoir automatiquement toutes les permissions sur le portail
+central et aucune sur un site clinique, un mécanisme distinct qu’une édition
+manuelle ne doit pas contredire (ADR-025, ADR-027).
+
+Chaque modification est auditée (`role.permissions.update`) avec l’ancien et
+le nouveau socle, l’identité UUID/nom du Super Administrateur distant et le
+site concerné, selon le mécanisme d’audit déjà utilisé pour la gestion des
+comptes (`Auditor::record`, attribution externe automatique pour un acteur
+distant).
+
+`RolePermissionSeeder::GRANTS` n’est pas retiré : il reste la source du
+socle initial à la création d’un site ou d’un nouveau rôle. Un réexécution de
+`php artisan db:seed` après une édition manuelle via cet écran réapplique
+cependant intégralement le tableau codé en dur et écrase donc silencieusement
+toute personnalisation faite depuis le portail — ce seeder ne doit donc plus
+être rejoué sur un site déjà en production après sa mise en place initiale,
+sauf pour ajouter un rôle qui n’existe pas encore. Faire cohabiter les deux
+sources sans écrasement (par exemple en ne synchronisant que les rôles
+absents) reste hors périmètre de cette décision.
+
+---
+
+# ADR-065 — Corbeille locale en lecture, propre à chaque site
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire, après
+constat que `trash.view` accordé à un rôle clinique via ADR-064 ne donnait
+accès à rien)
+
+ADR-061 réserve la Corbeille consolidée multi-sites au seul portail
+`admin.rivo.mg` ; ADR-025/027 interdisent à un compte opérationnel de s’y
+connecter. Une fois ADR-064 en place, accorder `trash.view` à un rôle
+clinique (ex. Médecine) n’avait donc aucun effet observable : aucune route ni
+entrée de menu ne l’utilisait sur un site. Plutôt que d’interdire cette
+combinaison, cette décision lui donne un sens réel, strictement local.
+
+Chaque site expose désormais sa propre page `GET /trash` (menu « Corbeille »,
+`trash.view`), scopée à ce site uniquement — jamais multi-site, jamais un
+raccourci vers le portail. Elle réutilise tel quel `App\Services\Trash\
+TrashDirectory`, déjà partagé avec l’API distante consommée par le portail
+(ADR-061) : mêmes catégories (`Patient`, `CatalogItem`, `AddressEntry`,
+`MutualOrganization`, `CashRegister`), même exclusion des données cliniques
+et financières critiques, même journal d’audit.
+
+Le paramètre qui change est l’acteur : `TrashDirectory::restore()` reçoit ici
+`CatalogActor::fromUser($user)` — un utilisateur local authentifié, jamais un
+acteur distant. La restauration reste donc soumise à `trash.restore` **et**
+à la permission de restauration propre à la catégorie
+(`patients.restore`, `catalog.items.restore`, …), non accordées par défaut
+aux rôles opérationnels (ADR-061). En pratique, un compte clinique qui reçoit
+uniquement `trash.view` — le cas d’usage qui a motivé cette décision — voit
+donc une liste strictement en lecture, sans aucun bouton de restauration,
+jusqu’à ce qu’une exception individuelle explicite (ADR-022) lui accorde
+aussi les droits de restauration nécessaires.
+
+Cette page ne modifie ni ADR-061 (le portail reste la seule vue consolidée
+sur plusieurs sites) ni les permissions de restauration déjà réservées au
+Super Admin par défaut : elle ajoute uniquement une lecture locale, cohérente
+avec ce que `trash.view` laisse maintenant réellement espérer à qui le reçoit
+depuis l’éditeur de socle de rôle (ADR-064) ou une exception individuelle.

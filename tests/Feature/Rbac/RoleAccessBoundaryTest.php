@@ -46,39 +46,39 @@ class RoleAccessBoundaryTest extends TestCase
         $boundaries = [
             'RECEPTION' => [
                 'allowed' => ['/reception', '/cash', '/patients'],
-                'denied' => ['/surgery', '/administration/users', '/administration/catalog'],
+                'denied' => ['/surgery', '/anesthesia', '/administration/users', '/administration/catalog'],
             ],
             'MEDICINE' => [
                 'allowed' => ['/patients'],
-                'denied' => ['/reception', '/cash', '/surgery', '/administration/users', '/administration/catalog'],
+                'denied' => ['/reception', '/cash', '/surgery', '/anesthesia', '/administration/users', '/administration/catalog'],
             ],
             'NURSE' => [
                 'allowed' => ['/patients'],
-                'denied' => ['/reception', '/cash', '/surgery', '/administration/users', '/administration/catalog'],
+                'denied' => ['/reception', '/cash', '/surgery', '/anesthesia', '/administration/users', '/administration/catalog'],
             ],
             'SURGERY' => [
                 'allowed' => ['/surgery'],
-                'denied' => ['/reception', '/cash', '/patients', '/administration/users', '/administration/catalog'],
+                'denied' => ['/anesthesia', '/reception', '/cash', '/patients', '/administration/users', '/administration/catalog'],
             ],
             'ADMINISTRATION' => [
                 'allowed' => ['/administration'],
-                'denied' => ['/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+                'denied' => ['/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
             'LOGISTICS' => [
                 'allowed' => ['/logistics'],
-                'denied' => ['/administration', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+                'denied' => ['/administration', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
             'SUPPORT' => [
                 'allowed' => [],
-                'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+                'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
             'MAINTENANCE' => [
                 'allowed' => [],
-                'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+                'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
             'PHARMACY' => [
                 'allowed' => ['/pharmacy'],
-                'denied' => ['/administration', '/logistics', '/reception/visitors', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/administration/catalog'],
+                'denied' => ['/administration', '/logistics', '/reception/visitors', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
         ];
 

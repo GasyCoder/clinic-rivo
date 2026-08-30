@@ -1,18 +1,26 @@
 <?php
 
 use App\Enums\ReceptionPatientStep;
+use App\Http\Controllers\Administration\AnalysisCatalogController;
+use App\Http\Controllers\Administration\CashRegisterController;
 use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
+use App\Http\Controllers\Administration\DiagnosticCatalogController;
+use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;
 use App\Http\Controllers\AnesthesiaController;
+use App\Http\Controllers\AnesthesiaWorkspaceController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
+use App\Http\Controllers\DiagnosticCatalogSearchController;
 use App\Http\Controllers\EpisodeController;
+use App\Http\Controllers\EpisodeEmergencyController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
@@ -21,17 +29,31 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PharmacyController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
+use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
+use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\ReceptionController;
+use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
+use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
+use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
+use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
+use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
+use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
+use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SurgeryController;
+use App\Http\Controllers\SurgicalBlockEntryController;
+use App\Http\Controllers\SurgicalBlockExitController;
 use App\Http\Controllers\SurgicalCareNoteController;
 use App\Http\Controllers\SurgicalComplicationController;
 use App\Http\Controllers\SurgicalConsumableController;
 use App\Http\Controllers\SurgicalInterventionController;
+use App\Http\Controllers\SurgicalPostoperativeObservationController;
 use App\Http\Controllers\SurgicalPreoperativeController;
 use App\Http\Controllers\SurgicalReportController;
 use App\Http\Controllers\SurgicalTeamMemberController;
+use App\Http\Controllers\SurgicalTreatmentItemController;
+use App\Http\Controllers\TrashController;
 use App\Http\Controllers\VisitorReceptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -57,7 +79,78 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
     ->prefix('super-admin')
     ->name('super-admin.')
     ->group(function () {
+        Route::get('/trash', [SuperAdminTrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
+        Route::post('/trash/{site}/{category}/{uuid}/restore', [SuperAdminTrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
+
         Route::get('/sites/{site}', [SuperAdminController::class, 'site'])->name('sites.show')->middleware('can:sites.view');
+        Route::get('/stock', SuperAdminMedicineStockController::class)->name('stock.index')->middleware('can:stock.view');
+        Route::get('/stock/export', [SuperAdminMedicineStockController::class, 'export'])->name('stock.export')->middleware('can:stock.export');
+        Route::get('/stock/import-template', [SuperAdminMedicineStockController::class, 'template'])->name('stock.import-template')->middleware('can:stock.import');
+        Route::post('/stock/import', [SuperAdminMedicineStockController::class, 'import'])->name('stock.import')->middleware('can:stock.import');
+        Route::get('/addresses', [SuperAdminAddressEntryController::class, 'index'])->name('addresses.index')->middleware('can:address_entries.view');
+        Route::get('/addresses/export', [SuperAdminAddressEntryController::class, 'export'])->name('addresses.export')->middleware('can:address_entries.export');
+        Route::get('/addresses/import-template', [SuperAdminAddressEntryController::class, 'template'])->name('addresses.import-template')->middleware('can:address_entries.import');
+        Route::post('/addresses/import', [SuperAdminAddressEntryController::class, 'import'])->name('addresses.import')->middleware('can:address_entries.import');
+        Route::post('/addresses', [SuperAdminAddressEntryController::class, 'store'])->name('addresses.store')->middleware('can:address_entries.create');
+        Route::post('/addresses/bulk/archive', [SuperAdminAddressEntryController::class, 'bulkArchive'])->name('addresses.bulk.archive')->middleware('can:address_entries.archive');
+        Route::post('/addresses/bulk/restore', [SuperAdminAddressEntryController::class, 'bulkRestore'])->name('addresses.bulk.restore')->middleware(['can:trash.restore', 'can:address_entries.restore']);
+        Route::put('/addresses/{site}/{address}', [SuperAdminAddressEntryController::class, 'update'])->name('addresses.update')->middleware('can:address_entries.update');
+        Route::delete('/addresses/{site}/{address}', [SuperAdminAddressEntryController::class, 'destroy'])->name('addresses.destroy')->middleware('can:address_entries.archive');
+        Route::post('/addresses/{site}/{address}/restore', [SuperAdminAddressEntryController::class, 'restore'])->name('addresses.restore')->middleware(['can:trash.restore', 'can:address_entries.restore']);
+
+        // Caisses nommées par site : même schéma UUID/idempotence/audit que les
+        // adresses et mutuelles ; le site garde une seule caisse ouverte à la
+        // fois (cash_sessions.active_key), inchangé par ce référentiel.
+        Route::get('/cash-registers', [SuperAdminCashRegisterController::class, 'index'])->name('cash-registers.index')->middleware('can:cash_registers.view');
+        Route::post('/cash-registers', [SuperAdminCashRegisterController::class, 'store'])->name('cash-registers.store')->middleware('can:cash_registers.create');
+        Route::get('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'show'])->name('cash-registers.show')->middleware('can:cash_registers.view');
+        Route::get('/cash-registers/{site}/{cashRegister}/export', [SuperAdminCashRegisterController::class, 'export'])->name('cash-registers.export')->middleware('can:cash_registers.export');
+        Route::put('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'update'])->name('cash-registers.update')->middleware('can:cash_registers.update');
+        Route::post('/cash-registers/{site}/{cashRegister}/session/lock', [SuperAdminCashRegisterController::class, 'lock'])->name('cash-registers.session.lock')->middleware('can:cash_registers.lock');
+        Route::post('/cash-registers/{site}/{cashRegister}/session/unlock', [SuperAdminCashRegisterController::class, 'unlock'])->name('cash-registers.session.unlock')->middleware('can:cash_registers.unlock');
+        Route::post('/cash-registers/{site}/{cashRegister}/session/close', [SuperAdminCashRegisterController::class, 'close'])->name('cash-registers.session.close')->middleware('can:cash_registers.close');
+        Route::post('/cash-registers/{site}/{cashRegister}/activate', [SuperAdminCashRegisterController::class, 'activate'])->name('cash-registers.activate')->middleware('can:cash_registers.activate');
+        Route::post('/cash-registers/{site}/{cashRegister}/deactivate', [SuperAdminCashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate')->middleware('can:cash_registers.deactivate');
+        Route::delete('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'destroy'])->name('cash-registers.destroy')->middleware('can:cash_registers.archive');
+        Route::post('/cash-registers/{site}/{cashRegister}/restore', [SuperAdminCashRegisterController::class, 'restore'])->name('cash-registers.restore')->middleware(['can:trash.restore', 'can:cash_registers.restore']);
+        Route::get('/workspaces/tariffs', [SuperAdminCatalogController::class, 'index'])->name('tariffs.index')->middleware(['can:catalog.items.view', 'can:catalog.tariffs.view']);
+        Route::get('/workspaces/tariffs/export', [SuperAdminCatalogController::class, 'export'])->name('tariffs.export')->middleware('can:catalog.tariffs.export');
+        Route::get('/workspaces/tariffs/import-template', [SuperAdminCatalogController::class, 'template'])->name('tariffs.import-template')->middleware('can:catalog.tariffs.import');
+        Route::post('/workspaces/tariffs/import', [SuperAdminCatalogController::class, 'import'])->name('tariffs.import')->middleware('can:catalog.tariffs.import');
+        Route::post('/workspaces/tariffs/items', [SuperAdminCatalogController::class, 'store'])->name('tariffs.items.store')->middleware('can:catalog.items.create');
+        Route::post('/workspaces/tariffs/items/bulk/archive', [SuperAdminCatalogController::class, 'bulkArchive'])->name('tariffs.items.bulk.archive')->middleware('can:catalog.items.delete');
+        Route::post('/workspaces/tariffs/items/bulk/restore', [SuperAdminCatalogController::class, 'bulkRestore'])->name('tariffs.items.bulk.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
+        Route::put('/workspaces/tariffs/items/{site}/{catalog}', [SuperAdminCatalogController::class, 'update'])->name('tariffs.items.update')->middleware('can:catalog.items.update');
+        Route::delete('/workspaces/tariffs/items/{site}/{catalog}', [SuperAdminCatalogController::class, 'destroy'])->name('tariffs.items.destroy')->middleware('can:catalog.items.delete');
+        Route::post('/workspaces/tariffs/items/{site}/{catalog}/restore', [SuperAdminCatalogController::class, 'restore'])->name('tariffs.items.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
+        Route::post('/workspaces/tariffs/items/{site}/{catalog}/tariffs', [SuperAdminCatalogController::class, 'setTariff'])->name('tariffs.values.store');
+        Route::post('/workspaces/tariffs/items/{site}/{catalog}/tariffs/archive', [SuperAdminCatalogController::class, 'archiveTariff'])->name('tariffs.values.archive')->middleware('can:catalog.tariffs.archive');
+        Route::post('/workspaces/tariffs/mutual-organizations', [SuperAdminMutualOrganizationController::class, 'store'])->name('tariffs.mutual-organizations.store')->middleware('can:mutual_organizations.create');
+        Route::get('/workspaces/tariffs/mutual-organizations/export', [SuperAdminMutualOrganizationController::class, 'export'])->name('tariffs.mutual-organizations.export')->middleware('can:mutual_organizations.export');
+        Route::get('/workspaces/tariffs/mutual-organizations/import-template', [SuperAdminMutualOrganizationController::class, 'template'])->name('tariffs.mutual-organizations.import-template')->middleware('can:mutual_organizations.import');
+        Route::post('/workspaces/tariffs/mutual-organizations/import', [SuperAdminMutualOrganizationController::class, 'import'])->name('tariffs.mutual-organizations.import')->middleware('can:mutual_organizations.import');
+        Route::post('/workspaces/tariffs/mutual-organizations/bulk/archive', [SuperAdminMutualOrganizationController::class, 'bulkArchive'])->name('tariffs.mutual-organizations.bulk.archive')->middleware('can:mutual_organizations.archive');
+        Route::post('/workspaces/tariffs/mutual-organizations/bulk/restore', [SuperAdminMutualOrganizationController::class, 'bulkRestore'])->name('tariffs.mutual-organizations.bulk.restore')->middleware(['can:trash.restore', 'can:mutual_organizations.restore']);
+        Route::put('/workspaces/tariffs/mutual-organizations/{site}/{organization}', [SuperAdminMutualOrganizationController::class, 'update'])->name('tariffs.mutual-organizations.update')->middleware('can:mutual_organizations.update');
+        Route::delete('/workspaces/tariffs/mutual-organizations/{site}/{organization}', [SuperAdminMutualOrganizationController::class, 'destroy'])->name('tariffs.mutual-organizations.destroy')->middleware('can:mutual_organizations.archive');
+        Route::post('/workspaces/tariffs/mutual-organizations/{site}/{organization}/restore', [SuperAdminMutualOrganizationController::class, 'restore'])->name('tariffs.mutual-organizations.restore')->middleware(['can:trash.restore', 'can:mutual_organizations.restore']);
+        // Utilisateurs, rôles et permissions par compte, propres à chaque
+        // site — jamais géré directement en base, toujours via son API
+        // (ADR-025/027). Une caisse SUPER_ADMIN reste exclue par la même
+        // API distante (UserAdministrationGuard côté site).
+        Route::get('/workspaces/roles', [SuperAdminUserController::class, 'index'])->name('workspaces.roles')->middleware(['can:roles.view', 'can:permissions.view']);
+        Route::post('/workspaces/roles', [SuperAdminUserController::class, 'store'])->name('workspaces.roles.store')->middleware(['can:users.create', 'can:roles.assign']);
+        Route::post('/workspaces/roles/bulk/deactivate', [SuperAdminUserController::class, 'bulkDeactivate'])->name('workspaces.roles.bulk.deactivate')->middleware('can:users.deactivate');
+        Route::post('/workspaces/roles/bulk/force-delete', [SuperAdminUserController::class, 'bulkForceDelete'])->name('workspaces.roles.bulk.force_delete')->middleware('can:users.force_delete');
+        Route::put('/workspaces/roles/{site}/{user}', [SuperAdminUserController::class, 'update'])->name('workspaces.roles.update')->middleware(['can:users.update', 'can:roles.assign']);
+        Route::post('/workspaces/roles/{site}/{user}/activate', [SuperAdminUserController::class, 'activate'])->name('workspaces.roles.activate')->middleware('can:users.activate');
+        Route::post('/workspaces/roles/{site}/{user}/deactivate', [SuperAdminUserController::class, 'deactivate'])->name('workspaces.roles.deactivate')->middleware('can:users.deactivate');
+        Route::delete('/workspaces/roles/{site}/{user}', [SuperAdminUserController::class, 'forceDelete'])->name('workspaces.roles.force_delete')->middleware('can:users.force_delete');
+        // Baseline permissions of a ROLE itself — every account of that
+        // role, additive to and never touching the per-account overrides
+        // routed above (ADR-064).
+        Route::put('/workspaces/roles/{site}/permissions/{role}', [SuperAdminUserController::class, 'updateRolePermissions'])->name('workspaces.roles.permissions.update')->middleware('can:users.manage');
+
         Route::get('/workspaces/{workspace}', [SuperAdminController::class, 'workspace'])->name('workspaces.show');
     });
 
@@ -65,9 +158,53 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
 // reaches a site's own data directly, only via API) — clinic-only, unlike
 // auth which the gateway/admin deployments also use.
 Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deployment'])->group(function () {
+    // Corbeille locale, propre à ce site — distincte de la Corbeille
+    // multi-sites du portail Super Admin (ADR-061). Restaurer reste réservé
+    // par défaut au SUPER_ADMIN via trash.restore + la permission de la
+    // catégorie (TrashController@index recalcule can_restore par ligne).
+    Route::get('/trash', [TrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
+    Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
+
     Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
+    Route::get('/administration/staff-block-credits', [StaffBlockCreditController::class, 'index'])
+        ->name('administration.staff-block-credits.index')
+        ->middleware('can:staff_block_credits.view');
+    Route::post('/administration/staff-block-credits/{employee}', [StaffBlockCreditController::class, 'store'])
+        ->name('administration.staff-block-credits.store')
+        ->middleware('can:staff_block_credits.allocate');
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
     Route::get('/pharmacy', PharmacyController::class)->name('pharmacy.index')->middleware('can:pharmacy.view');
+    Route::post('/pharmacy/stock/entries', [PharmacyController::class, 'storeEntry'])
+        ->name('pharmacy.stock.entries.store')
+        ->middleware('can:stock.entry');
+    Route::post('/pharmacy/stock/adjustments', [PharmacyController::class, 'storeAdjustment'])
+        ->name('pharmacy.stock.adjustments.store')
+        ->middleware('can:stock.adjust');
+    Route::get('/pharmacy/counter-sales/create', [PharmacyController::class, 'createExternalDispense'])
+        ->name('pharmacy.counter-sales.create')
+        ->middleware('can:pharmacy.counter_sales.create');
+    Route::post('/pharmacy/counter-sales', [PharmacyController::class, 'storeExternalDispense'])
+        ->name('pharmacy.counter-sales.store')
+        ->middleware('can:pharmacy.counter_sales.create');
+    Route::post('/pharmacy/dispenses/{dispense}/invoice', [PharmacyController::class, 'prepareInvoice'])
+        ->name('pharmacy.dispenses.invoice.store')
+        ->middleware('can:pharmacy.dispense.prepare_invoice');
+    Route::get('/pharmacy/dispenses/{dispense}/ticket', [PharmacyController::class, 'ticket'])
+        ->name('pharmacy.dispenses.ticket.show')
+        ->middleware('can:pharmacy.dispense.print');
+    Route::post('/pharmacy/dispenses/{dispense}/deliveries', [PharmacyController::class, 'dispense'])
+        ->name('pharmacy.dispenses.deliveries.store')
+        ->middleware('can:pharmacy.dispense');
+    Route::post('/pharmacy/setup/categories', [PharmacyController::class, 'storeCategory'])
+        ->name('pharmacy.setup.categories.store')->middleware('can:medicine_categories.create');
+    Route::post('/pharmacy/setup/suppliers', [PharmacyController::class, 'storeSupplier'])
+        ->name('pharmacy.setup.suppliers.store')->middleware('can:medicine_suppliers.create');
+    Route::post('/pharmacy/setup/medicines', [PharmacyController::class, 'storeMedicine'])
+        ->name('pharmacy.setup.medicines.store')->middleware('can:medicines.create');
+    Route::get('/pharmacy/setup/medicines/import-template', [PharmacyController::class, 'catalogTemplate'])
+        ->name('pharmacy.setup.medicines.import-template')->middleware('can:medicines.import');
+    Route::post('/pharmacy/setup/medicines/import', [PharmacyController::class, 'importCatalog'])
+        ->name('pharmacy.setup.medicines.import')->middleware('can:medicines.import');
 
     // Administration locale des comptes de ce site. Les comptes sont
     // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.
@@ -88,16 +225,50 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/administration/catalog/{catalogItem}/tariff', [AdministrationCatalogController::class, 'setTariff'])->name('administration.catalog.tariff.store');
     Route::post('/administration/catalog/{catalogItem}/tariff/archive', [AdministrationCatalogController::class, 'archiveTariff'])->name('administration.catalog.tariff.archive')->middleware('can:catalog.tariffs.archive');
     Route::delete('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'destroy'])->name('administration.catalog.destroy')->middleware('can:catalog.items.delete');
-    Route::post('/administration/catalog/{catalogItem}/restore', [AdministrationCatalogController::class, 'restore'])->name('administration.catalog.restore')->middleware('can:catalog.items.restore');
+    Route::post('/administration/catalog/{catalogItem}/restore', [AdministrationCatalogController::class, 'restore'])->name('administration.catalog.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
     // Médicament ajouté manuellement par un médecin (ordonnance jamais
     // bloquée par une absence au référentiel) : jamais de stock ni de prix,
     // seulement une trace en attente pour qui détient catalog.items.create.
     Route::post('/administration/catalog/pending-medicines/{prescriptionLine}/review', [AdministrationCatalogController::class, 'reviewUnlistedMedicine'])->name('administration.catalog.pending-medicines.review')->middleware('can:catalog.items.create');
 
+    Route::get('/administration/diagnostics', [DiagnosticCatalogController::class, 'index'])->name('administration.diagnostics.index')->middleware('can:diagnostic_catalog.view');
+    Route::post('/administration/diagnostics', [DiagnosticCatalogController::class, 'store'])->name('administration.diagnostics.store')->middleware('can:diagnostic_catalog.manage');
+    Route::put('/administration/diagnostics/{diagnosticCatalog}', [DiagnosticCatalogController::class, 'update'])->name('administration.diagnostics.update')->middleware('can:diagnostic_catalog.manage');
+    Route::post('/administration/diagnostics/{diagnosticCatalog}/activate', [DiagnosticCatalogController::class, 'activate'])->name('administration.diagnostics.activate')->middleware('can:diagnostic_catalog.manage');
+    Route::post('/administration/diagnostics/{diagnosticCatalog}/deactivate', [DiagnosticCatalogController::class, 'deactivate'])->name('administration.diagnostics.deactivate')->middleware('can:diagnostic_catalog.manage');
+
+    Route::get('/administration/analyses', [AnalysisCatalogController::class, 'index'])->name('administration.analyses.index')->middleware('can:analysis_catalog.view');
+    Route::get('/administration/analyses/export', [AnalysisCatalogController::class, 'export'])->name('administration.analyses.export')->middleware('can:analysis_catalog.export');
+    Route::get('/administration/analyses/import-template', [AnalysisCatalogController::class, 'template'])->name('administration.analyses.import-template')->middleware('can:analysis_catalog.import');
+    Route::post('/administration/analyses/import', [AnalysisCatalogController::class, 'import'])->name('administration.analyses.import')->middleware('can:analysis_catalog.import');
+    Route::post('/administration/analyses', [AnalysisCatalogController::class, 'store'])->name('administration.analyses.store')->middleware('can:analysis_catalog.create');
+    Route::put('/administration/analyses/{analysisCatalog}', [AnalysisCatalogController::class, 'update'])->name('administration.analyses.update')->middleware('can:analysis_catalog.update');
+    Route::post('/administration/analyses/{analysisCatalog}/activate', [AnalysisCatalogController::class, 'activate'])->name('administration.analyses.activate')->middleware('can:analysis_catalog.activate');
+    Route::post('/administration/analyses/{analysisCatalog}/deactivate', [AnalysisCatalogController::class, 'deactivate'])->name('administration.analyses.deactivate')->middleware('can:analysis_catalog.deactivate');
+
+    // Named cash registers (Caisse 1, Caisse 2…) are managed both locally
+    // here and remotely from the Super Admin portal (mirroring
+    // catalog/addresses/mutuelles) — only one session can be open at a time
+    // regardless of how many registers exist (cash_sessions.active_key
+    // singleton, unchanged by either front door).
+    Route::get('/administration/cash-registers', [CashRegisterController::class, 'index'])->name('administration.cash-registers.index')->middleware('can:cash_registers.view');
+    Route::post('/administration/cash-registers', [CashRegisterController::class, 'store'])->name('administration.cash-registers.store')->middleware('can:cash_registers.create');
+    Route::put('/administration/cash-registers/{cashRegister}', [CashRegisterController::class, 'update'])->name('administration.cash-registers.update')->middleware('can:cash_registers.update');
+    Route::post('/administration/cash-registers/{cashRegister}/activate', [CashRegisterController::class, 'activate'])->name('administration.cash-registers.activate')->middleware('can:cash_registers.activate');
+    Route::post('/administration/cash-registers/{cashRegister}/deactivate', [CashRegisterController::class, 'deactivate'])->name('administration.cash-registers.deactivate')->middleware('can:cash_registers.deactivate');
+    Route::delete('/administration/cash-registers/{cashRegister}', [CashRegisterController::class, 'destroy'])->name('administration.cash-registers.destroy')->middleware('can:cash_registers.archive');
+    Route::post('/administration/cash-registers/{cashRegister}/restore', [CashRegisterController::class, 'restore'])->name('administration.cash-registers.restore')->middleware(['can:trash.restore', 'can:cash_registers.restore']);
+
     // Réception: one operational entry point, with isolated patient and
     // non-clinical visitor workflows. A visitor never creates an episode.
     Route::get('/reception', [ReceptionController::class, 'index'])->name('reception.index')->middleware('can:reception.view');
     Route::get('/reception/patients', [ReceptionController::class, 'patients'])->name('reception.patients.create')->middleware('can:episodes.create');
+    Route::get('/reception/patients/search', [ReceptionController::class, 'searchPatients'])
+        ->name('reception.patients.search')
+        ->middleware('can:episodes.create');
+    Route::post('/reception/estimates', ReceptionEstimateController::class)
+        ->name('reception.estimates.store')
+        ->middleware('can:episodes.create');
     // Legacy wizard URL kept as a safe redirect after ADR-030 moved service
     // selection to the newly created passage itself.
     Route::get('/reception/patients/prestations', fn () => redirect()->route('reception.patients.create'));
@@ -109,8 +280,17 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/employees/patient-lookup', EmployeePatientLookupController::class)
         ->name('reception.employees.patient-lookup')
         ->middleware('can:employees.patient_lookup');
+    Route::get('/reception/passages/{episode}/prise-en-charge', [ReceptionController::class, 'resumeJourney'])
+        ->name('reception.passages.journey.show')
+        ->middleware('can:episodes.update');
+    Route::post('/reception/passages/{episode}/urgence', [EpisodeEmergencyController::class, 'fromReception'])
+        ->name('reception.passages.emergency.store')
+        ->middleware('can:episodes.mark_emergency');
     Route::get('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'show'])
         ->name('reception.passages.services.show')
+        ->middleware('can:episodes.update');
+    Route::post('/reception/passages/{episode}/financial-context', [EpisodeFinancialContextController::class, 'store'])
+        ->name('reception.passages.financial-context.store')
         ->middleware('can:episodes.update');
     Route::post('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'store'])
         ->name('reception.passages.services.store')
@@ -140,16 +320,30 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ]);
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
+    // Generic endpoint: an antecedent is a permanent Patient record, never a
+    // Consultation field — any caller with the permission uses this one
+    // route (Médecine included), never a module-specific duplicate.
+    Route::post('/patients/{patient}/antecedents', [PatientController::class, 'storeAntecedent'])
+        ->name('patients.antecedents.store')
+        ->middleware('can:patients.medical_history.manage');
+
+    // Vue d'ensemble en lecture seule d'un passage — agrège Soins, Médecine
+    // et facturation déjà accessibles séparément par module ; aucune action
+    // n'est réalisée ici, chaque section reste protégée par la permission du
+    // module qui possède réellement la donnée.
+    Route::get('/passages/{episode}', [EpisodeController::class, 'show'])->name('passages.show')->middleware('can:patients.view');
 
     // Facturation / caisse : une seule caisse fonctionnelle par site. Les
     // prestations peuvent être facturées ici, mais seul ce module encaisse.
     Route::get('/cash', [CashController::class, 'index'])->name('cash.index')->middleware('can:cash.view');
+    Route::get('/cash/{cashRegister}', [CashController::class, 'show'])->name('cash.show')->middleware('can:cash.view');
     Route::post('/cash/open', [CashController::class, 'open'])->name('cash.open')->middleware('can:cash.open');
     Route::post('/cash/close', [CashController::class, 'close'])->name('cash.close')->middleware('can:cash.close');
     Route::post('/patients/{patient}/invoices', [BillingController::class, 'store'])->name('invoices.store')->middleware('can:billing.create');
     Route::get('/invoices/{invoice}', [BillingController::class, 'show'])->name('invoices.show')->middleware('can:billing.print');
     Route::post('/invoices/{invoice}/validate', [BillingController::class, 'validateInvoice'])->name('invoices.validate')->middleware('can:billing.validate');
     Route::post('/patients/{patient}/payments', [PaymentController::class, 'store'])->name('payments.store')->middleware('can:payments.create');
+    Route::post('/invoices/{invoice}/payments', [PaymentController::class, 'storeInvoice'])->name('invoices.payments.store')->middleware('can:payments.create');
     Route::post('/payments/{payment}/cancel', [PaymentController::class, 'cancel'])->name('payments.cancel')->middleware('can:payments.cancel');
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
 
@@ -165,23 +359,44 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
+    Route::post('/care/orientations/{episodeOrientation}/care-order-items/{careOrderItem}/not-performed', [CareController::class, 'markCareOrderItemNotPerformed'])->name('care.care-order-items.not-performed')->middleware('can:care.update');
 
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
-        ->whereIn('step', ['dossier', 'consultation', 'diagnostic', 'ordonnance', 'decision'])
+        ->whereIn('step', ['dossier', 'consultation', 'examen', 'paraclinique', 'diagnostic', 'ordonnance', 'decision'])
         ->name('medicine.orientations.step')
         ->middleware('can:consultations.view');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])
+        ->name('medicine.orientations.emergency.store')
+        ->middleware('can:episodes.mark_emergency');
     Route::put('/medicine/orientations/{episodeOrientation}/consultation', [MedicineController::class, 'updateConsultation'])->name('medicine.consultations.update')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'storeDiagnosis'])->name('medicine.diagnoses.store')->middleware('can:diagnoses.create');
+    Route::get('/diagnostic-catalog/search', DiagnosticCatalogSearchController::class)->name('diagnostic-catalog.search')->middleware('can:diagnoses.create');
     Route::put('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'updateDiagnosis'])->name('medicine.diagnoses.update')->middleware('can:diagnoses.update');
     Route::post('/medicine/orientations/{episodeOrientation}/diagnoses/cancel', [MedicineController::class, 'cancelDiagnosis'])->name('medicine.diagnoses.cancel')->middleware('can:diagnoses.update');
     Route::post('/medicine/orientations/{episodeOrientation}/prescriptions', [MedicineController::class, 'storePrescription'])->name('medicine.prescriptions.store')->middleware('can:prescriptions.create');
     Route::put('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}', [MedicineController::class, 'updatePrescription'])->name('medicine.prescriptions.update')->middleware('can:prescriptions.update');
     Route::post('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/cancel', [MedicineController::class, 'cancelPrescription'])->name('medicine.prescriptions.cancel')->middleware('can:prescriptions.cancel');
     Route::get('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/print', [MedicineController::class, 'printPrescription'])->name('medicine.prescriptions.print')->middleware('can:prescriptions.view');
+    Route::post('/medicine/orientations/{episodeOrientation}/care-orders', [MedicineController::class, 'storeCareOrder'])->name('medicine.care-orders.store')->middleware('can:care_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/lab-requests', [MedicineController::class, 'storeLabRequest'])->name('medicine.lab-requests.store')->middleware('can:laboratory_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests', [MedicineController::class, 'storeImagingRequest'])->name('medicine.imaging-requests.store')->middleware('can:imaging_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result', [MedicineController::class, 'recordImagingResult'])->name('medicine.imaging-requests.result')->middleware('can:imaging_results.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/surgical-referrals', [MedicineController::class, 'storeSurgicalReferral'])->name('medicine.surgical-referrals.store')->middleware('can:surgery.request');
+    Route::post('/medicine/orientations/{episodeOrientation}/referrals', [MedicineController::class, 'storeReferral'])->name('medicine.referrals.store');
     Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
+
+    // Laboratoire — minimal, côté suivi/résultat uniquement : la demande
+    // vient de Médecine (CreateLabRequestAction), l'orientation existe déjà.
+    Route::get('/laboratory', [LaboratoryController::class, 'index'])->name('laboratory.index')->middleware('can:laboratory_results.view');
+    Route::post('/laboratory/items/{labRequestItem}/result', [LaboratoryController::class, 'recordResult'])->name('laboratory.items.result')->middleware('can:laboratory_results.create');
+
+    // Espace anesthésiste autonome. Il partage les mêmes dossiers cliniques
+    // avec Chirurgie mais n'accorde jamais implicitement surgery.view.
+    Route::get('/anesthesia', [AnesthesiaWorkspaceController::class, 'index'])->name('anesthesia.index')->middleware('can:anesthesia.view');
+    Route::get('/anesthesia/{surgicalRequest}', [AnesthesiaWorkspaceController::class, 'show'])->name('anesthesia.show')->middleware('can:anesthesia.view');
 
     // Chirurgie (CDC GitHub §15/16). Each middleware name matches exactly
     // one seeded permission (PermissionSeeder) — see SurgeryController's
@@ -193,18 +408,21 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/surgery/{surgicalRequest}', [SurgeryController::class, 'update'])->name('surgery.update')->middleware('can:surgery.update');
     Route::post('/surgery/{surgicalRequest}/schedule', [SurgeryController::class, 'schedule'])->name('surgery.schedule')->middleware('can:surgery.schedule');
     Route::post('/surgery/{surgicalRequest}/preparation', [SurgeryController::class, 'updatePreparation'])->name('surgery.preparation.update')->middleware('can:surgery.preparation.update');
+    Route::put('/surgery/{surgicalRequest}/block-entry', [SurgicalBlockEntryController::class, 'update'])->name('surgery.block-entry.update')->middleware('can:surgery.preparation.update');
     Route::post('/surgery/{surgicalRequest}/discharge', [SurgeryController::class, 'discharge'])->name('surgery.discharge')->middleware('can:surgery.discharge.create');
 
     Route::post('/surgery/{surgicalRequest}/preoperative/validate', [SurgicalPreoperativeController::class, 'validatePreoperative'])->name('surgery.preoperative.validate')->middleware('can:surgery.preoperative.validate');
 
     Route::post('/surgery/{surgicalRequest}/team', [SurgicalTeamMemberController::class, 'store'])->name('surgery.team.store')->middleware('can:surgery.update');
-    Route::delete('/surgery/{surgicalRequest}/team/{member}', [SurgicalTeamMemberController::class, 'destroy'])->name('surgery.team.destroy')->middleware('can:surgery.update');
+    Route::delete('/surgery/{surgicalRequest}/team/{teamMember}', [SurgicalTeamMemberController::class, 'destroy'])->scopeBindings()->name('surgery.team.destroy')->middleware('can:surgery.update');
 
     Route::post('/surgery/{surgicalRequest}/intervention', [SurgicalInterventionController::class, 'store'])->name('surgery.intervention.store')->middleware('can:surgery.intervention.create');
     Route::put('/surgery/{surgicalRequest}/intervention/{intervention}', [SurgicalInterventionController::class, 'update'])->name('surgery.intervention.update')->middleware('can:surgery.intervention.update');
+    Route::put('/surgery/{surgicalRequest}/block-exit', [SurgicalBlockExitController::class, 'update'])->name('surgery.block-exit.update')->middleware('can:surgery.intervention.update');
 
     Route::post('/surgery/{surgicalRequest}/anesthesia', [AnesthesiaController::class, 'store'])->name('surgery.anesthesia.store')->middleware('can:anesthesia.create');
     Route::put('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}', [AnesthesiaController::class, 'update'])->name('surgery.anesthesia.update')->middleware('can:anesthesia.update');
+    Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/assessment/validate', [AnesthesiaController::class, 'validateAssessment'])->name('surgery.anesthesia.assessment.validate')->middleware('can:anesthesia.validate');
     Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/validate', [AnesthesiaController::class, 'validateRecord'])->name('surgery.anesthesia.validate')->middleware('can:anesthesia.validate');
 
     Route::post('/surgery/{surgicalRequest}/report', [SurgicalReportController::class, 'store'])->name('surgery.report.store')->middleware('can:surgery.report.create');
@@ -213,7 +431,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     Route::post('/surgery/{surgicalRequest}/complications', [SurgicalComplicationController::class, 'store'])->name('surgery.complications.store')->middleware('can:surgery.complications.create');
     Route::post('/surgery/{surgicalRequest}/consumables', [SurgicalConsumableController::class, 'store'])->name('surgery.consumables.store')->middleware('can:surgery.consumables.create');
-    Route::delete('/surgery/{surgicalRequest}/consumables/{consumable}', [SurgicalConsumableController::class, 'destroy'])->name('surgery.consumables.destroy')->middleware('can:surgery.consumables.create');
+    Route::delete('/surgery/{surgicalRequest}/consumables/{consumable}', [SurgicalConsumableController::class, 'destroy'])->scopeBindings()->name('surgery.consumables.destroy')->middleware('can:surgery.consumables.create');
     Route::post('/surgery/{surgicalRequest}/care-notes/perioperative', [SurgicalCareNoteController::class, 'storePerioperative'])->name('surgery.care-notes.perioperative')->middleware('can:surgery.care.create');
     Route::post('/surgery/{surgicalRequest}/care-notes/postoperative', [SurgicalCareNoteController::class, 'storePostoperative'])->name('surgery.care-notes.postoperative')->middleware('can:surgery.postoperative_care.create');
+
+    Route::post('/surgery/{surgicalRequest}/preliminary-treatments', [SurgicalTreatmentItemController::class, 'storePreliminary'])->name('surgery.preliminary-treatments.store')->middleware('can:surgery.preparation.update');
+    Route::delete('/surgery/{surgicalRequest}/preliminary-treatments/{treatmentItem}', [SurgicalTreatmentItemController::class, 'destroyPreliminary'])->scopeBindings()->name('surgery.preliminary-treatments.destroy')->middleware('can:surgery.preparation.update');
+    Route::post('/surgery/{surgicalRequest}/postoperative-treatments', [SurgicalTreatmentItemController::class, 'storePostoperative'])->name('surgery.postoperative-treatments.store')->middleware('can:surgery.postoperative_care.create');
+    Route::delete('/surgery/{surgicalRequest}/postoperative-treatments/{treatmentItem}', [SurgicalTreatmentItemController::class, 'destroyPostoperative'])->scopeBindings()->name('surgery.postoperative-treatments.destroy')->middleware('can:surgery.postoperative_care.create');
+    Route::post('/surgery/{surgicalRequest}/postoperative-observations', [SurgicalPostoperativeObservationController::class, 'store'])->name('surgery.postoperative-observations.store')->middleware('can:surgery.postoperative_care.create');
+    Route::delete('/surgery/{surgicalRequest}/postoperative-observations/{observation}', [SurgicalPostoperativeObservationController::class, 'destroy'])->scopeBindings()->name('surgery.postoperative-observations.destroy')->middleware('can:surgery.postoperative_care.create');
 });

@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'catalog_item_id', 'tariff_category', 'amount', 'currency', 'effective_from', 'effective_until',
     'active_key', 'change_reason', 'created_by', 'ended_by',
+    'external_created_by_uuid', 'external_created_by_name',
+    'external_ended_by_uuid', 'external_ended_by_name',
 ])]
 class CatalogTariff extends Model
 {

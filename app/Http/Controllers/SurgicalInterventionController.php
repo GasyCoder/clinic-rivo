@@ -21,6 +21,8 @@ class SurgicalInterventionController extends Controller
 
     public function update(UpdateSurgicalInterventionRequest $request, SurgicalRequest $surgicalRequest, SurgicalIntervention $intervention, UpdateSurgicalInterventionAction $action): RedirectResponse
     {
+        abort_unless($intervention->surgical_request_id === $surgicalRequest->getKey(), 404);
+
         $action->execute($intervention, $request->validated());
 
         return back()->with('status', 'Intervention mise à jour.');

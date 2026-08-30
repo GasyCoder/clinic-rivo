@@ -2,6 +2,7 @@
 
 namespace App\Actions\Medicine;
 
+use App\Actions\Pharmacy\SyncInternalDispenseRequestAction;
 use App\Enums\PrescriptionStatus;
 use App\Models\Medicine;
 use App\Models\Prescription;
@@ -12,7 +13,10 @@ use Illuminate\Validation\ValidationException;
 
 class UpdatePrescriptionAction
 {
-    public function __construct(private readonly MedicineStockService $stock) {}
+    public function __construct(
+        private readonly MedicineStockService $stock,
+        private readonly SyncInternalDispenseRequestAction $syncDispenseRequest,
+    ) {}
 
     /**
      * @param  array<int, array{id: int, quantity: int, medication_name?: ?string, dosage?: ?string, frequency?: ?string, duration?: ?string, instructions?: ?string}>  $lines
@@ -95,7 +99,9 @@ class UpdatePrescriptionAction
                 ]);
             }
 
-            return $prescription->fresh(['lines.stockReservations']);
+            $this->syncDispenseRequest->execute($prescription);
+
+            return $prescription->fresh(['lines.stockReservations', 'pharmacyDispense.lines']);
         });
     }
 }

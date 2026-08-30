@@ -3,9 +3,12 @@
 namespace App\Services\Billing;
 
 use App\Enums\CatalogItemType;
+use App\Enums\EpisodeFinancialMode;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
-use App\Models\Patient;
+use App\Models\Episode;
+use App\Services\Finance\StaffFinancialAllocationService;
+use App\Support\Money;
 use Illuminate\Support\Collection;
 
 /**
@@ -17,28 +20,44 @@ use Illuminate\Support\Collection;
  */
 class BillableCatalogDirectory
 {
-    public function __construct(private readonly CatalogTariffResolver $tariffs) {}
+    public function __construct(
+        private readonly CatalogTariffResolver $tariffs,
+        private readonly StaffFinancialAllocationService $staffFinancials,
+    ) {}
 
     /** @return Collection<int, array<string, mixed>> */
-    public function services(Patient $patient): Collection
+    public function services(Episode $episode): Collection
     {
-        $category = $this->tariffs->categoryFor($patient);
-        $relationship = $this->tariffs->relationshipFor($patient);
+        $category = $this->tariffs->categoryFor($episode, required: false);
+        $relationship = $this->tariffs->relationshipFor($episode);
+        $coverage = $this->tariffs->coverageSnapshot($episode, required: false);
+        $isStaff = $episode->financial_mode === EpisodeFinancialMode::Staff;
 
-        return CatalogItem::query()
+        $query = CatalogItem::query()
             ->where('type', CatalogItemType::Service->value)
             ->where('billable', true)
             ->where('reception_selectable', true)
             ->whereNotNull('reception_routing_mode')
-            ->with([$relationship => fn ($query) => $query->select([
-                'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
-            ])])
             ->orderBy('module')
-            ->orderBy('name')
-            ->get()
-            ->map(function (CatalogItem $item) use ($category, $relationship): array {
+            ->orderBy('name');
+
+        if ($relationship) {
+            $query->with([$relationship => fn ($tariffQuery) => $tariffQuery->select([
+                'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
+            ])]);
+        }
+
+        return $query->get()
+            ->map(function (CatalogItem $item) use ($category, $relationship, $coverage, $isStaff): array {
                 /** @var CatalogTariff|null $tariff */
-                $tariff = $item->getRelation($relationship);
+                $tariff = $relationship ? $item->getRelation($relationship) : null;
+                $grossMinor = $tariff ? Money::toMinor($tariff->amount) : null;
+                $coverageMinor = $grossMinor !== null && $coverage['coverage_rate'] !== null
+                    ? Money::percentage($grossMinor, $coverage['coverage_rate'])
+                    : null;
+                $staffAllocation = $isStaff && $grossMinor !== null
+                    ? $this->staffFinancials->preview($item->staff_coverage_policy, $grossMinor)
+                    : null;
 
                 return [
                     'uuid' => $item->uuid,
@@ -49,10 +68,32 @@ class BillableCatalogDirectory
                     'routing_mode' => $item->reception_routing_mode->value,
                     'routing_label' => $item->reception_routing_mode->label(),
                     'unit' => $item->unit,
-                    'tariff_category' => $category->value,
-                    'tariff_category_label' => $category->label(),
+                    'tariff_category' => $category?->value,
+                    'tariff_category_label' => $category?->label() ?? 'À régulariser',
                     'tariff_available' => $tariff !== null,
                     'tariff_amount' => $tariff?->amount,
+                    'staff_coverage_policy' => $item->staff_coverage_policy->value,
+                    'staff_coverage_policy_label' => $item->staff_coverage_policy->label(),
+                    'financial_resolution_pending' => $staffAllocation !== null && ! $staffAllocation->isResolved(),
+                    'coverage_rate' => $coverage['coverage_rate'],
+                    'coverage_amount' => $staffAllocation
+                        ? ($staffAllocation->staffCoveredMinor !== null
+                            ? Money::fromMinor($staffAllocation->staffCoveredMinor)
+                            : null)
+                        : ($coverageMinor !== null ? Money::fromMinor($coverageMinor) : null),
+                    'staff_covered_amount' => $staffAllocation?->staffCoveredMinor !== null
+                        ? Money::fromMinor($staffAllocation->staffCoveredMinor)
+                        : null,
+                    'staff_block_credit_used' => $staffAllocation?->blockCreditUsedMinor !== null
+                        ? Money::fromMinor($staffAllocation->blockCreditUsedMinor)
+                        : null,
+                    'patient_amount' => $staffAllocation
+                        ? ($staffAllocation->patientMinor !== null
+                            ? Money::fromMinor($staffAllocation->patientMinor)
+                            : null)
+                        : ($grossMinor !== null && $coverageMinor !== null
+                            ? Money::fromMinor($grossMinor - $coverageMinor)
+                            : null),
                     'currency' => $tariff?->currency ?? 'MGA',
                 ];
             })

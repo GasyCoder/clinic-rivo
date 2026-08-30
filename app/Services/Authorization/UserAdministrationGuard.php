@@ -5,11 +5,12 @@ namespace App\Services\Authorization;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Validation\ValidationException;
 
 class UserAdministrationGuard
 {
-    public function assertCanManageTarget(User $actor, User $target): void
+    public function assertCanManageTarget(User|CatalogActor $actor, User $target): void
     {
         if (config('rivo.site.type') !== 'admin' && $target->hasRole('SUPER_ADMIN')) {
             throw ValidationException::withMessages([
@@ -24,7 +25,7 @@ class UserAdministrationGuard
         }
     }
 
-    public function assertCanAssignRole(User $actor, Role $role): void
+    public function assertCanAssignRole(User|CatalogActor $actor, Role $role): void
     {
         if (config('rivo.site.type') !== 'admin' && $role->code === 'SUPER_ADMIN') {
             throw ValidationException::withMessages([
@@ -56,36 +57,39 @@ class UserAdministrationGuard
         }
     }
 
-    public function assertCanChangeOwnRole(User $actor, User $target, Role $newRole): void
+    // A remote Super Admin (CatalogActor) has no local row on this site's
+    // users table to begin with, so "editing themselves" is not a concept
+    // that applies to it — only a local User actor can trip these guards.
+    public function assertCanChangeOwnRole(User|CatalogActor $actor, User $target, Role $newRole): void
     {
-        if ($actor->is($target) && $target->role_id !== $newRole->id) {
+        if ($actor instanceof User && $actor->is($target) && $target->role_id !== $newRole->id) {
             throw ValidationException::withMessages([
                 'role_id' => 'Vous ne pouvez pas modifier votre propre rôle.',
             ]);
         }
     }
 
-    public function assertCanChangeOwnProfile(User $actor, User $target, ?ProfessionalProfile $newProfile): void
+    public function assertCanChangeOwnProfile(User|CatalogActor $actor, User $target, ?ProfessionalProfile $newProfile): void
     {
-        if ($actor->is($target) && $target->professional_profile_id !== $newProfile?->id) {
+        if ($actor instanceof User && $actor->is($target) && $target->professional_profile_id !== $newProfile?->id) {
             throw ValidationException::withMessages([
                 'professional_profile_id' => 'Vous ne pouvez pas modifier votre propre profil métier.',
             ]);
         }
     }
 
-    public function assertCanChangeOwnPermissions(User $actor, User $target): void
+    public function assertCanChangeOwnPermissions(User|CatalogActor $actor, User $target): void
     {
-        if ($actor->is($target)) {
+        if ($actor instanceof User && $actor->is($target)) {
             throw ValidationException::withMessages([
                 'permission_overrides' => 'Vous ne pouvez pas modifier vos propres permissions individuelles.',
             ]);
         }
     }
 
-    public function assertNotSelfDeactivation(User $actor, User $target): void
+    public function assertNotSelfDeactivation(User|CatalogActor $actor, User $target): void
     {
-        if ($actor->is($target)) {
+        if ($actor instanceof User && $actor->is($target)) {
             throw ValidationException::withMessages([
                 'user' => 'Vous ne pouvez pas désactiver votre propre compte.',
             ]);
@@ -116,7 +120,7 @@ class UserAdministrationGuard
 
         if ($activeSuperAdmins->count() <= 1) {
             throw ValidationException::withMessages([
-                'user' => 'Le dernier Super Administrateur actif ne peut pas être désactivé ou rétrogradé.',
+                'user' => 'Le dernier Super Administrateur actif ne peut pas être désactivé, rétrogradé ou supprimé.',
             ]);
         }
     }

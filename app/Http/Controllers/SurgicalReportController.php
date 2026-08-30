@@ -22,6 +22,8 @@ class SurgicalReportController extends Controller
 
     public function update(StoreSurgicalReportRequest $request, SurgicalRequest $surgicalRequest, SurgicalReport $report, UpdateSurgicalReportAction $action): RedirectResponse
     {
+        abort_unless($report->surgical_request_id === $surgicalRequest->getKey(), 404);
+
         $action->execute($report, $request->validated('content'));
 
         return back()->with('status', 'Compte rendu opératoire mis à jour.');
@@ -29,6 +31,8 @@ class SurgicalReportController extends Controller
 
     public function validateReport(Request $request, SurgicalRequest $surgicalRequest, SurgicalReport $report, ValidateSurgicalReportAction $action): RedirectResponse
     {
+        abort_unless($report->surgical_request_id === $surgicalRequest->getKey(), 404);
+
         $action->execute($report);
 
         return back()->with('status', 'Compte rendu opératoire validé — dossier clôturé.');

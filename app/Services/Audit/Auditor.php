@@ -43,6 +43,8 @@ class Auditor
 
         return AuditLog::create([
             'user_id' => $actor?->getAuthIdentifier(),
+            'external_actor_uuid' => $actor ? null : ($this->request->attributes->get('rivo_actor_uuid') ?: null),
+            'external_actor_name' => $actor ? null : ($this->request->attributes->get('rivo_actor_name') ?: null),
             'action' => $action,
             'module' => $module,
             'site_code' => config('rivo.site.code'),

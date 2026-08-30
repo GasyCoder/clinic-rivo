@@ -76,6 +76,8 @@ class ProfessionalProfileSeederTest extends TestCase
         );
 
         $this->assertTrue($anesthetist->fresh()->hasPermissionTo('anesthesia.validate'));
+        $this->assertFalse($anesthetist->fresh()->hasPermissionTo('surgery.view'));
+        $this->assertFalse($anesthetistProfile->recommendedPermissions->contains('name', 'surgery.view'));
         $this->assertFalse($registeredNurse->fresh()->hasPermissionTo('anesthesia.validate'));
     }
 

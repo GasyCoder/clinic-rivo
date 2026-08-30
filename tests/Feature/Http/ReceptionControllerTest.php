@@ -6,6 +6,7 @@ use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
 use App\Enums\ReceptionPatientStep;
@@ -60,6 +61,31 @@ class ReceptionControllerTest extends TestCase
         $this->actingAs($user)->get('/reception')->assertOk();
         $this->actingAs($user)->get('/reception/patients')->assertForbidden();
         $this->actingAs($user)->get('/reception/patients/type')->assertForbidden();
+    }
+
+    public function test_reception_index_keeps_recent_passages_readable_when_the_patient_is_archived(): void
+    {
+        $user = $this->userWithPermissions(['reception.view', 'episodes.view', 'episodes.create']);
+        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
+        $episode = Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => 'ME-000001',
+            'status' => 'OPEN',
+            'administrative_status' => 'PENDING_ORIENTATION',
+            'started_at' => now(),
+        ]);
+
+        $patient->delete_reason = 'Dossier archivé pour le test';
+        $patient->delete();
+
+        $this->actingAs($user)->get('/reception')
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Index')
+                ->has('recentEpisodes', 1)
+                ->where('recentEpisodes.0.uuid', $episode->uuid)
+                ->where('recentEpisodes.0.patient.uuid', $patient->uuid)
+                ->where('recentEpisodes.0.patient.deleted_at', fn ($value) => filled($value))
+            );
     }
 
     public function test_search_returns_matching_patients(): void
@@ -188,7 +214,7 @@ class ReceptionControllerTest extends TestCase
             CatalogModule::Care,
             $user,
         );
-        $orientation->update(['status' => \App\Enums\EpisodeOrientationStatus::Completed]);
+        $orientation->update(['status' => EpisodeOrientationStatus::Completed]);
         $episode->update([
             'administrative_status' => EpisodeAdministrativeStatus::Oriented,
             'service_plan_finalized_at' => now(),
@@ -250,7 +276,11 @@ class ReceptionControllerTest extends TestCase
         $this->assertFalse($patient->birth_date_is_approximate);
         $this->assertSame('1990-05-12', $patient->birth_date->toDateString());
         $this->assertSame(1, $patient->episodes()->count());
-        $this->assertSame(0, AuditLog::query()->where('action', 'update')->count());
+        $this->assertSame(0, AuditLog::query()
+            ->where('action', 'update')
+            ->where('entity_type', $patient->getMorphClass())
+            ->where('entity_id', $patient->id)
+            ->count());
 
         // ADR-034: unlike the identity fields above, the emergency contact
         // legitimately belongs to this arrival's episode, not the patient.
@@ -319,7 +349,7 @@ class ReceptionControllerTest extends TestCase
         $this->assertNotNull($patient->declared_age_at);
     }
 
-    public function test_store_marks_an_emergency_arrival_and_orients_it_immediately(): void
+    public function test_store_rejects_emergency_until_the_episode_exists(): void
     {
         $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         config(['rivo.site.code' => 'M']);
@@ -329,26 +359,22 @@ class ReceptionControllerTest extends TestCase
             'is_emergency' => true,
         ]);
 
-        $episode = Episode::first();
-        $response->assertRedirect("/reception/passages/{$episode->uuid}/prestations");
-        $response->assertSessionHas('status', "Passage urgence {$episode->episode_number} créé ; Soins et Médecine sont déjà alertés.");
-        $this->assertSame(EpisodePriority::Emergency, $episode->priority);
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
+        $response->assertSessionHasErrors('is_emergency');
+        $this->assertSame(0, Episode::count());
     }
 
-    public function test_store_can_mark_an_existing_patient_arrival_as_emergency(): void
+    public function test_existing_patient_emergency_flag_is_rejected_before_the_new_episode_exists(): void
     {
         $user = $this->userWithPermissions(['patients.create', 'episodes.create']);
         $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
 
-        $this->actingAs($user)->post('/reception/patients', [
+        $response = $this->actingAs($user)->post('/reception/patients', [
             'patient_uuid' => $patient->uuid,
             'is_emergency' => true,
         ]);
 
-        $episode = $patient->episodes()->first();
-        $this->assertSame(EpisodePriority::Emergency, $episode->priority);
-        $this->assertSame(EpisodeAdministrativeStatus::Oriented, $episode->administrative_status);
+        $response->assertSessionHasErrors('is_emergency');
+        $this->assertSame(0, $patient->episodes()->count());
     }
 
     public function test_store_rejects_an_invalid_emergency_flag(): void

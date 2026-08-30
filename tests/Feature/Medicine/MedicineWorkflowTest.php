@@ -14,6 +14,7 @@ use App\Enums\MedicalDischargeType;
 use App\Enums\MedicineForm;
 use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\PrescriptionStatus;
+use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\Diagnosis;
@@ -40,6 +41,7 @@ class MedicineWorkflowTest extends TestCase
         'prescriptions.view', 'prescriptions.create', 'prescriptions.update', 'prescriptions.cancel',
         'medicines.view', 'stock.availability.view',
         'medical_discharge.create', 'patients.view', 'patients.medical_history.view',
+        'patients.medical_history.manage', 'care.view', 'vitals.view',
     ]): User
     {
         $role = Role::query()->create(['code' => 'MEDICINE', 'name' => 'Médecine']);
@@ -181,6 +183,7 @@ class MedicineWorkflowTest extends TestCase
         ])->assertRedirect();
 
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
+            'continue_to_decision' => true,
             'lines' => [
                 [
                     'medicine_uuid' => $medicine->catalogItem->uuid,
@@ -191,7 +194,7 @@ class MedicineWorkflowTest extends TestCase
                     'instructions' => 'Après le repas',
                 ],
             ],
-        ])->assertRedirect();
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/decision");
 
         $consultation = $orientation->consultation()->firstOrFail();
         $this->assertSame('Douleur abdominale aiguë', $consultation->reason);
@@ -203,6 +206,145 @@ class MedicineWorkflowTest extends TestCase
         $this->assertSame('Paracétamol', $prescription->lines->sole()->medication_name);
         $this->assertSame(6, $prescription->lines->sole()->quantity);
         $this->assertSame(1, $prescription->lines->sole()->stockReservations()->count());
+    }
+
+    public function test_consultation_text_fields_keep_supported_formatting_and_remove_unsafe_markup(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+            'reason' => '<p onclick="alert(1)"><b>Douleur abdominale</b> <span style="background-color: yellow">depuis hier</span><script>alert(1)</script></p><ul><li>Fièvre</li><li>Nausées</li></ul>',
+            'clinical_exam' => '<p><b>Palpation</b></p><ol><li>Sensibilité FID</li><li>Défense absente</li></ol><img src=x onerror="alert(1)">',
+        ])->assertRedirect();
+
+        $expectedReason = '<p><strong>Douleur abdominale</strong> <mark>depuis hier</mark></p><ul><li>Fièvre</li><li>Nausées</li></ul>';
+        $expectedExam = '<p><strong>Palpation</strong></p><ol><li>Sensibilité FID</li><li>Défense absente</li></ol>';
+        $consultation = $orientation->consultation()->sole();
+        $this->assertSame($expectedReason, $consultation->reason);
+        $this->assertSame($expectedExam, $consultation->clinical_exam);
+
+        $this->get("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('consultation.reason', $expectedReason)
+                ->where('consultation.clinical_exam', $expectedExam));
+    }
+
+    public function test_consultation_reason_rejects_formatting_without_clinical_text(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->from("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+                'reason' => '<p><br></p><script>alert(1)</script>',
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->assertSessionHasErrors('reason');
+    }
+
+    /**
+     * ConsultationDecision is data capture only (see the enum's own
+     * docblock): acting on these values still requires the module that owns
+     * that workflow, none of which exist yet. Pins down that saving one of
+     * them today creates no orientation, no SurgicalRequest and no
+     * MedicalDischarge — so a future implementation of one of these
+     * workflows can be told apart from an accidental regression.
+     */
+    public function test_unwired_consultation_decisions_are_recorded_without_any_side_effect(): void
+    {
+        $doctor = $this->doctor();
+
+        foreach (['LABORATORY_TESTS', 'HOSPITALIZATION', 'SURGERY', 'IMAGING'] as $decision) {
+            $orientation = $this->medicineOrientation($doctor);
+            $episode = $orientation->episode;
+            $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+            $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+                'reason' => 'Motif de consultation',
+                'decision' => $decision,
+            ])->assertRedirect();
+
+            $consultation = $orientation->consultation()->firstOrFail();
+            $this->assertSame($decision, $consultation->decision->value);
+            $this->assertSame(2, $episode->orientations()->count());
+            $this->assertSame('OPEN', $episode->fresh()->status->value);
+        }
+
+        $this->assertDatabaseCount('surgical_requests', 0);
+        $this->assertDatabaseCount('medical_discharges', 0);
+    }
+
+    /**
+     * MedicineDossierPresenter reuses CareRecordReadModel (same one Surgery
+     * and Anesthesia already read from, ADR-048) instead of re-deriving its
+     * own constants projection, so a threshold changed once in the shared
+     * *Assessment engines is reflected here without touching this file.
+     */
+    public function test_the_care_record_projection_carries_the_same_threshold_assessments_as_care_and_surgery(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+
+        CareRecord::query()->create([
+            'episode_id' => $orientation->episode_id,
+            'blood_group' => 'O+',
+            'blood_pressure_systolic' => 145,
+            'blood_pressure_diastolic' => 95,
+            'heart_rate' => 55,
+            'spo2' => 92,
+            'temperature_celsius' => '38.20',
+            'created_by' => $doctor->id,
+            'updated_by' => $doctor->id,
+        ]);
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/dossier")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('care_record.read_only', true)
+                ->where('care_record.blood_pressure_assessment.code', 'HIGH_STAGE_2')
+                ->where('care_record.blood_pressure_assessment.tone', 'warning')
+                ->where('care_record.heart_rate_assessment.code', 'LOW')
+                ->where('care_record.heart_rate_assessment.tone', 'warning')
+                ->where('care_record.spo2_assessment.code', 'VERY_LOW')
+                ->where('care_record.spo2_assessment.tone', 'danger')
+                ->where('care_record.temperature_assessment.code', 'FEVER')
+                ->where('care_record.temperature_assessment.tone', 'warning')
+            );
+    }
+
+    /**
+     * Antecedents are a permanent Patient record (§19), not a Consultation
+     * field: this proves one added through the generic PatientController
+     * endpoint (patients.medical_history.manage) — by Médecine or any other
+     * caller — is visible on the very next consultation dossier read,
+     * without MedicineDossierPresenter duplicating any recording logic.
+     */
+    public function test_an_antecedent_added_through_the_generic_endpoint_is_visible_on_the_next_consultation(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->actingAs($doctor)
+            ->post("/patients/{$orientation->episode->patient->uuid}/antecedents", [
+                'description' => 'Hypertension artérielle connue',
+            ])
+            ->assertRedirect();
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/dossier")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('capabilities.can_manage_medical_history', true)
+                ->has('antecedents', 1)
+                ->where('antecedents.0.description', 'Hypertension artérielle connue'));
     }
 
     private function catalogReviewer(): User

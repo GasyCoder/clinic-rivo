@@ -26,6 +26,11 @@ class FinancialNumberGenerator
         return $this->next('cash_session', 'C');
     }
 
+    public function pharmacyDelivery(): string
+    {
+        return $this->next('pharmacy_delivery', 'BS');
+    }
+
     private function next(string $code, string $marker): string
     {
         return DB::transaction(function () use ($code, $marker) {

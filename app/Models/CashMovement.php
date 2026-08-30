@@ -39,4 +39,14 @@ class CashMovement extends Model
     {
         return $this->belongsTo(Payment::class, 'reversal_payment_id');
     }
+
+    public function method(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id');
+    }
+
+    public function recorder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by');
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Requests\Administration;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -35,6 +36,7 @@ class StoreCatalogItemRequest extends FormRequest
             'unit' => ['required', 'string', 'max:50'],
             'billable' => ['required', 'boolean'],
             'stockable' => ['required', 'boolean'],
+            'staff_coverage_policy' => ['sometimes', new Enum(StaffCoveragePolicy::class)],
             'reception_selectable' => ['sometimes', 'boolean'],
             'reception_routing_mode' => [
                 'nullable',
@@ -43,6 +45,7 @@ class StoreCatalogItemRequest extends FormRequest
             ],
             'care_requires_allergy_check' => ['sometimes', 'boolean'],
             'care_recommends_vitals' => ['sometimes', 'boolean'],
+            'clinician_orderable' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string', 'max:2000'],
             'tariff_amount' => ['nullable', 'required_if:billable,true', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],
             'mutual_tariff_amount' => ['nullable', 'numeric', 'gt:0', 'max:999999999.99', 'decimal:0,2'],

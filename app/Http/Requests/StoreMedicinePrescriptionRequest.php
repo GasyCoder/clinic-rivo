@@ -37,6 +37,7 @@ class StoreMedicinePrescriptionRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'continue_to_decision' => ['sometimes', 'boolean'],
             'lines' => ['required', 'array', 'min:1', 'max:30'],
             'lines.*.manual' => ['sometimes', 'boolean'],
             'lines.*.medicine_uuid' => [

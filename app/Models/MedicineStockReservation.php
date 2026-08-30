@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'prescription_line_id', 'medicine_lot_id', 'quantity', 'status',
+    'prescription_line_id', 'medicine_lot_id', 'quantity', 'remaining_quantity', 'status',
     'reserved_at', 'reserved_by', 'released_at', 'released_by',
     'release_reason', 'dispensed_at', 'dispensed_by',
 ])]
@@ -18,10 +18,20 @@ class MedicineStockReservation extends Model
 {
     use Auditable, HasUuid;
 
+    protected static function booted(): void
+    {
+        static::creating(function (self $reservation) {
+            if ($reservation->status === null || $reservation->status === MedicineStockReservationStatus::Reserved) {
+                $reservation->remaining_quantity ??= $reservation->quantity;
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [
             'quantity' => 'integer',
+            'remaining_quantity' => 'integer',
             'status' => MedicineStockReservationStatus::class,
             'reserved_at' => 'datetime',
             'released_at' => 'datetime',

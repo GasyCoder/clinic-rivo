@@ -216,6 +216,31 @@ class PatientControllerTest extends TestCase
         ]);
     }
 
+    public function test_updating_a_patient_with_return_to_reception_redirects_back_to_the_arrival_journey(): void
+    {
+        $user = $this->userWithPermissions(['patients.update']);
+        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
+
+        $this->actingAs($user)->put("/patients/{$patient->uuid}?return_to=reception", [
+            ...$this->patientData(['first_name' => 'Marie']),
+        ])->assertRedirect('/reception/patients');
+
+        $this->assertDatabaseHas('patients', [
+            'id' => $patient->id,
+            'first_name' => 'Marie',
+        ]);
+    }
+
+    public function test_updating_a_patient_with_an_unrecognized_return_to_still_redirects_to_the_dossier(): void
+    {
+        $user = $this->userWithPermissions(['patients.update']);
+        $patient = Patient::create(['patient_number' => 'M-000001', ...$this->patientData()]);
+
+        $this->actingAs($user)->put("/patients/{$patient->uuid}?return_to=".urlencode('https://evil.example'), [
+            ...$this->patientData(['first_name' => 'Marie']),
+        ])->assertRedirect("/patients/{$patient->uuid}");
+    }
+
     public function test_a_staff_patient_cannot_be_edited_outside_the_hr_record(): void
     {
         $user = $this->userWithPermissions(['patients.update']);

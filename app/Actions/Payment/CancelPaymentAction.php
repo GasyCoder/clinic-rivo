@@ -5,6 +5,7 @@ namespace App\Actions\Payment;
 use App\Enums\CashSessionStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\PharmacyDispenseStatus;
 use App\Models\CashMovement;
 use App\Models\CashSession;
 use App\Models\Invoice;
@@ -41,14 +42,30 @@ class CancelPaymentAction
 
             // A closed till is an immutable accounting period. Reversing it
             // requires the future refund/correction workflow, whose approval
-            // rules are not yet defined in the CDC.
-            if ($session->status !== CashSessionStatus::Open || $session->active_key !== 'SINGLE_OPEN_CASH') {
+            // rules are not yet defined in the CDC. active_key and status
+            // always change together (CloseCashSessionAction), so the status
+            // check alone is sufficient — active_key's own value depends on
+            // which register (if any) the session belongs to.
+            if ($session->status !== CashSessionStatus::Open) {
                 throw ValidationException::withMessages([
                     'payment' => 'Ce paiement appartient à une caisse clôturée. Utilisez le futur circuit de remboursement contrôlé.',
                 ]);
             }
 
+            if ($session->opened_by !== $actor->id) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Cette caisse est utilisée par une autre personne. Utilisez une autre caisse disponible.',
+                ]);
+            }
+
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($payment->invoice_id);
+            $dispense = $invoice->pharmacyDispense()->with('lines')->lockForUpdate()->first();
+
+            if ($dispense && $dispense->lines->sum('quantity_dispensed') > 0) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Ce paiement finance une délivrance Pharmacie déjà commencée et ne peut pas être annulé.',
+                ]);
+            }
             $amountMinor = Money::toMinor($payment->amount);
             $paidMinor = Money::toMinor($invoice->paid_amount);
 
@@ -90,6 +107,10 @@ class CancelPaymentAction
                     ? InvoiceStatus::Validated
                     : InvoiceStatus::PartiallyPaid,
             ])->save();
+
+            if ($dispense) {
+                $dispense->update(['status' => PharmacyDispenseStatus::AwaitingPayment]);
+            }
 
             $this->auditor->record(
                 'payment.cancel',

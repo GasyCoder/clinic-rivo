@@ -14,7 +14,7 @@ class PermissionSeeder extends Seeder
     ];
 
     /**
-     * Clinical modules not yet implemented (laboratory, pharmacy, etc.)
+     * Clinical modules not yet implemented (notably laboratory)
      * still have no permission invented here — each seeds its own
      * when it is built, per ADR-008's action catalog.
      *
@@ -28,6 +28,7 @@ class PermissionSeeder extends Seeder
         'users.deactivate' => 'Désactiver un utilisateur',
         'users.assign_super_admin' => 'Attribuer ou gérer le rôle Super Administrateur',
         'users.manage' => 'Gérer les comptes, rôles et permissions',
+        'users.force_delete' => 'Supprimer définitivement un compte jamais utilisé (ADR-062)',
 
         'roles.view' => 'Voir les rôles',
         'roles.assign' => 'Attribuer un rôle',
@@ -44,6 +45,8 @@ class PermissionSeeder extends Seeder
         'settings.update' => 'Modifier les paramètres globaux',
         'audit.view' => 'Voir le journal d’audit',
         'api.view' => 'Voir l’état des intégrations API',
+        'trash.view' => 'Voir la corbeille multi-sites',
+        'trash.restore' => 'Restaurer un élément depuis la corbeille multi-sites',
 
         // CDC officiel §17, affiné par la décision projet qui sépare RH,
         // Logistique, Support et Maintenance en responsabilités autonomes.
@@ -55,6 +58,8 @@ class PermissionSeeder extends Seeder
         // Vue volontairement minimale du dossier RH pour relier un membre du
         // personnel à son dossier patient, sans exposer contrats ou données RH.
         'employees.patient_lookup' => 'Rechercher un employé pour son dossier patient',
+        'staff_block_credits.view' => 'Voir le crédit forfaitaire Bloc et son historique',
+        'staff_block_credits.allocate' => 'Allouer manuellement un crédit forfaitaire Bloc',
         'patient_staff_links.view' => 'Voir le lien patient-personnel',
         'patient_staff_links.create' => 'Relier un patient à un employé',
         'patient_staff_links.end' => 'Mettre fin à un lien patient-personnel',
@@ -63,11 +68,25 @@ class PermissionSeeder extends Seeder
         'address_entries.create' => 'Ajouter une adresse au référentiel',
         'address_entries.update' => 'Modifier une adresse du référentiel',
         'address_entries.archive' => 'Archiver une adresse du référentiel',
+        'address_entries.restore' => 'Restaurer une adresse du référentiel',
+        'address_entries.import' => 'Importer des adresses dans le référentiel',
+        'address_entries.export' => 'Exporter le référentiel des adresses',
 
         'mutual_organizations.view' => 'Voir les organismes de mutuelle',
         'mutual_organizations.create' => 'Créer un organisme de mutuelle',
         'mutual_organizations.update' => 'Modifier un organisme de mutuelle',
         'mutual_organizations.archive' => 'Archiver un organisme de mutuelle',
+        'mutual_organizations.restore' => 'Restaurer un organisme de mutuelle',
+        'mutual_organizations.import' => 'Importer les organismes et leurs taux de couverture',
+        'mutual_organizations.export' => 'Exporter les organismes et leurs taux de couverture',
+
+        // Partenaire commercial/institutionnel (ISPSG, TsaraShop…), distinct
+        // de la Mutuelle : couverture scopée à des prestations précises
+        // (chambre, lit), jamais un taux sur toute la grille tarifaire.
+        // Référentiel minimal pour l'instant — pas de gestion dédiée (voir
+        // EpisodeFinancialMode::Partner).
+        'partner_organizations.view' => 'Voir les organismes partenaires',
+
         'patient_coverages.view' => 'Voir la couverture administrative du patient',
         'patient_coverages.create' => 'Enregistrer une couverture mutuelle',
         'patient_coverages.update' => 'Modifier une couverture mutuelle',
@@ -126,6 +145,8 @@ class PermissionSeeder extends Seeder
         'catalog.tariffs.create' => 'Créer un tarif',
         'catalog.tariffs.update' => 'Modifier un tarif',
         'catalog.tariffs.archive' => 'Suspendre un tarif',
+        'catalog.tariffs.import' => 'Importer les tarifs Standard et Mutuelle',
+        'catalog.tariffs.export' => 'Exporter les tarifs Standard et Mutuelle',
 
         'reception.view' => 'Accéder à la réception',
 
@@ -138,10 +159,28 @@ class PermissionSeeder extends Seeder
         // Les prix et le référentiel sont gérés séparément par le Super Admin.
         'pharmacy.view' => 'Accéder à la pharmacie',
         'pharmacy.dispense' => 'Délivrer les médicaments autorisés',
+        'pharmacy.dispense.prepare_invoice' => 'Préparer la facture d’une demande de dispensation',
+        'pharmacy.dispense.print' => 'Voir et imprimer le ticket d’une demande de dispensation',
+        'pharmacy.counter_sales.create' => 'Créer une vente directe au comptoir sans encaissement',
         'pharmacy.return' => 'Enregistrer un retour de pharmacie',
         'pharmacy.reports.view' => 'Voir les rapports de pharmacie',
         'pharmacy.reports.export' => 'Exporter les rapports de pharmacie',
         'medicines.view' => 'Voir le référentiel des médicaments',
+        'medicines.create' => 'Créer un médicament dans le référentiel',
+        'medicines.update' => 'Modifier le paramétrage d’un médicament',
+        'medicines.delete' => 'Archiver un médicament',
+        'medicines.restore' => 'Restaurer un médicament archivé',
+        'medicines.import' => 'Importer en masse le référentiel des médicaments',
+        'medicine_categories.view' => 'Voir les catégories thérapeutiques',
+        'medicine_categories.create' => 'Créer une catégorie thérapeutique',
+        'medicine_categories.update' => 'Modifier une catégorie thérapeutique',
+        'medicine_categories.delete' => 'Archiver une catégorie thérapeutique',
+        'medicine_categories.restore' => 'Restaurer une catégorie thérapeutique',
+        'medicine_suppliers.view' => 'Voir les fournisseurs de médicaments',
+        'medicine_suppliers.create' => 'Créer un fournisseur de médicaments',
+        'medicine_suppliers.update' => 'Modifier un fournisseur de médicaments',
+        'medicine_suppliers.delete' => 'Archiver un fournisseur de médicaments',
+        'medicine_suppliers.restore' => 'Restaurer un fournisseur de médicaments',
         'stock.availability.view' => 'Consulter la disponibilité agrégée des médicaments',
         'stock.view' => 'Voir le stock de médicaments et consommables',
         'stock.entry' => 'Enregistrer une entrée en stock pharmacie',
@@ -157,6 +196,9 @@ class PermissionSeeder extends Seeder
         'stock.lots.create' => 'Créer un lot de médicaments',
         'stock.lots.update' => 'Modifier un lot de médicaments',
         'stock.expiration.view' => 'Voir les péremptions',
+        'stock.alerts.view' => 'Voir les alertes automatiques de stock',
+        'stock.cost.view' => 'Voir les prix d’achat du stock',
+        'stock.cost.record' => 'Enregistrer les prix d’achat du stock',
 
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',
@@ -179,6 +221,7 @@ class PermissionSeeder extends Seeder
         'episodes.view' => 'Voir les épisodes',
         'episodes.create' => 'Créer un épisode',
         'episodes.update' => 'Modifier un épisode',
+        'episodes.mark_emergency' => 'Classer un épisode en urgence',
         'episodes.cancel' => 'Annuler un épisode',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
@@ -196,12 +239,24 @@ class PermissionSeeder extends Seeder
         'cash.view' => 'Voir la caisse',
         'cash.open' => 'Ouvrir la caisse',
         'cash.close' => 'Clôturer la caisse',
+        'cash_registers.view' => 'Voir les caisses nommées du site',
+        'cash_registers.create' => 'Créer une caisse nommée',
+        'cash_registers.update' => 'Renommer une caisse nommée',
+        'cash_registers.activate' => 'Réactiver une caisse nommée désactivée',
+        'cash_registers.deactivate' => 'Désactiver une caisse nommée sans l’archiver',
+        'cash_registers.archive' => 'Archiver une caisse nommée',
+        'cash_registers.restore' => 'Restaurer une caisse nommée',
+        'cash_registers.lock' => 'Verrouiller à distance une session de caisse ouverte',
+        'cash_registers.unlock' => 'Déverrouiller à distance une session de caisse',
+        'cash_registers.close' => 'Clôturer à distance une session avec comptage et motif',
+        'cash_registers.export' => 'Exporter en Excel les mouvements et l’historique d’une caisse',
         'receipts.view' => 'Voir les reçus',
         'receipts.print' => 'Imprimer les reçus',
 
         // CDC GitHub §15 / ADR-035. Les demandes Laboratoire,
-        // Hospitalisation, Chirurgie et Transfert restent absentes tant que
-        // leurs workflows spécialisés ne sont pas réellement construits.
+        // Hospitalisation et Transfert restent absentes tant que leurs
+        // workflows spécialisés ne sont pas réellement construits. Chirurgie
+        // possède désormais son workflow séparé décrit par ADR-048.
         'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
         'consultations.create' => 'Créer une consultation',
@@ -212,6 +267,15 @@ class PermissionSeeder extends Seeder
         'diagnoses.view' => 'Voir les diagnostics',
         'diagnoses.create' => 'Créer un diagnostic',
         'diagnoses.update' => 'Modifier un diagnostic',
+        'diagnostic_catalog.view' => 'Voir le référentiel central des diagnostics',
+        'diagnostic_catalog.manage' => 'Créer, modifier, activer et désactiver les diagnostics du référentiel',
+        'analysis_catalog.view' => 'Voir le catalogue structuré des analyses',
+        'analysis_catalog.create' => 'Créer une définition d’analyse',
+        'analysis_catalog.update' => 'Modifier une définition d’analyse et ses références',
+        'analysis_catalog.activate' => 'Activer une définition d’analyse',
+        'analysis_catalog.deactivate' => 'Désactiver une définition d’analyse',
+        'analysis_catalog.import' => 'Importer le catalogue des analyses',
+        'analysis_catalog.export' => 'Exporter le catalogue des analyses',
 
         'prescriptions.view' => 'Voir les prescriptions',
         'prescriptions.create' => 'Créer une prescription',
@@ -233,9 +297,37 @@ class PermissionSeeder extends Seeder
         'vitals.update' => 'Modifier des constantes',
         'medical_orders.view' => 'Voir les ordres médicaux',
 
-        // CDC §16 "Chirurgie" — catalogue anesthésie. Il appartient au rôle
-        // SURGERY et peut aussi être attribué individuellement à un compte
-        // NURSE dont le profil principal est ANESTHETIST.
+        // Phase B — ordre de soins Médecine → Soins (CDC §15). Distincte de
+        // medical_orders.view (générique, non consommée par un écran réel) :
+        // celle-ci gouverne précisément la création/consultation d'un
+        // CareOrder.
+        'care_orders.create' => 'Demander un ordre de soins depuis une consultation',
+        'care_orders.view' => 'Voir les ordres de soins',
+
+        // Paraclinique et orientations depuis Médecine. surgery.request est
+        // volontairement distincte de surgery.create (jamais accordée à
+        // MEDICINE) : demander une intervention n'est pas piloter le
+        // dossier chirurgical.
+        'laboratory_orders.create' => 'Demander des analyses depuis une consultation',
+        'laboratory_orders.view' => 'Voir les demandes d’analyses',
+        'laboratory_results.view' => 'Voir les résultats d’analyses',
+        'laboratory_results.create' => 'Saisir un résultat d’analyse',
+
+        // ECG / échographie : aucun workspace dédié n'existe encore, donc
+        // demande et compte rendu restent tous deux portés par Médecine.
+        'imaging_orders.create' => 'Demander un examen d’imagerie depuis une consultation',
+        'imaging_orders.view' => 'Voir les demandes d’imagerie',
+        'imaging_results.create' => 'Saisir un compte rendu d’imagerie',
+
+        'surgery.request' => 'Demander une intervention chirurgicale depuis Médecine',
+        'hospitalization.request' => 'Demander une hospitalisation depuis Médecine',
+        'maternity.request' => 'Demander une orientation Maternité depuis Médecine',
+        'transfer.request' => 'Demander un transfert/référence depuis Médecine',
+        'pediatrics.request' => 'Demander une orientation Pédiatrie depuis Médecine',
+
+        // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-048 en fait un
+        // espace autorisé séparément : ces permissions sont attribuées aux
+        // comptes concernés, notamment au profil ANESTHETIST.
         'anesthesia.view' => 'Voir les dossiers d\'anesthésie',
         'anesthesia.create' => 'Créer un dossier d\'anesthésie',
         'anesthesia.update' => 'Modifier un dossier d\'anesthésie',

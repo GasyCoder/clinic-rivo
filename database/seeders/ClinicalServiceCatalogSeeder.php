@@ -8,6 +8,7 @@ use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\User;
 use App\Support\Money;
+use App\Support\SurgeryReferenceData;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
      * Provisional local data used to validate the Reception billing workflow.
      * Amounts are MGA and must be confirmed by the clinic before production.
      *
-     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool, care_requires_allergy_check?: bool, care_recommends_vitals?: bool}>
+     * @var array<int, array{code: string, name: string, module: CatalogModule, unit: string, amount: ?int, description: string, reception_selectable: bool, routing_mode: ?ReceptionRoutingMode, billable?: bool, care_requires_allergy_check?: bool, care_recommends_vitals?: bool, clinician_orderable?: bool}>
      */
     private const SERVICES = [
         [
@@ -91,6 +92,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Nettoyage et pansement d’une plaie simple.',
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'PANSEMENT-C',
@@ -101,6 +103,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Prise en charge et pansement d’une plaie complexe.',
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'INJECTION-IM',
@@ -112,6 +115,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
             'care_requires_allergy_check' => true,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'PERFUSION',
@@ -123,6 +127,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'reception_selectable' => true,
             'routing_mode' => ReceptionRoutingMode::CareOnly,
             'care_requires_allergy_check' => true,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-ABL-SONDE',
@@ -133,6 +138,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Retrait d’une sonde et surveillance infirmière.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-CURET-LR-K1',
@@ -143,6 +149,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Acte de curetage tracé sur la fiche de soins.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-CURET-S-K1',
@@ -153,6 +160,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Acte de curetage simple tracé sur la fiche de soins.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'INJECTION-IV',
@@ -164,6 +172,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'reception_selectable' => false,
             'routing_mode' => null,
             'care_requires_allergy_check' => true,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-LAV-GAST',
@@ -174,6 +183,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Lavage gastrique et surveillance associée.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-LAV-SONDE-V',
@@ -184,6 +194,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Lavage d’une sonde vésicale.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-POSE-SONDE',
@@ -194,6 +205,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Pose d’une sonde et surveillance associée.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-PRELEV-LAB',
@@ -214,6 +226,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Réfection d’une plaie traumatique tracée par l’équipe de soins.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-NEBUL',
@@ -224,6 +237,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Séance de nébulisation et surveillance.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-SUTURES',
@@ -234,6 +248,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Réalisation et traçabilité de sutures.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-O2-EXTRACT',
@@ -244,6 +259,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Oxygénothérapie avec extracteur et surveillance.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-ASPIRATION',
@@ -254,6 +270,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Acte d’aspiration et surveillance associée.',
             'reception_selectable' => false,
             'routing_mode' => null,
+            'clinician_orderable' => true,
         ],
         [
             'code' => 'CARE-OTHER',
@@ -354,7 +371,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 &$preserved,
                 &$withoutTariff,
             ): void {
-                foreach (self::SERVICES as $service) {
+                foreach (self::services() as $service) {
                     $existing = CatalogItem::withTrashed()
                         ->where('code', $service['code'])
                         ->first();
@@ -370,6 +387,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         $this->applyLegacyCareLabel($existing, $service);
                         $this->applyInitialReceptionRouteIfUnset($existing, $service);
                         $this->applyAcceptedRoutingCorrection($existing, $service, $actor);
+                        $this->applyClinicianOrderableIfUnset($existing, $service, $actor);
 
                         if ($existing->currentTariff()->exists()) {
                             $preserved++;
@@ -401,6 +419,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         'reception_routing_mode' => $service['routing_mode'],
                         'care_requires_allergy_check' => $service['care_requires_allergy_check'] ?? false,
                         'care_recommends_vitals' => $service['care_recommends_vitals'] ?? false,
+                        'clinician_orderable' => $service['clinician_orderable'] ?? false,
                         'description' => $service['description'],
                         'created_by' => $actor->id,
                         'updated_by' => $actor->id,
@@ -425,12 +444,32 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         $this->command?->info(sprintf(
             '%d désignations disponibles : %d créées, %d tarifs ajoutés, %d tarifs existants conservés, %d en attente de tarif.',
-            count(self::SERVICES),
+            count(self::services()),
             $created,
             $tariffsCreated,
             $preserved,
             $withoutTariff,
         ));
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private static function services(): array
+    {
+        $surgicalProcedures = array_map(fn (array $procedure): array => [
+            'code' => $procedure['code'],
+            'name' => $procedure['name'],
+            'module' => CatalogModule::Surgery,
+            'unit' => 'intervention',
+            'amount' => null,
+            'description' => $procedure['code'] === 'SURG-OTHER'
+                ? 'Autre intervention chirurgicale, à préciser obligatoirement dans le dossier.'
+                : 'Intervention chirurgicale issue du référentiel validé par la clinique.',
+            'reception_selectable' => false,
+            'routing_mode' => null,
+            'billable' => $procedure['code'] !== 'SURG-OTHER',
+        ], SurgeryReferenceData::procedures());
+
+        return [...self::SERVICES, ...$surgicalProcedures];
     }
 
     private function resolveActor(): User
@@ -561,6 +600,27 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         $item->forceFill([
             'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect,
+            'updated_by' => $actor->id,
+        ])->save();
+    }
+
+    /**
+     * ADR-055: clinician_orderable is a deliberate, explicit flag — never
+     * deduced from the name/code. Backfill only an item still at its unset
+     * default (false); never flip one already true back off. Like the
+     * routing backfill above, this can't distinguish "never configured"
+     * from "explicitly disabled" — the same accepted limitation.
+     *
+     * @param  array{clinician_orderable?: bool}  $service
+     */
+    private function applyClinicianOrderableIfUnset(CatalogItem $item, array $service, User $actor): void
+    {
+        if (! ($service['clinician_orderable'] ?? false) || $item->clinician_orderable) {
+            return;
+        }
+
+        $item->forceFill([
+            'clinician_orderable' => true,
             'updated_by' => $actor->id,
         ])->save();
     }

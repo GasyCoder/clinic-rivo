@@ -6,8 +6,10 @@ use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
+use App\Actions\Episode\SetEpisodeFinancialContextAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CareRecord;
@@ -15,6 +17,8 @@ use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Episode;
 use App\Models\Patient;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -31,7 +35,10 @@ class EpisodeRoutingPlanTest extends TestCase
         parent::setUp();
 
         config(['rivo.site.code' => 'M']);
-        $this->actor = User::factory()->create();
+        $role = Role::query()->create(['code' => 'RECEPTION', 'name' => 'Réception']);
+        $permission = Permission::query()->create(['name' => 'episodes.create']);
+        $role->permissions()->attach($permission);
+        $this->actor = User::factory()->create(['role_id' => $role->id]);
         $this->actingAs($this->actor);
     }
 
@@ -201,7 +208,18 @@ class EpisodeRoutingPlanTest extends TestCase
             'sex' => 'F',
         ]);
 
-        return app(CreateEpisodeAction::class)->execute($patient, $priority);
+        $episode = app(CreateEpisodeAction::class)->execute($patient, $priority);
+
+        if ($priority !== EpisodePriority::Emergency) {
+            $episode = app(SetEpisodeFinancialContextAction::class)->execute(
+                $episode,
+                EpisodeFinancialMode::Self,
+                [],
+                $this->actor,
+            );
+        }
+
+        return $episode;
     }
 
     private function service(string $code, ReceptionRoutingMode $route): CatalogItem

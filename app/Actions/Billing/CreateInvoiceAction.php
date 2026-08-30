@@ -4,7 +4,6 @@ namespace App\Actions\Billing;
 
 use App\Enums\BillableItemStatus;
 use App\Enums\InvoiceStatus;
-use App\Enums\PatientType;
 use App\Models\BillableItem;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -23,20 +22,10 @@ class CreateInvoiceAction
     ) {}
 
     /**
-     * @param  array{episode_uuid: string, billable_item_uuids?: array<int, string>, catalog_lines?: array<int, array{catalog_item_uuid: string, quantity: int|string}>}  $data
+     * @param  array{episode_uuid: string, billable_item_uuids?: array<int, string>, catalog_lines?: array<int, array{catalog_item_uuid: string, quantity: int|string, idempotency_key?: string}>}  $data
      */
     public function execute(Patient $patient, array $data, User $actor): Invoice
     {
-        // ADR-030: a staff benefit is not a zero tariff or an arbitrary
-        // discount. Until RH / Finance has resolved the employee coverage
-        // and the surgery-credit share, creating a normal patient invoice
-        // here would overcharge the employee and bypass that ledger.
-        if ($patient->patient_type === PatientType::Staff) {
-            throw ValidationException::withMessages([
-                'patient' => 'La couverture Personnel doit être calculée par RH / Finance avant toute facturation.',
-            ]);
-        }
-
         return DB::transaction(function () use ($patient, $data, $actor) {
             $episode = $patient->episodes()
                 ->where('uuid', $data['episode_uuid'])
@@ -55,6 +44,7 @@ class CreateInvoiceAction
                 $items->push($this->recordBillableItem->execute($episode, [
                     'catalog_item_uuid' => $line['catalog_item_uuid'],
                     'quantity' => $line['quantity'],
+                    'idempotency_key' => $line['idempotency_key'] ?? null,
                     'payment_required_before_fulfillment' => false,
                 ], $actor));
             }
@@ -65,7 +55,29 @@ class CreateInvoiceAction
                 ]);
             }
 
-            $subtotalMinor = $items->sum(fn (BillableItem $item) => Money::toMinor($item->total_amount));
+            $items = $items->unique('id')->values();
+
+            if ($items->contains(fn (BillableItem $item) => $item->status !== BillableItemStatus::Pending)) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'Une prestation de cette demande est déjà facturée ou annulée.',
+                ]);
+            }
+
+            $subtotalMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->gross_amount ?? $item->total_amount,
+            ));
+            $coverageMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->coverage_amount ?? '0.00',
+            ));
+            $patientMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->patient_amount ?? $item->total_amount,
+            ));
+            $staffCoveredMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->staff_covered_amount ?? '0.00',
+            ));
+            $staffBlockCreditUsedMinor = $items->sum(fn (BillableItem $item) => Money::toMinor(
+                $item->staff_block_credit_used ?? '0.00',
+            ));
 
             if ($subtotalMinor <= 0 || $subtotalMinor > 999_999_999_999_999) {
                 throw ValidationException::withMessages([
@@ -73,18 +85,43 @@ class CreateInvoiceAction
                 ]);
             }
 
+            if ($coverageMinor < 0 || $coverageMinor > $subtotalMinor || $patientMinor !== $subtotalMinor - $coverageMinor) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'La répartition entre prise en charge et patient est incohérente.',
+                ]);
+            }
+
+            if ($staffBlockCreditUsedMinor < 0
+                || $staffCoveredMinor < $staffBlockCreditUsedMinor
+                || $staffCoveredMinor > $coverageMinor) {
+                throw ValidationException::withMessages([
+                    'catalog_lines' => 'La répartition de la couverture Personnel est incohérente.',
+                ]);
+            }
+
             $subtotal = Money::fromMinor($subtotalMinor);
+            $patientTotal = Money::fromMinor($patientMinor);
+            $organizationUuids = $items->pluck('mutual_organization_uuid')->filter()->unique();
+            $organizationNames = $items->pluck('mutual_organization_name')->filter()->unique();
+            $coverageRates = $items->pluck('coverage_rate')->filter(fn ($rate) => $rate !== null)->unique();
             $invoice = Invoice::create([
                 'patient_id' => $patient->id,
                 'episode_id' => $episode->id,
                 'invoice_number' => $this->numbers->invoice(),
                 'status' => InvoiceStatus::Draft,
                 'currency' => 'MGA',
+                'financial_mode' => $episode->financial_mode,
+                'mutual_organization_uuid' => $organizationUuids->count() === 1 ? $organizationUuids->first() : null,
+                'mutual_organization_name' => $organizationNames->count() === 1 ? $organizationNames->first() : null,
+                'coverage_rate' => $coverageRates->count() === 1 ? $coverageRates->first() : null,
                 'subtotal_amount' => $subtotal,
                 'discount_amount' => '0.00',
-                'total_amount' => $subtotal,
+                'coverage_amount' => Money::fromMinor($coverageMinor),
+                'staff_covered_amount' => Money::fromMinor($staffCoveredMinor),
+                'staff_block_credit_used' => Money::fromMinor($staffBlockCreditUsedMinor),
+                'total_amount' => $patientTotal,
                 'paid_amount' => '0.00',
-                'balance_amount' => $subtotal,
+                'balance_amount' => $patientTotal,
                 'created_by' => $actor->id,
             ]);
 
@@ -94,7 +131,13 @@ class CreateInvoiceAction
                     'description' => $item->description,
                     'quantity' => $item->quantity,
                     'unit_price' => $item->unit_price,
-                    'line_total' => $item->total_amount,
+                    'line_total' => $item->patient_amount ?? $item->total_amount,
+                    'gross_line_total' => $item->gross_amount ?? $item->total_amount,
+                    'staff_coverage_policy' => $item->staff_coverage_policy,
+                    'coverage_rate' => $item->coverage_rate ?? '0.00',
+                    'coverage_amount' => $item->coverage_amount ?? '0.00',
+                    'staff_covered_amount' => $item->staff_covered_amount ?? '0.00',
+                    'staff_block_credit_used' => $item->staff_block_credit_used ?? '0.00',
                     'source_type' => $item->source_type,
                     'source_uuid' => $item->source_uuid,
                     'status' => 'ACTIVE',

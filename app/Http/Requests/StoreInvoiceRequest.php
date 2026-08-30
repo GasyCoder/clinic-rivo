@@ -28,6 +28,7 @@ class StoreInvoiceRequest extends FormRequest
                     ->where('billable', true)),
             ],
             'catalog_lines.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999.99', 'decimal:0,2'],
+            'catalog_lines.*.idempotency_key' => ['nullable', 'uuid', 'distinct'],
         ];
     }
 }

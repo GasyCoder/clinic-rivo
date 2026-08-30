@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\StaffCoveragePolicy;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
@@ -17,9 +18,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'code', 'name', 'type', 'module', 'unit', 'billable', 'stockable',
-    'reception_selectable', 'reception_routing_mode', 'description',
-    'care_requires_allergy_check', 'care_recommends_vitals',
+    'reception_selectable', 'reception_routing_mode', 'staff_coverage_policy', 'description',
+    'care_requires_allergy_check', 'care_recommends_vitals', 'clinician_orderable',
     'created_by', 'updated_by',
+    'external_created_by_uuid', 'external_created_by_name',
+    'external_updated_by_uuid', 'external_updated_by_name',
 ])]
 class CatalogItem extends Model
 {
@@ -34,8 +37,10 @@ class CatalogItem extends Model
             'stockable' => 'boolean',
             'reception_selectable' => 'boolean',
             'reception_routing_mode' => ReceptionRoutingMode::class,
+            'staff_coverage_policy' => StaffCoveragePolicy::class,
             'care_requires_allergy_check' => 'boolean',
             'care_recommends_vitals' => 'boolean',
+            'clinician_orderable' => 'boolean',
         ];
     }
 
@@ -76,6 +81,16 @@ class CatalogItem extends Model
         return $this->hasMany(EpisodeServiceRequest::class);
     }
 
+    public function careOrderItems(): HasMany
+    {
+        return $this->hasMany(CareOrderItem::class);
+    }
+
+    public function analysisDefinitions(): HasMany
+    {
+        return $this->hasMany(AnalysisCatalog::class)->orderBy('display_order')->orderBy('designation');
+    }
+
     public function medicine(): HasOne
     {
         return $this->hasOne(Medicine::class);
@@ -96,6 +111,8 @@ class CatalogItem extends Model
         return $this->tariffs()->exists()
             || $this->billableItems()->exists()
             || $this->episodeServiceRequests()->exists()
+            || $this->careOrderItems()->exists()
+            || $this->analysisDefinitions()->withTrashed()->exists()
             || $this->medicine()->exists();
     }
 

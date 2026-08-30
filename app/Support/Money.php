@@ -57,6 +57,24 @@ final class Money
     }
 
     /**
+     * Apply a percentage expressed with at most two decimals without using
+     * floating point arithmetic (80.00 = 8 000 basis points).
+     */
+    public static function percentage(int $amountMinor, int|string $rate): int
+    {
+        $basisPoints = self::toMinor($rate);
+
+        if ($amountMinor < 0 || $basisPoints < 0 || $basisPoints > 10_000) {
+            throw new InvalidArgumentException('Percentage requires a positive amount and a rate between 0 and 100.');
+        }
+
+        $whole = intdiv($amountMinor, 10_000) * $basisPoints;
+        $remainder = $amountMinor % 10_000;
+
+        return $whole + intdiv(($remainder * $basisPoints) + 5_000, 10_000);
+    }
+
+    /**
      * @return array{0: bool, 1: string, 2: string}
      */
     private static function parts(int|string $amount): array

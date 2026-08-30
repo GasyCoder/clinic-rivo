@@ -6,6 +6,7 @@ use App\Enums\InvoiceStatus;
 use App\Models\Invoice;
 use App\Models\User;
 use App\Services\Audit\Auditor;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -30,7 +31,10 @@ class ValidateInvoiceAction
                 ]);
             }
 
-            $invoice->status = InvoiceStatus::Validated;
+            $invoice->status = Money::toMinor($invoice->total_amount) === 0
+                && Money::toMinor($invoice->coverage_amount) > 0
+                    ? InvoiceStatus::Covered
+                    : InvoiceStatus::Validated;
             $invoice->validated_by = $actor->id;
             $invoice->validated_at = now();
             $invoice->save();
@@ -38,7 +42,7 @@ class ValidateInvoiceAction
             $this->auditor->record(
                 'billing.validate',
                 entity: $invoice,
-                newValues: ['status' => InvoiceStatus::Validated->value],
+                newValues: ['status' => $invoice->status->value],
                 oldValues: ['status' => InvoiceStatus::Draft->value],
                 module: 'billing',
                 actor: $actor,

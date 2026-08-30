@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Dashboard\ClinicOverviewService;
 use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,8 +21,11 @@ use Inertia\Response;
  */
 class HomeController extends Controller
 {
-    public function __invoke(Request $request, PortalDirectory $directory): Response|RedirectResponse
-    {
+    public function __invoke(
+        Request $request,
+        PortalDirectory $directory,
+        ClinicOverviewService $clinicOverview,
+    ): Response|RedirectResponse {
         $deploymentType = config('rivo.site.type');
 
         abort_unless(
@@ -68,6 +72,8 @@ class HomeController extends Controller
             ]);
         }
 
-        return Inertia::render('Home');
+        return Inertia::render('Home', [
+            'overview' => $clinicOverview->for($request->user()),
+        ]);
     }
 }

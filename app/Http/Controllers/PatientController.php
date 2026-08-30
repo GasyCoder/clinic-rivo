@@ -3,14 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Patient\DeletePatientsAction;
+use App\Actions\Patient\RecordPatientAntecedentAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\BillableItemStatus;
+use App\Enums\CashSessionStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\PatientType;
 use App\Http\Requests\BulkDeletePatientsRequest;
 use App\Http\Requests\DeletePatientRequest;
+use App\Http\Requests\StorePatientAntecedentRequest;
 use App\Http\Requests\UpdatePatientRequest;
 use App\Models\AddressEntry;
 use App\Models\BillableItem;
@@ -117,7 +120,7 @@ class PatientController extends Controller
         if ($request->user()->can('patient_coverages.view')) {
             $patient->load([
                 'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from',
-                'activeMutualCoverage.organization:id,uuid,name',
+                'activeMutualCoverage.organization:id,uuid,name,coverage_rate',
             ]);
 
             if ($request->user()->can('patient_coverage_documents.view')) {
@@ -129,7 +132,7 @@ class PatientController extends Controller
 
         $account = null;
         $paymentMethods = [];
-        $openCashSession = null;
+        $openCashSessions = [];
         $billingCatalog = [];
 
         if ($request->user()->can('billing.view')) {
@@ -161,7 +164,9 @@ class PatientController extends Controller
                 'total_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->total_amount))),
                 'paid_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->paid_amount))),
                 'balance_amount' => Money::fromMinor($activeInvoices->sum(fn ($invoice) => Money::toMinor($invoice->balance_amount))),
-                'unbilled_amount' => Money::fromMinor($pendingItems->sum(fn ($item) => Money::toMinor($item->total_amount))),
+                'unbilled_amount' => Money::fromMinor($pendingItems->sum(fn ($item) => Money::toMinor(
+                    $item->patient_amount ?? $item->total_amount,
+                ))),
                 'billable_items' => $billableItems->map(fn ($item) => [
                     'uuid' => $item->uuid,
                     'source_module' => $item->source_module,
@@ -169,6 +174,14 @@ class PatientController extends Controller
                     'quantity' => $item->quantity,
                     'unit_price' => $item->unit_price,
                     'total_amount' => $item->total_amount,
+                    'gross_amount' => $item->gross_amount,
+                    'coverage_amount' => $item->coverage_amount,
+                    'staff_coverage_policy' => $item->staff_coverage_policy?->value,
+                    'staff_covered_amount' => $item->staff_covered_amount,
+                    'staff_block_credit_used' => $item->staff_block_credit_used,
+                    'patient_amount' => $item->patient_amount,
+                    'coverage_rate' => $item->coverage_rate,
+                    'mutual_organization_name' => $item->mutual_organization_name,
                     'currency' => $item->currency,
                     'payment_required_before_fulfillment' => $item->payment_required_before_fulfillment,
                     'status' => $item->status->value,
@@ -185,8 +198,14 @@ class PatientController extends Controller
                     'invoice_number' => $invoice->invoice_number,
                     'status' => $invoice->status->value,
                     'currency' => $invoice->currency,
+                    'financial_mode' => $invoice->financial_mode?->value,
                     'subtotal_amount' => $invoice->subtotal_amount,
                     'discount_amount' => $invoice->discount_amount,
+                    'coverage_amount' => $invoice->coverage_amount,
+                    'staff_covered_amount' => $invoice->staff_covered_amount,
+                    'staff_block_credit_used' => $invoice->staff_block_credit_used,
+                    'coverage_rate' => $invoice->coverage_rate,
+                    'mutual_organization_name' => $invoice->mutual_organization_name,
                     'total_amount' => $invoice->total_amount,
                     'paid_amount' => $invoice->paid_amount,
                     'balance_amount' => $invoice->balance_amount,
@@ -202,6 +221,12 @@ class PatientController extends Controller
                         'quantity' => $line->quantity,
                         'unit_price' => $line->unit_price,
                         'line_total' => $line->line_total,
+                        'gross_line_total' => $line->gross_line_total,
+                        'coverage_rate' => $line->coverage_rate,
+                        'coverage_amount' => $line->coverage_amount,
+                        'staff_coverage_policy' => $line->staff_coverage_policy?->value,
+                        'staff_covered_amount' => $line->staff_covered_amount,
+                        'staff_block_credit_used' => $line->staff_block_credit_used,
                         'source_module' => $line->billableItem?->source_module ?? 'RECEPTION',
                         'status' => $line->status,
                     ])->values(),
@@ -238,25 +263,40 @@ class PatientController extends Controller
         }
 
         if ($request->user()->can('payments.create') || $request->user()->can('payments.cancel')) {
-            $openCashSession = CashSession::query()
-                ->where('active_key', 'SINGLE_OPEN_CASH')
-                ->first(['uuid', 'session_number', 'opened_at']);
+            $openCashSessions = CashSession::query()
+                ->where('status', CashSessionStatus::Open->value)
+                ->where('opened_by', $request->user()->id)
+                ->whereNotNull('active_key')
+                ->with('register:id,uuid,name')
+                ->get(['uuid', 'session_number', 'opened_at', 'cash_register_id'])
+                ->map(fn (CashSession $s) => [
+                    'uuid' => $s->uuid,
+                    'session_number' => $s->session_number,
+                    'opened_at' => $s->opened_at,
+                    'register_uuid' => $s->register?->uuid,
+                    'register_name' => $s->register?->name,
+                ]);
         }
 
         if ($request->user()->can('billing.create')) {
             // The account screen creates a financial document directly. In
             // contrast with Reception routing, an unpriced service cannot be
             // offered here because there is no clinical-plan fallback.
-            $billingCatalog = $catalog->services($patient)
-                ->where('tariff_available', true)
-                ->values();
+            $billingEpisode = $patient->episodes
+                ->first(fn ($episode) => $episode->status !== EpisodeStatus::Cancelled);
+
+            if ($billingEpisode?->financial_mode !== null) {
+                $billingCatalog = $catalog->services($billingEpisode)
+                    ->where('tariff_available', true)
+                    ->values();
+            }
         }
 
         return Inertia::render('Patients/Show', [
             'patient' => $patient,
             'account' => $account,
             'paymentMethods' => $paymentMethods,
-            'openCashSession' => $openCashSession,
+            'openCashSessions' => $openCashSessions,
             'billingCatalog' => $billingCatalog,
         ]);
     }
@@ -279,7 +319,7 @@ class PatientController extends Controller
         if ($patient->patient_type === PatientType::Mutual && $canViewCoverage) {
             $patient->load([
                 'activeMutualCoverage:id,uuid,patient_id,mutual_organization_id,employer_name,beneficiary_type,membership_number,effective_from,effective_until',
-                'activeMutualCoverage.organization:id,uuid,name',
+                'activeMutualCoverage.organization:id,uuid,name,coverage_rate',
             ]);
 
             if ($canViewCoverageDocuments) {
@@ -366,8 +406,34 @@ class PatientController extends Controller
     ): RedirectResponse {
         $action->execute($patient, $request->validated(), $request->user());
 
+        // A fixed, whitelisted flag only — never a raw URL — so this can
+        // never become an open redirect. Lets Réception correct a patient's
+        // record mid-arrival and land back on its own journey instead of the
+        // dossier page.
+        if ($request->query('return_to') === 'reception') {
+            return redirect()->route('reception.patients.create')
+                ->with('status', "Dossier {$patient->patient_number} mis à jour.");
+        }
+
         return redirect()->route('patients.show', $patient)
             ->with('status', "Dossier {$patient->patient_number} mis à jour.");
+    }
+
+    /**
+     * Antecedents are a permanent record of the Patient, not of a single
+     * Consultation (§19's inter-site transfer payload carries them at the
+     * patient level) — this is the one generic endpoint every caller with
+     * patients.medical_history.manage uses, Médecine included, rather than
+     * a module-specific duplicate.
+     */
+    public function storeAntecedent(
+        StorePatientAntecedentRequest $request,
+        Patient $patient,
+        RecordPatientAntecedentAction $action,
+    ): RedirectResponse {
+        $action->execute($patient, $request->validated('description'));
+
+        return back()->with('status', 'Antécédent ajouté au dossier patient.');
     }
 
     public function destroy(

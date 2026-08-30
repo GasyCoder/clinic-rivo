@@ -76,11 +76,37 @@ class PortalTest extends TestCase
     {
         $actor = $this->user('SUPER_ADMIN');
 
-        foreach (['finance', 'hr', 'logistics', 'guarding', 'tariffs', 'users', 'roles', 'settings', 'audit'] as $workspace) {
+        foreach (['finance', 'hr', 'logistics', 'guarding', 'users', 'settings', 'audit'] as $workspace) {
             $this->actingAs($actor)->get("/super-admin/workspaces/{$workspace}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component('SuperAdmin/Workspace'));
         }
+
+        $this->actingAs($actor)->get('/super-admin/workspaces/tariffs')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('SuperAdmin/Tariffs/Index'));
+
+        // Roles & permissions is a real, site-scoped module (per account,
+        // not per role) — never the generic placeholder.
+        $this->actingAs($actor)->get('/super-admin/workspaces/roles')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('SuperAdmin/Users/Index'));
+    }
+
+    public function test_finance_workspace_places_surgical_revenue_without_inventing_amounts(): void
+    {
+        $actor = $this->user('SUPER_ADMIN');
+
+        $this->actingAs($actor)->get('/super-admin/workspaces/finance')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Workspace')
+                ->where('workspace.code', 'FINANCE')
+                ->where('workspace.areas.2', 'Revenus chirurgie par acte')
+                ->has('workspace.surgical_revenue_rows', 25)
+                ->where('workspace.surgical_revenue_rows.0.name', 'Adénome prostatique')
+                ->where('workspace.surgical_revenue_rows.0.actual', null)
+                ->where('workspace.surgical_revenue_rows.0.unpaid_debt', null));
     }
 
     public function test_admin_portal_rejects_an_operational_role_at_login(): void

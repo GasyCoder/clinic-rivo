@@ -68,6 +68,7 @@ class HandleInertiaRequests extends Middleware
                 'type' => config('rivo.site.type'),
                 'gatewayUrl' => config('rivo.gateway_url'),
                 'publicUrl' => config('rivo.public_url'),
+                'authCoverUrl' => config('rivo.auth_cover_url'),
                 'documents' => config('rivo.documents'),
             ],
             'flash' => [
@@ -78,6 +79,7 @@ class HandleInertiaRequests extends Middleware
                 // change — only a message that isn't a plain success sets it.
                 'status_type' => fn () => $request->session()->get('status_type'),
                 'duplicates' => fn () => $request->session()->get('duplicates'),
+                'print_ticket_url' => fn () => $request->session()->get('print_ticket_url'),
             ],
         ];
     }

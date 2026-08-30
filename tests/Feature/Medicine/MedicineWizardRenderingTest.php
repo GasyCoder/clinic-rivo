@@ -56,7 +56,8 @@ class MedicineWizardRenderingTest extends TestCase
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/imaging-requests", [
             'items' => [['catalog_item_uuid' => $ecg->uuid]],
             'notes' => 'Douleur thoracique',
-        ])->assertRedirect();
+            'continue_to_diagnosis' => true,
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
 
         $item = ImagingRequestItem::query()->sole();
         $this->assertSame($episode->id, $item->imagingRequest->episode_id);
@@ -115,6 +116,11 @@ class MedicineWizardRenderingTest extends TestCase
                 ->where('capabilities.can_request_pediatrics', true)
                 ->has('options.surgery_catalog')
                 ->has('options.referral_destinations', 4)
+                ->has('options.transfer_destinations', 2)
+                ->where('options.transfer_destinations.0.code', 'A')
+                ->where('options.transfer_destinations.0.destination', 'Clinique Saint Georges — Ambondromamy')
+                ->where('options.transfer_destinations.1.code', 'B')
+                ->where('options.transfer_destinations.1.destination', 'Clinique Saint Georges — Boriziny')
             );
     }
 
@@ -183,6 +189,40 @@ class MedicineWizardRenderingTest extends TestCase
                 ->where('capabilities.can_defer_decision', false)
                 ->where('pending_reasons', [])
             );
+    }
+
+    public function test_the_queue_flags_a_consultation_waiting_on_a_lab_result(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->normalMedicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->get('/medicine')
+            ->assertInertia(fn ($page) => $page
+                ->where('orientations.data.0.is_waiting_on_results', false)
+                ->where('orientations.data.0.pending_reasons', []));
+
+        $nfs = $this->labItem($doctor, 'NFS', 'NFS');
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+            'items' => [['catalog_item_uuid' => $nfs->uuid]],
+        ]);
+
+        $this->actingAs($doctor)
+            ->get('/medicine')
+            ->assertInertia(fn ($page) => $page
+                ->where('orientations.data.0.is_waiting_on_results', true)
+                ->where('orientations.data.0.pending_reasons.0', '1 analyse en attente de résultat'));
+
+        $item = LabRequest::query()->sole()->items()->sole();
+        $this->actingAs($this->labTechnician())->post("/laboratory/items/{$item->uuid}/result", [
+            'result_value' => 'Hb 13.2 g/dL',
+        ]);
+
+        $this->actingAs($doctor)
+            ->get('/medicine')
+            ->assertInertia(fn ($page) => $page
+                ->where('orientations.data.0.is_waiting_on_results', false)
+                ->where('orientations.data.0.pending_reasons', []));
     }
 
     public function test_dossier_source_module_reflects_the_real_arrival_pathway(): void

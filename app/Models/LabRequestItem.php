@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** One requested analysis, snapshotting the catalog at request time. */
 #[Fillable([
     'lab_request_id', 'catalog_item_id', 'catalog_item_code_snapshot', 'catalog_item_name_snapshot',
-    'result_value', 'result_notes', 'resulted_at', 'resulted_by',
+    'result_value', 'result_notes', 'reference_snapshot', 'resulted_at', 'resulted_by',
 ])]
 class LabRequestItem extends Model
 {
@@ -19,7 +19,7 @@ class LabRequestItem extends Model
 
     protected function casts(): array
     {
-        return ['resulted_at' => 'datetime'];
+        return ['reference_snapshot' => 'array', 'resulted_at' => 'datetime'];
     }
 
     public function labRequest(): BelongsTo

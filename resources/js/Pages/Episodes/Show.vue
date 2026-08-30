@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import { formatDateTime } from '@/utilities/date';
@@ -200,8 +201,8 @@ const vitalsRows = computed(() => {
                 <span v-if="consultation.decision_label" class="rounded border border-primary-200 px-2 py-0.5 text-[11px] font-medium text-primary-700 dark:border-primary-900 dark:text-primary-300">{{ consultation.decision_label }}</span>
             </div>
             <div class="space-y-3 px-5 py-4 text-sm">
-                <p v-if="consultation.reason"><span class="font-semibold text-slate-600 dark:text-slate-200">Motif :</span> <span class="text-slate-600 dark:text-slate-300">{{ consultation.reason }}</span></p>
-                <p v-if="consultation.clinical_exam"><span class="font-semibold text-slate-600 dark:text-slate-200">Examen clinique :</span> <span class="text-slate-600 dark:text-slate-300">{{ consultation.clinical_exam }}</span></p>
+                <div v-if="consultation.reason" class="grid gap-1 sm:grid-cols-[110px_minmax(0,1fr)]"><span class="font-semibold text-slate-600 dark:text-slate-200">Motif :</span><ClinicalRichTextDisplay class="text-slate-600 dark:text-slate-300" :html="consultation.reason" /></div>
+                <div v-if="consultation.clinical_exam" class="grid gap-1 sm:grid-cols-[110px_minmax(0,1fr)]"><span class="font-semibold text-slate-600 dark:text-slate-200">Examen clinique :</span><ClinicalRichTextDisplay class="text-slate-600 dark:text-slate-300" :html="consultation.clinical_exam" /></div>
                 <p v-if="consultation.decision_notes"><span class="font-semibold text-slate-600 dark:text-slate-200">Observations :</span> <span class="text-slate-600 dark:text-slate-300">{{ consultation.decision_notes }}</span></p>
             </div>
             <div v-if="capabilities.can_view_diagnoses && consultation.diagnoses.length" class="border-t border-gray-100 px-5 py-4 dark:border-gray-900">

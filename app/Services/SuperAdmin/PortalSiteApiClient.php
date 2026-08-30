@@ -11,6 +11,31 @@ use Throwable;
 class PortalSiteApiClient
 {
     /** @return array<int, array<string, mixed>> */
+    public function trashForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/trash', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function restoreTrashItem(
+        string $siteCode,
+        string $category,
+        string $uuid,
+        User $actor,
+    ): array {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/trash/'.$category.'/'.$uuid.'/restore',
+            [],
+            $actor,
+        );
+    }
+
+    /** @return array<int, array<string, mixed>> */
     public function stockForAllSites(User $actor): array
     {
         return collect(config('rivo.clinics', []))
@@ -137,6 +162,71 @@ class PortalSiteApiClient
     public function deactivateCashRegister(string $siteCode, string $uuid, User $actor): array
     {
         return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/deactivate', [], $actor);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function usersForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/users', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createUser(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/users', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateUser(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/users/'.$uuid, $data, $actor);
+    }
+
+    /** @param array<int, int> $permissionIds
+     * @return array<string, mixed> */
+    public function updateRolePermissions(string $siteCode, string $roleCode, array $permissionIds, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'PUT', 'super-admin/roles/'.$roleCode.'/permissions',
+            ['permission_ids' => $permissionIds], $actor,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function activateUser(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/users/'.$uuid.'/activate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function deactivateUser(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/users/'.$uuid.'/deactivate', ['reason' => $reason], $actor);
+    }
+
+    /** @param array<int, string> $uuids
+     * @return array<string, mixed> */
+    public function bulkDeactivateUsers(string $siteCode, array $uuids, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/users/bulk/deactivate', ['uuids' => $uuids, 'reason' => $reason], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function forceDeleteUser(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/users/'.$uuid, [], $actor);
+    }
+
+    /** @param array<int, string> $uuids
+     * @return array<string, mixed> */
+    public function bulkForceDeleteUsers(string $siteCode, array $uuids, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/users/bulk/force-delete', ['uuids' => $uuids], $actor);
     }
 
     /** @return array<string, mixed> */

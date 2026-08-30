@@ -22,6 +22,8 @@ const formFor = (item) => {
     return forms[item.uuid];
 };
 const submitResult = (item) => formFor(item).post(`/laboratory/items/${item.uuid}/result`, { preserveScroll: true });
+const actionableDefinitions = (item) => (item.reference_definitions ?? []).filter((definition) => definition.level !== 'PARENT');
+const primaryDefinition = (item) => actionableDefinitions(item).length === 1 ? actionableDefinitions(item)[0] : null;
 </script>
 
 <template>
@@ -54,7 +56,16 @@ const submitResult = (item) => formFor(item).post(`/laboratory/items/${item.uuid
                                 <Link :href="`/patients/${item.patient.uuid}`" class="block text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(item.patient) }}</Link>
                                 <span class="text-xs text-slate-400">{{ item.patient.patient_number }} · {{ item.episode_number }}</span>
                             </td>
-                            <td class="px-5 py-3"><span class="text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span><span class="ms-1 font-mono text-xs text-slate-400">{{ item.code }}</span></td>
+                            <td class="px-5 py-3">
+                                <span class="text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span><span class="ms-1 font-mono text-xs text-slate-400">{{ item.code }}</span>
+                                <div v-if="actionableDefinitions(item).length" class="mt-2 overflow-hidden rounded border border-gray-200 dark:border-gray-800">
+                                    <div v-for="definition in actionableDefinitions(item)" :key="definition.code" class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-gray-100 px-2.5 py-1.5 text-[10px] last:border-b-0 dark:border-gray-900">
+                                        <span class="font-semibold text-slate-600 dark:text-slate-300">{{ definition.designation }}</span>
+                                        <span class="text-end text-slate-400"><template v-if="definition.reference">Réf. {{ definition.reference }}<span v-if="definition.unit"> {{ definition.unit }}</span></template><template v-else>Référence non configurée</template><span class="ms-1">· {{ definition.reference_profile }}</span></span>
+                                    </div>
+                                </div>
+                                <p v-else class="mt-1 text-[10px] text-amber-600 dark:text-amber-300">Structure et références non configurées.</p>
+                            </td>
                             <td class="px-5 py-3 text-xs text-slate-400">{{ formatDateTime(item.requested_at) }}<br>Dr {{ item.requested_by }}</td>
                             <td class="px-5 py-3">
                                 <template v-if="item.resulted_at">
@@ -66,7 +77,8 @@ const submitResult = (item) => formFor(item).post(`/laboratory/items/${item.uuid
                             </td>
                             <td class="px-5 py-3 text-end">
                                 <form v-if="!item.resulted_at" class="ms-auto flex max-w-xs flex-col gap-1.5" @submit.prevent="submitResult(item)">
-                                    <Input v-model="formFor(item).result_value" size="sm" placeholder="Résultat" />
+                                    <select v-if="primaryDefinition(item)?.predefined_values?.length" v-model="formFor(item).result_value" class="block h-8 w-full rounded-sm border border-gray-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="">Choisir le résultat</option><option v-for="value in primaryDefinition(item).predefined_values" :key="value" :value="value">{{ value }}</option></select>
+                                    <Input v-else v-model="formFor(item).result_value" size="sm" :placeholder="primaryDefinition(item)?.unit ? `Résultat (${primaryDefinition(item).unit})` : 'Résultat'" />
                                     <Input v-model="formFor(item).result_notes" size="sm" placeholder="Note (optionnel)" />
                                     <FormError :message="formFor(item).errors.result_value" />
                                     <Button type="submit" size="sm" :disabled="formFor(item).processing || !formFor(item).result_value.trim()">Enregistrer</Button>

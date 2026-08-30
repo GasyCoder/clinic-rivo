@@ -61,7 +61,8 @@ class MedicineParaclinicalFlowTest extends TestCase
                 ['catalog_item_uuid' => $crp->uuid],
             ],
             'notes' => 'Bilan infectieux',
-        ])->assertRedirect();
+            'continue_to_diagnosis' => true,
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
 
         $labRequest = LabRequest::query()->sole();
         $this->assertSame($episode->id, $labRequest->episode_id);

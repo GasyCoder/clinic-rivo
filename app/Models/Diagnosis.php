@@ -14,7 +14,18 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * not an edit of the old one, so the clinical trail never silently changes
  * shape underneath an already-acted-upon HYPOTHESIS/FINAL entry.
  */
-#[Fillable(['consultation_id', 'type', 'description', 'recorded_by'])]
+#[Fillable([
+    'consultation_id',
+    'diagnostic_catalog_id',
+    'type',
+    'description',
+    'catalog_code_snapshot',
+    'catalog_name_snapshot',
+    'manual_code',
+    'notes',
+    'is_manual',
+    'recorded_by',
+])]
 class Diagnosis extends Model
 {
     use Auditable;
@@ -23,6 +34,7 @@ class Diagnosis extends Model
     {
         return [
             'type' => DiagnosisType::class,
+            'is_manual' => 'boolean',
         ];
     }
 
@@ -34,6 +46,11 @@ class Diagnosis extends Model
     public function recordedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    public function diagnosticCatalog(): BelongsTo
+    {
+        return $this->belongsTo(DiagnosticCatalog::class);
     }
 
     public function cancellation(): HasOne

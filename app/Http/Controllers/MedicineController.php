@@ -116,9 +116,11 @@ class MedicineController extends Controller
             ->withQueryString();
 
         $queueNumbers = $presenter->assignQueueNumbers($orientations->getCollection());
+        $pendingReasons = $presenter->pendingReasonsFor($orientations->getCollection());
         $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present(
             $orientation,
             $queueNumbers[$orientation->getKey()] ?? null,
+            $pendingReasons[$orientation->getKey()] ?? [],
         ));
 
         return Inertia::render('Medicine/Index', [
@@ -205,6 +207,9 @@ class MedicineController extends Controller
             DiagnosisType::from($request->validated('type')),
             $request->validated('description'),
             $request->user(),
+            $request->validated('diagnostic_catalog_uuid'),
+            $request->validated('manual_code'),
+            $request->validated('notes'),
         );
 
         return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'diagnostic'])
@@ -255,8 +260,12 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'ordonnance'])
-            ->with('status', 'Ordonnance enregistrée.');
+        $nextStep = $request->boolean('continue_to_decision') ? 'decision' : 'ordonnance';
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $nextStep])
+            ->with('status', $nextStep === 'decision'
+                ? 'Ordonnance enregistrée et stock réservé. Vous pouvez maintenant finaliser la décision médicale.'
+                : 'Ordonnance enregistrée.');
     }
 
     public function cancelPrescription(
@@ -365,7 +374,9 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
+        $nextStep = $request->boolean('continue_to_diagnosis') ? 'diagnostic' : 'paraclinique';
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $nextStep])
             ->with('status', 'Demande d’analyses transmise au Laboratoire.');
     }
 
@@ -381,7 +392,9 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
+        $nextStep = $request->boolean('continue_to_diagnosis') ? 'diagnostic' : 'paraclinique';
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $nextStep])
             ->with('status', 'Demande d’imagerie enregistrée.');
     }
 

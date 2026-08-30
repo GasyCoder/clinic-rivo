@@ -50,6 +50,8 @@ class CorrectDiagnosisAction
                 'consultation_id' => $original->consultation_id,
                 'type' => $type,
                 'description' => trim($description),
+                'notes' => $original->notes,
+                'is_manual' => true,
                 'recorded_by' => $actor->getKey(),
             ]);
 

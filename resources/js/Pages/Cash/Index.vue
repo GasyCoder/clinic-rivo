@@ -43,7 +43,12 @@ const selectRegister = (register) => {
         return;
     }
 
-    if (status === 'open' || status === 'locked') {
+    if (status === 'locked') {
+        toast.warning(`${register.name} est verrouillée par la Super Administration. Elle redevient accessible une fois déverrouillée.`);
+        return;
+    }
+
+    if (status === 'open') {
         router.visit(`/cash/${register.uuid}`);
         return;
     }
@@ -91,14 +96,22 @@ const confirmOpen = () => openForm.post('/cash/open', {
                     Les tickets Pharmacie restent contrôlés et encaissés ici, dans l’espace Caisse. La Pharmacie n’encaisse jamais directement.
                 </div>
             </div>
-            <div class="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+            <div v-if="registers.length === 0" class="flex flex-col items-center gap-3 px-6 py-16 text-center">
+                <span class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-500 dark:bg-amber-950/30"><Icon class="text-2xl" name="alert-circle" /></span>
+                <div>
+                    <h3 class="text-sm font-bold text-slate-700 dark:text-white">Aucune caisse créée ou active</h3>
+                    <p class="mt-1 max-w-sm text-sm text-slate-400">Demandez à un administrateur d’en créer une ou d’en réactiver une existante avant de pouvoir encaisser.</p>
+                </div>
+            </div>
+
+            <div v-else class="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
                 <button
                     v-for="register in registers"
                     :key="register.uuid"
                     type="button"
                     :class="['group flex min-h-36 flex-col items-stretch rounded border bg-white text-start transition-all dark:bg-gray-950',
                         registerStatus(register) === 'open' ? 'border-emerald-300 shadow-sm hover:-translate-y-px hover:border-emerald-400 hover:shadow-md dark:border-emerald-900'
-                        : registerStatus(register) === 'locked' ? 'border-amber-300 shadow-sm hover:-translate-y-px hover:border-amber-400 hover:shadow-md dark:border-amber-900'
+                        : registerStatus(register) === 'locked' ? 'cursor-not-allowed border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/10'
                         : registerStatus(register) === 'blocked' ? 'cursor-not-allowed border-gray-200 bg-gray-50/70 dark:border-gray-800 dark:bg-gray-1000/40'
                         : 'border-gray-200 hover:-translate-y-px hover:border-primary-300 hover:shadow-md dark:border-gray-800 dark:hover:border-primary-800']"
                     @click="selectRegister(register)"
@@ -117,8 +130,8 @@ const confirmOpen = () => openForm.post('/cash/open', {
                             </p>
                             <p class="mt-0.5 text-[11px] text-slate-400">{{ registerStatus(register) === 'open' ? `Caissier : ${register.opener_name}` : registerStatus(register) === 'locked' ? 'Verrouillée par la supervision' : registerStatus(register) === 'blocked' ? `Utilisée par ${register.opener_name}` : 'Aucune session active' }}</p>
                         </div>
-                        <span :class="['inline-flex items-center gap-1 text-xs font-bold', registerStatus(register) === 'blocked' ? 'text-slate-300 dark:text-slate-700' : 'text-primary-600 group-hover:translate-x-0.5 dark:text-primary-300']">
-                            {{ registerStatus(register) === 'open' ? 'Reprendre' : registerStatus(register) === 'locked' ? 'Consulter' : registerStatus(register) === 'blocked' ? 'Indisponible' : 'Ouvrir' }}<Icon v-if="registerStatus(register) !== 'blocked'" name="arrow-right" />
+                        <span :class="['inline-flex items-center gap-1 text-xs font-bold', registerStatus(register) === 'blocked' || registerStatus(register) === 'locked' ? 'text-slate-300 dark:text-slate-700' : 'text-primary-600 group-hover:translate-x-0.5 dark:text-primary-300']">
+                            {{ registerStatus(register) === 'open' ? 'Reprendre' : registerStatus(register) === 'locked' || registerStatus(register) === 'blocked' ? 'Indisponible' : 'Ouvrir' }}<Icon v-if="registerStatus(register) !== 'blocked' && registerStatus(register) !== 'locked'" name="arrow-right" />
                         </span>
                     </div>
                 </button>

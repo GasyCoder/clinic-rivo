@@ -31,7 +31,17 @@ class CashController extends Controller
         $registers = CashRegister::query()->where('active', true)->orderBy('name')->get();
 
         if ($registers->isEmpty()) {
-            return $this->renderWorkspace($request, null);
+            // No register configured at all keeps the exact legacy, unnamed
+            // site-wide workspace unchanged. But when registers ARE
+            // configured and simply all currently deactivated, silently
+            // falling back to that workspace would open a session
+            // disconnected from any of them — show an explicit "none
+            // available" picker state instead.
+            if (! CashRegister::query()->exists()) {
+                return $this->renderWorkspace($request, null);
+            }
+
+            return Inertia::render('Cash/Index', ['registers' => []]);
         }
 
         // Each register locks its own active_key slot (CashSession::activeKeyFor),
@@ -62,8 +72,24 @@ class CashController extends Controller
         ]);
     }
 
-    public function show(Request $request, CashRegister $cashRegister): Response
+    public function show(Request $request, CashRegister $cashRegister): Response|RedirectResponse
     {
+        $isLocked = CashSession::query()
+            ->where('active_key', CashSession::activeKeyFor($cashRegister))
+            ->where('status', CashSessionStatus::Locked->value)
+            ->exists();
+
+        // Locked means the Super Administration has frozen this till — no
+        // one, not even its opener, can transact on it locally until it is
+        // unlocked remotely. The workspace has nothing actionable to offer
+        // while that holds, so send everyone straight back to the picker
+        // instead of rendering a page full of disabled buttons.
+        if ($isLocked) {
+            return redirect()->route('cash.index')
+                ->with('status', "La caisse « {$cashRegister->name} » est verrouillée par la Super Administration. Elle redevient accessible une fois déverrouillée.")
+                ->with('status_type', 'warning');
+        }
+
         return $this->renderWorkspace($request, $cashRegister);
     }
 

@@ -12,6 +12,8 @@ import Input from '@/Components/UI/Input.vue';
 import RadioButton from '@/Components/UI/RadioButton.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import ClinicalPatientHeader from '@/Components/Clinical/ClinicalPatientHeader.vue';
+import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
+import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor.vue';
 import { formatDate, formatDateTime } from '@/utilities/date';
 
 defineOptions({ layout: AppLayout });
@@ -65,8 +67,15 @@ const submitAntecedent = () => antecedentForm.post(`/patients/${patient.value.uu
     onSuccess: () => antecedentForm.reset(),
 });
 const isClosed = computed(() => Boolean(props.medical_discharge));
+const richTextToPlainText = (value) => {
+    if (!value || typeof document === 'undefined') return value ?? '';
+    const container = document.createElement('div');
+    container.innerHTML = value;
+
+    return (container.textContent ?? '').trim();
+};
 const consultationRecorded = computed(() => Boolean(
-    props.consultation?.reason?.trim()
+    richTextToPlainText(props.consultation?.reason)
     || props.consultation?.clinical_exam?.trim()
     || props.consultation?.decision,
 ));
@@ -85,7 +94,7 @@ const paracliniqueRecorded = computed(() => (props.consultation?.lab_requests?.l
 const wizardSteps = computed(() => [
     { key: 'dossier', label: 'Dossier', hint: 'Contexte', complete: true },
     { key: 'consultation', label: 'Consultation', hint: 'Interrogatoire', complete: consultationRecorded.value },
-    { key: 'examen', label: 'Examen clinique', hint: 'Examen', complete: Boolean(props.consultation?.clinical_exam?.trim()) },
+    { key: 'examen', label: 'Examen clinique', hint: 'Examen', complete: Boolean(richTextToPlainText(props.consultation?.clinical_exam)) },
     { key: 'paraclinique', label: 'Paraclinique', hint: 'Facultatif', complete: paracliniqueRecorded.value },
     { key: 'diagnostic', label: 'Diagnostic', hint: 'Conclusion', complete: diagnosisRecorded.value },
     { key: 'ordonnance', label: 'Prescription', hint: 'Facultatif', complete: prescriptionRecorded.value },
@@ -124,7 +133,7 @@ const careOrderSearch = ref('');
 const filteredCareOrderCatalog = computed(() => {
     const query = careOrderSearch.value.trim().toLocaleLowerCase('fr');
 
-    return careOrderCatalog.value.filter((item) => item.name.toLocaleLowerCase('fr').includes(query));
+    return careOrderCatalog.value.filter((item) => `${item.name} ${item.code ?? ''}`.toLocaleLowerCase('fr').includes(query));
 });
 const careOrderForm = useForm({
     items: [],
@@ -135,7 +144,7 @@ const isCareOrderItemSelected = (item) => careOrderForm.items.some((line) => lin
 const addCareOrderItem = (item) => {
     if (isCareOrderItemSelected(item)) return;
 
-    careOrderForm.items.push({ catalog_item_uuid: item.uuid, name: item.name, quantity: 1 });
+    careOrderForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name, quantity: 1 });
     careOrderSearch.value = '';
 };
 const removeCareOrderItem = (line) => {
@@ -153,24 +162,34 @@ const labSearch = ref('');
 const filteredLabCatalog = computed(() => {
     const query = labSearch.value.trim().toLocaleLowerCase('fr');
 
-    return labCatalog.value.filter((item) => item.name.toLocaleLowerCase('fr').includes(query));
+    return labCatalog.value.filter((item) => `${item.name} ${item.code ?? ''}`.toLocaleLowerCase('fr').includes(query));
 });
-const labRequestForm = useForm({ items: [], notes: '' });
+const labRequestForm = useForm({ items: [], notes: '', continue_to_diagnosis: true });
 const isLabItemSelected = (item) => labRequestForm.items.some((line) => line.catalog_item_uuid === item.uuid);
 const addLabItem = (item) => {
     if (isLabItemSelected(item)) return;
 
-    labRequestForm.items.push({ catalog_item_uuid: item.uuid, name: item.name });
+    labRequestForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name });
     labSearch.value = '';
 };
 const removeLabItem = (line) => {
     const index = labRequestForm.items.indexOf(line);
     if (index >= 0) labRequestForm.items.splice(index, 1);
 };
-const submitLabRequest = () => labRequestForm.post(
-    `/medicine/orientations/${props.orientation.uuid}/lab-requests`,
-    { preserveScroll: true, onSuccess: () => labRequestForm.reset() },
-);
+const submitLabRequest = () => {
+    const imagingStillPending = imagingRequestForm.items.length > 0;
+    labRequestForm.continue_to_diagnosis = !imagingStillPending;
+    labRequestForm.post(
+        `/medicine/orientations/${props.orientation.uuid}/lab-requests`,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                labRequestForm.reset();
+                if (imagingStillPending) paracliniqueTab.value = 'imaging';
+            },
+        },
+    );
+};
 const labRequestStatusLabel = (status) => ({ REQUESTED: 'Demandé', IN_PROGRESS: 'En cours', COMPLETED: 'Résultats disponibles' }[status] ?? status);
 const labRequestStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px] font-bold uppercase', {
     REQUESTED: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
@@ -184,24 +203,41 @@ const imagingSearch = ref('');
 const filteredImagingCatalog = computed(() => {
     const query = imagingSearch.value.trim().toLocaleLowerCase('fr');
 
-    return imagingCatalog.value.filter((item) => item.name.toLocaleLowerCase('fr').includes(query));
+    return imagingCatalog.value.filter((item) => `${item.name} ${item.code ?? ''}`.toLocaleLowerCase('fr').includes(query));
 });
-const imagingRequestForm = useForm({ items: [], notes: '' });
+const imagingRequestForm = useForm({ items: [], notes: '', continue_to_diagnosis: true });
 const isImagingItemSelected = (item) => imagingRequestForm.items.some((line) => line.catalog_item_uuid === item.uuid);
 const addImagingItem = (item) => {
     if (isImagingItemSelected(item)) return;
 
-    imagingRequestForm.items.push({ catalog_item_uuid: item.uuid, name: item.name });
+    imagingRequestForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name });
     imagingSearch.value = '';
 };
 const removeImagingItem = (line) => {
     const index = imagingRequestForm.items.indexOf(line);
     if (index >= 0) imagingRequestForm.items.splice(index, 1);
 };
-const submitImagingRequest = () => imagingRequestForm.post(
-    `/medicine/orientations/${props.orientation.uuid}/imaging-requests`,
-    { preserveScroll: true, onSuccess: () => imagingRequestForm.reset() },
-);
+const submitImagingRequest = () => {
+    const labStillPending = labRequestForm.items.length > 0;
+    imagingRequestForm.continue_to_diagnosis = !labStillPending;
+    imagingRequestForm.post(
+        `/medicine/orientations/${props.orientation.uuid}/imaging-requests`,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                imagingRequestForm.reset();
+                if (labStillPending) paracliniqueTab.value = 'lab';
+            },
+        },
+    );
+};
+const hasExistingParaclinicalRequest = computed(() => (
+    (props.consultation?.lab_requests?.length ?? 0) > 0
+    || (props.consultation?.imaging_requests?.length ?? 0) > 0
+));
+const hasPendingParaclinicalSelection = computed(() => (
+    labRequestForm.items.length > 0 || imagingRequestForm.items.length > 0
+));
 const imagingResultForms = {};
 const imagingResultForm = (itemUuid) => {
     if (!imagingResultForms[itemUuid]) {
@@ -216,36 +252,37 @@ const submitImagingResult = (item) => imagingResultForm(item.uuid).post(
 
 const referralFieldConfig = {
     MATERNITY: [
-        { key: 'motif', label: 'Motif', placeholder: 'Motif de la demande' },
-        { key: 'indication', label: 'Indication', placeholder: 'Indication clinique' },
+        { key: 'motif', label: 'Motif', placeholder: 'Motif de la demande', multiline: true },
+        { key: 'indication', label: 'Indication', placeholder: 'Indication clinique', multiline: true },
         { key: 'terme', label: 'Terme (SA)', placeholder: 'Semaines d’aménorrhée si connu' },
-        { key: 'priorite', label: 'Priorité', placeholder: 'Normale, urgente…' },
-        { key: 'observations', label: 'Observations', placeholder: 'Contexte utile pour la Maternité' },
+        { key: 'priorite', label: 'Priorité' },
+        { key: 'observations', label: 'Observations', placeholder: 'Contexte utile pour la Maternité', multiline: true },
     ],
     HOSPITALIZATION: [
-        { key: 'motif', label: 'Motif', placeholder: 'Motif de l’hospitalisation' },
-        { key: 'diagnostic', label: 'Diagnostic d’entrée', placeholder: 'Diagnostic motivant l’admission' },
+        { key: 'motif', label: 'Motif', placeholder: 'Motif de l’hospitalisation', multiline: true },
+        { key: 'diagnostic', label: 'Diagnostic d’entrée', placeholder: 'Diagnostic motivant l’admission', multiline: true },
         { key: 'service', label: 'Service souhaité', placeholder: 'Service d’accueil envisagé' },
-        { key: 'priorite', label: 'Priorité', placeholder: 'Normale, urgente…' },
-        { key: 'instructions', label: 'Instructions', placeholder: 'Consignes utiles au service' },
+        { key: 'priorite', label: 'Priorité' },
+        { key: 'instructions', label: 'Instructions', placeholder: 'Consignes utiles au service', multiline: true },
     ],
     TRANSFER: [
         { key: 'destination_etablissement', label: 'Destination / établissement', placeholder: 'Établissement ou service destinataire' },
-        { key: 'motif', label: 'Motif', placeholder: 'Motif du transfert' },
-        { key: 'diagnostic', label: 'Diagnostic', placeholder: 'Diagnostic actuel' },
-        { key: 'etat_clinique', label: 'État clinique', placeholder: 'État du patient au transfert' },
-        { key: 'priorite', label: 'Priorité', placeholder: 'Normale, urgente…' },
-        { key: 'recommandations', label: 'Recommandations', placeholder: 'Recommandations pour l’équipe destinataire' },
-        { key: 'observations', label: 'Observations', placeholder: 'Autres observations utiles' },
+        { key: 'motif', label: 'Motif', placeholder: 'Motif du transfert', multiline: true },
+        { key: 'diagnostic', label: 'Diagnostic', placeholder: 'Diagnostic actuel', multiline: true },
+        { key: 'etat_clinique', label: 'État clinique', placeholder: 'État du patient au transfert', multiline: true },
+        { key: 'priorite', label: 'Priorité' },
+        { key: 'recommandations', label: 'Recommandations', placeholder: 'Recommandations pour l’équipe destinataire', multiline: true },
+        { key: 'observations', label: 'Observations', placeholder: 'Autres observations utiles', multiline: true },
     ],
     PEDIATRICS: [
-        { key: 'motif', label: 'Motif', placeholder: 'Motif de l’avis pédiatrique' },
-        { key: 'indication', label: 'Indication', placeholder: 'Indication clinique' },
-        { key: 'priorite', label: 'Priorité', placeholder: 'Normale, urgente…' },
-        { key: 'observations', label: 'Observations', placeholder: 'Contexte utile' },
+        { key: 'motif', label: 'Motif', placeholder: 'Motif de l’avis pédiatrique', multiline: true },
+        { key: 'indication', label: 'Indication', placeholder: 'Indication clinique', multiline: true },
+        { key: 'priorite', label: 'Priorité' },
+        { key: 'observations', label: 'Observations', placeholder: 'Contexte utile', multiline: true },
     ],
 };
 const referralFieldsFor = (destination) => referralFieldConfig[destination] ?? [];
+const referralPriorityDefault = () => (isEmergency.value ? 'Urgente' : 'Normale');
 const referralFieldValues = ref({});
 const referralComposedReason = computed(() => {
     if (!decisionChoice.value) return '';
@@ -256,13 +293,23 @@ const referralComposedReason = computed(() => {
         .map(([label, value]) => `${label} : ${value}`)
         .join('\n');
 });
+const transferReferralReady = computed(() => decisionChoice.value !== 'TRANSFER' || Boolean(
+    referralFieldValues.value.destination_etablissement?.trim()
+    && referralFieldValues.value.motif?.trim(),
+));
 const referralForm = useForm({ destination: '', reason: '' });
 const submitReferral = (destination) => {
     referralForm.destination = destination;
     referralForm.reason = referralComposedReason.value;
     referralForm.post(`/medicine/orientations/${props.orientation.uuid}/referrals`, {
         preserveScroll: true,
-        onSuccess: () => { referralForm.reset(); referralFieldValues.value = {}; decisionChoice.value = null; },
+        onSuccess: () => {
+            referralForm.reset();
+            referralFieldValues.value = {};
+            referralTransferDestinationChoice.value = '';
+            referralTransferDestinationOther.value = '';
+            decisionChoice.value = null;
+        },
     });
 };
 
@@ -278,11 +325,75 @@ const careOrderStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px] 
     COMPLETED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200',
 }[status] ?? 'bg-gray-100 text-slate-600 dark:bg-gray-900'];
 
-const diagnosisForm = useForm({ type: 'HYPOTHESIS', description: '' });
-const addDiagnosis = () => diagnosisForm.post(
-    `/medicine/orientations/${props.orientation.uuid}/diagnoses`,
-    { preserveScroll: true, onSuccess: () => diagnosisForm.reset('description') },
-);
+const diagnosisForm = useForm({
+    type: 'HYPOTHESIS',
+    diagnostic_catalog_uuid: null,
+    description: '',
+    manual_code: '',
+    notes: '',
+});
+const diagnosisManualMode = ref(false);
+const diagnosisSearch = ref('');
+const diagnosisResults = ref([]);
+const diagnosisSearchLoading = ref(false);
+const diagnosisSearchError = ref('');
+let diagnosisSearchTimer = null;
+let diagnosisSearchController = null;
+
+watch(diagnosisSearch, (value) => {
+    clearTimeout(diagnosisSearchTimer);
+    diagnosisSearchController?.abort();
+    diagnosisSearchError.value = '';
+
+    const query = value.trim();
+    if (query.length < 2) {
+        diagnosisResults.value = [];
+        diagnosisSearchLoading.value = false;
+        return;
+    }
+
+    diagnosisSearchTimer = setTimeout(async () => {
+        diagnosisSearchController = new AbortController();
+        diagnosisSearchLoading.value = true;
+        try {
+            const response = await fetch(`/diagnostic-catalog/search?q=${encodeURIComponent(query)}`, {
+                headers: { Accept: 'application/json' },
+                signal: diagnosisSearchController.signal,
+            });
+            if (!response.ok) throw new Error('Recherche indisponible');
+            diagnosisResults.value = (await response.json()).data ?? [];
+        } catch (error) {
+            if (error.name !== 'AbortError') diagnosisSearchError.value = 'La recherche est momentanément indisponible.';
+        } finally {
+            diagnosisSearchLoading.value = false;
+        }
+    }, 250);
+});
+
+const resetDiagnosisEntry = () => {
+    diagnosisForm.reset('diagnostic_catalog_uuid', 'description', 'manual_code', 'notes');
+    diagnosisSearch.value = '';
+    diagnosisResults.value = [];
+};
+const addCatalogDiagnosis = (diagnostic) => {
+    diagnosisForm.diagnostic_catalog_uuid = diagnostic.uuid;
+    diagnosisForm.description = '';
+    diagnosisForm.manual_code = '';
+    diagnosisForm.post(`/medicine/orientations/${props.orientation.uuid}/diagnoses`, {
+        preserveScroll: true,
+        onSuccess: resetDiagnosisEntry,
+    });
+};
+const addManualDiagnosis = () => {
+    diagnosisForm.diagnostic_catalog_uuid = null;
+    diagnosisForm.post(`/medicine/orientations/${props.orientation.uuid}/diagnoses`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            resetDiagnosisEntry();
+            diagnosisManualMode.value = false;
+        },
+    });
+};
 
 const diagnosisCancellationForm = useForm({ diagnosis_id: null });
 const diagnosisToCancel = ref(null);
@@ -333,7 +444,7 @@ const updateDiagnosis = () => diagnosisEditForm.put(
 
 const medicineSearch = ref('');
 const medicines = computed(() => props.options?.medicines ?? []);
-const prescriptionForm = useForm({ lines: [] });
+const prescriptionForm = useForm({ lines: [], continue_to_decision: true });
 const selectedMedicineUuids = computed(() => new Set(
     prescriptionForm.lines.map((line) => line.medicine_uuid),
 ));
@@ -399,6 +510,7 @@ const prescriptionStockIsValid = computed(() => prescriptionForm.lines.length > 
     }));
 const addPrescription = () => prescriptionForm
     .transform((data) => ({
+        continue_to_decision: data.continue_to_decision,
         lines: data.lines.map((line) => (line.manual
             ? {
                 manual: true,
@@ -553,21 +665,65 @@ const dischargeTypeShortLabel = (option) => ({
     DECEASED: 'Décès',
 }[option.value] ?? option.label);
 
-// The three clinic sites (ADR-025), minus the one currently running this
-// deployment — a transfer never targets its own site. "Autre" stays a free
-// field for anything outside this codebase's known sites.
-const clinicSites = [
-    { code: 'M', name: 'Mampikony' },
-    { code: 'A', name: 'Ambondromamy' },
-    { code: 'B', name: 'Boriziny' },
+// Built server-side from the configured clinic directory and filtered against
+// the active deployment, so a transfer can never accidentally target itself.
+// The local fallback only protects an already-open Inertia page whose props
+// predate this field; the next full visit always uses the server directory.
+const knownTransferDestinations = [
+    { code: 'M', name: 'Mampikony', destination: 'Clinique Saint Georges — Mampikony' },
+    { code: 'A', name: 'Ambondromamy', destination: 'Clinique Saint Georges — Ambondromamy' },
+    { code: 'B', name: 'Boriziny', destination: 'Clinique Saint Georges — Boriziny' },
 ];
-const otherSiteOptions = computed(() => clinicSites.filter((site) => site.code !== page.props.site?.code));
+const otherSiteOptions = computed(() => {
+    const configured = props.options?.transfer_destinations;
+    if (Array.isArray(configured) && configured.length) return configured;
+
+    const activeCode = String(page.props.site?.code ?? '').toUpperCase();
+    return knownTransferDestinations.filter((site) => site.code !== activeCode);
+});
 const transferDestinationChoice = ref('');
 const transferDestinationOther = ref('');
 watch([transferDestinationChoice, transferDestinationOther], () => {
     dischargeForm.transfer_destination = transferDestinationChoice.value === 'OTHER'
         ? transferDestinationOther.value
         : transferDestinationChoice.value;
+});
+
+const referralTransferDestinationChoice = ref('');
+const referralTransferDestinationOther = ref('');
+watch([referralTransferDestinationChoice, referralTransferDestinationOther], () => {
+    if (decisionChoice.value !== 'TRANSFER') return;
+
+    referralFieldValues.value.destination_etablissement = referralTransferDestinationChoice.value === 'OTHER'
+        ? referralTransferDestinationOther.value
+        : referralTransferDestinationChoice.value;
+});
+
+const truncateReferralPrefill = (value, maxLength) => String(value ?? '').trim().slice(0, maxLength);
+const currentDiagnosisSummary = computed(() => {
+    if (latestFinalDiagnosis.value) return latestFinalDiagnosis.value;
+
+    return associatedHypotheses.value.map((diagnosis) => diagnosis.description).filter(Boolean).join(' ; ');
+});
+const currentClinicalStateSummary = computed(() => {
+    const clinicalExam = richTextToPlainText(props.consultation?.clinical_exam);
+    const vitals = [
+        careRecordBloodPressure.value ? `TA ${careRecordBloodPressure.value} mmHg` : null,
+        props.care_record?.heart_rate ? `FC ${props.care_record.heart_rate} bpm` : null,
+        props.care_record?.spo2 ? `SpO₂ ${props.care_record.spo2} %` : null,
+        props.care_record?.temperature_celsius ? `T° ${props.care_record.temperature_celsius} °C` : null,
+    ].filter(Boolean).join(' · ');
+
+    return [clinicalExam, vitals ? `Constantes : ${vitals}` : null].filter(Boolean).join('\n');
+});
+const transferReferralDefaults = () => ({
+    destination_etablissement: '',
+    motif: truncateReferralPrefill(richTextToPlainText(props.consultation?.reason), 450),
+    diagnostic: truncateReferralPrefill(currentDiagnosisSummary.value, 450),
+    etat_clinique: truncateReferralPrefill(currentClinicalStateSummary.value, 700),
+    priorite: referralPriorityDefault(),
+    recommandations: truncateReferralPrefill(props.consultation?.decision_notes, 350),
+    observations: '',
 });
 
 const showDischargeForm = ref(false);
@@ -594,10 +750,19 @@ const chooseDecision = (key) => {
         decisionChoice.value = null;
         return;
     }
-    referralFieldValues.value = {};
+    referralForm.clearErrors();
+    referralTransferDestinationChoice.value = '';
+    referralTransferDestinationOther.value = '';
+    referralFieldValues.value = key === 'TRANSFER'
+        ? transferReferralDefaults()
+        : (referralFieldsFor(key).some((field) => field.key === 'priorite') ? { priorite: referralPriorityDefault() } : {});
     decisionChoice.value = key;
 };
 const closeDecisionChoice = () => {
+    referralForm.clearErrors();
+    referralFieldValues.value = {};
+    referralTransferDestinationChoice.value = '';
+    referralTransferDestinationOther.value = '';
     decisionChoice.value = null;
     showDischargeForm.value = false;
 };
@@ -711,21 +876,21 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                 </Card>
 
                 <Card v-if="current_step === 'consultation'" class="w-full overflow-hidden shadow-sm">
-                    <div class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                    <div class="flex flex-col gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900 lg:flex-row lg:items-start lg:justify-between">
                         <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Consultation — Interrogatoire</h2><p class="mt-1 text-xs text-slate-400">Motif, histoire clinique et observations rapportées par le patient.</p></div>
-                        <span class="text-xs text-slate-400">Dr {{ consultation.doctor }}</span>
-                    </div>
-                    <div class="border-b border-gray-200 bg-gray-50/50 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30">
-                        <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Demande initiale <span class="rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-gray-800 dark:text-slate-300">Lecture seule</span></p>
-                        <div v-if="episode.designations.length" class="mt-2 flex flex-wrap gap-2"><span v-for="designation in episode.designations" :key="designation.uuid" class="rounded border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">{{ designation.description }}</span></div>
-                        <p v-else class="mt-1.5 text-sm text-slate-500">Aucune prestation précisée à l’arrivée.</p>
-                        <p v-if="orientation.reason" class="mt-2 text-xs text-slate-400">Note de routage : {{ orientation.reason }}</p>
-                        <p class="mt-2 text-xs text-slate-400">Ceci décrit pourquoi le patient a été orienté ici — ce n’est pas le motif clinique. Renseignez ci-dessous ce que rapporte réellement le patient.</p>
+                        <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start lg:justify-end">
+                            <div class="min-w-0 sm:max-w-xl sm:text-end">
+                                <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Demande initiale <span class="ms-1 rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">Lecture seule</span></p>
+                                <div v-if="episode.designations.length" class="mt-1.5 flex flex-wrap gap-1.5 sm:justify-end"><span v-for="designation in episode.designations" :key="designation.uuid" class="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-200">{{ designation.description }}</span></div>
+                                <p v-else class="mt-1 text-xs text-slate-500">Aucune prestation précisée à l’arrivée.</p>
+                            </div>
+                            <div class="shrink-0 border-t border-gray-200 pt-2 text-xs text-slate-400 dark:border-gray-800 sm:border-s sm:border-t-0 sm:ps-4 sm:pt-0">Dr {{ consultation.doctor }}</div>
+                        </div>
                     </div>
                     <form class="space-y-4 p-5" @submit.prevent="saveConsultation('examen')">
                         <div>
                             <label for="reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif / interrogatoire *</label>
-                            <textarea id="reason" v-model="consultationForm.reason" rows="8" :disabled="!capabilities.can_update_consultation" :class="textareaClass" placeholder="Symptômes, histoire de la maladie, observations rapportées par le patient" />
+                            <ClinicalRichTextEditor id="reason" v-model="consultationForm.reason" :disabled="!capabilities.can_update_consultation" placeholder="Symptômes, histoire de la maladie, observations rapportées par le patient" />
                             <FormError :message="consultationForm.errors.reason" />
                         </div>
                         <div class="flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
@@ -745,7 +910,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                     <form class="space-y-4 p-5" @submit.prevent="saveConsultation('paraclinique')">
                         <div>
                             <label for="clinical_exam" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Constatations de l’examen</label>
-                            <textarea id="clinical_exam" v-model="consultationForm.clinical_exam" rows="8" :disabled="!capabilities.can_update_consultation" :class="textareaClass" placeholder="Constatations cliniques utiles, signes positifs et négatifs" />
+                            <ClinicalRichTextEditor id="clinical_exam" v-model="consultationForm.clinical_exam" :disabled="!capabilities.can_update_consultation" :max-length="10000" placeholder="Constatations cliniques utiles, signes positifs et négatifs" />
                             <FormError :message="consultationForm.errors.clinical_exam" />
                         </div>
                         <div class="flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
@@ -759,16 +924,39 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                 </Card>
 
                 <Card v-if="current_step === 'paraclinique'" class="w-full overflow-hidden shadow-sm">
-                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Paraclinique</h2><p class="mt-1 text-xs text-slate-400">Demande d’examens, suivi et résultats.</p></div>
+                    <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex items-start gap-3">
+                            <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-lg" name="activity" /></span>
+                            <div>
+                                <h2 class="text-sm font-bold text-slate-700 dark:text-white">Examens paracliniques</h2>
+                                <p class="mt-0.5 text-xs text-slate-400">Prescrivez les examens utiles et transmettez une indication claire au service concerné.</p>
+                            </div>
+                        </div>
+                        <span class="self-start rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300">Étape facultative</span>
+                    </div>
 
-                    <div class="flex border-b border-gray-200 px-5 dark:border-gray-900">
-                        <button type="button" :class="['border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors', paracliniqueTab === 'lab' ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" @click="paracliniqueTab = 'lab'">Laboratoire<span v-if="consultation.lab_requests?.length" class="ms-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900">{{ consultation.lab_requests.length }}</span></button>
-                        <button type="button" :class="['border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors', paracliniqueTab === 'imaging' ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" @click="paracliniqueTab = 'imaging'">ECG / Échographie<span v-if="consultation.imaging_requests?.length" class="ms-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900">{{ consultation.imaging_requests.length }}</span></button>
+                    <div class="border-b border-gray-200 bg-gray-50/60 px-5 py-2.5 dark:border-gray-900 dark:bg-gray-1000/20">
+                        <div class="grid max-w-xl grid-cols-2 gap-1 rounded-lg border border-gray-200 bg-gray-100 p-1 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="Type d’examen paraclinique">
+                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'lab'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'lab' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="paracliniqueTab = 'lab'">
+                                <Icon class="text-base" name="activity" />
+                                <span>Laboratoire</span>
+                                <span v-if="consultation.lab_requests?.length || labRequestForm.items.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ (consultation.lab_requests?.length ?? 0) + labRequestForm.items.length }}</span>
+                            </button>
+                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'imaging'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'imaging' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="paracliniqueTab = 'imaging'">
+                                <Icon class="text-base" name="scan" />
+                                <span>ECG / Échographie</span>
+                                <span v-if="consultation.imaging_requests?.length || imagingRequestForm.items.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ (consultation.imaging_requests?.length ?? 0) + imagingRequestForm.items.length }}</span>
+                            </button>
+                        </div>
                     </div>
 
                     <template v-if="paracliniqueTab === 'lab'">
-                        <div v-if="consultation.lab_requests?.length" class="space-y-2 border-b border-gray-200 p-5 dark:border-gray-900">
-                            <div v-for="request in consultation.lab_requests" :key="request.uuid" class="rounded border border-gray-200 p-3 dark:border-gray-800">
+                        <div v-if="consultation.lab_requests?.length" class="space-y-3 border-b border-gray-200 bg-gray-50/30 p-5 dark:border-gray-900 dark:bg-gray-1000/10">
+                            <div class="flex items-center justify-between gap-3">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Demandes transmises</p>
+                                <span class="text-xs text-slate-400">{{ consultation.lab_requests.length }} demande(s)</span>
+                            </div>
+                            <div v-for="request in consultation.lab_requests" :key="request.uuid" class="rounded-lg border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                     <p class="text-xs font-semibold text-slate-700 dark:text-white">{{ formatDateTime(request.requested_at) }} — Dr {{ request.requested_by }}</p>
                                     <span :class="labRequestStatusBadgeClass(request.status)">{{ labRequestStatusLabel(request.status) }}</span>
@@ -786,41 +974,62 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                                 <p v-if="request.notes" class="mt-1.5 text-[11px] text-slate-400">{{ request.notes }}</p>
                             </div>
                         </div>
-                        <p v-else class="px-5 py-6 text-sm text-slate-400">Aucune analyse demandée.</p>
-
-                        <form v-if="capabilities.can_create_lab_request" class="space-y-4 p-5" @submit.prevent="submitLabRequest">
-                            <div>
-                                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Rechercher une analyse</label>
+                        <form v-if="capabilities.can_create_lab_request" id="lab-request-form" class="p-5" @submit.prevent="submitLabRequest">
+                            <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+                                <div class="min-w-0 space-y-4">
+                                    <div>
+                                        <div class="mb-1.5 flex items-center justify-between gap-3">
+                                            <label class="block text-sm font-semibold text-slate-700 dark:text-white">Ajouter une analyse</label>
+                                            <span v-if="labRequestForm.items.length" class="text-xs font-semibold text-primary-700 dark:text-primary-300">{{ labRequestForm.items.length }} sélectionnée(s)</span>
+                                        </div>
                                 <IconInput v-model="labSearch" icon="search" placeholder="NFS, CRP, glycémie…" />
-                                <div v-if="labSearch.trim() && filteredLabCatalog.length" class="mt-2 max-h-48 divide-y divide-gray-100 overflow-y-auto rounded border border-gray-200 dark:divide-gray-900 dark:border-gray-800">
-                                    <button v-for="item in filteredLabCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between px-3 py-2 text-start text-sm text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-1000" @click="addLabItem(item)">
-                                        <span>{{ item.name }}</span>
-                                        <Icon v-if="isLabItemSelected(item)" name="check" class="text-primary-600" />
+                                        <div v-if="labSearch.trim() && filteredLabCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
+                                    <button v-for="item in filteredLabCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start transition-colors hover:bg-primary-50/60 dark:hover:bg-primary-950/20" @click="addLabItem(item)">
+                                                <span class="min-w-0"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span><span v-if="item.code" class="mt-0.5 block text-[11px] text-slate-400">{{ item.code }}</span></span>
+                                                <span :class="['flex size-7 shrink-0 items-center justify-center rounded-md border', isLabItemSelected(item) ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/50 dark:text-primary-300' : 'border-gray-200 text-slate-400 dark:border-gray-800']"><Icon :name="isLabItemSelected(item) ? 'check' : 'plus'" /></span>
                                     </button>
                                 </div>
                                 <p v-else-if="labSearch.trim()" class="mt-2 text-xs text-slate-400">Aucune analyse ne correspond.</p>
                                 <FormError :message="labRequestForm.errors.items" />
-                            </div>
-                            <div v-if="labRequestForm.items.length" class="space-y-1.5 rounded border border-gray-200 p-3 dark:border-gray-800">
-                                <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Analyses demandées</p>
-                                <div v-for="line in labRequestForm.items" :key="line.catalog_item_uuid" class="flex items-center justify-between gap-3">
-                                    <span class="text-sm text-slate-600 dark:text-slate-300">{{ line.name }}</span>
-                                    <button type="button" class="text-red-500" @click="removeLabItem(line)"><Icon name="cross" /></button>
+                                    </div>
+
+                                    <div v-if="labRequestForm.items.length" class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+                                        <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3.5 py-2.5 dark:border-gray-800 dark:bg-gray-1000/30">
+                                            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Prescription en préparation</p>
+                                            <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-500 ring-1 ring-gray-200 dark:bg-gray-950 dark:ring-gray-800">{{ labRequestForm.items.length }}</span>
+                                        </div>
+                                        <div class="divide-y divide-gray-100 dark:divide-gray-900">
+                                            <div v-for="line in labRequestForm.items" :key="line.catalog_item_uuid" class="flex items-center gap-3 px-3.5 py-3">
+                                                <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon name="activity" /></span>
+                                                <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ line.name }}</span><span v-if="line.code" class="mt-0.5 block text-[11px] text-slate-400">{{ line.code }}</span></span>
+                                                <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md border border-gray-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-gray-800 dark:hover:border-red-900 dark:hover:bg-red-950/30" :aria-label="`Retirer ${line.name}`" @click="removeLabItem(line)"><Icon name="trash" /></button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <label for="lab_notes" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Notes</label>
-                                <textarea id="lab_notes" v-model="labRequestForm.notes" rows="2" :class="textareaClass" placeholder="Contexte utile pour le Laboratoire" />
-                            </div>
-                            <div class="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-900">
-                                <Button type="submit" size="rg" :disabled="labRequestForm.processing || !labRequestForm.items.length"><Icon class="me-2 text-lg" name="activity" />Envoyer au Laboratoire</Button>
+
+                                <div class="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-1000/20">
+                                    <div class="flex items-start gap-2.5">
+                                        <Icon class="mt-0.5 shrink-0 text-base text-primary-600 dark:text-primary-300" name="file-text" />
+                                        <div class="min-w-0 flex-1">
+                                            <label for="lab_notes" class="block text-sm font-semibold text-slate-700 dark:text-white">Indication clinique</label>
+                                            <p class="mt-0.5 text-xs leading-5 text-slate-400">Ajoutez le contexte nécessaire à l’interprétation et à la réalisation des analyses.</p>
+                                        </div>
+                                    </div>
+                                    <textarea id="lab_notes" v-model="labRequestForm.notes" rows="5" :class="[textareaClass, 'mt-3 bg-white dark:bg-gray-950']" placeholder="Contexte clinique, symptômes, traitement en cours…" />
+                                    <FormError :message="labRequestForm.errors.notes" />
+                                </div>
                             </div>
                         </form>
                     </template>
 
                     <template v-else>
-                        <div v-if="consultation.imaging_requests?.length" class="space-y-2 border-b border-gray-200 p-5 dark:border-gray-900">
-                            <div v-for="request in consultation.imaging_requests" :key="request.uuid" class="rounded border border-gray-200 p-3 dark:border-gray-800">
+                        <div v-if="consultation.imaging_requests?.length" class="space-y-3 border-b border-gray-200 bg-gray-50/30 p-5 dark:border-gray-900 dark:bg-gray-1000/10">
+                            <div class="flex items-center justify-between gap-3">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Demandes transmises</p>
+                                <span class="text-xs text-slate-400">{{ consultation.imaging_requests.length }} demande(s)</span>
+                            </div>
+                            <div v-for="request in consultation.imaging_requests" :key="request.uuid" class="rounded-lg border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                     <p class="text-xs font-semibold text-slate-700 dark:text-white">{{ formatDateTime(request.requested_at) }} — Dr {{ request.requested_by }}</p>
                                     <span :class="labRequestStatusBadgeClass(request.status)">{{ labRequestStatusLabel(request.status) }}</span>
@@ -833,7 +1042,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                                             <span v-else class="text-slate-400">En attente</span>
                                         </div>
                                         <p v-if="item.resulted_at" class="mt-0.5 text-[11px] text-slate-500">{{ item.result_value }}<template v-if="item.result_notes"> — {{ item.result_notes }}</template></p>
-                                        <form v-else-if="capabilities.can_record_imaging_result" class="mt-1.5 flex flex-col gap-1.5 rounded border border-gray-200 bg-gray-50/50 p-2 dark:border-gray-800 dark:bg-gray-1000/30" @submit.prevent="submitImagingResult(item)">
+                                        <form v-else-if="capabilities.can_record_imaging_result" class="mt-2 flex flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/30" @submit.prevent="submitImagingResult(item)">
                                             <textarea v-model="imagingResultForm(item.uuid).result_value" rows="2" :class="textareaClass" placeholder="Compte rendu (résultat)" />
                                             <FormError :message="imagingResultForm(item.uuid).errors.result_value" />
                                             <div class="flex justify-end"><Button type="submit" size="sm" :disabled="imagingResultForm(item.uuid).processing || !imagingResultForm(item.uuid).result_value.trim()">Enregistrer le compte rendu</Button></div>
@@ -843,47 +1052,99 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                                 <p v-if="request.notes" class="mt-1.5 text-[11px] text-slate-400">{{ request.notes }}</p>
                             </div>
                         </div>
-                        <p v-else class="px-5 py-6 text-sm text-slate-400">Aucun examen d’imagerie demandé.</p>
+                        <form v-if="capabilities.can_create_imaging_request" id="imaging-request-form" class="p-5" @submit.prevent="submitImagingRequest">
+                            <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+                                <div class="min-w-0 space-y-4">
+                                    <div>
+                                        <div class="mb-1.5 flex items-center justify-between gap-3">
+                                            <label class="block text-sm font-semibold text-slate-700 dark:text-white">Ajouter un examen</label>
+                                            <span v-if="imagingRequestForm.items.length" class="text-xs font-semibold text-primary-700 dark:text-primary-300">{{ imagingRequestForm.items.length }} sélectionné(s)</span>
+                                        </div>
+                                        <IconInput v-model="imagingSearch" icon="search" placeholder="ECG, échographie abdominale…" />
+                                        <div v-if="imagingSearch.trim() && filteredImagingCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
+                                            <button v-for="item in filteredImagingCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start transition-colors hover:bg-primary-50/60 dark:hover:bg-primary-950/20" @click="addImagingItem(item)">
+                                                <span class="min-w-0"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span><span v-if="item.code" class="mt-0.5 block text-[11px] text-slate-400">{{ item.code }}</span></span>
+                                                <span :class="['flex size-7 shrink-0 items-center justify-center rounded-md border', isImagingItemSelected(item) ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/50 dark:text-primary-300' : 'border-gray-200 text-slate-400 dark:border-gray-800']"><Icon :name="isImagingItemSelected(item) ? 'check' : 'plus'" /></span>
+                                            </button>
+                                        </div>
+                                        <p v-else-if="imagingSearch.trim()" class="mt-2 text-xs text-slate-400">Aucun examen ne correspond.</p>
+                                        <p v-else-if="!imagingCatalog.length" class="mt-2 text-xs text-slate-400">Aucun examen ECG/échographie n’est encore configuré au référentiel.</p>
+                                        <FormError :message="imagingRequestForm.errors.items" />
+                                    </div>
 
-                        <form v-if="capabilities.can_create_imaging_request" class="space-y-4 p-5" @submit.prevent="submitImagingRequest">
-                            <div>
-                                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Rechercher un examen</label>
-                                <IconInput v-model="imagingSearch" icon="search" placeholder="ECG, échographie abdominale…" />
-                                <div v-if="imagingSearch.trim() && filteredImagingCatalog.length" class="mt-2 max-h-48 divide-y divide-gray-100 overflow-y-auto rounded border border-gray-200 dark:divide-gray-900 dark:border-gray-800">
-                                    <button v-for="item in filteredImagingCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between px-3 py-2 text-start text-sm text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-1000" @click="addImagingItem(item)">
-                                        <span>{{ item.name }}</span>
-                                        <Icon v-if="isImagingItemSelected(item)" name="check" class="text-primary-600" />
-                                    </button>
+                                    <div v-if="imagingRequestForm.items.length" class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+                                        <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3.5 py-2.5 dark:border-gray-800 dark:bg-gray-1000/30">
+                                            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Demande en préparation</p>
+                                            <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-500 ring-1 ring-gray-200 dark:bg-gray-950 dark:ring-gray-800">{{ imagingRequestForm.items.length }}</span>
+                                        </div>
+                                        <div class="divide-y divide-gray-100 dark:divide-gray-900">
+                                            <div v-for="line in imagingRequestForm.items" :key="line.catalog_item_uuid" class="flex items-center gap-3 px-3.5 py-3">
+                                                <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon name="scan" /></span>
+                                                <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ line.name }}</span><span v-if="line.code" class="mt-0.5 block text-[11px] text-slate-400">{{ line.code }}</span></span>
+                                                <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md border border-gray-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-gray-800 dark:hover:border-red-900 dark:hover:bg-red-950/30" :aria-label="`Retirer ${line.name}`" @click="removeImagingItem(line)"><Icon name="trash" /></button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <p v-else-if="imagingSearch.trim()" class="mt-2 text-xs text-slate-400">Aucun examen ne correspond.</p>
-                                <p v-else-if="!imagingCatalog.length" class="mt-2 text-xs text-slate-400">Aucun examen ECG/échographie n’est encore configuré au référentiel.</p>
-                                <FormError :message="imagingRequestForm.errors.items" />
-                            </div>
-                            <div v-if="imagingRequestForm.items.length" class="space-y-1.5 rounded border border-gray-200 p-3 dark:border-gray-800">
-                                <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Examens demandés</p>
-                                <div v-for="line in imagingRequestForm.items" :key="line.catalog_item_uuid" class="flex items-center justify-between gap-3">
-                                    <span class="text-sm text-slate-600 dark:text-slate-300">{{ line.name }}</span>
-                                    <button type="button" class="text-red-500" @click="removeImagingItem(line)"><Icon name="cross" /></button>
+
+                                <div class="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-1000/20">
+                                    <div class="flex items-start gap-2.5">
+                                        <Icon class="mt-0.5 shrink-0 text-base text-primary-600 dark:text-primary-300" name="file-text" />
+                                        <div class="min-w-0 flex-1">
+                                            <label for="imaging_notes" class="block text-sm font-semibold text-slate-700 dark:text-white">Indication clinique</label>
+                                            <p class="mt-0.5 text-xs leading-5 text-slate-400">Précisez le motif, la région concernée et les éléments cliniques utiles à l’examen.</p>
+                                        </div>
+                                    </div>
+                                    <textarea id="imaging_notes" v-model="imagingRequestForm.notes" rows="5" :class="[textareaClass, 'mt-3 bg-white dark:bg-gray-950']" placeholder="Motif de l’examen, symptômes, région à explorer…" />
+                                    <FormError :message="imagingRequestForm.errors.notes" />
                                 </div>
-                            </div>
-                            <div>
-                                <label for="imaging_notes" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Indication clinique</label>
-                                <textarea id="imaging_notes" v-model="imagingRequestForm.notes" rows="2" :class="textareaClass" placeholder="Motif de l’examen, contexte utile" />
-                            </div>
-                            <div class="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-900">
-                                <Button type="submit" size="rg" :disabled="imagingRequestForm.processing || !imagingRequestForm.items.length"><Icon class="me-2 text-lg" name="activity" />Envoyer la demande</Button>
                             </div>
                         </form>
                     </template>
+
+                    <div class="flex flex-col gap-3 border-t border-gray-200 bg-gray-50/40 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/20 sm:flex-row sm:items-center sm:justify-between">
+                        <Button :as="Link" :href="stepUrl('examen')" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="arrow-left" />Examen clinique</Button>
+                        <p v-if="hasPendingParaclinicalSelection" class="text-center text-xs font-semibold text-amber-700 dark:text-amber-300">Enregistrez les examens sélectionnés avant de poursuivre.</p>
+                        <p v-else-if="hasExistingParaclinicalRequest" class="text-center text-xs text-slate-400">Les demandes enregistrées restent suivies dans le dossier du patient.</p>
+                        <p v-else class="text-center text-xs text-slate-400">Étape facultative · prescrivez un examen uniquement lorsqu’il est indiqué.</p>
+                        <div class="flex justify-end">
+                            <Button v-if="paracliniqueTab === 'lab' && labRequestForm.items.length" type="submit" form="lab-request-form" size="rg" :disabled="labRequestForm.processing || imagingRequestForm.processing">
+                                <Icon class="me-2 text-lg" name="activity" />{{ imagingRequestForm.items.length ? 'Envoyer puis finaliser l’imagerie' : 'Envoyer au Laboratoire et continuer' }}<Icon class="ms-2 text-lg" name="arrow-right" />
+                            </Button>
+                            <Button v-else-if="paracliniqueTab === 'imaging' && imagingRequestForm.items.length" type="submit" form="imaging-request-form" size="rg" :disabled="imagingRequestForm.processing || labRequestForm.processing">
+                                <Icon class="me-2 text-lg" name="activity" />{{ labRequestForm.items.length ? 'Envoyer puis finaliser les analyses' : 'Envoyer la demande et continuer' }}<Icon class="ms-2 text-lg" name="arrow-right" />
+                            </Button>
+                            <Button v-else-if="labRequestForm.items.length" type="button" size="rg" variant="white-outline" @click="paracliniqueTab = 'lab'">Finaliser les analyses ({{ labRequestForm.items.length }})<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                            <Button v-else-if="imagingRequestForm.items.length" type="button" size="rg" variant="white-outline" @click="paracliniqueTab = 'imaging'">Finaliser l’imagerie ({{ imagingRequestForm.items.length }})<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                            <Button v-else :as="Link" :href="stepUrl('diagnostic')" size="rg">Continuer vers le diagnostic<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                        </div>
+                    </div>
                 </Card>
 
-                <div v-if="current_step === 'ordonnance' && capabilities.can_view_care_orders" class="flex overflow-hidden rounded border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
-                    <button type="button" :class="['flex-1 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors', prescriptionTab === 'medicines' ? 'border-primary-500 bg-primary-50/40 text-primary-700 dark:bg-primary-950/10 dark:text-primary-300' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" @click="prescriptionTab = 'medicines'">Médicaments</button>
-                    <button type="button" :class="['flex-1 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors', prescriptionTab === 'care' ? 'border-primary-500 bg-primary-50/40 text-primary-700 dark:bg-primary-950/10 dark:text-primary-300' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" @click="prescriptionTab = 'care'">Soins</button>
+                <div v-if="current_step === 'ordonnance' && capabilities.can_view_care_orders" class="grid grid-cols-2 gap-1 rounded-lg border border-gray-200 bg-gray-100 p-1 shadow-sm dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="Type de prescription">
+                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'medicines'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'medicines' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="prescriptionTab = 'medicines'">
+                        <Icon class="text-base" name="capsule" />
+                        <span>Médicaments</span>
+                        <span v-if="prescriptionForm.lines.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ prescriptionForm.lines.length }}</span>
+                    </button>
+                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'care'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'care' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="prescriptionTab = 'care'">
+                        <Icon class="text-base" name="activity" />
+                        <span>Soins</span>
+                        <span v-if="careOrderForm.items.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ careOrderForm.items.length }}</span>
+                    </button>
                 </div>
 
                 <Card v-if="current_step === 'ordonnance' && capabilities.can_view_care_orders && prescriptionTab === 'care'" class="w-full overflow-hidden shadow-sm">
-                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Prescription — Soins</h2><p class="mt-1 text-xs text-slate-400">Demandez un ou plusieurs actes à réaliser aux Soins pour ce passage.</p></div>
+                    <div class="flex items-start justify-between gap-4 border-b border-gray-200 bg-gray-50/50 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/20">
+                        <div class="flex min-w-0 items-start gap-3">
+                            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon class="text-lg" name="activity" /></span>
+                            <div>
+                                <h2 class="text-sm font-bold text-slate-700 dark:text-white">Prescription de soins</h2>
+                                <p class="mt-1 text-xs text-slate-400">Sélectionnez les actes à transmettre à l’équipe Soins pour ce passage.</p>
+                            </div>
+                        </div>
+                        <span v-if="careOrderForm.items.length" class="shrink-0 rounded-full border border-primary-100 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:border-primary-900 dark:bg-gray-950 dark:text-primary-300">{{ careOrderForm.items.length }} acte(s)</span>
+                    </div>
 
                     <div v-if="consultation.care_orders?.length" class="space-y-2 border-b border-gray-200 p-5 dark:border-gray-900">
                         <div v-for="order in consultation.care_orders" :key="order.uuid" class="rounded border border-gray-200 p-3 dark:border-gray-800">
@@ -904,42 +1165,70 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                         </div>
                     </div>
 
-                    <form v-if="capabilities.can_create_care_order" class="space-y-4 p-5" @submit.prevent="submitCareOrder">
+                    <form v-if="capabilities.can_create_care_order" id="care-order-form" class="space-y-5 p-5" @submit.prevent="submitCareOrder">
                         <div>
-                            <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Rechercher un acte</label>
+                            <label class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Ajouter un acte de soins</label>
                             <IconInput v-model="careOrderSearch" icon="search" placeholder="Injection, perfusion, pansement…" />
-                            <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-2 max-h-48 divide-y divide-gray-100 overflow-y-auto rounded border border-gray-200 dark:divide-gray-900 dark:border-gray-800">
-                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between px-3 py-2 text-start text-sm text-slate-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-gray-1000" @click="addCareOrderItem(item)">
-                                    <span>{{ item.name }}</span>
-                                    <Icon v-if="isCareOrderItemSelected(item)" name="check" class="text-primary-600" />
+                            <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
+                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-start transition-colors hover:bg-gray-50 disabled:cursor-default disabled:bg-gray-50/70 dark:hover:bg-gray-1000 dark:disabled:bg-gray-1000/60" @click="addCareOrderItem(item)">
+                                    <span class="min-w-0">
+                                        <span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span>
+                                        <span v-if="item.code" class="mt-0.5 block font-mono text-[10px] text-slate-400">{{ item.code }}</span>
+                                    </span>
+                                    <span v-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary-700 dark:text-primary-300"><Icon name="check" />Ajouté</span>
+                                    <span v-else class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-primary-600 dark:border-gray-800 dark:text-primary-300"><Icon name="plus" /></span>
                                 </button>
                             </div>
                             <p v-else-if="careOrderSearch.trim()" class="mt-2 text-xs text-slate-400">Aucun acte prescriptible ne correspond.</p>
                             <FormError :message="careOrderForm.errors.items" />
                         </div>
-                        <div v-if="careOrderForm.items.length" class="space-y-2 rounded border border-gray-200 p-3 dark:border-gray-800">
-                            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Soins demandés</p>
-                            <div v-for="line in careOrderForm.items" :key="line.catalog_item_uuid" class="flex items-center gap-3">
-                                <span class="flex-1 text-sm text-slate-600 dark:text-slate-300">{{ line.name }}</span>
-                                <Input v-model="line.quantity" type="number" min="1" class="w-20" />
-                                <button type="button" class="text-red-500" @click="removeCareOrderItem(line)"><Icon name="cross" /></button>
+                        <div v-if="careOrderForm.items.length" class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                            <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-gray-800 dark:bg-gray-1000/30">
+                                <p class="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Actes demandés</p>
+                                <span class="text-xs text-slate-400">Quantité ajustable</span>
+                            </div>
+                            <div v-for="(line, index) in careOrderForm.items" :key="line.catalog_item_uuid" class="grid grid-cols-[minmax(0,1fr)_6.5rem_2.25rem] items-end gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-900">
+                                <div class="flex min-w-0 items-center gap-3 self-center">
+                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon name="activity" /></span>
+                                    <span class="min-w-0">
+                                        <span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ line.name }}</span>
+                                        <span v-if="line.code" class="mt-0.5 block truncate font-mono text-[10px] text-slate-400">{{ line.code }}</span>
+                                    </span>
+                                </div>
+                                <div>
+                                    <label :for="`care-order-quantity-${index}`" class="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">Quantité</label>
+                                    <Input :id="`care-order-quantity-${index}`" v-model="line.quantity" type="number" min="1" step="1" inputmode="numeric" aria-label="Quantité" />
+                                    <FormError :message="careOrderForm.errors[`items.${index}.quantity`]" />
+                                </div>
+                                <Button type="button" size="rg" icon variant="danger-outline" title="Retirer cet acte" :aria-label="`Retirer ${line.name}`" @click="removeCareOrderItem(line)"><Icon name="trash" /></Button>
                             </div>
                         </div>
-                        <div>
-                            <label for="care_order_instructions" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Instructions générales</label>
-                            <textarea id="care_order_instructions" v-model="careOrderForm.instructions" rows="2" :class="textareaClass" placeholder="Précisions utiles pour Soins" />
-                            <FormError :message="careOrderForm.errors.instructions" />
-                        </div>
-                        <div>
-                            <p class="mb-1.5 text-sm font-medium text-slate-700 dark:text-white">Après soins</p>
-                            <div class="flex gap-4">
-                                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><input type="radio" :checked="careOrderForm.requires_return_to_medicine === true" @change="careOrderForm.requires_return_to_medicine = true"> Retour Médecine</label>
-                                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><input type="radio" :checked="careOrderForm.requires_return_to_medicine === false" @change="careOrderForm.requires_return_to_medicine = false"> Fin du parcours prévu</label>
+                        <div class="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]">
+                            <div>
+                                <label for="care_order_instructions" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Instructions pour l’équipe Soins</label>
+                                <textarea id="care_order_instructions" v-model="careOrderForm.instructions" rows="5" :class="textareaClass" placeholder="Précisez la voie, la fréquence, les précautions ou toute consigne utile…" />
+                                <FormError :message="careOrderForm.errors.instructions" />
                             </div>
-                            <FormError :message="careOrderForm.errors.requires_return_to_medicine" />
+                            <fieldset>
+                                <legend class="mb-1.5 text-sm font-semibold text-slate-700 dark:text-white">Parcours après réalisation</legend>
+                                <div class="grid gap-2">
+                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === true ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:bg-primary-950/15 dark:ring-primary-900' : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-gray-700']">
+                                        <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === true" @change="careOrderForm.requires_return_to_medicine = true">
+                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === true ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']"><Icon name="arrow-left" /></span>
+                                        <span><span class="block text-sm font-semibold text-slate-700 dark:text-white">Retour en Médecine</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">Le patient revient au médecin après les soins.</span></span>
+                                    </label>
+                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === false ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:bg-primary-950/15 dark:ring-primary-900' : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-gray-700']">
+                                        <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === false" @change="careOrderForm.requires_return_to_medicine = false">
+                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === false ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']"><Icon name="check-circle" /></span>
+                                        <span><span class="block text-sm font-semibold text-slate-700 dark:text-white">Fin du parcours prévue</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">Les Soins terminent le parcours clinique prévu.</span></span>
+                                    </label>
+                                </div>
+                                <FormError :message="careOrderForm.errors.requires_return_to_medicine" />
+                            </fieldset>
                         </div>
-                        <div class="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-900">
-                            <Button type="submit" size="rg" :disabled="careOrderForm.processing || !careOrderForm.items.length"><Icon class="me-2 text-lg" name="activity" />Envoyer vers Soins</Button>
+                        <div class="flex items-center gap-2 border-t border-gray-200 pt-4 text-xs text-slate-400 dark:border-gray-900">
+                            <Icon class="text-base text-primary-600 dark:text-primary-300" name="info" />
+                            <span>L’envoi crée l’orientation vers Soins et transmet les actes ainsi que vos instructions.</span>
                         </div>
                     </form>
                 </Card>
@@ -953,7 +1242,11 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                     <div :class="['border-b border-gray-200 px-5 py-5 dark:border-gray-900', latestFinalDiagnosisEntry ? 'bg-emerald-50/50 dark:bg-emerald-950/10' : 'bg-gray-50/60 dark:bg-gray-1000/20']">
                         <template v-if="latestFinalDiagnosisEntry">
                             <p class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400"><Icon class="text-xs" name="check-circle" />Diagnostic retenu</p>
-                            <p class="mt-1.5 text-base font-bold leading-6 text-slate-800 dark:text-white">{{ latestFinalDiagnosisEntry.description }}</p>
+                            <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                                <p class="text-base font-bold leading-6 text-slate-800 dark:text-white">{{ latestFinalDiagnosisEntry.description }}</p>
+                                <span class="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:border-gray-800 dark:bg-gray-950">{{ latestFinalDiagnosisEntry.source_label }}</span>
+                                <span v-if="latestFinalDiagnosisEntry.code" class="font-mono text-[11px] font-semibold text-slate-400">{{ latestFinalDiagnosisEntry.code }}</span>
+                            </div>
                             <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
                                 <p class="text-xs text-slate-500 dark:text-slate-400">{{ latestFinalDiagnosisEntry.recorded_by }} · {{ formatDateTime(latestFinalDiagnosisEntry.recorded_at) }}</p>
                                 <div v-if="latestFinalDiagnosisEntry.can_edit || latestFinalDiagnosisEntry.can_cancel" class="flex shrink-0 gap-1.5">
@@ -981,8 +1274,13 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                                 <span :class="['absolute -start-[25px] top-1 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-gray-950', diagnosis.type === 'FINAL' ? 'bg-emerald-500' : 'bg-amber-500']" />
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
-                                        <span :class="['inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', diagnosis.type === 'FINAL' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">{{ diagnosis.type === 'FINAL' ? 'Diagnostic' : 'Hypothèse' }}</span>
+                                        <div class="flex flex-wrap items-center gap-1.5">
+                                            <span :class="['inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', diagnosis.type === 'FINAL' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">{{ diagnosis.type === 'FINAL' ? 'Diagnostic final' : 'Hypothèse' }}</span>
+                                            <span class="rounded border border-gray-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-400 dark:border-gray-800">{{ diagnosis.source_label }}</span>
+                                            <span v-if="diagnosis.code" class="font-mono text-[10px] font-semibold text-slate-400">{{ diagnosis.code }}</span>
+                                        </div>
                                         <p class="mt-1 text-sm font-semibold leading-5 text-slate-700 dark:text-white">{{ diagnosis.description }}</p>
+                                        <p v-if="diagnosis.notes" class="mt-1 text-xs leading-5 text-slate-500">{{ diagnosis.notes }}</p>
                                         <p class="mt-0.5 text-[11px] text-slate-400">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</p>
                                     </div>
                                     <div v-if="diagnosis.can_edit || diagnosis.can_cancel" class="flex shrink-0 gap-1.5">
@@ -1018,7 +1316,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                             <ol v-if="diagnosisHistoryOpen" class="relative mt-3 space-y-3 border-s-2 border-dashed border-gray-200 ps-5 dark:border-gray-800">
                                 <li v-for="diagnosis in archivedDiagnoses" :key="diagnosis.id" class="relative">
                                     <span class="absolute -start-[21px] top-1 h-2 w-2 rounded-full bg-gray-300 ring-4 ring-white dark:bg-gray-700 dark:ring-gray-950" />
-                                    <span class="inline-flex rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-gray-800 dark:text-slate-300">{{ diagnosis.type_label }}</span>
+                                    <div class="flex flex-wrap items-center gap-1.5"><span class="inline-flex rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-gray-800 dark:text-slate-300">{{ diagnosis.type_label }}</span><span class="rounded border border-gray-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-400 dark:border-gray-800">{{ diagnosis.source_label }}</span><span v-if="diagnosis.code" class="font-mono text-[10px] text-slate-400">{{ diagnosis.code }}</span></div>
                                     <p class="mt-1 text-sm font-medium leading-5 text-slate-400 line-through">{{ diagnosis.description }}</p>
                                     <p class="mt-0.5 text-[11px] text-slate-400">{{ diagnosis.correction ? 'Rectifié' : 'Annulé' }} par {{ diagnosis.cancelled_by }} · {{ formatDateTime(diagnosis.cancelled_at) }}</p>
                                 </li>
@@ -1027,16 +1325,52 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                         <FormError class="mt-3" :message="diagnosisCancellationForm.errors.diagnosis_id" />
                     </div>
 
-                    <form v-if="capabilities.can_create_diagnosis" class="border-t border-gray-200 bg-gray-50/50 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="addDiagnosis">
-                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <fieldset class="flex h-9 shrink-0 items-center gap-1.5" aria-label="Type du diagnostic">
-                                <RadioButton v-for="option in options.diagnosis_types" :id="`diagnosis-type-${option.value}`" :key="option.value" v-model="diagnosisForm.type" :value="option.value" name="diagnosis-type" nocontrol>{{ option.label }}</RadioButton>
-                            </fieldset>
-                            <Input v-model="diagnosisForm.description" class="flex-1" placeholder="Saisissez le diagnostic" />
-                            <Button type="submit" size="rg" class="!h-9 shrink-0 !px-4 !py-0" :disabled="diagnosisForm.processing"><Icon class="me-1.5 text-base" name="plus" />Ajouter</Button>
+                    <section v-if="capabilities.can_create_diagnosis" class="border-t border-gray-200 bg-gray-50/50 px-5 py-5 dark:border-gray-900 dark:bg-gray-1000/30">
+                        <div class="mx-auto max-w-4xl space-y-4">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div><h3 class="text-xs font-bold uppercase tracking-wide text-slate-700 dark:text-white">Ajouter un diagnostic</h3><p class="mt-1 text-xs text-slate-400">Sélectionnez le type avant de rechercher dans le référentiel.</p></div>
+                                <fieldset class="inline-flex self-start rounded-md border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-gray-950" aria-label="Type du diagnostic">
+                                    <label v-for="option in options.diagnosis_types" :key="option.value" :class="['cursor-pointer rounded px-3 py-2 text-xs font-bold transition-colors', diagnosisForm.type === option.value ? 'bg-slate-700 text-white shadow-sm dark:bg-slate-200 dark:text-slate-900' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400']">
+                                        <input v-model="diagnosisForm.type" class="sr-only" type="radio" name="diagnosis-type" :value="option.value">
+                                        {{ option.value === 'FINAL' ? 'Diagnostic final' : 'Hypothèse diagnostique' }}
+                                    </label>
+                                </fieldset>
+                            </div>
+
+                            <template v-if="!diagnosisManualMode">
+                                <div>
+                                    <label for="diagnosis_catalog_search" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Recherche dans le catalogue</label>
+                                    <IconInput id="diagnosis_catalog_search" v-model="diagnosisSearch" icon="search" autocomplete="off" placeholder="Rechercher par diagnostic ou code…" />
+                                    <p v-if="diagnosisSearch.trim().length === 1" class="mt-1.5 text-xs text-slate-400">Saisissez au moins 2 caractères.</p>
+                                    <p v-if="diagnosisSearchLoading" class="mt-1.5 text-xs text-slate-400">Recherche en cours…</p>
+                                    <p v-if="diagnosisSearchError" class="mt-1.5 text-xs text-red-500">{{ diagnosisSearchError }}</p>
+                                </div>
+
+                                <div v-if="diagnosisResults.length" class="overflow-hidden rounded-md border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                                    <button v-for="diagnostic in diagnosisResults" :key="diagnostic.uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-4 py-3 text-left transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-900" :disabled="diagnosisForm.processing" @click="addCatalogDiagnosis(diagnostic)">
+                                        <span class="w-20 shrink-0 font-mono text-xs font-bold text-slate-400">{{ diagnostic.code || '—' }}</span>
+                                        <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-700 dark:text-white">{{ diagnostic.name }}</span><span v-if="diagnostic.category" class="mt-0.5 block text-[11px] text-slate-400">{{ diagnostic.category }}</span></span>
+                                        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-primary-600 dark:border-gray-800"><Icon name="plus" /></span>
+                                    </button>
+                                </div>
+                                <p v-else-if="diagnosisSearch.trim().length >= 2 && !diagnosisSearchLoading && !diagnosisSearchError" class="rounded-md border border-dashed border-gray-300 px-4 py-5 text-center text-xs text-slate-400 dark:border-gray-800">Aucun diagnostic actif ne correspond à cette recherche.</p>
+
+                                <div class="flex items-center gap-3"><span class="h-px flex-1 bg-gray-200 dark:bg-gray-800"></span><span class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Diagnostic introuvable ?</span><span class="h-px flex-1 bg-gray-200 dark:bg-gray-800"></span></div>
+                                <Button type="button" size="rg" variant="white-outline" @click="diagnosisManualMode = true"><Icon class="me-2 text-base" name="edit" />Saisie manuelle</Button>
+                            </template>
+
+                            <form v-else class="rounded-md border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950" @submit.prevent="addManualDiagnosis">
+                                <div class="mb-4 flex items-start justify-between gap-3"><div><p class="text-sm font-bold text-slate-700 dark:text-white">Diagnostic manuel</p><p class="mt-1 text-xs text-slate-400">Cette saisie reste dans ce dossier et n’alimente pas automatiquement le catalogue.</p></div><button type="button" class="text-xs font-semibold text-slate-500 hover:text-slate-700" @click="diagnosisManualMode = false; diagnosisForm.clearErrors()">Revenir au catalogue</button></div>
+                                <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                                    <div><label for="manual_diagnosis_name" class="mb-1.5 block text-xs font-semibold text-slate-600">Libellé *</label><Input id="manual_diagnosis_name" v-model="diagnosisForm.description" required placeholder="Diagnostic ou hypothèse clinique" /></div>
+                                    <div><label for="manual_diagnosis_code" class="mb-1.5 block text-xs font-semibold text-slate-600">Code facultatif</label><Input id="manual_diagnosis_code" v-model="diagnosisForm.manual_code" placeholder="Code local" /></div>
+                                    <div class="sm:col-span-2"><label for="manual_diagnosis_notes" class="mb-1.5 block text-xs font-semibold text-slate-600">Notes</label><textarea id="manual_diagnosis_notes" v-model="diagnosisForm.notes" rows="2" :class="textareaClass" placeholder="Précisions cliniques facultatives" /></div>
+                                </div>
+                                <div class="mt-4 flex justify-end"><Button type="submit" size="rg" :disabled="diagnosisForm.processing"><Icon class="me-2 text-base" name="plus" />Enregistrer le diagnostic</Button></div>
+                            </form>
+                            <FormError :message="diagnosisForm.errors.diagnostic_catalog_uuid || diagnosisForm.errors.description || diagnosisForm.errors.manual_code || diagnosisForm.errors.notes || diagnosisForm.errors.type" />
                         </div>
-                        <FormError :message="diagnosisForm.errors.description || diagnosisForm.errors.type" />
-                    </form>
+                    </section>
                 </Card>
 
                 <Card v-if="current_step === 'ordonnance' && prescriptionTab === 'medicines'" class="w-full overflow-hidden shadow-sm">
@@ -1114,7 +1448,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                     </div>
                     <p v-else class="px-5 py-6 text-sm text-slate-400">Aucune ordonnance active.</p>
 
-                    <form v-if="capabilities.can_create_prescription" class="border-t border-gray-200 bg-gray-50/50 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="addPrescription">
+                    <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-gray-200 bg-gray-50/50 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="addPrescription">
                         <div class="mb-4">
                             <h3 class="text-sm font-bold text-slate-700 dark:text-white">Nouvelle ordonnance</h3>
                             <p class="mt-1 text-xs text-slate-400">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
@@ -1212,9 +1546,9 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                             </section>
                         </div>
 
-                        <div class="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                            <p class="text-xs text-slate-400">Le contrôle final est refait par le serveur pour éviter toute réservation concurrente.</p>
-                            <Button type="submit" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid"><Icon class="me-2 text-lg" name="file-text" />Valider et réserver</Button>
+                        <div class="mt-4 flex items-start gap-2 border-t border-gray-200 pt-4 text-xs text-slate-400 dark:border-gray-900">
+                            <Icon class="mt-0.5 shrink-0 text-base text-primary-600" name="shield-check" />
+                            <p>La validation contrôle à nouveau le stock, réserve les quantités disponibles puis ouvre l’étape Décision.</p>
                         </div>
                         <FormError :message="prescriptionForm.errors.lines" />
                     </form>
@@ -1266,47 +1600,201 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                         </div>
                     </div>
 
-                    <div v-else-if="decisionChoice && decisionChoice !== 'SURGERY'" class="space-y-4 p-5">
-                        <div class="flex items-center justify-between"><h3 class="text-sm font-bold text-slate-700 dark:text-white">{{ decisionCards.find((c) => c.key === decisionChoice)?.label }}</h3><button type="button" class="text-xs text-slate-400 hover:text-slate-600" @click="closeDecisionChoice">Annuler</button></div>
-                        <p class="text-xs text-slate-400">Cette demande crée une orientation vers ce service ; le dossier complet (programmation, admission…) reste sous sa responsabilité.</p>
-                        <div class="grid gap-4 sm:grid-cols-2">
-                            <div v-for="field in referralFieldsFor(decisionChoice)" :key="field.key" :class="field.key === 'motif' || field.key === 'destination_etablissement' ? 'sm:col-span-2' : ''">
-                                <label :for="`referral_${field.key}`" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">{{ field.label }}<span v-if="field.key === 'motif' || field.key === 'destination_etablissement'"> *</span></label>
-                                <Input :id="`referral_${field.key}`" v-model="referralFieldValues[field.key]" :placeholder="field.placeholder" />
+                    <div v-else-if="decisionChoice && decisionChoice !== 'SURGERY'" class="space-y-5 p-5">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div class="flex items-start gap-3">
+                                <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-lg" :name="decisionCards.find((c) => c.key === decisionChoice)?.icon" /></span>
+                                <div>
+                                    <h3 class="text-sm font-bold text-slate-700 dark:text-white">{{ decisionCards.find((c) => c.key === decisionChoice)?.label }}</h3>
+                                    <p class="mt-0.5 text-xs leading-5 text-slate-400">Cette demande crée une orientation vers le service destinataire sans fermer le passage administratif.</p>
+                                </div>
+                            </div>
+                            <button type="button" class="self-start rounded-md px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-gray-100 hover:text-slate-700 dark:hover:bg-gray-900 dark:hover:text-white" @click="closeDecisionChoice"><Icon class="me-1 text-sm" name="cross" />Annuler</button>
+                        </div>
+
+                        <template v-if="decisionChoice === 'TRANSFER'">
+                            <div class="flex items-start gap-3 rounded-lg border border-primary-100 bg-primary-50/50 px-4 py-3 dark:border-primary-900 dark:bg-primary-950/20">
+                                <Icon class="mt-0.5 shrink-0 text-base text-primary-700 dark:text-primary-300" name="info" />
+                                <div>
+                                    <p class="text-xs font-bold text-primary-800 dark:text-primary-200">Données reprises du dossier clinique</p>
+                                    <p class="mt-0.5 text-xs leading-5 text-primary-700/80 dark:text-primary-300/80">Le motif, le diagnostic, l’état clinique et la priorité sont préremplis avec les informations disponibles. Le médecin doit les relire et peut les corriger avant transmission.</p>
+                                </div>
+                            </div>
+
+                            <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+                                <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p class="block text-sm font-semibold text-slate-700 dark:text-white">Destination / établissement *</p>
+                                        <p class="mt-0.5 text-xs text-slate-400">Le site actuellement utilisé n’est pas proposé comme destination.</p>
+                                    </div>
+                                    <span class="self-start rounded-md bg-gray-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-gray-900 dark:text-slate-300">Site actif : {{ page.props.site?.name }}</span>
+                                </div>
+                                <div id="referral_destination_etablissement" class="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Destination du transfert">
+                                    <label
+                                        v-for="site in otherSiteOptions"
+                                        :key="site.code"
+                                        :class="['flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition-all', referralTransferDestinationChoice === site.destination ? 'border-primary-500 bg-primary-50/60 text-primary-800 ring-2 ring-primary-100 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200 dark:ring-primary-950' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-primary-800 dark:hover:bg-gray-1000']"
+                                    >
+                                        <input v-model="referralTransferDestinationChoice" type="radio" name="referral_destination" :value="site.destination" class="sr-only" />
+                                        <span :class="['flex size-9 shrink-0 items-center justify-center rounded-md', referralTransferDestinationChoice === site.destination ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900 dark:text-slate-300']"><Icon class="text-lg" name="building" /></span>
+                                        <span class="min-w-0"><span class="block truncate text-sm font-bold">{{ site.name }}</span><span class="mt-0.5 block truncate text-[11px] text-slate-400">Clinique Saint Georges</span></span>
+                                        <Icon v-if="referralTransferDestinationChoice === site.destination" class="ms-auto shrink-0 text-primary-600 dark:text-primary-300" name="check-circle-fill" />
+                                    </label>
+                                    <label :class="['flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition-all', referralTransferDestinationChoice === 'OTHER' ? 'border-primary-500 bg-primary-50/60 text-primary-800 ring-2 ring-primary-100 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200 dark:ring-primary-950' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-primary-800 dark:hover:bg-gray-1000']">
+                                        <input v-model="referralTransferDestinationChoice" type="radio" name="referral_destination" value="OTHER" class="sr-only" />
+                                        <span :class="['flex size-9 shrink-0 items-center justify-center rounded-md', referralTransferDestinationChoice === 'OTHER' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900 dark:text-slate-300']"><Icon class="text-lg" name="edit" /></span>
+                                        <span class="min-w-0"><span class="block truncate text-sm font-bold">Autre</span><span class="mt-0.5 block truncate text-[11px] text-slate-400">Établissement ou service</span></span>
+                                        <Icon v-if="referralTransferDestinationChoice === 'OTHER'" class="ms-auto shrink-0 text-primary-600 dark:text-primary-300" name="check-circle-fill" />
+                                    </label>
+                                </div>
+                                <div v-if="referralTransferDestinationChoice === 'OTHER'" class="mt-3 rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/20">
+                                    <label for="referral_destination_other" class="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Précisez la destination *</label>
+                                    <Input id="referral_destination_other" v-model="referralTransferDestinationOther" maxlength="255" placeholder="Nom de l’établissement ou du service destinataire" />
+                                </div>
+                            </div>
+
+                            <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+                                <section>
+                                    <div class="flex items-center gap-2 border-b border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/30">
+                                        <span class="flex size-7 items-center justify-center rounded-md bg-white text-primary-600 ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800"><Icon name="file-text" /></span>
+                                        <div><h4 class="text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-200">Justification médicale</h4><p class="mt-0.5 text-[11px] text-slate-400">Pourquoi le transfert est nécessaire et sur quel diagnostic il repose.</p></div>
+                                    </div>
+                                    <div class="grid gap-4 p-4 lg:grid-cols-2">
+                                        <div>
+                                            <label for="referral_motif" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Motif du transfert *</label>
+                                            <textarea id="referral_motif" v-model="referralFieldValues.motif" rows="3" maxlength="450" :class="textareaClass" placeholder="Motif médical justifiant le transfert" />
+                                        </div>
+                                        <div>
+                                            <label for="referral_diagnostic" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Diagnostic</label>
+                                            <textarea id="referral_diagnostic" v-model="referralFieldValues.diagnostic" rows="3" maxlength="450" :class="textareaClass" placeholder="Diagnostic actuel" />
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="border-t border-gray-200 dark:border-gray-800">
+                                    <div class="flex items-center gap-2 border-b border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/30">
+                                        <span class="flex size-7 items-center justify-center rounded-md bg-white text-primary-600 ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800"><Icon name="activity" /></span>
+                                        <div><h4 class="text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-200">État et niveau de priorité</h4><p class="mt-0.5 text-[11px] text-slate-400">Situation clinique au départ et délai attendu de prise en charge.</p></div>
+                                    </div>
+                                    <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(17rem,0.5fr)]">
+                                        <div>
+                                            <label for="referral_etat_clinique" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">État clinique au transfert</label>
+                                            <textarea id="referral_etat_clinique" v-model="referralFieldValues.etat_clinique" rows="4" maxlength="700" :class="textareaClass" placeholder="État clinique, examen et constantes utiles" />
+                                        </div>
+                                        <fieldset>
+                                            <legend class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Priorité</legend>
+                                            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-1" role="radiogroup" aria-label="Priorité du transfert">
+                                                <label :class="['flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition-all', referralFieldValues.priorite === 'Normale' ? 'border-primary-500 bg-primary-50/60 text-primary-800 ring-2 ring-primary-100 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200 dark:ring-primary-950' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-primary-800']">
+                                                    <input v-model="referralFieldValues.priorite" type="radio" name="referral_priority" value="Normale" class="size-4 border-gray-300 text-primary-600 focus:ring-primary-200 dark:border-gray-700 dark:bg-gray-950 dark:focus:ring-primary-950" />
+                                                    <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon name="check-circle" /></span>
+                                                    <span><span class="block text-sm font-bold">Normale</span><span class="mt-0.5 block text-[11px] text-slate-400">Transfert programmé</span></span>
+                                                </label>
+                                                <label :class="['flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition-all', referralFieldValues.priorite === 'Urgente' ? 'border-red-400 bg-red-50/70 text-red-800 ring-2 ring-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200 dark:ring-red-950' : 'border-gray-200 bg-white text-slate-600 hover:border-red-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-red-900']">
+                                                    <input v-model="referralFieldValues.priorite" type="radio" name="referral_priority" value="Urgente" class="size-4 border-gray-300 text-red-600 focus:ring-red-200 dark:border-gray-700 dark:bg-gray-950 dark:focus:ring-red-950" />
+                                                    <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-300"><Icon name="alert-fill" /></span>
+                                                    <span><span class="block text-sm font-bold">Urgente</span><span class="mt-0.5 block text-[11px] text-slate-400">Prise en charge immédiate</span></span>
+                                                </label>
+                                            </div>
+                                        </fieldset>
+                                    </div>
+                                </section>
+
+                                <section class="border-t border-gray-200 dark:border-gray-800">
+                                    <div class="flex items-center gap-2 border-b border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/30">
+                                        <span class="flex size-7 items-center justify-center rounded-md bg-white text-primary-600 ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800"><Icon name="send" /></span>
+                                        <div><h4 class="text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-200">Consignes destinataires</h4><p class="mt-0.5 text-[11px] text-slate-400">Informations utiles à la continuité de la prise en charge.</p></div>
+                                    </div>
+                                    <div class="grid gap-4 p-4 lg:grid-cols-2">
+                                        <div>
+                                            <label for="referral_recommandations" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Recommandations</label>
+                                            <textarea id="referral_recommandations" v-model="referralFieldValues.recommandations" rows="3" maxlength="350" :class="textareaClass" placeholder="Consignes pour l’équipe destinataire" />
+                                        </div>
+                                        <div>
+                                            <label for="referral_observations" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Observations complémentaires</label>
+                                            <textarea id="referral_observations" v-model="referralFieldValues.observations" rows="3" maxlength="350" :class="textareaClass" placeholder="Autres informations utiles au transfert" />
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        </template>
+
+                        <div v-else class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+                            <div class="grid gap-4 p-4 sm:grid-cols-2">
+                                <template v-for="field in referralFieldsFor(decisionChoice)" :key="field.key">
+                                    <fieldset v-if="field.key === 'priorite'">
+                                        <legend class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Priorité</legend>
+                                        <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Priorité de la demande">
+                                            <label :class="['flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-all', referralFieldValues.priorite === 'Normale' ? 'border-primary-500 bg-primary-50/60 text-primary-800 ring-2 ring-primary-100 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200 dark:ring-primary-950' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-primary-800']">
+                                                <input v-model="referralFieldValues.priorite" type="radio" name="referral_priority_other" value="Normale" class="size-4 border-gray-300 text-primary-600 focus:ring-primary-200 dark:border-gray-700 dark:bg-gray-950 dark:focus:ring-primary-950" />
+                                                <span class="text-sm font-bold">Normale</span>
+                                            </label>
+                                            <label :class="['flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-all', referralFieldValues.priorite === 'Urgente' ? 'border-red-400 bg-red-50/70 text-red-800 ring-2 ring-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200 dark:ring-red-950' : 'border-gray-200 bg-white text-slate-600 hover:border-red-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-red-900']">
+                                                <input v-model="referralFieldValues.priorite" type="radio" name="referral_priority_other" value="Urgente" class="size-4 border-gray-300 text-red-600 focus:ring-red-200 dark:border-gray-700 dark:bg-gray-950 dark:focus:ring-red-950" />
+                                                <span class="text-sm font-bold">Urgente</span>
+                                            </label>
+                                        </div>
+                                    </fieldset>
+                                    <div v-else :class="field.multiline ? 'sm:col-span-2' : ''">
+                                        <label :for="`referral_${field.key}`" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">{{ field.label }}<span v-if="field.key === 'motif'"> *</span></label>
+                                        <textarea v-if="field.multiline" :id="`referral_${field.key}`" v-model="referralFieldValues[field.key]" rows="3" maxlength="450" :class="textareaClass" :placeholder="field.placeholder" />
+                                        <Input v-else :id="`referral_${field.key}`" v-model="referralFieldValues[field.key]" :placeholder="field.placeholder" />
+                                    </div>
+                                </template>
                             </div>
                         </div>
                         <FormError :message="referralForm.errors.reason" />
-                        <div class="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-900">
-                            <Button type="button" size="rg" :disabled="referralForm.processing || !referralComposedReason.trim()" @click="submitReferral(decisionChoice)"><Icon class="me-2 text-lg" name="check" />Transmettre la demande</Button>
+                        <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                            <p v-if="decisionChoice === 'TRANSFER'" class="text-xs text-slate-400"><Icon class="me-1 text-sm" name="shield-check" />La transmission conserve une copie structurée dans le dossier du passage.</p>
+                            <span v-else />
+                            <Button type="button" size="rg" :disabled="referralForm.processing || !referralComposedReason.trim() || !transferReferralReady" @click="submitReferral(decisionChoice)"><Icon class="me-2 text-lg" name="share" />{{ referralForm.processing ? 'Transmission…' : 'Transmettre la demande' }}</Button>
                         </div>
                     </div>
 
                     <form v-else-if="decisionChoice === 'SURGERY'" class="space-y-4 p-5" @submit.prevent="submitSurgicalReferral">
                         <div class="flex items-center justify-between"><h3 class="text-sm font-bold text-slate-700 dark:text-white">Demande de chirurgie</h3><button type="button" class="text-xs text-slate-400 hover:text-slate-600" @click="closeDecisionChoice">Annuler</button></div>
-                        <div>
-                            <label for="surgery_catalog" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Intervention envisagée *</label>
-                            <span class="relative block"><select id="surgery_catalog" v-model="surgicalReferralForm.catalog_item_uuid" :class="selectClass"><option value="">Sélectionner…</option><option v-for="item in options.surgery_catalog" :key="item.uuid" :value="item.uuid">{{ item.name }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
-                            <FormError :message="surgicalReferralForm.errors.catalog_item_uuid" />
-                        </div>
-                        <div>
-                            <label for="surgery_diagnostic" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Diagnostic *</label>
-                            <textarea id="surgery_diagnostic" v-model="surgicalReferralForm.diagnostic" rows="3" :class="textareaClass" />
-                            <FormError :message="surgicalReferralForm.errors.diagnostic" />
-                        </div>
-                        <div>
-                            <label for="surgery_indication" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Indication chirurgicale</label>
-                            <textarea id="surgery_indication" v-model="surgicalReferralForm.indication" rows="3" :class="textareaClass" />
-                            <FormError :message="surgicalReferralForm.errors.indication" />
-                        </div>
-                        <div class="grid gap-4 md:grid-cols-2">
-                            <div>
-                                <label for="surgery_priority" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Priorité *</label>
-                                <span class="relative block"><select id="surgery_priority" v-model="surgicalReferralForm.priority" :class="selectClass"><option value="LOW">Basse</option><option value="NORMAL">Normale</option><option value="URGENT">Urgente</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
-                                <FormError :message="surgicalReferralForm.errors.priority" />
-                            </div>
-                            <div>
-                                <label for="surgery_notes" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Notes</label>
-                                <Input id="surgery_notes" v-model="surgicalReferralForm.notes" />
+                        <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+                            <div class="grid gap-4 p-4">
+                                <div>
+                                    <label for="surgery_catalog" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Intervention envisagée *</label>
+                                    <span class="relative block"><select id="surgery_catalog" v-model="surgicalReferralForm.catalog_item_uuid" :class="selectClass"><option value="">Sélectionner…</option><option v-for="item in options.surgery_catalog" :key="item.uuid" :value="item.uuid">{{ item.name }}</option></select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
+                                    <FormError :message="surgicalReferralForm.errors.catalog_item_uuid" />
+                                </div>
+                                <div class="grid gap-4 lg:grid-cols-2">
+                                    <div>
+                                        <label for="surgery_diagnostic" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Diagnostic *</label>
+                                        <textarea id="surgery_diagnostic" v-model="surgicalReferralForm.diagnostic" rows="3" :class="textareaClass" />
+                                        <FormError :message="surgicalReferralForm.errors.diagnostic" />
+                                    </div>
+                                    <div>
+                                        <label for="surgery_indication" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Indication chirurgicale</label>
+                                        <textarea id="surgery_indication" v-model="surgicalReferralForm.indication" rows="3" :class="textareaClass" />
+                                        <FormError :message="surgicalReferralForm.errors.indication" />
+                                    </div>
+                                </div>
+                                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,0.6fr)]">
+                                    <div>
+                                        <label for="surgery_notes" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Notes</label>
+                                        <Input id="surgery_notes" v-model="surgicalReferralForm.notes" />
+                                    </div>
+                                    <fieldset>
+                                        <legend class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Priorité *</legend>
+                                        <div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Priorité de la chirurgie">
+                                            <label :class="['flex cursor-pointer flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-center transition-all', surgicalReferralForm.priority === 'LOW' ? 'border-slate-400 bg-slate-100 text-slate-800 ring-2 ring-slate-200 dark:border-slate-600 dark:bg-gray-900 dark:text-slate-200 dark:ring-gray-800' : 'border-gray-200 bg-white text-slate-600 hover:border-slate-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']">
+                                                <input v-model="surgicalReferralForm.priority" type="radio" name="surgery_priority" value="LOW" class="size-4 border-gray-300 text-slate-600 focus:ring-slate-200 dark:border-gray-700 dark:bg-gray-950" />
+                                                <span class="text-xs font-bold">Basse</span>
+                                            </label>
+                                            <label :class="['flex cursor-pointer flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-center transition-all', surgicalReferralForm.priority === 'NORMAL' ? 'border-primary-500 bg-primary-50/60 text-primary-800 ring-2 ring-primary-100 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200 dark:ring-primary-950' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']">
+                                                <input v-model="surgicalReferralForm.priority" type="radio" name="surgery_priority" value="NORMAL" class="size-4 border-gray-300 text-primary-600 focus:ring-primary-200 dark:border-gray-700 dark:bg-gray-950" />
+                                                <span class="text-xs font-bold">Normale</span>
+                                            </label>
+                                            <label :class="['flex cursor-pointer flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-center transition-all', surgicalReferralForm.priority === 'URGENT' ? 'border-red-400 bg-red-50/70 text-red-800 ring-2 ring-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200 dark:ring-red-950' : 'border-gray-200 bg-white text-slate-600 hover:border-red-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']">
+                                                <input v-model="surgicalReferralForm.priority" type="radio" name="surgery_priority" value="URGENT" class="size-4 border-gray-300 text-red-600 focus:ring-red-200 dark:border-gray-700 dark:bg-gray-950" />
+                                                <span class="text-xs font-bold">Urgente</span>
+                                            </label>
+                                        </div>
+                                        <FormError :message="surgicalReferralForm.errors.priority" />
+                                    </fieldset>
+                                </div>
                             </div>
                         </div>
                         <div class="flex justify-end border-t border-gray-200 pt-4 dark:border-gray-900">
@@ -1426,7 +1914,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                                 <label for="transfer_destination" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Établissement / service destinataire *</label>
                                 <span class="relative block"><select id="transfer_destination" v-model="transferDestinationChoice" :class="selectClass">
                                     <option value="">Choisir…</option>
-                                    <option v-for="site in otherSiteOptions" :key="site.code" :value="site.name">Clinique Saint Georges — {{ site.name }}</option>
+                                    <option v-for="site in otherSiteOptions" :key="site.code" :value="site.destination">{{ site.destination }}</option>
                                     <option value="OTHER">Autre</option>
                                 </select><Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" /></span>
                                 <Input v-if="transferDestinationChoice === 'OTHER'" v-model="transferDestinationOther" class="mt-2" placeholder="Précisez l’établissement ou le service" />
@@ -1479,7 +1967,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                     <ul class="divide-y divide-gray-200 dark:divide-gray-900">
                         <li v-for="previous in previous_consultations" :key="previous.id" class="p-4">
                             <p class="text-xs font-semibold text-slate-700 dark:text-white">{{ formatDateTime(previous.consulted_at) }} — Dr {{ previous.doctor }}</p>
-                            <p class="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">{{ previous.reason }}</p>
+                            <ClinicalRichTextDisplay class="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-300" :html="previous.reason" />
                             <p v-if="previous.decision_label" class="mt-0.5 text-xs text-slate-400">{{ previous.decision_label }}</p>
                         </li>
                     </ul>
@@ -1492,7 +1980,7 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
             </aside>
         </div>
 
-        <Card v-if="!['dossier', 'consultation'].includes(current_step)" class="overflow-hidden shadow-sm">
+        <Card v-if="!['dossier', 'consultation', 'examen', 'paraclinique'].includes(current_step)" class="overflow-hidden shadow-sm">
             <div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <Button v-if="previousStep" :as="Link" :href="stepUrl(previousStep.key)" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="arrow-left" />{{ previousStep.label }}</Button>
@@ -1501,9 +1989,15 @@ const connectedDecisions = ['SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURS
                 <div v-if="current_step === 'decision' && consultation.prescriptions.length" class="flex flex-wrap items-center justify-center gap-2">
                     <Button v-for="prescription in consultation.prescriptions" :key="prescription.uuid" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/prescriptions/${prescription.uuid}/print`" target="_blank" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="printer" />Imprimer l’ordonnance<template v-if="consultation.prescriptions.length > 1"> ({{ prescription.lines.map((line) => line.medication_name).join(', ') }})</template></Button>
                 </div>
-                <p v-else class="text-center text-xs text-slate-400">Étape {{ currentStepIndex + 1 }} sur {{ wizardSteps.length }}<span v-if="current_step === 'ordonnance'"> · ordonnance facultative</span></p>
+                <p v-else-if="current_step === 'ordonnance' && prescriptionForm.lines.length" class="text-center text-xs font-semibold text-slate-500 dark:text-slate-300">{{ prescriptionForm.lines.length }} médicament(s) à valider avant de poursuivre</p>
+                <p v-else-if="current_step === 'ordonnance' && careOrderForm.items.length" class="text-center text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careOrderForm.items.length }} acte(s) à transmettre aux Soins</p>
+                <p v-else class="text-center text-xs text-slate-400">Étape {{ currentStepIndex + 1 }} sur {{ wizardSteps.length }}<span v-if="current_step === 'ordonnance'"> · prescription selon indication médicale</span></p>
                 <div class="flex justify-end">
-                    <Button v-if="nextStep" :as="Link" :href="stepUrl(nextStep.key)" size="rg">{{ nextStep.label }}<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                    <Button v-if="current_step === 'ordonnance' && prescriptionTab === 'medicines' && prescriptionForm.lines.length" type="submit" form="medicine-prescription-form" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid"><Icon class="me-2 text-lg" name="file-text" />{{ prescriptionForm.processing ? 'Validation en cours…' : 'Valider, réserver et continuer' }}<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                    <Button v-else-if="current_step === 'ordonnance' && prescriptionForm.lines.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'medicines'">Finaliser la prescription ({{ prescriptionForm.lines.length }})<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                    <Button v-else-if="current_step === 'ordonnance' && prescriptionTab === 'care' && careOrderForm.items.length" type="submit" form="care-order-form" size="rg" :disabled="careOrderForm.processing"><Icon class="me-2 text-lg" name="activity" />{{ careOrderForm.processing ? 'Transmission en cours…' : 'Transmettre aux Soins' }}<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                    <Button v-else-if="current_step === 'ordonnance' && careOrderForm.items.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'care'">Finaliser la demande Soins ({{ careOrderForm.items.length }})<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
+                    <Button v-else-if="nextStep" :as="Link" :href="stepUrl(nextStep.key)" size="rg">{{ current_step === 'ordonnance' ? 'Continuer vers la décision' : nextStep.label }}<Icon class="ms-2 text-lg" name="arrow-right" /></Button>
                     <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="list" />Retour à la file</Button>
                 </div>
             </div>

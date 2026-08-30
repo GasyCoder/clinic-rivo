@@ -36,6 +36,7 @@ class StoreLabRequestRequest extends FormRequest
                     ->whereNull('deleted_at')),
             ],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'continue_to_diagnosis' => ['sometimes', 'boolean'],
         ];
     }
 

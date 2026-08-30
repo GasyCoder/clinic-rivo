@@ -5,7 +5,10 @@ namespace App\Support;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
+use App\Models\CareOrder;
 use App\Models\EpisodeOrientation;
+use App\Models\ImagingRequest;
+use App\Models\LabRequest;
 use Illuminate\Support\Collection;
 
 class EpisodeQueuePresenter
@@ -59,6 +62,61 @@ class EpisodeQueuePresenter
         return $numbers;
     }
 
+    /**
+     * Batched equivalent of MedicineDossierPresenter's single-consultation
+     * pending-reasons computation, grouped by consultation so a paginated
+     * queue never issues one query per row. Only a Médecine orientation
+     * carries a Consultation (ADR-035) — other modules' queues (Soins,
+     * Chirurgie…) simply get an empty array for every row.
+     *
+     * @param  Collection<int, EpisodeOrientation>  $orientations
+     * @return array<int, array<int, string>> reason labels keyed by EpisodeOrientation::id
+     */
+    public function pendingReasonsFor(Collection $orientations): array
+    {
+        $consultationIds = $orientations->pluck('consultation.id')->filter()->values();
+
+        if ($consultationIds->isEmpty()) {
+            return [];
+        }
+
+        $pendingLab = LabRequest::query()->whereIn('consultation_id', $consultationIds)->with('items')
+            ->get()->filter(fn (LabRequest $request) => $request->displayStatus() !== 'COMPLETED')
+            ->groupBy('consultation_id')->map->count();
+        $pendingImaging = ImagingRequest::query()->whereIn('consultation_id', $consultationIds)->with('items')
+            ->get()->filter(fn (ImagingRequest $request) => $request->displayStatus() !== 'COMPLETED')
+            ->groupBy('consultation_id')->map->count();
+        $pendingCareOrders = CareOrder::query()->whereIn('consultation_id', $consultationIds)->with('items.careRecordProcedures')
+            ->get()->filter(fn (CareOrder $order) => $order->displayStatus() !== 'COMPLETED')
+            ->groupBy('consultation_id')->map->count();
+
+        $reasons = [];
+        foreach ($orientations as $orientation) {
+            $consultationId = $orientation->consultation?->id;
+            if ($consultationId === null) {
+                continue;
+            }
+
+            $lab = $pendingLab->get($consultationId, 0);
+            $imaging = $pendingImaging->get($consultationId, 0);
+            $careOrders = $pendingCareOrders->get($consultationId, 0);
+
+            $reasons[$orientation->getKey()] = array_values(array_filter([
+                $lab > 0
+                    ? ($lab > 1 ? "{$lab} analyses en attente de résultat" : '1 analyse en attente de résultat')
+                    : null,
+                $imaging > 0
+                    ? ($imaging > 1 ? "{$imaging} examens d’imagerie en attente de compte rendu" : '1 examen d’imagerie en attente de compte rendu')
+                    : null,
+                $careOrders > 0
+                    ? ($careOrders > 1 ? "{$careOrders} ordres de soins en cours" : '1 ordre de soins en cours')
+                    : null,
+            ]));
+        }
+
+        return $reasons;
+    }
+
     private function isQueueEligible(EpisodeOrientation $orientation): bool
     {
         if ($orientation->episode->priority !== EpisodePriority::Emergency) {
@@ -72,8 +130,11 @@ class EpisodeQueuePresenter
             ->exists();
     }
 
-    /** @return array<string, mixed> */
-    public function present(EpisodeOrientation $orientation, ?int $queueNumber = null): array
+    /**
+     * @param  array<int, string>  $pendingReasons  from pendingReasonsFor(), for this one orientation
+     * @return array<string, mixed>
+     */
+    public function present(EpisodeOrientation $orientation, ?int $queueNumber = null, array $pendingReasons = []): array
     {
         $episode = $orientation->episode;
         $patient = $episode->patient;
@@ -97,6 +158,8 @@ class EpisodeQueuePresenter
             'accepted_by' => $orientation->acceptedBy?->name,
             'has_consultation' => $orientation->relationLoaded('consultation')
                 && $orientation->consultation !== null,
+            'pending_reasons' => $pendingReasons,
+            'is_waiting_on_results' => $pendingReasons !== [],
             'episode' => [
                 'uuid' => $episode->uuid,
                 'episode_number' => $episode->episode_number,

@@ -28,6 +28,7 @@ class PermissionSeeder extends Seeder
         'users.deactivate' => 'Désactiver un utilisateur',
         'users.assign_super_admin' => 'Attribuer ou gérer le rôle Super Administrateur',
         'users.manage' => 'Gérer les comptes, rôles et permissions',
+        'users.force_delete' => 'Supprimer définitivement un compte jamais utilisé (ADR-062)',
 
         'roles.view' => 'Voir les rôles',
         'roles.assign' => 'Attribuer un rôle',
@@ -44,6 +45,8 @@ class PermissionSeeder extends Seeder
         'settings.update' => 'Modifier les paramètres globaux',
         'audit.view' => 'Voir le journal d’audit',
         'api.view' => 'Voir l’état des intégrations API',
+        'trash.view' => 'Voir la corbeille multi-sites',
+        'trash.restore' => 'Restaurer un élément depuis la corbeille multi-sites',
 
         // CDC officiel §17, affiné par la décision projet qui sépare RH,
         // Logistique, Support et Maintenance en responsabilités autonomes.
@@ -264,6 +267,15 @@ class PermissionSeeder extends Seeder
         'diagnoses.view' => 'Voir les diagnostics',
         'diagnoses.create' => 'Créer un diagnostic',
         'diagnoses.update' => 'Modifier un diagnostic',
+        'diagnostic_catalog.view' => 'Voir le référentiel central des diagnostics',
+        'diagnostic_catalog.manage' => 'Créer, modifier, activer et désactiver les diagnostics du référentiel',
+        'analysis_catalog.view' => 'Voir le catalogue structuré des analyses',
+        'analysis_catalog.create' => 'Créer une définition d’analyse',
+        'analysis_catalog.update' => 'Modifier une définition d’analyse et ses références',
+        'analysis_catalog.activate' => 'Activer une définition d’analyse',
+        'analysis_catalog.deactivate' => 'Désactiver une définition d’analyse',
+        'analysis_catalog.import' => 'Importer le catalogue des analyses',
+        'analysis_catalog.export' => 'Exporter le catalogue des analyses',
 
         'prescriptions.view' => 'Voir les prescriptions',
         'prescriptions.create' => 'Créer une prescription',

@@ -27,7 +27,13 @@ const clinicMenu = computed(() => [
     { icon: 'wallet', text: 'Caisse', link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view' },
     { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
     { icon: 'activity', text: 'Médecine', link: '/medicine', permission: 'consultations.view' },
-    { icon: 'user-check', text: careLabel.value, link: '/care', permission: 'care.view' },
+    { icon: 'activity', text: 'Laboratoire', link: '/laboratory', permission: 'laboratory_orders.view' },
+    // care.view alone also powers the read-only projection embedded in
+    // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
+    // care.update instead keeps the full Soins queue's menu entry for the
+    // role that actually operates it (NURSE), without exposing it to roles
+    // that only ever consult that projection.
+    { icon: 'user-check', text: careLabel.value, link: '/care', permission: 'care.update' },
     { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
     { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
     {
@@ -43,6 +49,8 @@ const clinicMenu = computed(() => [
     { icon: 'shield-check', text: 'Gardiennage', link: '/reception/visitors', permission: 'guarding.view' },
     { icon: 'users', text: 'Utilisateurs & accès', link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view' },
     { icon: 'setting-alt', text: 'Référentiels & tarifs', link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view' },
+    { icon: 'activity', text: 'Catalogue analyses', link: '/administration/analyses', activeLinks: ['/administration/analyses'], permission: 'analysis_catalog.view' },
+    { icon: 'trash', text: 'Corbeille', link: '/trash', permission: 'trash.view' },
 ]);
 
 const adminMenu = computed(() => [
@@ -68,7 +76,7 @@ const adminMenu = computed(() => [
     { icon: 'map-pin', text: 'Référentiel adresses', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { icon: 'wallet', text: 'Caisses', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { heading: 'Accès & système' },
-    { icon: 'users', text: 'Gestion utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
+    { icon: 'trash', text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
     { icon: 'shield-check', text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: 'setting-alt', text: 'Paramètres', link: '/super-admin/workspaces/settings', permission: 'settings.view' },
     { icon: 'history', text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },

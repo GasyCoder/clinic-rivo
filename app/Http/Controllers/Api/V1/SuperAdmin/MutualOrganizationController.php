@@ -157,6 +157,7 @@ class MutualOrganizationController extends Controller
         string $organizationUuid,
         MutualOrganizationManager $manager,
     ): JsonResponse {
+        $this->authorizeActor($request, 'trash.restore');
         $this->authorizeActor($request, 'mutual_organizations.restore');
         $organization = MutualOrganization::onlyTrashed()->where('uuid', $organizationUuid)->firstOrFail();
         $organization = $manager->restore($organization);
@@ -203,6 +204,7 @@ class MutualOrganizationController extends Controller
 
     public function bulkRestore(Request $request, MutualOrganizationManager $manager): JsonResponse
     {
+        $this->authorizeActor($request, 'trash.restore');
         $this->authorizeActor($request, 'mutual_organizations.restore');
         $validated = $request->validate([
             'uuids' => ['required', 'array', 'min:1', 'max:100'],

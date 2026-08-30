@@ -41,10 +41,23 @@ const designationSummary = (orientation) => {
 
 const tabs = [
     { value: 'all', label: 'Tous', icon: 'list' },
-    { value: 'waiting', label: 'En attente', icon: 'clock' },
+    { value: 'waiting', label: 'À prendre en charge', icon: 'clock' },
     { value: 'in_progress', label: 'En consultation', icon: 'activity' },
     { value: 'emergency', label: 'Urgences', icon: 'alert-circle' },
 ];
+
+// Three distinct workflow states, each with its own wording and colour so
+// "not yet seen" is never confused with "seen, but blocked mid-consultation"
+// — both used to read "En attente" with the same amber dot.
+const statusMeta = (orientation) => {
+    if (orientation.status === 'PENDING') {
+        return { label: 'Non prise en charge', dotClass: 'bg-slate-400', textClass: 'text-slate-500 dark:text-slate-400' };
+    }
+    if (orientation.is_waiting_on_results) {
+        return { label: 'En attente de résultat', dotClass: 'bg-amber-500', textClass: 'text-amber-700 dark:text-amber-300' };
+    }
+    return { label: 'En consultation', dotClass: 'bg-primary-500', textClass: 'text-slate-600 dark:text-slate-300' };
+};
 </script>
 
 <template>
@@ -115,10 +128,17 @@ const tabs = [
                             <td class="max-w-[280px] px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ designationSummary(orientation) }}</td>
                             <td class="px-5 py-3"><span class="block text-sm text-slate-600 dark:text-slate-300">{{ orientation.source_label }}</span><span class="text-xs text-slate-400">{{ formatDateTime(orientation.oriented_at) }}</span></td>
                             <td class="px-5 py-3 text-sm text-slate-500 dark:text-slate-300">{{ waitingSince(orientation) }}</td>
-                            <td class="px-5 py-3"><span class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300"><span :class="['h-1.5 w-1.5 rounded-full', orientation.status === 'IN_PROGRESS' ? 'bg-primary-500' : 'bg-amber-500']" />{{ orientation.status === 'IN_PROGRESS' ? 'En consultation' : 'En attente' }}</span><span v-if="orientation.accepted_by" class="mt-1 block text-xs text-slate-400">par {{ orientation.accepted_by }}</span></td>
+                            <td class="px-5 py-3">
+                                <span :class="['inline-flex items-center gap-1.5 text-sm font-semibold', statusMeta(orientation).textClass]">
+                                    <span :class="['h-1.5 w-1.5 rounded-full', statusMeta(orientation).dotClass]" />
+                                    {{ statusMeta(orientation).label }}
+                                </span>
+                                <span v-if="orientation.is_waiting_on_results" class="mt-1 block text-xs text-amber-600 dark:text-amber-400">{{ orientation.pending_reasons.join(' · ') }}</span>
+                                <span v-if="orientation.accepted_by" class="mt-1 block text-xs text-slate-400">par {{ orientation.accepted_by }}</span>
+                            </td>
                             <td class="px-5 py-3 text-end">
                                 <Link v-if="orientation.status === 'PENDING' && can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button size="sm">Prendre en charge</Button></Link>
-                                <Button v-else-if="orientation.has_consultation" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/dossier`" size="sm" variant="white-outline"><Icon class="me-1.5 text-base" name="eye" />Ouvrir le dossier</Button>
+                                <Button v-else-if="orientation.has_consultation" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/dossier`" size="sm" variant="white-outline"><Icon class="me-1.5 text-base" :name="orientation.is_waiting_on_results ? 'reload' : 'eye'" />{{ orientation.is_waiting_on_results ? 'Reprendre' : 'Ouvrir le dossier' }}</Button>
                                 <Link v-else-if="can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll><Button size="sm" variant="white-outline"><Icon class="me-1.5 text-base" name="eye" />Ouvrir le dossier</Button></Link>
                             </td>
                         </tr>

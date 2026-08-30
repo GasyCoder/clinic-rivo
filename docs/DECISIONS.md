@@ -504,7 +504,12 @@ mais ne précise pas encore le parcours d’admission en urgence.
 
 # ADR-022 — Comptes utilisateurs locaux et cycle d’accès
 
-**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe)
+**Status:** ACCEPTED (2026-08-20 — exigence explicite de l’équipe) ; l’interdiction
+de suppression physique reçoit une exception étroite et explicite par
+**ADR-062** (2026-08-30, même jour que la fonctionnalité Rôles & permissions) —
+uniquement pour un compte n’ayant jamais servi. Le reste de cette décision
+(désactivation, motif, révocation de session, dernier Super Admin protégé)
+reste pleinement en vigueur pour tout compte ayant une activité réelle.
 
 Chaque site opérationnel gère ses propres utilisateurs dans sa propre base.
 Un compte local ne devient pas automatiquement utilisable sur un autre site.
@@ -2690,3 +2695,211 @@ décision, mais nécessaires pour lire sans erreur l’historique déjà produit
 par le mécanisme retiré (des sessions déjà détachées avant ce retrait
 peuvent encore porter `opened_by = null` ; seule une clôture centrale peut
 désormais les libérer).
+
+---
+
+# ADR-061 — Corbeille centrale multi-sites et restauration réservée
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Le portail Super Administration fournit une Corbeille unique qui agrège, via
+les API REST des sites et jamais par accès SQL direct, les suppressions
+réversibles actuellement prises en charge : Patients, prestations/produits du
+catalogue, adresses, organismes mutuels et caisses nommées. La liste expose le
+site propriétaire, la catégorie, l’UUID ou la référence métier, la date,
+l’acteur et le motif de suppression ; elle est filtrable par site, catégorie,
+période et recherche textuelle.
+
+La restauration est unitaire, idempotente et exécutée dans la base du site
+propriétaire. L’UUID d’origine est conservé. Le portail exige
+`trash.restore`, puis l’API exige à nouveau ce droit **et** la permission de
+restauration de la catégorie (`patients.restore`, `catalog.items.restore`,
+`address_entries.restore`, `mutual_organizations.restore` ou
+`cash_registers.restore`). Ces droits de restauration ne sont plus accordés
+par défaut aux rôles opérationnels ; ils appartiennent par défaut uniquement
+au `SUPER_ADMIN` central. La vérification reste fondée sur les permissions
+dynamiques, sans contournement basé uniquement sur le nom du rôle.
+
+Chaque catégorie appelle sa règle métier existante : contrôles de doublon des
+adresses, mutuelles et caisses, attribution distante du catalogue, puis audit
+du `restore` avec l’identité UUID du Super Administrateur. Une erreur ou un
+conflit sur un site ne modifie aucun autre site.
+
+Cette Corbeille n’est pas un `restore()` générique sur toutes les tables.
+Consultations, antécédents, allergies, actes chirurgicaux et autres données
+cliniques critiques restent exclus tant qu’un workflow métier explicite de
+correction/restauration n’est pas décidé. Les paiements, factures, reçus,
+clôtures et autres écritures financières ne sont jamais placés dans cette
+Corbeille : ils suivent exclusivement les mécanismes annuler/corriger/inverser
+prévus par le CDC.
+
+---
+
+# ADR-062 — Exception étroite à ADR-022 : suppression physique d’un compte jamais utilisé
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire, après
+signalement explicite de la contradiction avec ADR-022)
+
+Cette décision n’abroge pas ADR-022. Un compte utilisateur reste un acteur
+historique et la désactivation demeure l’unique action normale. Elle ouvre
+une exception unique, volontairement étroite : un Super Administrateur peut
+supprimer physiquement un compte qui n’a **strictement jamais servi** —
+jamais connecté, jamais l’auteur d’une seule ligne d’audit, où qu’elle soit
+dans le site.
+
+```text
+Compte jamais connecté ET jamais acteur d’un audit_logs.user_id → suppression possible
+Tout autre compte                                              → désactivation uniquement
+```
+
+Cette restriction n’est pas arbitraire : `users.id` est référencé en clé
+étrangère par des dizaines de tables cliniques, financières et d’audit. La
+majorité (`payments`, `receipts`, `billable_items`, `catalog_items`,
+`care_records`, les mouvements Pharmacie, …) refuse déjà la suppression au
+niveau base de données (`restrictOnDelete`). Mais plusieurs tables cliniques
+sensibles (`episodes.created_by`, `diagnoses.recorded_by`,
+`patient_antecedents.recorded_by`, …) et surtout `audit_logs.user_id`
+lui-même utilisent `nullOnDelete` : sans ce contrôle applicatif, supprimer un
+compte ayant une activité réelle effacerait silencieusement l’identité de
+l’auteur dans son propre historique d’audit — l’inverse exact de ce
+qu’ADR-022 protège. `ForceDeleteUserAction` vérifie donc explicitement
+l’absence totale d’activité avant toute suppression, et intercepte en plus
+toute violation de contrainte restante comme filet de sécurité — jamais un
+`user_id` mis à `null` sur une ligne d’audit ou clinique existante.
+
+La suppression reste soumise aux mêmes garde-fous que la désactivation :
+impossible sur soi-même, sur le dernier Super Administrateur actif, ou sur un
+compte `SUPER_ADMIN` géré depuis un site opérationnel. Elle est irréversible,
+distincte de la désactivation, protégée par la permission dédiée
+`users.force_delete` (réservée par défaut au seul rôle `SUPER_ADMIN`, jamais
+accordée automatiquement à `ADMINISTRATION`), auditée (`user.force_delete`)
+et exécutée exclusivement via l’API du site — jamais un accès direct depuis
+le portail central.
+
+Le modèle `User` reste protégé par défaut : sa requête de suppression et
+l’évènement `deleting` continuent de lever une exception dans tout le reste
+du code. `User::allowPhysicalDeletion()` n’ouvre cette voie que pour la durée
+de l’appel sanctionné par `ForceDeleteUserAction`, jamais plus largement.
+
+---
+
+# ADR-063 — Catalogue d’analyses séparé des prestations et références historisées
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Une analyse prescrivable et éventuellement facturable reste une prestation
+`catalog_items` de module `LABORATORY`. Sa structure technique est portée par
+`analysis_catalogs` : groupe, sous-analyse, type de résultat, unité, valeurs
+prédéfinies, ordre d’affichage et références générale/homme/femme/enfant.
+Cette séparation évite de placer des données cliniques variables dans le
+référentiel tarifaire ; le prix demeure exclusivement dans
+`catalog_tariffs`.
+
+Les références sont choisies selon l’âge et le sexe disponibles dans le
+dossier, avec repli vers la référence générale. Elles constituent une aide de
+saisie à valider selon la méthode, les réactifs et les unités du laboratoire
+du site. Au moment où un résultat est enregistré, les définitions et la
+référence présentées sont copiées dans `lab_request_items.reference_snapshot` :
+une modification ultérieure du catalogue ne réécrit jamais l’historique d’un
+résultat clinique.
+
+La gestion locale exige les permissions granulaires `analysis_catalog.*`.
+L’import/export utilise Excel `.xlsx`; l’import est transactionnel, limité,
+met à jour par code et annule entièrement l’opération si une ligne est
+invalide. Les examens ECG/échographie restent des prestations
+`catalog_items` du module `IMAGING`, distinctes des analyses Laboratoire.
+
+---
+
+# ADR-064 — Socle de permissions d’un rôle éditable depuis le portail
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Jusqu’ici, le socle de permissions d’un rôle (« tout compte `MEDICINE` a par
+défaut `consultations.create` ») n’existait que dans le code, sous
+`RolePermissionSeeder::GRANTS`, appliqué par `php artisan db:seed`. Modifier
+ce socle exigeait donc un déploiement. Cette décision ajoute un second chemin
+d’écriture, exclusivement depuis `admin.rivo.mg` : un Super Administrateur
+peut désormais cocher ou décocher les permissions par défaut d’un rôle
+directement dans l’écran `Rôles & permissions`, par site, sans toucher au
+code ni redéployer.
+
+Cette capacité est strictement additive. Elle ne modifie ni ne remplace la
+logique déjà construite d’exceptions individuelles `user_permissions`
+(`allow`/`deny` par compte, DENY prioritaire) : un compte garde exactement
+les mêmes exceptions qu’avant, appliquées ensuite par-dessus le nouveau
+socle du rôle, exactement comme aujourd’hui.
+
+```text
+Permission effective du compte =
+    DENY individuel                                  (le plus prioritaire)
+    > ALLOW individuel
+    > socle du rôle             <- modifiable ici, désormais aussi par l’UI
+```
+
+L’édition est exécutée par site via l’API existante
+(`PUT /api/v1/super-admin/roles/{role}/permissions`,
+`UpdateRolePermissionsAction`), jamais par accès direct à une base clinique
+(ADR-004/025/027). Elle exige la permission `users.manage` (déjà présente au
+catalogue, jusque-là inutilisée) et remplace intégralement l’ensemble des
+permissions du rôle par la liste transmise (`sync`), à la manière du seeder
+lui-même. Le socle `SUPER_ADMIN` reste hors de portée de cet écran : il
+continue de recevoir automatiquement toutes les permissions sur le portail
+central et aucune sur un site clinique, un mécanisme distinct qu’une édition
+manuelle ne doit pas contredire (ADR-025, ADR-027).
+
+Chaque modification est auditée (`role.permissions.update`) avec l’ancien et
+le nouveau socle, l’identité UUID/nom du Super Administrateur distant et le
+site concerné, selon le mécanisme d’audit déjà utilisé pour la gestion des
+comptes (`Auditor::record`, attribution externe automatique pour un acteur
+distant).
+
+`RolePermissionSeeder::GRANTS` n’est pas retiré : il reste la source du
+socle initial à la création d’un site ou d’un nouveau rôle. Un réexécution de
+`php artisan db:seed` après une édition manuelle via cet écran réapplique
+cependant intégralement le tableau codé en dur et écrase donc silencieusement
+toute personnalisation faite depuis le portail — ce seeder ne doit donc plus
+être rejoué sur un site déjà en production après sa mise en place initiale,
+sauf pour ajouter un rôle qui n’existe pas encore. Faire cohabiter les deux
+sources sans écrasement (par exemple en ne synchronisant que les rôles
+absents) reste hors périmètre de cette décision.
+
+---
+
+# ADR-065 — Corbeille locale en lecture, propre à chaque site
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire, après
+constat que `trash.view` accordé à un rôle clinique via ADR-064 ne donnait
+accès à rien)
+
+ADR-061 réserve la Corbeille consolidée multi-sites au seul portail
+`admin.rivo.mg` ; ADR-025/027 interdisent à un compte opérationnel de s’y
+connecter. Une fois ADR-064 en place, accorder `trash.view` à un rôle
+clinique (ex. Médecine) n’avait donc aucun effet observable : aucune route ni
+entrée de menu ne l’utilisait sur un site. Plutôt que d’interdire cette
+combinaison, cette décision lui donne un sens réel, strictement local.
+
+Chaque site expose désormais sa propre page `GET /trash` (menu « Corbeille »,
+`trash.view`), scopée à ce site uniquement — jamais multi-site, jamais un
+raccourci vers le portail. Elle réutilise tel quel `App\Services\Trash\
+TrashDirectory`, déjà partagé avec l’API distante consommée par le portail
+(ADR-061) : mêmes catégories (`Patient`, `CatalogItem`, `AddressEntry`,
+`MutualOrganization`, `CashRegister`), même exclusion des données cliniques
+et financières critiques, même journal d’audit.
+
+Le paramètre qui change est l’acteur : `TrashDirectory::restore()` reçoit ici
+`CatalogActor::fromUser($user)` — un utilisateur local authentifié, jamais un
+acteur distant. La restauration reste donc soumise à `trash.restore` **et**
+à la permission de restauration propre à la catégorie
+(`patients.restore`, `catalog.items.restore`, …), non accordées par défaut
+aux rôles opérationnels (ADR-061). En pratique, un compte clinique qui reçoit
+uniquement `trash.view` — le cas d’usage qui a motivé cette décision — voit
+donc une liste strictement en lecture, sans aucun bouton de restauration,
+jusqu’à ce qu’une exception individuelle explicite (ADR-022) lui accorde
+aussi les droits de restauration nécessaires.
+
+Cette page ne modifie ni ADR-061 (le portail reste la seule vue consolidée
+sur plusieurs sites) ni les permissions de restauration déjà réservées au
+Super Admin par défaut : elle ajoute uniquement une lecture locale, cohérente
+avec ce que `trash.view` laisse maintenant réellement espérer à qui le reçoit
+depuis l’éditeur de socle de rôle (ADR-064) ou une exception individuelle.

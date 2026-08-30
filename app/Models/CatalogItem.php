@@ -86,6 +86,11 @@ class CatalogItem extends Model
         return $this->hasMany(CareOrderItem::class);
     }
 
+    public function analysisDefinitions(): HasMany
+    {
+        return $this->hasMany(AnalysisCatalog::class)->orderBy('display_order')->orderBy('designation');
+    }
+
     public function medicine(): HasOne
     {
         return $this->hasOne(Medicine::class);
@@ -107,6 +112,7 @@ class CatalogItem extends Model
             || $this->billableItems()->exists()
             || $this->episodeServiceRequests()->exists()
             || $this->careOrderItems()->exists()
+            || $this->analysisDefinitions()->withTrashed()->exists()
             || $this->medicine()->exists();
     }
 

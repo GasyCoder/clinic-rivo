@@ -33,9 +33,15 @@ class OpenCashSessionAction
                         'cash_register_uuid' => 'Cette caisse n’est plus disponible. Choisissez-en une autre.',
                     ]);
                 }
-            } elseif (CashRegister::query()->where('active', true)->exists()) {
+            } elseif (CashRegister::query()->exists()) {
+                // At least one register is configured (whether or not it's
+                // currently active) — never silently fall through to the
+                // legacy unnamed singleton below, that would open a session
+                // disconnected from any of them.
                 throw ValidationException::withMessages([
-                    'cash_register_uuid' => 'Choisissez la caisse à ouvrir.',
+                    'cash_register_uuid' => CashRegister::query()->where('active', true)->exists()
+                        ? 'Choisissez la caisse à ouvrir.'
+                        : 'Aucune caisse active. Demandez à un administrateur d’en activer une.',
                 ]);
             }
 

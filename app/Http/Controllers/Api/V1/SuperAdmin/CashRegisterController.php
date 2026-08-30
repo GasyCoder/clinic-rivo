@@ -135,6 +135,7 @@ class CashRegisterController extends Controller
 
     public function restore(Request $request, string $cashRegisterUuid, CashRegisterManager $manager): JsonResponse
     {
+        $this->authorizeActor($request, 'trash.restore');
         $this->authorizeActor($request, 'cash_registers.restore');
         $register = CashRegister::onlyTrashed()->where('uuid', $cashRegisterUuid)->firstOrFail();
         $register = $manager->restore($register);

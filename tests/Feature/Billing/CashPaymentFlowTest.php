@@ -432,6 +432,50 @@ class CashPaymentFlowTest extends TestCase
         ]);
     }
 
+    public function test_visiting_a_locked_registers_workspace_redirects_to_the_picker_instead_of_rendering_it(): void
+    {
+        // There is nothing actionable on a locked till's workspace — payments
+        // and closure are already rejected server-side — so visiting it
+        // directly (bookmark, refresh, browser back) must never render it,
+        // even for the session's own opener.
+        $user = $this->userWithPermissions(['cash.view', 'cash.open', 'cash.close']);
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '10000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect();
+
+        CashSession::query()->sole()->update([
+            'status' => 'LOCKED',
+            'locked_at' => now(),
+            'lock_reason' => 'Contrôle central en cours',
+        ]);
+
+        $this->actingAs($user)->get("/cash/{$register->uuid}")
+            ->assertRedirect('/cash')
+            ->assertSessionHas('status');
+    }
+
+    public function test_cash_index_shows_an_explicit_empty_state_when_every_configured_register_is_inactive(): void
+    {
+        // Registers exist but are all deactivated — this must never fall
+        // back to the legacy unnamed workspace (that would open a session
+        // disconnected from any named register); the picker shows an
+        // explicit "none available" state instead.
+        $user = $this->userWithPermissions(['cash.view', 'cash.open']);
+        CashRegister::query()->create(['name' => 'Caisse 1', 'active' => false]);
+        CashRegister::query()->create(['name' => 'Caisse 2', 'active' => false]);
+
+        $this->actingAs($user)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Index')
+                ->has('registers', 0));
+
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '5000.00'])
+            ->assertSessionHasErrors('cash_register_uuid');
+        $this->assertDatabaseCount('cash_sessions', 0);
+    }
+
     public function test_opening_cash_never_requires_a_register_when_the_site_has_configured_none(): void
     {
         $user = $this->userWithPermissions(['cash.open']);

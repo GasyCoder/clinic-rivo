@@ -207,7 +207,11 @@ class SuperAdminSiteApiTest extends TestCase
 
         $this->assertSoftDeleted('address_entries', ['uuid' => $uuid]);
 
-        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid()))
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['address_entries.restore']))
+            ->postJson("/api/v1/super-admin/address-entries/{$uuid}/restore")
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['trash.restore', 'address_entries.restore']))
             ->postJson("/api/v1/super-admin/address-entries/{$uuid}/restore")
             ->assertOk()
             ->assertJsonPath('data.active', true);
@@ -261,6 +265,7 @@ class SuperAdminSiteApiTest extends TestCase
     {
         $actorUuid = (string) Str::uuid();
         $permissions = [
+            'trash.restore',
             'catalog.items.view',
             'catalog.items.create',
             'catalog.items.update',
@@ -376,6 +381,7 @@ class SuperAdminSiteApiTest extends TestCase
     {
         $actorUuid = (string) Str::uuid();
         $permissions = [
+            'trash.restore',
             'mutual_organizations.view',
             'mutual_organizations.create',
             'mutual_organizations.update',
@@ -454,6 +460,7 @@ class SuperAdminSiteApiTest extends TestCase
     {
         $actorUuid = (string) Str::uuid();
         $permissions = [
+            'trash.restore',
             'cash_registers.view', 'cash_registers.create', 'cash_registers.update',
             'cash_registers.activate', 'cash_registers.deactivate',
             'cash_registers.archive', 'cash_registers.restore',
@@ -706,7 +713,7 @@ class SuperAdminSiteApiTest extends TestCase
             ->assertHeader('Idempotency-Replayed', 'true');
         $this->assertSame(2, AddressEntry::onlyTrashed()->count());
 
-        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['address_entries.restore']))
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['trash.restore', 'address_entries.restore']))
             ->postJson('/api/v1/super-admin/address-entries/bulk/restore', ['uuids' => $addressUuids])
             ->assertOk()
             ->assertJsonPath('data.processed', 2);
@@ -742,7 +749,7 @@ class SuperAdminSiteApiTest extends TestCase
             ->assertJsonPath('data.processed', 2);
         $this->assertSame(2, CatalogItem::onlyTrashed()->whereIn('uuid', $catalogUuids)->count());
 
-        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['catalog.items.restore']))
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['trash.restore', 'catalog.items.restore']))
             ->postJson('/api/v1/super-admin/catalog/bulk/restore', ['uuids' => $catalogUuids])
             ->assertOk()
             ->assertJsonPath('data.processed', 2);
@@ -759,7 +766,7 @@ class SuperAdminSiteApiTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.processed', 2);
-        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['mutual_organizations.restore']))
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['trash.restore', 'mutual_organizations.restore']))
             ->postJson('/api/v1/super-admin/mutual-organizations/bulk/restore', ['uuids' => $organizationUuids])
             ->assertOk()
             ->assertJsonPath('data.processed', 2);

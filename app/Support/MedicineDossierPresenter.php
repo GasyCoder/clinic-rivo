@@ -17,6 +17,7 @@ use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\User;
 use App\Services\Care\CareRecordReadModel;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Pharmacy\MedicineStockService;
 
 class MedicineDossierPresenter
@@ -25,6 +26,7 @@ class MedicineDossierPresenter
         private readonly EpisodeQueuePresenter $queuePresenter,
         private readonly MedicineStockService $medicineStock,
         private readonly CareRecordReadModel $careRecord,
+        private readonly ClinicalRichTextSanitizer $richText,
     ) {}
 
     /** @return array<string, mixed> */
@@ -53,6 +55,14 @@ class MedicineDossierPresenter
             CatalogModule::Transfer->value => CatalogModule::Transfer->label(),
             CatalogModule::Pediatrics->value => CatalogModule::Pediatrics->label(),
         ];
+        $transferDestinations = collect(config('rivo.clinics', []))
+            ->filter(fn (array $site) => strtoupper((string) ($site['code'] ?? '')) !== strtoupper((string) config('rivo.site.code')))
+            ->map(fn (array $site) => [
+                'code' => $site['code'],
+                'name' => $site['name'],
+                'destination' => 'Clinique Saint Georges — '.$site['name'],
+            ])
+            ->values();
 
         // Whether "Continuer la prise en charge" is a genuine option rather
         // than an escape hatch from a real decision (item 12): only true
@@ -121,8 +131,8 @@ class MedicineDossierPresenter
             'consultation' => $consultation ? [
                 'id' => $consultation->getKey(),
                 'doctor' => $consultation->doctor?->name,
-                'reason' => $consultation->reason,
-                'clinical_exam' => $consultation->clinical_exam,
+                'reason' => $this->richText->toSafeHtml($consultation->reason),
+                'clinical_exam' => $this->richText->toSafeHtml($consultation->clinical_exam),
                 'decision' => $consultation->decision?->value,
                 'decision_label' => $consultation->decision?->label(),
                 'decision_notes' => $consultation->decision_notes,
@@ -135,6 +145,12 @@ class MedicineDossierPresenter
                             ? 'Diagnostic final'
                             : 'Hypothèse',
                         'description' => $diagnosis->description,
+                        'source' => $diagnosis->is_manual ? 'MANUAL' : 'CATALOG',
+                        'source_label' => $diagnosis->is_manual ? 'Manuel' : 'Catalogue',
+                        'code' => $diagnosis->is_manual
+                            ? $diagnosis->manual_code
+                            : $diagnosis->catalog_code_snapshot,
+                        'notes' => $diagnosis->notes,
                         'recorded_by' => $diagnosis->recordedBy?->name,
                         'recorded_at' => $diagnosis->created_at,
                         'cancelled' => $diagnosis->cancellation !== null,
@@ -288,7 +304,7 @@ class MedicineDossierPresenter
                     ->map(fn ($previous) => [
                         'id' => $previous->getKey(),
                         'doctor' => $previous->doctor?->name,
-                        'reason' => $previous->reason,
+                        'reason' => $this->richText->toSafeHtml($previous->reason),
                         'decision_label' => $previous->decision?->label(),
                         'consulted_at' => $previous->consulted_at,
                     ])->values()
@@ -359,6 +375,7 @@ class MedicineDossierPresenter
                     'value' => $value,
                     'label' => $label,
                 ])->values(),
+                'transfer_destinations' => $transferDestinations,
             ],
             'pending_reasons' => $pendingReasons,
             'capabilities' => [

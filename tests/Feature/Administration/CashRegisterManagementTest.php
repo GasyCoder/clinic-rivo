@@ -48,7 +48,7 @@ class CashRegisterManagementTest extends TestCase
         }
     }
 
-    public function test_administration_creates_renames_archives_and_restores_a_register_with_audited_reason(): void
+    public function test_administration_creates_renames_and_archives_but_cannot_restore_a_register(): void
     {
         $admin = $this->user('ADMINISTRATION');
 
@@ -87,11 +87,11 @@ class CashRegisterManagementTest extends TestCase
         ]);
 
         $this->actingAs($admin)->post("/administration/cash-registers/{$register->uuid}/restore")
-            ->assertRedirect();
+            ->assertForbidden();
 
         $register->refresh();
-        $this->assertTrue($register->active);
-        $this->assertNull($register->deleted_at);
+        $this->assertFalse($register->active);
+        $this->assertNotNull($register->deleted_at);
     }
 
     public function test_a_register_with_an_open_session_cannot_be_archived(): void

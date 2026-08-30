@@ -262,7 +262,7 @@ class CatalogManagementTest extends TestCase
         ]);
     }
 
-    public function test_tariff_and_item_can_be_suspended_archived_and_restored_with_reasons(): void
+    public function test_tariff_and_item_can_be_suspended_and_archived_but_local_restore_is_forbidden(): void
     {
         $actor = $this->catalogManager();
         $this->actingAs($actor)->post('/administration/catalog', $this->servicePayload())->assertRedirect();
@@ -290,13 +290,9 @@ class CatalogManagementTest extends TestCase
         ]);
 
         $this->actingAs($actor)->post("/administration/catalog/{$item->uuid}/restore")
-            ->assertRedirect();
+            ->assertForbidden();
 
-        $this->assertDatabaseHas('catalog_items', [
-            'id' => $item->id,
-            'deleted_at' => null,
-            'delete_reason' => null,
-        ]);
+        $this->assertSoftDeleted('catalog_items', ['id' => $item->id]);
     }
 
     public function test_item_view_permission_does_not_expose_tariff_data_without_tariff_view(): void

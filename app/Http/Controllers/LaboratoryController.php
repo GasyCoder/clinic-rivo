@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Actions\Laboratory\RecordLabResultAction;
 use App\Http\Requests\RecordLabResultRequest;
 use App\Models\LabRequestItem;
+use App\Services\Laboratory\AnalysisReferenceResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -12,12 +13,12 @@ use Inertia\Response;
 
 class LaboratoryController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, AnalysisReferenceResolver $references): Response
     {
         $items = LabRequestItem::query()
             ->with([
-                'catalogItem:id,name',
-                'labRequest.episode.patient:id,uuid,patient_number,first_name,last_name',
+                'catalogItem.analysisDefinitions' => fn ($query) => $query->where('is_active', true),
+                'labRequest.episode.patient:id,uuid,patient_number,first_name,last_name,birth_date,declared_age,sex',
                 'labRequest.requestedBy:id,name',
                 'resultedBy:id,name',
             ])
@@ -32,6 +33,11 @@ class LaboratoryController extends Controller
                 'result_notes' => $item->result_notes,
                 'resulted_at' => $item->resulted_at,
                 'resulted_by' => $item->resultedBy?->name,
+                'reference_definitions' => $item->reference_snapshot ?? $references->snapshot(
+                    $item->catalogItem,
+                    $item->labRequest->episode->patient,
+                    $item->labRequest->episode->started_at ?? now(),
+                ),
                 'requested_at' => $item->labRequest->requested_at,
                 'requested_by' => $item->labRequest->requestedBy?->name,
                 'patient' => [

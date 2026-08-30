@@ -76,7 +76,7 @@ class PortalTest extends TestCase
     {
         $actor = $this->user('SUPER_ADMIN');
 
-        foreach (['finance', 'hr', 'logistics', 'guarding', 'users', 'roles', 'settings', 'audit'] as $workspace) {
+        foreach (['finance', 'hr', 'logistics', 'guarding', 'users', 'settings', 'audit'] as $workspace) {
             $this->actingAs($actor)->get("/super-admin/workspaces/{$workspace}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component('SuperAdmin/Workspace'));
@@ -85,6 +85,12 @@ class PortalTest extends TestCase
         $this->actingAs($actor)->get('/super-admin/workspaces/tariffs')
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('SuperAdmin/Tariffs/Index'));
+
+        // Roles & permissions is a real, site-scoped module (per account,
+        // not per role) — never the generic placeholder.
+        $this->actingAs($actor)->get('/super-admin/workspaces/roles')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('SuperAdmin/Users/Index'));
     }
 
     public function test_finance_workspace_places_surgical_revenue_without_inventing_amounts(): void

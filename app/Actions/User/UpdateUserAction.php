@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\Auditor;
 use App\Services\Authorization\UserAdministrationGuard;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -20,13 +21,18 @@ class UpdateUserAction
     ) {}
 
     /** @param array<string, mixed> $data */
-    public function execute(User $user, array $data, User $actor): User
+    public function execute(User $user, array $data, User|CatalogActor $actor): User
     {
         if ($actor->cannot('users.update') || $actor->cannot('roles.assign')) {
             throw new AuthorizationException('Vous ne pouvez pas modifier cet utilisateur ou son rôle.');
         }
 
-        return DB::transaction(function () use ($user, $data, $actor) {
+        // Auditor::record() takes an Authenticatable, never a CatalogActor —
+        // for a remote Super Admin this resolves to null, and Auditor falls
+        // back to the external_actor_uuid/name already on the request.
+        $actorUser = $actor instanceof User ? $actor : $actor->user();
+
+        return DB::transaction(function () use ($user, $data, $actor, $actorUser) {
             $user = User::query()->with(['role', 'professionalProfile', 'permissions'])->lockForUpdate()->findOrFail($user->id);
             $role = Role::query()->lockForUpdate()->findOrFail($data['role_id']);
             $profile = filled($data['professional_profile_id'] ?? null)
@@ -96,7 +102,7 @@ class UpdateUserAction
                     newValues: $newValues,
                     oldValues: $oldValues,
                     module: 'administration',
-                    actor: $actor,
+                    actor: $actorUser,
                 );
             }
 
@@ -107,7 +113,7 @@ class UpdateUserAction
                     newValues: ['role' => $newValues['role']],
                     oldValues: ['role' => $oldValues['role']],
                     module: 'administration',
-                    actor: $actor,
+                    actor: $actorUser,
                 );
             }
 
@@ -118,7 +124,7 @@ class UpdateUserAction
                     newValues: ['professional_profile' => $newValues['professional_profile']],
                     oldValues: ['professional_profile' => $oldValues['professional_profile']],
                     module: 'administration',
-                    actor: $actor,
+                    actor: $actorUser,
                 );
             }
 
@@ -132,7 +138,7 @@ class UpdateUserAction
                         newValues: ['overrides' => $newOverrides],
                         oldValues: ['overrides' => $oldOverrides],
                         module: 'administration',
-                        actor: $actor,
+                        actor: $actorUser,
                     );
                 }
             }
@@ -147,7 +153,7 @@ class UpdateUserAction
                     entity: $user,
                     newValues: ['password_changed' => true],
                     module: 'administration',
-                    actor: $actor,
+                    actor: $actorUser,
                 );
             }
 

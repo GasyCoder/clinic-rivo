@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
@@ -20,6 +20,7 @@ const props = defineProps({
 const { can } = usePermissions();
 const canReceivePatients = computed(() => can('episodes.create'));
 const canViewVisitors = computed(() => can('visitors.view'));
+const activityTab = ref(canReceivePatients.value ? 'patients' : 'visitors');
 
 const episodePatientHref = (episode) => episode.patient?.uuid && !episode.patient.deleted_at
     ? `/patients/${episode.patient.uuid}`
@@ -103,61 +104,62 @@ const visitorCategoryLabel = (category) => category === 'PROFESSIONAL'
             </Link>
         </section>
 
-        <section class="grid gap-5 xl:grid-cols-2">
-            <Card v-if="canReceivePatients" class="overflow-hidden shadow-sm">
-                <div class="flex items-center justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                    <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Passages patients récents</h2>
-                        <p class="mt-0.5 text-xs text-slate-400">Dernières arrivées enregistrées.</p>
+        <section v-if="canReceivePatients || canViewVisitors">
+            <Card class="overflow-hidden shadow-sm">
+                <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-1 rounded bg-gray-100 p-1 dark:bg-gray-1000">
+                        <button v-if="canReceivePatients" type="button" :class="['rounded px-3 py-1.5 text-xs font-bold transition-colors', activityTab === 'patients' ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-950 dark:text-primary-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200']" @click="activityTab = 'patients'">
+                            Passages patients <span class="ms-1 text-slate-400">({{ recentEpisodes.length }})</span>
+                        </button>
+                        <button v-if="canViewVisitors" type="button" :class="['rounded px-3 py-1.5 text-xs font-bold transition-colors', activityTab === 'visitors' ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-950 dark:text-primary-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200']" @click="activityTab = 'visitors'">
+                            Visiteurs présents <span class="ms-1 text-slate-400">({{ presentVisitors.length }})</span>
+                        </button>
                     </div>
-                    <Button :as="Link" href="/reception/patients" size="sm" variant="white-outline">Voir le parcours</Button>
-                </div>
-
-                <div v-if="recentEpisodes.length" class="divide-y divide-gray-200 dark:divide-gray-900">
-                    <component
-                        :is="episodePatientHref(episode) ? Link : 'div'"
-                        v-for="episode in recentEpisodes"
-                        :key="episode.id"
-                        :href="episodePatientHref(episode) || undefined"
-                        :class="['flex items-center gap-3 px-5 py-3', episodePatientHref(episode) ? 'transition hover:bg-gray-50 dark:hover:bg-gray-1000' : 'bg-gray-50/50 dark:bg-gray-1000/30']"
-                    >
-                        <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" aria-hidden="true" />
-                        <span class="min-w-0 flex-1">
-                            <span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(episode.patient) }}</span>
-                            <span class="mt-0.5 block text-xs text-slate-400">{{ episode.episode_number }} · {{ formatRelativeTime(episode.started_at) }}</span>
-                        </span>
-                        <span v-if="episode.patient?.deleted_at" class="inline-flex shrink-0 items-center gap-1 rounded border border-gray-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon name="archive" /> Dossier archivé</span>
-                        <span v-else-if="!episode.patient" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[10px] font-bold uppercase text-amber-700 dark:border-amber-900 dark:text-amber-300"><Icon name="alert-circle" /> Patient indisponible</span>
-                        <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex shrink-0 items-center gap-1 rounded border border-red-200 px-2 py-1 text-[10px] font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
-                            <Icon name="alert-circle" /> Urgence
-                        </span>
-                    </component>
-                </div>
-                <p v-else class="px-5 py-10 text-center text-sm text-slate-400">Aucun passage récent.</p>
-            </Card>
-
-            <Card v-if="canViewVisitors" class="overflow-hidden shadow-sm">
-                <div class="flex items-center justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                    <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Visiteurs présents</h2>
-                        <p class="mt-0.5 text-xs text-slate-400">Entrées sans sortie enregistrée.</p>
-                    </div>
-                    <Button :as="Link" href="/reception/visitors" size="sm" variant="white-outline">Ouvrir le registre</Button>
-                </div>
-
-                <div v-if="presentVisitors.length" class="divide-y divide-gray-200 dark:divide-gray-900">
-                    <div v-for="visitor in presentVisitors" :key="visitor.uuid" class="flex items-center gap-3 px-5 py-3">
-                        <Avatar rounded size="sm" variant="slate-pale" :text="visitorInitials(visitor)" aria-hidden="true" />
-                        <span class="min-w-0 flex-1">
-                            <span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ visitor.full_name }}</span>
-                            <span class="mt-0.5 block truncate text-xs text-slate-400">{{ visitorCategoryLabel(visitor.category) }}</span>
-                        </span>
-                        <span class="shrink-0 text-xs font-medium text-slate-500" :title="formatDateTime(visitor.checked_in_at)">
-                            {{ formatRelativeTime(visitor.checked_in_at) }}
-                        </span>
+                    <div class="flex items-center gap-3">
+                        <p class="text-xs text-slate-400">{{ activityTab === 'patients' ? 'Dernières arrivées enregistrées.' : 'Entrées sans sortie enregistrée.' }}</p>
+                        <Button :as="Link" :href="activityTab === 'patients' ? '/reception/patients' : '/reception/visitors'" size="sm" variant="white-outline">{{ activityTab === 'patients' ? 'Voir le parcours' : 'Ouvrir le registre' }}</Button>
                     </div>
                 </div>
-                <p v-else class="px-5 py-10 text-center text-sm text-slate-400">Aucun visiteur présent.</p>
+
+                <div v-if="activityTab === 'patients'">
+                    <div v-if="recentEpisodes.length" class="divide-y divide-gray-200 dark:divide-gray-900">
+                        <component
+                            :is="episodePatientHref(episode) ? Link : 'div'"
+                            v-for="episode in recentEpisodes"
+                            :key="episode.id"
+                            :href="episodePatientHref(episode) || undefined"
+                            :class="['flex items-center gap-3 px-5 py-3', episodePatientHref(episode) ? 'transition hover:bg-gray-50 dark:hover:bg-gray-1000' : 'bg-gray-50/50 dark:bg-gray-1000/30']"
+                        >
+                            <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(episode.patient)" aria-hidden="true" />
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(episode.patient) }}</span>
+                                <span class="mt-0.5 block text-xs text-slate-400">{{ episode.episode_number }} · {{ formatRelativeTime(episode.started_at) }}</span>
+                            </span>
+                            <span v-if="episode.patient?.deleted_at" class="inline-flex shrink-0 items-center gap-1 rounded border border-gray-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-500 dark:border-gray-800 dark:text-slate-400"><Icon name="archive" /> Dossier archivé</span>
+                            <span v-else-if="!episode.patient" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-200 px-2 py-1 text-[10px] font-bold uppercase text-amber-700 dark:border-amber-900 dark:text-amber-300"><Icon name="alert-circle" /> Patient indisponible</span>
+                            <span v-if="episode.priority === 'EMERGENCY'" class="inline-flex shrink-0 items-center gap-1 rounded border border-red-200 px-2 py-1 text-[10px] font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
+                                <Icon name="alert-circle" /> Urgence
+                            </span>
+                        </component>
+                    </div>
+                    <p v-else class="px-5 py-10 text-center text-sm text-slate-400">Aucun passage récent.</p>
+                </div>
+
+                <div v-else>
+                    <div v-if="presentVisitors.length" class="divide-y divide-gray-200 dark:divide-gray-900">
+                        <div v-for="visitor in presentVisitors" :key="visitor.uuid" class="flex items-center gap-3 px-5 py-3">
+                            <Avatar rounded size="sm" variant="slate-pale" :text="visitorInitials(visitor)" aria-hidden="true" />
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ visitor.full_name }}</span>
+                                <span class="mt-0.5 block truncate text-xs text-slate-400">{{ visitorCategoryLabel(visitor.category) }}</span>
+                            </span>
+                            <span class="shrink-0 text-xs font-medium text-slate-500" :title="formatDateTime(visitor.checked_in_at)">
+                                {{ formatRelativeTime(visitor.checked_in_at) }}
+                            </span>
+                        </div>
+                    </div>
+                    <p v-else class="px-5 py-10 text-center text-sm text-slate-400">Aucun visiteur présent.</p>
+                </div>
             </Card>
         </section>
     </div>

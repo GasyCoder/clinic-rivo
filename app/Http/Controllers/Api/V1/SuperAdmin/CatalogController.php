@@ -234,8 +234,10 @@ class CatalogController extends Controller
         string $catalogUuid,
         RestoreCatalogItemAction $action,
     ): JsonResponse {
+        $actor = CatalogActor::fromRemoteRequest($request);
+        $this->authorizeActor($actor, 'trash.restore');
         $item = CatalogItem::onlyTrashed()->where('uuid', $catalogUuid)->firstOrFail();
-        $item = $action->execute($item, CatalogActor::fromRemoteRequest($request));
+        $item = $action->execute($item, $actor);
 
         return response()->json([
             'message' => "Désignation {$item->code} restaurée.",
@@ -282,11 +284,12 @@ class CatalogController extends Controller
         Request $request,
         RestoreCatalogItemAction $action,
     ): JsonResponse {
+        $actor = CatalogActor::fromRemoteRequest($request);
+        $this->authorizeActor($actor, 'trash.restore');
         $validated = $request->validate([
             'uuids' => ['required', 'array', 'min:1', 'max:100'],
             'uuids.*' => ['required', 'uuid', 'distinct'],
         ]);
-        $actor = CatalogActor::fromRemoteRequest($request);
         $this->authorizeActor($actor, 'catalog.items.restore');
 
         $count = DB::transaction(function () use ($validated, $actor, $action): int {

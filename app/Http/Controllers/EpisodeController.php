@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\BillableItem;
 use App\Models\Episode;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\Money;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -18,7 +19,7 @@ use Inertia\Response;
  */
 class EpisodeController extends Controller
 {
-    public function show(Request $request, Episode $episode): Response
+    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText): Response
     {
         $user = $request->user();
         $canViewCare = $user->can('care.view');
@@ -152,8 +153,8 @@ class EpisodeController extends Controller
                 ] : null,
                 'consultations' => $canViewMedicalRecord ? $episode->consultations->map(fn ($consultation) => [
                     'id' => $consultation->id,
-                    'reason' => $consultation->reason,
-                    'clinical_exam' => $consultation->clinical_exam,
+                    'reason' => $richText->toSafeHtml($consultation->reason),
+                    'clinical_exam' => $richText->toSafeHtml($consultation->clinical_exam),
                     'decision' => $consultation->decision?->value,
                     'decision_label' => $consultation->decision?->label(),
                     'decision_notes' => $consultation->decision_notes,
@@ -163,6 +164,10 @@ class EpisodeController extends Controller
                         'id' => $diagnosis->id,
                         'type' => $diagnosis->type->value,
                         'description' => $diagnosis->description,
+                        'source' => $diagnosis->is_manual ? 'MANUAL' : 'CATALOG',
+                        'source_label' => $diagnosis->is_manual ? 'Manuel' : 'Catalogue',
+                        'code' => $diagnosis->is_manual ? $diagnosis->manual_code : $diagnosis->catalog_code_snapshot,
+                        'notes' => $diagnosis->notes,
                         'recorded_by' => $diagnosis->recordedBy?->name,
                         'created_at' => $diagnosis->created_at,
                         'cancelled' => $diagnosis->cancellation !== null,

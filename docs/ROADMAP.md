@@ -115,7 +115,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 
 # Phase 3 — Laboratoire
 
-- [ ] Catalogue analyses
+- [x] Catalogue analyses structuré, références par profil et import/export Excel
 - [ ] Demande analyse
 - [ ] Analyse interne
 - [ ] Analyse externe

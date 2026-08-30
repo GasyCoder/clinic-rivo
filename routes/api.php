@@ -5,12 +5,17 @@ use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
+use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
+use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['rivo.site-api', 'api.idempotent'])
     ->prefix('v1/super-admin')
     ->name('api.v1.super-admin.')
     ->group(function () {
+        Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
+        Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');
+
         Route::get('/pharmacy/stock', MedicineStockController::class)->name('pharmacy.stock');
         Route::post('/pharmacy/stock/import', [MedicineStockController::class, 'import'])->name('pharmacy.stock.import');
 
@@ -43,6 +48,16 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/cash-registers/{cashRegisterUuid}/deactivate', [CashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate');
         Route::delete('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'destroy'])->name('cash-registers.destroy');
         Route::post('/cash-registers/{cashRegisterUuid}/restore', [CashRegisterController::class, 'restore'])->name('cash-registers.restore');
+
+        Route::get('/users', [UserController::class, 'index'])->name('users.index');
+        Route::post('/users', [UserController::class, 'store'])->name('users.store');
+        Route::post('/users/bulk/deactivate', [UserController::class, 'bulkDeactivate'])->name('users.bulk.deactivate');
+        Route::post('/users/bulk/force-delete', [UserController::class, 'bulkForceDelete'])->name('users.bulk.force_delete');
+        Route::put('/users/{userUuid}', [UserController::class, 'update'])->name('users.update');
+        Route::post('/users/{userUuid}/activate', [UserController::class, 'activate'])->name('users.activate');
+        Route::post('/users/{userUuid}/deactivate', [UserController::class, 'deactivate'])->name('users.deactivate');
+        Route::delete('/users/{userUuid}', [UserController::class, 'forceDelete'])->name('users.force_delete');
+        Route::put('/roles/{roleCode}/permissions', [UserController::class, 'updateRolePermissions'])->name('roles.permissions.update');
 
         Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog.index');
         Route::post('/catalog', [CatalogController::class, 'store'])->name('catalog.store');

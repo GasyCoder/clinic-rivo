@@ -183,6 +183,7 @@ class MedicineWorkflowTest extends TestCase
         ])->assertRedirect();
 
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
+            'continue_to_decision' => true,
             'lines' => [
                 [
                     'medicine_uuid' => $medicine->catalogItem->uuid,
@@ -193,7 +194,7 @@ class MedicineWorkflowTest extends TestCase
                     'instructions' => 'Après le repas',
                 ],
             ],
-        ])->assertRedirect();
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/decision");
 
         $consultation = $orientation->consultation()->firstOrFail();
         $this->assertSame('Douleur abdominale aiguë', $consultation->reason);
@@ -205,6 +206,44 @@ class MedicineWorkflowTest extends TestCase
         $this->assertSame('Paracétamol', $prescription->lines->sole()->medication_name);
         $this->assertSame(6, $prescription->lines->sole()->quantity);
         $this->assertSame(1, $prescription->lines->sole()->stockReservations()->count());
+    }
+
+    public function test_consultation_text_fields_keep_supported_formatting_and_remove_unsafe_markup(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+            'reason' => '<p onclick="alert(1)"><b>Douleur abdominale</b> <span style="background-color: yellow">depuis hier</span><script>alert(1)</script></p><ul><li>Fièvre</li><li>Nausées</li></ul>',
+            'clinical_exam' => '<p><b>Palpation</b></p><ol><li>Sensibilité FID</li><li>Défense absente</li></ol><img src=x onerror="alert(1)">',
+        ])->assertRedirect();
+
+        $expectedReason = '<p><strong>Douleur abdominale</strong> <mark>depuis hier</mark></p><ul><li>Fièvre</li><li>Nausées</li></ul>';
+        $expectedExam = '<p><strong>Palpation</strong></p><ol><li>Sensibilité FID</li><li>Défense absente</li></ol>';
+        $consultation = $orientation->consultation()->sole();
+        $this->assertSame($expectedReason, $consultation->reason);
+        $this->assertSame($expectedExam, $consultation->clinical_exam);
+
+        $this->get("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('consultation.reason', $expectedReason)
+                ->where('consultation.clinical_exam', $expectedExam));
+    }
+
+    public function test_consultation_reason_rejects_formatting_without_clinical_text(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->from("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+                'reason' => '<p><br></p><script>alert(1)</script>',
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->assertSessionHasErrors('reason');
     }
 
     /**

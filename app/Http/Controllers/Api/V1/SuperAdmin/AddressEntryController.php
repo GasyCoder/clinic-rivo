@@ -121,8 +121,10 @@ class AddressEntryController extends Controller
         return response()->json(['message' => 'Adresse archivée.']);
     }
 
-    public function restore(string $addressUuid, AddressEntryManager $manager): JsonResponse
+    public function restore(Request $request, string $addressUuid, AddressEntryManager $manager): JsonResponse
     {
+        $this->authorizeActor($request, 'trash.restore');
+        $this->authorizeActor($request, 'address_entries.restore');
         $entry = AddressEntry::withTrashed()->where('uuid', $addressUuid)->firstOrFail();
 
         if ($entry->trashed()) {
@@ -169,6 +171,7 @@ class AddressEntryController extends Controller
 
     public function bulkRestore(Request $request, AddressEntryManager $manager): JsonResponse
     {
+        $this->authorizeActor($request, 'trash.restore');
         $this->authorizeActor($request, 'address_entries.restore');
         $validated = $request->validate([
             'uuids' => ['required', 'array', 'min:1', 'max:100'],

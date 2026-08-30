@@ -6,10 +6,14 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Models\AddressEntry;
+use App\Models\CashMovement;
+use App\Models\CashRegister;
+use App\Models\CashSession;
 use App\Models\CatalogItem;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MutualOrganization;
+use App\Models\PaymentMethod;
 use App\Models\PharmacyStockMovement;
 use App\Models\Role;
 use App\Models\User;
@@ -444,6 +448,234 @@ class SuperAdminSiteApiTest extends TestCase
             ->assertJsonValidationErrors('name');
 
         $this->assertDatabaseCount('mutual_organizations', 1);
+    }
+
+    public function test_cash_registers_are_managed_per_site_with_permissions_audit_and_soft_delete(): void
+    {
+        $actorUuid = (string) Str::uuid();
+        $permissions = [
+            'cash_registers.view', 'cash_registers.create', 'cash_registers.update',
+            'cash_registers.activate', 'cash_registers.deactivate',
+            'cash_registers.archive', 'cash_registers.restore',
+        ];
+
+        $created = $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson('/api/v1/super-admin/cash-registers', ['name' => '  Caisse 1  '])
+            ->assertCreated()
+            ->assertJsonPath('data.name', 'Caisse 1')
+            ->assertJsonPath('data.active', true)
+            ->assertJsonPath('data.archived', false);
+        $uuid = $created->json('data.uuid');
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->putJson("/api/v1/super-admin/cash-registers/{$uuid}", ['name' => 'Caisse principale'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Caisse principale');
+
+        // Deactivating is independent from archiving: the register stays
+        // out of the soft-delete trash but drops off the site's own picker.
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson("/api/v1/super-admin/cash-registers/{$uuid}/deactivate")
+            ->assertOk()
+            ->assertJsonPath('data.active', false)
+            ->assertJsonPath('data.archived', false);
+        $this->assertDatabaseHas('cash_registers', ['uuid' => $uuid, 'active' => false, 'deleted_at' => null]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson("/api/v1/super-admin/cash-registers/{$uuid}/activate")
+            ->assertOk()
+            ->assertJsonPath('data.active', true)
+            ->assertJsonPath('data.archived', false);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'update',
+            'entity_uuid' => $uuid,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->deleteJson("/api/v1/super-admin/cash-registers/{$uuid}", ['reason' => 'Fusionnée avec une autre caisse'])
+            ->assertOk();
+        $this->assertSoftDeleted('cash_registers', ['uuid' => $uuid]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson("/api/v1/super-admin/cash-registers/{$uuid}/restore")
+            ->assertOk()
+            ->assertJsonPath('data.active', true);
+
+        $this->withHeaders($this->headers($actorUuid, null, ['cash_registers.view']))
+            ->getJson('/api/v1/super-admin/cash-registers?status=ALL')
+            ->assertOk()
+            ->assertJsonPath('meta.summary.active', 1)
+            ->assertJsonPath('data.0.name', 'Caisse principale');
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'restore',
+            'entity_uuid' => $uuid,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+    }
+
+    public function test_cash_register_api_rejects_missing_permissions_and_duplicates(): void
+    {
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+
+        $this->withHeaders($this->headers(
+            (string) Str::uuid(),
+            (string) Str::uuid(),
+            ['cash_registers.view'],
+        ))->postJson('/api/v1/super-admin/cash-registers', ['name' => 'Caisse 2'])
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers(
+            (string) Str::uuid(),
+            (string) Str::uuid(),
+            ['cash_registers.view'],
+        ))->postJson("/api/v1/super-admin/cash-registers/{$register->uuid}/deactivate")
+            ->assertForbidden();
+        $this->assertTrue($register->fresh()->active);
+
+        $this->withHeaders($this->headers(
+            (string) Str::uuid(),
+            (string) Str::uuid(),
+            ['cash_registers.create'],
+        ))->postJson('/api/v1/super-admin/cash-registers', ['name' => '  caisse 1 '])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseCount('cash_registers', 1);
+    }
+
+    public function test_cash_registers_list_reports_the_active_session_of_each_register_independently(): void
+    {
+        // Regression test: CashRegister::activeSession() used to key its
+        // where() clause off $this->id, but Eloquent builds an eager-loaded
+        // relation (with()/loadMissing()) once from an id-less prototype
+        // model — so with two or more registers in the same response, every
+        // one of them silently reported no active session at all.
+        $withSession = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $withoutSession = CashRegister::query()->create(['name' => 'Caisse 2']);
+        $session = CashSession::query()->create([
+            'session_number' => 'AC-000101',
+            'active_key' => 'REGISTER_'.$withSession->id,
+            'cash_register_id' => $withSession->id,
+            'status' => 'OPEN',
+            'opening_amount' => '5000.00',
+            'opened_by' => $this->actor->id,
+            'opened_at' => now(),
+        ]);
+
+        $this->withHeaders($this->headers(null, null, ['cash_registers.view']))
+            ->getJson('/api/v1/super-admin/cash-registers')
+            ->assertOk()
+            ->assertJsonPath('data.0.name', 'Caisse 1')
+            ->assertJsonPath('data.0.session.session_number', $session->session_number)
+            ->assertJsonPath('data.0.session.status', 'OPEN')
+            ->assertJsonPath('data.1.name', 'Caisse 2')
+            ->assertJsonPath('data.1.session', null);
+
+        $this->withHeaders($this->headers(null, null, ['cash_registers.view']))
+            ->getJson("/api/v1/super-admin/cash-registers/{$withoutSession->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.active_session', null);
+    }
+
+    public function test_super_admin_can_inspect_lock_unlock_and_close_a_site_cash_session(): void
+    {
+        $actorUuid = (string) Str::uuid();
+        $register = CashRegister::query()->create(['name' => 'Caisse principale']);
+        $session = CashSession::query()->create([
+            'session_number' => 'AC-000901',
+            'active_key' => 'REGISTER_'.$register->id,
+            'cash_register_id' => $register->id,
+            'status' => 'OPEN',
+            'opening_amount' => '10000.00',
+            'opened_by' => $this->actor->id,
+            'opened_at' => now()->subHour(),
+        ]);
+        $cashMethod = PaymentMethod::query()->create([
+            'code' => 'CASH-TEST',
+            'name' => 'Espèces',
+            'active' => true,
+            'affects_cash_balance' => true,
+        ]);
+        CashMovement::query()->create([
+            'cash_session_id' => $session->id,
+            'payment_method_id' => $cashMethod->id,
+            'type' => 'PAYMENT',
+            'direction' => 'IN',
+            'amount' => '2500.00',
+            'affects_cash_balance' => true,
+            'description' => 'Encaissement de contrôle',
+            'recorded_by' => $this->actor->id,
+            'occurred_at' => now()->subMinutes(20),
+        ]);
+
+        $this->withHeaders($this->headers($actorUuid, null, ['cash_registers.view']))
+            ->getJson("/api/v1/super-admin/cash-registers/{$register->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.register.name', 'Caisse principale')
+            ->assertJsonPath('data.active_session.session_number', 'AC-000901')
+            ->assertJsonPath('data.active_session.opened_by', $this->actor->name)
+            ->assertJsonPath('data.active_session.totals.expected_cash', '12500.00')
+            ->assertJsonPath('data.movements.0.description', 'Encaissement de contrôle');
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['cash_registers.view']))
+            ->postJson("/api/v1/super-admin/cash-registers/{$register->uuid}/session/lock", [
+                'reason' => 'Contrôle de sécurité demandé',
+            ])->assertForbidden();
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['cash_registers.lock']))
+            ->postJson("/api/v1/super-admin/cash-registers/{$register->uuid}/session/lock", [
+                'reason' => 'Contrôle de sécurité demandé',
+            ])->assertOk();
+
+        $this->assertDatabaseHas('cash_sessions', [
+            'uuid' => $session->uuid,
+            'status' => 'LOCKED',
+            'active_key' => 'REGISTER_'.$register->id,
+            'external_locked_by_uuid' => $actorUuid,
+            'lock_reason' => 'Contrôle de sécurité demandé',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'cash.lock',
+            'entity_uuid' => $session->uuid,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['cash_registers.unlock']))
+            ->postJson("/api/v1/super-admin/cash-registers/{$register->uuid}/session/unlock", [
+                'reason' => 'Contrôle terminé et reprise autorisée',
+            ])->assertOk();
+        $this->assertDatabaseHas('cash_sessions', [
+            'uuid' => $session->uuid,
+            'status' => 'OPEN',
+            'active_key' => 'REGISTER_'.$register->id,
+            'external_unlocked_by_uuid' => $actorUuid,
+        ]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['cash_registers.close']))
+            ->postJson("/api/v1/super-admin/cash-registers/{$register->uuid}/session/close", [
+                'actual_closing_amount' => '12400.00',
+                'reason' => 'Clôture centrale après comptage physique',
+            ])->assertOk();
+
+        $this->assertDatabaseHas('cash_sessions', [
+            'uuid' => $session->uuid,
+            'status' => 'CLOSED',
+            'active_key' => null,
+            'expected_closing_amount' => '12500.00',
+            'actual_closing_amount' => '12400.00',
+            'variance_amount' => '-100.00',
+            'external_closed_by_uuid' => $actorUuid,
+            'closing_reason' => 'Clôture centrale après comptage physique',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'cash.close',
+            'entity_uuid' => $session->uuid,
+            'external_actor_uuid' => $actorUuid,
+            'reason' => 'Clôture centrale après comptage physique',
+        ]);
     }
 
     public function test_bulk_commands_are_atomic_idempotent_authorized_and_audited(): void

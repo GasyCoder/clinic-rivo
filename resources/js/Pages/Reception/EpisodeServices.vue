@@ -21,7 +21,7 @@ const props = defineProps({
     billingCatalog: { type: Array, default: () => [] },
     pricingContext: { type: Object, default: () => ({}) },
     paymentMethods: { type: Array, default: () => [] },
-    openCashSession: Object,
+    openCashSessions: { type: Array, default: () => [] },
 });
 
 const query = ref('');
@@ -32,6 +32,7 @@ const form = useForm({
     payment_choice: 'LATER',
     payment_method_id: props.paymentMethods[0]?.id ?? '',
     payment_reference: '',
+    cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
 });
 
 const patientTypeLabels = {
@@ -91,7 +92,7 @@ const canPayNow = computed(() => !isStaff.value
     && !mutualCoverageMissing.value
     && !hasUnpricedServices.value
     && patientTotal.value > 0
-    && Boolean(props.openCashSession)
+    && props.openCashSessions.length > 0
     && props.paymentMethods.length > 0);
 const complete = computed(() => selectedServices.value.length > 0 || form.defer_designation);
 const selectedRoutes = computed(() => Array.from(new Set(
@@ -121,6 +122,7 @@ const submit = () => {
         payment_choice: !isStaff.value && data.catalog_lines.length ? data.payment_choice : null,
         payment_method_id: !isStaff.value && data.catalog_lines.length && data.payment_choice === 'NOW' ? data.payment_method_id : null,
         payment_reference: !isStaff.value && data.catalog_lines.length && data.payment_choice === 'NOW' ? data.payment_reference : null,
+        cash_register_uuid: !isStaff.value && data.catalog_lines.length && data.payment_choice === 'NOW' ? data.cash_register_uuid : null,
     })).post(`/reception/passages/${props.episode.uuid}/prestations`, { preserveScroll: true });
 };
 </script>
@@ -200,7 +202,7 @@ const submit = () => {
                     <div class="mt-4 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
                         <div class="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-gray-800">
                             <div class="flex items-center gap-2"><Icon class="text-base text-slate-400" name="wallet" /><div><h3 class="text-sm font-bold text-slate-700 dark:text-white">Règlement</h3><p class="mt-0.5 text-xs text-slate-400">La facture est créée après confirmation du parcours.</p></div></div>
-                            <span v-if="openCashSession && !isStaff" class="text-xs font-semibold text-slate-500"><span class="me-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400"></span>Caisse {{ openCashSession.session_number }} ouverte</span>
+                            <span v-if="openCashSessions.length > 0 && !isStaff" class="text-xs font-semibold text-slate-500"><span class="me-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400"></span>{{ openCashSessions.length > 1 ? `${openCashSessions.length} caisses ouvertes` : `Caisse ${openCashSessions[0].session_number} ouverte` }}</span>
                             <span v-else-if="!isStaff" class="text-xs font-semibold text-slate-400">Caisse fermée</span>
                         </div>
                         <div v-if="isStaff" class="px-4 py-3 text-xs leading-5 text-amber-700 dark:text-amber-300"><strong>Personnel clinique :</strong> le tarif brut configuré est mémorisé ; RH / Finance calculera ensuite la gratuité et le crédit chirurgie.</div>
@@ -210,6 +212,7 @@ const submit = () => {
                             <button type="button" :class="['rounded-md border p-3 text-start', form.payment_choice === 'NOW' ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800', !canPayNow ? 'cursor-not-allowed opacity-50' : '']" :disabled="!canPayNow" @click="choosePayment('NOW')"><span class="text-sm font-bold text-slate-700 dark:text-white">Payer maintenant</span><span class="mt-1 block text-xs text-slate-400">Encaissement de la part patient et reçu immédiat.</span></button>
                             <button type="button" :class="['rounded-md border p-3 text-start', form.payment_choice === 'LATER' ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20' : 'border-gray-200 dark:border-gray-800']" @click="choosePayment('LATER')"><span class="text-sm font-bold text-slate-700 dark:text-white">Payer plus tard</span><span class="mt-1 block text-xs text-slate-400">Facture validée avec solde à payer.</span></button>
                             <template v-if="form.payment_choice === 'NOW'">
+                                <label v-if="openCashSessions.length > 1"><span class="mb-1 block text-xs font-medium text-slate-500">Caisse</span><select v-model="form.cash_register_uuid" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="">Choisir…</option><option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option></select><FormError v-if="form.errors.cash_register_uuid">{{ form.errors.cash_register_uuid }}</FormError></label>
                                 <label><span class="mb-1 block text-xs font-medium text-slate-500">Mode de paiement</span><select v-model="form.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select></label>
                                 <label><span class="mb-1 block text-xs font-medium text-slate-500">Référence <span class="font-normal text-slate-400">(facultatif)</span></span><Input v-model="form.payment_reference" /></label>
                             </template>

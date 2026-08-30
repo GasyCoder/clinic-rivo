@@ -23,7 +23,7 @@ const props = defineProps({
     externalPrescriber: String,
     capabilities: { type: Object, default: () => ({}) },
     paymentMethods: { type: Array, default: () => [] },
-    openCashSession: { type: Object, default: null },
+    openCashSessions: { type: Array, default: () => [] },
 });
 const page = usePage();
 const brandName = computed(() => page.props.site?.brand ?? 'Clinique Saint Georges');
@@ -62,6 +62,7 @@ const paymentForm = useForm({
     amount: props.invoice.balance_amount,
     reference: '',
     notes: '',
+    cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
 });
 const submitPayment = () => paymentForm.post(`/invoices/${props.invoice.uuid}/payments`, {
     preserveScroll: true,
@@ -194,7 +195,15 @@ onBeforeUnmount(() => {
                 <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Encaissement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
             </div>
 
-            <form v-if="capabilities.can_pay && openCashSession" class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
+            <form v-if="capabilities.can_pay && openCashSessions.length > 0" class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
+                <div v-if="openCashSessions.length > 1">
+                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
+                    <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                        <option value="">Choisir…</option>
+                        <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
+                    </select>
+                    <FormError :message="paymentForm.errors.cash_register_uuid" />
+                </div>
                 <div>
                     <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
                     <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
@@ -217,6 +226,7 @@ onBeforeUnmount(() => {
                     <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
                 </div>
                 <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
+                <FormError v-if="openCashSessions.length <= 1" class="sm:col-span-4" :message="paymentForm.errors.cash_register_uuid" />
             </form>
             <p v-else-if="!capabilities.can_pay" class="px-4 py-4 text-sm text-slate-400">Votre compte ne dispose pas du droit d’encaissement.</p>
             <p v-else class="px-4 py-4 text-sm text-amber-700 dark:text-amber-300">Ouvrez la caisse pour encaisser cette facture.</p>

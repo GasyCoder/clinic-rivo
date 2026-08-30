@@ -66,6 +66,7 @@ const adminMenu = computed(() => [
     { icon: 'list-index', text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
     { icon: 'capsule', text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
     { icon: 'map-pin', text: 'Référentiel adresses', link: '/super-admin/addresses', permission: 'address_entries.view' },
+    { icon: 'wallet', text: 'Caisses', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { heading: 'Accès & système' },
     { icon: 'users', text: 'Gestion utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
     { icon: 'shield-check', text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },

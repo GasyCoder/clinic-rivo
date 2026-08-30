@@ -2511,3 +2511,182 @@ La transition est atomique et auditée sous `episode.mark_emergency`. Elle est
 protégée par la permission granulaire du même nom, accordée par défaut à
 `RECEPTION` et `MEDICINE`. Cette permission n’accorde aucun droit générique
 `episodes.update` à Médecine.
+
+---
+
+# ADR-057 — Supervision centrale des sessions de caisse
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Le portail Super Administration expose, pour chaque caisse nommée et toujours
+via l’API du site opérationnel, une fiche de supervision comprenant la session
+active, l’agent qui l’a ouverte, les dates et heures, les mouvements, les
+montants attendus/comptés, les écarts et l’historique récent. Aucun accès SQL
+direct aux bases des cliniques n’est ajouté.
+
+Le **verrouillage** et la **clôture** sont deux opérations différentes. Un
+verrouillage suspend tout nouvel encaissement et toute annulation de paiement,
+mais conserve la session financière active et son `active_key` : il ne crée
+aucune clôture fictive et n’autorise pas l’ouverture d’une autre caisse. Le
+déverrouillage permet la reprise sur la même session.
+
+La clôture centrale est définitive. Elle exige les espèces réellement
+comptées et un motif ; le site recalcule lui-même le montant attendu à partir
+des mouvements, enregistre l’écart, libère l’unique `active_key` puis clôture
+la session. Le portail central ne fournit jamais le montant attendu comme
+vérité comptable.
+
+Les trois transitions sont atomiques, idempotentes au niveau API et auditées
+sous `cash.lock`, `cash.unlock` et `cash.close`. L’identité UUID du Super
+Administrateur est enregistrée comme acteur externe, sans créer d’utilisateur
+local. Les permissions dédiées sont `cash_registers.lock`,
+`cash_registers.unlock` et `cash_registers.close`, réservées par défaut au
+profil `SUPER_ADMIN` du portail central.
+
+---
+
+# ADR-058 — Caisses concurrentes par poste nommé
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Cette décision amende l’ADR-011 : chaque site ne possède plus nécessairement
+une seule caisse fonctionnelle, mais une caisse fonctionnelle **par poste
+nommé** lorsque des postes sont configurés (`CashRegister`), et une seule
+caisse fonctionnelle site-large lorsqu’aucun poste n’est configuré — le
+comportement historique reste inchangé à l’octet près dans ce second cas.
+
+```text
+Site sans poste configuré → une seule session de caisse, comme avant
+Site avec Caisse 1, Caisse 2 → Caisse 1 et Caisse 2 ouvrables et
+                                utilisables simultanément, chacune sa
+                                propre session
+```
+
+Caisse 1 et Caisse 2 ne s’excluent jamais l’une l’autre : ouvrir l’une
+n’empêche plus d’ouvrir l’autre. La seule règle qui subsiste est que le
+**même** poste ne peut jamais avoir deux sessions ouvertes à la fois. Cette
+décision rejette explicitement l’alternative envisagée d’un verrouillage
+« exclusif à l’ouvreur » — n’importe quel utilisateur autorisé
+(`payments.create`/`cash.*`) continue d’opérer n’importe quelle session
+ouverte, exactement comme aujourd’hui pour la session unique du site ; seul
+le périmètre change, du site entier vers le poste précis sur lequel
+l’utilisateur travaille.
+
+Le mécanisme réutilise sans migration la colonne `cash_sessions.active_key`
+déjà unique et nullable : `CashSession::activeKeyFor()` calcule
+`'REGISTER_'.$cashRegister->id` pour un poste nommé, et conserve la valeur
+historique `'SINGLE_OPEN_CASH'` en l’absence de poste. Deux postes différents
+produisent deux valeurs distinctes et n’entrent donc jamais en collision sur
+l’index unique ; le même poste rouvert reproduit la même valeur et déclenche
+la même collision qu’avant. Cette même clé pilote désormais aussi la
+supervision centrale de l’ADR-057 : verrouiller, déverrouiller ou clôturer à
+distance cible le poste précisé, jamais « la » session du site.
+
+Aucun paiement enregistré sans contexte de caisse explicite (facture, compte
+patient, arrivée Réception) n’est jamais attribué à l’aveugle à une caisse
+ambiguë : `RecordPaymentAction` n’auto-résout la session que si une seule est
+ouverte sur le site, et exige sinon que l’appelant précise
+`cash_register_uuid`, avec une erreur explicite plutôt qu’une mauvaise
+attribution silencieuse.
+
+---
+
+# ADR-059 — Exclusivité locale du titulaire d’une session, détachement central
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire) ; le
+détachement central (`cash_registers.release`) décrit plus bas est
+**SUPERSEDED par l’ADR-060** (2026-08-30, même jour) — le reste de cette
+décision (exclusivité locale de l’ouvreur) reste pleinement en vigueur.
+
+Cette décision amende l’ADR-058 le jour même : l’alternative « verrouillage
+exclusif à l’ouvreur », explicitement rejetée par l’ADR-058, est en fait
+retenue. Une session ouverte ne peut plus être utilisée localement — pour
+encaisser, clôturer ou annuler un paiement — par un autre compte que celui
+qui l’a ouverte (`cash_sessions.opened_by`). Un compte différent qui tente
+d’y accéder est bloqué avec un message explicite et orienté vers une autre
+caisse disponible, plutôt que de continuer silencieusement à opérer la
+session d’un collègue absent.
+
+```text
+Florent ouvre Caisse 1 → seul Florent peut y encaisser ou la clôturer
+Andry visite /cash/1     → bloqué : « Caisse 1 est utilisée par Florent »
+Andry ouvre Caisse 2     → Caisse 2 lui appartient, indépendamment de Caisse 1
+```
+
+L’application se fait à trois niveaux, jamais seulement dans l’interface :
+`RecordPaymentAction`, `CloseCashSessionAction` et `CancelPaymentAction`
+refusent chacun l’action si l’acteur local diffère de `opened_by`, même en
+forçant l’UUID de la caisse. Côté UI, le sélecteur de caisse et l’espace de
+travail rapportent l’état par poste (`is_mine`) plutôt qu’un simple « ouvert
+ou non », afin que le blocage soit visible avant toute tentative.
+
+**Détachement central — l’échappatoire délibérée (SUPERSEDED par l’ADR-060,
+retiré le jour même).** Un titulaire absent qui
+n’a pas clôturé sa session ne doit pas bloquer indéfiniment une caisse. Le
+Super Administrateur dispose de `cash_registers.release`
+(`ReleaseCashSessionAction`, action `session/release`) : elle retire le
+titulaire (`opened_by` devient `null`) sans clôturer ni modifier les
+montants, l’historique ou l’état verrouillé/ouvert de la session. Cette
+action est distincte de `cash_registers.close` (ADR-057) — elle ne clôture
+rien et n’exige aucun comptage — et distincte d’une réattribution : le
+portail central ne choisit jamais explicitement quel compte local reprend la
+caisse (ADR-027 tient les comptes centraux à l’écart des rosters locaux).
+
+Une session détachée reste ouverte et devient réclamable : le premier acteur
+local qui l’utilise réellement — un encaissement ou une clôture, jamais une
+simple consultation — en devient automatiquement le nouveau titulaire,
+tracé sous l’action d’audit dédiée `cash.claim`. `cash_sessions.opened_by`
+est donc désormais nullable ; les colonnes `released_by`,
+`external_released_by_uuid/name`, `released_at` et `release_reason`
+suivent le même schéma que le verrouillage central de l’ADR-057.
+
+---
+
+# ADR-060 — Retrait du détachement central : seule la clôture libère une caisse
+
+**Status:** ACCEPTED (2026-08-30 — exigence explicite du propriétaire)
+
+Cette décision retire, le jour même de son introduction, le mécanisme de
+« détachement central » de l’ADR-059 (`cash_registers.release`,
+`ReleaseCashSessionAction`, action `session/release`). Pour la traçabilité,
+aucune action — locale ou centrale — ne doit jamais transférer la garde
+d’une caisse encore ouverte à un autre titulaire sans un comptage réel des
+espèces. Le détachement permettait précisément l’inverse : faire disparaître
+un titulaire sans compter l’argent qu’il avait sous sa garde.
+
+```text
+Avant (ADR-059)                         Après (ADR-060)
+Florent absent, caisse ouverte          Florent absent, caisse ouverte
+→ Super Admin « Détache » (pas de       → Super Admin doit « Clôturer »
+  comptage, session reste ouverte,        (comptage obligatoire, écart
+  titulaire suivant repris au premier      tracé, session définitivement
+  encaissement)                            close)
+                                         → N'importe qui peut ensuite ouvrir
+                                            une NOUVELLE session normalement
+```
+
+L’exclusivité locale de l’ouvreur (ADR-059, première partie) reste
+pleinement en vigueur et n’est pas concernée par ce retrait : un compte
+différent de l’ouvreur reste bloqué sur `RecordPaymentAction`,
+`CloseCashSessionAction` et `CancelPaymentAction`. La seule différence est
+qu’il n’existe plus aucune façon de faire cesser cette garde sans
+`cash_registers.close` (ADR-057) — jamais de transfert silencieux, jamais
+sans comptage.
+
+Retirés : le contrôleur `release()` (API site et portail), le client
+`releaseCashRegisterSession()`, les routes `session/release`, l’action
+`ReleaseCashSessionAction`, le bouton « Détacher le titulaire » et sa
+fenêtre de confirmation, ainsi que la logique de réclamation automatique
+(« claim on first use ») dans `RecordPaymentAction` et
+`CloseCashSessionAction` — ces deux actions redeviennent une simple
+comparaison stricte avec `opened_by`, sans cas particulier pour une valeur
+`null`.
+
+Conservés, volontairement, sans retour en arrière risqué sur une base déjà
+migrée : la colonne `cash_sessions.opened_by` reste nullable, ainsi que les
+colonnes `released_by`, `external_released_by_uuid/name`, `released_at` et
+`release_reason` — inertes, jamais réécrites par aucun code depuis cette
+décision, mais nécessaires pour lire sans erreur l’historique déjà produit
+par le mécanisme retiré (des sessions déjà détachées avant ce retrait
+peuvent encore porter `opened_by = null` ; seule une clôture centrale peut
+désormais les libérer).

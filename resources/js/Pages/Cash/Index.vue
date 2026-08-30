@@ -1,223 +1,67 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormGroup from '@/Components/UI/FormGroup.vue';
 import FormLabel from '@/Components/UI/FormLabel.vue';
 import Icon from '@/Components/UI/Icon.vue';
-import IconInput from '@/Components/UI/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { formatDateTime } from '@/utilities/date';
-import { formatMoney } from '@/utilities/money';
-import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
+import { useToastStore } from '@/stores/toast';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
-    cashSession: Object,
-    summary: Object,
-    outstandingInvoices: Array,
-    outstandingSummary: Object,
-    paymentMethods: Array,
-    recentPayments: Array,
-    recentSessions: Array,
-    pharmacyLookup: Object,
+    registers: Array,
 });
 
 const { can } = usePermissions();
-const activeLedgerTab = ref(props.pharmacyLookup?.reference
-    ? 'pharmacy'
-    : (can('billing.view') ? 'invoices' : 'payments'));
-const invoiceSearch = ref('');
-const showCloseForm = ref(false);
-const paymentTarget = ref(null);
-const pharmacyReference = ref(props.pharmacyLookup?.reference ?? '');
-const pharmacyLookupMode = ref('manual');
-const scannerActive = ref(false);
-const scannerError = ref('');
-const scannerVideo = ref(null);
-let scannerStream = null;
-let scannerFrame = null;
-let pharmacyLookupTimer = null;
+const toast = useToastStore();
+const openTarget = ref(null);
 
-const openForm = useForm({ opening_amount: 0, notes: '' });
-const closeForm = useForm({ actual_closing_amount: '', notes: '' });
-const paymentForm = useForm({
-    invoice_uuid: '',
-    payment_method_id: props.paymentMethods?.[0]?.id ?? '',
-    amount: '',
-    reference: '',
-    notes: '',
+const openForm = useForm({
+    opening_amount: 0,
+    notes: 'Ouverture de caisse en début de journée.',
+    cash_register_uuid: '',
 });
 
-const normalizedInvoiceSearch = computed(() => invoiceSearch.value.trim().toLocaleLowerCase('fr'));
-const filteredOutstandingInvoices = computed(() => {
-    if (!normalizedInvoiceSearch.value) return props.outstandingInvoices ?? [];
+// A session open by someone else is never mine to resume — only its own
+// opener can enter it; anyone else must pick a different, available poste.
+const registerStatus = (register) => {
+    if (!register.is_open && !register.is_locked) return 'available';
 
-    return (props.outstandingInvoices ?? []).filter((invoice) => [
-        invoice.invoice_number,
-        invoice.episode?.episode_number,
-        invoice.patient?.patient_number,
-        invoice.customer_name,
-        invoice.source_module,
-        formatPatientName(invoice.patient),
-    ].some((value) => String(value ?? '').toLocaleLowerCase('fr').includes(normalizedInvoiceSearch.value)));
-});
-
-const invoiceStatusLabel = (invoice) => ({
-    DRAFT: 'Brouillon',
-    VALIDATED: 'À payer',
-    PARTIALLY_PAID: 'Paiement partiel',
-    PAID: 'Payée',
-    COVERED: 'Prise en charge',
-    CANCELLED: 'Annulée',
-}[invoice.status] ?? invoice.status);
-const invoiceCanBePaid = (invoice) => ['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status)
-    && Number(invoice.balance_amount) > 0;
-const invoiceCustomerName = (invoice) => invoice.patient
-    ? formatPatientName(invoice.patient)
-    : (invoice.customer_name || 'Client comptoir');
-const invoiceCustomerInitials = (invoice) => invoice.patient
-    ? formatPatientInitials(invoice.patient)
-    : invoiceCustomerName(invoice).split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase();
-
-const openCash = () => openForm.post('/cash/open', { preserveScroll: true });
-const closeCash = () => closeForm.post('/cash/close', {
-    preserveScroll: true,
-    onError: () => { showCloseForm.value = true; },
-});
-
-const openPaymentDialog = (invoice) => {
-    paymentTarget.value = invoice;
-    paymentForm.clearErrors();
-    paymentForm.invoice_uuid = invoice.uuid;
-    paymentForm.payment_method_id = props.paymentMethods?.[0]?.id ?? '';
-    paymentForm.amount = invoice.balance_amount;
-    paymentForm.reference = '';
-    paymentForm.notes = '';
+    return register.is_mine ? (register.is_locked ? 'locked' : 'open') : 'blocked';
 };
 
-const closePaymentDialog = () => {
-    if (!paymentForm.processing) paymentTarget.value = null;
-};
+const selectRegister = (register) => {
+    const status = registerStatus(register);
 
-const stopQrScanner = () => {
-    scannerActive.value = false;
-    if (scannerFrame !== null) cancelAnimationFrame(scannerFrame);
-    scannerFrame = null;
-    scannerStream?.getTracks().forEach((track) => track.stop());
-    scannerStream = null;
-    if (scannerVideo.value) scannerVideo.value.srcObject = null;
-};
-
-const submitPharmacyLookup = () => {
-    if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
-    pharmacyLookupTimer = null;
-    const reference = pharmacyReference.value.trim();
-    if (reference === (props.pharmacyLookup?.reference ?? '')) return;
-
-    stopQrScanner();
-    router.get('/cash', reference ? { pharmacy_reference: reference } : {}, {
-        preserveScroll: true,
-        preserveState: true,
-        replace: true,
-        only: ['pharmacyLookup'],
-    });
-};
-
-const startQrScanner = async () => {
-    scannerError.value = '';
-
-    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
-        scannerError.value = 'La caméra QR n’est pas prise en charge par ce navigateur. Utilisez un lecteur QR ou saisissez la référence.';
+    if (status === 'blocked') {
+        toast.warning(`${register.name} est déjà utilisée par ${register.opener_name}. Choisissez une autre caisse disponible.`);
         return;
     }
 
-    try {
-        const supportedFormats = await window.BarcodeDetector.getSupportedFormats?.();
-        if (supportedFormats && !supportedFormats.includes('qr_code')) {
-            throw new Error('QR_UNSUPPORTED');
-        }
-
-        scannerActive.value = true;
-        await nextTick();
-        scannerStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' } },
-            audio: false,
-        });
-        scannerVideo.value.srcObject = scannerStream;
-        await scannerVideo.value.play();
-        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-
-        const detect = async () => {
-            if (!scannerActive.value || !scannerVideo.value) return;
-
-            try {
-                const codes = await detector.detect(scannerVideo.value);
-                const value = codes.find((code) => code.rawValue)?.rawValue?.trim();
-
-                if (value) {
-                    pharmacyReference.value = value;
-                    stopQrScanner();
-                    submitPharmacyLookup();
-                    return;
-                }
-            } catch {
-                // A transient frame decoding failure must not stop the camera.
-            }
-
-            if (scannerActive.value) scannerFrame = requestAnimationFrame(detect);
-        };
-
-        scannerFrame = requestAnimationFrame(detect);
-    } catch (error) {
-        stopQrScanner();
-        scannerError.value = error?.name === 'NotAllowedError'
-            ? 'Accès à la caméra refusé. Autorisez la caméra ou saisissez la référence.'
-            : 'Impossible de démarrer le scanner QR. Utilisez un lecteur QR ou saisissez la référence.';
+    if (status === 'open' || status === 'locked') {
+        router.visit(`/cash/${register.uuid}`);
+        return;
     }
+
+    openForm.clearErrors();
+    openForm.opening_amount = 0;
+    openForm.notes = 'Ouverture de caisse en début de journée.';
+    openForm.cash_register_uuid = register.uuid;
+    openTarget.value = register;
 };
 
-const selectPharmacyLookupMode = (mode) => {
-    if (mode !== 'scan') stopQrScanner();
-    scannerError.value = '';
-    pharmacyLookupMode.value = mode;
+const closeOpenDialog = () => {
+    if (!openForm.processing) openTarget.value = null;
 };
 
-watch(activeLedgerTab, (tab) => {
-    if (tab !== 'pharmacy') {
-        if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
-        pharmacyLookupTimer = null;
-        stopQrScanner();
-    }
-});
-
-watch(pharmacyReference, () => {
-    if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
-    pharmacyLookupTimer = null;
-
-    if (activeLedgerTab.value !== 'pharmacy' || pharmacyLookupMode.value !== 'manual') return;
-
-    pharmacyLookupTimer = setTimeout(submitPharmacyLookup, 350);
-});
-
-const recordPayment = () => {
-    paymentForm.post(`/invoices/${paymentTarget.value.uuid}/payments`, {
-        preserveScroll: true,
-        onSuccess: () => {
-            paymentTarget.value = null;
-            activeLedgerTab.value = 'payments';
-        },
-    });
-};
-
-onBeforeUnmount(() => {
-    if (pharmacyLookupTimer !== null) clearTimeout(pharmacyLookupTimer);
-    stopQrScanner();
+const confirmOpen = () => openForm.post('/cash/open', {
+    preserveScroll: true,
+    onSuccess: () => { openTarget.value = null; },
 });
 </script>
 
@@ -225,230 +69,90 @@ onBeforeUnmount(() => {
     <Head title="Caisse" />
 
     <div class="mx-auto w-full max-w-[1500px] space-y-4">
-        <header class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div class="flex min-w-0 items-center gap-3">
-                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-2xl" name="wallet" /></span>
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2.5">
-                        <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Caisse</h1>
-                        <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold', cashSession ? 'border-green-200 text-green-700 dark:border-green-900 dark:text-green-300' : 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400']">
-                            <span :class="['h-1.5 w-1.5 rounded-full', cashSession ? 'bg-green-500' : 'bg-slate-300']"></span>{{ cashSession ? 'Ouverte' : 'Fermée' }}
-                        </span>
-                    </div>
-                    <p class="mt-0.5 text-sm text-slate-400">Encaissez les factures validées et remettez les reçus de paiement.</p>
-                </div>
+        <header class="flex flex-col gap-4 border-b border-gray-200 pb-4 dark:border-gray-900 lg:flex-row lg:items-end lg:justify-between">
+            <div class="min-w-0">
+                <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">Réception · Encaissement</p>
+                <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Postes de caisse</h1>
+                <p class="mt-1 text-sm text-slate-400">Sélectionnez le poste de travail à utiliser pour la session d’encaissement.</p>
             </div>
-
             <div class="flex flex-wrap items-center gap-2">
                 <Button :as="Link" href="/reception" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Accueil réception</span></Button>
                 <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="users" /><span class="ms-2">Patients</span></Button>
             </div>
         </header>
 
-        <section v-if="cashSession" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">
-                <div class="flex min-w-0 items-center gap-3">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-lg" name="unlock" /></span>
-                    <div class="min-w-0">
-                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Session {{ cashSession.session_number }}</h2><span class="text-xs text-slate-400">ouverte par {{ cashSession.opener.name }}</span></div>
-                        <p class="mt-0.5 text-xs text-slate-400">{{ formatDateTime(cashSession.opened_at) }} · Une seule caisse active sur ce site</p>
-                    </div>
-                </div>
-                <Button v-if="can('cash.close')" size="sm" :variant="showCloseForm ? 'danger-outline' : 'warning'" type="button" @click="showCloseForm = !showCloseForm"><Icon class="text-base" :name="showCloseForm ? 'cross' : 'lock'" /><span class="ms-1.5">{{ showCloseForm ? 'Annuler' : 'Clôturer la caisse' }}</span></Button>
-            </div>
-
-            <dl class="grid grid-cols-2 divide-x divide-y divide-gray-200 dark:divide-gray-900 lg:grid-cols-4 lg:divide-y-0">
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Fond initial</dt><dd class="mt-1 text-base font-bold text-slate-700 dark:text-white">{{ formatMoney(cashSession.opening_amount) }}</dd></div>
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total encaissé</dt><dd class="mt-1 text-base font-bold text-slate-700 dark:text-white">{{ formatMoney(summary.total_collected) }}</dd></div>
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Espèces encaissées</dt><dd class="mt-1 text-base font-bold text-slate-700 dark:text-white">{{ formatMoney(summary.cash_collected) }}</dd></div>
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Espèces attendues</dt><dd class="mt-1 text-base font-bold text-slate-800 dark:text-white">{{ formatMoney(summary.expected_cash) }}</dd></div>
-            </dl>
-
-            <form v-if="showCloseForm && can('cash.close')" class="border-t border-gray-200 bg-gray-50/60 px-4 py-4 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="closeCash">
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto] md:items-end">
-                    <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="actual_closing_amount">Espèces comptées <span class="text-red-500">*</span></FormLabel><Input id="actual_closing_amount" v-model="closeForm.actual_closing_amount" type="number" min="0" step="0.01" required /><FormError v-if="closeForm.errors.actual_closing_amount">{{ closeForm.errors.actual_closing_amount }}</FormError></FormGroup>
-                    <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="close_notes">Note de clôture</FormLabel><Input id="close_notes" v-model="closeForm.notes" placeholder="Observation facultative" /><FormError v-if="closeForm.errors.notes">{{ closeForm.errors.notes }}</FormError></FormGroup>
-                    <Button size="rg" variant="warning" type="submit" :disabled="closeForm.processing"><Icon class="text-lg" name="lock" /><span class="ms-2">{{ closeForm.processing ? 'Clôture…' : 'Confirmer la clôture' }}</span></Button>
-                </div>
-                <FormError v-if="closeForm.errors.cash_session" class="mt-2">{{ closeForm.errors.cash_session }}</FormError>
-            </form>
-        </section>
-
-        <section v-else class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex items-start gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-900">
-                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-lg" name="lock" /></span>
-                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Ouvrir la caisse</h2><p class="mt-0.5 text-xs leading-5 text-slate-400">Une session ouverte est obligatoire avant tout encaissement et toute émission de reçu.</p></div>
-            </div>
-            <form v-if="can('cash.open')" class="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-[220px_minmax(0,1fr)_auto] md:items-end" @submit.prevent="openCash">
-                <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="opening_amount">Fond de caisse <span class="text-red-500">*</span></FormLabel><Input id="opening_amount" v-model="openForm.opening_amount" type="number" min="0" step="0.01" required /><FormError v-if="openForm.errors.opening_amount">{{ openForm.errors.opening_amount }}</FormError></FormGroup>
-                <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="open_notes">Note d’ouverture</FormLabel><Input id="open_notes" v-model="openForm.notes" placeholder="Observation facultative" /><FormError v-if="openForm.errors.notes">{{ openForm.errors.notes }}</FormError></FormGroup>
-                <Button size="rg" variant="primary" type="submit" :disabled="openForm.processing"><Icon class="text-lg" name="unlock" /><span class="ms-2">{{ openForm.processing ? 'Ouverture…' : 'Ouvrir la caisse' }}</span></Button>
-                <FormError v-if="openForm.errors.cash_session" class="md:col-span-3">{{ openForm.errors.cash_session }}</FormError>
-            </form>
-        </section>
-
         <section class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-900 xl:flex-row xl:items-center xl:justify-between">
-                <div class="inline-flex w-full rounded-md bg-gray-100 p-1 dark:bg-gray-900 sm:w-auto" role="tablist" aria-label="Facturation de la caisse">
-                    <button
-                        v-if="can('billing.view')"
-                        id="cash-invoices-tab"
-                        type="button"
-                        role="tab"
-                        :aria-selected="activeLedgerTab === 'invoices'"
-                        aria-controls="cash-invoices-panel"
-                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-40 sm:flex-none', activeLedgerTab === 'invoices' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
-                        @click="activeLedgerTab = 'invoices'"
-                    >
-                        <Icon :class="['text-base', activeLedgerTab === 'invoices' ? 'text-primary-600' : 'text-slate-400']" name="file-text" />
-                        <span class="truncate">Factures à encaisser</span>
-                        <span :class="['inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px]', activeLedgerTab === 'invoices' ? 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300' : 'bg-gray-200 text-slate-500 dark:bg-gray-800 dark:text-slate-400']">{{ outstandingSummary?.count ?? 0 }}</span>
-                    </button>
-                    <button
-                        v-if="can('billing.view')"
-                        id="cash-pharmacy-ticket-tab"
-                        type="button"
-                        role="tab"
-                        :aria-selected="activeLedgerTab === 'pharmacy'"
-                        aria-controls="cash-pharmacy-ticket-panel"
-                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-40 sm:flex-none', activeLedgerTab === 'pharmacy' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
-                        @click="activeLedgerTab = 'pharmacy'"
-                    >
-                        <Icon :class="['text-base', activeLedgerTab === 'pharmacy' ? 'text-primary-600' : 'text-slate-400']" name="scan" />
-                        <span class="truncate">Contrôle ticket Pharmacie</span>
-                        <span :class="['inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px]', activeLedgerTab === 'pharmacy' ? 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300' : 'bg-gray-200 text-slate-500 dark:bg-gray-800 dark:text-slate-400']">{{ pharmacyLookup?.matches?.length ?? 0 }}</span>
-                    </button>
-                    <button
-                        v-if="can('payments.view')"
-                        id="cash-payments-tab"
-                        type="button"
-                        role="tab"
-                        :aria-selected="activeLedgerTab === 'payments'"
-                        aria-controls="cash-payments-panel"
-                        :class="['flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded px-3 text-xs font-bold transition-all sm:min-w-40 sm:flex-none', activeLedgerTab === 'payments' ? 'border border-gray-200 bg-white text-slate-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white' : 'border border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
-                        @click="activeLedgerTab = 'payments'"
-                    >
-                        <Icon :class="['text-base', activeLedgerTab === 'payments' ? 'text-primary-600' : 'text-slate-400']" name="money" />
-                        <span class="truncate">Paiements récents</span>
-                        <span :class="['inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px]', activeLedgerTab === 'payments' ? 'bg-primary-50 text-primary-600 dark:bg-primary-950 dark:text-primary-300' : 'bg-gray-200 text-slate-500 dark:bg-gray-800 dark:text-slate-400']">{{ recentPayments.length }}</span>
-                    </button>
+            <div class="grid gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900 md:grid-cols-[minmax(0,1fr)_minmax(280px,420px)] md:items-center">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-700 dark:text-white">Choisir un poste</h2>
+                    <p class="mt-1 text-xs leading-5 text-slate-400">Chaque poste tient sa propre session, indépendamment des autres postes.</p>
                 </div>
-
-                <div v-if="activeLedgerTab === 'invoices' && can('billing.view')" class="flex w-full flex-col gap-3 sm:flex-row sm:items-center xl:w-auto">
-                    <div class="flex shrink-0 items-center justify-between gap-4 sm:block sm:border-e sm:border-gray-200 sm:pe-4 sm:text-end dark:sm:border-gray-800">
-                        <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Solde à encaisser</p>
-                        <p class="text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(outstandingSummary?.balance_amount ?? 0) }}</p>
-                    </div>
-                    <div class="relative w-full sm:w-80">
-                        <IconInput id="cash_invoice_search" v-model="invoiceSearch" icon="search" type="text" inputmode="search" class="!pe-10" placeholder="Patient, n° facture ou passage" aria-label="Rechercher une facture" />
-                        <button v-if="invoiceSearch" type="button" class="absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200" aria-label="Effacer la recherche" title="Effacer la recherche" @click="invoiceSearch = ''"><Icon class="text-sm" name="cross" /></button>
-                    </div>
-                </div>
-
-                <form v-if="activeLedgerTab === 'pharmacy' && can('billing.view')" class="flex w-full flex-col gap-2 sm:flex-row sm:items-center xl:w-auto" @submit.prevent="submitPharmacyLookup">
-                    <div class="inline-flex shrink-0 rounded bg-gray-100 p-1 dark:bg-gray-900" role="group" aria-label="Mode de contrôle du ticket Pharmacie">
-                        <button type="button" :class="['inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition', pharmacyLookupMode === 'manual' ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-950 dark:text-primary-300' : 'text-slate-500 dark:text-slate-300']" @click="selectPharmacyLookupMode('manual')"><Icon name="edit" /> Saisir</button>
-                        <button type="button" :class="['inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition', pharmacyLookupMode === 'scan' ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-950 dark:text-primary-300' : 'text-slate-500 dark:text-slate-300']" @click="selectPharmacyLookupMode('scan')"><Icon name="scan" /> Scanner QR</button>
-                    </div>
-                    <div class="relative min-w-0 flex-1 sm:w-72">
-                        <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-base text-slate-400" :name="pharmacyLookupMode === 'scan' ? 'scan' : 'search'" />
-                        <input v-model="pharmacyReference" type="search" maxlength="100" autocomplete="off" class="h-9 w-full rounded border border-gray-200 bg-white ps-9 pe-3 font-mono text-xs font-bold uppercase text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" :placeholder="pharmacyLookupMode === 'scan' ? 'Présentez le QR au lecteur…' : 'Ticket, client, patient ou passage'">
-                    </div>
-                    <Button v-if="pharmacyLookupMode === 'scan'" icon size="rg" variant="white-outline" type="button" :disabled="scannerActive" title="Ouvrir la caméra" aria-label="Ouvrir la caméra QR" @click="startQrScanner"><Icon name="camera" /></Button>
-                    <Button icon size="rg" type="submit" title="Rechercher" aria-label="Rechercher un ticket Pharmacie"><Icon name="search" /></Button>
-                </form>
-            </div>
-
-            <div v-if="activeLedgerTab === 'pharmacy' && can('billing.view')" id="cash-pharmacy-ticket-panel" role="tabpanel" aria-labelledby="cash-pharmacy-ticket-tab">
-                <div v-if="scannerActive || scannerError" class="border-b border-gray-200 p-4 dark:border-gray-900">
-                    <div v-if="scannerActive" class="relative mx-auto max-w-2xl overflow-hidden rounded-lg border border-primary-200 bg-slate-950 dark:border-primary-900">
-                        <video ref="scannerVideo" class="aspect-video w-full object-cover" playsinline muted />
-                        <div class="pointer-events-none absolute inset-0 flex items-center justify-center"><span class="h-44 w-44 rounded-lg border-2 border-white/80 shadow-[0_0_0_999px_rgba(15,23,42,.35)]" /></div>
-                        <button type="button" class="absolute end-3 top-3 inline-flex h-8 items-center gap-1.5 rounded bg-white px-2.5 text-xs font-bold text-slate-700 shadow" @click="stopQrScanner"><Icon name="cross" /> Fermer</button>
-                    </div>
-                    <p v-if="scannerError" class="mx-auto flex max-w-2xl items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"><Icon class="mt-0.5 shrink-0" name="alert-triangle" />{{ scannerError }}</p>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full min-w-[1050px] border-collapse">
-                        <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient / client</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Facture / passage</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Validation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Déjà payé</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Reste à payer</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Statut</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Actions</th></tr></thead>
-                        <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                            <template v-if="pharmacyLookup?.found">
-                                <tr v-for="invoice in pharmacyLookup.matches" :key="invoice.uuid" class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30">
-                                    <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(invoice)" /><div class="min-w-0"><Link v-if="invoice.patient && can('patients.view')" :href="`/patients/${invoice.patient.uuid}`" class="block max-w-56 truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(invoice) }}</Link><span v-else class="block max-w-56 truncate text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(invoice) }}</span><span class="text-xs text-slate-400">{{ invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div></td>
-                                    <td class="px-4 py-3"><Link v-if="can('billing.print')" :href="`/invoices/${invoice.uuid}?from=cash`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoice.invoice_number }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</span><p class="mt-0.5 text-xs text-slate-400">{{ invoice.episode?.episode_number ?? 'Sans passage patient' }} · {{ invoice.lines_count }} ligne{{ invoice.lines_count > 1 ? 's' : '' }}</p></td>
-                                    <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.total_amount) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.paid_amount) }}</td><td class="px-4 py-3 text-end text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</td>
-                                    <td class="px-4 py-3"><span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ invoiceStatusLabel(invoice) }}</span></td>
-                                    <td class="px-4 py-3"><div class="flex items-center justify-end gap-2"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}?from=cash`" icon size="rg" title="Voir et imprimer la facture" variant="white-outline" aria-label="Voir et imprimer la facture"><Icon class="text-base" name="file-text" /></Button><Button v-if="invoiceCanBePaid(invoice) && can('payments.create')" size="sm" variant="success" type="button" :disabled="!cashSession || paymentMethods.length === 0" @click="openPaymentDialog(invoice)"><Icon name="money" /><span class="ms-1.5">Encaisser</span></Button></div></td>
-                                </tr>
-                            </template>
-                            <tr v-else-if="pharmacyLookup"><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" :name="pharmacyLookup.reference ? 'cross-circle' : 'file-text'" /><p class="mt-2 text-sm font-medium text-slate-500"><template v-if="pharmacyLookup.reference">Aucun ticket Pharmacie trouvé pour <strong class="font-mono">{{ pharmacyLookup.reference }}</strong>.</template><template v-else>Aucune facture Pharmacie enregistrée.</template></p></td></tr>
-                            <tr v-else><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-medium text-slate-500">Saisissez ou scannez une référence pour afficher les factures Pharmacie.</p></td></tr>
-                        </tbody>
-                    </table>
+                <div class="border-s-2 border-primary-500 ps-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
+                    Les tickets Pharmacie restent contrôlés et encaissés ici, dans l’espace Caisse. La Pharmacie n’encaisse jamais directement.
                 </div>
             </div>
-
-            <div v-if="activeLedgerTab === 'invoices' && can('billing.view')" id="cash-invoices-panel" class="overflow-x-auto" role="tabpanel" aria-labelledby="cash-invoices-tab">
-                <table class="w-full min-w-[1050px] border-collapse">
-                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Facture / passage</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Validation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Déjà payé</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Reste à payer</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Statut</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Actions</th></tr></thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                        <tr v-for="invoice in filteredOutstandingInvoices" :key="invoice.uuid" class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30">
-                            <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(invoice)" /><div class="min-w-0"><Link v-if="invoice.patient && can('patients.view')" :href="`/patients/${invoice.patient.uuid}`" class="block max-w-56 truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(invoice) }}</Link><span v-else class="block max-w-56 truncate text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(invoice) }}</span><span class="text-xs text-slate-400">{{ invoice.patient?.patient_number ?? (invoice.source_module === 'PHARMACY' ? 'Vente Pharmacie' : 'Client externe') }}</span></div></div></td>
-                            <td class="px-4 py-3"><Link v-if="can('billing.print')" :href="`/invoices/${invoice.uuid}?from=cash`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoice.invoice_number }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</span><p class="mt-0.5 text-xs text-slate-400">{{ invoice.episode?.episode_number ?? 'Sans passage patient' }} · {{ invoice.lines_count }} ligne{{ invoice.lines_count > 1 ? 's' : '' }}</p></td>
-                            <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.total_amount) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.paid_amount) }}</td><td class="px-4 py-3 text-end text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</td>
-                            <td class="px-4 py-3"><span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ invoiceStatusLabel(invoice) }}</span></td>
-                            <td class="px-4 py-3"><div class="flex items-center justify-end gap-2"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}?from=cash`" icon size="rg" title="Voir et imprimer la facture" variant="white-outline" aria-label="Voir et imprimer la facture"><Icon class="text-base" name="file-text" /></Button><Button v-if="can('payments.create')" size="sm" variant="success" type="button" :disabled="!cashSession || paymentMethods.length === 0" :title="!cashSession ? 'Ouvrez la caisse avant l’encaissement' : paymentMethods.length === 0 ? 'Aucun mode de paiement actif' : 'Encaisser cette facture'" @click="openPaymentDialog(invoice)"><Icon class="text-base" name="money" /><span class="ms-1.5">Encaisser</span></Button></div></td>
-                        </tr>
-                        <tr v-if="filteredOutstandingInvoices.length === 0"><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" name="file-text" /><p class="mt-2 text-sm font-medium text-slate-500">{{ invoiceSearch ? 'Aucune facture ne correspond à la recherche.' : 'Aucune facture en attente de paiement.' }}</p></td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div v-if="activeLedgerTab === 'payments' && can('payments.view')" id="cash-payments-panel" class="overflow-x-auto" role="tabpanel" aria-labelledby="cash-payments-tab">
-                <table class="w-full min-w-[980px] border-collapse">
-                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Paiement</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Date / heure</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Mode</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Montant</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Documents</th></tr></thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                        <tr v-for="payment in recentPayments" :key="payment.uuid" class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30">
-                            <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(payment.invoice)" /><div><Link v-if="payment.invoice.patient && can('patients.view')" :href="`/patients/${payment.invoice.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(payment.invoice) }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(payment.invoice) }}</span><span class="block text-xs text-slate-400">{{ payment.invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div></td>
-                            <td class="px-4 py-3"><p class="text-sm font-bold text-slate-700 dark:text-white">{{ payment.payment_number }}</p><p class="mt-0.5 text-xs text-slate-400">Facture {{ payment.invoice.invoice_number }}</p></td><td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(payment.paid_at) }}</td><td class="px-4 py-3"><p class="text-sm text-slate-600 dark:text-slate-300">{{ payment.method.name }}</p><p class="mt-0.5 text-xs text-slate-400">Par {{ payment.cashier.name }}</p></td>
-                            <td class="px-4 py-3 text-end text-sm"><span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-white']">{{ formatMoney(payment.amount) }}</span><span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-900 dark:text-red-300">Annulé</span></td>
-                            <td class="px-4 py-3"><div class="flex items-center justify-end gap-2"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${payment.invoice.uuid}?from=cash`" icon size="rg" title="Imprimer la facture" variant="white-outline" aria-label="Imprimer la facture"><Icon class="text-base" name="file-text" /></Button><Button v-if="payment.receipt && can('receipts.view')" :as="Link" :href="`/receipts/${payment.receipt.uuid}?from=cash`" size="sm" variant="white-outline"><Icon class="text-base" name="printer" /><span class="ms-1.5">{{ payment.receipt.receipt_number }}</span></Button></div></td>
-                        </tr>
-                        <tr v-if="recentPayments.length === 0"><td colspan="6" class="px-5 py-10 text-center text-sm text-slate-400">Aucun paiement enregistré.</td></tr>
-                    </tbody>
-                </table>
+            <div class="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+                <button
+                    v-for="register in registers"
+                    :key="register.uuid"
+                    type="button"
+                    :class="['group flex min-h-36 flex-col items-stretch rounded border bg-white text-start transition-all dark:bg-gray-950',
+                        registerStatus(register) === 'open' ? 'border-emerald-300 shadow-sm hover:-translate-y-px hover:border-emerald-400 hover:shadow-md dark:border-emerald-900'
+                        : registerStatus(register) === 'locked' ? 'border-amber-300 shadow-sm hover:-translate-y-px hover:border-amber-400 hover:shadow-md dark:border-amber-900'
+                        : registerStatus(register) === 'blocked' ? 'cursor-not-allowed border-gray-200 bg-gray-50/70 dark:border-gray-800 dark:bg-gray-1000/40'
+                        : 'border-gray-200 hover:-translate-y-px hover:border-primary-300 hover:shadow-md dark:border-gray-800 dark:hover:border-primary-800']"
+                    @click="selectRegister(register)"
+                >
+                    <div class="flex items-start justify-between gap-4 p-4">
+                        <div class="min-w-0">
+                            <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Poste de caisse</p>
+                            <p class="mt-1 truncate text-base font-bold text-slate-700 dark:text-white">{{ register.name }}</p>
+                        </div>
+                        <Icon :class="['mt-0.5 shrink-0 text-xl', registerStatus(register) === 'open' ? 'text-emerald-600 dark:text-emerald-300' : registerStatus(register) === 'locked' ? 'text-amber-600 dark:text-amber-300' : registerStatus(register) === 'blocked' ? 'text-slate-300 dark:text-slate-700' : 'text-primary-600 dark:text-primary-300']" :name="registerStatus(register) === 'open' ? 'unlock' : registerStatus(register) === 'locked' || registerStatus(register) === 'blocked' ? 'lock' : 'wallet'" />
+                    </div>
+                    <div class="mt-auto flex items-center justify-between gap-3 border-t border-gray-200 px-4 py-3 dark:border-gray-900">
+                        <div>
+                            <p :class="['text-xs font-bold', registerStatus(register) === 'open' ? 'text-emerald-700 dark:text-emerald-300' : registerStatus(register) === 'blocked' ? 'text-slate-400' : 'text-slate-600 dark:text-slate-300']">
+                                {{ registerStatus(register) === 'open' ? 'Session en cours' : registerStatus(register) === 'locked' ? 'Session suspendue' : registerStatus(register) === 'blocked' ? 'Poste occupé' : 'Prêt à ouvrir' }}
+                            </p>
+                            <p class="mt-0.5 text-[11px] text-slate-400">{{ registerStatus(register) === 'open' ? `Caissier : ${register.opener_name}` : registerStatus(register) === 'locked' ? 'Verrouillée par la supervision' : registerStatus(register) === 'blocked' ? `Utilisée par ${register.opener_name}` : 'Aucune session active' }}</p>
+                        </div>
+                        <span :class="['inline-flex items-center gap-1 text-xs font-bold', registerStatus(register) === 'blocked' ? 'text-slate-300 dark:text-slate-700' : 'text-primary-600 group-hover:translate-x-0.5 dark:text-primary-300']">
+                            {{ registerStatus(register) === 'open' ? 'Reprendre' : registerStatus(register) === 'locked' ? 'Consulter' : registerStatus(register) === 'blocked' ? 'Indisponible' : 'Ouvrir' }}<Icon v-if="registerStatus(register) !== 'blocked'" name="arrow-right" />
+                        </span>
+                    </div>
+                </button>
             </div>
         </section>
 
-        <details class="group overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden">
-                <div class="flex items-center gap-3"><span class="flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300"><Icon name="history" /></span><div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des sessions</h2><p class="mt-0.5 text-xs text-slate-400">{{ recentSessions.length }} dernières ouvertures et clôtures</p></div></div>
-                <Icon class="text-lg text-slate-400 transition-transform group-open:rotate-180" name="chevron-down" />
-            </summary>
-            <div class="overflow-x-auto border-t border-gray-200 dark:border-gray-900">
-                <table class="w-full min-w-[760px] border-collapse">
-                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Session</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Ouverture</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Clôture</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Attendu</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Écart</th></tr></thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900"><tr v-for="session in recentSessions" :key="session.uuid"><td class="px-4 py-3 text-sm font-bold text-slate-700 dark:text-white">{{ session.session_number }}</td><td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(session.opened_at) }} · {{ session.opener.name }}</td><td class="px-4 py-3 text-sm text-slate-500">{{ session.closed_at ? `${formatDateTime(session.closed_at)} · ${session.closer?.name}` : 'En cours' }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ session.expected_closing_amount == null ? '—' : formatMoney(session.expected_closing_amount) }}</td><td :class="['px-4 py-3 text-end text-sm font-bold', session.variance_amount == null || Number(session.variance_amount) === 0 ? 'text-slate-600' : 'text-red-600']">{{ session.variance_amount == null ? '—' : formatMoney(session.variance_amount) }}</td></tr></tbody>
-                </table>
-            </div>
-        </details>
-
-        <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="closePaymentDialog">
-            <section class="w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cash-payment-dialog-title">
-                <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900"><div class="flex min-w-0 items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-xl" name="money" /></span><div class="min-w-0"><h2 id="cash-payment-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Encaisser la facture</h2><p class="mt-0.5 truncate text-sm text-slate-400">{{ paymentTarget.invoice_number }} · {{ invoiceCustomerName(paymentTarget) }}</p></div></div><button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closePaymentDialog"><Icon class="text-xl" name="cross" /></button></header>
-                <dl class="grid grid-cols-3 divide-x divide-gray-200 border-b border-gray-200 bg-gray-50/60 dark:divide-gray-900 dark:border-gray-900 dark:bg-gray-1000/30"><div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</dt><dd class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(paymentTarget.total_amount) }}</dd></div><div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Déjà payé</dt><dd class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(paymentTarget.paid_amount) }}</dd></div><div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Reste à payer</dt><dd class="mt-1 text-sm font-black text-slate-800 dark:text-white">{{ formatMoney(paymentTarget.balance_amount) }}</dd></div></dl>
-
-                <form class="space-y-4 p-5" @submit.prevent="recordPayment">
-                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_amount">Montant <span class="text-red-500">*</span></FormLabel><Input id="cash_payment_amount" v-model="paymentForm.amount" type="number" min="0.01" :max="paymentTarget.balance_amount" step="0.01" required autofocus /><FormError v-if="paymentForm.errors.amount">{{ paymentForm.errors.amount }}</FormError></FormGroup>
-                        <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel><select id="cash_payment_method" v-model="paymentForm.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required><option value="" disabled>Choisir</option><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select><FormError v-if="paymentForm.errors.payment_method_id">{{ paymentForm.errors.payment_method_id }}</FormError></FormGroup>
+        <div v-if="openTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="closeOpenDialog">
+            <section class="w-full max-w-md overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cash-open-dialog-title">
+                <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                    <div class="min-w-0">
+                        <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-primary-600 dark:text-primary-300">Ouverture de session</p>
+                        <h2 id="cash-open-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">{{ openTarget.name }}</h2>
+                        <p class="mt-1 text-sm text-slate-400">Renseignez le fond réellement remis au caissier.</p>
                     </div>
-                    <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_reference">Référence</FormLabel><Input id="cash_payment_reference" v-model="paymentForm.reference" placeholder="Mobile money, virement…" /><FormError v-if="paymentForm.errors.reference">{{ paymentForm.errors.reference }}</FormError></FormGroup>
-                    <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_notes">Note</FormLabel><Input id="cash_payment_notes" v-model="paymentForm.notes" placeholder="Observation facultative" /><FormError v-if="paymentForm.errors.notes">{{ paymentForm.errors.notes }}</FormError></FormGroup>
-                    <FormError v-if="paymentForm.errors.cash_session">{{ paymentForm.errors.cash_session }}</FormError><FormError v-if="paymentForm.errors.invoice_uuid">{{ paymentForm.errors.invoice_uuid }}</FormError>
-                    <div class="flex items-start gap-2.5 rounded border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 dark:border-gray-800 dark:bg-gray-1000/30"><Icon class="mt-0.5 shrink-0 text-base text-slate-400" name="info" /><p>La confirmation enregistre le paiement dans la session ouverte et génère son reçu. La facture restera disponible en formats B5 et ticket thermique.</p></div>
-                    <div class="flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${paymentTarget.uuid}?from=cash`" size="rg" variant="white-outline"><Icon class="text-lg" name="file-text" /><span class="ms-2">Voir la facture</span></Button><div class="flex justify-end gap-2"><Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button><Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser et générer le reçu' }}</span></Button></div></div>
+                    <button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closeOpenDialog"><Icon class="text-xl" name="cross" /></button>
+                </header>
+
+                <form class="space-y-4 p-5" @submit.prevent="confirmOpen">
+                    <FormGroup class="!mb-0">
+                        <FormLabel class="mb-1.5" for="open_amount">Fond initial <span class="text-red-500">*</span></FormLabel>
+                        <Input id="open_amount" v-model="openForm.opening_amount" type="number" min="0" step="0.01" size="lg" class="font-bold" required autofocus />
+                        <FormError v-if="openForm.errors.opening_amount">{{ openForm.errors.opening_amount }}</FormError>
+                    </FormGroup>
+                    <FormGroup class="!mb-0">
+                        <FormLabel class="mb-1.5" for="open_notes">Note d’ouverture</FormLabel>
+                        <textarea id="open_notes" v-model="openForm.notes" rows="3" class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950"></textarea>
+                        <FormError v-if="openForm.errors.notes">{{ openForm.errors.notes }}</FormError>
+                    </FormGroup>
+                    <FormError v-if="openForm.errors.cash_register_uuid">{{ openForm.errors.cash_register_uuid }}</FormError>
+                    <FormError v-if="openForm.errors.cash_session">{{ openForm.errors.cash_session }}</FormError>
+                    <div class="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-900">
+                        <Button size="rg" variant="white-outline" type="button" :disabled="openForm.processing" @click="closeOpenDialog">Annuler</Button>
+                        <Button size="rg" variant="primary" type="submit" :disabled="openForm.processing"><Icon class="text-lg" name="unlock" /><span class="ms-2">{{ openForm.processing ? 'Ouverture…' : 'Ouvrir la session' }}</span></Button>
+                    </div>
                 </form>
             </section>
         </div>

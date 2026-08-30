@@ -101,6 +101,98 @@ class PortalSiteApiClient
     }
 
     /** @return array<int, array<string, mixed>> */
+    public function cashRegistersForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/cash-registers', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function createCashRegister(string $siteCode, string $name, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers', ['name' => $name], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function cashRegisterProfile(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/cash-registers/'.$uuid, [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function updateCashRegister(string $siteCode, string $uuid, string $name, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/cash-registers/'.$uuid, ['name' => $name], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function activateCashRegister(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/activate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function deactivateCashRegister(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/deactivate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function archiveCashRegister(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/cash-registers/'.$uuid, ['reason' => $reason], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function restoreCashRegister(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/restore', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function lockCashRegisterSession(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/cash-registers/'.$uuid.'/session/lock',
+            ['reason' => $reason],
+            $actor,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function unlockCashRegisterSession(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/cash-registers/'.$uuid.'/session/unlock',
+            ['reason' => $reason],
+            $actor,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function closeCashRegisterSession(
+        string $siteCode,
+        string $uuid,
+        string $actualClosingAmount,
+        string $reason,
+        User $actor,
+    ): array {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/cash-registers/'.$uuid.'/session/close',
+            ['actual_closing_amount' => $actualClosingAmount, 'reason' => $reason],
+            $actor,
+        );
+    }
+
+    /** @return array<int, array<string, mixed>> */
     public function catalogForAllSites(User $actor, array $query = []): array
     {
         return collect(config('rivo.clinics', []))

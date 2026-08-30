@@ -39,6 +39,9 @@ class RolePermissionSeeder extends Seeder
             'leave.view', 'leave.create', 'leave.approve', 'leave.cancel',
             'planning.view', 'planning.create', 'planning.update',
             'hr_reports.view', 'hr_reports.export',
+            'cash_registers.view', 'cash_registers.create', 'cash_registers.update',
+            'cash_registers.activate', 'cash_registers.deactivate',
+            'cash_registers.archive', 'cash_registers.restore',
         ],
         'LOGISTICS' => [
             'logistics.view', 'logistics.manage',
@@ -71,7 +74,7 @@ class RolePermissionSeeder extends Seeder
             'billing.view', 'billing.create', 'billing.validate',
             'billing.print',
             'payments.view', 'payments.create', 'payments.cancel',
-            'cash.view', 'cash.open', 'cash.close',
+            'cash.view', 'cash.open', 'cash.close', 'cash_registers.view',
             'receipts.view', 'receipts.print',
         ],
         'MEDICINE' => [

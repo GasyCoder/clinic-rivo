@@ -10,6 +10,7 @@ const { can } = usePermissions();
 
 const areas = [
     { title: 'Employés & RH', description: 'Crédit forfaitaire Bloc et registre des mouvements du personnel.', icon: 'users', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits' },
+    { title: 'Caisses', description: 'Caisses nommées du site — une seule reste ouverte à la fois, la Réception choisit laquelle.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers' },
     { title: 'Contrats', description: 'Contrats et archivage administratif.', icon: 'file-docs', permission: 'contracts.view' },
     { title: 'Présences & congés', description: 'Présences, absences et demandes de congé.', icon: 'calendar', permission: 'attendance.view' },
     { title: 'Planning', description: 'Organisation des équipes et services.', icon: 'calender-date', permission: 'planning.view' },

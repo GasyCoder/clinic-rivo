@@ -96,6 +96,12 @@ class StoreEpisodeServicesRequest extends FormRequest
                 'string',
                 'max:255',
             ],
+            'cash_register_uuid' => [
+                Rule::prohibitedIf($this->input('payment_choice') !== ArrivalPaymentChoice::Now->value),
+                'nullable',
+                'uuid',
+                Rule::exists('cash_registers', 'uuid'),
+            ],
         ];
     }
 

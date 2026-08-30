@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Actions\Cash\CloseCashSessionAction;
 use App\Actions\Cash\OpenCashSessionAction;
+use App\Enums\CashSessionStatus;
 use App\Enums\InvoiceStatus;
 use App\Http\Requests\CloseCashSessionRequest;
 use App\Http\Requests\OpenCashSessionRequest;
+use App\Models\CashRegister;
 use App\Models\CashSession;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -19,12 +21,73 @@ use Inertia\Response;
 
 class CashController extends Controller
 {
+    /**
+     * A site with configured registers lands on the picker (choose which
+     * named caisse to work in); a site with none configured skips straight
+     * to the single, unnamed workspace it always had — fully unchanged.
+     */
     public function index(Request $request): Response
     {
-        $session = CashSession::query()
-            ->where('active_key', 'SINGLE_OPEN_CASH')
+        $registers = CashRegister::query()->where('active', true)->orderBy('name')->get();
+
+        if ($registers->isEmpty()) {
+            return $this->renderWorkspace($request, null);
+        }
+
+        // Each register locks its own active_key slot (CashSession::activeKeyFor),
+        // so several registers can each hold an open — or locked — session at
+        // the same time; none of them blocks any other.
+        $openSessions = CashSession::query()
+            ->whereIn('cash_register_id', $registers->pluck('id'))
+            ->whereNotNull('active_key')
             ->with('opener:id,name')
+            ->get()
+            ->keyBy('cash_register_id');
+
+        return Inertia::render('Cash/Index', [
+            'registers' => $registers->map(function (CashRegister $register) use ($openSessions, $request) {
+                $session = $openSessions->get($register->id);
+
+                return [
+                    'uuid' => $register->uuid,
+                    'name' => $register->name,
+                    'is_open' => $session?->status === CashSessionStatus::Open,
+                    'is_locked' => $session?->status === CashSessionStatus::Locked,
+                    // Only the opener can resume/consult it — a session opened
+                    // by someone else is reported so the picker can block it.
+                    'is_mine' => $session !== null && $session->opened_by === $request->user()->id,
+                    'opener_name' => $session?->opener?->name,
+                ];
+            }),
+        ]);
+    }
+
+    public function show(Request $request, CashRegister $cashRegister): Response
+    {
+        return $this->renderWorkspace($request, $cashRegister);
+    }
+
+    private function renderWorkspace(Request $request, ?CashRegister $cashRegister): Response
+    {
+        // A register's session is simply its own — no other register's state
+        // can ever block it, they each hold an independent active_key slot.
+        $session = CashSession::query()
+            ->where('active_key', CashSession::activeKeyFor($cashRegister))
+            ->with(['opener:id,name', 'locker:id,name', 'register:id,uuid,name'])
             ->first();
+
+        // Only the session's own opener can operate — or even see — it as
+        // "theirs"; anyone else gets steered toward a different, available
+        // caisse instead of silently touching someone else's till. There is
+        // no local escape hatch for a stuck till: only Super Admin's central
+        // closure (CatalogActor, bypasses this check entirely) can end its
+        // custody without the opener coming back.
+        $blockingSession = null;
+
+        if ($session && $session->opened_by !== $request->user()->id) {
+            $blockingSession = ['opener_name' => $session->opener?->name];
+            $session = null;
+        }
 
         $summary = null;
 
@@ -41,12 +104,16 @@ class CashController extends Controller
             $summary = [
                 'total_collected' => Money::fromMinor($totalMinor),
                 'cash_collected' => Money::fromMinor($cashMinor),
-                'expected_cash' => Money::fromMinor(Money::toMinor($session->opening_amount) + $cashMinor),
+                'expected_cash' => $session->computeExpectedClosingAmount(),
             ];
         }
 
         $recentPayments = $request->user()->can('payments.view')
             ? Payment::query()
+                ->when($cashRegister, fn ($query) => $query->whereHas(
+                    'cashSession',
+                    fn ($sessionQuery) => $sessionQuery->where('cash_register_id', $cashRegister->id),
+                ))
                 ->with([
                     'invoice:id,uuid,patient_id,invoice_number,customer_type,customer_name,customer_phone,source_module',
                     'invoice.patient:id,uuid,patient_number,first_name,last_name',
@@ -96,13 +163,16 @@ class CashController extends Controller
             : collect();
 
         $recentSessions = CashSession::query()
-            ->with(['opener:id,name', 'closer:id,name'])
+            ->when($cashRegister, fn ($query) => $query->where('cash_register_id', $cashRegister->id))
+            ->with(['opener:id,name', 'closer:id,name', 'register:id,uuid,name'])
             ->latest('opened_at')
             ->limit(10)
             ->get();
 
-        return Inertia::render('Cash/Index', [
+        return Inertia::render('Cash/Show', [
+            'cashRegister' => $cashRegister ? ['uuid' => $cashRegister->uuid, 'name' => $cashRegister->name] : null,
             'cashSession' => $session,
+            'blockingSession' => $blockingSession,
             'summary' => $summary,
             'outstandingInvoices' => $outstandingInvoices,
             'outstandingSummary' => $request->user()->can('billing.view')
@@ -186,19 +256,37 @@ class CashController extends Controller
             (string) $request->validated('opening_amount'),
             $request->validated('notes'),
             $request->user(),
+            $request->validated('cash_register_uuid'),
         );
 
-        return back()->with('status', "Caisse {$session->session_number} ouverte.");
+        $status = "Caisse {$session->session_number} ouverte.";
+
+        // Opening from the register picker's modal never visited the
+        // workspace page first, so a plain back() would just re-render the
+        // picker instead of landing the cashier on the till they just opened.
+        if ($session->cash_register_id !== null) {
+            $session->loadMissing('register');
+
+            return redirect()->route('cash.show', $session->register)->with('status', $status);
+        }
+
+        return back()->with('status', $status);
     }
 
     public function close(
         CloseCashSessionRequest $request,
         CloseCashSessionAction $action,
     ): RedirectResponse {
+        $cashRegisterUuid = $request->validated('cash_register_uuid');
+        $register = $cashRegisterUuid
+            ? CashRegister::query()->where('uuid', $cashRegisterUuid)->first()
+            : null;
+
         $session = $action->execute(
             (string) $request->validated('actual_closing_amount'),
             $request->validated('notes'),
             $request->user(),
+            register: $register,
         );
 
         return back()->with('status', "Caisse {$session->session_number} clôturée.");

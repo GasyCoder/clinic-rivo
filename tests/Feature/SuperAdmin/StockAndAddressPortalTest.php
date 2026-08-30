@@ -92,6 +92,143 @@ class StockAndAddressPortalTest extends TestCase
             && $request['label'] === 'Nouvelle localité');
     }
 
+    public function test_cash_registers_page_and_create_command_use_the_selected_site_api(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/cash-registers*' => Http::response([
+                'data' => [['uuid' => 'register-m', 'name' => 'Caisse 1', 'active' => true, 'sessions_count' => 3]],
+                'meta' => ['summary' => ['displayed' => 1, 'active' => 1, 'archived' => 0]],
+            ], 200),
+            'https://a.test/api/v1/super-admin/cash-registers*' => Http::response([
+                'data' => [],
+                'meta' => ['summary' => ['displayed' => 0, 'active' => 0, 'archived' => 0]],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/cash-registers?status=ACTIVE')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/CashRegisters/Index')
+                ->has('sites', 3)
+                ->where('sites.0.data.0.name', 'Caisse 1')
+                ->where('filters.status', 'ACTIVE'));
+
+        $this->actingAs($this->superAdmin)->post('/super-admin/cash-registers', [
+            'site_code' => 'M',
+            'name' => 'Caisse 2',
+        ])->assertRedirect()->assertSessionHas('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/cash-registers'
+            && $request->hasHeader('Idempotency-Key')
+            && $request['name'] === 'Caisse 2');
+    }
+
+    public function test_cash_register_profile_and_supervision_commands_use_only_the_selected_site_api(): void
+    {
+        Http::fake(function ($request) {
+            if ($request->method() === 'GET') {
+                return Http::response([
+                    'data' => [
+                        'register' => ['uuid' => 'register-m', 'name' => 'Caisse 1', 'active' => true, 'sessions_count' => 2],
+                        'active_session' => [
+                            'uuid' => 'session-m', 'session_number' => 'AC-000010', 'status' => 'OPEN',
+                            'opening_amount' => '10000.00', 'opened_by' => 'Florent',
+                            'opened_at' => '2026-08-30T08:00:00+03:00',
+                            'totals' => ['total_in' => '5000.00', 'total_out' => '0.00', 'net_total' => '5000.00', 'cash_net' => '5000.00', 'expected_cash' => '15000.00'],
+                        ],
+                        'focus_session' => null,
+                        'movements' => [],
+                        'recent_sessions' => [],
+                        'lifetime' => ['sessions_count' => 2, 'closed_sessions_count' => 1, 'total_in' => '5000.00', 'total_out' => '0.00', 'net_total' => '5000.00', 'cash_net' => '5000.00'],
+                    ],
+                ], 200);
+            }
+
+            return Http::response(['message' => 'Commande appliquée.'], 200);
+        });
+
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/cash-registers/M/register-m')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/CashRegisters/Show')
+                ->where('targetSite.code', 'M')
+                ->where('profile.register.name', 'Caisse 1')
+                ->where('profile.active_session.opened_by', 'Florent')
+                // The portal's own shared `site` prop (used by the sidebar to
+                // pick the admin menu) must never be shadowed by the remote
+                // clinic being supervised — it stays the portal's own identity.
+                ->where('site.type', 'admin')
+                ->where('site.code', 'ADMIN'));
+
+        $this->actingAs($this->superAdmin)
+            ->post('/super-admin/cash-registers/M/register-m/session/lock', [
+                'reason' => 'Contrôle administratif en cours',
+            ])->assertRedirect()->assertSessionHas('status');
+
+        $this->actingAs($this->superAdmin)
+            ->post('/super-admin/cash-registers/M/register-m/session/close', [
+                'actual_closing_amount' => '15000.00',
+                'reason' => 'Clôture centrale avec comptage confirmé',
+            ])->assertRedirect()->assertSessionHas('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/cash-registers/register-m/session/lock'
+            && $request->hasHeader('Idempotency-Key')
+            && $request['reason'] === 'Contrôle administratif en cours');
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/cash-registers/register-m/session/close'
+            && $request['actual_closing_amount'] === '15000.00');
+    }
+
+    public function test_cash_register_movements_and_sessions_can_each_be_exported_to_excel(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/cash-registers/register-m' => Http::response([
+                'data' => [
+                    'register' => ['uuid' => 'register-m', 'name' => 'Caisse 1', 'active' => true, 'sessions_count' => 2],
+                    'active_session' => null,
+                    'focus_session' => null,
+                    'movements' => [[
+                        'uuid' => 'movement-1', 'type' => 'PAYMENT', 'direction' => 'IN', 'amount' => '5000.00',
+                        'description' => 'Encaissement facture F-000010', 'payment_method' => 'Espèces',
+                        'payment_number' => 'F-000010', 'recorded_by' => 'Florent',
+                        'occurred_at' => '2026-08-30T09:00:00+03:00',
+                    ]],
+                    'recent_sessions' => [[
+                        'uuid' => 'session-m', 'session_number' => 'AC-000010', 'status' => 'CLOSED',
+                        'opening_amount' => '10000.00', 'actual_closing_amount' => '15000.00', 'variance_amount' => '0.00',
+                        'opened_by' => 'Florent', 'opened_at' => '2026-08-30T08:00:00+03:00',
+                        'closed_by' => 'Florent', 'closed_at' => '2026-08-30T18:00:00+03:00',
+                    ]],
+                    'lifetime' => ['sessions_count' => 2, 'closed_sessions_count' => 1, 'total_in' => '5000.00', 'total_out' => '0.00', 'net_total' => '5000.00', 'cash_net' => '5000.00'],
+                ],
+            ], 200),
+        ]);
+
+        $movements = $this->actingAs($this->superAdmin)
+            ->get('/super-admin/cash-registers/M/register-m/export?type=movements')
+            ->assertOk()
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        $movementRows = $this->excelRows($movements->streamedContent());
+
+        $this->assertSame(['Date/heure', 'Description', 'Type', 'Référence paiement', 'Mode de paiement', 'Agent', 'Sens', 'Montant'], $movementRows[0]);
+        $this->assertSame(['2026-08-30T09:00:00+03:00', 'Encaissement facture F-000010', 'PAYMENT', 'F-000010', 'Espèces', 'Florent', 'IN', '5000.00'], $movementRows[1]);
+
+        $sessions = $this->actingAs($this->superAdmin)
+            ->get('/super-admin/cash-registers/M/register-m/export?type=sessions')
+            ->assertOk();
+        $sessionRows = $this->excelRows($sessions->streamedContent());
+
+        $this->assertSame(['Session', 'Statut', 'Ouverte par', 'Ouverte le', 'Clôturée par', 'Clôturée le', 'Fond initial', 'Compté', 'Écart'], $sessionRows[0]);
+        $this->assertSame(['AC-000010', 'CLOSED', 'Florent', '2026-08-30T08:00:00+03:00', 'Florent', '2026-08-30T18:00:00+03:00', '10000.00', '15000.00', '0.00'], $sessionRows[1]);
+
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/cash-registers/M/register-m/export?type=invalid')
+            ->assertSessionHasErrors('type');
+    }
+
     public function test_stock_export_generates_one_excel_row_per_lot_for_the_selected_site(): void
     {
         Http::fake([

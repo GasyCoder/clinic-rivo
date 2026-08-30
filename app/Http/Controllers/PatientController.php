@@ -6,6 +6,7 @@ use App\Actions\Patient\DeletePatientsAction;
 use App\Actions\Patient\RecordPatientAntecedentAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\BillableItemStatus;
+use App\Enums\CashSessionStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
@@ -131,7 +132,7 @@ class PatientController extends Controller
 
         $account = null;
         $paymentMethods = [];
-        $openCashSession = null;
+        $openCashSessions = [];
         $billingCatalog = [];
 
         if ($request->user()->can('billing.view')) {
@@ -262,9 +263,19 @@ class PatientController extends Controller
         }
 
         if ($request->user()->can('payments.create') || $request->user()->can('payments.cancel')) {
-            $openCashSession = CashSession::query()
-                ->where('active_key', 'SINGLE_OPEN_CASH')
-                ->first(['uuid', 'session_number', 'opened_at']);
+            $openCashSessions = CashSession::query()
+                ->where('status', CashSessionStatus::Open->value)
+                ->where('opened_by', $request->user()->id)
+                ->whereNotNull('active_key')
+                ->with('register:id,uuid,name')
+                ->get(['uuid', 'session_number', 'opened_at', 'cash_register_id'])
+                ->map(fn (CashSession $s) => [
+                    'uuid' => $s->uuid,
+                    'session_number' => $s->session_number,
+                    'opened_at' => $s->opened_at,
+                    'register_uuid' => $s->register?->uuid,
+                    'register_name' => $s->register?->name,
+                ]);
         }
 
         if ($request->user()->can('billing.create')) {
@@ -285,7 +296,7 @@ class PatientController extends Controller
             'patient' => $patient,
             'account' => $account,
             'paymentMethods' => $paymentMethods,
-            'openCashSession' => $openCashSession,
+            'openCashSessions' => $openCashSessions,
             'billingCatalog' => $billingCatalog,
         ]);
     }

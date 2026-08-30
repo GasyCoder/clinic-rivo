@@ -22,7 +22,7 @@ const props = defineProps({
     patient: Object,
     account: Object,
     paymentMethods: Array,
-    openCashSession: Object,
+    openCashSessions: { type: Array, default: () => [] },
     billingCatalog: Array,
 });
 
@@ -87,6 +87,7 @@ const paymentForm = useForm({
     amount: '',
     reference: '',
     notes: '',
+    cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
 });
 
 const cancellationForm = useForm({ reason: '' });
@@ -212,6 +213,7 @@ const openPaymentDialog = (invoice) => {
     paymentForm.amount = invoice.balance_amount;
     paymentForm.reference = '';
     paymentForm.notes = '';
+    paymentForm.cash_register_uuid = props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '';
 };
 
 const closePaymentDialog = () => {
@@ -482,7 +484,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Compte patient</h2><p class="mt-0.5 text-xs text-slate-400">Factures, paiements successifs et reçus.</p></div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <span v-if="openCashSession" class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Caisse ouverte</span>
+                    <span v-if="openCashSessions.length > 0" class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Caisse ouverte</span>
                     <span v-else-if="can('payments.create')" class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-400"><span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Caisse fermée</span>
                     <span v-if="patient.patient_type === 'STAFF'" class="text-xs font-medium text-slate-500">Couverture RH / Finance à calculer</span>
                 </div>
@@ -600,8 +602,8 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <div class="flex flex-wrap items-center gap-2">
                             <Button v-if="invoice.status === 'DRAFT' && can('billing.validate')" size="sm" variant="white-outline" type="button" :disabled="validatingInvoice === invoice.uuid" @click="validateInvoice(invoice)"><Icon class="text-base" name="check" /><span class="ms-1.5">Valider</span></Button>
                             <Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" name="printer" /><span class="ms-1.5">Facture</span></Button>
-                            <Button v-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && openCashSession" size="sm" variant="success" type="button" @click="openPaymentDialog(invoice)"><Icon class="text-base" name="money" /><span class="ms-1.5">Encaisser</span></Button>
-                            <Button v-else-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && !openCashSession" :as="Link" href="/cash" size="sm" variant="white-outline">Ouvrir la caisse</Button>
+                            <Button v-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && openCashSessions.length > 0" size="sm" variant="success" type="button" @click="openPaymentDialog(invoice)"><Icon class="text-base" name="money" /><span class="ms-1.5">Encaisser</span></Button>
+                            <Button v-else-if="['VALIDATED', 'PARTIALLY_PAID'].includes(invoice.status) && can('payments.create') && openCashSessions.length === 0" :as="Link" href="/cash" size="sm" variant="white-outline">Ouvrir la caisse</Button>
                         </div>
                     </div>
 
@@ -659,7 +661,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                                 </span>
                             </div>
                             <div class="flex items-center gap-3 ps-6 sm:ps-0">
-                                <button v-if="payment.status === 'COMPLETED' && can('payments.cancel') && openCashSession?.uuid === payment.cash_session_uuid" type="button" class="text-xs font-medium text-red-600 hover:underline" @click="openCancellationDialog(payment)">Annuler</button>
+                                <button v-if="payment.status === 'COMPLETED' && can('payments.cancel') && openCashSessions.some((s) => s.uuid === payment.cash_session_uuid)" type="button" class="text-xs font-medium text-red-600 hover:underline" @click="openCancellationDialog(payment)">Annuler</button>
                                 <Link v-if="payment.receipt" :href="`/receipts/${payment.receipt.uuid}`" class="inline-flex items-center gap-1 text-xs font-bold text-primary-600 hover:underline"><Icon name="file-text" /> {{ payment.receipt.receipt_number }}</Link>
                             </div>
                         </div>
@@ -892,13 +894,14 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </div>
 
                 <form class="mt-6 space-y-4" @submit.prevent="recordPayment">
+                    <FormGroup v-if="openCashSessions.length > 1" class="!mb-0"><FormLabel class="mb-1.5" for="payment_register">Caisse <span class="text-red-500">*</span></FormLabel><select id="payment_register" v-model="paymentForm.cash_register_uuid" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required><option value="">Choisir…</option><option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option></select><FormError v-if="paymentForm.errors.cash_register_uuid">{{ paymentForm.errors.cash_register_uuid }}</FormError></FormGroup>
                     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_amount">Montant <span class="text-red-500">*</span></FormLabel><Input id="payment_amount" v-model="paymentForm.amount" type="number" min="0.01" :max="paymentTarget.balance_amount" step="0.01" required autofocus /><FormError v-if="paymentForm.errors.amount">{{ paymentForm.errors.amount }}</FormError></FormGroup>
                         <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel><select id="payment_method" v-model="paymentForm.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select><FormError v-if="paymentForm.errors.payment_method_id">{{ paymentForm.errors.payment_method_id }}</FormError></FormGroup>
                     </div>
                     <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_reference">Référence</FormLabel><Input id="payment_reference" v-model="paymentForm.reference" placeholder="Référence mobile money, virement…" /><FormError v-if="paymentForm.errors.reference">{{ paymentForm.errors.reference }}</FormError></FormGroup>
                     <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_notes">Note</FormLabel><Input id="payment_notes" v-model="paymentForm.notes" placeholder="Observation facultative" /><FormError v-if="paymentForm.errors.notes">{{ paymentForm.errors.notes }}</FormError></FormGroup>
-                    <FormError v-if="paymentForm.errors.cash_session">{{ paymentForm.errors.cash_session }}</FormError><FormError v-if="paymentForm.errors.invoice_uuid">{{ paymentForm.errors.invoice_uuid }}</FormError>
+                    <FormError v-if="paymentForm.errors.cash_session">{{ paymentForm.errors.cash_session }}</FormError><FormError v-if="paymentForm.errors.invoice_uuid">{{ paymentForm.errors.invoice_uuid }}</FormError><FormError v-if="openCashSessions.length <= 1 && paymentForm.errors.cash_register_uuid">{{ paymentForm.errors.cash_register_uuid }}</FormError>
                     <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:justify-end">
                         <Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button>
                         <Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : 'Confirmer et générer le reçu' }}</span></Button>

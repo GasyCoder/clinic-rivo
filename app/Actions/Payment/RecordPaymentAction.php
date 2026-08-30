@@ -7,6 +7,7 @@ use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\PharmacyDispenseStatus;
 use App\Models\CashMovement;
+use App\Models\CashRegister;
 use App\Models\CashSession;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -28,22 +29,12 @@ class RecordPaymentAction
     ) {}
 
     /**
-     * @param  array{invoice_uuid: string, payment_method_id: int, amount: mixed, reference?: ?string, notes?: ?string}  $data
+     * @param  array{invoice_uuid: string, payment_method_id: int, amount: mixed, reference?: ?string, notes?: ?string, cash_register_uuid?: ?string}  $data
      */
     public function execute(Patient|Invoice $payer, array $data, User $actor): Payment
     {
         return DB::transaction(function () use ($payer, $data, $actor) {
-            $session = CashSession::query()
-                ->where('active_key', 'SINGLE_OPEN_CASH')
-                ->where('status', CashSessionStatus::Open->value)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $session) {
-                throw ValidationException::withMessages([
-                    'cash_session' => 'Ouvrez la caisse avant d’enregistrer un paiement.',
-                ]);
-            }
+            $session = $this->resolveOpenSession($data['cash_register_uuid'] ?? null, $actor);
 
             $invoice = Invoice::query()
                 ->when($payer instanceof Patient, fn ($query) => $query->where('patient_id', $payer->id))
@@ -152,5 +143,71 @@ class RecordPaymentAction
 
             return $payment->load('method', 'receipt', 'invoice');
         });
+    }
+
+    /**
+     * Explicit register wins outright — every caller that knows which till
+     * it's working from (the /cash workspace, the arrival "payer maintenant"
+     * flow) should pass it. Without one, auto-resolve only when unambiguous:
+     * this keeps every existing caller working exactly as before as long as
+     * at most one session is open anywhere on the site, and fails loudly
+     * rather than guessing once a second register is open concurrently.
+     *
+     * Either way, only the session's own opener may pay into it — a caisse
+     * already open by someone else is never silently usable, even if it's
+     * the only one open on the site: the actor simply has none of their own.
+     */
+    private function resolveOpenSession(?string $cashRegisterUuid, User $actor): CashSession
+    {
+        if ($cashRegisterUuid !== null) {
+            $register = CashRegister::query()->where('uuid', $cashRegisterUuid)->first();
+
+            if (! $register) {
+                throw ValidationException::withMessages([
+                    'cash_register_uuid' => 'Cette caisse n’est plus disponible.',
+                ]);
+            }
+
+            $session = CashSession::query()
+                ->where('active_key', CashSession::activeKeyFor($register))
+                ->where('status', CashSessionStatus::Open->value)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $session) {
+                throw ValidationException::withMessages([
+                    'cash_session' => "La caisse « {$register->name} » n’est pas ouverte.",
+                ]);
+            }
+
+            if ($session->opened_by !== $actor->id) {
+                throw ValidationException::withMessages([
+                    'cash_register_uuid' => 'Cette caisse est utilisée par une autre personne. Utilisez une autre caisse disponible.',
+                ]);
+            }
+
+            return $session;
+        }
+
+        $openSessions = CashSession::query()
+            ->where('status', CashSessionStatus::Open->value)
+            ->where('opened_by', $actor->id)
+            ->whereNotNull('active_key')
+            ->lockForUpdate()
+            ->get();
+
+        if ($openSessions->isEmpty()) {
+            throw ValidationException::withMessages([
+                'cash_session' => 'Ouvrez la caisse avant d’enregistrer un paiement.',
+            ]);
+        }
+
+        if ($openSessions->count() > 1) {
+            throw ValidationException::withMessages([
+                'cash_register_uuid' => 'Plusieurs caisses sont ouvertes. Choisissez la caisse concernée.',
+            ]);
+        }
+
+        return $openSessions->first();
     }
 }

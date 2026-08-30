@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
+use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
@@ -30,6 +31,18 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/mutual-organizations/{organizationUuid}', [MutualOrganizationController::class, 'update'])->name('mutual-organizations.update');
         Route::delete('/mutual-organizations/{organizationUuid}', [MutualOrganizationController::class, 'destroy'])->name('mutual-organizations.destroy');
         Route::post('/mutual-organizations/{organizationUuid}/restore', [MutualOrganizationController::class, 'restore'])->name('mutual-organizations.restore');
+
+        Route::get('/cash-registers', [CashRegisterController::class, 'index'])->name('cash-registers.index');
+        Route::post('/cash-registers', [CashRegisterController::class, 'store'])->name('cash-registers.store');
+        Route::get('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'show'])->name('cash-registers.show');
+        Route::put('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'update'])->name('cash-registers.update');
+        Route::post('/cash-registers/{cashRegisterUuid}/session/lock', [CashRegisterController::class, 'lock'])->name('cash-registers.session.lock');
+        Route::post('/cash-registers/{cashRegisterUuid}/session/unlock', [CashRegisterController::class, 'unlock'])->name('cash-registers.session.unlock');
+        Route::post('/cash-registers/{cashRegisterUuid}/session/close', [CashRegisterController::class, 'close'])->name('cash-registers.session.close');
+        Route::post('/cash-registers/{cashRegisterUuid}/activate', [CashRegisterController::class, 'activate'])->name('cash-registers.activate');
+        Route::post('/cash-registers/{cashRegisterUuid}/deactivate', [CashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate');
+        Route::delete('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'destroy'])->name('cash-registers.destroy');
+        Route::post('/cash-registers/{cashRegisterUuid}/restore', [CashRegisterController::class, 'restore'])->name('cash-registers.restore');
 
         Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog.index');
         Route::post('/catalog', [CatalogController::class, 'store'])->name('catalog.store');

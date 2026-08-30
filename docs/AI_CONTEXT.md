@@ -377,6 +377,14 @@ est l'unique autorité d'encaissement.
 
 Tous les paiements doivent être effectués dans ce module.
 
+La Super Administration supervise les caisses uniquement via l’API de chaque
+site (ADR-057). Sa fiche affiche l’agent d’ouverture, les heures, les
+mouvements, les totaux, le comptage et l’écart. Un verrouillage central laisse
+la session active et unique mais bloque tout encaissement ; il est réversible.
+Une clôture centrale est définitive, exige les espèces réellement comptées et
+un motif, puis laisse le site recalculer lui-même le montant attendu. Les
+acteurs centraux sont attribués par UUID externe, jamais par un compte local.
+
 ---
 
 # Pharmacie

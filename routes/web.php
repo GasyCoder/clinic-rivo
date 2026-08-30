@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ReceptionPatientStep;
+use App\Http\Controllers\Administration\CashRegisterController;
 use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
 use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
+use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
 use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
 use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
@@ -86,6 +88,22 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/addresses/{site}/{address}', [SuperAdminAddressEntryController::class, 'update'])->name('addresses.update')->middleware('can:address_entries.update');
         Route::delete('/addresses/{site}/{address}', [SuperAdminAddressEntryController::class, 'destroy'])->name('addresses.destroy')->middleware('can:address_entries.archive');
         Route::post('/addresses/{site}/{address}/restore', [SuperAdminAddressEntryController::class, 'restore'])->name('addresses.restore')->middleware('can:address_entries.restore');
+
+        // Caisses nommées par site : même schéma UUID/idempotence/audit que les
+        // adresses et mutuelles ; le site garde une seule caisse ouverte à la
+        // fois (cash_sessions.active_key), inchangé par ce référentiel.
+        Route::get('/cash-registers', [SuperAdminCashRegisterController::class, 'index'])->name('cash-registers.index')->middleware('can:cash_registers.view');
+        Route::post('/cash-registers', [SuperAdminCashRegisterController::class, 'store'])->name('cash-registers.store')->middleware('can:cash_registers.create');
+        Route::get('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'show'])->name('cash-registers.show')->middleware('can:cash_registers.view');
+        Route::get('/cash-registers/{site}/{cashRegister}/export', [SuperAdminCashRegisterController::class, 'export'])->name('cash-registers.export')->middleware('can:cash_registers.export');
+        Route::put('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'update'])->name('cash-registers.update')->middleware('can:cash_registers.update');
+        Route::post('/cash-registers/{site}/{cashRegister}/session/lock', [SuperAdminCashRegisterController::class, 'lock'])->name('cash-registers.session.lock')->middleware('can:cash_registers.lock');
+        Route::post('/cash-registers/{site}/{cashRegister}/session/unlock', [SuperAdminCashRegisterController::class, 'unlock'])->name('cash-registers.session.unlock')->middleware('can:cash_registers.unlock');
+        Route::post('/cash-registers/{site}/{cashRegister}/session/close', [SuperAdminCashRegisterController::class, 'close'])->name('cash-registers.session.close')->middleware('can:cash_registers.close');
+        Route::post('/cash-registers/{site}/{cashRegister}/activate', [SuperAdminCashRegisterController::class, 'activate'])->name('cash-registers.activate')->middleware('can:cash_registers.activate');
+        Route::post('/cash-registers/{site}/{cashRegister}/deactivate', [SuperAdminCashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate')->middleware('can:cash_registers.deactivate');
+        Route::delete('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'destroy'])->name('cash-registers.destroy')->middleware('can:cash_registers.archive');
+        Route::post('/cash-registers/{site}/{cashRegister}/restore', [SuperAdminCashRegisterController::class, 'restore'])->name('cash-registers.restore')->middleware('can:cash_registers.restore');
         Route::get('/workspaces/tariffs', [SuperAdminCatalogController::class, 'index'])->name('tariffs.index')->middleware(['can:catalog.items.view', 'can:catalog.tariffs.view']);
         Route::get('/workspaces/tariffs/export', [SuperAdminCatalogController::class, 'export'])->name('tariffs.export')->middleware('can:catalog.tariffs.export');
         Route::get('/workspaces/tariffs/import-template', [SuperAdminCatalogController::class, 'template'])->name('tariffs.import-template')->middleware('can:catalog.tariffs.import');
@@ -180,6 +198,19 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // seulement une trace en attente pour qui détient catalog.items.create.
     Route::post('/administration/catalog/pending-medicines/{prescriptionLine}/review', [AdministrationCatalogController::class, 'reviewUnlistedMedicine'])->name('administration.catalog.pending-medicines.review')->middleware('can:catalog.items.create');
 
+    // Named cash registers (Caisse 1, Caisse 2…) are managed both locally
+    // here and remotely from the Super Admin portal (mirroring
+    // catalog/addresses/mutuelles) — only one session can be open at a time
+    // regardless of how many registers exist (cash_sessions.active_key
+    // singleton, unchanged by either front door).
+    Route::get('/administration/cash-registers', [CashRegisterController::class, 'index'])->name('administration.cash-registers.index')->middleware('can:cash_registers.view');
+    Route::post('/administration/cash-registers', [CashRegisterController::class, 'store'])->name('administration.cash-registers.store')->middleware('can:cash_registers.create');
+    Route::put('/administration/cash-registers/{cashRegister}', [CashRegisterController::class, 'update'])->name('administration.cash-registers.update')->middleware('can:cash_registers.update');
+    Route::post('/administration/cash-registers/{cashRegister}/activate', [CashRegisterController::class, 'activate'])->name('administration.cash-registers.activate')->middleware('can:cash_registers.activate');
+    Route::post('/administration/cash-registers/{cashRegister}/deactivate', [CashRegisterController::class, 'deactivate'])->name('administration.cash-registers.deactivate')->middleware('can:cash_registers.deactivate');
+    Route::delete('/administration/cash-registers/{cashRegister}', [CashRegisterController::class, 'destroy'])->name('administration.cash-registers.destroy')->middleware('can:cash_registers.archive');
+    Route::post('/administration/cash-registers/{cashRegister}/restore', [CashRegisterController::class, 'restore'])->name('administration.cash-registers.restore')->middleware('can:cash_registers.restore');
+
     // Réception: one operational entry point, with isolated patient and
     // non-clinical visitor workflows. A visitor never creates an episode.
     Route::get('/reception', [ReceptionController::class, 'index'])->name('reception.index')->middleware('can:reception.view');
@@ -257,6 +288,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // Facturation / caisse : une seule caisse fonctionnelle par site. Les
     // prestations peuvent être facturées ici, mais seul ce module encaisse.
     Route::get('/cash', [CashController::class, 'index'])->name('cash.index')->middleware('can:cash.view');
+    Route::get('/cash/{cashRegister}', [CashController::class, 'show'])->name('cash.show')->middleware('can:cash.view');
     Route::post('/cash/open', [CashController::class, 'open'])->name('cash.open')->middleware('can:cash.open');
     Route::post('/cash/close', [CashController::class, 'close'])->name('cash.close')->middleware('can:cash.close');
     Route::post('/patients/{patient}/invoices', [BillingController::class, 'store'])->name('invoices.store')->middleware('can:billing.create');

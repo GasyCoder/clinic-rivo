@@ -43,6 +43,7 @@ class CompleteEpisodeServicesAction
         ArrivalPaymentChoice $paymentChoice = ArrivalPaymentChoice::Later,
         ?int $paymentMethodId = null,
         ?string $paymentReference = null,
+        ?string $cashRegisterUuid = null,
     ): ArrivalRegistrationResult {
         if ($designationDeferred) {
             $episode = $this->planRouting->planUnknownNeed($episode, $actor);
@@ -83,6 +84,7 @@ class CompleteEpisodeServicesAction
                 $paymentChoice,
                 $paymentMethodId,
                 $paymentReference,
+                $cashRegisterUuid,
             ): ArrivalRegistrationResult {
                 $invoice = $this->createInvoice->execute($episode->patient, [
                     'episode_uuid' => $episode->uuid,
@@ -104,6 +106,7 @@ class CompleteEpisodeServicesAction
                     'amount' => $invoice->balance_amount,
                     'reference' => $paymentReference,
                     'notes' => "Encaissement à l’arrivée — passage {$episode->episode_number}",
+                    'cash_register_uuid' => $cashRegisterUuid,
                 ], $actor);
 
                 return new ArrivalRegistrationResult(

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reception;
 
 use App\Actions\Reception\CompleteEpisodeServicesAction;
 use App\Enums\ArrivalPaymentChoice;
+use App\Enums\CashSessionStatus;
 use App\Enums\EpisodeFinancialMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEpisodeServicesRequest;
@@ -99,9 +100,21 @@ class EpisodeServiceController extends Controller
             'paymentMethods' => $request->user()->can('payments.create')
                 ? PaymentMethod::query()->where('active', true)->orderBy('id')->get(['id', 'code', 'name'])
                 : [],
-            'openCashSession' => $request->user()->can('payments.create')
-                ? CashSession::query()->where('active_key', 'SINGLE_OPEN_CASH')->first(['uuid', 'session_number', 'opened_at'])
-                : null,
+            'openCashSessions' => $request->user()->can('payments.create')
+                ? CashSession::query()
+                    ->where('status', CashSessionStatus::Open->value)
+                    ->where('opened_by', $request->user()->id)
+                    ->whereNotNull('active_key')
+                    ->with('register:id,uuid,name')
+                    ->get(['uuid', 'session_number', 'opened_at', 'cash_register_id'])
+                    ->map(fn (CashSession $s) => [
+                        'uuid' => $s->uuid,
+                        'session_number' => $s->session_number,
+                        'opened_at' => $s->opened_at,
+                        'register_uuid' => $s->register?->uuid,
+                        'register_name' => $s->register?->name,
+                    ])
+                : [],
         ]);
     }
 
@@ -119,6 +132,7 @@ class EpisodeServiceController extends Controller
                 ?? ArrivalPaymentChoice::Later,
             paymentMethodId: $request->integer('payment_method_id') ?: null,
             paymentReference: $request->validated('payment_reference'),
+            cashRegisterUuid: $request->validated('cash_register_uuid'),
         );
 
         $message = "Parcours du passage {$episode->episode_number} confirmé.";

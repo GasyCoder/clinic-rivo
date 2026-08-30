@@ -5,6 +5,7 @@ namespace Tests\Feature\Billing;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Models\CashMovement;
+use App\Models\CashRegister;
 use App\Models\CashSession;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
@@ -28,11 +29,11 @@ class CashPaymentFlowTest extends TestCase
 
     private function userWithPermissions(array $names, string $roleCode = 'RECEPTION'): User
     {
-        $role = Role::query()->create(['code' => $roleCode, 'name' => $roleCode]);
+        $role = Role::query()->firstOrCreate(['code' => $roleCode], ['name' => $roleCode]);
 
         foreach ($names as $name) {
-            $permission = Permission::query()->create(['name' => $name, 'label' => $name]);
-            $role->permissions()->attach($permission);
+            $permission = Permission::query()->firstOrCreate(['name' => $name], ['label' => $name]);
+            $role->permissions()->syncWithoutDetaching($permission);
         }
 
         return User::factory()->create(['role_id' => $role->id]);
@@ -123,7 +124,7 @@ class CashPaymentFlowTest extends TestCase
                 ->where('account', null)
                 ->has('paymentMethods', 0)
                 ->has('billingCatalog', 0)
-                ->where('openCashSession', null));
+                ->has('openCashSessions', 0));
 
         $this->actingAs($viewer)->get('/cash')->assertForbidden();
         $this->actingAs($viewer)->post("/patients/{$patient->uuid}/invoices", [
@@ -147,7 +148,7 @@ class CashPaymentFlowTest extends TestCase
 
         $this->actingAs($user)->get('/cash')
             ->assertInertia(fn ($page) => $page
-                ->component('Cash/Index')
+                ->component('Cash/Show')
                 ->where('cashSession', null)
                 ->where('outstandingSummary.count', 1)
                 ->where('outstandingSummary.balance_amount', '4001.00')
@@ -189,7 +190,7 @@ class CashPaymentFlowTest extends TestCase
 
         $this->actingAs($user)->get('/cash')
             ->assertInertia(fn ($page) => $page
-                ->component('Cash/Index')
+                ->component('Cash/Show')
                 ->where('outstandingSummary', null)
                 ->has('outstandingInvoices', 0)
                 ->has('paymentMethods', 0)
@@ -367,6 +368,357 @@ class CashPaymentFlowTest extends TestCase
         ]);
     }
 
+    public function test_closing_cash_with_a_variance_requires_an_explicit_note(): void
+    {
+        $user = $this->userWithPermissions(['cash.open', 'cash.close']);
+
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '10000.00'])->assertRedirect();
+
+        $this->actingAs($user)->post('/cash/close', [
+            'actual_closing_amount' => '9500.00',
+        ])->assertSessionHasErrors('notes');
+
+        $this->assertDatabaseHas('cash_sessions', ['active_key' => 'SINGLE_OPEN_CASH']);
+
+        $this->actingAs($user)->post('/cash/close', [
+            'actual_closing_amount' => '9500.00',
+            'notes' => 'Manque constaté, à vérifier avec le service concerné.',
+        ])->assertRedirect();
+
+        $session = CashSession::query()->sole();
+        $this->assertSame('CLOSED', $session->status->value);
+        $this->assertSame('10000.00', $session->expected_closing_amount);
+        $this->assertSame('9500.00', $session->actual_closing_amount);
+        $this->assertSame('-500.00', $session->variance_amount);
+        $this->assertNull($session->active_key);
+    }
+
+    public function test_a_centrally_locked_session_stays_active_but_rejects_local_payment_and_closure(): void
+    {
+        $user = $this->userWithPermissions([
+            'billing.create', 'billing.validate', 'billing.view', 'billing.print', 'payments.create',
+            'cash.open', 'cash.close',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '10000.00'])->assertRedirect();
+
+        $session = CashSession::query()->sole();
+        $session->update([
+            'status' => 'LOCKED',
+            'locked_at' => now(),
+            'lock_reason' => 'Contrôle central en cours',
+        ]);
+
+        $this->actingAs($user)->get("/invoices/{$invoice->uuid}")
+            ->assertInertia(fn ($page) => $page->has('openCashSessions', 0));
+
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => PaymentMethod::query()->where('code', 'CASH')->value('id'),
+            'amount' => $invoice->balance_amount,
+        ])->assertSessionHasErrors('cash_session');
+        $this->assertDatabaseCount('payments', 0);
+
+        $this->actingAs($user)->post('/cash/close', [
+            'actual_closing_amount' => '10000.00',
+        ])->assertSessionHasErrors('cash_session');
+        $this->assertDatabaseHas('cash_sessions', [
+            'uuid' => $session->uuid,
+            'status' => 'LOCKED',
+            'active_key' => 'SINGLE_OPEN_CASH',
+        ]);
+    }
+
+    public function test_opening_cash_never_requires_a_register_when_the_site_has_configured_none(): void
+    {
+        $user = $this->userWithPermissions(['cash.open']);
+
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '5000.00'])->assertRedirect();
+
+        $session = CashSession::query()->sole();
+        $this->assertNull($session->cash_register_id);
+    }
+
+    public function test_opening_cash_requires_choosing_a_configured_register(): void
+    {
+        $user = $this->userWithPermissions(['cash.open']);
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '5000.00'])
+            ->assertSessionHasErrors('cash_register_uuid');
+        $this->assertDatabaseCount('cash_sessions', 0);
+
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '5000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect();
+
+        $session = CashSession::query()->sole();
+        $this->assertSame($register->id, $session->cash_register_id);
+        $this->assertSame($register->uuid, $session->register->uuid);
+    }
+
+    public function test_cash_index_is_a_register_picker_and_each_register_has_its_own_scoped_workspace(): void
+    {
+        $user = $this->userWithPermissions(['cash.view', 'cash.open']);
+        $registerOne = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $registerTwo = CashRegister::query()->create(['name' => 'Caisse 2']);
+
+        $this->actingAs($user)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Index')
+                ->has('registers', 2)
+                ->where('registers.0.name', 'Caisse 1')
+                ->where('registers.0.is_open', false));
+
+        $this->actingAs($user)->get("/cash/{$registerOne->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Show')
+                ->where('cashRegister.name', 'Caisse 1')
+                ->where('cashSession', null));
+
+        // Opening from the picker's confirmation modal lands the cashier
+        // straight on that register's workspace, not back on the picker.
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '5000.00',
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertRedirect("/cash/{$registerOne->uuid}");
+
+        // Caisse 1's own workspace shows the session it opened.
+        $this->actingAs($user)->get("/cash/{$registerOne->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Show')
+                ->where('cashSession.register.uuid', $registerOne->uuid));
+
+        // Caisse 2 is completely independent — Caisse 1 being open never
+        // blocks it, it simply has no session yet.
+        $this->actingAs($user)->get("/cash/{$registerTwo->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Show')
+                ->where('cashSession', null));
+
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '3000.00',
+            'cash_register_uuid' => $registerTwo->uuid,
+        ])->assertRedirect("/cash/{$registerTwo->uuid}");
+
+        // The picker reflects both registers open at the same time.
+        $this->actingAs($user)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->where('registers.0.is_open', true)
+                ->where('registers.1.is_open', true));
+    }
+
+    public function test_two_registers_operate_concurrently_without_cross_contamination(): void
+    {
+        $user = $this->userWithPermissions([
+            'cash.view', 'cash.open', 'cash.close', 'billing.create', 'billing.validate', 'payments.create',
+        ]);
+        $registerOne = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $registerTwo = CashRegister::query()->create(['name' => 'Caisse 2']);
+        (new PaymentMethodSeeder)->run();
+
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '5000.00',
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '3000.00',
+            'cash_register_uuid' => $registerTwo->uuid,
+        ])->assertRedirect();
+
+        [$patientOne, $episodeOne] = $this->patientWithEpisode($user);
+        $invoiceOne = $this->createInvoice($user, $patientOne, $episodeOne);
+        $this->actingAs($user)->post("/invoices/{$invoiceOne->uuid}/validate")->assertRedirect();
+
+        // Not reusing createInvoice() here — its own Invoice::query()->sole()
+        // lookup only works once a single invoice exists in the whole table.
+        [$patientTwo, $episodeTwo] = $this->patientWithEpisode($user, 'M-000002', 'ME-000002');
+        $secondCatalogItem = $this->catalogItem($user, 'Consultation 2', '2000.00');
+        $this->actingAs($user)->post("/patients/{$patientTwo->uuid}/invoices", [
+            'episode_uuid' => $episodeTwo->uuid,
+            'catalog_lines' => [['catalog_item_uuid' => $secondCatalogItem->uuid, 'quantity' => 1]],
+        ])->assertRedirect();
+        $invoiceTwo = Invoice::query()->where('patient_id', $patientTwo->id)->sole();
+        $this->actingAs($user)->post("/invoices/{$invoiceTwo->uuid}/validate")->assertRedirect();
+
+        $cashMethodId = PaymentMethod::query()->where('code', 'CASH')->value('id');
+
+        $this->actingAs($user)->post("/invoices/{$invoiceOne->uuid}/payments", [
+            'invoice_uuid' => $invoiceOne->uuid,
+            'payment_method_id' => $cashMethodId,
+            'amount' => $invoiceOne->balance_amount,
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+        $this->actingAs($user)->post("/invoices/{$invoiceTwo->uuid}/payments", [
+            'invoice_uuid' => $invoiceTwo->uuid,
+            'payment_method_id' => $cashMethodId,
+            'amount' => $invoiceTwo->balance_amount,
+            'cash_register_uuid' => $registerTwo->uuid,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $sessionOne = CashSession::query()->where('cash_register_id', $registerOne->id)->sole();
+        $sessionTwo = CashSession::query()->where('cash_register_id', $registerTwo->id)->sole();
+        $this->assertSame($sessionOne->id, Payment::query()->where('invoice_id', $invoiceOne->id)->sole()->cash_session_id);
+        $this->assertSame($sessionTwo->id, Payment::query()->where('invoice_id', $invoiceTwo->id)->sole()->cash_session_id);
+
+        $this->actingAs($user)->post('/cash/close', [
+            'actual_closing_amount' => '10000.00',
+            'notes' => 'Écart de test, sans incidence sur le scénario.',
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame('CLOSED', $sessionOne->fresh()->status->value);
+        $this->assertSame('OPEN', $sessionTwo->fresh()->status->value);
+
+        $this->actingAs($user)->post('/cash/close', [
+            'actual_closing_amount' => '3000.00',
+            'notes' => 'Écart de test, sans incidence sur le scénario.',
+            'cash_register_uuid' => $registerTwo->uuid,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame('CLOSED', $sessionTwo->fresh()->status->value);
+    }
+
+    public function test_a_register_already_open_by_someone_else_blocks_access_and_operations(): void
+    {
+        $opener = $this->userWithPermissions([
+            'cash.view', 'cash.open', 'cash.close', 'billing.create', 'billing.validate',
+            'payments.create', 'payments.cancel',
+        ]);
+        $colleague = $this->userWithPermissions([
+            'cash.view', 'cash.open', 'cash.close', 'payments.create', 'payments.cancel',
+        ], 'RECEPTION_2');
+        $registerOne = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $registerTwo = CashRegister::query()->create(['name' => 'Caisse 2']);
+        (new PaymentMethodSeeder)->run();
+
+        $this->actingAs($opener)->post('/cash/open', [
+            'opening_amount' => '5000.00',
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertRedirect();
+
+        // The picker reports Caisse 1 as occupied by someone else, not as
+        // "mine to resume" — a different flag than is_open/is_locked alone.
+        $this->actingAs($colleague)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->where('registers.0.is_open', true)
+                ->where('registers.0.is_mine', false)
+                ->where('registers.0.opener_name', $opener->name));
+
+        // Visiting Caisse 1 directly shows the blocking panel, not the session.
+        $this->actingAs($colleague)->get("/cash/{$registerOne->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->component('Cash/Show')
+                ->where('cashSession', null)
+                ->where('blockingSession.opener_name', $opener->name));
+
+        [$patient, $episode] = $this->patientWithEpisode($opener);
+        $invoice = $this->createInvoice($opener, $patient, $episode);
+        $this->actingAs($opener)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $cashMethodId = PaymentMethod::query()->where('code', 'CASH')->value('id');
+
+        // A colleague cannot pay into it, even by naming the register explicitly.
+        $this->actingAs($colleague)->post("/invoices/{$invoice->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cashMethodId,
+            'amount' => $invoice->balance_amount,
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertSessionHasErrors('cash_register_uuid');
+        $this->assertDatabaseCount('payments', 0);
+
+        // Nor can they close it.
+        $this->actingAs($colleague)->post('/cash/close', [
+            'actual_closing_amount' => '5000.00',
+            'cash_register_uuid' => $registerOne->uuid,
+        ])->assertSessionHasErrors('cash_session');
+        $this->assertSame('OPEN', CashSession::query()->sole()->status->value);
+
+        // Opening a different, available register works normally.
+        $this->actingAs($colleague)->post('/cash/open', [
+            'opening_amount' => '2000.00',
+            'cash_register_uuid' => $registerTwo->uuid,
+        ])->assertRedirect("/cash/{$registerTwo->uuid}");
+
+        // Now paying via Caisse 2 (the colleague's own register) succeeds.
+        $this->actingAs($colleague)->post("/invoices/{$invoice->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cashMethodId,
+            'amount' => $invoice->balance_amount,
+            'cash_register_uuid' => $registerTwo->uuid,
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $payment = Payment::query()->sole();
+        $sessionTwo = CashSession::query()->where('cash_register_id', $registerTwo->id)->sole();
+        $this->assertSame($sessionTwo->id, $payment->cash_session_id);
+
+        // That payment now lives in the colleague's own Caisse 2 session —
+        // the original opener of Caisse 1 never opened it and cannot cancel
+        // a payment there, only the colleague who actually did can.
+        $this->actingAs($opener)->post("/payments/{$payment->uuid}/cancel", ['reason' => 'Test'])
+            ->assertSessionHasErrors('payment');
+        $this->assertSame('COMPLETED', $payment->fresh()->status->value);
+
+        $this->actingAs($colleague)->post("/payments/{$payment->uuid}/cancel", ['reason' => 'Test'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame('CANCELLED', $payment->fresh()->status->value);
+    }
+
+    public function test_an_ownerless_session_has_no_local_escape_hatch_and_blocks_everyone(): void
+    {
+        // Locking a stuck till's custody can only ever end through a real
+        // cash count (Super Admin's central closure, CatalogActor) — there
+        // is no local or central action that hands it to someone else
+        // without one. This also covers legacy rows from the removed
+        // "détacher" feature, which could leave opened_by null.
+        $user = $this->userWithPermissions([
+            'cash.view', 'cash.open', 'cash.close', 'billing.create', 'billing.validate', 'payments.create',
+        ]);
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+        (new PaymentMethodSeeder)->run();
+        $session = CashSession::query()->create([
+            'session_number' => 'AC-000001',
+            'active_key' => 'REGISTER_'.$register->id,
+            'cash_register_id' => $register->id,
+            'status' => 'OPEN',
+            'opening_amount' => '5000.00',
+            'opened_by' => null,
+            'opened_at' => now(),
+        ]);
+
+        $this->actingAs($user)->get('/cash')
+            ->assertInertia(fn ($page) => $page
+                ->where('registers.0.is_open', true)
+                ->where('registers.0.is_mine', false));
+
+        $this->actingAs($user)->get("/cash/{$register->uuid}")
+            ->assertInertia(fn ($page) => $page
+                ->where('cashSession', null)
+                ->where('blockingSession.opener_name', null));
+
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $cashMethodId = PaymentMethod::query()->where('code', 'CASH')->value('id');
+
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cashMethodId,
+            'amount' => $invoice->balance_amount,
+            'cash_register_uuid' => $register->uuid,
+        ])->assertSessionHasErrors('cash_register_uuid');
+        $this->assertDatabaseCount('payments', 0);
+
+        $this->actingAs($user)->post('/cash/close', [
+            'actual_closing_amount' => '5000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertSessionHasErrors('cash_session');
+        $this->assertSame('OPEN', $session->fresh()->status->value);
+    }
+
     public function test_financial_records_cannot_be_deleted(): void
     {
         $user = $this->userWithPermissions(['billing.create']);
@@ -401,14 +753,14 @@ class CashPaymentFlowTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Invoices/Show')
                 ->where('capabilities.can_pay', true)
-                ->where('openCashSession', null)
+                ->has('openCashSessions', 0)
                 ->has('paymentMethods', 5));
 
         $this->actingAs($user)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
 
         $this->actingAs($user)->get("/invoices/{$invoice->uuid}")
             ->assertInertia(fn ($page) => $page
-                ->has('openCashSession'));
+                ->has('openCashSessions', 1));
 
         $this->actingAs($user)->post("/invoices/{$invoice->uuid}/payments", [
             'invoice_uuid' => $invoice->uuid,

@@ -276,6 +276,7 @@ admin.rivo.mg
 - [ ] Patients
 - [ ] Activités
 - [ ] Caisse
+- [x] Fiche de supervision des caisses par site avec mouvements, historique, verrouillage réversible et clôture centrale auditée par API
 - [ ] Finance
 - [ ] Laboratoire
 - [ ] Pharmacie

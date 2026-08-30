@@ -42,10 +42,19 @@ class CancelPaymentAction
 
             // A closed till is an immutable accounting period. Reversing it
             // requires the future refund/correction workflow, whose approval
-            // rules are not yet defined in the CDC.
-            if ($session->status !== CashSessionStatus::Open || $session->active_key !== 'SINGLE_OPEN_CASH') {
+            // rules are not yet defined in the CDC. active_key and status
+            // always change together (CloseCashSessionAction), so the status
+            // check alone is sufficient — active_key's own value depends on
+            // which register (if any) the session belongs to.
+            if ($session->status !== CashSessionStatus::Open) {
                 throw ValidationException::withMessages([
                     'payment' => 'Ce paiement appartient à une caisse clôturée. Utilisez le futur circuit de remboursement contrôlé.',
+                ]);
+            }
+
+            if ($session->opened_by !== $actor->id) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Cette caisse est utilisée par une autre personne. Utilisez une autre caisse disponible.',
                 ]);
             }
 

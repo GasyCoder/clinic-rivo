@@ -21,12 +21,8 @@ class RolePermissionSeeder extends Seeder
     private const GRANTS = [
         'ADMINISTRATION' => [
             'employees.view', 'employees.create', 'employees.update',
-<<<<<<< HEAD
-            'employees.delete',
-=======
             'employees.delete', 'employees.restore',
             'employees.import', 'employees.export', 'employees.print',
->>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)
             'employees.patient_lookup',
             'staff_block_credits.view', 'staff_block_credits.allocate',
             'patient_staff_links.view', 'patient_staff_links.create', 'patient_staff_links.end',
@@ -46,8 +42,12 @@ class RolePermissionSeeder extends Seeder
             'leave.view', 'leave.create', 'leave.approve', 'leave.reject',
             'leave.cancel', 'leave.print',
             'planning.view', 'planning.create', 'planning.update',
-<<<<<<< HEAD
-            'hr_reports.view', 'hr_reports.export',
+            'planning.export', 'planning.print',
+            'hr_settings.view', 'hr_settings.create', 'hr_settings.update',
+            'hr_settings.archive', 'hr_settings.restore',
+            'hr_documents.view', 'hr_documents.create',
+            'hr_documents.archive', 'hr_documents.restore',
+            'hr_reports.view', 'hr_reports.export', 'hr_reports.print',
             'cash_registers.view', 'cash_registers.create', 'cash_registers.update',
             'cash_registers.activate', 'cash_registers.deactivate',
             'cash_registers.archive',
@@ -55,14 +55,6 @@ class RolePermissionSeeder extends Seeder
             'analysis_catalog.view', 'analysis_catalog.create', 'analysis_catalog.update',
             'analysis_catalog.activate', 'analysis_catalog.deactivate',
             'analysis_catalog.import', 'analysis_catalog.export',
-=======
-            'planning.export', 'planning.print',
-            'hr_settings.view', 'hr_settings.create', 'hr_settings.update',
-            'hr_settings.archive', 'hr_settings.restore',
-            'hr_documents.view', 'hr_documents.create',
-            'hr_documents.archive', 'hr_documents.restore',
-            'hr_reports.view', 'hr_reports.export', 'hr_reports.print',
->>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)
         ],
         'LOGISTICS' => [
             'logistics.view', 'logistics.manage',

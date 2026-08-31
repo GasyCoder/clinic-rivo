@@ -15,23 +15,16 @@ defineProps({
 
 const { can } = usePermissions();
 const areas = [
-<<<<<<< HEAD
-    { title: 'Employés & RH', description: 'Crédit forfaitaire Bloc et registre des mouvements du personnel.', icon: 'users', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits' },
-    { title: 'Caisses', description: 'Caisses nommées du site — une seule reste ouverte à la fois, la Réception choisit laquelle.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers' },
-    { title: 'Diagnostics', description: 'Référentiel clinique utilisé par la recherche rapide des médecins.', icon: 'clipboard', permission: 'diagnostic_catalog.view', link: '/administration/diagnostics' },
-    { title: 'Analyses laboratoire', description: 'Paramètres, unités et valeurs de référence du catalogue Laboratoire.', icon: 'activity', permission: 'analysis_catalog.view', link: '/administration/analyses' },
-    { title: 'Contrats', description: 'Contrats et archivage administratif.', icon: 'file-docs', permission: 'contracts.view' },
-    { title: 'Présences & congés', description: 'Présences, absences et demandes de congé.', icon: 'calendar', permission: 'attendance.view' },
-    { title: 'Planning', description: 'Organisation des équipes et services.', icon: 'calender-date', permission: 'planning.view' },
-    { title: 'Rapports RH', description: 'Indicateurs et exports administratifs.', icon: 'reports', permission: 'hr_reports.view' },
-=======
     { title: 'Dossiers employés', description: 'Identité administrative, carrière, pièces privées et historique.', icon: 'users', permission: 'employees.view', link: '/administration/employees', tone: 'primary' },
     { title: 'Contrats', description: 'CDI, CDD, consultants, stages, bénévolat et documents associés.', icon: 'file-docs', permission: 'contracts.view', link: '/administration/contracts', tone: 'sky' },
     { title: 'Présences', description: 'Entrées, sorties, durée des sessions et corrections auditées.', icon: 'clock', permission: 'attendance.view', link: '/administration/attendance', tone: 'emerald' },
     { title: 'Congés', description: 'Demandes, intérim, validation, refus, annulation et impression.', icon: 'calendar', permission: 'leave.view', link: '/administration/leave', tone: 'amber' },
     { title: 'Planning', description: 'Organisation des équipes, services et créneaux de travail.', icon: 'calender-date', permission: 'planning.view', link: '/administration/planning', tone: 'violet' },
     { title: 'Rapports RH', description: 'Indicateurs de période, exports Excel et rapports imprimables.', icon: 'reports', permission: 'hr_reports.view', link: '/administration/reports', tone: 'rose' },
->>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)
+    { title: 'Crédit Bloc personnel', description: 'Allocation et registre des mouvements du crédit forfaitaire du personnel.', icon: 'wallet', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits', tone: 'primary' },
+    { title: 'Caisses', description: 'Configuration des postes de caisse nommés du site.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers', tone: 'emerald' },
+    { title: 'Diagnostics', description: 'Référentiel clinique utilisé par la recherche rapide des médecins.', icon: 'clipboard', permission: 'diagnostic_catalog.view', link: '/administration/diagnostics', tone: 'amber' },
+    { title: 'Analyses laboratoire', description: 'Paramètres, unités et valeurs de référence du catalogue Laboratoire.', icon: 'activity', permission: 'analysis_catalog.view', link: '/administration/analyses', tone: 'sky' },
 ];
 
 const toneClasses = {

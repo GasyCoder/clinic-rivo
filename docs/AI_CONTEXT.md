@@ -204,7 +204,7 @@ sont des pages dédiées sans modale. L'import Employé est atomique ; exports,
 impressions et pièces privées sont autorisés par permissions distinctes. Les
 congés suivent un état audité sans calcul automatique de droits. Aucun calcul
 de paie, CNAPS ou IRSA n'est activé faute de règles officielles suffisantes.
-Voir ADR-054.
+Voir ADR-066.
 
 ---
 

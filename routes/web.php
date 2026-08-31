@@ -1,14 +1,11 @@
 <?php
 
 use App\Enums\ReceptionPatientStep;
-<<<<<<< HEAD
 use App\Http\Controllers\Administration\AnalysisCatalogController;
+use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\CashRegisterController;
 use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
 use App\Http\Controllers\Administration\DiagnosticCatalogController;
-=======
-use App\Http\Controllers\Administration\AttendanceController;
-use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
 use App\Http\Controllers\Administration\EmployeeController;
 use App\Http\Controllers\Administration\EmploymentContractController;
 use App\Http\Controllers\Administration\HrDocumentController;
@@ -16,7 +13,6 @@ use App\Http\Controllers\Administration\HrReferenceController;
 use App\Http\Controllers\Administration\HrReportController;
 use App\Http\Controllers\Administration\LeaveController;
 use App\Http\Controllers\Administration\PlanningController;
->>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)
 use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;

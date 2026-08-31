@@ -2287,7 +2287,6 @@ un `financial_mode` nullable et ouvre immédiatement Soins et Médecine.
 
 ---
 
-<<<<<<< HEAD
 # ADR-054 — Stabilisation Soins/Médecine : facturation des actes, clôture administrative et projection CareRecord partagée
 
 **Status:** ACCEPTED (2026-08-29 — audit Soins/Médecine, validé par le propriétaire)
@@ -2904,8 +2903,10 @@ sur plusieurs sites) ni les permissions de restauration déjà réservées au
 Super Admin par défaut : elle ajoute uniquement une lecture locale, cohérente
 avec ce que `trash.view` laisse maintenant réellement espérer à qui le reçoit
 depuis l’éditeur de socle de rôle (ADR-064) ou une exception individuelle.
-=======
-# ADR-054 — Socle RH configurable sans automatisation de paie
+
+---
+
+# ADR-066 — Socle RH configurable sans automatisation de paie
 
 **Status:** ACCEPTED (2026-08-29 — exigences explicites du propriétaire)
 
@@ -2950,4 +2951,3 @@ Les colonnes bancaires et les formules CNAPS/IRSA transmises ne sont pas
 activées. Leur assiette, arrondis, plafonds, période d'application, source
 légale et cas particuliers ne sont pas définis dans le CDC. Aucun salaire,
 retenue, net ou déclaration n'est donc calculé ni stocké par cette décision.
->>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)

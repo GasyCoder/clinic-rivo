@@ -1,10 +1,22 @@
 <?php
 
 use App\Enums\ReceptionPatientStep;
+<<<<<<< HEAD
 use App\Http\Controllers\Administration\AnalysisCatalogController;
 use App\Http\Controllers\Administration\CashRegisterController;
 use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
 use App\Http\Controllers\Administration\DiagnosticCatalogController;
+=======
+use App\Http\Controllers\Administration\AttendanceController;
+use App\Http\Controllers\Administration\CatalogController as AdministrationCatalogController;
+use App\Http\Controllers\Administration\EmployeeController;
+use App\Http\Controllers\Administration\EmploymentContractController;
+use App\Http\Controllers\Administration\HrDocumentController;
+use App\Http\Controllers\Administration\HrReferenceController;
+use App\Http\Controllers\Administration\HrReportController;
+use App\Http\Controllers\Administration\LeaveController;
+use App\Http\Controllers\Administration\PlanningController;
+>>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)
 use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;
@@ -166,6 +178,70 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 
     Route::get('/administration', AdministrationController::class)->name('administration.index')->middleware('can:employees.view');
+    Route::prefix('administration')->name('administration.')->group(function () {
+        Route::get('/employees', [EmployeeController::class, 'index'])->name('employees.index')->middleware('can:employees.view');
+        Route::get('/employees/export', [EmployeeController::class, 'export'])->name('employees.export')->middleware('can:employees.export');
+        Route::get('/employees/import-template', [EmployeeController::class, 'importTemplate'])->name('employees.import-template')->middleware('can:employees.import');
+        Route::post('/employees/import', [EmployeeController::class, 'import'])->name('employees.import')->middleware('can:employees.import');
+        Route::get('/employees/create', [EmployeeController::class, 'create'])->name('employees.create')->middleware('can:employees.create');
+        Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store')->middleware('can:employees.create');
+        Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->name('employees.show')->middleware('can:employees.view')->withTrashed();
+        Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit')->middleware('can:employees.update');
+        Route::get('/employees/{employee}/print', [EmployeeController::class, 'print'])->name('employees.print')->middleware('can:employees.print')->withTrashed();
+        Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
+        Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy')->middleware('can:employees.delete');
+        Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->middleware('can:employees.restore')->withTrashed();
+
+        Route::get('/contracts', [EmploymentContractController::class, 'index'])->name('contracts.index')->middleware('can:contracts.view');
+        Route::get('/contracts/export', [EmploymentContractController::class, 'export'])->name('contracts.export')->middleware('can:contracts.export');
+        Route::get('/contracts/create', [EmploymentContractController::class, 'create'])->name('contracts.create')->middleware('can:contracts.create');
+        Route::post('/contracts', [EmploymentContractController::class, 'store'])->name('contracts.store')->middleware('can:contracts.create');
+        Route::get('/contracts/{contract}/edit', [EmploymentContractController::class, 'edit'])->name('contracts.edit')->middleware('can:contracts.update');
+        Route::get('/contracts/{contract}/print', [EmploymentContractController::class, 'print'])->name('contracts.print')->middleware('can:contracts.print')->withTrashed();
+        Route::put('/contracts/{contract}', [EmploymentContractController::class, 'update'])->name('contracts.update')->middleware('can:contracts.update');
+        Route::delete('/contracts/{contract}', [EmploymentContractController::class, 'destroy'])->name('contracts.destroy')->middleware('can:contracts.archive');
+        Route::post('/contracts/{contract}/restore', [EmploymentContractController::class, 'restore'])->name('contracts.restore')->middleware('can:contracts.restore')->withTrashed();
+
+        Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index')->middleware('can:attendance.view');
+        Route::get('/attendance/export', [AttendanceController::class, 'export'])->name('attendance.export')->middleware('can:attendance.export');
+        Route::get('/attendance/print', [AttendanceController::class, 'print'])->name('attendance.print')->middleware('can:attendance.print');
+        Route::get('/attendance/create', [AttendanceController::class, 'create'])->name('attendance.create')->middleware('can:attendance.create');
+        Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store')->middleware('can:attendance.create');
+        Route::get('/attendance/{attendance}/edit', [AttendanceController::class, 'edit'])->name('attendance.edit')->middleware('can:attendance.update');
+        Route::put('/attendance/{attendance}', [AttendanceController::class, 'update'])->name('attendance.update')->middleware('can:attendance.update');
+
+        Route::get('/leave', [LeaveController::class, 'index'])->name('leave.index')->middleware('can:leave.view');
+        Route::get('/leave/create', [LeaveController::class, 'create'])->name('leave.create')->middleware('can:leave.create');
+        Route::post('/leave', [LeaveController::class, 'store'])->name('leave.store')->middleware('can:leave.create');
+        Route::post('/leave/{leave}/approve', [LeaveController::class, 'approve'])->name('leave.approve')->middleware('can:leave.approve');
+        Route::post('/leave/{leave}/reject', [LeaveController::class, 'reject'])->name('leave.reject')->middleware('can:leave.reject');
+        Route::post('/leave/{leave}/cancel', [LeaveController::class, 'cancel'])->name('leave.cancel')->middleware('can:leave.cancel');
+        Route::get('/leave/{leave}/print', [LeaveController::class, 'print'])->name('leave.print')->middleware('can:leave.print');
+
+        Route::get('/planning', [PlanningController::class, 'index'])->name('planning.index')->middleware('can:planning.view');
+        Route::get('/planning/export', [PlanningController::class, 'export'])->name('planning.export')->middleware('can:planning.export');
+        Route::get('/planning/print', [PlanningController::class, 'print'])->name('planning.print')->middleware('can:planning.print');
+        Route::get('/planning/create', [PlanningController::class, 'create'])->name('planning.create')->middleware('can:planning.create');
+        Route::post('/planning', [PlanningController::class, 'store'])->name('planning.store')->middleware('can:planning.create');
+        Route::get('/planning/{planning}/edit', [PlanningController::class, 'edit'])->name('planning.edit')->middleware('can:planning.update');
+        Route::put('/planning/{planning}', [PlanningController::class, 'update'])->name('planning.update')->middleware('can:planning.update');
+
+        Route::get('/reports', [HrReportController::class, 'index'])->name('reports.index')->middleware('can:hr_reports.view');
+        Route::get('/reports/export', [HrReportController::class, 'export'])->name('reports.export')->middleware('can:hr_reports.export');
+        Route::get('/reports/print', [HrReportController::class, 'print'])->name('reports.print')->middleware('can:hr_reports.print');
+
+        Route::get('/settings', [HrReferenceController::class, 'index'])->name('settings.index')->middleware('can:hr_settings.view');
+        Route::post('/settings', [HrReferenceController::class, 'store'])->name('settings.store')->middleware('can:hr_settings.create');
+        Route::put('/settings/{reference}', [HrReferenceController::class, 'update'])->name('settings.update')->middleware('can:hr_settings.update');
+        Route::delete('/settings/{reference}', [HrReferenceController::class, 'destroy'])->name('settings.destroy')->middleware('can:hr_settings.archive');
+        Route::post('/settings/{reference}/restore', [HrReferenceController::class, 'restore'])->name('settings.restore')->middleware('can:hr_settings.restore')->withTrashed();
+
+        Route::post('/documents', [HrDocumentController::class, 'store'])->name('documents.store')->middleware('can:hr_documents.create');
+        Route::get('/documents/{document}', [HrDocumentController::class, 'show'])->name('documents.show')->middleware('can:hr_documents.view')->withTrashed();
+        Route::get('/documents/{document}/download', [HrDocumentController::class, 'download'])->name('documents.download')->middleware('can:hr_documents.view')->withTrashed();
+        Route::delete('/documents/{document}', [HrDocumentController::class, 'destroy'])->name('documents.destroy')->middleware('can:hr_documents.archive');
+        Route::post('/documents/{document}/restore', [HrDocumentController::class, 'restore'])->name('documents.restore')->middleware('can:hr_documents.restore')->withTrashed();
+    });
     Route::get('/administration/staff-block-credits', [StaffBlockCreditController::class, 'index'])
         ->name('administration.staff-block-credits.index')
         ->middleware('can:staff_block_credits.view');

@@ -1,0 +1,5 @@
+<script setup>
+import { Head, Link, useForm } from '@inertiajs/vue3'; import AppLayout from '@/Layouts/AppLayout.vue'; import Icon from '@/Components/UI/Icon.vue'; import HrNav from '../Partials/HrNav.vue'; import AttendanceForm from './AttendanceForm.vue';
+defineOptions({layout:AppLayout}); const props=defineProps({employees:[Array,Object],selectedEmployeeUuid:String}); const form=useForm({employee_uuid:props.selectedEmployeeUuid??'',started_at:'',ended_at:'',observation:''}); const submit=()=>form.post('/administration/attendance');
+</script>
+<template><Head title="Nouvelle présence"/><div class="space-y-5"><HrNav/><header class="flex gap-3"><Link href="/administration/attendance" class="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white"><Icon name="arrow-left"/></Link><div><p class="text-xs font-bold uppercase tracking-wide text-violet-600">Présences</p><h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Enregistrer une présence</h1></div></header><AttendanceForm :form="form" :employees="employees" cancel-href="/administration/attendance" submit-label="Enregistrer" @submit="submit"/></div></template>

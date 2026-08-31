@@ -209,16 +209,16 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Attribution des rôles
 - [x] Activation / désactivation des comptes
 - [x] Exceptions de permissions individuelles
-- [ ] Employés
+- [x] Employés
 - [x] Socle Employé et lien sécurisé avec le dossier patient
 - [x] Classification explicite des prestations et registre immuable du crédit bloc
 - [ ] Période et renouvellement éventuel du crédit Bloc (règle métier non définie)
-- [ ] RH
-- [ ] Contrats
-- [ ] Présences
-- [ ] Congés
+- [x] RH
+- [x] Contrats
+- [x] Présences
+- [x] Congés
 - [ ] Absences
-- [ ] Planning
+- [x] Planning
 - [ ] Logistique
 - [ ] Stock administratif
 - [ ] Catalogue des équipements
@@ -226,7 +226,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Maintenance et mise hors service des équipements
 - [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
 - [ ] Gardiennage
-- [ ] Rapports RH
+- [x] Rapports RH
 
 ---
 

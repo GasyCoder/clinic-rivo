@@ -18,7 +18,6 @@ class DatabaseSeeder extends Seeder
             PaymentMethodSeeder::class,
             AllergenReferenceSeeder::class,
             AddressEntrySeeder::class,
-            PartnerOrganizationSeeder::class,
             RolePermissionSeeder::class,
         ]);
     }

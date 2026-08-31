@@ -197,6 +197,15 @@ l’inventaire et le suivi des équipements ainsi que le stock administratif.
 spécifiques sont affectées au compte, jamais globalement au rôle. Aucun de ces
 rôles ne gère les utilisateurs, rôles ou permissions par défaut. Voir ADR-033.
 
+Le socle RH opérationnel utilise des UUID publics et des référentiels locaux
+configurables pour les départements, fonctions, types de contrat et types
+d'attestation. Les formulaires Employé, Contrat, Présence, Congé et Planning
+sont des pages dédiées sans modale. L'import Employé est atomique ; exports,
+impressions et pièces privées sont autorisés par permissions distinctes. Les
+congés suivent un état audité sans calcul automatique de droits. Aucun calcul
+de paie, CNAPS ou IRSA n'est activé faute de règles officielles suffisantes.
+Voir ADR-054.
+
 ---
 
 # Rôles principaux

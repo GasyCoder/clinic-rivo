@@ -21,10 +21,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * record. Only this administrative subset may be exposed to Reception.
  */
 #[Fillable([
-    'employee_number', 'user_id', 'civility', 'first_name', 'last_name',
-    'sex', 'birth_date', 'identity_document_type', 'identity_document_number',
-    'marital_status', 'children_count', 'profession', 'phone', 'email',
-    'address', 'address_entry_id', 'active',
+    'employee_number', 'user_id', 'department_id', 'job_title_id', 'civility',
+    'first_name', 'last_name', 'sex', 'birth_date', 'hire_date', 'birth_place',
+    'identity_document_type', 'identity_document_number',
+    'identity_document_issued_on', 'identity_document_issued_at',
+    'marital_status', 'children_count', 'diploma', 'education_level',
+    'children_details', 'badge', 'blouse', 'profession', 'phone', 'email',
+    'address', 'address_entry_id', 'observation', 'active',
 ])]
 class Employee extends Model
 {
@@ -36,7 +39,9 @@ class Employee extends Model
             'civility' => PatientCivility::class,
             'sex' => PatientSex::class,
             'birth_date' => 'date',
+            'hire_date' => 'date',
             'identity_document_type' => IdentityDocumentType::class,
+            'identity_document_issued_on' => 'date',
             'marital_status' => MaritalStatus::class,
             'children_count' => 'integer',
             'active' => 'boolean',
@@ -51,6 +56,46 @@ class Employee extends Model
     public function addressEntry(): BelongsTo
     {
         return $this->belongsTo(AddressEntry::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(HrReferenceValue::class, 'department_id');
+    }
+
+    public function jobTitle(): BelongsTo
+    {
+        return $this->belongsTo(HrReferenceValue::class, 'job_title_id');
+    }
+
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(EmploymentContract::class);
+    }
+
+    public function attendanceRecords(): HasMany
+    {
+        return $this->hasMany(AttendanceRecord::class);
+    }
+
+    public function leaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class);
+    }
+
+    public function interimLeaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class, 'interim_employee_id');
+    }
+
+    public function planningShifts(): HasMany
+    {
+        return $this->hasMany(PlanningShift::class);
+    }
+
+    public function hrDocuments(): HasMany
+    {
+        return $this->hasMany(HrDocument::class);
     }
 
     public function patientLinks(): HasMany
@@ -82,7 +127,13 @@ class Employee extends Model
     {
         return $this->patientLinks()->exists()
             || $this->episodeStaffCoverages()->exists()
-            || $this->staffBlockCreditMovements()->exists();
+            || $this->staffBlockCreditMovements()->exists()
+            || $this->contracts()->withTrashed()->exists()
+            || $this->attendanceRecords()->exists()
+            || $this->leaveRequests()->exists()
+            || $this->interimLeaveRequests()->exists()
+            || $this->planningShifts()->exists()
+            || $this->hrDocuments()->withTrashed()->exists();
     }
 
     protected function auditModule(): ?string

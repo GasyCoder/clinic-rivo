@@ -2287,6 +2287,7 @@ un `financial_mode` nullable et ouvre immédiatement Soins et Médecine.
 
 ---
 
+<<<<<<< HEAD
 # ADR-054 — Stabilisation Soins/Médecine : facturation des actes, clôture administrative et projection CareRecord partagée
 
 **Status:** ACCEPTED (2026-08-29 — audit Soins/Médecine, validé par le propriétaire)
@@ -2903,3 +2904,50 @@ sur plusieurs sites) ni les permissions de restauration déjà réservées au
 Super Admin par défaut : elle ajoute uniquement une lecture locale, cohérente
 avec ce que `trash.view` laisse maintenant réellement espérer à qui le reçoit
 depuis l’éditeur de socle de rôle (ADR-064) ou une exception individuelle.
+=======
+# ADR-054 — Socle RH configurable sans automatisation de paie
+
+**Status:** ACCEPTED (2026-08-29 — exigences explicites du propriétaire)
+
+Le module Ressources humaines appartient à `ADMINISTRATION` conformément aux
+ADR-025, ADR-026, ADR-030, ADR-051 et ADR-052. Son premier périmètre couvre les
+dossiers Employé, contrats, présences, congés, planning, documents privés,
+paramètres et rapports RH. Chaque entité adressable utilise un UUID public ;
+les identifiants SQL restent locaux. Cette préparation n'ajoute aucun échange
+inter-sites ni accès direct entre bases.
+
+Les départements, fonctions, types de contrat et types d'attestation sont des
+référentiels dynamiques. Les valeurs initiales validées par le propriétaire
+sont amorcées ; aucun type d'attestation n'est inventé. Le dossier Employé
+reprend les colonnes administratives transmises (identité, affectation,
+diplôme, niveau, entrée, CIN, adresse, enfants, badge, blouse, contacts, état,
+observation). Le détail éventuel des enfants reste une note administrative :
+aucune entité Enfant ni règle familiale n'est déduite.
+
+Un contrat conserve uniquement son type, sa référence, ses dates et son
+observation. Une présence est une session horodatée avec entrée et sortie
+facultative. Un congé conserve les valeurs saisies de durée et de solde comme
+snapshots, puis suit les états `PENDING`, `APPROVED`, `REJECTED` ou
+`CANCELLED`. Un créneau de planning conserve son employé, département, objet et
+intervalle. En l'absence de règles officielles plus précises, le système ne
+calcule ni droit acquis, ni retard, ni absence, ni heures supplémentaires et
+n'interdit pas automatiquement les chevauchements.
+
+L'import Employé est limité, atomique et réservé à la création : une ligne
+invalide annule le fichier entier et aucune archive existante ne peut être
+réutilisée. Les exports et impressions relisent les données serveur. Les pièces
+RH sont stockées sur le disque privé, rattachées au dossier Employé et
+accessibles uniquement par contrôleur autorisé. Contrats, dossiers Employé,
+référentiels et pièces utilisent un archivage réversible ; contrats et pièces
+refusent toujours la suppression physique. Les congés, présences et plannings
+ne proposent aucune suppression faute de règle CDC correspondante.
+
+Les écritures sensibles et les décisions sont auditées par `Auditor::record()`.
+Les interfaces utilisent des pages dédiées et des sections intégrées, sans
+fenêtre modale pour créer, modifier, décider ou archiver.
+
+Les colonnes bancaires et les formules CNAPS/IRSA transmises ne sont pas
+activées. Leur assiette, arrondis, plafonds, période d'application, source
+légale et cas particuliers ne sont pas définis dans le CDC. Aucun salaire,
+retenue, net ou déclaration n'est donc calculé ni stocké par cette décision.
+>>>>>>> 83bebb1 (feat: implement comprehensive human resources management module including employee, contract, attendance, and leave tracking functionality)

@@ -4,6 +4,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrNav from './Partials/HrNav.vue';
+import HrStatCard from './Partials/HrStatCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
@@ -21,6 +22,7 @@ const areas = [
     { title: 'Congés', description: 'Demandes, intérim, validation, refus, annulation et impression.', icon: 'calendar', permission: 'leave.view', link: '/administration/leave', tone: 'amber' },
     { title: 'Planning', description: 'Organisation des équipes, services et créneaux de travail.', icon: 'calender-date', permission: 'planning.view', link: '/administration/planning', tone: 'violet' },
     { title: 'Rapports RH', description: 'Indicateurs de période, exports Excel et rapports imprimables.', icon: 'reports', permission: 'hr_reports.view', link: '/administration/reports', tone: 'rose' },
+    { title: 'Paramètres RH', description: 'Départements, fonctions, types de contrat et attestations configurables.', icon: 'settings', permission: 'hr_settings.view', link: '/administration/settings', tone: 'slate' },
     { title: 'Crédit Bloc personnel', description: 'Allocation et registre des mouvements du crédit forfaitaire du personnel.', icon: 'wallet', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits', tone: 'primary' },
     { title: 'Caisses', description: 'Configuration des postes de caisse nommés du site.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers', tone: 'emerald' },
     { title: 'Diagnostics', description: 'Référentiel clinique utilisé par la recherche rapide des médecins.', icon: 'clipboard', permission: 'diagnostic_catalog.view', link: '/administration/diagnostics', tone: 'amber' },
@@ -34,6 +36,7 @@ const toneClasses = {
     amber: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
     violet: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
     rose: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
+    slate: 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300',
 };
 </script>
 
@@ -64,26 +67,23 @@ const toneClasses = {
         </section>
 
         <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <article class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Employés actifs</p>
-                <p class="mt-2 text-2xl font-bold text-slate-800 dark:text-white">{{ summary.active_employees }}</p>
-            </article>
-            <article class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Contrats en cours</p>
-                <p class="mt-2 text-2xl font-bold text-sky-700 dark:text-sky-300">{{ summary.current_contracts }}</p>
-            </article>
-            <article class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Présents aujourd’hui</p>
-                <p class="mt-2 text-2xl font-bold text-emerald-700 dark:text-emerald-300">{{ summary.today_attendance }}</p>
-            </article>
-            <article class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Congés à traiter</p>
-                <p class="mt-2 text-2xl font-bold text-amber-700 dark:text-amber-300">{{ summary.pending_leave }}</p>
-            </article>
-            <article class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:col-span-2 xl:col-span-1">
-                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Créneaux · 7 jours</p>
-                <p class="mt-2 text-2xl font-bold text-violet-700 dark:text-violet-300">{{ summary.upcoming_shifts }}</p>
-            </article>
+            <HrStatCard label="Employés actifs" :value="summary.active_employees" hint="Dossiers actifs" icon="users" tone="primary" />
+            <HrStatCard label="Contrats en cours" :value="summary.current_contracts" hint="Actifs aujourd’hui" icon="file-docs" tone="sky" />
+            <HrStatCard label="Employés pointés" :value="summary.today_attendance" hint="Au moins une session aujourd’hui" icon="clock" tone="emerald" />
+            <HrStatCard label="Congés à traiter" :value="summary.pending_leave" hint="Décision en attente" icon="alert-circle" tone="amber" />
+            <HrStatCard class="sm:col-span-2 xl:col-span-1" label="Créneaux · 7 jours" :value="summary.upcoming_shifts" hint="Planning à venir" icon="calender-date" tone="violet" />
+        </section>
+
+        <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,.55fr)]">
+            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
+                <header class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><p class="text-[11px] font-bold uppercase tracking-wide text-amber-600">File de travail</p><h2 class="mt-1 text-lg font-bold text-slate-800 dark:text-white">À vérifier maintenant</h2><p class="mt-1 text-xs text-slate-500">Des faits à traiter, sans déduire automatiquement retard, absence ou droit à congé.</p></header>
+                <div class="grid sm:grid-cols-3">
+                    <Link v-if="can('attendance.view')" href="/administration/attendance" class="flex items-center gap-3 border-b border-gray-200 p-4 transition hover:bg-amber-50/50 dark:border-gray-900 dark:hover:bg-amber-950/10 sm:border-b-0 sm:border-e"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', summary.open_attendance ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><Icon name="clock" /></span><span><strong class="block text-lg text-slate-800 dark:text-white">{{ summary.open_attendance }}</strong><span class="text-xs text-slate-500">présence(s) sans sortie</span></span></Link>
+                    <Link v-if="can('leave.view')" href="/administration/leave?status=PENDING" class="flex items-center gap-3 border-b border-gray-200 p-4 transition hover:bg-amber-50/50 dark:border-gray-900 dark:hover:bg-amber-950/10 sm:border-b-0 sm:border-e"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', summary.pending_leave ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><Icon name="calendar" /></span><span><strong class="block text-lg text-slate-800 dark:text-white">{{ summary.pending_leave }}</strong><span class="text-xs text-slate-500">congé(s) à décider</span></span></Link>
+                    <Link v-if="can('contracts.view')" href="/administration/contracts" class="flex items-center gap-3 p-4 transition hover:bg-amber-50/50 dark:hover:bg-amber-950/10"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', summary.contracts_ending_soon ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><Icon name="file-docs" /></span><span><strong class="block text-lg text-slate-800 dark:text-white">{{ summary.contracts_ending_soon }}</strong><span class="text-xs text-slate-500">fin(s) sous 30 jours</span></span></Link>
+                </div>
+            </div>
+            <aside class="rounded-xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-900 dark:bg-primary-950/20"><div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600 shadow-sm dark:bg-gray-950"><Icon name="user-add" /></span><div><h2 class="text-sm font-bold text-primary-900 dark:text-primary-100">Parcours de recrutement</h2><p class="mt-1 text-xs leading-5 text-primary-800/80 dark:text-primary-200/80">Créez d’abord l’identité RH. Depuis sa fiche, le contrat, la présence, le congé et le planning reprennent automatiquement cet employé.</p><Link v-if="can('employees.create')" href="/administration/employees/create" class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-primary-700 hover:text-primary-800 dark:text-primary-300">Commencer un dossier <Icon name="arrow-right" /></Link></div></div></aside>
         </section>
 
         <section>

@@ -3,6 +3,7 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrNav from '../Partials/HrNav.vue';
+import HrPageHeader from '../Partials/HrPageHeader.vue';
 import EmployeeForm from './EmployeeForm.vue';
 
 defineOptions({ layout: AppLayout });
@@ -11,7 +12,7 @@ const props = defineProps({ employee: Object, options: Object, departments: Arra
 const form = useForm({
     employee_number: props.employee.employee_number,
     department_uuid: props.employee.department_uuid ?? '', job_title_uuid: props.employee.job_title_uuid ?? '',
-    civility: props.employee.civility ?? '', first_name: props.employee.first_name ?? '', last_name: props.employee.last_name,
+    first_name: props.employee.first_name ?? '', last_name: props.employee.last_name,
     sex: props.employee.sex, birth_date: props.employee.birth_date ?? '', hire_date: props.employee.hire_date ?? '',
     birth_place: props.employee.birth_place ?? '', identity_document_type: props.employee.identity_document_type ?? '',
     identity_document_number: props.employee.identity_document_number ?? '',
@@ -31,10 +32,9 @@ const submit = () => form.put(`/administration/employees/${props.employee.uuid}`
     <Head :title="`Modifier ${employee.name}`" />
     <div class="w-full space-y-5">
         <HrNav />
-        <header class="flex items-start gap-3">
-            <Link :href="`/administration/employees/${employee.uuid}`" class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-slate-500 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950"><Icon name="arrow-left" /></Link>
-            <div><p class="text-xs font-bold uppercase tracking-wide text-primary-600">{{ employee.employee_number }}</p><h1 class="mt-1 font-heading text-2xl font-bold text-slate-800 dark:text-white">Modifier {{ employee.name }}</h1><p class="mt-1 text-sm text-slate-500">Les changements d’identité sont synchronisés avec le dossier Patient lié lorsqu’il existe.</p></div>
-        </header>
+        <HrPageHeader :eyebrow="`${employee.employee_number} · Parcours guidé`" :title="`Modifier ${employee.name}`" description="Les changements d’identité sont synchronisés avec le dossier Patient lié lorsqu’il existe." icon="edit">
+            <template #actions><Link :href="`/administration/employees/${employee.uuid}`" class="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-bold text-slate-600 hover:border-gray-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><Icon name="arrow-left" /> Retour au dossier</Link></template>
+        </HrPageHeader>
         <EmployeeForm :form="form" :options="options" :departments="departments" :job-titles="jobTitles" :addresses="addresses" submit-label="Enregistrer les modifications" :cancel-href="`/administration/employees/${employee.uuid}`" @submit="submit" />
     </div>
 </template>

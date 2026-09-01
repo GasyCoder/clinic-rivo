@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
+use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
@@ -18,6 +19,8 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
 
         Route::get('/pharmacy/stock', MedicineStockController::class)->name('pharmacy.stock');
         Route::post('/pharmacy/stock/import', [MedicineStockController::class, 'import'])->name('pharmacy.stock.import');
+
+        Route::get('/human-resources', HumanResourcesController::class)->name('human-resources.index');
 
         Route::get('/address-entries', [AddressEntryController::class, 'index'])->name('address-entries.index');
         Route::post('/address-entries', [AddressEntryController::class, 'store'])->name('address-entries.store');

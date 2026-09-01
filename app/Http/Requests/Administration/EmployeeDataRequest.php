@@ -5,7 +5,6 @@ namespace App\Http\Requests\Administration;
 use App\Enums\HrReferenceType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
-use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Models\Employee;
 use Illuminate\Foundation\Http\FormRequest;
@@ -21,7 +20,7 @@ abstract class EmployeeDataRequest extends FormRequest
 
         foreach ([
             'employee_number', 'first_name', 'last_name',
-            'identity_document_number', 'profession', 'phone',
+            'identity_document_number', 'phone',
             'email', 'new_address_label', 'birth_place',
             'identity_document_issued_at', 'diploma', 'education_level',
             'children_details', 'badge', 'blouse', 'observation',
@@ -95,7 +94,6 @@ abstract class EmployeeDataRequest extends FormRequest
                     },
                 ),
             ],
-            'civility' => ['nullable', new Enum(PatientCivility::class)],
             'first_name' => ['nullable', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
             'sex' => ['required', new Enum(PatientSex::class)],
@@ -122,7 +120,6 @@ abstract class EmployeeDataRequest extends FormRequest
             'children_details' => ['nullable', 'string', 'max:5000'],
             'badge' => ['nullable', 'string', 'max:255'],
             'blouse' => ['nullable', 'string', 'max:255'],
-            'profession' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
             'address_entry_uuid' => [
@@ -204,7 +201,6 @@ abstract class EmployeeDataRequest extends FormRequest
             'children_details' => 'détails des enfants',
             'badge' => 'badge',
             'blouse' => 'blouse',
-            'profession' => 'fonction',
             'phone' => 'téléphone',
             'email' => 'adresse email',
             'address_entry_uuid' => 'adresse',

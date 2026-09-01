@@ -8,6 +8,7 @@ use App\Models\Patient;
 use App\Models\PatientStaffLink;
 use App\Models\User;
 use App\Services\Administration\EmployeeAddressResolver;
+use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeePatientIdentityMapper;
 use App\Services\Administration\HrReferenceResolver;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ class UpdateEmployeeAction
 {
     public function __construct(
         private readonly EmployeeAddressResolver $addressResolver,
+        private readonly EmployeeIdentityNormalizer $identityNormalizer,
         private readonly EmployeePatientIdentityMapper $patientIdentityMapper,
         private readonly UpdatePatientAction $updatePatient,
         private readonly HrReferenceResolver $referenceResolver,
@@ -30,6 +32,7 @@ class UpdateEmployeeAction
 
         return DB::transaction(function () use ($employee, $data, $actor): Employee {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->getKey());
+            $data = $this->identityNormalizer->normalize($data);
             $data = $this->referenceResolver->employeeData($data);
             $data = $this->addressResolver->resolve($data, $actor, $employee);
 

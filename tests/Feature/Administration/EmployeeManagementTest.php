@@ -53,6 +53,16 @@ class EmployeeManagementTest extends TestCase
                 ->has('addresses')
                 ->has('options.sexes', 2));
 
+        $this->actingAs($administration)
+            ->get('/administration/employees/import')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Administration/Employees/Import')
+                ->has('columns', 24)
+                ->where('limits.rows', 1000)
+                ->where('limits.megabytes', 5)
+                ->has('referenceValues.departments'));
+
         $this->actingAs($reception)
             ->get('/administration/employees')
             ->assertForbidden();
@@ -76,6 +86,7 @@ class EmployeeManagementTest extends TestCase
         $this->assertNotNull($employee->uuid);
         $this->assertSame($address->id, $employee->address_entry_id);
         $this->assertSame('Adresse RH validée', $employee->address);
+        $this->assertSame('MRS', $employee->civility->value);
         $this->assertTrue($employee->active);
         $this->assertDatabaseHas('audit_logs', [
             'user_id' => $actor->id,
@@ -84,6 +95,29 @@ class EmployeeManagementTest extends TestCase
             'action' => 'create',
             'module' => 'administration',
         ]);
+    }
+
+    public function test_employee_civility_is_always_derived_from_sex_and_cannot_be_spoofed(): void
+    {
+        $actor = $this->userWithRole('ADMINISTRATION');
+
+        $this->actingAs($actor)->post('/administration/employees', [
+            ...$this->validPayload(),
+            'sex' => 'M',
+            'civility' => 'MRS',
+        ])->assertSessionHasNoErrors();
+
+        $employee = Employee::query()->where('employee_number', 'EMP-RH-001')->firstOrFail();
+        $this->assertSame('MR', $employee->civility->value);
+
+        $this->actingAs($actor)->put("/administration/employees/{$employee->uuid}", [
+            ...$this->validPayload(),
+            'employee_number' => $employee->employee_number,
+            'sex' => 'F',
+            'civility' => 'BOY',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame('MRS', $employee->fresh()->civility->value);
     }
 
     public function test_employee_validation_rejects_invalid_identity_and_archived_number_reuse(): void

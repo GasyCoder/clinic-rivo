@@ -76,11 +76,18 @@ class PortalTest extends TestCase
     {
         $actor = $this->user('SUPER_ADMIN');
 
-        foreach (['finance', 'hr', 'logistics', 'guarding', 'users', 'settings', 'audit'] as $workspace) {
+        foreach (['finance', 'logistics', 'guarding', 'users', 'settings', 'audit'] as $workspace) {
             $this->actingAs($actor)->get("/super-admin/workspaces/{$workspace}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component('SuperAdmin/Workspace'));
         }
+
+        $this->actingAs($actor)->get('/super-admin/workspaces/hr')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/HumanResources/Index')
+                ->has('sites', 3)
+                ->where('summary.online_sites', 0));
 
         $this->actingAs($actor)->get('/super-admin/workspaces/tariffs')
             ->assertOk()

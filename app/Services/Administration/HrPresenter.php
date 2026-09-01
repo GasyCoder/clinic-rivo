@@ -20,7 +20,9 @@ class HrPresenter
             'employee_number' => $employee->employee_number,
             'name' => $this->employeeName($employee),
             'department' => $employee->department?->label,
+            'department_uuid' => $employee->department?->uuid,
             'job_title' => $employee->jobTitle?->label ?? $employee->profession,
+            'hire_date' => $employee->hire_date?->toDateString(),
             'active' => $employee->active,
         ];
     }

@@ -50,6 +50,7 @@ class HumanResourcesModuleTest extends TestCase
     {
         $reception = $this->userWithRole('RECEPTION');
         $routes = [
+            '/administration/employees/import',
             '/administration/contracts',
             '/administration/attendance',
             '/administration/leave',
@@ -145,6 +146,46 @@ class HumanResourcesModuleTest extends TestCase
 
         $this->assertSame('2026-08-30', $record->fresh()->work_date->toDateString());
         $this->assertAudit($record, 'update');
+    }
+
+    public function test_attendance_employee_filter_is_kept_in_the_list_summary_and_print_view(): void
+    {
+        $selected = $this->employee();
+        $other = $this->employee();
+
+        AttendanceRecord::query()->create([
+            'employee_id' => $selected->id,
+            'work_date' => '2026-08-29',
+            'started_at' => '2026-08-29 08:00:00',
+            'ended_at' => '2026-08-29 16:00:00',
+        ]);
+        AttendanceRecord::query()->create([
+            'employee_id' => $other->id,
+            'work_date' => '2026-08-29',
+            'started_at' => '2026-08-29 09:00:00',
+            'ended_at' => null,
+        ]);
+
+        $query = "from=2026-08-01&to=2026-08-31&employee={$selected->uuid}";
+
+        $this->actingAs($this->administration)
+            ->get("/administration/attendance?{$query}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Administration/Attendance/Index')
+                ->has('records.data', 1)
+                ->where('records.data.0.employee.uuid', $selected->uuid)
+                ->where('summary.sessions', 1)
+                ->where('summary.employees', 1)
+                ->where('summary.open', 0));
+
+        $this->actingAs($this->administration)
+            ->get("/administration/attendance/print?{$query}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Administration/Attendance/Print')
+                ->has('records', 1)
+                ->where('records.0.employee.uuid', $selected->uuid));
     }
 
     public function test_leave_validates_interim_and_dates_then_approves_once_with_an_explicit_audit(): void
@@ -312,6 +353,7 @@ class HumanResourcesModuleTest extends TestCase
         $this->assertNotNull($employee->uuid);
         $this->assertSame('Administration', $employee->department->label);
         $this->assertSame('Admin', $employee->jobTitle->label);
+        $this->assertSame('MRS', $employee->civility->value);
         $this->assertCount(1, $employee->contracts);
 
         $invalidCsv = implode("\n", [

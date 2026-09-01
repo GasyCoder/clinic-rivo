@@ -20,6 +20,7 @@ class StaffBlockCreditController extends Controller
         $search = trim((string) $request->query('q', ''));
         $selectedUuid = trim((string) $request->query('employee', ''));
         $employees = Employee::withTrashed()
+            ->with('jobTitle')
             ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
                 $nested->where('employee_number', 'like', "%{$search}%")
                     ->orWhere('first_name', 'like', "%{$search}%")
@@ -35,12 +36,13 @@ class StaffBlockCreditController extends Controller
                 'first_name' => $employee->first_name,
                 'last_name' => $employee->last_name,
                 'profession' => $employee->profession,
+                'job_title' => $employee->jobTitle?->label ?? $employee->profession,
                 'active' => $employee->active && ! $employee->trashed(),
                 'credit' => $ledger->summary($employee),
             ]);
 
         $selected = $selectedUuid !== ''
-            ? Employee::withTrashed()->where('uuid', $selectedUuid)->first()
+            ? Employee::withTrashed()->with('jobTitle')->where('uuid', $selectedUuid)->first()
             : null;
         $movements = $selected
             ? StaffBlockCreditMovement::query()
@@ -73,6 +75,7 @@ class StaffBlockCreditController extends Controller
                 'first_name' => $selected->first_name,
                 'last_name' => $selected->last_name,
                 'profession' => $selected->profession,
+                'job_title' => $selected->jobTitle?->label ?? $selected->profession,
                 'active' => $selected->active && ! $selected->trashed(),
                 'credit' => $ledger->summary($selected),
             ] : null,

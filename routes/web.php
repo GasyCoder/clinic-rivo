@@ -44,6 +44,7 @@ use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
+use App\Http\Controllers\SuperAdmin\HumanResourcesController as SuperAdminHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
 use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
@@ -159,6 +160,8 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // routed above (ADR-064).
         Route::put('/workspaces/roles/{site}/permissions/{role}', [SuperAdminUserController::class, 'updateRolePermissions'])->name('workspaces.roles.permissions.update')->middleware('can:users.manage');
 
+        Route::get('/workspaces/hr', SuperAdminHumanResourcesController::class)->name('workspaces.hr')->middleware('can:employees.view');
+
         Route::get('/workspaces/{workspace}', [SuperAdminController::class, 'workspace'])->name('workspaces.show');
     });
 
@@ -177,6 +180,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::prefix('administration')->name('administration.')->group(function () {
         Route::get('/employees', [EmployeeController::class, 'index'])->name('employees.index')->middleware('can:employees.view');
         Route::get('/employees/export', [EmployeeController::class, 'export'])->name('employees.export')->middleware('can:employees.export');
+        Route::get('/employees/import', [EmployeeController::class, 'importPage'])->name('employees.import-page')->middleware('can:employees.import');
         Route::get('/employees/import-template', [EmployeeController::class, 'importTemplate'])->name('employees.import-template')->middleware('can:employees.import');
         Route::post('/employees/import', [EmployeeController::class, 'import'])->name('employees.import')->middleware('can:employees.import');
         Route::get('/employees/create', [EmployeeController::class, 'create'])->name('employees.create')->middleware('can:employees.create');

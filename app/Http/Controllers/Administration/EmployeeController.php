@@ -11,7 +11,6 @@ use App\Enums\HrDocumentCategory;
 use App\Enums\HrReferenceType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
-use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveEmployeeRequest;
@@ -207,6 +206,21 @@ class EmployeeController extends Controller
         );
     }
 
+    public function importPage(Request $request): Response
+    {
+        abort_unless($request->user()->can('employees.import'), 403);
+
+        return Inertia::render('Administration/Employees/Import', [
+            'columns' => $this->importColumns(),
+            'referenceValues' => [
+                'departments' => $this->references(HrReferenceType::Department),
+                'jobTitles' => $this->references(HrReferenceType::JobTitle),
+                'contractTypes' => $this->references(HrReferenceType::ContractType),
+            ],
+            'limits' => ['rows' => 1000, 'megabytes' => 5],
+        ]);
+    }
+
     public function importTemplate(Request $request, ExcelWorkbook $excel): StreamedResponse
     {
         abort_unless($request->user()->can('employees.import'), 403);
@@ -243,12 +257,6 @@ class EmployeeController extends Controller
             'departments' => $this->references(HrReferenceType::Department, $employee?->department_id),
             'jobTitles' => $this->references(HrReferenceType::JobTitle, $employee?->job_title_id),
             'options' => [
-                'civilities' => [
-                    ['value' => PatientCivility::Mr->value, 'label' => 'Monsieur'],
-                    ['value' => PatientCivility::Mrs->value, 'label' => 'Madame'],
-                    ['value' => PatientCivility::Girl->value, 'label' => 'Fille'],
-                    ['value' => PatientCivility::Boy->value, 'label' => 'Garçon'],
-                ],
                 'sexes' => [
                     ['value' => PatientSex::Male->value, 'label' => 'Masculin'],
                     ['value' => PatientSex::Female->value, 'label' => 'Féminin'],
@@ -292,5 +300,36 @@ class EmployeeController extends Controller
     private function exportHeaders(): array
     {
         return ['Matricule', 'Nom', 'Prénoms', 'Fonction', 'Département', 'Diplôme', 'Niveau', 'Genre', 'Date entrée', 'Date naissance', 'Lieu naissance', 'Numéro CIN', 'Date CIN', 'Lieu CIN', 'Adresse', 'Nombre enfants', 'Détails enfants', 'Badge', 'Blouse', 'Email', 'Téléphone', 'Statut', 'Type contrat', 'Observation'];
+    }
+
+    /** @return array<int, array{name: string, required: bool, format: string}> */
+    private function importColumns(): array
+    {
+        return [
+            ['name' => 'Matricule', 'required' => true, 'format' => 'Unique, y compris parmi les archives'],
+            ['name' => 'Nom', 'required' => true, 'format' => 'Texte'],
+            ['name' => 'Prénoms', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Genre', 'required' => true, 'format' => 'M, F, Homme, Femme, Masculin ou Féminin'],
+            ['name' => 'Fonction', 'required' => false, 'format' => 'Libellé exact des paramètres RH'],
+            ['name' => 'Département', 'required' => false, 'format' => 'Libellé exact des paramètres RH'],
+            ['name' => 'Date entrée', 'required' => false, 'format' => 'JJ/MM/AAAA, JJ-MM-AAAA ou AAAA-MM-JJ'],
+            ['name' => 'Type contrat', 'required' => false, 'format' => 'Libellé exact ; exige une date d’entrée'],
+            ['name' => 'Statut', 'required' => false, 'format' => 'Actif ou Inactif ; Actif par défaut'],
+            ['name' => 'Date naissance', 'required' => false, 'format' => 'JJ/MM/AAAA, JJ-MM-AAAA ou AAAA-MM-JJ'],
+            ['name' => 'Lieu naissance', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Numéro CIN', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Date CIN', 'required' => false, 'format' => 'JJ/MM/AAAA, JJ-MM-AAAA ou AAAA-MM-JJ'],
+            ['name' => 'Lieu CIN', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Adresse', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Diplôme', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Niveau', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Nombre enfants', 'required' => false, 'format' => 'Nombre entier positif ou nul'],
+            ['name' => 'Détails enfants', 'required' => false, 'format' => 'Note administrative libre'],
+            ['name' => 'Badge', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Blouse', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Email', 'required' => false, 'format' => 'Adresse email valide'],
+            ['name' => 'Téléphone', 'required' => false, 'format' => 'Texte'],
+            ['name' => 'Observation', 'required' => false, 'format' => 'Texte'],
+        ];
     }
 }

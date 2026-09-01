@@ -44,6 +44,15 @@ class PortalSiteApiClient
             ->all();
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function humanResourcesForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/human-resources', [], $actor))
+            ->values()
+            ->all();
+    }
+
     /** @param array<int, array<string, int|string|null>> $rows */
     public function importStock(string $siteCode, array $rows, User $actor): array
     {

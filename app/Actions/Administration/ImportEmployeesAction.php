@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrReferenceValue;
 use App\Models\User;
+use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -19,7 +20,10 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class ImportEmployeesAction
 {
-    public function __construct(private readonly ExcelWorkbook $excel) {}
+    public function __construct(
+        private readonly ExcelWorkbook $excel,
+        private readonly EmployeeIdentityNormalizer $identityNormalizer,
+    ) {}
 
     /** @return array{created: int, contracts: int} */
     public function execute(UploadedFile $file, User $actor): array
@@ -95,6 +99,7 @@ class ImportEmployeesAction
             foreach ($prepared as $data) {
                 $contractTypeId = $data['contract_type_id'];
                 unset($data['contract_type_id']);
+                $data = $this->identityNormalizer->normalize($data);
                 $employee = Employee::query()->create($data);
 
                 if ($contractTypeId && $employee->hire_date) {

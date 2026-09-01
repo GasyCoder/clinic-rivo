@@ -109,7 +109,9 @@ class User extends Authenticatable
      */
     public function permissions(): BelongsToMany
     {
-        return $this->belongsToMany(Permission::class, 'user_permissions')->withPivot('effect');
+        return $this->belongsToMany(Permission::class, 'user_permissions')
+            ->withPivot('effect', 'source', 'source_profile_id')
+            ->withTimestamps();
     }
 
     public function hasRole(string $code): bool

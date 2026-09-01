@@ -11,6 +11,7 @@ use App\Http\Requests\Administration\DeactivateUserRequest;
 use App\Http\Requests\Administration\StoreUserRequest;
 use App\Http\Requests\Administration\UpdateUserRequest;
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -27,6 +28,7 @@ class UserController extends Controller
             ? $request->query('status')
             : 'active';
         $roleCode = trim((string) $request->query('role', ''));
+        $sourceProfileNames = ProfessionalProfile::query()->pluck('name', 'id');
 
         $users = User::query()
             ->with([
@@ -71,6 +73,9 @@ class UserController extends Controller
                     'permission_id' => $permission->id,
                     'name' => $permission->name,
                     'effect' => $permission->pivot->effect,
+                    'source' => $permission->pivot->source,
+                    'source_profile_id' => $permission->pivot->source_profile_id,
+                    'source_profile_name' => $sourceProfileNames->get($permission->pivot->source_profile_id),
                 ])->values(),
             ]);
 

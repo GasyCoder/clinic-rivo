@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Models\AddressEntry;
+use App\Models\AnalysisCatalog;
 use App\Models\CashMovement;
 use App\Models\CashRegister;
 use App\Models\CashSession;
@@ -835,6 +836,69 @@ class SuperAdminSiteApiTest extends TestCase
             ->postJson('/api/v1/super-admin/mutual-organizations/import', [
                 'rows' => [['name' => 'BNI', 'coverage_rate' => '100.00']],
             ])->assertForbidden();
+    }
+
+    public function test_analysis_catalog_is_exposed_and_remotely_managed_with_central_attribution(): void
+    {
+        $service = CatalogItem::query()->create([
+            'code' => 'LAB-GLYC',
+            'name' => 'Glycémie',
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Laboratory,
+            'unit' => 'analyse',
+            'billable' => true,
+            'stockable' => false,
+            'created_by' => $this->actor->id,
+            'updated_by' => $this->actor->id,
+        ]);
+        $actorUuid = (string) Str::uuid();
+
+        $this->withHeaders($this->headers($actorUuid, null, ['analysis_catalog.view']))
+            ->getJson('/api/v1/super-admin/analysis-catalogs')
+            ->assertOk()
+            ->assertJsonPath('meta.site.code', 'A')
+            ->assertJsonPath('meta.summary.services', 1)
+            ->assertJsonPath('data.catalog_items.0.code', 'LAB-GLYC');
+
+        $response = $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['analysis_catalog.create']))
+            ->postJson('/api/v1/super-admin/analysis-catalogs', [
+                'catalog_item_uuid' => $service->uuid,
+                'parent_uuid' => null,
+                'code' => 'GLYC',
+                'level' => 'NORMAL',
+                'designation' => 'Glycémie',
+                'description' => 'Dosage du glucose sanguin',
+                'result_type' => 'NUMERIC',
+                'reference_general' => '0,70–1,10',
+                'reference_male' => null,
+                'reference_female' => null,
+                'reference_child_male' => null,
+                'reference_child_female' => null,
+                'unit' => 'g/L',
+                'predefined_values' => [],
+                'display_order' => 10,
+                'is_active' => true,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.code', 'GLYC');
+
+        $analysisUuid = $response->json('data.uuid');
+        $this->assertDatabaseHas('analysis_catalogs', [
+            'uuid' => $analysisUuid,
+            'created_by' => null,
+            'external_created_by_uuid' => $actorUuid,
+            'external_created_by_name' => 'Direction centrale',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'entity_type' => AnalysisCatalog::class,
+            'entity_uuid' => $analysisUuid,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['analysis_catalog.deactivate']))
+            ->postJson("/api/v1/super-admin/analysis-catalogs/{$analysisUuid}/deactivate")
+            ->assertOk()
+            ->assertJsonPath('data.is_active', false);
     }
 
     /** @return array<string, string> */

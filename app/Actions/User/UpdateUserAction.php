@@ -18,6 +18,7 @@ class UpdateUserAction
     public function __construct(
         private readonly UserAdministrationGuard $guard,
         private readonly Auditor $auditor,
+        private readonly SyncProfessionalProfilePermissionsAction $syncProfilePermissions,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -47,8 +48,9 @@ class UpdateUserAction
             $this->guard->assertLastActiveSuperAdminPreserved($user, $role);
 
             $hasOverrides = array_key_exists('permission_overrides', $data);
+            $syncRecommended = (bool) ($data['sync_profile_permissions'] ?? false);
 
-            if ($hasOverrides) {
+            if ($hasOverrides || $syncRecommended) {
                 if (! $actor->can('permissions.assign')) {
                     throw ValidationException::withMessages([
                         'permission_overrides' => "Vous n'êtes pas autorisé à attribuer des permissions individuelles.",
@@ -64,10 +66,8 @@ class UpdateUserAction
                 'role' => $user->role?->code,
                 'professional_profile' => $user->professionalProfile?->code,
             ];
-            $oldOverrides = $user->permissions->map(fn ($permission) => [
-                'permission' => $permission->name,
-                'effect' => $permission->pivot->effect,
-            ])->sortBy('permission')->values()->all();
+            $oldOverrides = $this->auditOverrides($user);
+            $oldProfile = $user->professionalProfile;
             $passwordChanged = filled($data['password'] ?? null);
 
             $user->fill([
@@ -84,9 +84,13 @@ class UpdateUserAction
 
             $user->save();
 
-            if ($hasOverrides) {
-                $user->permissions()->sync($this->pivotValues($data['permission_overrides']));
-            }
+            $profileSync = $this->syncProfilePermissions->execute(
+                $user,
+                $oldProfile,
+                $profile,
+                $hasOverrides ? $data['permission_overrides'] : null,
+                $syncRecommended,
+            );
 
             $newValues = [
                 'name' => $user->name,
@@ -128,8 +132,10 @@ class UpdateUserAction
                 );
             }
 
-            if ($hasOverrides) {
-                $newOverrides = $this->auditOverrides($data['permission_overrides']);
+            $user->load('permissions');
+
+            if ($hasOverrides || $oldProfile?->getKey() !== $profile?->getKey() || $syncRecommended) {
+                $newOverrides = $this->auditOverrides($user);
 
                 if ($oldOverrides !== $newOverrides) {
                     $this->auditor->record(
@@ -141,6 +147,20 @@ class UpdateUserAction
                         actor: $actorUser,
                     );
                 }
+            }
+
+            if ($oldProfile?->getKey() !== $profile?->getKey() || $syncRecommended) {
+                $this->auditor->record(
+                    'user.profile.permissions.sync',
+                    entity: $user,
+                    newValues: [
+                        'old_profile' => $oldProfile?->code,
+                        'new_profile' => $profile?->code,
+                        ...$profileSync,
+                    ],
+                    module: 'administration',
+                    actor: $actorUser,
+                );
             }
 
             if ($passwordChanged) {
@@ -161,24 +181,13 @@ class UpdateUserAction
         });
     }
 
-    /** @param array<int, array{permission_id: int, name?: string, effect: string}> $overrides */
-    private function pivotValues(array $overrides): array
+    private function auditOverrides(User $user): array
     {
-        return collect($overrides)->mapWithKeys(fn (array $override) => [
-            $override['permission_id'] => ['effect' => $override['effect']],
-        ])->all();
-    }
-
-    /** @param array<int, array{permission_id: int, name?: string, effect: string}> $overrides */
-    private function auditOverrides(array $overrides): array
-    {
-        $names = Permission::query()
-            ->whereIn('id', collect($overrides)->pluck('permission_id'))
-            ->pluck('name', 'id');
-
-        return collect($overrides)->map(fn (array $override) => [
-            'permission' => $names->get($override['permission_id']),
-            'effect' => $override['effect'],
+        return $user->permissions->map(fn (Permission $permission) => [
+            'permission' => $permission->name,
+            'effect' => $permission->pivot->effect,
+            'source' => $permission->pivot->source,
+            'source_profile_id' => $permission->pivot->source_profile_id,
         ])->sortBy('permission')->values()->all();
     }
 }

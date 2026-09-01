@@ -343,6 +343,87 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'reception_selectable' => false,
             'routing_mode' => null,
         ],
+        [
+            'code' => 'MAT-CONSULT-PRENATAL', 'name' => 'Consultation prénatale',
+            'module' => CatalogModule::Maternity, 'unit' => 'consultation', 'amount' => null,
+            'description' => 'Consultation et suivi prénatal.', 'reception_selectable' => false,
+            'routing_mode' => null, 'clinician_orderable' => true,
+        ],
+        [
+            'code' => 'MAT-DELIVERY-SIMPLE', 'name' => 'Accouchement simple',
+            'module' => CatalogModule::Maternity, 'unit' => 'accouchement', 'amount' => null,
+            'description' => 'Prise en charge d’un accouchement simple.', 'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-DELIVERY-TWIN', 'name' => 'Accouchement gémellaire',
+            'module' => CatalogModule::Maternity, 'unit' => 'accouchement', 'amount' => null,
+            'description' => 'Prise en charge d’un accouchement gémellaire.', 'reception_selectable' => false,
+            'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-CESAREAN-SIMPLE', 'name' => 'Opération Césarienne Simple',
+            'module' => CatalogModule::Maternity, 'unit' => 'orientation', 'amount' => null,
+            'description' => 'Référence de décision Maternité ; l’intervention est exclusivement réalisée dans Chirurgie.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-CESAREAN-TWIN', 'name' => 'Opération Césarienne Gémellaire',
+            'module' => CatalogModule::Maternity, 'unit' => 'orientation', 'amount' => null,
+            'description' => 'Référence de décision Maternité ; l’intervention est exclusivement réalisée dans Chirurgie.',
+            'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-IUD-INSERT', 'name' => 'Insertion DIU',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Insertion d’un dispositif intra-utérin.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-IUD-REMOVE', 'name' => 'Retrait DIU',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Retrait d’un dispositif intra-utérin.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-IMPLANON-INSERT', 'name' => 'Insertion Implanon',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Insertion d’un implant contraceptif.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-IMPLANON-REMOVE', 'name' => 'Retrait Implanon',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Retrait d’un implant contraceptif.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-UMBILICAL-DRESSING', 'name' => 'Pansement ombilical',
+            'module' => CatalogModule::Maternity, 'unit' => 'soin', 'amount' => null,
+            'description' => 'Soin et pansement ombilical du nouveau-né.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-BABY-WEIGHT', 'name' => 'Pèse bébé',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Mesure et traçabilité du poids du bébé.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-BABY-CARE', 'name' => 'Soins bébé',
+            'module' => CatalogModule::Maternity, 'unit' => 'soin', 'amount' => null,
+            'description' => 'Soins courants réalisés au nouveau-né.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-DOPPLER', 'name' => 'Doppler',
+            'module' => CatalogModule::Maternity, 'unit' => 'examen', 'amount' => null,
+            'description' => 'Surveillance Doppler en maternité.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-PHOTOTHERAPY', 'name' => 'Photothérapie',
+            'module' => CatalogModule::Maternity, 'unit' => 'séance', 'amount' => null,
+            'description' => 'Séance de photothérapie du nouveau-né.', 'reception_selectable' => false, 'routing_mode' => null,
+        ],
+        [
+            'code' => 'MAT-OTHER', 'name' => 'Autres',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Autre acte de maternité, à préciser.', 'reception_selectable' => false,
+            'routing_mode' => null, 'billable' => false,
+        ],
     ];
 
     public function run(): void
@@ -502,7 +583,8 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         if (! $actor) {
             throw new RuntimeException(
-                'Aucun compte actif ne peut créer le référentiel et ses tarifs. '.
+                'Aucun compte actif ne possède les permissions requises pour provisionner le référentiel '.
+                '(catalog.items.create, catalog.items.update, catalog.tariffs.create). '.
                 'Définissez RIVO_CATALOG_SEED_ACTOR avec l’UUID ou l’email du compte actif à enregistrer comme auteur du provisioning.',
             );
         }
@@ -517,11 +599,25 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 'Le compte configuré comme auteur du provisioning doit être actif et posséder un rôle local.',
             );
         }
+
+        $missingPermissions = collect([
+            'catalog.items.create',
+            'catalog.items.update',
+            'catalog.tariffs.create',
+        ])->reject(fn (string $permission): bool => $actor->hasPermissionTo($permission));
+
+        if ($missingPermissions->isNotEmpty()) {
+            throw new RuntimeException(
+                'Le compte configuré par RIVO_CATALOG_SEED_ACTOR n’est pas autorisé à provisionner le catalogue. '.
+                'Permissions manquantes : '.$missingPermissions->implode(', ').'.',
+            );
+        }
     }
 
     private function canSeedCatalog(User $actor): bool
     {
         return $actor->hasPermissionTo('catalog.items.create')
+            && $actor->hasPermissionTo('catalog.items.update')
             && $actor->hasPermissionTo('catalog.tariffs.create');
     }
 

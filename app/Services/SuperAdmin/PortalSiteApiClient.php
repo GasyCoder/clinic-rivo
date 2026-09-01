@@ -512,6 +512,61 @@ class PortalSiteApiClient
         );
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function analysisCatalogsForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/analysis-catalogs', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    public function analysisDetail(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/analysis-catalogs/'.$uuid, [], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createAnalysis(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/analysis-catalogs', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updateAnalysis(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'PUT',
+            'super-admin/analysis-catalogs/'.$uuid,
+            $data,
+            $actor,
+        );
+    }
+
+    public function setAnalysisActive(string $siteCode, string $uuid, bool $active, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/analysis-catalogs/'.$uuid.'/'.($active ? 'activate' : 'deactivate'),
+            [],
+            $actor,
+        );
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    public function importAnalyses(string $siteCode, array $rows, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/analysis-catalogs/import',
+            ['rows' => $rows],
+            $actor,
+        );
+    }
+
     /** @return array<string, mixed> */
     private function request(array $site, string $method, string $path, array $payload, User $actor): array
     {

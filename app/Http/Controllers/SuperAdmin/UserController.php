@@ -142,6 +142,7 @@ class UserController extends Controller
             'password' => ['nullable', 'string', 'min:12', 'confirmed'],
             'role_id' => ['required', 'integer'],
             'professional_profile_id' => ['nullable', 'integer'],
+            'sync_profile_permissions' => ['sometimes', 'boolean'],
             'permission_overrides' => ['nullable', 'array'],
             'permission_overrides.*.permission_id' => ['required_with:permission_overrides', 'integer'],
             'permission_overrides.*.effect' => ['required_with:permission_overrides', Rule::in(['allow', 'deny'])],

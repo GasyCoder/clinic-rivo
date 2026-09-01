@@ -67,6 +67,11 @@ class EpisodeOrientation extends Model
         return $this->hasOne(Consultation::class, 'episode_orientation_id');
     }
 
+    public function maternityRecord(): HasOne
+    {
+        return $this->hasOne(MaternityRecord::class, 'episode_orientation_id');
+    }
+
     public function accept(User $actor): void
     {
         if ($this->status !== EpisodeOrientationStatus::Pending) {

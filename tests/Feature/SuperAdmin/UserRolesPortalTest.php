@@ -108,6 +108,36 @@ class UserRolesPortalTest extends TestCase
             && $request['reason'] === 'Fin de mission');
     }
 
+    public function test_profile_sync_choice_and_manual_overrides_are_forwarded_to_the_selected_site(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/users/22222222-2222-4222-8222-222222222222' => Http::response([
+                'message' => 'Compte mis à jour.',
+                'data' => ['uuid' => '22222222-2222-4222-8222-222222222222', 'name' => 'Soa'],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/workspaces/roles/M/22222222-2222-4222-8222-222222222222', [
+                'name' => 'Soa',
+                'email' => 'soa@m.test',
+                'role_id' => 8,
+                'professional_profile_id' => 12,
+                'sync_profile_permissions' => true,
+                'permission_overrides' => [
+                    ['permission_id' => 44, 'effect' => 'deny'],
+                ],
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && $request->url() === 'https://m.test/api/v1/super-admin/users/22222222-2222-4222-8222-222222222222'
+            && $request['professional_profile_id'] === 12
+            && $request['sync_profile_permissions'] === true
+            && $request['permission_overrides'] === [['permission_id' => 44, 'effect' => 'deny']]);
+    }
+
     public function test_force_delete_is_sent_only_to_the_selected_site(): void
     {
         Http::fake([

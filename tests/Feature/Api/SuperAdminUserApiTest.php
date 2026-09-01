@@ -4,9 +4,11 @@ namespace Tests\Feature\Api;
 
 use App\Models\AuditLog;
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
+use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -73,6 +75,45 @@ class SuperAdminUserApiTest extends TestCase
             'action' => 'user.create',
             'external_actor_uuid' => $actorUuid,
             'user_id' => null,
+        ]);
+    }
+
+    public function test_remote_super_admin_can_explicitly_apply_profile_recommendations_with_provenance(): void
+    {
+        $this->seed(ProfessionalProfileSeeder::class);
+        $profile = ProfessionalProfile::query()->where('code', 'MIDWIFE')->firstOrFail();
+        $maternityView = Permission::query()->where('name', 'maternity.view')->firstOrFail();
+
+        $response = $this->withHeaders($this->headers(
+            idempotencyKey: (string) Str::uuid(),
+            permissions: ['users.create', 'roles.assign', 'permissions.assign'],
+        ))->postJson('/api/v1/super-admin/users', [
+            'name' => 'Sage-femme distante',
+            'email' => 'midwife.remote@example.test',
+            'password' => 'Correct-Horse-Battery-9!',
+            'password_confirmation' => 'Correct-Horse-Battery-9!',
+            'role_id' => $profile->role_id,
+            'professional_profile_id' => $profile->id,
+            'sync_profile_permissions' => true,
+            'permission_overrides' => [],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.professional_profile.code', 'MIDWIFE')
+            ->assertJsonFragment([
+                'permission_id' => $maternityView->id,
+                'name' => 'maternity.view',
+                'effect' => 'allow',
+                'source' => 'PROFILE',
+                'source_profile_id' => $profile->id,
+                'source_profile_name' => 'Sage-femme',
+            ]);
+
+        $this->assertDatabaseHas('user_permissions', [
+            'user_id' => User::query()->where('email', 'midwife.remote@example.test')->value('id'),
+            'permission_id' => $maternityView->id,
+            'source' => 'PROFILE',
+            'source_profile_id' => $profile->id,
         ]);
     }
 

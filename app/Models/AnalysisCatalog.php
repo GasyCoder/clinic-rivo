@@ -12,9 +12,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'catalog_item_id', 'parent_id', 'code', 'level', 'designation', 'description',
-    'result_type', 'reference_general', 'reference_male', 'reference_female',
+    'exam_category', 'result_type', 'reference_general', 'reference_male', 'reference_female',
     'reference_child_male', 'reference_child_female', 'unit', 'predefined_values',
-    'display_order', 'is_active', 'created_by', 'updated_by',
+    'display_order', 'is_active', 'is_bold', 'created_by', 'updated_by',
+    'external_created_by_uuid', 'external_created_by_name',
+    'external_updated_by_uuid', 'external_updated_by_name',
+    'source_system', 'source_id', 'source_metadata',
 ])]
 class AnalysisCatalog extends Model
 {
@@ -24,12 +27,21 @@ class AnalysisCatalog extends Model
 
     public const RESULT_TYPES = ['NUMERIC', 'TEXT', 'CHOICE', 'BOOLEAN'];
 
+    public const CONTAINER_LEVEL = 'PARENT';
+
+    public const TERMINAL_LEVEL = 'CHILD';
+
+    public const STANDALONE_LEVEL = 'NORMAL';
+
     protected function casts(): array
     {
         return [
             'predefined_values' => 'array',
             'display_order' => 'integer',
             'is_active' => 'boolean',
+            'is_bold' => 'boolean',
+            'source_id' => 'integer',
+            'source_metadata' => 'array',
         ];
     }
 
@@ -46,6 +58,21 @@ class AnalysisCatalog extends Model
     public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id')->orderBy('display_order')->orderBy('designation');
+    }
+
+    public function acceptsChildren(): bool
+    {
+        return $this->level === self::CONTAINER_LEVEL;
+    }
+
+    public function requiresParent(): bool
+    {
+        return $this->level === self::TERMINAL_LEVEL;
+    }
+
+    public function mayHaveParent(): bool
+    {
+        return in_array($this->level, [self::CONTAINER_LEVEL, self::TERMINAL_LEVEL], true);
     }
 
     public function creator(): BelongsTo

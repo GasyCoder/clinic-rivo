@@ -1302,6 +1302,22 @@ les recommandations d'un profil ne change jamais silencieusement les comptes
 existants. Toute affectation de rôle, de profil et de permission individuelle
 est auditée.
 
+Chaque ligne de `user_permissions` porte sa provenance : `MANUAL` pour une
+décision individuelle et `PROFILE` avec `source_profile_id` pour une
+recommandation explicitement appliquée. Les lignes antérieures à cette
+traçabilité sont conservées et classées `MANUAL`, car leur origine ne peut pas
+être déduite sans risque. Lors d'un changement de profil, toutes les lignes
+`PROFILE` de l'ancien profil sont retirées ; les lignes `MANUAL` restent en
+place. Les recommandations du nouveau profil ne sont ajoutées qu'après l'action
+explicite « Appliquer les permissions recommandées ». Une décision `MANUAL`, y
+compris un `DENY`, n'est jamais écrasée par cette application. Cette opération
+est transactionnelle et auditée sous `user.profile.permissions.sync`.
+
+La modification directe de `user_permissions` dans phpMyAdmin ou par SQL est
+un procédé non supporté : elle contourne validation, provenance, autorisation
+et audit. Les adaptations doivent passer par Administration > Utilisateurs ou
+par l'API Super Admin autorisée.
+
 Le socle `NURSE` conserve les Soins, constantes, lecture des ordres et accès
 clinique minimal au patient. `ANESTHETIST` recommande uniquement les
 permissions `anesthesia.*`, mais celles-ci doivent être attribuées au compte
@@ -2951,3 +2967,31 @@ Les colonnes bancaires et les formules CNAPS/IRSA transmises ne sont pas
 activées. Leur assiette, arrondis, plafonds, période d'application, source
 légale et cas particuliers ne sont pas définis dans le CDC. Aucun salaire,
 retenue, net ou déclaration n'est donc calculé ni stocké par cette décision.
+
+---
+
+# ADR-067 — Profils paramédicaux et espace Maternité
+
+**Status:** ACCEPTED (2026-09-01 — exigence explicite du propriétaire)
+
+Les profils `REGISTERED_NURSE`, `MIDWIFE` et `ANESTHETIST` restent des profils
+professionnels du rôle unique `NURSE`. Ils ne créent ni nouveau rôle, ni
+second moteur RBAC, ni affectation de service concurrente. Tous conservent le
+socle Soins du rôle `NURSE`; le menu `/care` porte donc toujours le libellé
+« Soins », quel que soit le profil.
+
+Les espaces spécialisés sont des menus indépendants, visibles uniquement par
+permission : `/maternity`, `/anesthesia` et `/surgery`. Le profil `MIDWIFE`
+recommande des exceptions individuelles `ALLOW` pour `maternity.*`; le profil
+`ANESTHETIST` recommande `anesthesia.*`. Une permission de lecture Chirurgie
+n’accorde jamais implicitement `surgery.intervention.create`.
+
+La Maternité réutilise strictement `Patient`, `Episode` et
+`EpisodeOrientation` avec la destination `MATERNITY`. Son dossier structuré et
+ses actes réellement effectués sont historisés sur le même épisode. Les actes
+sont issus de `CatalogItem(module=MATERNITY)` et jamais codés en dur dans Vue.
+
+Une décision de césarienne en Maternité crée une `SurgicalRequest` et une
+orientation `MATERNITY -> SURGERY` sur le même épisode. Elle ne crée aucune
+`SurgicalIntervention` : l’intervention demeure exclusivement sous le contrôle
+des permissions et du workflow Chirurgie.

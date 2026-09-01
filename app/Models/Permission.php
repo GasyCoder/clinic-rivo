@@ -26,7 +26,9 @@ class Permission extends Model
 
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'user_permissions')->withPivot('effect');
+        return $this->belongsToMany(User::class, 'user_permissions')
+            ->withPivot('effect', 'source', 'source_profile_id')
+            ->withTimestamps();
     }
 
     /**

@@ -30,6 +30,7 @@ use App\Http\Controllers\EpisodeEmergencyController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
+use App\Http\Controllers\MaternityController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
@@ -42,6 +43,7 @@ use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
+use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
 use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
 use App\Http\Controllers\SuperAdmin\HumanResourcesController as SuperAdminHumanResourcesController;
@@ -106,6 +108,17 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/addresses/{site}/{address}', [SuperAdminAddressEntryController::class, 'update'])->name('addresses.update')->middleware('can:address_entries.update');
         Route::delete('/addresses/{site}/{address}', [SuperAdminAddressEntryController::class, 'destroy'])->name('addresses.destroy')->middleware('can:address_entries.archive');
         Route::post('/addresses/{site}/{address}/restore', [SuperAdminAddressEntryController::class, 'restore'])->name('addresses.restore')->middleware(['can:trash.restore', 'can:address_entries.restore']);
+
+        Route::get('/analyses', [SuperAdminAnalysisCatalogController::class, 'index'])->name('analyses.index')->middleware('can:analysis_catalog.view');
+        Route::get('/analyses/export', [SuperAdminAnalysisCatalogController::class, 'export'])->name('analyses.export')->middleware('can:analysis_catalog.export');
+        Route::get('/analyses/import-template', [SuperAdminAnalysisCatalogController::class, 'template'])->name('analyses.import-template')->middleware('can:analysis_catalog.import');
+        Route::post('/analyses/import', [SuperAdminAnalysisCatalogController::class, 'import'])->name('analyses.import')->middleware('can:analysis_catalog.import');
+        Route::post('/analyses', [SuperAdminAnalysisCatalogController::class, 'store'])->name('analyses.store')->middleware('can:analysis_catalog.create');
+        Route::get('/analyses/{site}/create', [SuperAdminAnalysisCatalogController::class, 'create'])->name('analyses.create')->middleware('can:analysis_catalog.create');
+        Route::get('/analyses/{site}/{analysis}/edit', [SuperAdminAnalysisCatalogController::class, 'edit'])->name('analyses.edit')->middleware('can:analysis_catalog.update');
+        Route::put('/analyses/{site}/{analysis}', [SuperAdminAnalysisCatalogController::class, 'update'])->name('analyses.update')->middleware('can:analysis_catalog.update');
+        Route::post('/analyses/{site}/{analysis}/activate', [SuperAdminAnalysisCatalogController::class, 'activate'])->name('analyses.activate')->middleware('can:analysis_catalog.activate');
+        Route::post('/analyses/{site}/{analysis}/deactivate', [SuperAdminAnalysisCatalogController::class, 'deactivate'])->name('analyses.deactivate')->middleware('can:analysis_catalog.deactivate');
 
         // Caisses nommées par site : même schéma UUID/idempotence/audit que les
         // adresses et mutuelles ; le site garde une seule caisse ouverte à la
@@ -317,7 +330,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/administration/analyses/export', [AnalysisCatalogController::class, 'export'])->name('administration.analyses.export')->middleware('can:analysis_catalog.export');
     Route::get('/administration/analyses/import-template', [AnalysisCatalogController::class, 'template'])->name('administration.analyses.import-template')->middleware('can:analysis_catalog.import');
     Route::post('/administration/analyses/import', [AnalysisCatalogController::class, 'import'])->name('administration.analyses.import')->middleware('can:analysis_catalog.import');
+    Route::get('/administration/analyses/create', [AnalysisCatalogController::class, 'create'])->name('administration.analyses.create')->middleware('can:analysis_catalog.create');
     Route::post('/administration/analyses', [AnalysisCatalogController::class, 'store'])->name('administration.analyses.store')->middleware('can:analysis_catalog.create');
+    Route::get('/administration/analyses/{analysisCatalog}/edit', [AnalysisCatalogController::class, 'edit'])->name('administration.analyses.edit')->middleware('can:analysis_catalog.update');
     Route::put('/administration/analyses/{analysisCatalog}', [AnalysisCatalogController::class, 'update'])->name('administration.analyses.update')->middleware('can:analysis_catalog.update');
     Route::post('/administration/analyses/{analysisCatalog}/activate', [AnalysisCatalogController::class, 'activate'])->name('administration.analyses.activate')->middleware('can:analysis_catalog.activate');
     Route::post('/administration/analyses/{analysisCatalog}/deactivate', [AnalysisCatalogController::class, 'deactivate'])->name('administration.analyses.deactivate')->middleware('can:analysis_catalog.deactivate');
@@ -436,6 +451,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/care-order-items/{careOrderItem}/not-performed', [CareController::class, 'markCareOrderItemNotPerformed'])->name('care.care-order-items.not-performed')->middleware('can:care.update');
+
+    Route::get('/maternity', [MaternityController::class, 'index'])->name('maternity.index')->middleware('can:maternity.view');
+    Route::get('/maternity/orientations/{episodeOrientation}', [MaternityController::class, 'show'])->name('maternity.orientations.show')->middleware('can:maternity.view');
+    Route::post('/maternity/orientations/{episodeOrientation}/accept', [MaternityController::class, 'accept'])->name('maternity.orientations.accept')->middleware('can:maternity.update');
+    Route::put('/maternity/orientations/{episodeOrientation}/record', [MaternityController::class, 'save'])->name('maternity.orientations.record.update')->middleware('can:maternity.view');
+    Route::post('/maternity/orientations/{episodeOrientation}/procedures', [MaternityController::class, 'procedure'])->name('maternity.orientations.procedures.store')->middleware('can:maternity.procedures.manage');
+    Route::post('/maternity/orientations/{episodeOrientation}/cesarean', [MaternityController::class, 'cesarean'])->name('maternity.orientations.cesarean.store')->middleware('can:maternity.delivery.manage');
+    Route::post('/maternity/orientations/{episodeOrientation}/complete', [MaternityController::class, 'complete'])->name('maternity.orientations.complete')->middleware('can:maternity.complete');
 
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');

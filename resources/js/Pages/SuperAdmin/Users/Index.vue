@@ -27,6 +27,8 @@ const listMode = ref('list');
 const step = ref(1);
 const maxStepReached = ref(1);
 const permissionEffects = reactive({});
+const permissionProvenance = reactive({});
+const originalProfileOverrides = ref([]);
 const deactivateTargets = ref([]);
 const selectedUuids = ref(new Set());
 const showPassword = ref(false);
@@ -47,6 +49,7 @@ const form = useForm({
     password: '',
     password_confirmation: '',
     permission_overrides: [],
+    sync_profile_permissions: false,
 });
 const deactivationForm = useForm({ reason: '' });
 const forceDeleteTargets = ref([]);
@@ -88,6 +91,10 @@ const selectedProfile = computed(() => selectedRoleProfiles.value.find(
 ) ?? null);
 const selectedRolePermissions = computed(() => new Set(selectedRole.value?.permissions ?? []));
 const overrideCount = computed(() => serializeOverrides().length);
+const profileChanged = computed(() => isEditing.value
+    && Number(editingUser.value?.professional_profile?.id ?? 0) !== Number(form.professional_profile_id ?? 0));
+const oldProfileName = computed(() => editingUser.value?.professional_profile?.name ?? 'Aucun profil');
+const newProfileName = computed(() => selectedProfile.value?.name ?? 'Aucun profil');
 
 const permissionSearch = ref('');
 const permissionGrouping = ref('category');
@@ -217,11 +224,19 @@ const submitFilters = () => {
 
 const resetPermissionEffects = (overrides = []) => {
     for (const key of Object.keys(permissionEffects)) delete permissionEffects[key];
+    for (const key of Object.keys(permissionProvenance)) delete permissionProvenance[key];
     // Every permission needs an explicit '' up front — a select's v-model
     // left at undefined matches no <option>, rendering visibly blank
     // instead of showing "Hérité du rôle".
     for (const permission of permissionCatalog.value) permissionEffects[permission.id] = '';
-    for (const override of overrides) permissionEffects[override.permission_id] = override.effect;
+    for (const override of overrides) {
+        permissionEffects[override.permission_id] = override.effect;
+        permissionProvenance[override.permission_id] = {
+            source: override.source ?? 'MANUAL',
+            source_profile_id: override.source_profile_id ?? null,
+            source_profile_name: override.source_profile_name ?? null,
+        };
+    }
 };
 
 const step1Valid = computed(() => {
@@ -242,6 +257,8 @@ const openCreate = () => {
     form.role_id = roles.value.find((role) => role.code !== 'SUPER_ADMIN')?.id ?? roles.value[0]?.id ?? '';
     form.professional_profile_id = '';
     resetPermissionEffects();
+    originalProfileOverrides.value = [];
+    form.sync_profile_permissions = false;
     showPassword.value = false;
     showPasswordConfirmation.value = false;
     permissionSearch.value = '';
@@ -265,6 +282,8 @@ const openEdit = (user) => {
     form.password = '';
     form.password_confirmation = '';
     resetPermissionEffects(user.permission_overrides);
+    originalProfileOverrides.value = (user.permission_overrides ?? []).filter((override) => override.source === 'PROFILE');
+    form.sync_profile_permissions = false;
     showPassword.value = false;
     showPasswordConfirmation.value = false;
     permissionSearch.value = '';
@@ -284,6 +303,7 @@ const closeForm = () => {
     form.reset();
     form.clearErrors();
     resetPermissionEffects();
+    originalProfileOverrides.value = [];
 };
 
 // Inertia fires onSuccess before onFinish, so form.processing is still true
@@ -296,6 +316,7 @@ const dismissForm = () => {
     form.reset();
     form.clearErrors();
     resetPermissionEffects();
+    originalProfileOverrides.value = [];
 };
 
 const goToStep = (n) => {
@@ -313,20 +334,79 @@ const nextStep = () => {
 const prevStep = () => { step.value = Math.max(1, step.value - 1); };
 
 const serializeOverrides = () => Object.entries(permissionEffects)
-    .filter(([, effect]) => effect === 'allow' || effect === 'deny')
+    .filter(([permissionId, effect]) => (effect === 'allow' || effect === 'deny')
+        && permissionProvenance[permissionId]?.source !== 'PROFILE')
     .map(([permissionId, effect]) => ({ permission_id: Number(permissionId), effect }));
+
+const removeProfilePreview = () => {
+    for (const [permissionId, provenance] of Object.entries(permissionProvenance)) {
+        if (provenance?.source !== 'PROFILE') continue;
+        permissionEffects[permissionId] = '';
+        delete permissionProvenance[permissionId];
+    }
+};
+
+const onProfileChange = () => {
+    removeProfilePreview();
+    form.sync_profile_permissions = false;
+
+    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) return;
+
+    for (const override of originalProfileOverrides.value) {
+        if (permissionProvenance[override.permission_id]?.source === 'MANUAL') continue;
+        permissionEffects[override.permission_id] = override.effect;
+        permissionProvenance[override.permission_id] = {
+            source: 'PROFILE',
+            source_profile_id: override.source_profile_id,
+            source_profile_name: override.source_profile_name,
+        };
+    }
+};
 
 const selectRole = (roleId) => {
     form.role_id = roleId;
     form.professional_profile_id = '';
+    onProfileChange();
+};
+
+const selectProfile = (profileId) => {
+    form.professional_profile_id = profileId;
+    onProfileChange();
 };
 
 const applyProfileRecommendations = () => {
     if (!canAssignPermissions.value || !selectedProfile.value) return;
 
+    removeProfilePreview();
     for (const permission of selectedProfile.value.recommended_permissions ?? []) {
+        if (permissionProvenance[permission.id]?.source === 'MANUAL') continue;
         permissionEffects[permission.id] = 'allow';
+        permissionProvenance[permission.id] = {
+            source: 'PROFILE',
+            source_profile_id: selectedProfile.value.id,
+            source_profile_name: selectedProfile.value.name,
+        };
     }
+    form.sync_profile_permissions = true;
+};
+
+const markPermissionManual = (permissionId) => {
+    const effect = permissionEffects[permissionId];
+    if (effect !== 'allow' && effect !== 'deny') {
+        delete permissionProvenance[permissionId];
+        return;
+    }
+
+    permissionProvenance[permissionId] = {
+        source: 'MANUAL',
+        source_profile_id: null,
+        source_profile_name: null,
+    };
+};
+
+const convertPermissionToManual = (permissionId) => {
+    if (!permissionEffects[permissionId]) return;
+    markPermissionManual(permissionId);
 };
 
 const roleRequiresProfile = (roleId) => Boolean(roles.value.find((item) => Number(item.id) === Number(roleId))?.profiles?.length);
@@ -335,7 +415,10 @@ const submitUser = () => {
     form.permission_overrides = serializeOverrides();
     form.transform((data) => {
         const payload = { ...data };
-        if (!canAssignPermissions.value) delete payload.permission_overrides;
+        if (!canAssignPermissions.value) {
+            delete payload.permission_overrides;
+            delete payload.sync_profile_permissions;
+        }
         return payload;
     });
 
@@ -940,7 +1023,7 @@ const saveRoleBaseline = () => {
                                 type="button"
                                 :class="['rounded border p-4 text-start transition-colors', Number(form.professional_profile_id) === Number(profile.id) ? 'border-primary-400 bg-primary-50/60 ring-1 ring-primary-200 dark:border-primary-700 dark:bg-primary-950/20 dark:ring-primary-900' : 'border-gray-200 hover:border-primary-200 dark:border-gray-800 dark:hover:border-primary-900']"
                                 :aria-pressed="Number(form.professional_profile_id) === Number(profile.id)"
-                                @click="form.professional_profile_id = profile.id"
+                                @click="selectProfile(profile.id)"
                             >
                                 <div class="flex items-start justify-between gap-2">
                                     <p class="text-sm font-bold text-slate-700 dark:text-white">{{ profile.name }}</p>
@@ -960,11 +1043,16 @@ const saveRoleBaseline = () => {
                                 <p class="mt-1 text-[11px] text-slate-400">Le profil classe le métier ; il ne donne aucun droit automatiquement.</p>
                             </div>
                             <Button v-if="canAssignPermissions && selectedProfile.recommended_permissions?.length" size="sm" variant="white-outline" type="button" class="shrink-0" @click="applyProfileRecommendations">
-                                <Icon class="text-base" name="shield-check" /><span class="ms-2">Appliquer les droits principaux</span>
+                                <Icon class="text-base" name="shield-check" /><span class="ms-2">Appliquer les permissions du profil</span>
                             </Button>
                         </div>
                         <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-slate-400">{{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }}, enregistré{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} à l'étape Permissions après application.</p>
                         <p v-else class="mt-2 text-[11px] text-slate-400">Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</p>
+                        <div v-if="profileChanged" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                            <p class="font-bold">Le profil professionnel a changé.</p>
+                            <p>{{ oldProfileName }} → {{ newProfileName }}</p>
+                            <p class="mt-1">Les permissions provenant de l’ancien profil seront retirées à l’enregistrement. Si vous appliquez le nouveau profil, ses recommandations seront ajoutées ; les permissions attribuées manuellement seront conservées.</p>
+                        </div>
                     </div>
 
                     <div v-if="selectedRole" class="mt-5 border-t border-gray-200 pt-4 dark:border-gray-900">
@@ -1021,7 +1109,11 @@ const saveRoleBaseline = () => {
                                             <p class="text-xs font-bold text-slate-700 dark:text-white">{{ permission.label }}</p>
                                             <p class="mt-0.5 truncate font-mono text-[10px] text-slate-400" :title="permission.name">{{ permission.name }}</p>
                                             <span :class="['mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold', selectedRolePermissions.has(permission.name) ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 font-medium']"><Icon v-if="selectedRolePermissions.has(permission.name)" class="text-xs" name="star" />{{ selectedRolePermissions.has(permission.name) ? 'Suggéré pour ce rôle' : 'non autorisé par le rôle' }}</span>
-                                            <select v-model="permissionEffects[permission.id]" class="mt-2 h-8 w-full rounded border-gray-200 bg-white py-1 ps-2 pe-7 text-xs text-slate-600 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">
+                                            <div v-if="permissionProvenance[permission.id]" class="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium">
+                                                <span :class="permissionProvenance[permission.id].source === 'PROFILE' ? 'text-primary-600 dark:text-primary-300' : 'text-slate-500'">{{ permissionProvenance[permission.id].source === 'PROFILE' ? `Profil : ${permissionProvenance[permission.id].source_profile_name ?? selectedProfile?.name ?? 'professionnel'}` : 'Manuel' }}</span>
+                                                <button v-if="permissionProvenance[permission.id].source === 'PROFILE'" type="button" class="text-slate-400 underline hover:text-slate-600" @click="convertPermissionToManual(permission.id)">Conserver manuellement</button>
+                                            </div>
+                                            <select v-model="permissionEffects[permission.id]" class="mt-2 h-8 w-full rounded border-gray-200 bg-white py-1 ps-2 pe-7 text-xs text-slate-600 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200" @change="markPermissionManual(permission.id)">
                                                 <option value="">{{ selectedRolePermissions.has(permission.name) ? 'Hérité du rôle (autorisé)' : 'Hérité du rôle (non autorisé)' }}</option>
                                                 <option value="allow">Autoriser</option>
                                                 <option value="deny">Refuser</option>
@@ -1045,7 +1137,11 @@ const saveRoleBaseline = () => {
                                     <p class="mt-1.5 text-xs font-bold text-slate-700 dark:text-white">{{ permission.label }}</p>
                                     <p class="mt-0.5 truncate font-mono text-[10px] text-slate-400" :title="permission.name">{{ permission.name }}</p>
                                     <span :class="['mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold', selectedRolePermissions.has(permission.name) ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 font-medium']"><Icon v-if="selectedRolePermissions.has(permission.name)" class="text-xs" name="star" />{{ selectedRolePermissions.has(permission.name) ? 'Suggéré pour ce rôle' : 'non autorisé par le rôle' }}</span>
-                                    <select v-model="permissionEffects[permission.id]" class="mt-2 h-8 w-full rounded border-gray-200 bg-white py-1 ps-2 pe-7 text-xs text-slate-600 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">
+                                    <div v-if="permissionProvenance[permission.id]" class="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium">
+                                        <span :class="permissionProvenance[permission.id].source === 'PROFILE' ? 'text-primary-600 dark:text-primary-300' : 'text-slate-500'">{{ permissionProvenance[permission.id].source === 'PROFILE' ? `Profil : ${permissionProvenance[permission.id].source_profile_name ?? selectedProfile?.name ?? 'professionnel'}` : 'Manuel' }}</span>
+                                        <button v-if="permissionProvenance[permission.id].source === 'PROFILE'" type="button" class="text-slate-400 underline hover:text-slate-600" @click="convertPermissionToManual(permission.id)">Conserver manuellement</button>
+                                    </div>
+                                    <select v-model="permissionEffects[permission.id]" class="mt-2 h-8 w-full rounded border-gray-200 bg-white py-1 ps-2 pe-7 text-xs text-slate-600 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200" @change="markPermissionManual(permission.id)">
                                         <option value="">{{ selectedRolePermissions.has(permission.name) ? 'Hérité du rôle (autorisé)' : 'Hérité du rôle (non autorisé)' }}</option>
                                         <option value="allow">Autoriser</option>
                                         <option value="deny">Refuser</option>

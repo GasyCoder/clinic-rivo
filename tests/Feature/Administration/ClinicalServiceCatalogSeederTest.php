@@ -21,6 +21,8 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 {
     use RefreshDatabase;
 
+    private const EXPECTED_CATALOG_ITEMS = 70;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -35,7 +37,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 55);
+        $this->assertDatabaseCount('catalog_items', self::EXPECTED_CATALOG_ITEMS);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame(
             16,
@@ -90,6 +92,17 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertSame(10, CatalogItem::query()->where('reception_selectable', true)->count());
         $this->assertSame(18, CatalogItem::query()->where('module', 'CARE')->count());
         $this->assertSame(27, CatalogItem::query()->where('module', 'SURGERY')->count());
+        $this->assertSame(15, CatalogItem::query()->where('module', 'MATERNITY')->count());
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'MAT-DELIVERY-SIMPLE',
+            'module' => 'MATERNITY',
+            'reception_selectable' => false,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'MAT-CESAREAN-TWIN',
+            'module' => 'MATERNITY',
+            'reception_selectable' => false,
+        ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'SURG-APPENDICITE',
             'name' => 'Appendicite',
@@ -139,7 +152,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
-        $this->assertDatabaseCount('catalog_items', 55);
+        $this->assertDatabaseCount('catalog_items', self::EXPECTED_CATALOG_ITEMS);
         $this->assertDatabaseCount('catalog_tariffs', 16);
         $this->assertSame('27500.00', $ecg->fresh()->currentTariff->amount);
     }
@@ -165,19 +178,29 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertSame($actor->id, $specialistConsultation->fresh()->updated_by);
     }
 
-    public function test_an_explicit_provisioning_actor_gets_no_catalog_permission(): void
+    public function test_explicit_provisioning_actor_without_catalog_permissions_is_rejected(): void
     {
         $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
         $actor = User::factory()->create(['role_id' => $role->id]);
         config(['rivo.seeders.catalog_actor' => $actor->uuid]);
 
         $this->assertFalse($actor->hasPermissionTo('catalog.items.create'));
+        $this->assertFalse($actor->hasPermissionTo('catalog.items.update'));
         $this->assertFalse($actor->hasPermissionTo('catalog.tariffs.create'));
 
-        $this->seed(ClinicalServiceCatalogSeeder::class);
+        try {
+            $this->seed(ClinicalServiceCatalogSeeder::class);
+            $this->fail('Le seeder aurait dû refuser l’acteur sans permissions catalogue.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('RIVO_CATALOG_SEED_ACTOR', $exception->getMessage());
+            $this->assertStringContainsString('catalog.items.create', $exception->getMessage());
+            $this->assertStringContainsString('catalog.items.update', $exception->getMessage());
+            $this->assertStringContainsString('catalog.tariffs.create', $exception->getMessage());
+        }
 
-        $this->assertDatabaseCount('catalog_items', 55);
+        $this->assertDatabaseCount('catalog_items', 0);
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.items.create'));
+        $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.items.update'));
         $this->assertFalse($actor->fresh()->hasPermissionTo('catalog.tariffs.create'));
     }
 
@@ -188,7 +211,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             $this->fail('Le seeder aurait dû exiger un compte autorisé existant.');
         } catch (RuntimeException $exception) {
             $this->assertStringContainsString(
-                'Aucun compte actif ne peut créer le référentiel',
+                'Aucun compte actif ne possède les permissions requises',
                 $exception->getMessage(),
             );
         }
@@ -202,6 +225,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $role->permissions()->syncWithoutDetaching(
             Permission::query()->whereIn('name', [
                 'catalog.items.create',
+                'catalog.items.update',
                 'catalog.tariffs.create',
             ])->pluck('id'),
         );

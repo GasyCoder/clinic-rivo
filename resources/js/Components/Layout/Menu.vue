@@ -8,17 +8,10 @@ const visibility = defineModel('visibility');
 
 const page = usePage();
 const { can } = usePermissions();
+const isAdminPortal = computed(() => page.props.site?.type === 'admin');
 const overviewLabel = computed(() => (
     page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
 ));
-// Purely cosmetic: the professional profile never grants a permission on its
-// own (ADR-033), it only relabels this same /care entry for the account.
-const careLabel = computed(() => ({
-    REGISTERED_NURSE: 'Soins infirmier',
-    MIDWIFE: 'Soins maternité',
-    ANESTHETIST: 'Anesthésie',
-}[page.props.auth?.user?.professional_profile?.code] ?? 'Soins'));
-
 const clinicMenu = computed(() => [
     { heading: 'Principal' },
     { icon: 'growth', text: overviewLabel.value, link: '/' },
@@ -33,7 +26,8 @@ const clinicMenu = computed(() => [
     // care.update instead keeps the full Soins queue's menu entry for the
     // role that actually operates it (NURSE), without exposing it to roles
     // that only ever consult that projection.
-    { icon: 'user-check', text: careLabel.value, link: '/care', permission: 'care.update' },
+    { icon: 'user-check', text: 'Soins', link: '/care', permission: 'care.update' },
+    { icon: 'heart', text: 'Maternité', link: '/maternity', permission: 'maternity.view' },
     { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
     { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
     {
@@ -54,9 +48,9 @@ const clinicMenu = computed(() => [
 ]);
 
 const adminMenu = computed(() => [
-    { heading: 'Pilotage central' },
+    { heading: 'Vue centrale' },
     { icon: 'growth', text: overviewLabel.value, link: '/' },
-    { heading: 'Sites' },
+    { heading: 'Établissements' },
     ...(page.props.adminNavigation ?? []).map((site) => ({
         icon: 'building',
         text: site.name,
@@ -65,19 +59,21 @@ const adminMenu = computed(() => [
         children: site.modules,
         integrationStatus: site.integration_status,
     })),
-    { heading: 'Finance' },
+    { heading: 'Finance & caisse' },
+    { icon: 'wallet', text: 'Caisses des sites', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
     { icon: 'wallet', text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
-    { heading: 'Administration' },
+    { heading: 'Référentiels & stocks' },
+    { icon: 'list-index', text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
+    { icon: 'activity', text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
+    { icon: 'capsule', text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
+    { icon: 'map-pin', text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
+    { heading: 'Organisation' },
     { icon: 'briefcase', text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
     { icon: 'package', text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: 'shield-check', text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
-    { icon: 'list-index', text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
-    { icon: 'capsule', text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
-    { icon: 'map-pin', text: 'Référentiel adresses', link: '/super-admin/addresses', permission: 'address_entries.view' },
-    { icon: 'wallet', text: 'Caisses', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
-    { heading: 'Accès & système' },
-    { icon: 'trash', text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
+    { heading: 'Sécurité & système' },
     { icon: 'shield-check', text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
+    { icon: 'trash', text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
     { icon: 'setting-alt', text: 'Paramètres', link: '/super-admin/workspaces/settings', permission: 'settings.view' },
     { icon: 'history', text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },
 ]);
@@ -143,42 +139,42 @@ const closeMobile = () => {
 </script>
 
 <template>
-    <ul class="nk-menu">
+    <ul :class="['nk-menu pb-5', isAdminPortal && 'px-3']">
         <template v-for="(item, index) in menuData" :key="index">
             <li
                 v-if="item.heading"
-                class="relative first:pt-1 pt-10 pb-2 px-6 before:absolute before:h-px before:w-full before:start-0 before:top-1/2 before:bg-gray-200 dark:before:bg-gray-900 first:before:hidden before:opacity-0 group-[&.is-compact:not(.has-hover)]/sidebar:before:opacity-100"
+                :class="[
+                    'relative first:pt-1 pb-2 before:absolute before:h-px before:w-full before:start-0 before:top-1/2 before:bg-gray-200 dark:before:bg-gray-900 first:before:hidden before:opacity-0 group-[&.is-compact:not(.has-hover)]/sidebar:before:opacity-100',
+                    isAdminPortal ? 'px-3 pt-6' : 'px-6 pt-10',
+                ]"
             >
-                <h6 class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 text-slate-500 dark:text-slate-300 whitespace-nowrap uppercase font-bold text-xs tracking-relaxed leading-tight">
+                <h6 :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 whitespace-nowrap uppercase font-bold leading-tight', isAdminPortal ? 'text-[10px] tracking-[0.16em] text-slate-400 dark:text-slate-500' : 'text-xs tracking-relaxed text-slate-500 dark:text-slate-300']">
                     {{ item.heading }}
                 </h6>
             </li>
 
             <li
                 v-else
-                :class="['nk-menu-item py-0.5 group/item', { active: isActive(item) }]"
+                :class="['nk-menu-item group/item', isAdminPortal ? 'py-0.5' : 'py-0.5', { active: isActive(item) }]"
             >
                 <details v-if="item.children" :open="isActive(item)" class="group/site">
-                    <summary class="nk-menu-link flex cursor-pointer list-none items-center py-2.5 ps-6 pe-5 font-heading font-bold tracking-snug">
-                        <span class="w-9 shrink-0 text-slate-400 group-[.active]/item:text-primary-500">
-                            <Icon class="text-2xl leading-none" :name="item.icon" />
+                    <summary :class="['nk-menu-link flex cursor-pointer list-none items-center font-heading font-bold tracking-snug transition-colors', isAdminPortal ? 'rounded-md px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-white/5' : 'py-2.5 ps-6 pe-5', isAdminPortal && isActive(item) ? 'bg-primary-500/10' : '']">
+                        <span :class="['shrink-0 text-slate-400 group-[.active]/item:text-primary-500', isAdminPortal ? 'flex h-8 w-8 items-center justify-center' : 'w-9']">
+                            <Icon :class="isAdminPortal ? 'text-lg leading-none' : 'text-2xl leading-none'" :name="item.icon" />
                         </span>
                         <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300 group-[.active]/item:text-primary-500">
                             {{ item.text }}
                         </span>
                         <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 ms-2 flex items-center gap-2">
-                            <span
-                                :class="['h-1.5 w-1.5 rounded-full', item.integrationStatus === 'CONFIGURED' ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700']"
-                                :title="item.integrationStatus === 'CONFIGURED' ? 'API configurée' : 'API à configurer'"
-                            />
+                            <span :class="['rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide', item.integrationStatus === 'CONFIGURED' ? 'border-emerald-500/30 text-emerald-500' : 'border-slate-300 text-slate-400 dark:border-slate-700']">API</span>
                             <Icon class="text-sm text-slate-400 transition-transform group-open/site:rotate-90" name="chevron-right" />
                         </span>
                     </summary>
-                    <ul class="group-[&.is-compact:not(.has-hover)]/sidebar:hidden pb-2 ps-[60px] pe-4">
+                    <ul :class="['group-[&.is-compact:not(.has-hover)]/sidebar:hidden pb-2', isAdminPortal ? 'ms-8 border-s border-slate-200/20 ps-3 pe-1' : 'ps-[60px] pe-4']">
                         <li v-for="child in item.children" :key="child.code">
                             <Link
                                 :href="child.link"
-                                :class="['block rounded px-3 py-1.5 text-xs transition-colors', isChildActive(child) ? 'bg-gray-100 font-bold text-primary-600 dark:bg-gray-900 dark:text-primary-400' : 'text-slate-500 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-900 dark:hover:text-slate-300']"
+                                :class="['block rounded px-3 py-2 text-xs transition-colors', isChildActive(child) ? 'bg-primary-500/10 font-bold text-primary-500' : 'text-slate-500 hover:bg-white/5 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white']"
                                 @click="closeMobile"
                             >
                                 {{ child.label }}
@@ -190,13 +186,18 @@ const closeMobile = () => {
                 <Link
                     v-else-if="item.link"
                     :href="item.link"
-                    class="nk-menu-link nk-route-toggle flex relative items-center align-middle py-2.5 ps-6 pe-10 font-heading font-bold tracking-snug group"
+                    :class="[
+                        'nk-menu-link nk-route-toggle relative flex items-center align-middle font-heading font-bold tracking-snug transition-colors group',
+                        isAdminPortal ? 'rounded-md px-3 py-2.5' : 'py-2.5 ps-6 pe-10',
+                        isAdminPortal && isActive(item) ? 'bg-primary-500/10 text-primary-500' : '',
+                        isAdminPortal && !isActive(item) ? 'hover:bg-gray-100 dark:hover:bg-white/5' : '',
+                    ]"
                     @click="closeMobile"
                 >
-                    <span class="font-normal tracking-normal w-9 inline-flex flex-grow-0 flex-shrink-0 text-slate-400 group-[.active]/item:text-primary-500 group-hover:text-primary-500">
-                        <Icon class="text-2xl leading-none text-current transition-all duration-300" :name="item.icon" />
+                    <span :class="['inline-flex flex-grow-0 flex-shrink-0 items-center font-normal tracking-normal text-slate-400 group-[.active]/item:text-primary-500 group-hover:text-primary-500', isAdminPortal ? 'h-8 w-8 justify-center' : 'w-9']">
+                        <Icon :class="isAdminPortal ? 'text-lg leading-none text-current' : 'text-2xl leading-none text-current transition-all duration-300'" :name="item.icon" />
                     </span>
-                    <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 flex-grow-1 inline-block whitespace-nowrap transition-all duration-300 text-slate-600 dark:text-slate-300 group-[.active]/item:text-primary-500 group-hover:text-primary-500">
+                    <span :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 inline-block flex-grow whitespace-nowrap transition-all duration-300 group-[.active]/item:text-primary-500 group-hover:text-primary-500', isAdminPortal ? 'text-[13px] text-slate-600 dark:text-slate-300' : 'text-slate-600 dark:text-slate-300']">
                         {{ item.text }}
                     </span>
                 </Link>

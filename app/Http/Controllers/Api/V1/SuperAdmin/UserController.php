@@ -35,6 +35,7 @@ class UserController extends Controller
             ? $request->query('status')
             : 'active';
         $roleCode = trim((string) $request->query('role', ''));
+        $sourceProfileNames = ProfessionalProfile::query()->pluck('name', 'id');
 
         $userModels = User::query()
             ->with(['role:id,code,name', 'professionalProfile:id,role_id,code,name', 'permissions:id,name'])
@@ -56,7 +57,7 @@ class UserController extends Controller
             ->distinct()
             ->pluck('user_id');
 
-        $users = $userModels->map(fn (User $user) => $this->serializeUser($user, $auditedUserIds));
+        $users = $userModels->map(fn (User $user) => $this->serializeUser($user, $auditedUserIds, $sourceProfileNames));
 
         $roles = Role::query()
             ->with([
@@ -261,6 +262,7 @@ class UserController extends Controller
                         ->where('active', true),
                 ),
             ],
+            'sync_profile_permissions' => ['sometimes', 'boolean'],
             'permission_overrides' => ['sometimes', 'array'],
             'permission_overrides.*.permission_id' => ['required', 'integer', 'distinct', Rule::exists('permissions', 'id')],
             'permission_overrides.*.effect' => ['required', Rule::in(['allow', 'deny'])],
@@ -269,8 +271,15 @@ class UserController extends Controller
 
     /** @return array<string, mixed> */
     /** @param Collection<int, int>|null $auditedUserIds */
-    private function serializeUser(User $user, ?Collection $auditedUserIds = null): array
-    {
+    private function serializeUser(
+        User $user,
+        ?Collection $auditedUserIds = null,
+        ?Collection $sourceProfileNames = null,
+    ): array {
+        $sourceProfileNames ??= ProfessionalProfile::query()
+            ->whereIn('id', $user->permissions->pluck('pivot.source_profile_id')->filter())
+            ->pluck('name', 'id');
+
         return [
             'uuid' => $user->uuid,
             'name' => $user->name,
@@ -297,6 +306,9 @@ class UserController extends Controller
                 'permission_id' => $permission->id,
                 'name' => $permission->name,
                 'effect' => $permission->pivot->effect,
+                'source' => $permission->pivot->source,
+                'source_profile_id' => $permission->pivot->source_profile_id,
+                'source_profile_name' => $sourceProfileNames->get($permission->pivot->source_profile_id),
             ])->values(),
         ];
     }

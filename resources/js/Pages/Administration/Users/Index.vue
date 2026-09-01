@@ -26,6 +26,8 @@ const roleFilter = ref(props.filters.role ?? '');
 const editingUser = ref(null);
 const formOpen = ref(false);
 const permissionEffects = reactive({});
+const permissionProvenance = reactive({});
+const originalProfileOverrides = ref([]);
 const deactivateTarget = ref(null);
 
 const form = useForm({
@@ -36,6 +38,7 @@ const form = useForm({
     password: '',
     password_confirmation: '',
     permission_overrides: [],
+    sync_profile_permissions: false,
 });
 
 const deactivationForm = useForm({ reason: '' });
@@ -52,6 +55,8 @@ const profileChanged = computed(() => isEditing.value
     && Number(editingUser.value?.professional_profile?.id ?? 0) !== Number(form.professional_profile_id ?? 0));
 const selectedRolePermissions = computed(() => new Set(selectedRole.value?.permissions ?? []));
 const overrideCount = computed(() => serializeOverrides().length);
+const oldProfileName = computed(() => editingUser.value?.professional_profile?.name ?? 'Aucun profil');
+const newProfileName = computed(() => selectedProfile.value?.name ?? 'Aucun profil');
 
 const groupedPermissions = computed(() => {
     const groups = {};
@@ -99,6 +104,7 @@ const moduleLabels = {
     care: 'Soins',
     vitals: 'Constantes',
     medical_orders: 'Ordres médicaux',
+    maternity: 'Maternité',
     anesthesia: 'Anesthésie',
     surgery: 'Chirurgie',
 };
@@ -126,7 +132,15 @@ const submitFilters = () => {
 
 const resetPermissionEffects = (overrides = []) => {
     for (const key of Object.keys(permissionEffects)) delete permissionEffects[key];
-    for (const override of overrides) permissionEffects[override.permission_id] = override.effect;
+    for (const key of Object.keys(permissionProvenance)) delete permissionProvenance[key];
+    for (const override of overrides) {
+        permissionEffects[override.permission_id] = override.effect;
+        permissionProvenance[override.permission_id] = {
+            source: override.source ?? 'MANUAL',
+            source_profile_id: override.source_profile_id ?? null,
+            source_profile_name: override.source_profile_name ?? null,
+        };
+    }
 };
 
 const openCreate = () => {
@@ -136,6 +150,8 @@ const openCreate = () => {
     form.role_id = props.roles.find((role) => role.code !== 'SUPER_ADMIN')?.id ?? props.roles[0]?.id ?? '';
     form.professional_profile_id = '';
     resetPermissionEffects();
+    originalProfileOverrides.value = [];
+    form.sync_profile_permissions = false;
     formOpen.value = true;
 };
 
@@ -149,6 +165,8 @@ const openEdit = (user) => {
     form.password = '';
     form.password_confirmation = '';
     resetPermissionEffects(user.permission_overrides);
+    originalProfileOverrides.value = (user.permission_overrides ?? []).filter((override) => override.source === 'PROFILE');
+    form.sync_profile_permissions = false;
     formOpen.value = true;
 };
 
@@ -159,22 +177,77 @@ const closeForm = () => {
     form.reset();
     form.clearErrors();
     resetPermissionEffects();
+    originalProfileOverrides.value = [];
 };
 
 const serializeOverrides = () => Object.entries(permissionEffects)
-    .filter(([, effect]) => effect === 'allow' || effect === 'deny')
+    .filter(([permissionId, effect]) => (effect === 'allow' || effect === 'deny')
+        && permissionProvenance[permissionId]?.source !== 'PROFILE')
     .map(([permissionId, effect]) => ({ permission_id: Number(permissionId), effect }));
 
 const onRoleChange = () => {
     form.professional_profile_id = '';
+    onProfileChange();
+};
+
+const removeProfilePreview = () => {
+    for (const [permissionId, provenance] of Object.entries(permissionProvenance)) {
+        if (provenance?.source !== 'PROFILE') continue;
+        delete permissionEffects[permissionId];
+        delete permissionProvenance[permissionId];
+    }
+};
+
+const onProfileChange = () => {
+    removeProfilePreview();
+    form.sync_profile_permissions = false;
+
+    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) return;
+
+    for (const override of originalProfileOverrides.value) {
+        if (permissionProvenance[override.permission_id]?.source === 'MANUAL') continue;
+        permissionEffects[override.permission_id] = override.effect;
+        permissionProvenance[override.permission_id] = {
+            source: 'PROFILE',
+            source_profile_id: override.source_profile_id,
+            source_profile_name: override.source_profile_name,
+        };
+    }
 };
 
 const applyProfileRecommendations = () => {
     if (!canAssignPermissions.value || !selectedProfile.value) return;
 
+    removeProfilePreview();
     for (const permission of selectedProfile.value.recommended_permissions ?? []) {
+        if (permissionProvenance[permission.id]?.source === 'MANUAL') continue;
         permissionEffects[permission.id] = 'allow';
+        permissionProvenance[permission.id] = {
+            source: 'PROFILE',
+            source_profile_id: selectedProfile.value.id,
+            source_profile_name: selectedProfile.value.name,
+        };
     }
+    form.sync_profile_permissions = true;
+};
+
+const markPermissionManual = (permissionId) => {
+    const effect = permissionEffects[permissionId];
+    if (effect !== 'allow' && effect !== 'deny') {
+        delete permissionProvenance[permissionId];
+        return;
+    }
+
+    permissionProvenance[permissionId] = {
+        source: 'MANUAL',
+        source_profile_id: null,
+        source_profile_name: null,
+    };
+};
+
+const convertPermissionToManual = (permissionId) => {
+    if (!permissionEffects[permissionId]) return;
+    markPermissionManual(permissionId);
 };
 
 const roleRequiresProfile = (roleId) => {
@@ -189,6 +262,7 @@ const submitUser = () => {
 
         if (!canAssignPermissions.value || editingUser.value?.is_current) {
             delete payload.permission_overrides;
+            delete payload.sync_profile_permissions;
         }
 
         return payload;
@@ -411,7 +485,7 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
 
                             <div v-if="selectedRoleProfiles.length">
                                 <label for="user_professional_profile" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profil professionnel <span class="text-red-500">*</span></label>
-                                <select id="user_professional_profile" v-model="form.professional_profile_id" :disabled="editingUser?.is_current" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 disabled:bg-gray-50 disabled:text-slate-400 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-900" :aria-invalid="Boolean(form.errors.professional_profile_id)">
+                                <select id="user_professional_profile" v-model="form.professional_profile_id" :disabled="editingUser?.is_current" class="block h-9 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 disabled:bg-gray-50 disabled:text-slate-400 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-900" :aria-invalid="Boolean(form.errors.professional_profile_id)" @change="onProfileChange">
                                     <option disabled value="">Choisir un profil</option>
                                     <option v-for="profile in selectedRoleProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
                                 </select>
@@ -427,14 +501,18 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                     </div>
                                     <Button v-if="canAssignPermissions && !editingUser?.is_current && selectedProfile.recommended_permissions?.length" size="sm" variant="white-outline" type="button" class="shrink-0" @click="applyProfileRecommendations">
                                         <Icon class="text-base" name="shield-check" />
-                                        <span class="ms-2">Appliquer les droits principaux</span>
+                                        <span class="ms-2">Appliquer les permissions du profil</span>
                                     </Button>
                                 </div>
                                 <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-slate-400">
                                     {{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }}, enregistré{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} individuellement après application.
                                 </p>
                                 <p v-else class="mt-2 text-[11px] text-slate-400">Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</p>
-                                <p v-if="profileChanged" class="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">Le changement de profil ne retire pas les permissions individuelles existantes. Vérifiez les exceptions ci-dessous avant d’enregistrer.</p>
+                                <div v-if="profileChanged" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                                    <p class="font-bold">Le profil professionnel a changé.</p>
+                                    <p>{{ oldProfileName }} → {{ newProfileName }}</p>
+                                    <p class="mt-1">Les permissions provenant de l’ancien profil seront retirées à l’enregistrement. Si vous appliquez le nouveau profil, ses recommandations seront ajoutées ; les permissions manuelles seront conservées.</p>
+                                </div>
                             </div>
                         </div>
 
@@ -476,8 +554,14 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                             <div>
                                                 <p class="text-xs font-medium text-slate-600 dark:text-slate-200">{{ permission.label }}</p>
                                                 <p class="mt-0.5 text-[11px] text-slate-400">{{ permission.name }} · {{ selectedRolePermissions.has(permission.name) ? 'autorisé par le rôle' : 'non autorisé par le rôle' }}</p>
+                                                <div v-if="permissionProvenance[permission.id]" class="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium">
+                                                    <span :class="permissionProvenance[permission.id].source === 'PROFILE' ? 'text-primary-600 dark:text-primary-300' : 'text-slate-500'">
+                                                        {{ permissionProvenance[permission.id].source === 'PROFILE' ? `Profil : ${permissionProvenance[permission.id].source_profile_name ?? selectedProfile?.name ?? 'professionnel'}` : 'Manuel' }}
+                                                    </span>
+                                                    <button v-if="permissionProvenance[permission.id].source === 'PROFILE'" type="button" class="text-slate-400 underline hover:text-slate-600" @click="convertPermissionToManual(permission.id)">Conserver manuellement</button>
+                                                </div>
                                             </div>
-                                            <select v-model="permissionEffects[permission.id]" class="h-8 rounded border-gray-200 bg-white py-1 ps-2 pe-7 text-xs text-slate-600 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">
+                                            <select v-model="permissionEffects[permission.id]" class="h-8 rounded border-gray-200 bg-white py-1 ps-2 pe-7 text-xs text-slate-600 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200" @change="markPermissionManual(permission.id)">
                                                 <option value="">Hérité du rôle</option>
                                                 <option value="allow">Autoriser</option>
                                                 <option value="deny">Refuser</option>

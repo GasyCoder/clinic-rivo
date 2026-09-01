@@ -110,7 +110,11 @@ class UserAdministrationTest extends TestCase
                 ->where('roles', function ($roles) {
                     $nurse = collect($roles)->firstWhere('code', 'NURSE');
 
-                    return $nurse && count($nurse['profiles']) === 3;
+                    $midwife = collect($nurse['profiles'] ?? [])->firstWhere('code', 'MIDWIFE');
+
+                    return $nurse
+                        && count($nurse['profiles']) === 3
+                        && collect($midwife['recommended_permissions'] ?? [])->contains('name', 'maternity.view');
                 })
                 ->has('permissionCatalog'));
     }

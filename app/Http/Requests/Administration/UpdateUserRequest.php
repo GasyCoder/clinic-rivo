@@ -49,6 +49,7 @@ class UpdateUserRequest extends FormRequest
                         ->where('active', true),
                 ),
             ],
+            'sync_profile_permissions' => ['sometimes', 'boolean'],
             'permission_overrides' => ['sometimes', 'array'],
             'permission_overrides.*.permission_id' => [
                 'required',

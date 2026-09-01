@@ -10,6 +10,7 @@ import { useThemeStore } from '@/stores/theme';
 const theme = useThemeStore();
 const page = usePage();
 const site = computed(() => page.props.site);
+const portalSubtitle = computed(() => site.value?.type === 'admin' ? 'Super Administration' : site.value?.name);
 
 const visibility = defineModel('visibility');
 const compact = defineModel('compact');
@@ -43,7 +44,8 @@ onMounted(() => {
             dark: theme.sidebar === 'dark',
         }"
     >
-        <div class="flex items-center min-w-full w-72 h-16 border-b border-e bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-900 px-6 py-3 overflow-hidden">
+        <div class="relative flex h-16 min-w-full w-72 items-center overflow-hidden border-b border-e border-gray-200 bg-white px-6 py-3 dark:border-gray-900 dark:bg-gray-950">
+            <span v-if="site?.type === 'admin'" class="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary-500 via-cyan-400 to-amber-300" />
             <div class="-ms-1 me-4">
                 <div class="hidden xl:block">
                     <a
@@ -72,7 +74,7 @@ onMounted(() => {
                     class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
                 >
                     <span class="font-heading text-sm font-bold leading-tight text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
-                    <span v-if="site.name" class="truncate text-xxs text-slate-500 dark:text-slate-400 uppercase tracking-wide">{{ site.name }}</span>
+                    <span v-if="portalSubtitle" class="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{{ portalSubtitle }}</span>
                 </Link>
             </div>
         </div>
@@ -83,7 +85,7 @@ onMounted(() => {
             @mouseleave="mouseEnter = false"
         >
             <div class="flex flex-col w-full h-[calc(100vh-theme(spacing.16))]">
-                <SimpleBar class="h-full pt-4 pb-10">
+                <SimpleBar :class="['h-full pb-10', site?.type === 'admin' ? 'pt-3' : 'pt-4']">
                     <Menu v-model:visibility="visibility" />
                 </SimpleBar>
             </div>

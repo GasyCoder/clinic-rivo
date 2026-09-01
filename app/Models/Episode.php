@@ -124,6 +124,11 @@ class Episode extends Model
         return $this->hasOne(CareRecord::class);
     }
 
+    public function maternityRecord(): HasOne
+    {
+        return $this->hasOne(MaternityRecord::class);
+    }
+
     public function medicalDischarge(): HasOne
     {
         return $this->hasOne(MedicalDischarge::class);

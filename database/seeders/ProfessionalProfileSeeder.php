@@ -27,7 +27,12 @@ class ProfessionalProfileSeeder extends Seeder
             'MIDWIFE' => [
                 'name' => 'Sage-femme',
                 'description' => 'Soins infirmiers et activité de maternité selon les droits du compte.',
-                'permissions' => [],
+                'permissions' => [
+                    'maternity.view', 'maternity.create', 'maternity.update', 'maternity.complete',
+                    'maternity.prenatal.manage', 'maternity.labor.manage',
+                    'maternity.delivery.manage', 'maternity.newborn.manage',
+                    'maternity.procedures.manage',
+                ],
             ],
             'ANESTHETIST' => [
                 'name' => 'Anesthésiste',

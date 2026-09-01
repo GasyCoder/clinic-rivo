@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
+use App\Http\Controllers\Api\V1\SuperAdmin\AnalysisCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
@@ -30,6 +31,14 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/address-entries/{addressUuid}', [AddressEntryController::class, 'update'])->name('address-entries.update');
         Route::delete('/address-entries/{addressUuid}', [AddressEntryController::class, 'destroy'])->name('address-entries.destroy');
         Route::post('/address-entries/{addressUuid}/restore', [AddressEntryController::class, 'restore'])->name('address-entries.restore');
+
+        Route::get('/analysis-catalogs', [AnalysisCatalogController::class, 'index'])->name('analysis-catalogs.index');
+        Route::post('/analysis-catalogs', [AnalysisCatalogController::class, 'store'])->name('analysis-catalogs.store');
+        Route::post('/analysis-catalogs/import', [AnalysisCatalogController::class, 'import'])->name('analysis-catalogs.import');
+        Route::get('/analysis-catalogs/{analysisUuid}', [AnalysisCatalogController::class, 'show'])->name('analysis-catalogs.show');
+        Route::put('/analysis-catalogs/{analysisUuid}', [AnalysisCatalogController::class, 'update'])->name('analysis-catalogs.update');
+        Route::post('/analysis-catalogs/{analysisUuid}/activate', [AnalysisCatalogController::class, 'activate'])->name('analysis-catalogs.activate');
+        Route::post('/analysis-catalogs/{analysisUuid}/deactivate', [AnalysisCatalogController::class, 'deactivate'])->name('analysis-catalogs.deactivate');
 
         Route::get('/mutual-organizations', [MutualOrganizationController::class, 'index'])->name('mutual-organizations.index');
         Route::post('/mutual-organizations', [MutualOrganizationController::class, 'store'])->name('mutual-organizations.store');

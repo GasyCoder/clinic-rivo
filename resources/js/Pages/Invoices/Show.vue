@@ -56,6 +56,23 @@ const isPharmacyInvoice = computed(() => props.invoice.source_module === 'PHARMA
 const isPayable = computed(() => ['VALIDATED', 'PARTIALLY_PAID'].includes(props.invoice.status)
     && Number(props.invoice.balance_amount) > 0);
 
+// Arriving on a payable invoice is a single decision — pay now (cash
+// register required) or pay later (print an unpaid document) — never both
+// paths shown at once. `null` means the decision hasn't been made yet; the
+// document buttons stay hidden until either branch resolves, so "choose
+// facture/ticket" is always a *consequence* of a choice, never a competing
+// option sitting next to it.
+const paymentChoice = ref(null);
+const canPayNow = computed(() => props.capabilities.can_pay && props.openCashSessions.length > 0);
+// The gated pay-now/pay-later choice only exists for the normal invoice
+// screen — a Pharmacy ticketOnly view never renders that decision panel at
+// all, so it must never be the thing blocking its own print button.
+const documentsUnlocked = computed(() => props.ticketOnly || !isPayable.value || paymentChoice.value === 'later');
+const justSettled = computed(() => paymentChoice.value === 'now' && !isPayable.value);
+const chooseNow = () => { if (canPayNow.value) paymentChoice.value = 'now'; };
+const chooseLater = () => { paymentChoice.value = 'later'; };
+const changeChoice = () => { paymentChoice.value = null; };
+
 const paymentForm = useForm({
     invoice_uuid: props.invoice.uuid,
     payment_method_id: '',
@@ -177,7 +194,7 @@ onBeforeUnmount(() => {
                 <Icon class="text-lg" name="arrow-left" />
                 <span class="ms-2">{{ returnLabel }}</span>
             </Button>
-            <div class="flex flex-wrap items-center justify-end gap-2">
+            <div v-if="documentsUnlocked" class="flex flex-wrap items-center justify-end gap-2">
                 <Button v-if="!ticketOnly" size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
                     <Icon class="text-lg" name="file-text" />
                     <span class="ms-2">Facture B5 / PDF</span>
@@ -187,49 +204,96 @@ onBeforeUnmount(() => {
                     <span class="ms-2">Imprimer le ticket</span>
                 </Button>
             </div>
+            <span v-else class="text-xs font-medium text-slate-400">Choisissez un mode de règlement pour débloquer l’impression.</span>
         </div>
 
         <div v-if="!closeAfterPrint && !ticketOnly && isPayable" class="invoice-actions overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
             <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
-                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Encaissement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Règlement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
             </div>
 
-            <form v-if="capabilities.can_pay && openCashSessions.length > 0" class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
-                <div v-if="openCashSessions.length > 1">
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
-                    <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                        <option value="">Choisir…</option>
-                        <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
-                    </select>
-                    <FormError :message="paymentForm.errors.cash_register_uuid" />
+            <!-- Step 1: the decision itself — pay now or pay later, one at a time. -->
+            <div v-if="paymentChoice === null" class="grid gap-3 p-4 sm:grid-cols-2">
+                <button
+                    type="button"
+                    :disabled="!canPayNow"
+                    :class="[
+                        'flex items-start gap-3 rounded-xl border p-4 text-start transition',
+                        canPayNow ? 'border-gray-200 hover:border-primary-400 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10' : 'cursor-not-allowed border-gray-200 opacity-50 dark:border-gray-800',
+                    ]"
+                    @click="chooseNow"
+                >
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
+                    <span>
+                        <span class="block text-sm font-bold text-slate-700 dark:text-white">Payer maintenant</span>
+                        <span class="mt-0.5 block text-xs leading-5 text-slate-400">Encaisser tout de suite à la caisse, puis imprimer la facture acquittée.</span>
+                        <span v-if="!capabilities.can_pay" class="mt-1.5 block text-xs font-semibold text-amber-700 dark:text-amber-300">Votre compte ne dispose pas du droit d’encaissement.</span>
+                        <span v-else-if="openCashSessions.length === 0" class="mt-1.5 block text-xs font-semibold text-amber-700 dark:text-amber-300">Ouvrez une caisse pour activer cette option.</span>
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    class="flex items-start gap-3 rounded-xl border border-gray-200 p-4 text-start transition hover:border-primary-400 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10"
+                    @click="chooseLater"
+                >
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="clock" /></span>
+                    <span>
+                        <span class="block text-sm font-bold text-slate-700 dark:text-white">Payer plus tard</span>
+                        <span class="mt-0.5 block text-xs leading-5 text-slate-400">Remettre une facture ou un ticket impayé ; le règlement se fera ultérieurement à la caisse.</span>
+                    </span>
+                </button>
+            </div>
+
+            <!-- Step 2a: "pay now" — the actual cash-in form, unchanged logic. -->
+            <div v-else-if="paymentChoice === 'now'">
+                <div class="flex items-center justify-between gap-3 px-4 pt-3">
+                    <span class="inline-flex items-center gap-1.5 rounded-full bg-primary-50 px-2.5 py-1 text-[11px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon name="wallet" />Payer maintenant</span>
+                    <button type="button" class="text-xs font-semibold text-slate-400 hover:text-primary-600" @click="changeChoice">‹ Changer de choix</button>
                 </div>
-                <div>
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
-                    <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                        <option value="">Choisir…</option>
-                        <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
-                    </select>
-                    <FormError :message="paymentForm.errors.payment_method_id" />
+                <form class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
+                    <div v-if="openCashSessions.length > 1">
+                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
+                        <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                            <option value="">Choisir…</option>
+                            <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
+                        </select>
+                        <FormError :message="paymentForm.errors.cash_register_uuid" />
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
+                        <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                            <option value="">Choisir…</option>
+                            <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
+                        </select>
+                        <FormError :message="paymentForm.errors.payment_method_id" />
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
+                        <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
+                        <FormError :message="paymentForm.errors.amount" />
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Référence</label>
+                        <Input v-model="paymentForm.reference" placeholder="N° transaction, chèque…" />
+                        <FormError :message="paymentForm.errors.reference" />
+                    </div>
+                    <div class="flex items-end">
+                        <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
+                    </div>
+                    <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
+                    <FormError v-if="openCashSessions.length <= 1" class="sm:col-span-4" :message="paymentForm.errors.cash_register_uuid" />
+                </form>
+            </div>
+
+            <!-- Step 2b: "pay later" — confirms the choice and unlocks printing above. -->
+            <div v-else class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon name="clock" /></span>
+                    <div><p class="text-sm font-bold text-slate-700 dark:text-white">Réglée plus tard</p><p class="text-xs text-slate-400">La facture reste impayée jusqu’à l’encaissement à la caisse. Choisissez le document à remettre ci-dessus.</p></div>
                 </div>
-                <div>
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
-                    <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
-                    <FormError :message="paymentForm.errors.amount" />
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Référence</label>
-                    <Input v-model="paymentForm.reference" placeholder="N° transaction, chèque…" />
-                    <FormError :message="paymentForm.errors.reference" />
-                </div>
-                <div class="flex items-end">
-                    <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
-                </div>
-                <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
-                <FormError v-if="openCashSessions.length <= 1" class="sm:col-span-4" :message="paymentForm.errors.cash_register_uuid" />
-            </form>
-            <p v-else-if="!capabilities.can_pay" class="px-4 py-4 text-sm text-slate-400">Votre compte ne dispose pas du droit d’encaissement.</p>
-            <p v-else class="px-4 py-4 text-sm text-amber-700 dark:text-amber-300">Ouvrez la caisse pour encaisser cette facture.</p>
+                <button type="button" class="shrink-0 text-xs font-semibold text-slate-400 hover:text-primary-600" @click="changeChoice">‹ Changer de choix</button>
+            </div>
 
             <div v-if="invoice.payments?.length" class="border-t border-gray-200 px-4 py-3 dark:border-gray-800">
                 <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Paiements enregistrés</p>
@@ -240,6 +304,11 @@ onBeforeUnmount(() => {
                     </li>
                 </ul>
             </div>
+        </div>
+
+        <div v-if="!closeAfterPrint && !ticketOnly && justSettled" class="invoice-actions flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"><Icon name="check" /></span>
+            <div><p class="text-sm font-bold text-emerald-800 dark:text-emerald-200">Paiement encaissé</p><p class="text-xs text-emerald-700/80 dark:text-emerald-300/80">La facture est acquittée. Choisissez le document à remettre ci-dessus.</p></div>
         </div>
 
         <div class="invoice-layout-scroll">

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Episode;
 
+use App\Actions\Reception\CreateReceptionLabRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
@@ -33,6 +34,7 @@ class PlanEpisodeRoutingAction
 {
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
+        private readonly CreateReceptionLabRequestAction $createReceptionLabRequest,
         private readonly CatalogTariffResolver $tariffs,
         private readonly StaffFinancialAllocationService $staffFinancials,
     ) {}
@@ -301,6 +303,12 @@ class PlanEpisodeRoutingAction
     /** @param Collection<int, EpisodeServiceRequest> $requests */
     private function openInitialQueues(Episode $episode, Collection $requests, User $actor): void
     {
+        $directDestinations = $requests
+            ->map(fn (EpisodeServiceRequest $request) => $request->routing_mode->directDestination())
+            ->filter()
+            ->unique(fn (CatalogModule $module) => $module->value)
+            ->values();
+
         if ($episode->priority === EpisodePriority::Emergency) {
             $this->createOrientation->execute(
                 $episode,
@@ -317,48 +325,56 @@ class PlanEpisodeRoutingAction
                 'Admission en urgence.',
             );
 
-            return;
-        }
-
-        $requiresCare = $requests->contains(
-            fn (EpisodeServiceRequest $request) => $request->routing_mode->startsWithCare(),
-        );
-        $requiresMedicine = $requests->contains(
-            fn (EpisodeServiceRequest $request) => $request->routing_mode->requiresMedicine(),
-        );
-
-        // Safe aggregation for a physical patient: if any selected service
-        // needs Care, only Care is opened first. Medicine is handed off when
-        // Care completes, including the CARE_ONLY + MEDICINE_DIRECT mix.
-        if ($requiresCare) {
-            $this->createOrientation->execute(
-                $episode,
-                CatalogModule::Reception,
-                CatalogModule::Care,
-                $actor,
-                'Parcours calculé depuis les désignations d’arrivée.',
+        } else {
+            $requiresCare = $requests->contains(
+                fn (EpisodeServiceRequest $request) => $request->routing_mode->startsWithCare(),
+            );
+            $requiresMedicine = $requests->contains(
+                fn (EpisodeServiceRequest $request) => $request->routing_mode->requiresMedicine(),
             );
 
-            return;
-        }
-
-        if ($requiresMedicine) {
-            $activeCare = $episode->orientations()
-                ->where('destination_module', CatalogModule::Care->value)
-                ->whereIn('status', [
-                    EpisodeOrientationStatus::Pending->value,
-                    EpisodeOrientationStatus::InProgress->value,
-                ])
-                ->exists();
-
-            if (! $activeCare) {
+            // Safe aggregation for a physical patient: if any selected
+            // service needs Care, Medicine is handed off when Care completes.
+            if ($requiresCare) {
                 $this->createOrientation->execute(
                     $episode,
                     CatalogModule::Reception,
-                    CatalogModule::Medicine,
+                    CatalogModule::Care,
                     $actor,
-                    'Accès direct selon les désignations d’arrivée.',
+                    'Parcours calculé depuis les désignations d’arrivée.',
                 );
+            } elseif ($requiresMedicine) {
+                $activeCare = $episode->orientations()
+                    ->where('destination_module', CatalogModule::Care->value)
+                    ->whereIn('status', [
+                        EpisodeOrientationStatus::Pending->value,
+                        EpisodeOrientationStatus::InProgress->value,
+                    ])
+                    ->exists();
+
+                if (! $activeCare) {
+                    $this->createOrientation->execute(
+                        $episode,
+                        CatalogModule::Reception,
+                        CatalogModule::Medicine,
+                        $actor,
+                        'Accès direct selon les désignations d’arrivée.',
+                    );
+                }
+            }
+        }
+
+        foreach ($directDestinations as $destination) {
+            $orientation = $this->createOrientation->execute(
+                $episode,
+                CatalogModule::Reception,
+                $destination,
+                $actor,
+                "Accès direct {$destination->label()} selon les désignations d’arrivée.",
+            );
+
+            if ($destination === CatalogModule::Laboratory) {
+                $this->createReceptionLabRequest->execute($episode, $requests, $orientation, $actor);
             }
         }
     }

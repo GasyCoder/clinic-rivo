@@ -16,6 +16,7 @@ use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Episode;
+use App\Models\LabRequest;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
@@ -198,6 +199,47 @@ class EpisodeRoutingPlanTest extends TestCase
         );
     }
 
+    public function test_a_reception_analysis_opens_laboratory_and_creates_the_operational_request(): void
+    {
+        $analysis = $this->service('LAB-NFS', ReceptionRoutingMode::LaboratoryDirect);
+        $episode = $this->episode();
+
+        $this->plan($episode, [[$analysis, 1]]);
+
+        $this->assertDatabaseHas('episode_orientations', [
+            'episode_id' => $episode->id,
+            'source_module' => CatalogModule::Reception->value,
+            'destination_module' => CatalogModule::Laboratory->value,
+            'status' => 'PENDING',
+        ]);
+        $request = LabRequest::query()->where('episode_id', $episode->id)->sole();
+        $this->assertNull($request->consultation_id);
+        $this->assertNull($request->source_orientation_id);
+        $this->assertSame($this->actor->id, $request->requested_by);
+        $this->assertDatabaseHas('lab_request_items', [
+            'lab_request_id' => $request->id,
+            'catalog_item_id' => $analysis->id,
+            'catalog_item_code_snapshot' => 'LAB-NFS',
+        ]);
+    }
+
+    public function test_a_reception_maternity_act_routes_the_same_episode_to_maternity(): void
+    {
+        $act = $this->service('MAT-CONSULT-PRENATAL', ReceptionRoutingMode::MaternityDirect);
+        $episode = $this->episode();
+
+        $this->plan($episode, [[$act, 1]]);
+
+        $this->assertDatabaseHas('episode_orientations', [
+            'episode_id' => $episode->id,
+            'source_module' => CatalogModule::Reception->value,
+            'destination_module' => CatalogModule::Maternity->value,
+            'status' => 'PENDING',
+        ]);
+        $this->assertSame($episode->id, $episode->orientations()->sole()->episode_id);
+        $this->assertDatabaseCount('lab_requests', 0);
+    }
+
     private function episode(EpisodePriority $priority = EpisodePriority::Normal): Episode
     {
         $patient = Patient::query()->create([
@@ -228,9 +270,12 @@ class EpisodeRoutingPlanTest extends TestCase
             'code' => $code,
             'name' => $code,
             'type' => CatalogItemType::Service,
-            'module' => $route === ReceptionRoutingMode::CareOnly
-                ? CatalogModule::Care
-                : CatalogModule::Medicine,
+            'module' => match ($route) {
+                ReceptionRoutingMode::CareOnly => CatalogModule::Care,
+                ReceptionRoutingMode::LaboratoryDirect => CatalogModule::Laboratory,
+                ReceptionRoutingMode::MaternityDirect => CatalogModule::Maternity,
+                default => CatalogModule::Medicine,
+            },
             'unit' => 'acte',
             'billable' => true,
             'stockable' => false,

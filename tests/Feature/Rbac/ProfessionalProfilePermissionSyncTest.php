@@ -48,6 +48,59 @@ class ProfessionalProfilePermissionSyncTest extends TestCase
         $this->actingAs($midwife)->get('/maternity')->assertOk();
     }
 
+    public function test_registered_nurse_reaches_care_only(): void
+    {
+        $nurse = $this->createProfileUser('REGISTERED_NURSE', true);
+
+        $this->assertTrue($nurse->fresh()->can('care.update'));
+        $this->assertFalse($nurse->fresh()->can('maternity.view'));
+        $this->assertFalse($nurse->fresh()->can('anesthesia.view'));
+        $this->assertFalse($nurse->fresh()->can('surgery.view'));
+
+        $this->actingAs($nurse)->get('/care')->assertOk();
+        $this->actingAs($nurse)->get('/maternity')->assertForbidden();
+        $this->actingAs($nurse)->get('/anesthesia')->assertForbidden();
+        $this->actingAs($nurse)->get('/surgery')->assertForbidden();
+    }
+
+    public function test_midwife_with_profile_permissions_reaches_both_care_and_maternity(): void
+    {
+        $midwife = $this->createProfileUser('MIDWIFE', true);
+
+        $this->actingAs($midwife)->get('/care')->assertOk();
+        $this->actingAs($midwife)->get('/maternity')->assertOk();
+        $this->actingAs($midwife)->get('/anesthesia')->assertForbidden();
+        $this->actingAs($midwife)->get('/surgery')->assertForbidden();
+    }
+
+    public function test_anesthetist_with_profile_permissions_reaches_care_and_anesthesia_only(): void
+    {
+        $anesthetist = $this->createProfileUser('ANESTHETIST', true);
+
+        $this->actingAs($anesthetist)->get('/care')->assertOk();
+        $this->actingAs($anesthetist)->get('/anesthesia')->assertOk();
+        $this->actingAs($anesthetist)->get('/maternity')->assertForbidden();
+        $this->actingAs($anesthetist)->get('/surgery')->assertForbidden();
+    }
+
+    public function test_anesthetist_with_manual_surgery_view_reaches_surgery_without_other_surgery_rights(): void
+    {
+        $anesthetist = $this->createProfileUser('ANESTHETIST', true, [
+            ['permission_id' => $this->permission('surgery.view')->id, 'effect' => 'allow'],
+        ]);
+
+        $this->assertTrue($anesthetist->fresh()->can('care.update'));
+        $this->assertTrue($anesthetist->fresh()->can('anesthesia.view'));
+        $this->assertTrue($anesthetist->fresh()->can('surgery.view'));
+        $this->assertFalse($anesthetist->fresh()->can('surgery.intervention.create'));
+        $this->assertFalse($anesthetist->fresh()->can('surgery.report.validate'));
+        // A manual surgery.view grant never changes the account's role — the
+        // anesthetist stays NURSE/ANESTHETIST, never becomes SURGERY.
+        $this->assertSame('NURSE', $anesthetist->fresh()->role->code);
+
+        $this->actingAs($anesthetist)->get('/surgery')->assertOk();
+    }
+
     public function test_administration_users_screen_exposes_permission_provenance(): void
     {
         $midwife = $this->createProfileUser('MIDWIFE', true);

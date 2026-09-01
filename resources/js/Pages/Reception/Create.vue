@@ -134,25 +134,55 @@ const requestJson = async (url, options = {}) => {
 };
 
 const catalogMap = computed(() => new Map(props.estimateCatalog.map((item) => [item.catalog_item_uuid, item])));
+const receptionCatalogModules = [
+    { value: 'MEDICINE', label: 'Médecine' },
+    { value: 'IMAGING', label: 'Imagerie' },
+    { value: 'CARE', label: 'Soins' },
+    { value: 'LABORATORY', label: 'Laboratoire' },
+    { value: 'MATERNITY', label: 'Maternité' },
+];
 const catalogModules = computed(() => {
-    const modules = new Map();
+    const modules = new Map(receptionCatalogModules.map((module) => [module.value, {
+        ...module,
+        count: 0,
+        readyCount: 0,
+    }]));
 
     props.estimateCatalog.forEach((item) => {
         const module = modules.get(item.module) ?? {
             value: item.module,
             label: item.module_label,
             count: 0,
+            readyCount: 0,
         };
         module.count += 1;
+        if (item.tariff_available) module.readyCount += 1;
         modules.set(item.module, module);
     });
 
     return Array.from(modules.values()).sort((left, right) => left.label.localeCompare(right.label, 'fr'));
 });
 const catalogCategoryOptions = computed(() => [
-    { value: '', label: 'Toutes', count: props.estimateCatalog.length },
+    {
+        value: '',
+        label: 'Toutes',
+        count: props.estimateCatalog.length,
+        readyCount: props.estimateCatalog.filter((item) => item.tariff_available).length,
+    },
     ...catalogModules.value,
 ]);
+const selectedCatalogCategory = computed(() => catalogCategoryOptions.value.find(
+    (category) => category.value === moduleFilter.value,
+) ?? catalogCategoryOptions.value[0]);
+const catalogModuleIcon = (module) => ({
+    '': 'grid-alt',
+    IMAGING: 'scan',
+    MEDICINE: 'heart',
+    CARE: 'shield-check',
+    LABORATORY: 'activity',
+    MATERNITY: 'heart',
+}[module] ?? 'category');
+const readyCatalogCount = computed(() => props.estimateCatalog.filter((item) => item.tariff_available).length);
 const cartIds = computed(() => new Set(cart.value.map((line) => line.catalog_item_uuid)));
 const filteredCatalog = computed(() => {
     const needle = catalogQuery.value.trim().toLocaleLowerCase('fr');
@@ -164,7 +194,8 @@ const filteredCatalog = computed(() => {
         return !needle || `${item.name} ${item.code} ${item.module_label}`
             .toLocaleLowerCase('fr')
             .includes(needle);
-    });
+    }).sort((left, right) => Number(right.tariff_available) - Number(left.tariff_available)
+        || left.name.localeCompare(right.name, 'fr'));
 });
 const hasCatalogFilters = computed(() => catalogQuery.value.trim() !== '' || moduleFilter.value !== '');
 const estimateLineMap = computed(() => new Map(
@@ -182,6 +213,8 @@ const selectedOrganization = computed(() => props.mutualOrganizations.find(
 const previewLines = computed(() => preview.value?.lines ?? []);
 
 const addService = (item) => {
+    if (!item.tariff_available) return;
+
     cart.value.push({ catalog_item_uuid: item.catalog_item_uuid, quantity: 1 });
     estimate.value = null;
     estimateError.value = '';
@@ -567,20 +600,24 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                 <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                     <section>
                         <div v-if="estimateCatalog.length" class="rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/40">
-                            <div class="mb-2 flex items-center justify-between gap-3 px-1">
-                                <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Catégories de prestations</p>
-                                <p class="text-xs text-slate-400">{{ estimateCatalog.length }} disponible{{ estimateCatalog.length > 1 ? 's' : '' }}</p>
+                            <div class="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+                                <div>
+                                    <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Catégories de prestations</p>
+                                    <p class="mt-0.5 text-xs text-slate-500">Médecine, Imagerie, Soins, Laboratoire et Maternité selon la configuration du site.</p>
+                                </div>
+                                <p class="text-xs font-semibold text-slate-500"><span class="text-emerald-600">{{ readyCatalogCount }} tarifée{{ readyCatalogCount > 1 ? 's' : '' }}</span> · {{ estimateCatalog.length }} active{{ estimateCatalog.length > 1 ? 's' : '' }}</p>
                             </div>
-                            <div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Filtrer par catégorie">
-                                <button v-for="category in catalogCategoryOptions" :key="category.value || 'all'" type="button" :aria-pressed="moduleFilter === category.value" :class="['inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition', moduleFilter === category.value ? 'border-primary-600 bg-primary-600 text-white shadow-sm' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-700 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']" @click="moduleFilter = category.value">
+                            <div class="flex flex-wrap gap-2" role="group" aria-label="Filtrer par catégorie">
+                                <button v-for="category in catalogCategoryOptions" :key="category.value || 'all'" type="button" :aria-pressed="moduleFilter === category.value" :class="['inline-flex min-h-10 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition', moduleFilter === category.value ? 'border-primary-600 bg-primary-600 text-white shadow-sm' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-700 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']" @click="moduleFilter = category.value">
+                                    <Icon class="text-base" :name="catalogModuleIcon(category.value)" />
                                     <span>{{ category.label }}</span>
-                                    <span :class="['rounded-full px-1.5 py-0.5 text-[10px] font-bold', moduleFilter === category.value ? 'bg-white/20 text-white' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400']">{{ category.count }}</span>
+                                    <span :class="['border-s ps-2 text-[10px] font-bold tabular-nums', moduleFilter === category.value ? 'border-white/30 text-white' : 'border-gray-200 text-slate-400 dark:border-gray-800']">{{ category.readyCount }}/{{ category.count }}</span>
                                 </button>
                             </div>
                         </div>
                         <IconInput v-if="estimateCatalog.length" v-model="catalogQuery" class="mt-3" icon="search" placeholder="Rechercher une désignation, un code ou un service…" autocomplete="off" />
                         <div v-if="estimateCatalog.length && filteredCatalog.length" class="mt-3 max-h-[480px] overflow-y-auto rounded-md border border-gray-200 dark:border-gray-800">
-                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" class="grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-4 py-3 text-start transition last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="addService(item)"><span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-primary-600 dark:border-gray-800"><Icon name="plus" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.routing_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'À configurer' }}</span><span class="text-[11px] text-slate-400">{{ item.unit }}</span></span></button>
+                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" :disabled="!item.tariff_available" :class="['grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-4 py-3 text-start transition last:border-0 dark:border-gray-900', item.tariff_available ? 'hover:bg-gray-50 dark:hover:bg-gray-1000' : 'cursor-not-allowed bg-gray-50/60 opacity-70 dark:bg-gray-1000/30']" @click="addService(item)"><span :class="['flex h-9 w-9 items-center justify-center rounded border dark:border-gray-800', item.tariff_available ? 'border-gray-200 text-primary-600' : 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900 dark:bg-amber-950/20']"><Icon :name="item.tariff_available ? 'plus' : 'lock'" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.routing_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'Tarif requis' }}</span><span class="text-[11px] text-slate-400">{{ item.unit }}</span></span></button>
                         </div>
                         <div v-else-if="!estimateCatalog.length" class="rounded-md border border-amber-200 bg-amber-50/70 px-5 py-6 dark:border-amber-900 dark:bg-amber-950/20">
                             <div class="flex items-start gap-4">
@@ -594,8 +631,9 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                         </div>
                         <div v-else class="mt-3 rounded-md border border-dashed border-gray-300 px-5 py-8 text-center dark:border-gray-700">
                             <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
-                            <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucune prestation disponible dans cette catégorie</p>
-                            <p class="mt-1 text-xs text-slate-400">Modifiez la recherche ou choisissez une autre catégorie. Les prestations déjà sélectionnées sont masquées.</p>
+                            <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">{{ selectedCatalogCategory.count === 0 ? `Catalogue ${selectedCatalogCategory.label} à configurer` : 'Aucune prestation disponible dans cette catégorie' }}</p>
+                            <p class="mt-1 text-xs text-slate-400">{{ selectedCatalogCategory.count === 0 ? 'Ajoutez les prestations et leurs tarifs dans le référentiel du site.' : 'Modifiez la recherche ou choisissez une autre catégorie. Les prestations déjà sélectionnées sont masquées.' }}</p>
+                            <Button v-if="selectedCatalogCategory.count === 0 && capabilities.can_manage_catalog" class="mt-3" :as="Link" href="/administration/catalog" size="sm" variant="white-outline"><Icon class="me-2" name="settings" />Configurer le catalogue</Button>
                             <button v-if="hasCatalogFilters" type="button" class="mt-3 text-xs font-bold text-primary-600 hover:text-primary-700" @click="resetCatalogFilters">Afficher toutes les prestations</button>
                         </div>
                     </section>

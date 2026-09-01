@@ -34,7 +34,13 @@ class AnalysisCatalogController extends Controller
     public function create(Request $request, string $site, PortalSiteApiClient $client): Response
     {
         return Inertia::render('SuperAdmin/Analyses/Create', [
-            'site' => $this->siteMeta($site),
+            // Never name this prop "site" — HandleInertiaRequests already
+            // shares a global "site" prop describing THIS deployment (the
+            // portal itself, incl. site.type === 'admin', which Menu.vue
+            // reads to pick the portal navigation). A page-level prop with
+            // the same key silently shadows it, and the whole layout starts
+            // rendering as if it were the clinic site instead of the portal.
+            'clinicSite' => $this->siteMeta($site),
             ...$this->formData($site, $request, $client),
         ]);
     }
@@ -45,7 +51,8 @@ class AnalysisCatalogController extends Controller
         abort_unless($detail['ok'], 503, $detail['message'] ?? 'Le site ne répond pas actuellement.');
 
         return Inertia::render('SuperAdmin/Analyses/Edit', [
-            'site' => $this->siteMeta($site),
+            // See create() above: must not be named "site".
+            'clinicSite' => $this->siteMeta($site),
             'analysis' => $detail['data'],
             ...$this->formData($site, $request, $client),
         ]);

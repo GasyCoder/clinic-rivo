@@ -7,7 +7,7 @@ import AnalysisForm from './AnalysisForm.vue';
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
-    site: Object,
+    clinicSite: Object,
     analysis: Object,
     catalogItems: Array,
     parents: Array,
@@ -38,7 +38,7 @@ const childRowFrom = (row) => ({
 });
 
 const form = useForm({
-    site_code: props.site.code,
+    site_code: props.clinicSite.code,
     catalog_item_uuid: props.analysis.catalog_item.uuid,
     parent_uuid: props.analysis.parent?.uuid ?? '',
     code: props.analysis.code,
@@ -67,7 +67,7 @@ const form = useForm({
         <header class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div class="flex items-start gap-3">
                 <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon class="text-xl" name="activity" /></span>
-                <div><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Super Administration · Laboratoire</p><h1 class="mt-0.5 font-heading text-2xl font-bold text-slate-700 dark:text-white">Modifier « {{ analysis.designation }} »</h1><p class="mt-1 text-sm text-slate-500">Site : {{ site.name }} · la prestation porte le tarif, cette fiche structure le résultat.</p></div>
+                <div><p class="text-xs font-medium uppercase tracking-wide text-slate-400">Super Administration · Laboratoire</p><h1 class="mt-0.5 font-heading text-2xl font-bold text-slate-700 dark:text-white">Modifier « {{ analysis.designation }} »</h1><p class="mt-1 text-sm text-slate-500">Site : {{ clinicSite.name }} · la prestation porte le tarif, cette fiche structure le résultat.</p></div>
             </div>
             <Link href="/super-admin/analyses" class="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-bold text-slate-600 hover:border-gray-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><Icon name="arrow-left" /> Retour au catalogue</Link>
         </header>
@@ -82,7 +82,7 @@ const form = useForm({
             :result-types="resultTypes"
             :exam-categories="examCategories"
             submit-label="Enregistrer"
-            :submit-url="`/super-admin/analyses/${site.code}/${analysis.uuid}`"
+            :submit-url="`/super-admin/analyses/${clinicSite.code}/${analysis.uuid}`"
             submit-method="put"
             cancel-href="/super-admin/analyses"
         />

@@ -55,6 +55,42 @@ const profileChanged = computed(() => isEditing.value
     && Number(editingUser.value?.professional_profile?.id ?? 0) !== Number(form.professional_profile_id ?? 0));
 const selectedRolePermissions = computed(() => new Set(selectedRole.value?.permissions ?? []));
 const overrideCount = computed(() => serializeOverrides().length);
+
+// Whether the CURRENT profile's recommendations are already reflected in
+// the live preview — true both right after clicking "Appliquer" and for an
+// account that already had them from a previous save (profile untouched
+// this session). form.sync_profile_permissions alone can't tell those two
+// "nothing to do" cases apart from "just picked a new profile, unapplied".
+const profileRecommendationsApplied = computed(() => {
+    const recommended = selectedProfile.value?.recommended_permissions ?? [];
+    if (!recommended.length) return true;
+
+    return recommended.every((permission) => (
+        permissionProvenance[permission.id]?.source === 'PROFILE'
+        && Number(permissionProvenance[permission.id]?.source_profile_id) === Number(selectedProfile.value.id)
+    ));
+});
+
+// The menu shows exactly these areas by permission alone (Menu.vue) — never
+// by profile. Mirroring that same DENY > ALLOW > role priority here gives a
+// live, honest preview of what the account can actually reach, independent
+// of which profile happens to be selected.
+const MENU_ACCESS_AREAS = [
+    { key: 'care.update', label: 'Soins' },
+    { key: 'maternity.view', label: 'Maternité' },
+    { key: 'anesthesia.view', label: 'Anesthésie' },
+    { key: 'surgery.view', label: 'Chirurgie' },
+];
+const permissionIdByName = computed(() => new Map(
+    props.permissionCatalog.map((permission) => [permission.name, permission.id]),
+));
+const effectiveMenuAccess = computed(() => MENU_ACCESS_AREAS.map((area) => {
+    const permissionId = permissionIdByName.value.get(area.key);
+    const override = permissionId !== undefined ? permissionProvenance[permissionId] : null;
+    const granted = override ? override.effect === 'allow' : selectedRolePermissions.value.has(area.key);
+
+    return { ...area, granted, source: override?.source ?? (granted ? 'ROLE' : null) };
+}));
 const oldProfileName = computed(() => editingUser.value?.professional_profile?.name ?? 'Aucun profil');
 const newProfileName = computed(() => selectedProfile.value?.name ?? 'Aucun profil');
 
@@ -255,7 +291,20 @@ const roleRequiresProfile = (roleId) => {
     return Boolean(role?.profiles?.length);
 };
 
-const submitUser = () => {
+// A profile whose recommended permissions aren't reflected yet — freshly
+// picked and never applied, or already broken on arrival (e.g. edited
+// directly in the database) — must never save silently as a bare label. The
+// admin is stopped and made to choose explicitly, which is also the only
+// thing that can catch a mismatch that didn't come from this form at all.
+const needsProfileConfirmation = computed(() => (
+    canAssignPermissions.value
+    && !editingUser.value?.is_current
+    && Boolean(selectedProfile.value?.recommended_permissions?.length)
+    && !profileRecommendationsApplied.value
+));
+const showProfileConfirm = ref(false);
+
+const performSubmit = () => {
     form.permission_overrides = serializeOverrides();
     form.transform((data) => {
         const payload = { ...data };
@@ -279,6 +328,24 @@ const submitUser = () => {
     }
 
     form.post('/administration/users', options);
+};
+
+const submitUser = () => {
+    if (needsProfileConfirmation.value) {
+        showProfileConfirm.value = true;
+        return;
+    }
+    performSubmit();
+};
+const cancelProfileConfirm = () => { showProfileConfirm.value = false; };
+const confirmApplyAndSubmit = () => {
+    applyProfileRecommendations();
+    showProfileConfirm.value = false;
+    performSubmit();
+};
+const confirmSkipAndSubmit = () => {
+    showProfileConfirm.value = false;
+    performSubmit();
 };
 
 const openDeactivate = (user) => {
@@ -499,13 +566,23 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                         <p class="mt-1 text-xs leading-5 text-slate-500">{{ selectedProfile.description }}</p>
                                         <p class="mt-1 text-[11px] text-slate-400">Le profil classe le métier ; il ne donne aucun droit automatiquement.</p>
                                     </div>
-                                    <Button v-if="canAssignPermissions && !editingUser?.is_current && selectedProfile.recommended_permissions?.length" size="sm" variant="white-outline" type="button" class="shrink-0" @click="applyProfileRecommendations">
-                                        <Icon class="text-base" name="shield-check" />
-                                        <span class="ms-2">Appliquer les permissions du profil</span>
+                                    <Button
+                                        v-if="canAssignPermissions && !editingUser?.is_current && selectedProfile.recommended_permissions?.length"
+                                        :size="profileRecommendationsApplied ? 'sm' : 'rg'"
+                                        :variant="profileRecommendationsApplied ? 'white-outline' : 'primary'"
+                                        type="button"
+                                        :class="['shrink-0', !profileRecommendationsApplied && 'ring-2 ring-primary-200 dark:ring-primary-900']"
+                                        @click="applyProfileRecommendations"
+                                    >
+                                        <Icon class="text-base" :name="profileRecommendationsApplied ? 'check' : 'shield-check'" />
+                                        <span class="ms-2">{{ profileRecommendationsApplied ? 'Permissions appliquées — réappliquer' : `Appliquer les permissions du profil ${selectedProfile.name}` }}</span>
                                     </Button>
                                 </div>
-                                <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-slate-400">
-                                    {{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }}, enregistré{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} individuellement après application.
+                                <p v-if="selectedProfile.recommended_permissions?.length && !profileRecommendationsApplied" class="mt-2 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                    ⚠ {{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }}, pas encore appliqué{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} — sans clic ci-dessus, ce profil restera une étiquette sans accès réel.
+                                </p>
+                                <p v-else-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                    ✓ {{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} appliqué{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} individuellement, effectif{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} après enregistrement.
                                 </p>
                                 <p v-else class="mt-2 text-[11px] text-slate-400">Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</p>
                                 <div v-if="profileChanged" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
@@ -513,6 +590,13 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                     <p>{{ oldProfileName }} → {{ newProfileName }}</p>
                                     <p class="mt-1">Les permissions provenant de l’ancien profil seront retirées à l’enregistrement. Si vous appliquez le nouveau profil, ses recommandations seront ajoutées ; les permissions manuelles seront conservées.</p>
                                 </div>
+                            </div>
+
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <span v-for="area in effectiveMenuAccess" :key="area.key" :class="['inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-bold', area.granted ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']">
+                                    <Icon class="text-sm" :name="area.granted ? 'check-circle' : 'cross-circle'" />
+                                    {{ area.label }}
+                                </span>
                             </div>
                         </div>
 
@@ -556,7 +640,7 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                                 <p class="mt-0.5 text-[11px] text-slate-400">{{ permission.name }} · {{ selectedRolePermissions.has(permission.name) ? 'autorisé par le rôle' : 'non autorisé par le rôle' }}</p>
                                                 <div v-if="permissionProvenance[permission.id]" class="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium">
                                                     <span :class="permissionProvenance[permission.id].source === 'PROFILE' ? 'text-primary-600 dark:text-primary-300' : 'text-slate-500'">
-                                                        {{ permissionProvenance[permission.id].source === 'PROFILE' ? `Profil : ${permissionProvenance[permission.id].source_profile_name ?? selectedProfile?.name ?? 'professionnel'}` : 'Manuel' }}
+                                                        {{ permissionProvenance[permission.id].source === 'PROFILE' ? `Source : Profil ${permissionProvenance[permission.id].source_profile_name ?? selectedProfile?.name ?? 'professionnel'}` : 'Source : Manuel' }}
                                                     </span>
                                                     <button v-if="permissionProvenance[permission.id].source === 'PROFILE'" type="button" class="text-slate-400 underline hover:text-slate-600" @click="convertPermissionToManual(permission.id)">Conserver manuellement</button>
                                                 </div>
@@ -581,6 +665,23 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                         </Button>
                     </footer>
                 </form>
+            </section>
+        </div>
+
+        <div v-if="showProfileConfirm" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="cancelProfileConfirm">
+            <section class="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="profile-confirm-title">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"><Icon class="text-xl" name="alert-circle" /></span>
+                    <div>
+                        <h2 id="profile-confirm-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Permissions du profil {{ selectedProfile?.name }} non appliquées</h2>
+                        <p class="mt-1 text-sm leading-5 text-slate-500">Sans les appliquer, ce profil reste une étiquette : le compte n’accédera à aucun menu spécifique ({{ selectedProfile?.recommended_permissions?.length }} droit{{ selectedProfile?.recommended_permissions?.length > 1 ? 's' : '' }} recommandé{{ selectedProfile?.recommended_permissions?.length > 1 ? 's' : '' }} resterai{{ selectedProfile?.recommended_permissions?.length > 1 ? 'ent' : 't' }} sans effet).</p>
+                    </div>
+                </div>
+                <div class="mt-6 flex flex-col-reverse gap-2">
+                    <Button size="rg" variant="white-outline" type="button" @click="cancelProfileConfirm">Annuler, revoir le formulaire</Button>
+                    <Button size="rg" variant="secondary" type="button" @click="confirmSkipAndSubmit">Enregistrer sans les droits du profil</Button>
+                    <Button size="rg" variant="primary" type="button" @click="confirmApplyAndSubmit"><Icon class="text-lg" name="shield-check" /><span class="ms-2">Appliquer et enregistrer</span></Button>
+                </div>
             </section>
         </div>
 

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\User;
@@ -275,8 +276,8 @@ class ImportLegacyAnalysisCatalog extends Command
             'unit' => 'analyse',
             'billable' => true,
             'stockable' => false,
-            'reception_selectable' => false,
-            'reception_routing_mode' => null,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect->value,
             'clinician_orderable' => true,
             'description' => 'Catalogue historique '.trim((string) $row->legacy_exam_name).'. Tarif à valider avant activation financière.',
             'updated_by' => $actor->id,

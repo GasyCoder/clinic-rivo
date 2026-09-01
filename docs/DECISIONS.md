@@ -2995,3 +2995,26 @@ Une décision de césarienne en Maternité crée une `SurgicalRequest` et une
 orientation `MATERNITY -> SURGERY` sur le même épisode. Elle ne crée aucune
 `SurgicalIntervention` : l’intervention demeure exclusivement sous le contrôle
 des permissions et du workflow Chirurgie.
+
+---
+
+# ADR-068 — Analyses et actes Maternité sélectionnables à la Réception
+
+**Status:** ACCEPTED (2026-09-01 — exigence explicite du propriétaire)
+
+La sélection initiale de la Réception est étendue aux prestations actives et
+facturables des modules `LABORATORY` et `MATERNITY`. Cette décision remplace la
+restriction « aucune analyse activée » de l’ADR-053. Les prestations restent
+issues du référentiel central : leur tarif doit être configuré avant qu’elles
+puissent être ajoutées à l’estimation.
+
+Une analyse sélectionnée crée, sur le même `Episode`, une orientation directe
+`RECEPTION -> LABORATORY`, une `LabRequest` sans consultation médicale source et
+ses `LabRequestItem` avec snapshots du catalogue. Le Laboratoire enregistre les
+résultats et leurs valeurs de référence selon l’ADR-063 ; il n’encaisse jamais.
+
+Un acte Maternité sélectionné crée une orientation directe
+`RECEPTION -> MATERNITY` sur le même épisode. Les références de césarienne sont
+explicitement exclues de cette sélection : elles restent soumises au workflow
+sécurisé Maternité vers Chirurgie défini par l’ADR-067. La facturation et tout
+paiement restent exclusivement sous le contrôle Réception / Caisse.

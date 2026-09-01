@@ -229,12 +229,32 @@ class ReceptionFinancialPreviewService
     /** @param Collection<int, CatalogItem> $items */
     private function initialDestination(Collection $items): ?array
     {
+        $destinations = collect();
+
         if ($items->contains(fn (CatalogItem $item) => $item->reception_routing_mode->startsWithCare())) {
-            return ['module' => 'CARE', 'label' => 'Soins'];
+            $destinations->push(['module' => 'CARE', 'label' => 'Soins']);
+        } elseif ($items->contains(fn (CatalogItem $item) => $item->reception_routing_mode->requiresMedicine())) {
+            $destinations->push(['module' => 'MEDICINE', 'label' => 'Médecine']);
         }
 
-        if ($items->contains(fn (CatalogItem $item) => $item->reception_routing_mode->requiresMedicine())) {
-            return ['module' => 'MEDICINE', 'label' => 'Médecine'];
+        $items
+            ->map(fn (CatalogItem $item) => $item->reception_routing_mode->directDestination())
+            ->filter()
+            ->unique(fn ($module) => $module->value)
+            ->each(fn ($module) => $destinations->push([
+                'module' => $module->value,
+                'label' => $module->label(),
+            ]));
+
+        if ($destinations->count() === 1) {
+            return $destinations->first();
+        }
+
+        if ($destinations->isNotEmpty()) {
+            return [
+                'module' => 'MULTIPLE',
+                'label' => $destinations->pluck('label')->join(' + '),
+            ];
         }
 
         return null;

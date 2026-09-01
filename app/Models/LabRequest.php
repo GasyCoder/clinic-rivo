@@ -10,9 +10,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A doctor's laboratory REQUEST — kept distinct from the EpisodeOrientation
- * that routes the sample/technician (ORIENTATION) and the per-item RESULT
- * a lab item carries once entered. No FACTURATION here at all.
+ * A laboratory REQUEST from Medicine or Reception — kept distinct from the
+ * EpisodeOrientation that routes the sample/technician (ORIENTATION) and the
+ * per-item RESULT. Billing remains owned by Reception/Cash.
  */
 #[Fillable([
     'episode_id', 'consultation_id', 'source_orientation_id', 'lab_orientation_id',

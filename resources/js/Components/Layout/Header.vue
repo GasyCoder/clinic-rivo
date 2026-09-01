@@ -68,13 +68,17 @@ const logout = () => {
                                                     {{ user?.name }}
                                                     <em class="text-sm leading-none ms-1 ni ni-chevron-down" />
                                                 </div>
+                                                <div v-if="user?.professional_profile" class="text-[10px] text-slate-400 dark:text-slate-500 truncate">{{ user.professional_profile.name }}</div>
                                             </div>
                                         </div>
                                     </MenuButton>
 
                                     <MenuItems class="dropdown-menu absolute end-0 top-full mt-2.5 max-xs:min-w-[240px] max-xs:max-w-[240px] min-w-[260px] max-w-[260px] border border-t-3 border-gray-200 dark:border-gray-800 border-t-primary-600 dark:border-t-primary-600 bg-white dark:bg-gray-950 rounded shadow z-[1000]">
                                         <div class="px-7 py-4 border-b border-gray-200 dark:border-gray-800">
-                                            <div class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ user?.name }}</div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ user?.name }}</span>
+                                                <span v-if="user?.professional_profile" class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{{ user.professional_profile.name }}</span>
+                                            </div>
                                             <div class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ user?.email }}</div>
                                         </div>
                                         <ul class="py-3">

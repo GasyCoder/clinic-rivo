@@ -14,6 +14,8 @@ enum ReceptionRoutingMode: string
     case MedicineDirect = 'MEDICINE_DIRECT';
     case CareThenMedicine = 'CARE_THEN_MEDICINE';
     case CareOnly = 'CARE_ONLY';
+    case LaboratoryDirect = 'LABORATORY_DIRECT';
+    case MaternityDirect = 'MATERNITY_DIRECT';
 
     public function label(): string
     {
@@ -21,6 +23,8 @@ enum ReceptionRoutingMode: string
             self::MedicineDirect => 'Médecine directement',
             self::CareThenMedicine => 'Soins puis Médecine',
             self::CareOnly => 'Soins uniquement',
+            self::LaboratoryDirect => 'Laboratoire directement',
+            self::MaternityDirect => 'Maternité directement',
         };
     }
 
@@ -32,5 +36,14 @@ enum ReceptionRoutingMode: string
     public function requiresMedicine(): bool
     {
         return in_array($this, [self::MedicineDirect, self::CareThenMedicine], true);
+    }
+
+    public function directDestination(): ?CatalogModule
+    {
+        return match ($this) {
+            self::LaboratoryDirect => CatalogModule::Laboratory,
+            self::MaternityDirect => CatalogModule::Maternity,
+            default => null,
+        };
     }
 }

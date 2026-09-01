@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Administration;
 
+use App\Enums\ReceptionRoutingMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\Permission;
@@ -36,6 +37,12 @@ class DevelopmentParaclinicalCatalogSeederTest extends TestCase
         $this->assertSame(26, AnalysisCatalog::query()->count());
         $this->assertDatabaseHas('catalog_items', ['code' => 'ECG', 'module' => 'IMAGING']);
         $this->assertDatabaseHas('catalog_items', ['code' => 'ECHO-OBS-T1', 'module' => 'IMAGING']);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'LAB-NFS',
+            'module' => 'LABORATORY',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect->value,
+        ]);
         $this->assertDatabaseHas('analysis_catalogs', [
             'code' => 'NFS-HB', 'reference_male' => '13–17', 'unit' => 'g/dL',
         ]);

@@ -86,17 +86,18 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'LAB-NFS',
-            'reception_selectable' => false,
-            'reception_routing_mode' => null,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect->value,
         ]);
-        $this->assertSame(10, CatalogItem::query()->where('reception_selectable', true)->count());
+        $this->assertSame(26, CatalogItem::query()->where('reception_selectable', true)->count());
         $this->assertSame(18, CatalogItem::query()->where('module', 'CARE')->count());
         $this->assertSame(27, CatalogItem::query()->where('module', 'SURGERY')->count());
         $this->assertSame(15, CatalogItem::query()->where('module', 'MATERNITY')->count());
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'MAT-DELIVERY-SIMPLE',
             'module' => 'MATERNITY',
-            'reception_selectable' => false,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect->value,
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'MAT-CESAREAN-TWIN',

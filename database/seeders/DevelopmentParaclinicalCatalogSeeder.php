@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ReceptionRoutingMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
 use App\Models\User;
@@ -168,6 +169,16 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
                 $item->update(['module' => $module->value, 'updated_by' => $actor->id]);
             }
 
+            if ($module === CatalogModule::Laboratory
+                && ! $item->reception_selectable
+                && $item->reception_routing_mode === null) {
+                $item->update([
+                    'reception_selectable' => true,
+                    'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect,
+                    'updated_by' => $actor->id,
+                ]);
+            }
+
             return;
         }
 
@@ -175,8 +186,12 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
             'code' => $service['code'], 'name' => $service['name'],
             'type' => CatalogItemType::Service->value, 'module' => $module->value,
             'unit' => $module === CatalogModule::Imaging ? 'examen' : 'analyse',
-            'billable' => true, 'stockable' => false, 'reception_selectable' => false,
-            'reception_routing_mode' => null, 'clinician_orderable' => true,
+            'billable' => true, 'stockable' => false,
+            'reception_selectable' => $module === CatalogModule::Laboratory,
+            'reception_routing_mode' => $module === CatalogModule::Laboratory
+                ? ReceptionRoutingMode::LaboratoryDirect
+                : null,
+            'clinician_orderable' => true,
             'description' => $service['description'], 'created_by' => $actor->id, 'updated_by' => $actor->id,
         ]);
     }

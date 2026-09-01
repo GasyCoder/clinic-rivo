@@ -15,9 +15,7 @@ enum CatalogModule: string
     // Laboratoire, aucun workspace dédié n'existe : la demande et le
     // résultat restent portés par Médecine (voir ImagingRequest).
     case Imaging = 'IMAGING';
-    // Referral-only destinations (ADR pending): Médecine may orient a
-    // patient here, but no dedicated workspace exists yet — see
-    // CreateServiceReferralAction.
+    // Specialized workspaces that can receive an Episode orientation.
     case Maternity = 'MATERNITY';
     case Hospitalization = 'HOSPITALIZATION';
     case Transfer = 'TRANSFER';

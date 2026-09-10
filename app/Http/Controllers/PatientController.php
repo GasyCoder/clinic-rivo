@@ -259,7 +259,18 @@ class PatientController extends Controller
             $paymentMethods = PaymentMethod::query()
                 ->where('active', true)
                 ->orderBy('id')
-                ->get(['id', 'code', 'name']);
+                ->get(['id', 'code', 'name', 'category', 'affects_cash_balance', 'requires_reference'])
+                ->map(fn (PaymentMethod $method) => [
+                    'id' => $method->id,
+                    'code' => $method->code,
+                    'name' => $method->name,
+                    'category' => $method->category->value,
+                    'category_label' => $method->category->label(),
+                    'category_icon' => $method->category->icon(),
+                    'category_position' => $method->category->position(),
+                    'affects_cash_balance' => $method->affects_cash_balance,
+                    'requires_reference' => $method->requires_reference,
+                ]);
         }
 
         if ($request->user()->can('payments.create') || $request->user()->can('payments.cancel')) {

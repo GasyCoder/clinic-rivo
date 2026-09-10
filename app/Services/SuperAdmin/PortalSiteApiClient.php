@@ -167,10 +167,62 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/activate', [], $actor);
     }
 
+    /**
+     * @param  array<int, string>  $paymentMethodUuids
+     * @return array<string, mixed>
+     */
+    public function updateCashRegisterPaymentMethods(
+        string $siteCode,
+        string $uuid,
+        array $paymentMethodUuids,
+        User $actor,
+    ): array {
+        return $this->request(
+            $this->site($siteCode),
+            'PUT',
+            'super-admin/cash-registers/'.$uuid.'/payment-methods',
+            ['payment_method_uuids' => $paymentMethodUuids],
+            $actor,
+        );
+    }
+
     /** @return array<string, mixed> */
     public function deactivateCashRegister(string $siteCode, string $uuid, User $actor): array
     {
         return $this->request($this->site($siteCode), 'POST', 'super-admin/cash-registers/'.$uuid.'/deactivate', [], $actor);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function paymentMethodsForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/payment-methods', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function createPaymentMethod(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function updatePaymentMethod(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/payment-methods/'.$uuid, $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function activatePaymentMethod(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods/'.$uuid.'/activate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function deactivatePaymentMethod(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods/'.$uuid.'/deactivate', [], $actor);
     }
 
     /** @return array<int, array<string, mixed>> */

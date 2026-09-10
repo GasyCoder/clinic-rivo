@@ -3,11 +3,16 @@
 namespace App\Services\Cash;
 
 use App\Models\CashRegister;
+use App\Models\PaymentMethod;
+use App\Models\User;
+use App\Services\Audit\Auditor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CashRegisterManager
 {
+    public function __construct(private readonly Auditor $auditor) {}
+
     public function create(string $name): CashRegister
     {
         $name = $this->validatedName($name);
@@ -59,6 +64,57 @@ class CashRegisterManager
             $register->update(['name' => $name]);
 
             return $register->refresh();
+        });
+    }
+
+    /**
+     * Tenders this desk accepts. An empty list means no restriction — every
+     * active tender of the site stays accepted — which is what a desk that
+     * was never configured has always done.
+     *
+     * @param  array<int, string>  $paymentMethodUuids
+     */
+    public function syncAcceptedPaymentMethods(
+        CashRegister $register,
+        array $paymentMethodUuids,
+        ?User $actor = null,
+    ): CashRegister {
+        $uuids = collect($paymentMethodUuids)->filter()->unique()->values();
+
+        return DB::transaction(function () use ($register, $uuids, $actor): CashRegister {
+            $methods = PaymentMethod::query()->whereIn('uuid', $uuids)->get();
+
+            if ($methods->count() !== $uuids->count()) {
+                throw ValidationException::withMessages([
+                    'payment_method_uuids' => 'Un mode de paiement sélectionné est introuvable sur ce site.',
+                ]);
+            }
+
+            $inactive = $methods->reject(fn (PaymentMethod $method) => $method->active);
+
+            if ($inactive->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'payment_method_uuids' => sprintf(
+                        'Le mode « %s » est désactivé : réactivez-le avant de l’affecter à une caisse.',
+                        $inactive->first()->name,
+                    ),
+                ]);
+            }
+
+            $before = $register->acceptedPaymentMethods()->pluck('payment_methods.code')->sort()->values()->all();
+            $register->acceptedPaymentMethods()->sync($methods->pluck('id'));
+            $after = $methods->pluck('code')->sort()->values()->all();
+
+            $this->auditor->record(
+                'cash_register.payment_methods.update',
+                entity: $register,
+                newValues: ['payment_methods' => $after],
+                oldValues: ['payment_methods' => $before],
+                module: 'cash',
+                actor: $actor,
+            );
+
+            return $register->load('acceptedPaymentMethods');
         });
     }
 

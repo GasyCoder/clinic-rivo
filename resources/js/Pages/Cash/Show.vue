@@ -42,39 +42,60 @@ const cashOperational = computed(() => props.cashSession?.status === 'OPEN');
 
 /** Referral-only destinations (hospitalisation, pédiatrie) have no billing workspace yet, but the
  * caisse filter groups them with Médecine now so it doesn't need to change once they get one. */
+// An invoice raised at Reception/Caisse itself carries no source module, so
+// `null` is a real origin — not a hole. Without it in the groups, such a row
+// was counted in "Tous" but reachable through no option, and the per-origin
+// counts never added up to the total.
 const moduleGroups = {
+    RECEPTION: [null],
     MEDICINE: ['MEDICINE', 'CARE', 'HOSPITALIZATION', 'PEDIATRICS'],
     SURGERY: ['SURGERY'],
     PHARMACY: ['PHARMACY'],
     LABORATORY: ['LABORATORY'],
 };
-const moduleFilterOptions = [
+const groupedSourceModules = Object.values(moduleGroups).flat();
+const baseModuleFilterOptions = [
     { value: 'all', label: 'Tous' },
+    { value: 'RECEPTION', label: 'Réception' },
     { value: 'MEDICINE', label: 'Médecine' },
     { value: 'SURGERY', label: 'Chirurgie' },
     { value: 'PHARMACY', label: 'Pharmacie' },
     { value: 'LABORATORY', label: 'Laboratoire' },
+    // Safety net: a module added later, not yet listed above, stays
+    // reachable instead of silently belonging to no option again.
+    { value: 'OTHER', label: 'Autres' },
 ];
 const moduleFilter = ref('all');
 const paymentSearch = ref('');
-const visibleModuleFilterOptions = computed(() => activeLedgerTab.value === 'payments'
-    ? moduleFilterOptions
-    : moduleFilterOptions.filter((option) => option.value !== 'PHARMACY'));
-const matchesModuleFilter = (sourceModule) => moduleFilter.value === 'all'
-    || (moduleGroups[moduleFilter.value] ?? []).includes(sourceModule);
-const moduleFilterCounts = computed(() => {
-    const sourceModules = activeLedgerTab.value === 'payments'
-        ? (props.recentPayments ?? []).map((payment) => payment.invoice?.source_module)
-        : (props.outstandingInvoices ?? []).map((invoice) => invoice.source_module);
+const ledgerSourceModules = computed(() => (activeLedgerTab.value === 'payments'
+    ? (props.recentPayments ?? []).map((payment) => payment.invoice?.source_module)
+    : (props.outstandingInvoices ?? []).map((invoice) => invoice.source_module))
+    .map((sourceModule) => sourceModule ?? null));
+const matchesModuleFilter = (rawSourceModule) => {
+    const sourceModule = rawSourceModule ?? null;
 
-    return moduleFilterOptions.reduce((counts, option) => {
-        counts[option.value] = option.value === 'all'
-            ? sourceModules.length
-            : sourceModules.filter((sourceModule) => (moduleGroups[option.value] ?? []).includes(sourceModule)).length;
+    if (moduleFilter.value === 'all') return true;
+    if (moduleFilter.value === 'OTHER') return ! groupedSourceModules.includes(sourceModule);
 
-        return counts;
-    }, {});
-});
+    return (moduleGroups[moduleFilter.value] ?? []).includes(sourceModule);
+};
+const moduleFilterCounts = computed(() => baseModuleFilterOptions.reduce((counts, option) => {
+    counts[option.value] = option.value === 'all'
+        ? ledgerSourceModules.value.length
+        : ledgerSourceModules.value.filter((sourceModule) => (option.value === 'OTHER'
+            ? ! groupedSourceModules.includes(sourceModule)
+            : (moduleGroups[option.value] ?? []).includes(sourceModule))).length;
+
+    return counts;
+}, {}));
+const moduleFilterOptions = computed(() => baseModuleFilterOptions.filter((option) => (
+    // An empty "Autres" bucket is noise; it only appears when it holds rows.
+    option.value !== 'OTHER' || moduleFilterCounts.value.OTHER > 0
+)));
+const visibleModuleFilterOptions = computed(() => (activeLedgerTab.value === 'payments'
+    ? moduleFilterOptions.value
+    // Pharmacy invoices never appear in the general "à encaisser" list (ADR-050).
+    : moduleFilterOptions.value.filter((option) => option.value !== 'PHARMACY')));
 const paymentTarget = ref(null);
 const pharmacyReference = ref(props.pharmacyLookup?.reference ?? '');
 const pharmacyLookupMode = ref('manual');
@@ -94,6 +115,45 @@ const paymentForm = useForm({
     notes: '',
     cash_register_uuid: props.cashRegister?.uuid ?? '',
 });
+
+// Mobile money, cheques and transfers never enter the drawer: only the cash
+// figure is counted at closing, so the difference is worth showing on its own.
+const nonCashCollected = computed(() => (
+    Number(props.summary?.total_collected ?? 0) - Number(props.summary?.cash_collected ?? 0)
+).toFixed(2));
+// A mobile money transfer, a cheque or a transfer carries an external number
+// the cashier must record; cash carries none, so the field disappears instead
+// of inviting an invented value. `requires_reference` comes from the tender
+// itself — it is never deduced from its code (RecordPaymentAction enforces
+// the same rule server-side).
+const selectedPaymentMethod = computed(() => props.paymentMethods
+    ?.find((method) => method.id === paymentForm.payment_method_id) ?? null);
+const paymentReferenceLabel = computed(() => ({
+    CHECK: 'N° du chèque',
+    BANK_TRANSFER: 'Référence du virement',
+}[selectedPaymentMethod.value?.code] ?? 'N° de transaction'));
+const paymentReferencePlaceholder = computed(() => selectedPaymentMethod.value?.category === 'MOBILE_MONEY'
+    ? `Référence ${selectedPaymentMethod.value.name}`
+    : 'Référence de la transaction');
+
+// POS mechanics, cash only. What is recorded stays the amount collected on
+// the invoice; the tendered note and the change are drawer ergonomics — the
+// clinic keeps 20 000 and hands 30 000 back, so the ledger must never see
+// 50 000 (ADR-012: a payment is what was actually collected).
+const tenderedAmount = ref('');
+const ARIARY_NOTES = [500, 1000, 2000, 5000, 10000, 20000];
+const isCashTender = computed(() => Boolean(selectedPaymentMethod.value?.affects_cash_balance));
+const amountDue = computed(() => Number(paymentForm.amount) || 0);
+const tenderedValue = computed(() => Number(tenderedAmount.value) || 0);
+const changeDue = computed(() => Math.max(0, tenderedValue.value - amountDue.value));
+const tenderedIsShort = computed(() => tenderedAmount.value !== '' && tenderedValue.value < amountDue.value);
+const addTendered = (note) => {
+    tenderedAmount.value = String(tenderedValue.value + note);
+};
+const setExactTender = () => {
+    tenderedAmount.value = amountDue.value ? String(amountDue.value) : '';
+};
+const resetTender = () => { tenderedAmount.value = ''; };
 
 const normalizedInvoiceSearch = computed(() => invoiceSearch.value.trim().toLocaleLowerCase('fr'));
 const filteredOutstandingInvoices = computed(() => (props.outstandingInvoices ?? [])
@@ -157,6 +217,42 @@ const selectedInvoices = computed(() => filteredOutstandingInvoices.value
     .filter((invoice) => selectedInvoiceUuids.value.has(invoice.uuid)));
 const selectedPayments = computed(() => filteredRecentPayments.value
     .filter((payment) => selectedPaymentUuids.value.has(payment.uuid)));
+
+// Several partial collections on one invoice are one settlement story, not
+// unrelated lines: the invoice is stated once, its payments listed under it.
+// Each payment stays individually addressable — it keeps its own receipt,
+// which attests one real collection (ADR-028) — so selection, printing and
+// export still work payment by payment.
+const groupedRecentPayments = computed(() => {
+    const groups = new Map();
+
+    filteredRecentPayments.value.forEach((payment) => {
+        const key = payment.invoice.uuid;
+        const group = groups.get(key) ?? {
+            key,
+            invoice: payment.invoice,
+            payments: [],
+            collected: 0,
+        };
+        group.payments.push(payment);
+        // A cancelled payment collected nothing, so it never adds to the total.
+        if (payment.status !== 'CANCELLED') group.collected += Number(payment.amount) || 0;
+        groups.set(key, group);
+    });
+
+    return Array.from(groups.values());
+});
+const groupIsFullySelected = (group) => group.payments
+    .every((payment) => selectedPaymentUuids.value.has(payment.uuid));
+const toggleGroupSelection = (group) => {
+    const next = new Set(selectedPaymentUuids.value);
+    const shouldSelect = ! groupIsFullySelected(group);
+
+    group.payments.forEach((payment) => (shouldSelect
+        ? next.add(payment.uuid)
+        : next.delete(payment.uuid)));
+    selectedPaymentUuids.value = next;
+};
 
 watch([activeLedgerTab, moduleFilter], () => {
     selectedInvoiceUuids.value = new Set();
@@ -300,6 +396,7 @@ const openPaymentDialog = (invoice) => {
     paymentForm.amount = invoice.balance_amount;
     paymentForm.reference = '';
     paymentForm.notes = '';
+    resetTender();
 };
 
 const closePaymentDialog = () => {
@@ -326,6 +423,13 @@ const submitPharmacyLookup = () => {
         replace: true,
         only: ['pharmacyLookup'],
     });
+};
+
+// A settled ticket is a payment, so it is looked up there — with the
+// Pharmacie filter already selected.
+const showSettledPharmacyTickets = () => {
+    activeLedgerTab.value = 'payments';
+    moduleFilter.value = 'PHARMACY';
 };
 
 const startQrScanner = async () => {
@@ -430,7 +534,11 @@ onBeforeUnmount(() => {
                             <Icon :name="cashSession && !sessionLocked ? 'unlock' : 'lock'" />{{ sessionLocked ? 'Session verrouillée' : cashSession ? 'Session ouverte' : 'Session fermée' }}
                         </span>
                     </div>
-                    <p class="mt-1 text-sm text-slate-400">Factures validées, tickets Pharmacie et reçus sont traités depuis la caisse centrale du site.</p>
+                    <p class="mt-1 text-sm text-slate-400">Factures validées, tickets Pharmacie et reçus de ce poste. Chaque caisse nommée tient sa propre session.</p>
+                    <p v-if="paymentMethods?.length" class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span class="text-slate-400">Modes acceptés ici :</span>
+                        <span v-for="method in paymentMethods" :key="method.id" class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon :name="method.category_icon" />{{ method.name }}</span>
+                    </p>
                 </div>
 
                 <nav class="flex flex-wrap items-center gap-2" aria-label="Raccourcis de la caisse">
@@ -470,12 +578,31 @@ onBeforeUnmount(() => {
                 <p class="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">{{ cashSession.lock_reason }} · {{ formatDateTime(cashSession.locked_at) }}. La session et son historique restent consultables ; seul le déverrouillage central autorise la reprise.</p>
             </div>
 
-            <dl class="grid grid-cols-2 divide-x divide-y divide-gray-200 dark:divide-gray-900 lg:grid-cols-4 lg:divide-y-0">
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Fond initial</dt><dd class="mt-1 text-base font-bold text-slate-700 dark:text-white">{{ formatMoney(cashSession.opening_amount) }}</dd></div>
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total encaissé</dt><dd class="mt-1 text-base font-bold text-slate-700 dark:text-white">{{ formatMoney(summary.total_collected) }}</dd></div>
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Espèces encaissées</dt><dd class="mt-1 text-base font-bold text-slate-700 dark:text-white">{{ formatMoney(summary.cash_collected) }}</dd></div>
-                <div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Espèces attendues</dt><dd class="mt-1 text-base font-bold text-slate-800 dark:text-white">{{ formatMoney(summary.expected_cash) }}</dd></div>
-            </dl>
+            <!-- Hierarchy on purpose: "espèces attendues" is the only figure
+                 counted against the drawer at closing time. The rest explains
+                 how it was reached, and separates what is physically in the
+                 till from what landed on an operator or bank account. -->
+            <div class="grid gap-px bg-gray-200 dark:bg-gray-900 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                <div class="bg-emerald-50/70 px-5 py-4 dark:bg-emerald-950/20">
+                    <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">Espèces attendues en tiroir</p>
+                    <p class="mt-1 font-heading text-3xl font-bold text-emerald-800 dark:text-emerald-200">{{ formatMoney(summary.expected_cash) }}</p>
+                    <p class="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">Fond initial {{ formatMoney(cashSession.opening_amount) }} + espèces encaissées {{ formatMoney(summary.cash_collected) }}</p>
+                </div>
+                <dl class="bg-white text-sm dark:bg-gray-950">
+                    <div class="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-2.5 dark:border-gray-900">
+                        <dt class="text-slate-500">Total encaissé</dt>
+                        <dd class="font-bold tabular-nums text-slate-700 dark:text-white">{{ formatMoney(summary.total_collected) }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-2.5 dark:border-gray-900">
+                        <dt class="flex items-center gap-1.5 text-slate-500"><Icon class="text-slate-400" name="coins" />dont espèces</dt>
+                        <dd class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(summary.cash_collected) }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3 px-5 py-2.5">
+                        <dt class="flex items-center gap-1.5 text-slate-500"><Icon class="text-slate-400" name="mobile" />dont hors tiroir</dt>
+                        <dd class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(nonCashCollected) }}</dd>
+                    </div>
+                </dl>
+            </div>
 
             <form v-if="showCloseForm && can('cash.close')" class="border-t border-gray-200 bg-gray-50/60 px-4 py-4 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="closeCash">
                 <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -640,15 +767,29 @@ onBeforeUnmount(() => {
                         <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient / client</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Facture / passage</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Validation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Déjà payé</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Reste à payer</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Statut</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Actions</th></tr></thead>
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
                             <template v-if="pharmacyLookup?.found">
-                                <tr v-for="invoice in pharmacyLookup.matches" :key="invoice.uuid" class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30">
+                                <tr v-for="invoice in pharmacyLookup.matches" :key="invoice.uuid" :class="['transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30', Number(invoice.balance_amount) > 0 ? '' : 'bg-gray-50/40 dark:bg-gray-1000/20']">
                                     <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(invoice)" /><div class="min-w-0"><Link v-if="invoice.patient && can('patients.view')" :href="`/patients/${invoice.patient.uuid}`" class="block max-w-56 truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(invoice) }}</Link><span v-else class="block max-w-56 truncate text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(invoice) }}</span><span class="text-xs text-slate-400">{{ invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div></td>
                                     <td class="px-4 py-3"><Link v-if="can('billing.print')" :href="`/invoices/${invoice.uuid}?from=cash`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoice.invoice_number }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoice.invoice_number }}</span><p class="mt-0.5 text-xs text-slate-400">{{ invoice.episode?.episode_number ?? 'Sans passage patient' }} · {{ invoice.lines_count }} ligne{{ invoice.lines_count > 1 ? 's' : '' }}</p></td>
-                                    <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.total_amount) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.paid_amount) }}</td><td class="px-4 py-3 text-end text-sm font-bold text-slate-800 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</td>
-                                    <td class="px-4 py-3"><span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ invoiceStatusLabel(invoice) }}</span></td>
+                                    <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(invoice.validated_at ?? invoice.created_at) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.total_amount) }}</td><td class="px-4 py-3 text-end text-sm text-slate-500">{{ formatMoney(invoice.paid_amount) }}</td>
+                                    <td class="px-4 py-3 text-end text-sm">
+                                        <span v-if="Number(invoice.balance_amount) > 0" class="font-bold tabular-nums text-amber-700 dark:text-amber-300">{{ formatMoney(invoice.balance_amount) }}</span>
+                                        <span v-else class="text-slate-300 dark:text-slate-600">—</span>
+                                    </td>
+                                    <td class="px-4 py-3"><span :class="['inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold', Number(invoice.balance_amount) > 0 ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300']">{{ invoiceStatusLabel(invoice) }}</span></td>
                                     <td class="px-4 py-3"><div class="flex items-center justify-end gap-2"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${invoice.uuid}?from=cash`" icon size="rg" title="Voir et imprimer la facture" variant="white-outline" aria-label="Voir et imprimer la facture"><Icon class="text-base" name="file-text" /></Button><Button v-if="invoiceCanBePaid(invoice) && can('payments.create')" size="sm" variant="success" type="button" :disabled="!cashOperational || paymentMethods.length === 0" :title="sessionLocked ? 'Session verrouillée par la Super Administration' : undefined" @click="openPaymentDialog(invoice)"><Icon name="money" /><span class="ms-1.5">Encaisser</span></Button></div></td>
                                 </tr>
                             </template>
-                            <tr v-else-if="pharmacyLookup"><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" :name="pharmacyLookup.reference ? 'cross-circle' : 'file-text'" /><p class="mt-2 text-sm font-medium text-slate-500"><template v-if="pharmacyLookup.reference">Aucun ticket Pharmacie trouvé pour <strong class="font-mono">{{ pharmacyLookup.reference }}</strong>.</template><template v-else>Aucune facture Pharmacie enregistrée.</template></p></td></tr>
+                            <tr v-else-if="pharmacyLookup">
+                                <td colspan="8" class="px-5 py-10 text-center">
+                                    <Icon :class="['text-2xl', pharmacyLookup.reference ? 'text-slate-300' : 'text-emerald-300']" :name="pharmacyLookup.reference ? 'cross-circle' : 'check-circle'" />
+                                    <p class="mt-2 text-sm font-medium text-slate-500">
+                                        <template v-if="pharmacyLookup.reference">Aucun ticket Pharmacie trouvé pour <strong class="font-mono">{{ pharmacyLookup.reference }}</strong>.</template>
+                                        <template v-else>Aucun ticket Pharmacie à encaisser.</template>
+                                    </p>
+                                    <p v-if="!pharmacyLookup.reference" class="mt-1 text-xs text-slate-400">Un ticket réglé devient un paiement : il se consulte dans l’onglet Paiements de la caisse qui l’a encaissé.</p>
+                                    <button v-if="!pharmacyLookup.reference && can('payments.view')" type="button" class="mt-2 text-xs font-bold text-primary-600 hover:text-primary-700" @click="showSettledPharmacyTickets">Voir les paiements Pharmacie</button>
+                                </td>
+                            </tr>
                             <tr v-else><td colspan="8" class="px-5 py-10 text-center"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-medium text-slate-500">Saisissez ou scannez une référence pour afficher les factures Pharmacie.</p></td></tr>
                         </tbody>
                     </table>
@@ -689,15 +830,59 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[1010px] border-collapse">
-                        <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="w-10 px-4 py-2.5"><input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" aria-label="Tout sélectionner" :checked="allVisiblePaymentsSelected" @change="toggleAllVisiblePayments"></th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Paiement</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Date / heure</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Mode</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Montant</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Documents</th></tr></thead>
+                        <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="w-10 px-4 py-2.5"><input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" aria-label="Tout sélectionner" :checked="allVisiblePaymentsSelected" @change="toggleAllVisiblePayments"></th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Paiement</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Date / heure</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Mode</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Montant</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Reçu</th></tr></thead>
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                            <tr v-for="payment in filteredRecentPayments" :key="payment.uuid" :class="['transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30', selectedPaymentUuids.has(payment.uuid) && 'bg-primary-50/40 dark:bg-primary-950/10']">
-                                <td class="px-4 py-3"><input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="`Sélectionner le paiement ${payment.payment_number}`" :checked="selectedPaymentUuids.has(payment.uuid)" @change="togglePaymentSelection(payment.uuid)"></td>
-                                <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(payment.invoice)" /><div><Link v-if="payment.invoice.patient && can('patients.view')" :href="`/patients/${payment.invoice.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(payment.invoice) }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(payment.invoice) }}</span><span class="block text-xs text-slate-400">{{ payment.invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div></td>
-                                <td class="px-4 py-3"><p class="text-sm font-bold text-slate-700 dark:text-white">{{ payment.payment_number }}</p><p class="mt-0.5 text-xs text-slate-400">Facture {{ payment.invoice.invoice_number }}</p></td><td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(payment.paid_at) }}</td><td class="px-4 py-3"><p class="text-sm text-slate-600 dark:text-slate-300">{{ payment.method.name }}</p><p class="mt-0.5 text-xs text-slate-400">Par {{ payment.cashier.name }}</p></td>
-                                <td class="px-4 py-3 text-end text-sm"><span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-white']">{{ formatMoney(payment.amount) }}</span><span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-900 dark:text-red-300">Annulé</span></td>
-                                <td class="px-4 py-3"><div class="flex items-center justify-end gap-2"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${payment.invoice.uuid}?from=cash`" icon size="rg" title="Imprimer la facture" variant="white-outline" aria-label="Imprimer la facture"><Icon class="text-base" name="file-text" /></Button><Button v-if="payment.receipt && can('receipts.view')" :as="Link" :href="`/receipts/${payment.receipt.uuid}?from=cash`" size="sm" variant="white-outline"><Icon class="text-base" name="printer" /><span class="ms-1.5">{{ payment.receipt.receipt_number }}</span></Button></div></td>
-                            </tr>
+                            <template v-for="group in groupedRecentPayments" :key="group.key">
+                                <!-- One invoice, one statement. Its payments are listed under
+                                     it only when there is more than one — a single collection
+                                     needs no grouping chrome. -->
+                                <tr v-if="group.payments.length > 1" :class="['transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30', groupIsFullySelected(group) && 'bg-primary-50/40 dark:bg-primary-950/10']">
+                                    <td class="px-4 py-3"><input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="`Sélectionner les ${group.payments.length} paiements de la facture ${group.invoice.invoice_number}`" :checked="groupIsFullySelected(group)" @change="toggleGroupSelection(group)"></td>
+                                    <td class="px-4 py-3"><div class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(group.invoice)" /><div><Link v-if="group.invoice.patient && can('patients.view')" :href="`/patients/${group.invoice.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(group.invoice) }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(group.invoice) }}</span><span class="block text-xs text-slate-400">{{ group.invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div></td>
+                                    <td class="px-4 py-3">
+                                        <Link v-if="can('billing.print')" :href="`/invoices/${group.invoice.uuid}?from=cash`" class="inline-flex items-center gap-1 text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-300"><Icon name="file-text" />Facture {{ group.invoice.invoice_number }}</Link>
+                                        <span v-else class="inline-flex items-center gap-1 text-sm font-bold text-slate-700 dark:text-white"><Icon name="file-text" />Facture {{ group.invoice.invoice_number }}</span>
+                                        <p class="mt-0.5 text-xs text-slate-400">{{ group.payments.length }} paiements sur cette facture</p>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(group.payments[0].paid_at) }}</td>
+                                    <td class="px-4 py-3 text-xs text-slate-400">Détail ci-dessous</td>
+                                    <td class="px-4 py-3 text-end text-sm"><p class="font-bold text-slate-800 dark:text-white">{{ formatMoney(group.collected) }}</p><p class="mt-0.5 text-[11px] text-slate-400">total encaissé</p></td>
+                                    <td class="px-4 py-3"></td>
+                                </tr>
+                                <tr
+                                    v-for="payment in group.payments"
+                                    :key="payment.uuid"
+                                    :class="[
+                                        'transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/30',
+                                        selectedPaymentUuids.has(payment.uuid) && 'bg-primary-50/40 dark:bg-primary-950/10',
+                                        group.payments.length > 1 && 'bg-gray-50/40 dark:bg-gray-1000/20',
+                                    ]"
+                                >
+                                    <td class="px-4 py-3"><input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="`Sélectionner le paiement ${payment.payment_number}`" :checked="selectedPaymentUuids.has(payment.uuid)" @change="togglePaymentSelection(payment.uuid)"></td>
+                                    <td class="px-4 py-3">
+                                        <div v-if="group.payments.length === 1" class="flex items-center gap-2.5"><Avatar rounded size="sm" variant="slate-pale" :text="invoiceCustomerInitials(payment.invoice)" /><div><Link v-if="payment.invoice.patient && can('patients.view')" :href="`/patients/${payment.invoice.patient.uuid}`" class="text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ invoiceCustomerName(payment.invoice) }}</Link><span v-else class="text-sm font-bold text-slate-700 dark:text-white">{{ invoiceCustomerName(payment.invoice) }}</span><span class="block text-xs text-slate-400">{{ payment.invoice.patient?.patient_number ?? 'Vente Pharmacie' }}</span></div></div>
+                                        <span v-else class="ms-4 block border-s-2 border-gray-200 ps-3 text-xs text-slate-400 dark:border-gray-800">Versement</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <p class="text-sm font-bold text-slate-700 dark:text-white">{{ payment.payment_number }}</p>
+                                        <!-- Stated once at group level when the invoice is split
+                                             across several collections. -->
+                                        <template v-if="group.payments.length === 1">
+                                            <Link v-if="can('billing.print')" :href="`/invoices/${payment.invoice.uuid}?from=cash`" class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400 hover:text-primary-600 dark:hover:text-primary-300"><Icon name="file-text" />Facture {{ payment.invoice.invoice_number }}</Link>
+                                            <p v-else class="mt-0.5 text-xs text-slate-400">Facture {{ payment.invoice.invoice_number }}</p>
+                                        </template>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(payment.paid_at) }}</td>
+                                    <td class="px-4 py-3"><p class="text-sm text-slate-600 dark:text-slate-300">{{ payment.method.name }}</p><p class="mt-0.5 text-xs text-slate-400">Par {{ payment.cashier.name }}</p></td>
+                                    <td class="px-4 py-3 text-end text-sm"><span :class="['font-bold', payment.status === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-800 dark:text-white']">{{ formatMoney(payment.amount) }}</span><span v-if="payment.status === 'CANCELLED'" class="ms-2 rounded border border-red-200 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-900 dark:text-red-300">Annulé</span></td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <Button v-if="payment.receipt && can('receipts.view')" :as="Link" :href="`/receipts/${payment.receipt.uuid}?from=cash`" size="sm" variant="white-outline" title="Voir et imprimer le reçu"><Icon class="text-base" name="printer" /><span class="ms-1.5">{{ payment.receipt.receipt_number }}</span></Button>
+                                            <span v-else class="text-xs text-slate-300 dark:text-slate-600">—</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </template>
                             <tr v-if="filteredRecentPayments.length === 0"><td colspan="7" class="px-5 py-10 text-center text-sm text-slate-400">{{ moduleFilter !== 'all' ? 'Aucun paiement ne correspond au filtre.' : 'Aucun paiement enregistré.' }}</td></tr>
                         </tbody>
                     </table>
@@ -721,18 +906,91 @@ onBeforeUnmount(() => {
         <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="closePaymentDialog">
             <section class="w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cash-payment-dialog-title">
                 <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900"><div class="flex min-w-0 items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-xl" name="money" /></span><div class="min-w-0"><h2 id="cash-payment-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Encaisser la facture</h2><p class="mt-0.5 truncate text-sm text-slate-400">{{ paymentTarget.invoice_number }} · {{ invoiceCustomerName(paymentTarget) }}</p></div></div><button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closePaymentDialog"><Icon class="text-xl" name="cross" /></button></header>
-                <dl class="grid grid-cols-3 divide-x divide-gray-200 border-b border-gray-200 bg-gray-50/60 dark:divide-gray-900 dark:border-gray-900 dark:bg-gray-1000/30"><div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total</dt><dd class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(paymentTarget.total_amount) }}</dd></div><div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Déjà payé</dt><dd class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatMoney(paymentTarget.paid_amount) }}</dd></div><div class="px-4 py-3"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Reste à payer</dt><dd class="mt-1 text-sm font-black text-slate-800 dark:text-white">{{ formatMoney(paymentTarget.balance_amount) }}</dd></div></dl>
+                <div class="flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30">
+                    <div>
+                        <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Reste à payer</p>
+                        <p class="mt-0.5 font-heading text-3xl font-bold text-slate-800 dark:text-white">{{ formatMoney(paymentTarget.balance_amount) }}</p>
+                    </div>
+                    <dl class="flex gap-5 text-xs">
+                        <div><dt class="text-slate-400">Total facture</dt><dd class="mt-0.5 font-bold tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(paymentTarget.total_amount) }}</dd></div>
+                        <div><dt class="text-slate-400">Déjà payé</dt><dd class="mt-0.5 font-bold tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(paymentTarget.paid_amount) }}</dd></div>
+                    </dl>
+                </div>
 
                 <form class="space-y-4 p-5" @submit.prevent="recordPayment">
-                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_amount">Montant <span class="text-red-500">*</span></FormLabel><Input id="cash_payment_amount" v-model="paymentForm.amount" type="number" min="0.01" :max="paymentTarget.balance_amount" step="0.01" required autofocus /><FormError v-if="paymentForm.errors.amount">{{ paymentForm.errors.amount }}</FormError></FormGroup>
-                        <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel><select id="cash_payment_method" v-model="paymentForm.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required><option value="" disabled>Choisir</option><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select><FormError v-if="paymentForm.errors.payment_method_id">{{ paymentForm.errors.payment_method_id }}</FormError></FormGroup>
+                    <div>
+                        <p class="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Mode de paiement <span class="text-red-500">*</span></p>
+                        <div class="grid gap-2 sm:grid-cols-3">
+                            <button
+                                v-for="method in paymentMethods"
+                                :key="method.id"
+                                type="button"
+                                :aria-pressed="paymentForm.payment_method_id === method.id"
+                                :class="[
+                                    'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-start transition',
+                                    paymentForm.payment_method_id === method.id
+                                        ? 'border-primary-600 bg-primary-50 ring-1 ring-primary-200 dark:bg-primary-950/30 dark:ring-primary-900'
+                                        : 'border-gray-200 hover:border-primary-300 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10',
+                                ]"
+                                @click="paymentForm.payment_method_id = method.id; resetTender()"
+                            >
+                                <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-full', paymentForm.payment_method_id === method.id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300']"><Icon :name="method.category_icon" /></span>
+                                <span class="min-w-0 text-sm font-semibold text-slate-700 dark:text-white">{{ method.name }}</span>
+                            </button>
+                        </div>
+                        <FormError v-if="paymentForm.errors.payment_method_id">{{ paymentForm.errors.payment_method_id }}</FormError>
                     </div>
-                    <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_reference">Référence</FormLabel><Input id="cash_payment_reference" v-model="paymentForm.reference" placeholder="Mobile money, virement…" /><FormError v-if="paymentForm.errors.reference">{{ paymentForm.errors.reference }}</FormError></FormGroup>
+
+                    <div>
+                        <div class="mb-1.5 flex items-center justify-between gap-2">
+                            <FormLabel class="!mb-0" for="cash_payment_amount">Montant encaissé <span class="text-red-500">*</span></FormLabel>
+                            <button v-if="Number(paymentForm.amount) !== Number(paymentTarget.balance_amount)" type="button" class="text-[11px] font-bold text-primary-600 hover:text-primary-700" @click="paymentForm.amount = paymentTarget.balance_amount">Solde exact</button>
+                        </div>
+                        <div class="relative">
+                            <input id="cash_payment_amount" v-model="paymentForm.amount" type="number" min="0.01" :max="paymentTarget.balance_amount" step="0.01" required autofocus class="h-12 w-full rounded-md border border-gray-200 bg-white pe-12 ps-4 text-end font-heading text-xl font-bold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                            <span class="pointer-events-none absolute inset-y-0 end-4 flex items-center text-sm font-bold text-slate-400">Ar</span>
+                        </div>
+                        <FormError v-if="paymentForm.errors.amount">{{ paymentForm.errors.amount }}</FormError>
+                    </div>
+
+                    <!-- Cash only: nothing is handed back on a mobile money
+                         transfer or a transfer. Tendered and change are not
+                         recorded — the payment stays the amount collected. -->
+                    <div v-if="isCashTender" class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+                        <div class="mb-1.5 flex items-center justify-between gap-2">
+                            <FormLabel class="!mb-0" for="cash_payment_tendered">Argent remis par le patient</FormLabel>
+                            <div class="flex items-center gap-2 text-[11px] font-bold">
+                                <button type="button" class="text-primary-600 hover:text-primary-700" @click="setExactTender">Compte juste</button>
+                                <button v-if="tenderedAmount !== ''" type="button" class="text-slate-400 hover:text-slate-600" @click="resetTender">Effacer</button>
+                            </div>
+                        </div>
+                        <div class="relative">
+                            <input id="cash_payment_tendered" v-model="tenderedAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" class="h-11 w-full rounded-md border border-gray-200 bg-white pe-12 ps-4 text-end text-lg font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                            <span class="pointer-events-none absolute inset-y-0 end-4 flex items-center text-sm font-bold text-slate-400">Ar</span>
+                        </div>
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                            <button v-for="note in ARIARY_NOTES" :key="note" type="button" class="rounded border border-gray-200 px-2.5 py-1 text-xs font-bold text-slate-600 transition hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-700 dark:border-gray-800 dark:text-slate-300 dark:hover:bg-primary-950/20" @click="addTendered(note)">+{{ note.toLocaleString('fr-FR') }}</button>
+                        </div>
+
+                        <div v-if="tenderedIsShort" class="mt-3 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                            <Icon name="alert-circle" />Il manque {{ formatMoney(amountDue - tenderedValue) }}
+                        </div>
+                        <div v-else-if="tenderedAmount !== ''" :class="['mt-3 flex items-center justify-between gap-3 rounded px-3 py-2.5', changeDue > 0 ? 'bg-emerald-50 dark:bg-emerald-950/25' : 'bg-gray-50 dark:bg-gray-1000/40']">
+                            <span :class="['text-[10px] font-bold uppercase tracking-[0.14em]', changeDue > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400']">À rendre au patient</span>
+                            <span :class="['font-heading text-2xl font-bold tabular-nums', changeDue > 0 ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-500']">{{ formatMoney(changeDue) }}</span>
+                        </div>
+                    </div>
+                    <FormGroup v-if="selectedPaymentMethod?.requires_reference" class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_reference">{{ paymentReferenceLabel }} <span class="text-red-500">*</span></FormLabel><Input id="cash_payment_reference" v-model="paymentForm.reference" :placeholder="paymentReferencePlaceholder" required /><FormError v-if="paymentForm.errors.reference">{{ paymentForm.errors.reference }}</FormError></FormGroup>
                     <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_notes">Note</FormLabel><Input id="cash_payment_notes" v-model="paymentForm.notes" placeholder="Observation facultative" /><FormError v-if="paymentForm.errors.notes">{{ paymentForm.errors.notes }}</FormError></FormGroup>
+                    <FormError v-if="paymentForm.errors.reference && ! selectedPaymentMethod?.requires_reference">{{ paymentForm.errors.reference }}</FormError>
                     <FormError v-if="paymentForm.errors.cash_session">{{ paymentForm.errors.cash_session }}</FormError><FormError v-if="paymentForm.errors.invoice_uuid">{{ paymentForm.errors.invoice_uuid }}</FormError>
-                    <div class="flex items-start gap-2.5 rounded border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-xs leading-5 text-slate-500 dark:border-gray-800 dark:bg-gray-1000/30"><Icon class="mt-0.5 shrink-0 text-base text-slate-400" name="info" /><p>La confirmation enregistre le paiement dans la session ouverte et génère son reçu. La facture restera disponible en formats B5 et ticket thermique.</p></div>
-                    <div class="flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between"><Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${paymentTarget.uuid}?from=cash`" size="rg" variant="white-outline"><Icon class="text-lg" name="file-text" /><span class="ms-2">Voir la facture</span></Button><div class="flex justify-end gap-2"><Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button><Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser et générer le reçu' }}</span></Button></div></div>
+                    <div class="flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                        <Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${paymentTarget.uuid}?from=cash`" size="rg" variant="white-outline"><Icon class="text-lg" name="file-text" /><span class="ms-2">Voir la facture</span></Button>
+                        <div class="flex justify-end gap-2">
+                            <Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button>
+                            <Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing || tenderedIsShort" :title="tenderedIsShort ? 'Le montant remis par le patient est inférieur au montant à encaisser' : undefined"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : `Encaisser ${formatMoney(paymentForm.amount || 0)}` }}</span></Button>
+                        </div>
+                    </div>
                 </form>
             </section>
         </div>

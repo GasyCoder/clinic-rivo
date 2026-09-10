@@ -524,6 +524,206 @@ class SuperAdminSiteApiTest extends TestCase
         ]);
     }
 
+    public function test_a_super_admin_holding_the_whole_catalogue_keeps_its_last_permissions(): void
+    {
+        // Regression: the actor permission header used to be truncated after
+        // 250 entries. A Super Admin holds every permission of a catalogue
+        // that keeps growing, so the newest ones silently fell off the list
+        // and every remote call using them answered 403 for no visible reason.
+        PaymentMethod::query()->create([
+            'code' => 'CASH', 'name' => 'Espèces', 'category' => 'CASH',
+            'active' => true, 'affects_cash_balance' => true,
+        ]);
+        $permissions = collect(range(1, 300))
+            ->map(fn (int $index) => 'filler_'.$index.'.view')
+            ->push('payment_methods.view')
+            ->all();
+
+        $this->withHeaders($this->headers((string) Str::uuid(), null, $permissions))
+            ->getJson('/api/v1/super-admin/payment-methods')
+            ->assertOk()
+            ->assertJsonPath('meta.summary.active', 1);
+    }
+
+    public function test_an_oversized_permission_header_is_refused_instead_of_silently_truncated(): void
+    {
+        $permissions = collect(range(1, 4000))
+            ->map(fn (int $index) => 'filler_'.$index.'.view')
+            ->all();
+
+        $this->withHeaders($this->headers((string) Str::uuid(), null, $permissions))
+            ->getJson('/api/v1/super-admin/payment-methods')
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'L’en-tête des permissions de l’acteur distant dépasse la taille autorisée.');
+    }
+
+    public function test_a_cash_desk_can_be_restricted_to_some_tenders_and_the_restriction_lifts_when_emptied(): void
+    {
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $cash = PaymentMethod::query()->create([
+            'code' => 'CASH', 'name' => 'Espèces', 'category' => 'CASH',
+            'active' => true, 'affects_cash_balance' => true,
+        ]);
+        $mvola = PaymentMethod::query()->create([
+            'code' => 'MOBILE_MONEY_MVOLA', 'name' => 'MVola', 'category' => 'MOBILE_MONEY',
+            'active' => true, 'affects_cash_balance' => false,
+        ]);
+        $actorUuid = (string) Str::uuid();
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['cash_registers.update']))
+            ->putJson("/api/v1/super-admin/cash-registers/{$register->uuid}/payment-methods", [
+                'payment_method_uuids' => [$cash->uuid],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted_payment_methods.0.code', 'CASH')
+            ->assertJsonCount(1, 'data.accepted_payment_methods');
+
+        $this->assertSame([$cash->id], $register->fresh()->acceptedPaymentMethodIds());
+        $this->assertTrue($register->fresh()->accepts($cash));
+        $this->assertFalse($register->fresh()->accepts($mvola));
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'cash_register.payment_methods.update',
+            'entity_uuid' => $register->uuid,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+
+        // An empty list is not "accepts nothing": it lifts the restriction.
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), ['cash_registers.update']))
+            ->putJson("/api/v1/super-admin/cash-registers/{$register->uuid}/payment-methods", [
+                'payment_method_uuids' => [],
+            ])
+            ->assertOk()
+            ->assertJsonCount(0, 'data.accepted_payment_methods');
+
+        $this->assertTrue($register->fresh()->accepts($mvola));
+    }
+
+    public function test_restricting_a_cash_desk_requires_the_permission_and_refuses_a_deactivated_tender(): void
+    {
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $retired = PaymentMethod::query()->create([
+            'code' => 'CHECK', 'name' => 'Chèque', 'category' => 'BANK',
+            'active' => false, 'affects_cash_balance' => false,
+        ]);
+
+        $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['cash_registers.view']))
+            ->putJson("/api/v1/super-admin/cash-registers/{$register->uuid}/payment-methods", [
+                'payment_method_uuids' => [$retired->uuid],
+            ])
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['cash_registers.update']))
+            ->putJson("/api/v1/super-admin/cash-registers/{$register->uuid}/payment-methods", [
+                'payment_method_uuids' => [$retired->uuid],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('payment_method_uuids');
+
+        $this->assertSame([], $register->fresh()->acceptedPaymentMethodIds());
+    }
+
+    public function test_payment_methods_are_managed_per_site_with_permissions_and_never_deleted(): void
+    {
+        $actorUuid = (string) Str::uuid();
+        $permissions = [
+            'payment_methods.view', 'payment_methods.create',
+            'payment_methods.update', 'payment_methods.activate', 'payment_methods.deactivate',
+        ];
+        PaymentMethod::query()->create([
+            'code' => 'CASH', 'name' => 'Espèces', 'category' => 'CASH',
+            'active' => true, 'affects_cash_balance' => true,
+        ]);
+
+        $created = $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson('/api/v1/super-admin/payment-methods', [
+                'code' => 'mobile money mvola',
+                'name' => '  MVola  ',
+                'category' => 'MOBILE_MONEY',
+                'affects_cash_balance' => false,
+                'requires_reference' => true,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.code', 'MOBILE_MONEY_MVOLA')
+            ->assertJsonPath('data.name', 'MVola')
+            ->assertJsonPath('data.category', 'MOBILE_MONEY')
+            ->assertJsonPath('data.category_label', 'Mobile money')
+            // A mobile money transfer carries an operator reference.
+            ->assertJsonPath('data.requires_reference', true)
+            ->assertJsonPath('data.active', true);
+        $uuid = $created->json('data.uuid');
+
+        // The code identifies the tender on payments already recorded: an
+        // update may move the label and the till behaviour, never the code.
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->putJson("/api/v1/super-admin/payment-methods/{$uuid}", [
+                'code' => 'SOMETHING_ELSE',
+                'name' => 'MVola (Telma)',
+                'category' => 'MOBILE_MONEY',
+                'affects_cash_balance' => false,
+                'requires_reference' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.code', 'MOBILE_MONEY_MVOLA')
+            ->assertJsonPath('data.name', 'MVola (Telma)');
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson("/api/v1/super-admin/payment-methods/{$uuid}/deactivate")
+            ->assertOk()
+            ->assertJsonPath('data.active', false);
+        $this->assertDatabaseHas('payment_methods', ['uuid' => $uuid, 'active' => false]);
+
+        $this->withHeaders($this->headers($actorUuid, (string) Str::uuid(), $permissions))
+            ->postJson("/api/v1/super-admin/payment-methods/{$uuid}/activate")
+            ->assertOk()
+            ->assertJsonPath('data.active', true);
+
+        $this->withHeaders($this->headers($actorUuid, null, ['payment_methods.view']))
+            ->getJson('/api/v1/super-admin/payment-methods?status=ACTIVE')
+            ->assertOk()
+            ->assertJsonPath('meta.summary.active', 2)
+            ->assertJsonPath('meta.summary.cash_affecting', 1);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'update',
+            'entity_uuid' => $uuid,
+            'external_actor_uuid' => $actorUuid,
+        ]);
+    }
+
+    public function test_payment_method_api_rejects_missing_permissions_duplicates_and_the_last_active_tender(): void
+    {
+        $cash = PaymentMethod::query()->create([
+            'code' => 'CASH', 'name' => 'Espèces', 'category' => 'CASH',
+            'active' => true, 'affects_cash_balance' => true,
+        ]);
+
+        $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['payment_methods.view']))
+            ->postJson('/api/v1/super-admin/payment-methods', [
+                'code' => 'CHECK', 'name' => 'Chèque', 'category' => 'BANK',
+                'affects_cash_balance' => false, 'requires_reference' => true,
+            ])
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['payment_methods.create']))
+            ->postJson('/api/v1/super-admin/payment-methods', [
+                'code' => 'CASH', 'name' => 'Espèces bis', 'category' => 'CASH',
+                'affects_cash_balance' => true, 'requires_reference' => false,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code');
+
+        // Espèces is the only active tender: disabling it would make every
+        // cash-in impossible on that site.
+        $this->withHeaders($this->headers((string) Str::uuid(), (string) Str::uuid(), ['payment_methods.deactivate']))
+            ->postJson("/api/v1/super-admin/payment-methods/{$cash->uuid}/deactivate")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('method');
+
+        $this->assertTrue($cash->fresh()->active);
+        $this->assertSame(1, PaymentMethod::query()->count());
+    }
+
     public function test_cash_register_api_rejects_missing_permissions_and_duplicates(): void
     {
         $register = CashRegister::query()->create(['name' => 'Caisse 1']);

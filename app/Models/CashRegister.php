@@ -7,6 +7,7 @@ use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
@@ -39,6 +40,29 @@ class CashRegister extends Model
     public function sessions(): HasMany
     {
         return $this->hasMany(CashSession::class);
+    }
+
+    /**
+     * Tenders this desk accepts. Empty means no restriction: every active
+     * tender of the site is accepted (see the pivot migration).
+     */
+    public function acceptedPaymentMethods(): BelongsToMany
+    {
+        return $this->belongsToMany(PaymentMethod::class, 'cash_register_payment_method')
+            ->withTimestamps();
+    }
+
+    /** @return array<int, int> */
+    public function acceptedPaymentMethodIds(): array
+    {
+        return $this->acceptedPaymentMethods()->pluck('payment_methods.id')->all();
+    }
+
+    public function accepts(PaymentMethod $method): bool
+    {
+        $accepted = $this->acceptedPaymentMethodIds();
+
+        return $accepted === [] || in_array($method->id, $accepted, true);
     }
 
     /**

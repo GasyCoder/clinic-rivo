@@ -12,7 +12,10 @@ import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
 import { formatMoney } from '@/utilities/money';
-import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
+import {
+    formatPatientAge, formatPatientBirthDate, formatPatientCivilName,
+    formatPatientInitials, formatPatientName,
+} from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
 
@@ -39,6 +42,7 @@ const steps = [
 const currentStep = ref(props.resumeEpisode ? (props.resumeEpisode.financial_mode ? 6 : 5) : 1);
 const catalogQuery = ref('');
 const moduleFilter = ref('');
+const showUnavailable = ref(false);
 const cart = ref((props.receptionDraft?.catalog_lines ?? []).map((line) => ({ ...line })));
 const estimate = ref(null);
 const estimateLoading = ref(false);
@@ -156,7 +160,7 @@ const catalogModules = computed(() => {
             readyCount: 0,
         };
         module.count += 1;
-        if (item.tariff_available) module.readyCount += 1;
+        if (item.reception_ready) module.readyCount += 1;
         modules.set(item.module, module);
     });
 
@@ -167,7 +171,7 @@ const catalogCategoryOptions = computed(() => [
         value: '',
         label: 'Toutes',
         count: props.estimateCatalog.length,
-        readyCount: props.estimateCatalog.filter((item) => item.tariff_available).length,
+        readyCount: props.estimateCatalog.filter((item) => item.reception_ready).length,
     },
     ...catalogModules.value,
 ]);
@@ -181,22 +185,36 @@ const catalogModuleIcon = (module) => ({
     CARE: 'shield-check',
     LABORATORY: 'activity',
     MATERNITY: 'heart',
+    SURGERY: 'activity',
+    OPHTHALMOLOGY: 'eye',
+    FAMILY_PLANNING: 'heart',
 }[module] ?? 'category');
-const readyCatalogCount = computed(() => props.estimateCatalog.filter((item) => item.tariff_available).length);
+const readyCatalogCount = computed(() => props.estimateCatalog.filter((item) => item.reception_ready).length);
 const cartIds = computed(() => new Set(cart.value.map((line) => line.catalog_item_uuid)));
-const filteredCatalog = computed(() => {
+const matchesCatalogQuery = (item) => {
+    if (cartIds.value.has(item.catalog_item_uuid)) return false;
+    if (moduleFilter.value && item.module !== moduleFilter.value) return false;
+
     const needle = catalogQuery.value.trim().toLocaleLowerCase('fr');
 
-    return props.estimateCatalog.filter((item) => {
-        if (cartIds.value.has(item.catalog_item_uuid)) return false;
-        if (moduleFilter.value && item.module !== moduleFilter.value) return false;
-
-        return !needle || `${item.name} ${item.code} ${item.module_label}`
-            .toLocaleLowerCase('fr')
-            .includes(needle);
-    }).sort((left, right) => Number(right.tariff_available) - Number(left.tariff_available)
-        || left.name.localeCompare(right.name, 'fr'));
-});
+    return !needle || `${item.name} ${item.code} ${item.module_label}`
+        .toLocaleLowerCase('fr')
+        .includes(needle);
+};
+const filteredCatalog = computed(() => props.estimateCatalog
+    .filter((item) => matchesCatalogQuery(item) && (showUnavailable.value || item.reception_ready))
+    .sort((left, right) => Number(right.reception_ready) - Number(left.reception_ready)
+        || left.name.localeCompare(right.name, 'fr')));
+// Every domain of the referential is now listed here (Chirurgie,
+// Ophtalmologie, Planning Familial included), not only the ones Reception
+// can already route — but most of those have no tariff yet, or no Reception
+// workflow at all (e.g. a bloc intervention is never booked directly here,
+// see ADR-067/048). Hidden by default so the receptionist only sees what is
+// actually usable; this count lets them reveal the rest on demand instead of
+// scrolling past a wall of locked rows.
+const hiddenUnavailableCount = computed(() => showUnavailable.value
+    ? 0
+    : props.estimateCatalog.filter((item) => matchesCatalogQuery(item) && !item.reception_ready).length);
 const hasCatalogFilters = computed(() => catalogQuery.value.trim() !== '' || moduleFilter.value !== '');
 const estimateLineMap = computed(() => new Map(
     (estimate.value?.lines ?? []).map((line) => [line.catalog_item_uuid, line]),
@@ -213,7 +231,7 @@ const selectedOrganization = computed(() => props.mutualOrganizations.find(
 const previewLines = computed(() => preview.value?.lines ?? []);
 
 const addService = (item) => {
-    if (!item.tariff_available) return;
+    if (!item.reception_ready) return;
 
     cart.value.push({ catalog_item_uuid: item.catalog_item_uuid, quantity: 1 });
     estimate.value = null;
@@ -229,6 +247,15 @@ const removeService = async (index) => {
     estimate.value = null;
     if (currentStep.value === 2 && cart.value.length) await recalculateEstimate();
     if (!cart.value.length) currentStep.value = 1;
+};
+const stepQuantity = async (entry, delta) => {
+    const current = Number(entry.line.quantity) || 1;
+    const next = Math.min(9999, Math.max(1, current + delta));
+
+    if (next === current) return;
+
+    entry.line.quantity = next;
+    if (currentStep.value === 2) await recalculateEstimate();
 };
 const cartPayload = () => cart.value.map((line) => ({
     catalog_item_uuid: line.catalog_item_uuid,
@@ -603,21 +630,27 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
                                 <div>
                                     <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Catégories de prestations</p>
-                                    <p class="mt-0.5 text-xs text-slate-500">Médecine, Imagerie, Soins, Laboratoire et Maternité selon la configuration du site.</p>
+                                    <p class="mt-0.5 text-xs text-slate-500">Tous les domaines du référentiel du site · seules les prestations utilisables ici sont affichées par défaut.</p>
                                 </div>
-                                <p class="text-xs font-semibold text-slate-500"><span class="text-emerald-600">{{ readyCatalogCount }} tarifée{{ readyCatalogCount > 1 ? 's' : '' }}</span> · {{ estimateCatalog.length }} active{{ estimateCatalog.length > 1 ? 's' : '' }}</p>
+                                <p class="text-xs font-semibold text-slate-500"><span class="text-emerald-600">{{ readyCatalogCount }} utilisable{{ readyCatalogCount > 1 ? 's' : '' }} ici</span> · {{ estimateCatalog.length }} au total</p>
                             </div>
-                            <div class="flex flex-wrap gap-2" role="group" aria-label="Filtrer par catégorie">
-                                <button v-for="category in catalogCategoryOptions" :key="category.value || 'all'" type="button" :aria-pressed="moduleFilter === category.value" :class="['inline-flex min-h-10 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition', moduleFilter === category.value ? 'border-primary-600 bg-primary-600 text-white shadow-sm' : 'border-gray-200 bg-white text-slate-600 hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-700 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300']" @click="moduleFilter = category.value">
-                                    <Icon class="text-base" :name="catalogModuleIcon(category.value)" />
-                                    <span>{{ category.label }}</span>
-                                    <span :class="['border-s ps-2 text-[10px] font-bold tabular-nums', moduleFilter === category.value ? 'border-white/30 text-white' : 'border-gray-200 text-slate-400 dark:border-gray-800']">{{ category.readyCount }}/{{ category.count }}</span>
-                                </button>
+                            <div class="grid gap-2 sm:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+                                <label class="relative block">
+                                    <span class="sr-only">Domaine de prestations</span>
+                                    <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" :name="catalogModuleIcon(moduleFilter)" />
+                                    <select v-model="moduleFilter" class="h-9 w-full rounded border border-gray-200 bg-white ps-10 pe-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950">
+                                        <option v-for="category in catalogCategoryOptions" :key="category.value || 'all'" :value="category.value">{{ category.label }} · {{ category.readyCount }}/{{ category.count }}</option>
+                                    </select>
+                                </label>
+                                <IconInput v-model="catalogQuery" icon="search" placeholder="Rechercher une désignation, un code ou un service…" autocomplete="off" />
                             </div>
                         </div>
-                        <IconInput v-if="estimateCatalog.length" v-model="catalogQuery" class="mt-3" icon="search" placeholder="Rechercher une désignation, un code ou un service…" autocomplete="off" />
+                        <div v-if="estimateCatalog.length" class="mt-3 flex flex-wrap items-center justify-between gap-2 px-1">
+                            <label class="inline-flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><input v-model="showUnavailable" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">Afficher aussi les prestations non disponibles ici</label>
+                            <span v-if="!showUnavailable && hiddenUnavailableCount" class="text-xs text-slate-400">{{ hiddenUnavailableCount }} masquée{{ hiddenUnavailableCount > 1 ? 's' : '' }} · <button type="button" class="font-bold text-primary-600 hover:text-primary-700" @click="showUnavailable = true">Afficher</button></span>
+                        </div>
                         <div v-if="estimateCatalog.length && filteredCatalog.length" class="mt-3 max-h-[480px] overflow-y-auto rounded-md border border-gray-200 dark:border-gray-800">
-                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" :disabled="!item.tariff_available" :class="['grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-4 py-3 text-start transition last:border-0 dark:border-gray-900', item.tariff_available ? 'hover:bg-gray-50 dark:hover:bg-gray-1000' : 'cursor-not-allowed bg-gray-50/60 opacity-70 dark:bg-gray-1000/30']" @click="addService(item)"><span :class="['flex h-9 w-9 items-center justify-center rounded border dark:border-gray-800', item.tariff_available ? 'border-gray-200 text-primary-600' : 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900 dark:bg-amber-950/20']"><Icon :name="item.tariff_available ? 'plus' : 'lock'" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.routing_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'Tarif requis' }}</span><span class="text-[11px] text-slate-400">{{ item.unit }}</span></span></button>
+                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" :disabled="!item.reception_ready" :class="['grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-4 py-3 text-start transition last:border-0 dark:border-gray-900', item.reception_ready ? 'hover:bg-gray-50 dark:hover:bg-gray-1000' : 'cursor-not-allowed bg-gray-50/60 opacity-70 dark:bg-gray-1000/30']" @click="addService(item)"><span :class="['flex h-9 w-9 items-center justify-center rounded border dark:border-gray-800', item.reception_ready ? 'border-gray-200 text-primary-600' : item.tariff_available ? 'border-gray-200 bg-gray-100 text-slate-400 dark:border-gray-800 dark:bg-gray-900' : 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900 dark:bg-amber-950/20']"><Icon :name="item.reception_ready ? 'plus' : item.tariff_available ? 'info' : 'lock'" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.routing_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.reception_ready ? 'text-slate-700 dark:text-white' : item.tariff_available ? 'text-slate-500 dark:text-slate-400' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'Tarif requis' }}</span><span class="text-[11px] text-slate-400">{{ item.unit }}</span></span></button>
                         </div>
                         <div v-else-if="!estimateCatalog.length" class="rounded-md border border-amber-200 bg-amber-50/70 px-5 py-6 dark:border-amber-900 dark:bg-amber-950/20">
                             <div class="flex items-start gap-4">
@@ -630,11 +663,19 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                             </div>
                         </div>
                         <div v-else class="mt-3 rounded-md border border-dashed border-gray-300 px-5 py-8 text-center dark:border-gray-700">
-                            <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
-                            <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">{{ selectedCatalogCategory.count === 0 ? `Catalogue ${selectedCatalogCategory.label} à configurer` : 'Aucune prestation disponible dans cette catégorie' }}</p>
-                            <p class="mt-1 text-xs text-slate-400">{{ selectedCatalogCategory.count === 0 ? 'Ajoutez les prestations et leurs tarifs dans le référentiel du site.' : 'Modifiez la recherche ou choisissez une autre catégorie. Les prestations déjà sélectionnées sont masquées.' }}</p>
-                            <Button v-if="selectedCatalogCategory.count === 0 && capabilities.can_manage_catalog" class="mt-3" :as="Link" href="/administration/catalog" size="sm" variant="white-outline"><Icon class="me-2" name="settings" />Configurer le catalogue</Button>
-                            <button v-if="hasCatalogFilters" type="button" class="mt-3 text-xs font-bold text-primary-600 hover:text-primary-700" @click="resetCatalogFilters">Afficher toutes les prestations</button>
+                            <template v-if="!showUnavailable && hiddenUnavailableCount">
+                                <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-xl text-amber-600 dark:bg-amber-950/30"><Icon name="lock" /></span>
+                                <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">{{ hiddenUnavailableCount }} prestation{{ hiddenUnavailableCount > 1 ? 's' : '' }} existe{{ hiddenUnavailableCount > 1 ? 'nt' : '' }} ici, non disponible{{ hiddenUnavailableCount > 1 ? 's' : '' }} à la Réception</p>
+                                <p class="mt-1 text-xs text-slate-400">Tarif manquant, ou domaine sans parcours Réception (ex. Chirurgie, réservée à une orientation depuis un autre service). Affichez-les pour les consulter.</p>
+                                <Button class="mt-3" size="sm" variant="white-outline" @click="showUnavailable = true"><Icon class="me-2" name="eye" />Afficher {{ hiddenUnavailableCount }} prestation{{ hiddenUnavailableCount > 1 ? 's' : '' }}</Button>
+                            </template>
+                            <template v-else>
+                                <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
+                                <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">{{ selectedCatalogCategory.count === 0 ? `Catalogue ${selectedCatalogCategory.label} à configurer` : 'Aucune prestation disponible dans cette catégorie' }}</p>
+                                <p class="mt-1 text-xs text-slate-400">{{ selectedCatalogCategory.count === 0 ? 'Ajoutez les prestations et leurs tarifs dans le référentiel du site.' : 'Modifiez la recherche ou choisissez une autre catégorie. Les prestations déjà sélectionnées sont masquées.' }}</p>
+                                <Button v-if="selectedCatalogCategory.count === 0 && capabilities.can_manage_catalog" class="mt-3" :as="Link" href="/administration/catalog" size="sm" variant="white-outline"><Icon class="me-2" name="settings" />Configurer le catalogue</Button>
+                                <button v-if="hasCatalogFilters" type="button" class="mt-3 text-xs font-bold text-primary-600 hover:text-primary-700" @click="resetCatalogFilters">Afficher toutes les prestations</button>
+                            </template>
                         </div>
                     </section>
 
@@ -657,11 +698,69 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
             </CardBody>
 
             <CardBody v-else-if="currentStep === 2" class="!p-5 lg:!p-7">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Estimation au tarif STANDARD</h2><p class="mt-1 text-sm text-slate-400">Le montant est recalculé par Laravel à partir des identifiants et quantités.</p></div><span class="rounded border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:border-gray-800">Estimation · pas une facture</span></div>
-                <div class="mt-6 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800"><div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="grid gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_110px_150px_36px] sm:items-center dark:border-gray-900"><div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ entry.catalog.name }}</p><p class="mt-0.5 text-xs text-slate-400">{{ entry.catalog.code }} · {{ entry.catalog.module_label }}</p></div><label><span class="mb-1 block text-[11px] font-semibold uppercase text-slate-400">Quantité</span><Input v-model="entry.line.quantity" type="number" min="0.01" max="9999.99" step="0.01" @change="recalculateEstimate" /></label><div class="sm:text-end"><p class="text-[11px] font-semibold uppercase text-slate-400">Sous-total</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ entry.estimated ? formatMoney(entry.estimated.line_total) : '—' }}</p><p class="text-[11px] text-slate-400">{{ entry.estimated ? `${formatMoney(entry.estimated.unit_price)} / ${entry.catalog.unit}` : 'Tarif indisponible' }}</p></div><button type="button" class="flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600" @click="removeService(entry.index)"><Icon name="cross" /></button></div></div>
-                <div v-if="estimateError" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">{{ estimateError }} Le parcours clinique pourra néanmoins être conservé sans inventer de tarif.</div>
-                <div class="mt-4 flex flex-col gap-3 rounded-md bg-emerald-600 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between"><div><p class="text-xs font-semibold uppercase tracking-wide text-emerald-100">Total standard estimé</p><p class="mt-1 font-heading text-2xl font-bold">{{ estimate ? formatMoney(estimate.total_amount) : 'À confirmer' }}</p></div><p class="max-w-md text-xs leading-5 text-emerald-50">Le montant définitif peut varier selon le mode de prise en charge. Aucun Patient, Episode, facture ou paiement n’a encore été créé.</p></div>
-                <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><Button size="rg" variant="white-outline" @click="currentStep = 1"><Icon class="me-2" name="arrow-left" />Modifier le besoin</Button><div class="flex flex-col gap-2 sm:flex-row"><Button :as="Link" href="/reception" size="rg" variant="white-outline">Je voulais seulement connaître le prix</Button><Button size="rg" :disabled="estimateLoading" @click="continueToPatient">Continuer la prise en charge<Icon class="ms-2" name="arrow-right" /></Button></div></div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <h2 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Estimation au tarif Sans mutuelle</h2>
+                        <p class="mt-1 text-sm text-slate-400">Montants relus côté serveur à partir des désignations et des quantités.</p>
+                    </div>
+                    <span class="inline-flex shrink-0 items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000"><Icon name="info" />Estimation, pas une facture</span>
+                </div>
+
+                <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+                    <section class="space-y-3">
+                        <div v-if="estimateError" class="rounded-md border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
+                            <p class="flex items-start gap-2 text-sm leading-5 text-amber-800 dark:text-amber-200"><Icon class="mt-0.5 shrink-0" name="alert-circle" /><span>{{ estimateError }} Le parcours clinique pourra néanmoins être conservé sans inventer de tarif.</span></p>
+                        </div>
+
+                        <div class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                            <div class="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50/70 px-4 py-2.5 dark:border-gray-800 dark:bg-gray-1000/50">
+                                <p class="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{{ cartLines.length }} prestation{{ cartLines.length > 1 ? 's' : '' }}</p>
+                                <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-primary-600 hover:text-primary-700" @click="currentStep = 1"><Icon name="plus" />Ajouter une prestation</button>
+                            </div>
+                            <div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[36px_minmax(0,1fr)_auto_minmax(120px,auto)_32px] dark:border-gray-900">
+                                <span class="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-slate-400 dark:border-gray-800"><Icon :name="catalogModuleIcon(entry.catalog.module)" /></span>
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ entry.catalog.name }}</p>
+                                    <p class="mt-0.5 truncate text-xs text-slate-400">{{ entry.catalog.code }} · {{ entry.catalog.module_label }}</p>
+                                </div>
+                                <div class="col-span-2 flex items-center gap-2 sm:col-span-1">
+                                    <div class="inline-flex items-center rounded border border-gray-200 dark:border-gray-800">
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center text-base font-bold text-slate-500 transition hover:bg-gray-50 hover:text-primary-600 disabled:opacity-40 dark:hover:bg-gray-1000" :disabled="Number(entry.line.quantity) <= 1" aria-label="Diminuer la quantité" @click="stepQuantity(entry, -1)">−</button>
+                                        <input v-model="entry.line.quantity" type="number" min="0.01" max="9999.99" step="0.01" aria-label="Quantité" class="h-8 w-14 border-x border-gray-200 bg-white text-center text-sm font-bold text-slate-700 outline-none focus:ring-0 dark:border-gray-800 dark:bg-gray-950 dark:text-white" @change="recalculateEstimate">
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center text-base font-bold text-slate-500 transition hover:bg-gray-50 hover:text-primary-600 dark:hover:bg-gray-1000" aria-label="Augmenter la quantité" @click="stepQuantity(entry, 1)">+</button>
+                                    </div>
+                                    <span class="text-xs text-slate-400">{{ entry.catalog.unit }}</span>
+                                </div>
+                                <div class="col-span-2 sm:col-span-1 sm:text-end">
+                                    <p class="text-sm font-bold text-slate-700 dark:text-white">{{ entry.estimated ? formatMoney(entry.estimated.line_total) : '—' }}</p>
+                                    <p class="text-[11px] text-slate-400">{{ entry.estimated ? `${formatMoney(entry.estimated.unit_price)} / ${entry.catalog.unit}` : 'Tarif indisponible' }}</p>
+                                </div>
+                                <button type="button" class="col-span-2 flex h-8 w-8 items-center justify-center justify-self-end rounded text-slate-400 transition hover:bg-red-50 hover:text-red-600 sm:col-span-1 dark:hover:bg-red-950/30" :aria-label="`Retirer ${entry.catalog.name}`" @click="removeService(entry.index)"><Icon name="cross" /></button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <aside class="space-y-3 self-start xl:sticky xl:top-20">
+                        <div class="overflow-hidden rounded-md border border-emerald-200 dark:border-emerald-900">
+                            <div class="bg-emerald-50 px-5 py-4 dark:bg-emerald-950/30">
+                                <p class="flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-300">
+                                    <span>Total standard estimé</span>
+                                    <span v-if="estimateLoading" class="font-medium normal-case tracking-normal text-emerald-600">Recalcul…</span>
+                                </p>
+                                <p class="mt-1 font-heading text-3xl font-bold text-emerald-800 dark:text-emerald-200">{{ estimate ? formatMoney(estimate.total_amount) : 'À confirmer' }}</p>
+                            </div>
+                            <dl class="divide-y divide-gray-100 bg-white text-sm dark:divide-gray-900 dark:bg-gray-950">
+                                <div class="flex items-center justify-between px-5 py-2.5"><dt class="text-slate-500">Prestations</dt><dd class="font-bold text-slate-700 dark:text-white">{{ cartLines.length }}</dd></div>
+                                <div class="flex items-center justify-between px-5 py-2.5"><dt class="text-slate-500">Barème appliqué</dt><dd class="font-bold text-slate-700 dark:text-white">Sans mutuelle</dd></div>
+                            </dl>
+                            <p class="border-t border-gray-100 bg-gray-50/70 px-5 py-3 text-xs leading-5 text-slate-500 dark:border-gray-900 dark:bg-gray-1000/50">Le montant définitif peut varier selon le mode de prise en charge. Aucun Patient, Episode, facture ou paiement n’a encore été créé.</p>
+                        </div>
+
+                        <Button class="w-full justify-center" size="rg" :disabled="estimateLoading" @click="continueToPatient">Continuer la prise en charge<Icon class="ms-2" name="arrow-right" /></Button>
+                        <Button class="w-full justify-center" size="rg" variant="white-outline" @click="currentStep = 1"><Icon class="me-2" name="arrow-left" />Modifier le besoin</Button>
+                        <p class="text-center"><Link href="/reception" class="text-xs font-semibold text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline dark:hover:text-slate-200">Je voulais seulement connaître le prix</Link></p>
+                    </aside>
+                </div>
             </CardBody>
 
             <CardBody v-else-if="currentStep === 3" class="!p-5 lg:!p-7">
@@ -691,13 +790,13 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                         <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(selectedPatient)" />
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-2">
-                                <p class="truncate text-base font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</p>
+                                <p class="truncate text-base font-bold text-slate-700 dark:text-white">{{ formatPatientCivilName(selectedPatient) }}</p>
                                 <span class="rounded-full bg-primary-100 px-2 py-0.5 text-[11px] font-bold text-primary-700 dark:bg-primary-900/50 dark:text-primary-200"><Icon class="me-1" name="check-circle" />Patient sélectionné</span>
                             </div>
                             <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-300">
                                 <span class="font-mono font-semibold">{{ selectedPatient.patient_number }}</span>
-                                <span><Icon class="me-1 text-slate-400" name="phone" />{{ selectedPatient.phone || 'Téléphone non renseigné' }}</span>
-                                <span v-if="selectedPatient.age !== null"><Icon class="me-1 text-slate-400" name="calendar" />{{ selectedPatient.age }} ans</span>
+                                <span><Icon class="me-1 text-slate-400" name="call" />{{ selectedPatient.phone || 'Téléphone non renseigné' }}</span>
+                                <span v-if="formatPatientAge(selectedPatient)"><Icon class="me-1 text-slate-400" name="calendar" />{{ formatPatientAge(selectedPatient) }}<template v-if="formatPatientBirthDate(selectedPatient)"> · né(e) le {{ formatPatientBirthDate(selectedPatient) }}</template></span>
                             </div>
                         </div>
                         <div class="flex shrink-0 flex-wrap items-center gap-2">
@@ -710,8 +809,8 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                         <div class="border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000">{{ patientMatches.length }} dossier{{ patientMatches.length > 1 ? 's' : '' }} trouvé{{ patientMatches.length > 1 ? 's' : '' }}</div>
                         <button v-for="patient in patientMatches" :key="patient.uuid" type="button" class="grid w-full gap-3 border-b border-gray-100 px-4 py-3.5 text-start transition last:border-0 hover:bg-primary-50/50 sm:grid-cols-[44px_minmax(0,1fr)_minmax(180px,0.45fr)_auto] sm:items-center dark:border-gray-900 dark:hover:bg-primary-950/20" @click="choosePatient(patient)">
                             <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(patient)" />
-                            <span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</span><span class="mt-0.5 block font-mono text-xs text-slate-400">{{ patient.patient_number }}</span></span>
-                            <span class="min-w-0 text-xs text-slate-500"><span class="block truncate"><Icon class="me-1 text-slate-400" name="phone" />{{ patient.phone || 'Téléphone non renseigné' }}</span><span v-if="patient.age !== null" class="mt-0.5 block"><Icon class="me-1 text-slate-400" name="calendar" />{{ patient.age }} ans</span></span>
+                            <span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientCivilName(patient) }}</span><span class="mt-0.5 block font-mono text-xs text-slate-400">{{ patient.patient_number }}</span></span>
+                            <span class="min-w-0 text-xs text-slate-500"><span class="block truncate"><Icon class="me-1 text-slate-400" name="call" />{{ patient.phone || 'Téléphone non renseigné' }}</span><span v-if="formatPatientAge(patient)" class="mt-0.5 block"><Icon class="me-1 text-slate-400" name="calendar" />{{ formatPatientAge(patient) }}</span></span>
                             <span class="inline-flex items-center text-xs font-bold text-primary-600">Sélectionner<Icon class="ms-1" name="arrow-right" /></span>
                         </button>
                     </div>
@@ -790,7 +889,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
             <CardBody v-else-if="currentStep === 5" class="!p-5 lg:!p-7">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Mode de prise en charge</h2><p class="mt-1 text-sm text-slate-400">Ce choix s’applique uniquement à l’Episode {{ episode.episode_number }}.</p></div>
-                    <div class="flex items-center gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-1000/40"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(selectedPatient)" /><span><strong class="block text-sm text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</strong><span class="font-mono text-xs text-slate-400">{{ selectedPatient.patient_number }}</span></span></div>
+                    <div class="flex items-center gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-1000/40"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(selectedPatient)" /><span><strong class="block text-sm text-slate-700 dark:text-white">{{ formatPatientCivilName(selectedPatient) }}</strong><span class="font-mono text-xs text-slate-400">{{ selectedPatient.patient_number }}</span><span v-if="formatPatientAge(selectedPatient)" class="text-xs text-slate-400"> · {{ formatPatientAge(selectedPatient) }}</span></span></div>
                 </div>
 
                 <section v-if="capabilities.can_mark_emergency && episode.priority !== 'EMERGENCY'" class="mt-5 flex flex-col gap-4 rounded-md border border-red-200 bg-red-50/60 px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950/20">
@@ -860,13 +959,101 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
             </CardBody>
 
             <CardBody v-else-if="currentStep === 6" class="!p-5 lg:!p-7">
-                <div><h2 class="text-xl font-bold text-slate-700 dark:text-white">Confirmer la prise en charge</h2><p class="mt-1 text-sm text-slate-400">Les montants ci-dessous ont été recalculés depuis le contexte de l’Episode. La confirmation figera les prestations puis déclenchera le routage.</p></div>
-                <div class="mt-5 grid gap-3 sm:grid-cols-3"><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Patient</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(selectedPatient) }}</p><p class="text-xs text-slate-400">{{ selectedPatient.patient_number }}</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Episode</p><p class="mt-1 font-mono text-sm font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</p><p class="text-xs text-slate-400">Un seul passage pour toutes les prestations</p></div><div class="rounded-md border border-gray-200 p-4 dark:border-gray-800"><p class="text-[11px] font-bold uppercase text-slate-400">Mode financier</p><p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ modeLabel }}</p><p v-if="preview?.organization_name" class="text-xs text-slate-400">{{ preview.organization_name }}<template v-if="preview.coverage_rate !== null"> · {{ Number(preview.coverage_rate).toLocaleString('fr-FR') }} %</template><template v-else> · Facturation en attente</template></p></div></div>
-                <div class="mt-5 overflow-hidden rounded-md border border-gray-200 dark:border-gray-800"><div v-if="designationDeferred" class="px-4 py-5"><p class="text-sm font-bold text-slate-700 dark:text-white">Besoin à définir après évaluation</p><p class="mt-1 text-xs text-slate-400">Prestation et montant à définir après l’évaluation. Destination initiale : Soins.</p></div><div v-for="line in previewLines" v-else :key="line.catalog_item_uuid" class="grid gap-3 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px_130px] sm:items-center dark:border-gray-900"><div><p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.name }}</p><p class="text-xs text-slate-400">{{ line.code }} · {{ line.routing_label }}</p></div><p class="text-sm text-slate-500">× {{ Number(line.quantity).toLocaleString('fr-FR') }}</p><div><p class="text-[10px] font-bold uppercase text-slate-400">Brut</p><p class="text-sm font-semibold">{{ line.gross_amount ? formatMoney(line.gross_amount) : 'En attente' }}</p></div><div><p class="text-[10px] font-bold uppercase text-slate-400">Couverture</p><p class="text-sm font-semibold text-emerald-600">{{ line.coverage_amount !== null ? formatMoney(line.coverage_amount) : 'En attente' }}</p></div><div><p class="text-[10px] font-bold uppercase text-slate-400">Patient</p><p class="text-sm font-bold text-slate-700 dark:text-white">{{ line.patient_amount !== null ? formatMoney(line.patient_amount) : 'En attente' }}</p></div></div></div>
-                <div class="mt-4 grid gap-3 sm:grid-cols-4"><div class="rounded-md bg-gray-50 p-4 dark:bg-gray-1000"><p class="text-[11px] font-bold uppercase text-slate-400">Montant brut</p><p class="mt-1 text-lg font-bold text-slate-700 dark:text-white">{{ preview?.totals.gross_amount ? formatMoney(preview.totals.gross_amount) : '—' }}</p></div><div class="rounded-md bg-emerald-50 p-4 dark:bg-emerald-950/20"><p class="text-[11px] font-bold uppercase text-emerald-600">Couverture</p><p class="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-300">{{ preview && preview.totals.coverage_amount !== null ? formatMoney(preview.totals.coverage_amount) : '—' }}</p></div><div class="rounded-md bg-amber-50 p-4 dark:bg-amber-950/20"><p class="text-[11px] font-bold uppercase text-amber-600">Reste patient</p><p class="mt-1 text-lg font-bold text-amber-700 dark:text-amber-300">{{ preview && preview.totals.patient_amount !== null ? formatMoney(preview.totals.patient_amount) : '—' }}</p></div><div class="rounded-md bg-primary-50 p-4 dark:bg-primary-950/20"><p class="text-[11px] font-bold uppercase text-primary-600">Destination initiale</p><p class="mt-1 text-lg font-bold text-primary-700 dark:text-primary-300">{{ designationDeferred ? 'Soins' : (preview?.initial_destination?.label || 'À calculer') }}</p></div></div>
-                <div v-if="preview?.totals.resolution_pending" class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">Une ligne reste financièrement en attente (tarif manquant ou politique Personnel non classifiée). Sa demande clinique et son routage seront conservés ; aucun montant ne sera inventé.</div>
-                <FormError v-if="finalForm.errors.catalog_lines || finalForm.errors.financial_mode" class="mt-4">{{ finalForm.errors.catalog_lines || finalForm.errors.financial_mode }}</FormError>
-                <div class="mt-6 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900"><Button size="rg" variant="white-outline" @click="currentStep = 5"><Icon class="me-2" name="arrow-left" />Modifier le mode</Button><Button size="rg" :disabled="finalForm.processing" @click="confirmCare"><Icon class="me-2" name="check" />{{ finalForm.processing ? 'Confirmation…' : 'Confirmer la prise en charge' }}</Button></div>
+                <div>
+                    <h2 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Confirmer la prise en charge</h2>
+                    <p class="mt-1 text-sm text-slate-400">Montants recalculés depuis le contexte de l’Episode. La confirmation fige les prestations puis déclenche le routage.</p>
+                </div>
+
+                <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+                    <section class="space-y-4">
+                        <div class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                            <div class="flex items-center gap-3 border-b border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/50">
+                                <Avatar rounded size="rg" variant="primary-pale" :text="formatPatientInitials(selectedPatient)" />
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="truncate text-base font-bold text-slate-700 dark:text-white">{{ formatPatientCivilName(selectedPatient) }}</p>
+                                        <span v-if="selectedPatient.civility_label && !['MR', 'MRS'].includes(selectedPatient.civility)" class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ selectedPatient.civility_label }}</span>
+                                        <span v-if="episode.priority === 'EMERGENCY'" class="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700 dark:bg-red-950/50 dark:text-red-300"><Icon class="me-1" name="activity" />Urgence</span>
+                                    </div>
+                                    <div class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                        <span class="font-mono font-semibold">{{ selectedPatient.patient_number }}</span>
+                                        <span v-if="formatPatientAge(selectedPatient)"><Icon class="me-1 text-slate-400" name="calendar" />{{ formatPatientAge(selectedPatient) }}</span>
+                                        <span v-if="formatPatientBirthDate(selectedPatient)">né(e) le {{ formatPatientBirthDate(selectedPatient) }}</span>
+                                        <span v-if="selectedPatient.phone"><Icon class="me-1 text-slate-400" name="call" />{{ selectedPatient.phone }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <dl class="grid divide-y divide-gray-100 text-sm sm:grid-cols-2 sm:divide-x sm:divide-y-0 dark:divide-gray-900">
+                                <div class="px-4 py-3">
+                                    <dt class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Passage</dt>
+                                    <dd class="mt-1 font-mono font-bold text-slate-700 dark:text-white">{{ episode.episode_number }}</dd>
+                                    <dd class="text-xs text-slate-400">Un seul passage pour toutes les prestations</dd>
+                                </div>
+                                <div class="px-4 py-3">
+                                    <dt class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Mode financier</dt>
+                                    <dd class="mt-1 font-bold text-slate-700 dark:text-white">{{ modeLabel }}</dd>
+                                    <dd v-if="preview?.organization_name" class="text-xs text-slate-400">{{ preview.organization_name }}<template v-if="preview.coverage_rate !== null"> · {{ Number(preview.coverage_rate).toLocaleString('fr-FR') }} %</template><template v-else> · Facturation en attente</template></dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <div class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                            <div v-if="designationDeferred" class="flex items-start gap-3 px-4 py-5">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/30"><Icon name="info" /></span>
+                                <div>
+                                    <p class="text-sm font-bold text-slate-700 dark:text-white">Besoin à définir après évaluation</p>
+                                    <p class="mt-1 text-xs text-slate-400">Prestation et montant à définir après l’évaluation. Destination initiale : Soins.</p>
+                                </div>
+                            </div>
+                            <template v-else>
+                                <div class="hidden grid-cols-[minmax(0,1fr)_60px_repeat(3,minmax(90px,110px))] gap-3 border-b border-gray-200 bg-gray-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:grid dark:border-gray-800 dark:bg-gray-1000/50">
+                                    <span>Désignation</span><span class="text-center">Qté</span><span class="text-end">Brut</span><span class="text-end">Couverture</span><span class="text-end">Patient</span>
+                                </div>
+                                <div v-for="line in previewLines" :key="line.catalog_item_uuid" class="grid gap-1 border-b border-gray-100 px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_60px_repeat(3,minmax(90px,110px))] sm:gap-3 sm:items-center dark:border-gray-900">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ line.name }}</p>
+                                        <p class="truncate text-xs text-slate-400">{{ line.code }} · {{ line.routing_label }}</p>
+                                    </div>
+                                    <p class="text-xs text-slate-500 sm:text-center sm:text-sm">× {{ Number(line.quantity).toLocaleString('fr-FR') }}</p>
+                                    <p class="text-sm font-semibold text-slate-700 sm:text-end dark:text-white"><span class="text-[10px] font-bold uppercase text-slate-400 sm:hidden">Brut </span>{{ line.gross_amount ? formatMoney(line.gross_amount) : 'En attente' }}</p>
+                                    <p class="text-sm font-semibold text-emerald-600 sm:text-end"><span class="text-[10px] font-bold uppercase text-slate-400 sm:hidden">Couverture </span>{{ line.coverage_amount !== null ? formatMoney(line.coverage_amount) : 'En attente' }}</p>
+                                    <p class="text-sm font-bold text-slate-700 sm:text-end dark:text-white"><span class="text-[10px] font-bold uppercase text-slate-400 sm:hidden">Patient </span>{{ line.patient_amount !== null ? formatMoney(line.patient_amount) : 'En attente' }}</p>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div v-if="preview?.totals.resolution_pending" class="rounded-md border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
+                            <p class="flex items-start gap-2 text-xs leading-5 text-amber-800 dark:text-amber-200"><Icon class="mt-0.5 shrink-0" name="alert-circle" /><span>Une ligne reste financièrement en attente (tarif manquant ou politique Personnel non classifiée). Sa demande clinique et son routage seront conservés ; aucun montant ne sera inventé.</span></p>
+                        </div>
+                    </section>
+
+                    <aside class="space-y-3 self-start xl:sticky xl:top-20">
+                        <div class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                            <p class="border-b border-gray-200 bg-gray-50/70 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:border-gray-800 dark:bg-gray-1000/50">Récapitulatif financier</p>
+                            <dl class="divide-y divide-gray-100 text-sm dark:divide-gray-900">
+                                <div class="flex items-center justify-between px-5 py-3"><dt class="text-slate-500">Montant brut</dt><dd class="font-bold text-slate-700 dark:text-white">{{ preview?.totals.gross_amount ? formatMoney(preview.totals.gross_amount) : '—' }}</dd></div>
+                                <div class="flex items-center justify-between px-5 py-3"><dt class="text-slate-500">Couverture</dt><dd class="font-bold text-emerald-600 dark:text-emerald-400">{{ preview && preview.totals.coverage_amount !== null ? formatMoney(preview.totals.coverage_amount) : '—' }}</dd></div>
+                            </dl>
+                            <div class="border-t border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900 dark:bg-amber-950/30">
+                                <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">Reste à la charge du patient</p>
+                                <p class="mt-1 font-heading text-3xl font-bold text-amber-800 dark:text-amber-200">{{ preview && preview.totals.patient_amount !== null ? formatMoney(preview.totals.patient_amount) : '—' }}</p>
+                            </div>
+                            <div class="flex items-center gap-3 border-t border-gray-200 px-5 py-3 dark:border-gray-800">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300"><Icon name="arrow-right" /></span>
+                                <div>
+                                    <p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Destination initiale</p>
+                                    <p class="font-bold text-slate-700 dark:text-white">{{ designationDeferred ? 'Soins' : (preview?.initial_destination?.label || 'À calculer') }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <FormError v-if="finalForm.errors.catalog_lines || finalForm.errors.financial_mode">{{ finalForm.errors.catalog_lines || finalForm.errors.financial_mode }}</FormError>
+
+                        <Button class="w-full justify-center" size="rg" :disabled="finalForm.processing" @click="confirmCare"><Icon class="me-2" name="check" />{{ finalForm.processing ? 'Confirmation…' : 'Confirmer la prise en charge' }}</Button>
+                        <Button class="w-full justify-center" size="rg" variant="white-outline" :disabled="finalForm.processing" @click="currentStep = 5"><Icon class="me-2" name="arrow-left" />Modifier le mode</Button>
+                        <p class="px-1 text-center text-xs leading-5 text-slate-400">Aucun paiement n’est encaissé ici : la facture sera réglée à la Caisse.</p>
+                    </aside>
+                </div>
             </CardBody>
         </Card>
 

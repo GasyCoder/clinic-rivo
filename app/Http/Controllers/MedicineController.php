@@ -61,7 +61,13 @@ class MedicineController extends Controller
                 EpisodeOrientationStatus::Pending->value,
                 EpisodeOrientationStatus::InProgress->value,
             ])
-            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'));
+            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'))
+            // A patient is never truly deletable (ADR-010) — under normal
+            // operation this can never fail to match. It only guards against
+            // data corruption bypassing Eloquent entirely (e.g. a raw
+            // TRUNCATE on patients), so an orphaned row disappears from the
+            // queue instead of fataling the whole page.
+            ->whereHas('episode.patient');
 
         $counts = [
             'all' => (clone $baseQuery)->count(),
@@ -174,6 +180,7 @@ class MedicineController extends Controller
         ]);
 
         abort_unless($episodeOrientation->consultation, 409, 'Le dossier de consultation doit être initialisé.');
+        abort_unless($episodeOrientation->episode->patient, 404, 'Le dossier patient de ce passage est introuvable.');
 
         return Inertia::render('Medicine/Show', [
             ...$presenter->present(

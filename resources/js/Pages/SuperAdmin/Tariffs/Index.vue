@@ -67,6 +67,29 @@ const items = computed(() => {
         return matchesSearch && matchesType && matchesModule && matchesStatus && matchesTariff;
     });
 });
+// Domaines réellement présents sur ce site, avec leur avancement de
+// tarification (STANDARD) — répond directement à « quels domaines existent
+// et lesquels restent à configurer », plutôt que de le cacher dans un menu.
+const moduleBreakdown = computed(() => {
+    const breakdown = new Map();
+
+    (siteData.value.items ?? []).forEach((item) => {
+        if (item.archived) return;
+
+        const entry = breakdown.get(item.module) ?? {
+            value: item.module, label: item.module_label, count: 0, priced: 0,
+        };
+        entry.count += 1;
+        if (item.current_standard_tariff) entry.priced += 1;
+        breakdown.set(item.module, entry);
+    });
+
+    return Array.from(breakdown.values()).sort((left, right) => left.label.localeCompare(right.label, 'fr'));
+});
+const moduleBreakdownTotals = computed(() => moduleBreakdown.value.reduce((totals, module) => ({
+    count: totals.count + module.count,
+    priced: totals.priced + module.priced,
+}), { count: 0, priced: 0 }));
 const selectedItems = computed(() => items.value.filter((item) => selectedItemUuids.value.has(item.uuid)));
 const selectedActiveItems = computed(() => selectedItems.value.filter((item) => !item.archived));
 const selectedArchivedItems = computed(() => selectedItems.value.filter((item) => item.archived));
@@ -568,8 +591,11 @@ const formatDateTime = (value) => value
                 <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 xl:flex-row xl:items-center xl:justify-between">
                     <label class="relative block w-full xl:max-w-md"><Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" /><input v-model="search" type="search" class="h-9 w-full rounded border border-gray-200 bg-white ps-10 pe-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" placeholder="Rechercher un code ou une désignation"></label>
                     <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <select v-model="moduleFilter" aria-label="Filtrer par domaine" class="h-9 min-w-44 rounded border border-gray-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200">
+                            <option value="">Tous les domaines · {{ moduleBreakdownTotals.priced }}/{{ moduleBreakdownTotals.count }}</option>
+                            <option v-for="module in moduleBreakdown" :key="module.value" :value="module.value">{{ module.label }} · {{ module.priced }}/{{ module.count }}</option>
+                        </select>
                         <select v-model="typeFilter" class="h-9 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm text-slate-600 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><option value="">Tous les types</option><option v-for="type in options.types" :key="type.value" :value="type.value">{{ type.label }}</option></select>
-                        <select v-model="moduleFilter" class="h-9 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm text-slate-600 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><option value="">Tous les modules</option><option v-for="module in options.modules" :key="module.value" :value="module.value">{{ module.label }}</option></select>
                         <select v-model="tariffFilter" aria-label="Filtrer par grille tarifaire" class="h-9 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm text-slate-600 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><option value="ALL">Toutes les grilles</option><option value="STANDARD">Sans mutuelle</option><option value="MUTUAL">Mutuelle</option></select>
                         <select v-model="statusFilter" class="h-9 min-w-32 rounded border border-gray-200 bg-white px-3 text-sm text-slate-600 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-200"><option value="ALL">Tous les états</option><option value="ACTIVE">Actives</option><option value="ARCHIVED">Archivées</option></select>
                     </div>

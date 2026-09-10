@@ -157,7 +157,7 @@ class CashPaymentFlowTest extends TestCase
                 ->where('outstandingInvoices.0.status', 'VALIDATED')
                 ->where('outstandingInvoices.0.lines_count', 2)
                 ->where('outstandingInvoices.0.patient.uuid', $patient->uuid)
-                ->has('paymentMethods', 5));
+                ->has('paymentMethods', 8));
 
         $this->actingAs($user)->get("/invoices/{$invoice->uuid}?from=cash")
             ->assertInertia(fn ($page) => $page
@@ -254,6 +254,184 @@ class CashPaymentFlowTest extends TestCase
         $this->assertDatabaseCount('invoices', 0);
     }
 
+    public function test_a_cash_desk_refuses_a_tender_it_does_not_accept(): void
+    {
+        $user = $this->userWithPermissions([
+            'billing.create', 'billing.validate', 'payments.create', 'cash.open', 'cash.view',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $cash = PaymentMethod::query()->where('code', 'CASH')->sole();
+        $mvola = PaymentMethod::query()->where('code', 'MOBILE_MONEY_MVOLA')->sole();
+
+        // This desk takes cash only — no mobile money account behind it.
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+        $register->acceptedPaymentMethods()->sync([$cash->id]);
+
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '10000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect();
+
+        // The refusal is the rule, not an interface filter: even posting the
+        // method id straight to the endpoint is rejected.
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $mvola->id,
+            'amount' => '1000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertSessionHasErrors('payment_method_id');
+
+        $this->assertDatabaseCount('payments', 0);
+
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cash->id,
+            'amount' => '1000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect();
+
+        $this->assertDatabaseCount('payments', 1);
+    }
+
+    public function test_a_cash_desk_without_a_configured_tender_accepts_every_active_one(): void
+    {
+        $user = $this->userWithPermissions([
+            'billing.create', 'billing.validate', 'payments.create', 'cash.open', 'cash.view',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $mvola = PaymentMethod::query()->where('code', 'MOBILE_MONEY_MVOLA')->sole();
+
+        // No accepted tender configured means no restriction — the historical
+        // behaviour every existing desk keeps.
+        $register = CashRegister::query()->create(['name' => 'Caisse 1']);
+
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', [
+            'opening_amount' => '10000.00',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect();
+
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $mvola->id,
+            'amount' => '1000.00',
+            'reference' => 'MP240910.1432.A01',
+            'cash_register_uuid' => $register->uuid,
+        ])->assertRedirect();
+
+        $this->assertDatabaseCount('payments', 1);
+    }
+
+    public function test_a_tender_that_requires_a_reference_refuses_an_empty_one_and_cash_asks_for_none(): void
+    {
+        $user = $this->userWithPermissions([
+            'billing.create', 'billing.validate', 'payments.create', 'cash.open', 'cash.view',
+        ]);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+        (new PaymentMethodSeeder)->run();
+        $cash = PaymentMethod::query()->where('code', 'CASH')->sole();
+        $mvola = PaymentMethod::query()->where('code', 'MOBILE_MONEY_MVOLA')->sole();
+
+        $invoice = $this->createInvoice($user, $patient, $episode);
+        $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
+        $this->actingAs($user)->post('/cash/open', ['opening_amount' => '10000.00'])->assertRedirect();
+
+        // MVola without its transaction number cannot be reconciled.
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $mvola->id,
+            'amount' => '1000.00',
+            'reference' => '   ',
+        ])->assertSessionHasErrors('reference');
+
+        $this->assertDatabaseCount('payments', 0);
+
+        // Cash carries no external reference: none is asked, none invented.
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $cash->id,
+            'amount' => '1000.00',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('payments', [
+            'payment_method_id' => $cash->id,
+            'reference' => null,
+        ]);
+
+        $this->actingAs($user)->post("/patients/{$patient->uuid}/payments", [
+            'invoice_uuid' => $invoice->uuid,
+            'payment_method_id' => $mvola->id,
+            'amount' => '1000.00',
+            'reference' => '  MP240910.1432.A01  ',
+        ])->assertRedirect();
+
+        // Squished on the way in — never stored with its stray spaces.
+        $this->assertDatabaseHas('payments', [
+            'payment_method_id' => $mvola->id,
+            'reference' => 'MP240910.1432.A01',
+        ]);
+    }
+
+    public function test_a_settled_pharmacy_ticket_leaves_the_ticket_list_but_stays_findable_by_reference(): void
+    {
+        $user = $this->userWithPermissions(['cash.view', 'billing.view']);
+        [$patient, $episode] = $this->patientWithEpisode($user);
+
+        $settled = Invoice::create([
+            'patient_id' => $patient->id,
+            'episode_id' => $episode->id,
+            'invoice_number' => 'AF-SETTLED',
+            'source_module' => 'PHARMACY',
+            'status' => 'PAID',
+            'currency' => 'MGA',
+            'subtotal_amount' => '18400.00',
+            'discount_amount' => '0.00',
+            'total_amount' => '18400.00',
+            'paid_amount' => '18400.00',
+            'balance_amount' => '0.00',
+            'created_by' => $user->id,
+            'validated_by' => $user->id,
+            'validated_at' => now(),
+        ]);
+        Invoice::create([
+            'patient_id' => $patient->id,
+            'episode_id' => $episode->id,
+            'invoice_number' => 'AF-TO-COLLECT',
+            'source_module' => 'PHARMACY',
+            'status' => 'VALIDATED',
+            'currency' => 'MGA',
+            'subtotal_amount' => '5000.00',
+            'discount_amount' => '0.00',
+            'total_amount' => '5000.00',
+            'paid_amount' => '0.00',
+            'balance_amount' => '5000.00',
+            'created_by' => $user->id,
+            'validated_by' => $user->id,
+            'validated_at' => now(),
+        ]);
+
+        // Idle list: only what still has to be collected, so the tab count
+        // never announces work that is already done. A settled ticket became
+        // a payment and is consulted in the Paiements tab instead.
+        $this->actingAs($user)->get('/cash')->assertInertia(fn ($page) => $page
+            ->has('pharmacyLookup.matches', 1)
+            ->where('pharmacyLookup.matches.0.invoice_number', 'AF-TO-COLLECT'));
+
+        // An explicit lookup must still find a settled ticket: verifying that
+        // a ticket is already paid is precisely what the QR control is for
+        // (ADR-050), so the filter never applies to a typed reference.
+        $this->actingAs($user)->get('/cash?pharmacy_reference=AF-SETTLED')
+            ->assertInertia(fn ($page) => $page
+                ->where('pharmacyLookup.found', true)
+                ->has('pharmacyLookup.matches', 1)
+                ->where('pharmacyLookup.matches.0.uuid', $settled->uuid));
+    }
+
     public function test_only_one_cash_session_can_be_open(): void
     {
         $user = $this->userWithPermissions(['cash.open']);
@@ -283,7 +461,7 @@ class CashPaymentFlowTest extends TestCase
         [$patient, $episode] = $this->patientWithEpisode($user);
         (new PaymentMethodSeeder)->run();
         $cashMethod = PaymentMethod::query()->where('code', 'CASH')->sole();
-        $mobileMethod = PaymentMethod::query()->where('code', 'MOBILE_MONEY')->sole();
+        $mobileMethod = PaymentMethod::query()->where('code', 'MOBILE_MONEY_MVOLA')->sole();
 
         $invoice = $this->createInvoice($user, $patient, $episode);
         $this->actingAs($user)->post("/invoices/{$invoice->uuid}/validate")->assertRedirect();
@@ -798,7 +976,7 @@ class CashPaymentFlowTest extends TestCase
                 ->component('Invoices/Show')
                 ->where('capabilities.can_pay', true)
                 ->has('openCashSessions', 0)
-                ->has('paymentMethods', 5));
+                ->has('paymentMethods', 8));
 
         $this->actingAs($user)->post('/cash/open', ['opening_amount' => '0'])->assertRedirect();
 

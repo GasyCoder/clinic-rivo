@@ -66,6 +66,34 @@ class RecordPaymentAction
                 ]);
             }
 
+            // A named desk may accept only part of the site's tenders (no
+            // configured tender at all means it accepts them all). Enforced
+            // here, never only in the interface: the form is an ergonomic aid,
+            // the refusal is the rule.
+            $register = $session->register;
+
+            if ($register && ! $register->accepts($method)) {
+                throw ValidationException::withMessages([
+                    'payment_method_id' => sprintf(
+                        'La caisse « %s » n’accepte pas le mode « %s ».',
+                        $register->name,
+                        $method->name,
+                    ),
+                ]);
+            }
+
+            $reference = str($data['reference'] ?? '')->squish()->toString();
+
+            // A mobile money transfer, a cheque or a bank transfer carries an
+            // external number without which the payment cannot be reconciled.
+            // Cash carries none: its own generated payment number is its only
+            // reference, so nothing is asked and nothing is invented.
+            if ($method->requires_reference && $reference === '') {
+                throw ValidationException::withMessages([
+                    'reference' => sprintf('Le mode « %s » exige sa référence de transaction.', $method->name),
+                ]);
+            }
+
             $amountMinor = Money::toMinor($data['amount']);
             $balanceMinor = Money::toMinor($invoice->balance_amount);
 
@@ -83,7 +111,7 @@ class RecordPaymentAction
                 'payment_number' => $this->numbers->payment(),
                 'amount' => Money::fromMinor($amountMinor),
                 'currency' => $invoice->currency,
-                'reference' => $data['reference'] ?? null,
+                'reference' => $reference !== '' ? $reference : null,
                 'notes' => $data['notes'] ?? null,
                 'status' => PaymentStatus::Completed,
                 'received_by' => $actor->id,

@@ -181,11 +181,28 @@ class CashController extends Controller
             fn (Invoice $invoice): int => Money::toMinor($invoice->balance_amount),
         );
 
+        // A named desk may accept only part of the site's tenders. No
+        // configured tender means no restriction, so the filter only applies
+        // when the desk actually has a list.
+        $acceptedMethodIds = $cashRegister?->acceptedPaymentMethodIds() ?? [];
+
         $paymentMethods = $request->user()->can('payments.create')
             ? PaymentMethod::query()
                 ->where('active', true)
+                ->when($acceptedMethodIds !== [], fn ($query) => $query->whereIn('id', $acceptedMethodIds))
                 ->orderBy('id')
-                ->get(['id', 'code', 'name'])
+                ->get(['id', 'code', 'name', 'category', 'affects_cash_balance', 'requires_reference'])
+                ->map(fn (PaymentMethod $method) => [
+                    'id' => $method->id,
+                    'code' => $method->code,
+                    'name' => $method->name,
+                    'category' => $method->category->value,
+                    'category_label' => $method->category->label(),
+                    'category_icon' => $method->category->icon(),
+                    'category_position' => $method->category->position(),
+                    'affects_cash_balance' => $method->affects_cash_balance,
+                    'requires_reference' => $method->requires_reference,
+                ])
             : collect();
 
         $recentSessions = CashSession::query()
@@ -234,6 +251,15 @@ class CashController extends Controller
         $normalized = mb_strtoupper($reference);
         $matchesQuery = Invoice::query()
             ->where('source_module', 'PHARMACY');
+
+        // A settled ticket is no longer a ticket to control: it became a
+        // payment, and lives in the Paiements tab (filterable by Pharmacie).
+        // So the idle list only holds what is still to collect. An explicit
+        // lookup ignores this: finding a ticket to verify it is already paid
+        // is precisely what the QR control is for (ADR-050).
+        if ($normalized === '') {
+            $matchesQuery->where('balance_amount', '>', 0);
+        }
 
         if ($normalized !== '') {
             $pattern = "%{$normalized}%";

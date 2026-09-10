@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
+use App\Http\Controllers\Api\V1\SuperAdmin\PaymentMethodController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -58,8 +59,15 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/cash-registers/{cashRegisterUuid}/session/close', [CashRegisterController::class, 'close'])->name('cash-registers.session.close');
         Route::post('/cash-registers/{cashRegisterUuid}/activate', [CashRegisterController::class, 'activate'])->name('cash-registers.activate');
         Route::post('/cash-registers/{cashRegisterUuid}/deactivate', [CashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate');
+        Route::put('/cash-registers/{cashRegisterUuid}/payment-methods', [CashRegisterController::class, 'updatePaymentMethods'])->name('cash-registers.payment-methods.update');
         Route::delete('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'destroy'])->name('cash-registers.destroy');
         Route::post('/cash-registers/{cashRegisterUuid}/restore', [CashRegisterController::class, 'restore'])->name('cash-registers.restore');
+
+        Route::get('/payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
+        Route::post('/payment-methods', [PaymentMethodController::class, 'store'])->name('payment-methods.store');
+        Route::put('/payment-methods/{paymentMethodUuid}', [PaymentMethodController::class, 'update'])->name('payment-methods.update');
+        Route::post('/payment-methods/{paymentMethodUuid}/activate', [PaymentMethodController::class, 'activate'])->name('payment-methods.activate');
+        Route::post('/payment-methods/{paymentMethodUuid}/deactivate', [PaymentMethodController::class, 'deactivate'])->name('payment-methods.deactivate');
 
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');

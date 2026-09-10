@@ -272,6 +272,11 @@ class PermissionSeeder extends Seeder
         'cash_registers.unlock' => 'Déverrouiller à distance une session de caisse',
         'cash_registers.close' => 'Clôturer à distance une session avec comptage et motif',
         'cash_registers.export' => 'Exporter en Excel les mouvements et l’historique d’une caisse',
+        'payment_methods.view' => 'Voir les modes de paiement acceptés par la caisse',
+        'payment_methods.create' => 'Créer un mode de paiement',
+        'payment_methods.update' => 'Modifier le libellé et le comportement de caisse d’un mode de paiement',
+        'payment_methods.activate' => 'Réactiver un mode de paiement désactivé',
+        'payment_methods.deactivate' => 'Désactiver un mode de paiement sans le supprimer',
         'receipts.view' => 'Voir les reçus',
         'receipts.print' => 'Imprimer les reçus',
 

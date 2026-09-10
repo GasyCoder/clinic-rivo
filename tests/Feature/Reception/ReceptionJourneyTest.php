@@ -26,18 +26,18 @@ class ReceptionJourneyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_need_page_only_exposes_configured_reception_services_and_keeps_pharmacy_separate(): void
+    public function test_need_page_exposes_every_domain_but_only_marks_routable_priced_services_ready(): void
     {
         $actor = $this->receptionist(['episodes.create']);
         $eligible = $this->service($actor, 'CONS-NEW', 'Consultation nouvelle', CatalogModule::Medicine);
-        $this->service(
+        $notSelectable = $this->service(
             $actor,
             'LAB-HIDDEN',
             'Analyse non validée',
             CatalogModule::Laboratory,
             receptionSelectable: false,
         );
-        $this->service(
+        $noRoute = $this->service(
             $actor,
             'NO-ROUTE',
             'Prestation sans parcours',
@@ -61,10 +61,23 @@ class ReceptionJourneyTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
-                ->has('estimateCatalog', 1)
-                ->where('estimateCatalog.0.catalog_item_uuid', $eligible->uuid)
-                ->where('estimateCatalog.0.module_label', 'Médecine')
-                ->where('estimateCatalog.0.routing_mode', ReceptionRoutingMode::MedicineDirect->value)
+                // Every domain/designation is visible for browsing (ADR-053
+                // amendment: the Reception picker no longer hides a whole
+                // domain silently) — MED-NOT-RECEPTION stays excluded on a
+                // different, still-valid ground: it is a Pharmacy MEDICINE,
+                // never a Service the Reception picker deals with (ADR-049).
+                // Ordered by module value: CARE < LABORATORY < MEDICINE.
+                ->has('estimateCatalog', 3)
+                ->where('estimateCatalog.0.catalog_item_uuid', $noRoute->uuid)
+                ->where('estimateCatalog.0.routing_mode', null)
+                ->where('estimateCatalog.0.routing_label', 'Non proposée à la Réception')
+                ->where('estimateCatalog.0.reception_ready', false)
+                ->where('estimateCatalog.1.catalog_item_uuid', $notSelectable->uuid)
+                ->where('estimateCatalog.1.reception_ready', false)
+                ->where('estimateCatalog.2.catalog_item_uuid', $eligible->uuid)
+                ->where('estimateCatalog.2.module_label', 'Médecine')
+                ->where('estimateCatalog.2.routing_mode', ReceptionRoutingMode::MedicineDirect->value)
+                ->where('estimateCatalog.2.reception_ready', true)
                 ->where('capabilities.can_open_pharmacy_counter_sale', false)
                 ->where('capabilities.can_manage_catalog', false));
     }

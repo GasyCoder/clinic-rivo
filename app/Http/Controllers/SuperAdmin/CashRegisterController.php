@@ -204,6 +204,31 @@ class CashRegisterController extends Controller
     }
 
     /** @return array<int, mixed> */
+    /**
+     * Which tenders this desk accepts. An empty list lifts the restriction.
+     */
+    public function updatePaymentMethods(
+        Request $request,
+        string $site,
+        string $cashRegister,
+        PortalSiteApiClient $client,
+    ): RedirectResponse {
+        $validated = $request->validate([
+            'payment_method_uuids' => ['present', 'array', 'max:50'],
+            'payment_method_uuids.*' => ['uuid'],
+        ]);
+
+        return $this->respond(
+            $client->updateCashRegisterPaymentMethods(
+                $site,
+                $cashRegister,
+                $validated['payment_method_uuids'],
+                $request->user(),
+            ),
+            'Modes de paiement de la caisse mis à jour.',
+        );
+    }
+
     private function siteCodeRules(): array
     {
         return ['required', Rule::in(collect(config('rivo.clinics', []))->pluck('code')->all())];

@@ -61,6 +61,7 @@ const adminMenu = computed(() => [
     })),
     { heading: 'Finance & caisse' },
     { icon: 'wallet', text: 'Caisses des sites', link: '/super-admin/cash-registers', permission: 'cash_registers.view' },
+    { icon: 'card-view', text: 'Modes de paiement', link: '/super-admin/payment-methods', permission: 'payment_methods.view' },
     { icon: 'wallet', text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
     { heading: 'Référentiels & stocks' },
     { icon: 'list-index', text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },

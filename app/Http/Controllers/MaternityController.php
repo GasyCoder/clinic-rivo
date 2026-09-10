@@ -28,7 +28,13 @@ class MaternityController extends Controller
         $search = trim((string) $request->query('q', ''));
         $query = EpisodeOrientation::query()
             ->where('destination_module', CatalogModule::Maternity->value)
-            ->whereHas('episode', fn ($episode) => $episode->where('status', 'OPEN'));
+            ->whereHas('episode', fn ($episode) => $episode->where('status', 'OPEN'))
+            // A patient is never truly deletable (ADR-010) — under normal
+            // operation this can never fail to match. It only guards against
+            // data corruption bypassing Eloquent entirely (e.g. a raw
+            // TRUNCATE on patients), so an orphaned row disappears from the
+            // queue instead of fataling the whole page.
+            ->whereHas('episode.patient');
         $counts = [
             'active' => (clone $query)->whereIn('status', ['PENDING', 'IN_PROGRESS'])->count(),
             'completed' => (clone $query)->where('status', 'COMPLETED')->count(),
@@ -53,6 +59,7 @@ class MaternityController extends Controller
     public function show(Request $request, EpisodeOrientation $episodeOrientation, EpisodeQueuePresenter $presenter): Response
     {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Maternity, 404);
+        abort_unless($episodeOrientation->episode->patient, 404, 'Le dossier patient de ce passage est introuvable.');
         $episodeOrientation->load([
             'episode.patient', 'episode.billableItems', 'episode.serviceRequests',
             'episode.maternityRecord.procedures.performer:id,name',

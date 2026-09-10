@@ -21,7 +21,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const EXPECTED_CATALOG_ITEMS = 70;
+    private const EXPECTED_CATALOG_ITEMS = 83;
 
     protected function setUp(): void
     {
@@ -38,14 +38,14 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
         $this->assertDatabaseCount('catalog_items', self::EXPECTED_CATALOG_ITEMS);
-        $this->assertDatabaseCount('catalog_tariffs', 16);
+        $this->assertDatabaseCount('catalog_tariffs', 22);
         $this->assertSame(
-            16,
+            21,
             CatalogItem::query()
                 ->where('type', CatalogItemType::Service->value)
                 ->where('billable', true)
                 ->where('stockable', false)
-                ->whereHas('currentTariff')
+                ->whereHas('currentStandardTariff')
                 ->count(),
         );
         $this->assertDatabaseHas('catalog_items', [
@@ -89,10 +89,12 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             'reception_selectable' => true,
             'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect->value,
         ]);
-        $this->assertSame(26, CatalogItem::query()->where('reception_selectable', true)->count());
-        $this->assertSame(18, CatalogItem::query()->where('module', 'CARE')->count());
-        $this->assertSame(27, CatalogItem::query()->where('module', 'SURGERY')->count());
-        $this->assertSame(15, CatalogItem::query()->where('module', 'MATERNITY')->count());
+        $this->assertSame(29, CatalogItem::query()->where('reception_selectable', true)->count());
+        $this->assertSame(20, CatalogItem::query()->where('module', 'CARE')->count());
+        $this->assertSame(30, CatalogItem::query()->where('module', 'SURGERY')->count());
+        $this->assertSame(16, CatalogItem::query()->where('module', 'MATERNITY')->count());
+        $this->assertSame(2, CatalogItem::query()->where('module', 'FAMILY_PLANNING')->count());
+        $this->assertSame(5, CatalogItem::query()->where('module', 'OPHTHALMOLOGY')->count());
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'MAT-DELIVERY-SIMPLE',
             'module' => 'MATERNITY',
@@ -127,6 +129,29 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->assertDatabaseMissing('catalog_tariffs', [
             'catalog_item_id' => CatalogItem::query()->where('code', 'CARE-ABL-SONDE')->value('id'),
         ]);
+
+        // Prestations et Tarifs (Clinique Saint Georges) — physical price sheet import.
+        $cesarienne = CatalogItem::query()->where('code', 'SURG-CESARIENNE')->firstOrFail();
+        $this->assertSame('650000.00', $cesarienne->currentStandardTariff->amount);
+        $this->assertSame('800000.00', $cesarienne->currentMutualTariff->amount);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'SURG-CERCLAGE', 'module' => 'SURGERY']);
+        $this->assertSame(
+            '300000.00',
+            CatalogItem::query()->where('code', 'SURG-CERCLAGE')->firstOrFail()->currentStandardTariff->amount,
+        );
+        $this->assertDatabaseHas('catalog_items', ['code' => 'SURG-RUPTURE-UTERINE', 'module' => 'SURGERY']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'SURG-PLACENTA-PRAEVIA', 'module' => 'SURGERY']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'PANSEMENT-S-INT', 'module' => 'CARE']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'PANSEMENT-C-INT', 'module' => 'CARE']);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'MAT-CONSULT-PRENATAL-SUIVI',
+            'module' => 'MATERNITY',
+            'reception_selectable' => true,
+        ]);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'FP-INJECTABLE', 'module' => 'FAMILY_PLANNING']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'FP-PILPLAN', 'module' => 'FAMILY_PLANNING']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'OPHT-CONSULT', 'module' => 'OPHTHALMOLOGY']);
+        $this->assertDatabaseHas('catalog_items', ['code' => 'OPHT-LUNETTE-T1', 'module' => 'OPHTHALMOLOGY']);
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'create',
             'module' => 'catalog',
@@ -154,7 +179,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
         $this->seed(ClinicalServiceCatalogSeeder::class);
 
         $this->assertDatabaseCount('catalog_items', self::EXPECTED_CATALOG_ITEMS);
-        $this->assertDatabaseCount('catalog_tariffs', 16);
+        $this->assertDatabaseCount('catalog_tariffs', 22);
         $this->assertSame('27500.00', $ecg->fresh()->currentTariff->amount);
     }
 

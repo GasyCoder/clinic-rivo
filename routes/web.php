@@ -49,6 +49,7 @@ use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogContro
 use App\Http\Controllers\SuperAdmin\HumanResourcesController as SuperAdminHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
 use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
+use App\Http\Controllers\SuperAdmin\PaymentMethodController as SuperAdminPaymentMethodController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
@@ -131,6 +132,16 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/cash-registers/{site}/{cashRegister}/session/lock', [SuperAdminCashRegisterController::class, 'lock'])->name('cash-registers.session.lock')->middleware('can:cash_registers.lock');
         Route::post('/cash-registers/{site}/{cashRegister}/session/unlock', [SuperAdminCashRegisterController::class, 'unlock'])->name('cash-registers.session.unlock')->middleware('can:cash_registers.unlock');
         Route::post('/cash-registers/{site}/{cashRegister}/session/close', [SuperAdminCashRegisterController::class, 'close'])->name('cash-registers.session.close')->middleware('can:cash_registers.close');
+        Route::put('/cash-registers/{site}/{cashRegister}/payment-methods', [SuperAdminCashRegisterController::class, 'updatePaymentMethods'])->name('cash-registers.payment-methods.update')->middleware('can:cash_registers.update');
+
+        // Tenders accepted at each site's cash desk. Mobile money operators
+        // differ from one town to the next, so the list stays per-site and is
+        // reached only through that site's API (ADR-004/025/027).
+        Route::get('/payment-methods', [SuperAdminPaymentMethodController::class, 'index'])->name('payment-methods.index')->middleware('can:payment_methods.view');
+        Route::post('/payment-methods', [SuperAdminPaymentMethodController::class, 'store'])->name('payment-methods.store')->middleware('can:payment_methods.create');
+        Route::put('/payment-methods/{site}/{paymentMethod}', [SuperAdminPaymentMethodController::class, 'update'])->name('payment-methods.update')->middleware('can:payment_methods.update');
+        Route::post('/payment-methods/{site}/{paymentMethod}/activate', [SuperAdminPaymentMethodController::class, 'activate'])->name('payment-methods.activate')->middleware('can:payment_methods.activate');
+        Route::post('/payment-methods/{site}/{paymentMethod}/deactivate', [SuperAdminPaymentMethodController::class, 'deactivate'])->name('payment-methods.deactivate')->middleware('can:payment_methods.deactivate');
         Route::post('/cash-registers/{site}/{cashRegister}/activate', [SuperAdminCashRegisterController::class, 'activate'])->name('cash-registers.activate')->middleware('can:cash_registers.activate');
         Route::post('/cash-registers/{site}/{cashRegister}/deactivate', [SuperAdminCashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate')->middleware('can:cash_registers.deactivate');
         Route::delete('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'destroy'])->name('cash-registers.destroy')->middleware('can:cash_registers.archive');

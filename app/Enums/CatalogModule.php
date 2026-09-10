@@ -20,6 +20,9 @@ enum CatalogModule: string
     case Hospitalization = 'HOSPITALIZATION';
     case Transfer = 'TRANSFER';
     case Pediatrics = 'PEDIATRICS';
+    // No dedicated workspace yet: prestations only, provisioned like Imaging.
+    case Ophthalmology = 'OPHTHALMOLOGY';
+    case FamilyPlanning = 'FAMILY_PLANNING';
 
     public function label(): string
     {
@@ -36,6 +39,8 @@ enum CatalogModule: string
             self::Transfer => 'Transfert',
             self::Pediatrics => 'Pédiatrie',
             self::Imaging => 'Imagerie',
+            self::Ophthalmology => 'Ophtalmologie',
+            self::FamilyPlanning => 'Planning familial',
         };
     }
 }

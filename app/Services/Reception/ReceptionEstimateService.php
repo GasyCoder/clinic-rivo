@@ -20,14 +20,23 @@ use OverflowException;
  */
 class ReceptionEstimateService
 {
-    /** @return Collection<int, array<string, mixed>> */
+    /**
+     * Every active, billable Service — not only the ones Reception can
+     * actually route today — so every domain of the referential is visible
+     * for browsing. `reception_ready` (see catalogLine()) is the strict,
+     * server-authoritative gate: only it decides what estimate()/addService
+     * may accept, exactly as ADR-053 requires ("la liste et les destinations
+     * ne sont jamais codées dans Vue"). A domain with no Reception workflow
+     * yet (e.g. Chirurgie, direct to bloc) stays visible but never becomes
+     * selectable here — nothing is routed without a real destination.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
     public function catalog(): Collection
     {
         return CatalogItem::query()
             ->where('type', CatalogItemType::Service->value)
             ->where('billable', true)
-            ->where('reception_selectable', true)
-            ->whereNotNull('reception_routing_mode')
             ->with(['currentStandardTariff' => fn ($query) => $query->select([
                 'id', 'catalog_item_id', 'tariff_category', 'amount', 'currency',
             ])])
@@ -137,6 +146,7 @@ class ReceptionEstimateService
     {
         /** @var CatalogTariff|null $tariff */
         $tariff = $item->currentStandardTariff;
+        $routable = $item->reception_selectable && $item->reception_routing_mode !== null;
 
         return [
             'catalog_item_uuid' => $item->uuid,
@@ -145,10 +155,11 @@ class ReceptionEstimateService
             'module' => $item->module->value,
             'module_label' => $item->module->label(),
             'unit' => $item->unit,
-            'routing_mode' => $item->reception_routing_mode->value,
-            'routing_label' => $item->reception_routing_mode->label(),
+            'routing_mode' => $item->reception_routing_mode?->value,
+            'routing_label' => $item->reception_routing_mode?->label() ?? 'Non proposée à la Réception',
             'tariff_category' => CatalogTariffCategory::Standard->value,
             'tariff_available' => $tariff !== null,
+            'reception_ready' => $routable && $tariff !== null,
             'unit_price' => $tariff?->amount,
             'currency' => $tariff?->currency ?? 'MGA',
         ];

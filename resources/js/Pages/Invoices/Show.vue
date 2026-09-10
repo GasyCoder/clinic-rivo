@@ -81,6 +81,50 @@ const paymentForm = useForm({
     notes: '',
     cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
 });
+const selectedMethod = computed(() => props.paymentMethods
+    .find((method) => method.id === paymentForm.payment_method_id) ?? null);
+// Grouped by category: "mobile money" is never one tender in Madagascar —
+// MVola, Orange Money and Airtel Money are reconciled separately, so the
+// cashier picks the operator under a shared heading.
+// A named desk may accept only part of the site's tenders (an empty list
+// means no restriction). The refusal itself lives in RecordPaymentAction —
+// this only spares the cashier a rejected attempt.
+const activeSession = computed(() => props.openCashSessions.find(
+    (session) => session.register_uuid === paymentForm.cash_register_uuid,
+) ?? (props.openCashSessions.length === 1 ? props.openCashSessions[0] : null));
+const acceptedMethods = computed(() => {
+    const accepted = activeSession.value?.accepted_payment_method_ids ?? [];
+
+    return accepted.length === 0
+        ? props.paymentMethods
+        : props.paymentMethods.filter((method) => accepted.includes(method.id));
+});
+const methodGroups = computed(() => {
+    const groups = new Map();
+
+    acceptedMethods.value.forEach((method) => {
+        const key = method.category ?? 'OTHER';
+        const group = groups.get(key) ?? {
+            key,
+            label: method.category_label ?? 'Autre',
+            icon: method.category_icon ?? 'card-view',
+            position: method.category_position ?? 99,
+            methods: [],
+        };
+        group.methods.push(method);
+        groups.set(key, group);
+    });
+
+    return Array.from(groups.values()).sort((left, right) => left.position - right.position);
+});
+const referenceLabel = computed(() => ({
+    CHECK: 'N° du chèque',
+    BANK_TRANSFER: 'Référence du virement',
+    MOBILE_MONEY_ORANGE: 'N° de transaction Orange Money',
+    MOBILE_MONEY_MVOLA: 'N° de transaction MVola',
+    MOBILE_MONEY_AIRTEL: 'N° de transaction Airtel Money',
+}[selectedMethod.value?.code] ?? 'Référence'));
+const fillExactAmount = () => { paymentForm.amount = props.invoice.balance_amount; };
 const submitPayment = () => paymentForm.post(`/invoices/${props.invoice.uuid}/payments`, {
     preserveScroll: true,
     onSuccess: () => {
@@ -190,10 +234,20 @@ onBeforeUnmount(() => {
     <div class="invoice-page w-full space-y-4 rounded-2xl bg-gradient-to-b from-gray-100/70 to-transparent p-3 dark:from-gray-900/30 sm:p-5">
 
         <div v-if="!closeAfterPrint" class="invoice-actions sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-gray-800 dark:bg-gray-950/90">
-            <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">
-                <Icon class="text-lg" name="arrow-left" />
-                <span class="ms-2">{{ returnLabel }}</span>
-            </Button>
+            <div class="flex min-w-0 items-center gap-3">
+                <Button :as="Link" :href="returnHref" size="rg" variant="white-outline">
+                    <Icon class="text-lg" name="arrow-left" />
+                    <span class="ms-2 hidden sm:inline">{{ returnLabel }}</span>
+                </Button>
+                <div class="min-w-0 border-s border-gray-200 ps-3 dark:border-gray-800">
+                    <p class="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-700 dark:text-white">
+                        <span>{{ ticketOnly ? 'Ticket' : 'Facture' }}</span>
+                        <span class="font-mono">{{ invoice.invoice_number }}</span>
+                        <span :class="['rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', invoiceStatusBadgeClass]">{{ invoiceStatusLabel }}</span>
+                    </p>
+                    <p class="truncate text-xs text-slate-400">{{ customerName }}<template v-if="isPayable"> · reste à payer <strong class="text-slate-500 dark:text-slate-300">{{ formatMoney(invoice.balance_amount) }}</strong></template></p>
+                </div>
+            </div>
             <div v-if="documentsUnlocked" class="flex flex-wrap items-center justify-end gap-2">
                 <Button v-if="!ticketOnly" size="rg" title="Imprimer la facture B5 ou choisir Enregistrer au format PDF" variant="white-outline" type="button" @click="printDocument('invoice')">
                     <Icon class="text-lg" name="file-text" />
@@ -204,13 +258,22 @@ onBeforeUnmount(() => {
                     <span class="ms-2">Imprimer le ticket</span>
                 </Button>
             </div>
-            <span v-else class="text-xs font-medium text-slate-400">Choisissez un mode de règlement pour débloquer l’impression.</span>
+            <span v-else class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300"><Icon name="lock" />Choisissez un mode de règlement pour débloquer l’impression</span>
         </div>
 
         <div v-if="!closeAfterPrint && !ticketOnly && isPayable" class="invoice-actions overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
-            <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
-                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Règlement</h2><p class="text-xs text-slate-400">Reste à payer {{ formatMoney(invoice.balance_amount) }}</p></div>
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3.5 dark:border-gray-800">
+                <div class="flex items-center gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
+                    <div>
+                        <h2 class="text-base font-bold text-slate-700 dark:text-white">Règlement</h2>
+                        <p class="text-xs text-slate-400">{{ paymentChoice === null ? 'Comment ce passage est-il réglé ?' : 'Le document à remettre se choisit juste après.' }}</p>
+                    </div>
+                </div>
+                <div class="text-end">
+                    <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Reste à payer</p>
+                    <p class="font-heading text-2xl font-bold text-slate-700 dark:text-white">{{ formatMoney(invoice.balance_amount) }}</p>
+                </div>
             </div>
 
             <!-- Step 1: the decision itself — pay now or pay later, one at a time. -->
@@ -224,12 +287,16 @@ onBeforeUnmount(() => {
                     ]"
                     @click="chooseNow"
                 >
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
-                    <span>
-                        <span class="block text-sm font-bold text-slate-700 dark:text-white">Payer maintenant</span>
-                        <span class="mt-0.5 block text-xs leading-5 text-slate-400">Encaisser tout de suite à la caisse, puis imprimer la facture acquittée.</span>
-                        <span v-if="!capabilities.can_pay" class="mt-1.5 block text-xs font-semibold text-amber-700 dark:text-amber-300">Votre compte ne dispose pas du droit d’encaissement.</span>
-                        <span v-else-if="openCashSessions.length === 0" class="mt-1.5 block text-xs font-semibold text-amber-700 dark:text-amber-300">Ouvrez une caisse pour activer cette option.</span>
+                    <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-600 text-white"><Icon class="text-xl" name="wallet" /></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center justify-between gap-2">
+                            <span class="block text-base font-bold text-slate-700 dark:text-white">Payer maintenant</span>
+                            <Icon class="shrink-0 text-slate-300" name="chevron-right" />
+                        </span>
+                        <span class="mt-0.5 block text-xs leading-5 text-slate-400">Encaisser à la caisse, choisir le mode de paiement, puis remettre le document acquitté.</span>
+                        <span v-if="!capabilities.can_pay" class="mt-2 block text-xs font-semibold text-amber-700 dark:text-amber-300">Votre compte ne dispose pas du droit d’encaissement.</span>
+                        <span v-else-if="openCashSessions.length === 0" class="mt-2 block text-xs font-semibold text-amber-700 dark:text-amber-300">Ouvrez une caisse pour activer cette option.</span>
+                        <span v-else class="mt-2 inline-flex items-center rounded-full bg-primary-50 px-2.5 py-1 text-xs font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">Encaisser {{ formatMoney(invoice.balance_amount) }}</span>
                     </span>
                 </button>
                 <button
@@ -237,10 +304,14 @@ onBeforeUnmount(() => {
                     class="flex items-start gap-3 rounded-xl border border-gray-200 p-4 text-start transition hover:border-primary-400 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10"
                     @click="chooseLater"
                 >
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="clock" /></span>
-                    <span>
-                        <span class="block text-sm font-bold text-slate-700 dark:text-white">Payer plus tard</span>
+                    <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-xl" name="clock" /></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center justify-between gap-2">
+                            <span class="block text-base font-bold text-slate-700 dark:text-white">Payer plus tard</span>
+                            <Icon class="shrink-0 text-slate-300" name="chevron-right" />
+                        </span>
                         <span class="mt-0.5 block text-xs leading-5 text-slate-400">Remettre une facture ou un ticket impayé ; le règlement se fera ultérieurement à la caisse.</span>
+                        <span class="mt-2 inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">Aucun encaissement · aucun reçu</span>
                     </span>
                 </button>
             </div>
@@ -251,38 +322,67 @@ onBeforeUnmount(() => {
                     <span class="inline-flex items-center gap-1.5 rounded-full bg-primary-50 px-2.5 py-1 text-[11px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon name="wallet" />Payer maintenant</span>
                     <button type="button" class="text-xs font-semibold text-slate-400 hover:text-primary-600" @click="changeChoice">‹ Changer de choix</button>
                 </div>
-                <form class="grid gap-3 p-4 sm:grid-cols-4" @submit.prevent="submitPayment">
-                    <div v-if="openCashSessions.length > 1">
-                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
-                        <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                            <option value="">Choisir…</option>
-                            <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
-                        </select>
-                        <FormError :message="paymentForm.errors.cash_register_uuid" />
-                    </div>
+                <form class="space-y-4 p-4" @submit.prevent="submitPayment">
                     <div>
-                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Mode de paiement *</label>
-                        <select v-model="paymentForm.payment_method_id" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                            <option value="">Choisir…</option>
-                            <option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option>
-                        </select>
+                        <p class="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Mode de paiement <span class="text-red-500">*</span></p>
+                        <div class="space-y-3">
+                            <div v-for="group in methodGroups" :key="group.key">
+                                <p class="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400"><Icon :name="group.icon" />{{ group.label }}</p>
+                                <div class="grid gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                                    <button
+                                        v-for="method in group.methods"
+                                        :key="method.id"
+                                        type="button"
+                                        :aria-pressed="paymentForm.payment_method_id === method.id"
+                                        :class="[
+                                            'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-start transition',
+                                            paymentForm.payment_method_id === method.id
+                                                ? 'border-primary-600 bg-primary-50 ring-1 ring-primary-200 dark:bg-primary-950/30 dark:ring-primary-900'
+                                                : 'border-gray-200 hover:border-primary-300 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10',
+                                        ]"
+                                        @click="paymentForm.payment_method_id = method.id"
+                                    >
+                                        <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-full', paymentForm.payment_method_id === method.id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300']"><Icon :name="group.icon" /></span>
+                                        <span class="min-w-0 text-sm font-semibold text-slate-700 dark:text-white">{{ method.name }}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                         <FormError :message="paymentForm.errors.payment_method_id" />
                     </div>
-                    <div>
-                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
-                        <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
-                        <FormError :message="paymentForm.errors.amount" />
+
+                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div v-if="openCashSessions.length > 1">
+                            <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Caisse *</label>
+                            <select v-model="paymentForm.cash_register_uuid" class="block h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
+                                <option value="">Choisir…</option>
+                                <option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option>
+                            </select>
+                            <FormError :message="paymentForm.errors.cash_register_uuid" />
+                        </div>
+                        <div>
+                            <div class="mb-1.5 flex items-center justify-between gap-2">
+                                <label class="block text-xs font-medium text-slate-700 dark:text-white">Montant *</label>
+                                <button v-if="Number(paymentForm.amount) !== Number(invoice.balance_amount)" type="button" class="text-[11px] font-bold text-primary-600 hover:text-primary-700" @click="fillExactAmount">Solde exact</button>
+                            </div>
+                            <Input v-model="paymentForm.amount" type="number" min="0.01" :max="invoice.balance_amount" step="0.01" />
+                            <FormError :message="paymentForm.errors.amount" />
+                        </div>
+                        <div v-if="selectedMethod?.requires_reference">
+                            <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">{{ referenceLabel }} <span class="text-red-500">*</span></label>
+                            <Input v-model="paymentForm.reference" placeholder="N° de transaction" required />
+                            <FormError :message="paymentForm.errors.reference" />
+                        </div>
+                        <div v-else class="flex items-end">
+                            <p class="text-xs leading-5 text-slate-400">Aucune référence à saisir : le numéro de paiement généré en fait office.<FormError :message="paymentForm.errors.reference" /></p>
+                        </div>
+                        <div class="flex items-end">
+                            <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : `Encaisser ${formatMoney(paymentForm.amount || 0)}` }}</Button>
+                        </div>
                     </div>
-                    <div>
-                        <label class="mb-1.5 block text-xs font-medium text-slate-700 dark:text-white">Référence</label>
-                        <Input v-model="paymentForm.reference" placeholder="N° transaction, chèque…" />
-                        <FormError :message="paymentForm.errors.reference" />
-                    </div>
-                    <div class="flex items-end">
-                        <Button type="submit" size="rg" class="w-full justify-center" :disabled="paymentForm.processing || !paymentForm.payment_method_id || !paymentForm.amount"><Icon class="me-2 text-base" name="check" />{{ paymentForm.processing ? 'Encaissement…' : 'Encaisser' }}</Button>
-                    </div>
-                    <FormError class="sm:col-span-4" :message="paymentForm.errors.invoice_uuid" />
-                    <FormError v-if="openCashSessions.length <= 1" class="sm:col-span-4" :message="paymentForm.errors.cash_register_uuid" />
+
+                    <FormError :message="paymentForm.errors.invoice_uuid" />
+                    <FormError v-if="openCashSessions.length <= 1" :message="paymentForm.errors.cash_register_uuid" />
                 </form>
             </div>
 
@@ -290,7 +390,7 @@ onBeforeUnmount(() => {
             <div v-else class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-start gap-3">
                     <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon name="clock" /></span>
-                    <div><p class="text-sm font-bold text-slate-700 dark:text-white">Réglée plus tard</p><p class="text-xs text-slate-400">La facture reste impayée jusqu’à l’encaissement à la caisse. Choisissez le document à remettre ci-dessus.</p></div>
+                    <div><p class="text-sm font-bold text-slate-700 dark:text-white">Réglée plus tard</p><p class="text-xs text-slate-400">La facture reste impayée jusqu’à l’encaissement à la caisse. Choisissez le document à remettre ci-dessous.</p></div>
                 </div>
                 <button type="button" class="shrink-0 text-xs font-semibold text-slate-400 hover:text-primary-600" @click="changeChoice">‹ Changer de choix</button>
             </div>
@@ -306,9 +406,33 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <div v-if="!closeAfterPrint && !ticketOnly && justSettled" class="invoice-actions flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/20">
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"><Icon name="check" /></span>
-            <div><p class="text-sm font-bold text-emerald-800 dark:text-emerald-200">Paiement encaissé</p><p class="text-xs text-emerald-700/80 dark:text-emerald-300/80">La facture est acquittée. Choisissez le document à remettre ci-dessus.</p></div>
+        <!-- Document handed to the patient — an explicit choice, and always a
+             consequence of the settlement decision above, never shown before. -->
+        <div v-if="!closeAfterPrint && !ticketOnly && documentsUnlocked" class="invoice-actions overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <div v-if="justSettled" class="flex items-center gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"><Icon name="check" /></span>
+                <div><p class="text-sm font-bold text-emerald-800 dark:text-emerald-200">Paiement encaissé · facture acquittée</p><p class="text-xs text-emerald-700/80 dark:text-emerald-300/80">Choisissez le document à remettre au patient.</p></div>
+            </div>
+            <div v-else class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="printer" /></span>
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Document à remettre</h2><p class="text-xs text-slate-400">{{ paymentChoice === 'later' ? 'Document impayé : le règlement se fera à la caisse.' : 'Facture ou ticket, au choix du patient.' }}</p></div>
+            </div>
+            <div class="grid gap-3 p-4 sm:grid-cols-2">
+                <button type="button" class="flex items-start gap-3 rounded-xl border border-gray-200 p-4 text-start transition hover:border-primary-400 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10" @click="printDocument('invoice')">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="file-text" /></span>
+                    <span>
+                        <span class="block text-sm font-bold text-slate-700 dark:text-white">Facture</span>
+                        <span class="mt-0.5 block text-xs leading-5 text-slate-400">Format B5 ou enregistrement PDF. Document détaillé complet.</span>
+                    </span>
+                </button>
+                <button type="button" class="flex items-start gap-3 rounded-xl border border-gray-200 p-4 text-start transition hover:border-primary-400 hover:bg-primary-50/40 dark:border-gray-800 dark:hover:bg-primary-950/10" @click="printDocument('ticket')">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"><Icon class="text-lg" name="printer" /></span>
+                    <span>
+                        <span class="block text-sm font-bold text-slate-700 dark:text-white">Ticket</span>
+                        <span class="mt-0.5 block text-xs leading-5 text-slate-400">Imprimante thermique 80 mm. Remise rapide au guichet.</span>
+                    </span>
+                </button>
+            </div>
         </div>
 
         <div class="invoice-layout-scroll">
@@ -514,12 +638,13 @@ onBeforeUnmount(() => {
 
 .invoice-workspace {
     display: grid;
-    grid-template-columns: minmax(760px, 900px) 360px;
+    /* 1fr, not a capped max: a fixed 900px document next to a 360px ticket
+       left a dead gap in the middle of wide screens. */
+    grid-template-columns: minmax(700px, 1fr) 360px;
     align-items: start;
-    justify-content: space-between;
     gap: 1.25rem;
     width: 100%;
-    min-width: 1140px;
+    min-width: 1100px;
     margin-inline: 0;
 }
 
@@ -531,8 +656,7 @@ onBeforeUnmount(() => {
 
 .invoice-document {
     width: 100%;
-    min-width: 760px;
-    max-width: 900px;
+    min-width: 700px;
 }
 
 .invoice-meta-grid {

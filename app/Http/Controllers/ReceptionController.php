@@ -374,6 +374,8 @@ class ReceptionController extends Controller
             'uuid' => $patient->uuid,
             'patient_number' => $patient->patient_number,
             'patient_type' => $patient->patient_type->value,
+            'civility' => $patient->civility?->value,
+            'civility_label' => $patient->civility?->label(),
             'first_name' => $patient->first_name,
             'last_name' => $patient->last_name,
             'birth_date' => $patient->birth_date?->toDateString(),

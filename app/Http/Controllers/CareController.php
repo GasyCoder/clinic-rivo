@@ -46,7 +46,13 @@ class CareController extends Controller
 
         $baseQuery = EpisodeOrientation::query()
             ->where('destination_module', CatalogModule::Care->value)
-            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'));
+            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'))
+            // A patient is never truly deletable (ADR-010) — under normal
+            // operation this can never fail to match. It only guards against
+            // data corruption bypassing Eloquent entirely (e.g. a raw
+            // TRUNCATE on patients), so an orphaned row disappears from the
+            // queue instead of fataling the whole page.
+            ->whereHas('episode.patient');
 
         $counts = [
             'active' => (clone $baseQuery)->whereIn('status', [
@@ -166,6 +172,7 @@ class CareController extends Controller
         ]);
 
         abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+        abort_unless($episodeOrientation->episode->patient, 404, 'Le dossier patient de ce passage est introuvable.');
 
         $record = $episodeOrientation->episode->careRecord;
         $patientAge = $this->patientAgeAtEpisode($episodeOrientation);

@@ -13,4 +13,14 @@ enum PatientCivility: string
     case Mrs = 'MRS';
     case Girl = 'GIRL';
     case Boy = 'BOY';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Mr => 'M.',
+            self::Mrs => 'Mme',
+            self::Girl => 'Enfant fille',
+            self::Boy => 'Enfant garçon',
+        };
+    }
 }

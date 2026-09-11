@@ -11,6 +11,7 @@ const items = [
     { label: 'Vue d’ensemble', href: '/administration', icon: 'dashboard', permission: 'employees.view', exact: true },
     { label: 'Employés', href: '/administration/employees', icon: 'users', permission: 'employees.view' },
     { label: 'Contrats', href: '/administration/contracts', icon: 'file-docs', permission: 'contracts.view' },
+    { label: 'Documents', href: '/administration/generated-documents', icon: 'copy', permission: 'generated_documents.view' },
     { label: 'Présences', href: '/administration/attendance', icon: 'clock', permission: 'attendance.view' },
     { label: 'Congés', href: '/administration/leave', icon: 'calendar', permission: 'leave.view' },
     { label: 'Planning', href: '/administration/planning', icon: 'calender-date', permission: 'planning.view' },

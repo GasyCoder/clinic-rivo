@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Administration;
 
+use App\Enums\HrReferenceType;
+use App\Models\HrReferenceValue;
 use App\Models\LeaveRequest;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -29,14 +31,19 @@ class StoreLeaveRequest extends FormRequest
         return [
             'employee_uuid' => ['required', 'uuid', Rule::exists('employees', 'uuid')->whereNull('deleted_at')],
             'interim_employee_uuid' => ['nullable', 'uuid', Rule::exists('employees', 'uuid')->whereNull('deleted_at')],
+            'leave_type_uuid' => [
+                'required', 'uuid',
+                Rule::exists('hr_reference_values', 'uuid')
+                    ->where('type', HrReferenceType::LeaveType->value)
+                    ->where('active', true)
+                    ->whereNull('deleted_at'),
+            ],
             'leave_address' => ['nullable', 'string', 'max:255'],
             'emergency_phone' => ['nullable', 'string', 'max:50'],
-            'days_requested' => ['nullable', 'numeric', 'gt:0', 'max:9999.99'],
-            'remaining_days_snapshot' => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
             'reason' => ['required', 'string', 'max:5000'],
-            'requested_on' => ['required', 'date'],
             'starts_on' => ['required', 'date'],
-            'returns_on' => ['required', 'date', 'after:starts_on'],
+            'returns_on' => ['required', 'date', 'after_or_equal:starts_on'],
+            'justification' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,webp,doc,docx'],
         ];
     }
 
@@ -47,6 +54,11 @@ class StoreLeaveRequest extends FormRequest
                 && $this->input('employee_uuid') === $this->input('interim_employee_uuid')) {
                 $validator->errors()->add('interim_employee_uuid', 'L’intérimaire doit être une autre personne.');
             }
+
+            $leaveType = HrReferenceValue::query()->where('uuid', $this->input('leave_type_uuid'))->first();
+            if (($leaveType?->metadata['requires_attachment'] ?? false) && ! $this->hasFile('justification')) {
+                $validator->errors()->add('justification', 'Un justificatif est obligatoire pour ce type de demande.');
+            }
         }];
     }
 
@@ -55,12 +67,11 @@ class StoreLeaveRequest extends FormRequest
         return [
             'employee_uuid' => 'demandeur',
             'interim_employee_uuid' => 'intérimaire',
-            'days_requested' => 'congé à prendre',
-            'remaining_days_snapshot' => 'reste à prendre',
+            'leave_type_uuid' => 'type de demande',
             'reason' => 'motif',
-            'requested_on' => 'date de demande',
             'starts_on' => 'date de départ',
-            'returns_on' => 'date de retour',
+            'returns_on' => 'dernier jour demandé',
+            'justification' => 'justificatif',
         ];
     }
 }

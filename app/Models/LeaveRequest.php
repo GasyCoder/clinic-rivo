@@ -14,9 +14,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Auth;
 
 #[Fillable([
-    'employee_id', 'interim_employee_id', 'leave_address', 'emergency_phone',
-    'days_requested', 'remaining_days_snapshot', 'reason', 'requested_on',
-    'starts_on', 'returns_on',
+    'employee_id', 'interim_employee_id', 'leave_type_id', 'leave_address', 'emergency_phone',
+    'days_requested', 'remaining_days_snapshot', 'projected_remaining_days_snapshot',
+    'annual_quota_snapshot', 'day_count_method_snapshot', 'consumes_balance_snapshot',
+    'requires_approval_snapshot', 'reason', 'requested_on', 'starts_on', 'returns_on',
+    'status', 'decided_by', 'decided_at', 'decision_reason',
 ])]
 class LeaveRequest extends Model
 {
@@ -27,6 +29,10 @@ class LeaveRequest extends Model
         return [
             'days_requested' => 'decimal:2',
             'remaining_days_snapshot' => 'decimal:2',
+            'projected_remaining_days_snapshot' => 'decimal:2',
+            'annual_quota_snapshot' => 'decimal:2',
+            'consumes_balance_snapshot' => 'boolean',
+            'requires_approval_snapshot' => 'boolean',
             'requested_on' => 'date',
             'starts_on' => 'date',
             'returns_on' => 'date',
@@ -44,6 +50,11 @@ class LeaveRequest extends Model
     public function interimEmployee(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'interim_employee_id');
+    }
+
+    public function leaveType(): BelongsTo
+    {
+        return $this->belongsTo(HrReferenceValue::class, 'leave_type_id')->withTrashed();
     }
 
     public function decidedBy(): BelongsTo

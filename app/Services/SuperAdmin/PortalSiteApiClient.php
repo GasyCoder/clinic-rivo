@@ -451,6 +451,82 @@ class PortalSiteApiClient
         );
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function documentTemplatesForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/document-templates', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function documentTemplate(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/document-templates/'.$uuid, [], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createDocumentTemplate(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/document-templates', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updateDocumentTemplate(string $siteCode, string $uuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/document-templates/'.$uuid, $data, $actor);
+    }
+
+    public function archiveDocumentTemplate(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'DELETE',
+            'super-admin/document-templates/'.$uuid,
+            ['reason' => $reason],
+            $actor,
+        );
+    }
+
+    public function restoreDocumentTemplate(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/document-templates/'.$uuid.'/restore', [], $actor);
+    }
+
+    public function duplicateDocumentTemplate(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/document-templates/'.$uuid.'/duplicate', [], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function documentTemplateHistory(string $siteCode, string $uuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/document-templates/'.$uuid.'/history', [], $actor);
+    }
+
+    public function revertDocumentTemplateVersion(string $siteCode, string $uuid, string $reason, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/document-templates/'.$uuid.'/revert',
+            ['reason' => $reason],
+            $actor,
+        );
+    }
+
+    public function setDocumentTemplateActive(string $siteCode, string $uuid, bool $active, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode),
+            'POST',
+            'super-admin/document-templates/'.$uuid.'/'.($active ? 'activate' : 'deactivate'),
+            [],
+            $actor,
+        );
+    }
+
     /** @return array<string, mixed> */
     public function createMutualOrganization(
         string $siteCode,

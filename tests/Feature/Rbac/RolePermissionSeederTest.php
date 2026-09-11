@@ -46,6 +46,40 @@ class RolePermissionSeederTest extends TestCase
         $this->assertSame([], $this->permissionNamesFor('SUPER_ADMIN'));
     }
 
+    public function test_contract_template_permission_migration_never_grants_super_admin_on_a_clinic_deployment(): void
+    {
+        // Simulates the real deployment order: roles/permissions already
+        // exist from the initial `db:seed` (ADR-064: never re-run after
+        // go-live), then this later, standalone migration runs on top of
+        // that already-populated `roles` table — exactly the scenario the
+        // migration exists for.
+        config(['rivo.site.type' => 'clinic']);
+        (new RoleSeeder)->run();
+        (new PermissionSeeder)->run();
+        (new RolePermissionSeeder)->run();
+
+        $migration = require database_path('migrations/2026_09_01_160000_register_contract_template_permissions.php');
+        $migration->up();
+
+        $this->assertSame([], $this->permissionNamesFor('SUPER_ADMIN'));
+        $this->assertContains('contract_templates.view', $this->permissionNamesFor('ADMINISTRATION'));
+        $this->assertContains('contracts.download', $this->permissionNamesFor('ADMINISTRATION'));
+    }
+
+    public function test_contract_template_permission_migration_grants_super_admin_on_the_admin_deployment(): void
+    {
+        config(['rivo.site.type' => 'admin']);
+        (new RoleSeeder)->run();
+        (new PermissionSeeder)->run();
+        (new RolePermissionSeeder)->run();
+
+        $migration = require database_path('migrations/2026_09_01_160000_register_contract_template_permissions.php');
+        $migration->up();
+
+        $this->assertContains('contract_templates.view', $this->permissionNamesFor('SUPER_ADMIN'));
+        $this->assertContains('contracts.download', $this->permissionNamesFor('SUPER_ADMIN'));
+    }
+
     public function test_administration_gets_hr_permissions_only_without_logistics_guarding_or_access_management(): void
     {
         $this->seedRbac();

@@ -115,6 +115,56 @@ class HumanResourcesModuleTest extends TestCase
         $contract->fresh()->forceDelete();
     }
 
+    public function test_leave_preview_uses_configured_weekdays_and_server_owned_balance(): void
+    {
+        $employee = $this->employee();
+        $type = $this->reference(HrReferenceType::LeaveType, 'Congé annuel');
+        $type->update(['metadata' => [
+            ...$type->metadata,
+            'day_count_method' => 'WEEKDAYS_INCLUSIVE',
+            'annual_quota_days' => 30,
+        ]]);
+
+        $this->actingAs($this->administration)->postJson('/administration/leave/preview', [
+            'employee_uuid' => $employee->uuid,
+            'leave_type_uuid' => $type->uuid,
+            'starts_on' => '2026-09-04',
+            'returns_on' => '2026-09-07',
+        ])->assertOk()
+            ->assertJsonPath('preview.days_requested', '2.00')
+            ->assertJsonPath('preview.balance_before', '30.00')
+            ->assertJsonPath('preview.projected_balance', '28.00')
+            ->assertJsonPath('preview.day_count_method', 'WEEKDAYS_INCLUSIVE');
+    }
+
+    public function test_leave_approval_is_blocked_when_the_firm_annual_balance_is_insufficient(): void
+    {
+        $employee = $this->employee();
+        $type = $this->reference(HrReferenceType::LeaveType, 'Congé annuel');
+        LeaveRequest::query()->create([
+            'employee_id' => $employee->id,
+            'leave_type_id' => $type->id,
+            'reason' => 'Congé déjà consommé',
+            'requested_on' => '2026-01-01',
+            'starts_on' => '2026-01-01',
+            'returns_on' => '2026-01-28',
+            'days_requested' => 28,
+            'consumes_balance_snapshot' => true,
+            'status' => LeaveRequestStatus::Approved,
+        ]);
+
+        $this->actingAs($this->administration)
+            ->post('/administration/leave', $this->leavePayload($employee))
+            ->assertSessionHasNoErrors();
+        $pending = LeaveRequest::query()->where('status', LeaveRequestStatus::Pending)->firstOrFail();
+
+        $this->actingAs($this->administration)
+            ->post("/administration/leave/{$pending->uuid}/approve", ['reason' => 'À contrôler'])
+            ->assertSessionHasErrors('leave');
+
+        $this->assertSame(LeaveRequestStatus::Pending, $pending->fresh()->status);
+    }
+
     public function test_attendance_derives_work_date_validates_the_session_and_audits_changes(): void
     {
         $employee = $this->employee();
@@ -195,7 +245,7 @@ class HumanResourcesModuleTest extends TestCase
         $this->actingAs($this->administration)->post('/administration/leave', [
             ...$this->leavePayload($employee),
             'interim_employee_uuid' => $employee->uuid,
-            'returns_on' => '2026-09-01',
+            'returns_on' => '2026-08-31',
         ])->assertSessionHasErrors(['interim_employee_uuid', 'returns_on']);
 
         $this->actingAs($this->administration)
@@ -205,13 +255,26 @@ class HumanResourcesModuleTest extends TestCase
         $leave = LeaveRequest::query()->firstOrFail();
         $this->assertNotNull($leave->uuid);
         $this->assertSame(LeaveRequestStatus::Pending, $leave->status);
+        $this->assertSame(now()->toDateString(), $leave->requested_on->toDateString());
+        $this->assertSame('5.00', $leave->days_requested);
+        $this->assertSame('30.00', $leave->remaining_days_snapshot);
+        $this->assertSame('25.00', $leave->projected_remaining_days_snapshot);
         $this->assertAudit($leave, 'create');
+
+        $leave->leaveType->update(['metadata' => [
+            ...$leave->leaveType->metadata,
+            'annual_quota_days' => 10,
+            'day_count_method' => 'WEEKDAYS_INCLUSIVE',
+        ]]);
 
         $this->actingAs($this->administration)->post("/administration/leave/{$leave->uuid}/approve", [
             'reason' => 'Demande administrativement acceptée',
         ])->assertSessionHasNoErrors();
 
         $this->assertSame(LeaveRequestStatus::Approved, $leave->fresh()->status);
+        $this->assertSame('5.00', $leave->fresh()->days_requested);
+        $this->assertSame('30.00', $leave->fresh()->annual_quota_snapshot);
+        $this->assertSame('25.00', $leave->fresh()->remaining_days_snapshot);
         $this->assertAudit($leave, 'approve', 'Demande administrativement acceptée');
 
         $this->expectException(InvalidLeaveRequestTransitionException::class);
@@ -428,12 +491,10 @@ class HumanResourcesModuleTest extends TestCase
         return [
             'employee_uuid' => $employee->uuid,
             'interim_employee_uuid' => null,
+            'leave_type_uuid' => $this->reference(HrReferenceType::LeaveType, 'Congé annuel')->uuid,
             'leave_address' => 'Adresse déclarée',
             'emergency_phone' => '0320000000',
-            'days_requested' => 4,
-            'remaining_days_snapshot' => 12,
             'reason' => 'Demande administrative de test',
-            'requested_on' => '2026-08-29',
             'starts_on' => '2026-09-01',
             'returns_on' => '2026-09-05',
         ];

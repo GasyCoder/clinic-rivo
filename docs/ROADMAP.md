@@ -215,8 +215,12 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Période et renouvellement éventuel du crédit Bloc (règle métier non définie)
 - [x] RH
 - [x] Contrats
+- [x] ~~Modèles de contrat privés Word/PDF, variables serveur et versionnement~~ — retiré (ADR-071), remplacé par le canevas ci-dessous
+- [x] Canevas de documents administratifs (contrat/congé/attestation/certificat/lettre/décision) composés par le Super Admin et poussés par site
+- [x] Génération de documents par le RH depuis un canevas actif, aperçu serveur, snapshot figé
 - [x] Présences
 - [x] Congés
+- [x] Types de congé configurables, date serveur, durée et soldes automatisés
 - [ ] Absences
 - [x] Planning
 - [ ] Logistique
@@ -289,6 +293,7 @@ admin.rivo.mg
 - [x] Taux de couverture par organisme (100 % par défaut) et import/export Excel via API
 - [x] Répartition financière brute / mutuelle / patient historisée sur les factures
 - [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
+- [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

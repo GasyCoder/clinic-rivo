@@ -3018,3 +3018,201 @@ Un acte Maternité sélectionné crée une orientation directe
 explicitement exclues de cette sélection : elles restent soumises au workflow
 sécurisé Maternité vers Chirurgie défini par l’ADR-067. La facturation et tout
 paiement restent exclusivement sous le contrôle Réception / Caisse.
+
+---
+
+# ADR-069 — Modèles de contrat et règles de congé configurables
+
+**Status:** ACCEPTED (2026-09-01 — exigence explicite du propriétaire) ; le volet
+« Modèles de contrat » (upload local `.docx`/`.pdf` par RH, fusion Word) est
+**SUPERSEDED par ADR-071** (2026-09-11) au profit du canevas Super Admin
+d'ADR-070. Le volet « règles de congé configurables » (`LeaveBalanceCalculator`,
+snapshots de solde) reste pleinement en vigueur, inchangé.
+
+Cette décision remplace uniquement les limites d’ADR-066 qui réduisaient le
+contrat à ses champs structurés et interdisaient le calcul des congés faute de
+règle validée. Elle ne change pas l’exclusion de la paie : aucun salaire,
+CNAPS, IRSA, retenue ou net n’est ajouté.
+
+Les modèles de contrat deviennent une ressource privée et auditée de
+l’Administration/RH, protégée par `contract_templates.*`. Chaque modèle est
+rattaché à un type de contrat et reçoit un fichier `.docx` ou `.pdf`. Les
+variables autorisées sont cataloguées côté serveur ; `{{salaire}}` n’en fait
+pas partie puisqu’aucune donnée salariale officielle n’existe. La fusion
+automatique est supportée pour Word `.docx`. Un PDF arbitraire reste un modèle
+statique : le système ne prétend pas y remplacer du texte de manière non
+fiable. Le contrat conserve le modèle choisi et un snapshot des valeurs de
+fusion. Remplacer le fichier d’un modèle déjà utilisé crée une nouvelle
+version et archive l’ancienne ; un contrat historique continue donc de pointer
+vers le fichier et les valeurs qui lui appartiennent.
+
+Les types de congé et permission deviennent des référentiels configurables.
+Leur métadonnée centralise : consommation du solde annuel, quota, maximum par
+demande, justificatif obligatoire, validation nécessaire et méthode de
+décompte (`CALENDAR_DAYS_INCLUSIVE` ou `WEEKDAYS_INCLUSIVE`). Les valeurs
+initiales comprennent notamment le congé annuel à 30 jours, conformément à la
+demande du propriétaire ; l’Administration peut ensuite modifier la règle
+sans changer le code.
+
+La date de demande est toujours produite par le serveur à la création. Le
+client transmet uniquement le demandeur, le type, les dates, le motif et les
+informations facultatives. `LeaveBalanceCalculator` est l’unique moteur de
+durée et de solde, utilisé par l’aperçu, la création et l’approbation. Le solde
+ferme déduit uniquement les demandes approuvées ; l’aperçu prévisionnel déduit
+aussi les demandes en attente et la demande préparée. Une demande consommant
+le quota ne peut traverser deux années : elle doit être scindée afin de ne pas
+attribuer arbitrairement les jours à un exercice. L’approbation recalcule sous
+verrou transactionnel avant la décision auditée. Les valeurs de règle, quota,
+durée et soldes sont conservées comme snapshots pour que toute modification
+future du référentiel ne réécrive pas l’historique.
+
+---
+
+# ADR-070 — Canevas de documents administratifs pilotés par le Super Admin
+
+**Status:** ACCEPTED (2026-09-10 — exigence explicite du propriétaire)
+
+Le CDC officiel ne traite pas la gestion de modèles/canevas de documents
+administratifs ; cette décision comble ce vide, sans contredire aucune
+décision `ACCEPTED` existante.
+
+## Propriétaire et diffusion
+
+Le canevas (contrat, congé, attestation, certificat, lettre, décision,
+autre…) est composé une fois sur le portail central `admin.rivo.mg` par le
+`SUPER_ADMIN`, dans un éditeur de texte riche multi-page (TipTap), puis
+poussé vers **un site choisi à la fois** via l'API sécurisée du site —
+exactement le pattern déjà utilisé pour les désignations/tarifs, les
+adresses, les mutuelles et le stock (ADR-042/044/045/047), jamais un accès
+direct à une base clinique. Chaque site conserve sa propre copie locale
+(`document_templates`), reçue via `/api/v1/super-admin/document-templates*`,
+authentifiée par `rivo.site-api`, idempotente (`api.idempotent`) et
+attribuée à l'acteur distant via `CatalogActor` comme le reste du domaine
+catalogue.
+
+Cette décision **n'abroge pas ADR-069** : les modèles de contrat par upload
+`.docx`/`.pdf`, locaux au site et gérés par `ADMINISTRATION`
+(`contract_templates.*`), restent en place tels quels. Le canevas éditable
+est une **deuxième option**, pas un remplacement.
+
+## Type de document libre, contexte de données fixe
+
+`document_type` est une chaîne libre (`CONTRAT`, `CONGE`, `ATTESTATION`,
+`CERTIFICAT`, `LETTRE`, `DECISION`, `AUTRE`…) : ajouter une nouvelle
+catégorie de document n'exige donc aucune modification de code. En
+revanche, `data_context` (`EMPLOYEE_ONLY`, `EMPLOYEE_AND_CONTRACT`,
+`EMPLOYEE_AND_LEAVE`) reste un enum PHP fermé, parce qu'il correspond aux
+seules sources de données réellement branchées dans le résolveur ; en
+ajouter une nouvelle (ex. une future demande de chirurgie) exige
+nécessairement du code et n'a donc rien à gagner à être configurable.
+
+## Versionnement et snapshot figé
+
+Remplacer le contenu d'un canevas déjà utilisé par au moins un document
+généré crée une nouvelle version (nouvelle ligne, ancienne archivée avec
+motif) au lieu de la modifier en place — même mécanisme que
+`SaveEmploymentContractTemplateAction` (ADR-069). Chaque document généré
+(`generated_documents`) conserve un instantané figé (`rendered_html_snapshot`,
+`resolved_variables_snapshot`, `manual_variables_snapshot`, nom et type du
+canevas au moment de la génération) : modifier ensuite l'employé, le contrat
+ou le canevas ne change jamais un document déjà produit.
+
+## Variables : jamais d'invention, `{{salaire}}` inclus
+
+Le résolveur (`DocumentVariableResolver`) remplit automatiquement les
+variables connues depuis `Employee` et, selon `data_context`, depuis
+`EmploymentContract` ou `LeaveRequest`. Toute variable présente dans le
+canevas mais absente de ce catalogue — `{{salaire}}` en particulier, RIVO ne
+stockant aucune donnée de paie (ADR-066/069) — n'est **jamais déduite ni
+inventée** : elle est demandée au RH comme champ de saisie manuelle avant la
+génération. L'aperçu reste permissif (affiche les champs manquants en
+clair) ; la génération elle-même refuse de produire un document tant qu'une
+variable détectée n'a pas de valeur réelle, pour ne jamais livrer une clause
+administrative silencieusement vide.
+
+## Limite connue : pas de numérotation de page automatique
+
+La génération finale choisit l'aperçu HTML + impression navigateur
+(`window.print()`), sans nouvelle dépendance serveur (pas de PDF généré
+côté serveur). Le canevas peut définir des sauts de page contrôlés et un
+en-tête/pied de page fixe, mais un compteur de page vivant (« Page X sur Y »)
+n'est pas fiable en impression navigateur pure (absence de support des
+compteurs `@page` en marge dans les moteurs grand public). À revoir avec une
+génération PDF serveur si ce point s'avère bloquant.
+
+## Permissions
+
+```text
+document_templates.view / create / update / archive / restore / duplicate
+```
+
+accordées par défaut uniquement à `SUPER_ADMIN`, et uniquement sur le
+déploiement portail (`site.type === 'admin'`) — même garde que
+`RolePermissionSeeder::run()` pour tout le reste du catalogue central.
+`document_templates.view` est en outre accordée localement à
+`ADMINISTRATION` (lecture seule de la copie synchronisée). La génération
+elle-même est protégée par :
+
+```text
+generated_documents.view / create / print
+```
+
+accordées par défaut à `ADMINISTRATION`. Aucune de ces permissions ne
+touche `payments.*`, `cash.*` ou `receipts.*` : cette décision ne crée ni
+n'affecte aucun encaissement.
+
+---
+
+# ADR-071 — Retrait de l'upload de modèle de contrat au profit du canevas Super Admin
+
+**Status:** ACCEPTED (2026-09-11 — exigence explicite du propriétaire, après
+confusion UI/UX constatée entre les interfaces RH et Super Admin)
+
+ADR-069 (upload local `.docx`/`.pdf` par RH, fusion par `ZipArchive`) et
+ADR-070 (canevas composé par le Super Admin, fusion HTML) étaient deux
+mécanismes indépendants et non coordonnés, tous deux capables de produire un
+contrat rempli pour un même employé. Leur coexistence, retenue explicitement
+lors d'ADR-070, s'est avérée une source concrète de confusion : un même
+besoin pouvait être satisfait par deux parcours distincts, avec deux
+historiques séparés et aucune protection contre une double génération.
+
+## Ce qui est retiré
+
+Uniquement le mécanisme d'upload et de fusion Word/PDF, jamais la fiche
+contrat elle-même :
+
+```text
+EmploymentContractTemplate (modèle, table, migration)
+EmploymentContractTemplateRenderer (fusion ZipArchive)
+Save/Archive/RestoreEmploymentContractTemplateAction
+EmploymentContractTemplatePolicy
+EmploymentContractTemplateDataRequest, ArchiveEmploymentContractTemplateRequest
+EmploymentContractTemplateController et ses routes /administration/contract-templates
+Administration/ContractTemplates/Index.vue
+sur EmploymentContract : contract_template_id, template_variables_snapshot,
+    le téléchargement du document Word fusionné
+permissions contract_templates.* et contracts.download
+```
+
+## Ce qui reste, inchangé
+
+`EmploymentContract` demeure la fiche RH du contrat : type, dates, référence,
+observation, création/modification/archivage/restauration/export/impression,
+et les compteurs qui en dépendent au tableau de bord RH (local et portail
+Super Admin). Rien de cela ne faisait doublon avec ADR-070 — seule la
+fusion/génération de document l'était.
+
+## Remplacement
+
+Un contrat fusionné et imprimable pour un employé se produit désormais
+exclusivement via le canevas Super Admin (ADR-070), contexte de données
+`EMPLOYEE_AND_CONTRACT`, qui résout déjà `{{type_contrat}}`, `{{date_debut}}`,
+`{{date_fin}}`, `{{fin_periode_essai}}`, `{{reference_contrat}}`,
+`{{date_signature}}` depuis ce même `EmploymentContract` — aucune donnée
+supplémentaire à faire migrer, le contexte existait déjà avant cette
+décision.
+
+Un modèle de contrat déjà composé dans l'ancien système n'est pas converti
+automatiquement : au 2026-09-11, `employment_contract_templates` ne contient
+aucune ligne sur aucun site (constaté avant retrait), donc aucune donnée
+n'est perdue par cette suppression.

@@ -37,6 +37,12 @@ class RolePermissionSeeder extends Seeder
             'patient_coverage_documents.view', 'patient_coverage_documents.archive',
             'contracts.view', 'contracts.create', 'contracts.update', 'contracts.archive',
             'contracts.restore', 'contracts.export', 'contracts.print',
+            // Canevas: authored/pushed centrally by SUPER_ADMIN only (ADR-070,
+            // same site.type==='admin' gate as below) — ADMINISTRATION gets
+            // read-only access to the synced local copy, plus full control of
+            // what it actually produces (generated_documents.*).
+            'document_templates.view',
+            'generated_documents.view', 'generated_documents.create', 'generated_documents.print',
             'attendance.view', 'attendance.create', 'attendance.update',
             'attendance.export', 'attendance.print',
             'leave.view', 'leave.create', 'leave.approve', 'leave.reject',

@@ -104,6 +104,20 @@ class PermissionSeeder extends Seeder
         'contracts.restore' => 'Restaurer un contrat archivé',
         'contracts.export' => 'Exporter les contrats',
         'contracts.print' => 'Imprimer un contrat',
+        // Canevas de documents administratifs généralisés (contrat, congé,
+        // attestation, certificat, lettre, décision...), composés sur le
+        // portail Super Admin et poussés site par site (ADR-070). L'ancien
+        // upload local de modèle Word/PDF (ADR-069) est retiré par ADR-071 :
+        // un contrat fusionné passe désormais exclusivement par ce canevas.
+        'document_templates.view' => 'Voir les canevas de documents',
+        'document_templates.create' => 'Créer un canevas de document',
+        'document_templates.update' => 'Modifier un canevas de document',
+        'document_templates.archive' => 'Archiver un canevas de document',
+        'document_templates.restore' => 'Restaurer un canevas de document',
+        'document_templates.duplicate' => 'Dupliquer un canevas de document',
+        'generated_documents.view' => 'Voir les documents générés',
+        'generated_documents.create' => 'Générer un document administratif',
+        'generated_documents.print' => 'Imprimer un document généré',
         'attendance.view' => 'Voir les présences',
         'attendance.create' => 'Enregistrer une présence',
         'attendance.update' => 'Modifier une présence',

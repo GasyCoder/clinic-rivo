@@ -114,10 +114,17 @@ class HrPresenter
             'interim_employee' => $leave->interimEmployee
                 ? $this->employeeOption($leave->interimEmployee)
                 : null,
+            'leave_type_uuid' => $leave->leaveType?->uuid,
+            'leave_type' => $leave->leaveType?->label,
             'leave_address' => $leave->leave_address,
             'emergency_phone' => $leave->emergency_phone,
             'days_requested' => $leave->days_requested,
             'remaining_days_snapshot' => $leave->remaining_days_snapshot,
+            'projected_remaining_days_snapshot' => $leave->projected_remaining_days_snapshot,
+            'annual_quota_snapshot' => $leave->annual_quota_snapshot,
+            'day_count_method_snapshot' => $leave->day_count_method_snapshot,
+            'consumes_balance_snapshot' => $leave->consumes_balance_snapshot,
+            'requires_approval_snapshot' => $leave->requires_approval_snapshot,
             'reason' => $leave->reason,
             'requested_on' => $leave->requested_on?->toDateString(),
             'starts_on' => $leave->starts_on?->toDateString(),
@@ -180,6 +187,7 @@ class HrPresenter
             'label' => $reference->label,
             'active' => $reference->active,
             'position' => $reference->position,
+            'metadata' => $reference->metadata,
             'archived' => $reference->trashed(),
             'delete_reason' => $reference->delete_reason,
         ];

@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Administration;
 
 use App\Enums\HrReferenceType;
+use App\Enums\LeaveDayCountMethod;
 use App\Models\HrReferenceValue;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -31,6 +32,7 @@ class HrReferenceDataRequest extends FormRequest
     public function rules(): array
     {
         $reference = $this->route('reference');
+        $isLeaveType = fn (): bool => $this->input('type') === HrReferenceType::LeaveType->value;
 
         return [
             'type' => ['required', new Enum(HrReferenceType::class)],
@@ -48,6 +50,17 @@ class HrReferenceDataRequest extends FormRequest
             ],
             'active' => ['required', 'boolean'],
             'position' => ['nullable', 'integer', 'min:0', 'max:65535'],
+            'metadata' => [Rule::excludeUnless($isLeaveType), 'required', 'array'],
+            'metadata.consumes_annual_balance' => [Rule::excludeUnless($isLeaveType), 'required', 'boolean'],
+            'metadata.annual_quota_days' => [
+                Rule::excludeUnless($isLeaveType),
+                Rule::requiredIf(fn () => $this->boolean('metadata.consumes_annual_balance')),
+                'nullable', 'numeric', 'gt:0', 'max:366',
+            ],
+            'metadata.max_days_per_request' => [Rule::excludeUnless($isLeaveType), 'nullable', 'numeric', 'gt:0', 'max:366'],
+            'metadata.requires_attachment' => [Rule::excludeUnless($isLeaveType), 'required', 'boolean'],
+            'metadata.requires_approval' => [Rule::excludeUnless($isLeaveType), 'required', 'boolean'],
+            'metadata.day_count_method' => [Rule::excludeUnless($isLeaveType), 'required', new Enum(LeaveDayCountMethod::class)],
         ];
     }
 }

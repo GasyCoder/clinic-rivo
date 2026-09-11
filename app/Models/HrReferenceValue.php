@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
-#[Fillable(['type', 'code', 'label', 'active', 'position'])]
+#[Fillable(['type', 'code', 'label', 'active', 'position', 'metadata'])]
 class HrReferenceValue extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
@@ -32,6 +32,7 @@ class HrReferenceValue extends Model
             'type' => HrReferenceType::class,
             'active' => 'boolean',
             'position' => 'integer',
+            'metadata' => 'array',
         ];
     }
 
@@ -60,6 +61,11 @@ class HrReferenceValue extends Model
         return $this->hasMany(PlanningShift::class, 'department_id');
     }
 
+    public function leaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class, 'leave_type_id');
+    }
+
     public function attestationDocuments(): HasMany
     {
         return $this->hasMany(HrDocument::class, 'attestation_type_id');
@@ -71,6 +77,7 @@ class HrReferenceValue extends Model
             || $this->jobTitleEmployees()->withTrashed()->exists()
             || $this->contracts()->withTrashed()->exists()
             || $this->planningShifts()->exists()
+            || $this->leaveRequests()->exists()
             || $this->attestationDocuments()->withTrashed()->exists();
     }
 

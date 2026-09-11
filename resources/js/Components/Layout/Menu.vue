@@ -65,6 +65,7 @@ const adminMenu = computed(() => [
     { icon: 'wallet', text: 'Rapports financiers', link: '/super-admin/workspaces/finance', permission: 'reports.financial.view' },
     { heading: 'Référentiels & stocks' },
     { icon: 'list-index', text: 'Tarifs & mutuelles', link: '/super-admin/workspaces/tariffs', permission: 'catalog.items.view' },
+    { icon: 'file-text', text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: 'activity', text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
     { icon: 'capsule', text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
     { icon: 'map-pin', text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },

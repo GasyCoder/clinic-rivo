@@ -124,7 +124,7 @@ class EmploymentContractController extends Controller
     {
         abort_unless($request->user()->can('contracts.print'), 403);
         Gate::forUser($request->user())->authorize('view', $contract);
-        $contract->load(['employee.department', 'employee.jobTitle', 'contractType']);
+        $contract->load(['employee.department', 'employee.jobTitle', 'employee.addressEntry', 'contractType']);
 
         return Inertia::render('Administration/Contracts/Print', [
             'contract' => $this->presenter->contract($contract),

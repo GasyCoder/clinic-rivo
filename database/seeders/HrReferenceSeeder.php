@@ -50,6 +50,38 @@ class HrReferenceSeeder extends Seeder
         ],
     ];
 
+    /** @var array<string, array{label: string, metadata: array<string, mixed>}> */
+    private const LEAVE_TYPES = [
+        'ANNUAL_LEAVE' => [
+            'label' => 'Congé annuel',
+            'metadata' => ['consumes_annual_balance' => true, 'annual_quota_days' => 30, 'max_days_per_request' => null, 'requires_attachment' => false, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+        'PERMISSION' => [
+            'label' => 'Permission',
+            'metadata' => ['consumes_annual_balance' => false, 'annual_quota_days' => null, 'max_days_per_request' => null, 'requires_attachment' => false, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+        'SICK_LEAVE' => [
+            'label' => 'Congé maladie',
+            'metadata' => ['consumes_annual_balance' => false, 'annual_quota_days' => null, 'max_days_per_request' => null, 'requires_attachment' => true, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+        'EXCEPTIONAL_LEAVE' => [
+            'label' => 'Congé exceptionnel',
+            'metadata' => ['consumes_annual_balance' => false, 'annual_quota_days' => null, 'max_days_per_request' => null, 'requires_attachment' => false, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+        'MATERNITY_LEAVE' => [
+            'label' => 'Congé maternité',
+            'metadata' => ['consumes_annual_balance' => false, 'annual_quota_days' => null, 'max_days_per_request' => null, 'requires_attachment' => true, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+        'UNPAID_LEAVE' => [
+            'label' => 'Congé sans solde',
+            'metadata' => ['consumes_annual_balance' => false, 'annual_quota_days' => null, 'max_days_per_request' => null, 'requires_attachment' => false, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+        'OTHER' => [
+            'label' => 'Autre',
+            'metadata' => ['consumes_annual_balance' => false, 'annual_quota_days' => null, 'max_days_per_request' => null, 'requires_attachment' => false, 'requires_approval' => true, 'day_count_method' => 'CALENDAR_DAYS_INCLUSIVE'],
+        ],
+    ];
+
     public function run(): void
     {
         foreach (self::REFERENCES as $type => $references) {
@@ -61,6 +93,15 @@ class HrReferenceSeeder extends Seeder
                     ['label' => $label, 'position' => $position, 'active' => true],
                 );
             }
+        }
+
+        foreach (array_values(self::LEAVE_TYPES) as $position => $definition) {
+            $code = array_search($definition, self::LEAVE_TYPES, true);
+
+            HrReferenceValue::withTrashed()->updateOrCreate(
+                ['type' => HrReferenceType::LeaveType, 'code' => $code],
+                ['label' => $definition['label'], 'metadata' => $definition['metadata'], 'position' => $position, 'active' => true],
+            );
         }
     }
 }

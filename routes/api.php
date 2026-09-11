@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\AddressEntryController;
 use App\Http\Controllers\Api\V1\SuperAdmin\AnalysisCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
+use App\Http\Controllers\Api\V1\SuperAdmin\DocumentTemplateController;
 use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
@@ -89,4 +90,16 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/catalog/{catalogUuid}/restore', [CatalogController::class, 'restore'])->name('catalog.restore');
         Route::post('/catalog/{catalogUuid}/tariffs', [CatalogController::class, 'setTariff'])->name('catalog.tariffs.store');
         Route::post('/catalog/{catalogUuid}/tariffs/archive', [CatalogController::class, 'archiveTariff'])->name('catalog.tariffs.archive');
+
+        Route::get('/document-templates', [DocumentTemplateController::class, 'index'])->name('document-templates.index');
+        Route::post('/document-templates', [DocumentTemplateController::class, 'store'])->name('document-templates.store');
+        Route::get('/document-templates/{documentTemplateUuid}', [DocumentTemplateController::class, 'show'])->name('document-templates.show');
+        Route::put('/document-templates/{documentTemplateUuid}', [DocumentTemplateController::class, 'update'])->name('document-templates.update');
+        Route::delete('/document-templates/{documentTemplateUuid}', [DocumentTemplateController::class, 'destroy'])->name('document-templates.destroy');
+        Route::post('/document-templates/{documentTemplateUuid}/restore', [DocumentTemplateController::class, 'restore'])->name('document-templates.restore');
+        Route::post('/document-templates/{documentTemplateUuid}/duplicate', [DocumentTemplateController::class, 'duplicate'])->name('document-templates.duplicate');
+        Route::get('/document-templates/{documentTemplateUuid}/history', [DocumentTemplateController::class, 'history'])->name('document-templates.history');
+        Route::post('/document-templates/{documentTemplateUuid}/revert', [DocumentTemplateController::class, 'revert'])->name('document-templates.revert');
+        Route::post('/document-templates/{documentTemplateUuid}/activate', [DocumentTemplateController::class, 'activate'])->name('document-templates.activate');
+        Route::post('/document-templates/{documentTemplateUuid}/deactivate', [DocumentTemplateController::class, 'deactivate'])->name('document-templates.deactivate');
     });

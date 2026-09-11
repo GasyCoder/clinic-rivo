@@ -14,11 +14,11 @@ const departments = computed(() => selectedSite.value?.data?.departments ?? []);
 const maxDepartmentCount = computed(() => Math.max(1, ...departments.value.map((department) => department.employees_count)));
 
 const metrics = computed(() => [
-    { label: 'Effectif actif', value: summary.active_employees, icon: 'users', tone: 'text-primary-600 bg-primary-50 dark:bg-primary-950' },
-    { label: 'Contrats en cours', value: summary.current_contracts, icon: 'file-docs', tone: 'text-sky-600 bg-sky-50 dark:bg-sky-950' },
-    { label: 'Présences ouvertes', value: summary.open_attendance, icon: 'clock', tone: summary.open_attendance ? 'text-amber-600 bg-amber-50 dark:bg-amber-950' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950' },
-    { label: 'Congés à décider', value: summary.pending_leave, icon: 'calendar', tone: summary.pending_leave ? 'text-amber-600 bg-amber-50 dark:bg-amber-950' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950' },
-    { label: 'Créneaux à 7 jours', value: summary.upcoming_shifts, icon: 'calender-date', tone: 'text-violet-600 bg-violet-50 dark:bg-violet-950' },
+    { label: 'Effectif actif', value: props.summary.active_employees, icon: 'users', tone: 'text-primary-600 bg-primary-50 dark:bg-primary-950' },
+    { label: 'Contrats en cours', value: props.summary.current_contracts, icon: 'file-docs', tone: 'text-sky-600 bg-sky-50 dark:bg-sky-950' },
+    { label: 'Présences ouvertes', value: props.summary.open_attendance, icon: 'clock', tone: props.summary.open_attendance ? 'text-amber-600 bg-amber-50 dark:bg-amber-950' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950' },
+    { label: 'Congés à décider', value: props.summary.pending_leave, icon: 'calendar', tone: props.summary.pending_leave ? 'text-amber-600 bg-amber-50 dark:bg-amber-950' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950' },
+    { label: 'Créneaux à 7 jours', value: props.summary.upcoming_shifts, icon: 'calender-date', tone: 'text-violet-600 bg-violet-50 dark:bg-violet-950' },
 ]);
 </script>
 
@@ -34,7 +34,7 @@ const metrics = computed(() => [
             <div class="inline-flex items-center gap-2 self-start rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-slate-500 dark:border-gray-900 dark:bg-gray-950"><span :class="['h-2 w-2 rounded-full', summary.online_sites === sites.length ? 'bg-emerald-500' : 'bg-amber-500']" /><strong class="text-slate-700 dark:text-white">{{ summary.online_sites }} / {{ sites.length }}</strong> sites disponibles</div>
         </header>
 
-        <section class="grid overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-2 xl:grid-cols-5">
+        <section class="grid overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-2 xl:grid-cols-6">
             <div v-for="(metric, index) in metrics" :key="metric.label" :class="['flex items-center gap-3 px-5 py-4', index < metrics.length - 1 ? 'border-b border-gray-200 dark:border-gray-900 sm:border-e xl:border-b-0' : '']"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg', metric.tone]"><Icon :name="metric.icon" /></span><div><p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ metric.label }}</p><p class="mt-0.5 text-xl font-bold text-slate-800 dark:text-white">{{ metric.value }}</p></div></div>
         </section>
 

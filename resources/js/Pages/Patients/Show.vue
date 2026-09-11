@@ -28,7 +28,9 @@ const props = defineProps({
 
 const { can } = usePermissions();
 const validSections = ['overview', 'billing', 'episodes'];
-const requestedSection = new URLSearchParams(window.location.search).get('section');
+const requestedSection = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('section')
+    : null;
 const activeSection = ref(validSections.includes(requestedSection) ? requestedSection : 'overview');
 const showInvoiceForm = ref(false);
 const paymentTarget = ref(null);

@@ -31,8 +31,8 @@ const areaClass = 'block min-h-28 w-full rounded-xl border border-gray-200 bg-wh
                     <HrEmployeePicker id="contract_employee" v-model="form.employee_uuid" :employees="employees" required :error="form.errors.employee_uuid" />
                 </HrFormSection>
 
-                <HrFormSection number="2" title="Définir la nature du contrat" description="Utilisez le référentiel RH afin de conserver un type homogène dans les rapports." tone="sky">
-                    <div class="grid gap-4 sm:grid-cols-2">
+                <HrFormSection number="2" title="Type et référence" description="Le document fusionné et imprimable de ce contrat se génère depuis Documents (canevas Super Admin)." tone="sky">
+                    <div class="grid gap-4 lg:grid-cols-2">
                         <div><label for="contract_type" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Type de contrat <span class="text-red-500">*</span></label><select id="contract_type" v-model="form.contract_type_uuid" :class="fieldClass" required><option value="">Sélectionner un type</option><option v-for="item in contractTypes" :key="item.uuid" :value="item.uuid">{{ item.label }}</option></select><FormError v-if="form.errors.contract_type_uuid">{{ form.errors.contract_type_uuid }}</FormError></div>
                         <div><label for="contract_reference" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Référence interne</label><Input id="contract_reference" v-model="form.reference_number" placeholder="Ex. CTR-2026-014" /><p class="mt-1.5 text-xs text-slate-400">Facultative, mais unique lorsqu’elle est renseignée.</p><FormError v-if="form.errors.reference_number">{{ form.errors.reference_number }}</FormError></div>
                     </div>

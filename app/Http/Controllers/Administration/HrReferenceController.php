@@ -7,6 +7,7 @@ use App\Actions\Administration\CreateHrReferenceValueAction;
 use App\Actions\Administration\RestoreHrReferenceValueAction;
 use App\Actions\Administration\UpdateHrReferenceValueAction;
 use App\Enums\HrReferenceType;
+use App\Enums\LeaveDayCountMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveHrReferenceRequest;
 use App\Http\Requests\Administration\HrReferenceDataRequest;
@@ -31,6 +32,9 @@ class HrReferenceController extends Controller
                 ->get()->map(fn ($reference) => $this->presenter->reference($reference))->groupBy('type'),
             'types' => collect(HrReferenceType::cases())->map(fn ($type) => [
                 'value' => $type->value, 'label' => $type->label(),
+            ]),
+            'leaveDayCountMethods' => collect(LeaveDayCountMethod::cases())->map(fn ($method) => [
+                'value' => $method->value, 'label' => $method->label(),
             ]),
         ]);
     }

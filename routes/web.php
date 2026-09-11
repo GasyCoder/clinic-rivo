@@ -8,6 +8,7 @@ use App\Http\Controllers\Administration\CatalogController as AdministrationCatal
 use App\Http\Controllers\Administration\DiagnosticCatalogController;
 use App\Http\Controllers\Administration\EmployeeController;
 use App\Http\Controllers\Administration\EmploymentContractController;
+use App\Http\Controllers\Administration\GeneratedDocumentController;
 use App\Http\Controllers\Administration\HrDocumentController;
 use App\Http\Controllers\Administration\HrReferenceController;
 use App\Http\Controllers\Administration\HrReportController;
@@ -46,6 +47,7 @@ use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressE
 use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
 use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
+use App\Http\Controllers\SuperAdmin\DocumentTemplateController as SuperAdminDocumentTemplateController;
 use App\Http\Controllers\SuperAdmin\HumanResourcesController as SuperAdminHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
 use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
@@ -167,6 +169,23 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/workspaces/tariffs/mutual-organizations/{site}/{organization}', [SuperAdminMutualOrganizationController::class, 'update'])->name('tariffs.mutual-organizations.update')->middleware('can:mutual_organizations.update');
         Route::delete('/workspaces/tariffs/mutual-organizations/{site}/{organization}', [SuperAdminMutualOrganizationController::class, 'destroy'])->name('tariffs.mutual-organizations.destroy')->middleware('can:mutual_organizations.archive');
         Route::post('/workspaces/tariffs/mutual-organizations/{site}/{organization}/restore', [SuperAdminMutualOrganizationController::class, 'restore'])->name('tariffs.mutual-organizations.restore')->middleware(['can:trash.restore', 'can:mutual_organizations.restore']);
+
+        // Canevas de documents administratifs (ADR-070) : composés ici,
+        // poussés site par site via l'API distante. L'ancien upload local
+        // contract_templates.* (ADR-069) est retiré par l'ADR-071.
+        Route::get('/workspaces/document-templates', [SuperAdminDocumentTemplateController::class, 'index'])->name('document-templates.index')->middleware('can:document_templates.view');
+        Route::get('/workspaces/document-templates/{site}/create', [SuperAdminDocumentTemplateController::class, 'create'])->name('document-templates.create')->middleware('can:document_templates.create');
+        Route::get('/workspaces/document-templates/{site}/{documentTemplate}/edit', [SuperAdminDocumentTemplateController::class, 'edit'])->name('document-templates.edit')->middleware('can:document_templates.update');
+        Route::post('/workspaces/document-templates', [SuperAdminDocumentTemplateController::class, 'store'])->name('document-templates.store')->middleware('can:document_templates.create');
+        Route::put('/workspaces/document-templates/{site}/{documentTemplate}', [SuperAdminDocumentTemplateController::class, 'update'])->name('document-templates.update')->middleware('can:document_templates.update');
+        Route::delete('/workspaces/document-templates/{site}/{documentTemplate}', [SuperAdminDocumentTemplateController::class, 'destroy'])->name('document-templates.destroy')->middleware('can:document_templates.archive');
+        Route::post('/workspaces/document-templates/{site}/{documentTemplate}/restore', [SuperAdminDocumentTemplateController::class, 'restore'])->name('document-templates.restore')->middleware(['can:trash.restore', 'can:document_templates.restore']);
+        Route::post('/workspaces/document-templates/{site}/{documentTemplate}/duplicate', [SuperAdminDocumentTemplateController::class, 'duplicate'])->name('document-templates.duplicate')->middleware('can:document_templates.duplicate');
+        Route::get('/workspaces/document-templates/{site}/{documentTemplate}/history', [SuperAdminDocumentTemplateController::class, 'history'])->name('document-templates.history')->middleware('can:document_templates.view');
+        Route::post('/workspaces/document-templates/{site}/{documentTemplate}/revert', [SuperAdminDocumentTemplateController::class, 'revert'])->name('document-templates.revert')->middleware('can:document_templates.update');
+        Route::post('/workspaces/document-templates/{site}/{documentTemplate}/activate', [SuperAdminDocumentTemplateController::class, 'activate'])->name('document-templates.activate')->middleware('can:document_templates.update');
+        Route::post('/workspaces/document-templates/{site}/{documentTemplate}/deactivate', [SuperAdminDocumentTemplateController::class, 'deactivate'])->name('document-templates.deactivate')->middleware('can:document_templates.update');
+
         // Utilisateurs, rôles et permissions par compte, propres à chaque
         // site — jamais géré directement en base, toujours via son API
         // (ADR-025/027). Une caisse SUPER_ADMIN reste exclue par la même
@@ -236,11 +255,23 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
         Route::get('/leave', [LeaveController::class, 'index'])->name('leave.index')->middleware('can:leave.view');
         Route::get('/leave/create', [LeaveController::class, 'create'])->name('leave.create')->middleware('can:leave.create');
+        Route::post('/leave/preview', [LeaveController::class, 'preview'])->name('leave.preview')->middleware('can:leave.create');
         Route::post('/leave', [LeaveController::class, 'store'])->name('leave.store')->middleware('can:leave.create');
         Route::post('/leave/{leave}/approve', [LeaveController::class, 'approve'])->name('leave.approve')->middleware('can:leave.approve');
         Route::post('/leave/{leave}/reject', [LeaveController::class, 'reject'])->name('leave.reject')->middleware('can:leave.reject');
         Route::post('/leave/{leave}/cancel', [LeaveController::class, 'cancel'])->name('leave.cancel')->middleware('can:leave.cancel');
         Route::get('/leave/{leave}/print', [LeaveController::class, 'print'])->name('leave.print')->middleware('can:leave.print');
+
+        // Génération de documents depuis les canevas poussés par le Super
+        // Admin (ADR-070) — lecture seule du référentiel document_templates,
+        // aucune création/modification de canevas depuis ce module.
+        // "generated-documents" (pas "documents"): /administration/documents
+        // appartient déjà à HrDocumentController (pièces jointes uploadées).
+        Route::get('/generated-documents', [GeneratedDocumentController::class, 'index'])->name('generated-documents.index')->middleware('can:generated_documents.view');
+        Route::get('/generated-documents/create', [GeneratedDocumentController::class, 'create'])->name('generated-documents.create')->middleware('can:generated_documents.create');
+        Route::post('/generated-documents/preview', [GeneratedDocumentController::class, 'preview'])->name('generated-documents.preview')->middleware('can:generated_documents.create');
+        Route::post('/generated-documents', [GeneratedDocumentController::class, 'store'])->name('generated-documents.store')->middleware('can:generated_documents.create');
+        Route::get('/generated-documents/{generatedDocument}/print', [GeneratedDocumentController::class, 'print'])->name('generated-documents.print')->middleware('can:generated_documents.print');
 
         Route::get('/planning', [PlanningController::class, 'index'])->name('planning.index')->middleware('can:planning.view');
         Route::get('/planning/export', [PlanningController::class, 'export'])->name('planning.export')->middleware('can:planning.export');

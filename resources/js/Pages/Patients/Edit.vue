@@ -112,7 +112,8 @@ const toggleNewAddress = () => {
 // A fixed flag read from the URL only — reception links here with
 // ?return_to=reception so a mid-arrival correction lands back on that
 // journey instead of the dossier page. Never treated as a raw redirect URL.
-const returnsToReception = new URLSearchParams(window.location.search).get('return_to') === 'reception';
+const returnsToReception = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('return_to') === 'reception';
 const backHref = returnsToReception ? '/reception/patients' : `/patients/${props.patient.uuid}`;
 const backLabel = returnsToReception ? 'Retour à la réception' : 'Retour au dossier';
 

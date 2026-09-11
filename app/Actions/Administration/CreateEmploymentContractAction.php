@@ -29,11 +29,13 @@ class CreateEmploymentContractAction
 
             unset($data['employee_uuid'], $data['contract_type_uuid']);
 
-            return EmploymentContract::query()->create([
+            $contract = EmploymentContract::query()->create([
                 ...$data,
                 'employee_id' => $employee->getKey(),
                 'contract_type_id' => $type->getKey(),
-            ])->load(['employee.department', 'employee.jobTitle', 'contractType']);
+            ]);
+
+            return $contract->load(['employee.department', 'employee.jobTitle', 'contractType']);
         });
     }
 }

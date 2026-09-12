@@ -9,6 +9,8 @@ const props = defineProps({
     placeholder: { type: String, default: '' },
     maxLength: { type: Number, default: 3000 },
     id: { type: String, default: undefined },
+    /** Tailwind min-height for the writing area, e.g. 'min-h-36'. */
+    minHeightClass: { type: String, default: 'min-h-44' },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -92,7 +94,7 @@ onMounted(syncEditor);
             :aria-disabled="disabled"
             :contenteditable="disabled ? 'false' : 'true'"
             :data-placeholder="placeholder"
-            class="clinical-editor min-h-44 px-4 py-3 text-sm leading-6 text-slate-700 outline-none dark:text-slate-100"
+            :class="['clinical-editor px-4 py-3 text-sm leading-6 text-slate-700 outline-none dark:text-slate-100', minHeightClass]"
             @input="updateValue"
             @paste="pastePlainText"
         />

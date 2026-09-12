@@ -44,6 +44,17 @@ class Consultation extends Model
         return $this->belongsTo(User::class, 'doctor_id');
     }
 
+    /**
+     * Treatments the patient was already taking at this encounter — the
+     * DOSSIER MÉDICAL's "traitements actuels". Never a prescription.
+     */
+    public function currentTreatments(): HasMany
+    {
+        return $this->hasMany(ConsultationCurrentTreatment::class)
+            ->orderBy('position')
+            ->orderBy('id');
+    }
+
     public function diagnoses(): HasMany
     {
         return $this->hasMany(Diagnosis::class);

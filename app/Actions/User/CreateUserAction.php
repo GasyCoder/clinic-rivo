@@ -44,7 +44,9 @@ class CreateUserAction
             $this->guard->assertProfileMatchesRole($role, $profile);
 
             $overrides = $data['permission_overrides'] ?? [];
-            $syncRecommended = (bool) ($data['sync_profile_permissions'] ?? false);
+            // Same default as an update: a new account given a profile
+            // starts with that profile's access unless told otherwise.
+            $syncRecommended = (bool) ($data['sync_profile_permissions'] ?? $profile !== null);
 
             if (($overrides !== [] || $syncRecommended) && ! $actor->can('permissions.assign')) {
                 throw ValidationException::withMessages([

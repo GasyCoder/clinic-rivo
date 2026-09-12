@@ -22,6 +22,7 @@ use App\Models\Patient;
 use App\Models\PaymentMethod;
 use App\Services\Billing\BillableCatalogDirectory;
 use App\Support\Money;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -54,7 +55,20 @@ class PatientController extends Controller
                 'episodes as active_emergency_episodes_count' => fn ($query) => $query
                     ->where('priority', EpisodePriority::Emergency->value)
                     ->where('status', EpisodeStatus::Open->value),
+                // A patient with an OPEN episode is currently being handled
+                // somewhere in the clinic — the directory's most actionable
+                // signal after the emergency flag, and the reason a record is
+                // usually looked up at all.
+                'episodes as open_episodes_count' => fn ($query) => $query
+                    ->where('status', EpisodeStatus::Open->value),
+                'episodes as episodes_count' => fn ($query) => $query
+                    ->where('status', '!=', EpisodeStatus::Cancelled->value),
             ])
+            ->withMax(
+                ['episodes as last_visit_at' => fn ($query) => $query
+                    ->where('status', '!=', EpisodeStatus::Cancelled->value)],
+                'started_at',
+            )
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('patient_number', 'like', "%{$search}%")
@@ -74,14 +88,24 @@ class PatientController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        $patients->getCollection()->each(
-            fn (Patient $patient) => $this->appendAdministrativePresentation($patient),
-        );
+        $patients->getCollection()->each(function (Patient $patient) {
+            $this->appendAdministrativePresentation($patient);
+
+            // withMax() returns the driver's raw datetime string, which
+            // differs between MySQL and SQLite; normalise it once here so
+            // the frontend always parses the same shape.
+            $lastVisit = $patient->getAttribute('last_visit_at');
+            $patient->setAttribute(
+                'last_visit_at',
+                $lastVisit ? Carbon::parse($lastVisit)->toIso8601String() : null,
+            );
+        });
 
         return Inertia::render('Patients/Index', [
             'patients' => $patients,
             'search' => $search,
             'filters' => ['type' => $type, 'emergency' => $emergency],
+            'summary' => $this->directorySummary(),
         ]);
     }
 
@@ -442,9 +466,16 @@ class PatientController extends Controller
         Patient $patient,
         RecordPatientAntecedentAction $action,
     ): RedirectResponse {
-        $action->execute($patient, $request->validated('description'));
+        $antecedent = $action->execute(
+            $patient,
+            $request->validated('description'),
+            $request->antecedentType(),
+        );
 
-        return back()->with('status', 'Antécédent ajouté au dossier patient.');
+        return back()->with(
+            'status',
+            "{$antecedent->type->label()} ajouté au dossier patient.",
+        );
     }
 
     public function destroy(
@@ -476,5 +507,31 @@ class PatientController extends Controller
         $patient->setAttribute('patient_type_label', $patient->patient_type->label());
 
         return $patient;
+    }
+
+    /**
+     * Site-wide counters shown above the directory. They are deliberately
+     * unfiltered: they describe the whole record base so the operator can
+     * read the current situation at a glance, then use them as shortcuts
+     * into the very filters the list already supports.
+     *
+     * @return array<string, int>
+     */
+    private function directorySummary(): array
+    {
+        $emergency = fn ($episode) => $episode
+            ->where('priority', EpisodePriority::Emergency->value)
+            ->where('status', EpisodeStatus::Open->value);
+
+        return [
+            'total' => Patient::query()->count(),
+            'emergency' => Patient::query()->whereHas('episodes', $emergency)->count(),
+            'in_progress' => Patient::query()
+                ->whereHas('episodes', fn ($episode) => $episode->where('status', EpisodeStatus::Open->value))
+                ->count(),
+            'created_this_month' => Patient::query()
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->count(),
+        ];
     }
 }

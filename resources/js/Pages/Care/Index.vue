@@ -48,6 +48,50 @@ watch(query, (value) => {
     debounceTimer = setTimeout(() => visit(buildParams({ q: value || undefined })), 350);
 });
 
+const isEmergency = (orientation) => orientation.episode.priority === 'EMERGENCY';
+
+// What a queue is actually read for: how long this patient has been waiting
+// to be taken, then how long the care has been running once accepted.
+const elapsedFrom = (orientation) => (orientation.status === 'IN_PROGRESS'
+    ? orientation.accepted_at
+    : orientation.oriented_at) ?? orientation.episode.started_at;
+const elapsedMinutes = (orientation) => {
+    const from = elapsedFrom(orientation);
+
+    return from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 60000)) : null;
+};
+const elapsedLabel = (orientation) => {
+    const minutes = elapsedMinutes(orientation);
+
+    if (minutes === null) return '—';
+    if (minutes < 60) return `${minutes} min`;
+
+    const hours = Math.floor(minutes / 60);
+
+    return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60}`;
+};
+// Service-level cue, not a clinical one: it flags a queue that is getting
+// long, and never blocks or ranks anything. Thresholds are deliberately
+// plain (30 min / 1 h) — no clinical threshold is invented here.
+const elapsedTone = (orientation) => {
+    const minutes = elapsedMinutes(orientation);
+
+    if (orientation.status !== 'PENDING' || minutes === null) return 'text-slate-600 dark:text-slate-300';
+    if (minutes >= 60) return 'text-red-600 dark:text-red-300';
+    if (minutes >= 30) return 'text-amber-600 dark:text-amber-300';
+
+    return 'text-slate-600 dark:text-slate-300';
+};
+const statusPillClass = (status) => ({
+    PENDING: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+    IN_PROGRESS: 'bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300',
+    COMPLETED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+}[status] ?? 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300');
+const patientDetails = (patient) => [
+    patient.age !== null && patient.age !== undefined ? `${patient.age} ans` : null,
+    patient.sex === 'F' ? 'F' : patient.sex === 'M' ? 'M' : null,
+].filter(Boolean).join(' · ');
+
 const designationSummary = (orientation) => {
     const items = orientation.episode.designations ?? [];
 
@@ -160,13 +204,24 @@ const openGroup = ref(null);
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Passage</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Demande connue</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Arrivée</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Attente</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Statut</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                        <tr v-for="group in groupedRows" :key="group.patient.uuid" class="hover:bg-gray-50/70 dark:hover:bg-gray-1000/40">
+                        <tr
+                            v-for="group in groupedRows"
+                            :key="group.patient.uuid"
+                            :class="[
+                                'hover:bg-gray-50/70 dark:hover:bg-gray-1000/40',
+                                // Triage reads first: an emergency is a red edge on the row,
+                                // not a small dot lost in a middle column.
+                                group.orientations.some(isEmergency)
+                                    ? 'border-s-4 border-s-red-500 bg-red-50/40 dark:bg-red-950/10'
+                                    : 'border-s-4 border-s-transparent',
+                            ]"
+                        >
                             <td class="px-5 py-3">
                                 <span v-if="group.orientations.length === 1 && group.orientations[0].queue_number" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ group.orientations[0].queue_number }}</span>
                                 <span v-else class="text-slate-300 dark:text-slate-700">—</span>
@@ -179,7 +234,7 @@ const openGroup = ref(null);
                                             {{ formatPatientName(group.patient) }}
                                         </Link>
                                         <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(group.patient) }}</span>
-                                        <span class="inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ group.patient.patient_number }}</span>
+                                        <span class="inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ group.patient.patient_number }}<template v-if="patientDetails(group.patient)"> · {{ patientDetails(group.patient) }}</template></span>
                                     </div>
                                 </div>
                             </td>
@@ -187,28 +242,23 @@ const openGroup = ref(null);
                             <template v-if="group.orientations.length === 1">
                                 <td class="px-5 py-3">
                                     <span class="font-mono text-sm font-semibold text-slate-600 dark:text-slate-300">{{ group.orientations[0].episode.episode_number }}</span>
-                                    <span :class="['mt-1 flex items-center gap-1.5 text-xs font-semibold', group.orientations[0].episode.priority === 'EMERGENCY' ? 'text-red-600 dark:text-red-300' : 'text-slate-400']">
-                                        <span :class="['h-1.5 w-1.5 rounded-full', group.orientations[0].episode.priority === 'EMERGENCY' ? 'bg-red-500' : 'bg-slate-300']" />
-                                        {{ group.orientations[0].episode.priority === 'EMERGENCY' ? 'Urgence' : 'Normal' }}
-                                    </span>
+                                    <span v-if="isEmergency(group.orientations[0])" class="mt-1 inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-950/50 dark:text-red-300"><Icon name="activity" />Urgence</span>
                                 </td>
                                 <td class="max-w-[310px] px-5 py-3 text-sm text-slate-500 dark:text-slate-300">
-                                    {{ designationSummary(group.orientations[0]) }}
+                                    <p class="line-clamp-2">{{ designationSummary(group.orientations[0]) }}</p>
+                                    <span v-if="group.orientations[0].episode.care_requires_allergy_check" class="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><Icon name="alert-circle" />Vérifier les allergies</span>
                                 </td>
                                 <td class="px-5 py-3">
-                                    <span class="block text-sm text-slate-600 dark:text-slate-300">{{ formatDateTime(group.orientations[0].episode.started_at) }}</span>
-                                    <span class="text-xs text-slate-400">{{ formatRelativeTime(group.orientations[0].episode.started_at) }}</span>
+                                    <span :class="['block text-base font-bold tabular-nums', elapsedTone(group.orientations[0])]">{{ elapsedLabel(group.orientations[0]) }}</span>
+                                    <span class="text-xs text-slate-400">{{ group.orientations[0].status === 'IN_PROGRESS' ? 'en charge' : group.orientations[0].status === 'COMPLETED' ? 'depuis la fin' : "d’attente" }} · {{ formatDateTime(elapsedFrom(group.orientations[0])) }}</span>
                                 </td>
                                 <td class="px-5 py-3">
-                                    <span class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
-                                        <span :class="['h-1.5 w-1.5 rounded-full', group.orientations[0].status === 'IN_PROGRESS' ? 'bg-primary-500' : group.orientations[0].status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-amber-500']" />
-                                        {{ group.orientations[0].status_label }}
-                                    </span>
+                                    <span :class="['inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold', statusPillClass(group.orientations[0].status)]">{{ group.orientations[0].status_label }}</span>
                                     <span v-if="group.orientations[0].accepted_by" class="mt-1 block text-xs text-slate-400">par {{ group.orientations[0].accepted_by }}</span>
                                 </td>
                                 <td class="px-5 py-3 text-end">
                                     <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll>
-                                        <Button size="sm" variant="white-outline">Prendre en charge</Button>
+                                        <Button size="sm" variant="primary"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
                                     </Link>
                                     <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="group.orientations[0].status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ group.orientations[0].status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
                                 </td>
@@ -247,17 +297,27 @@ const openGroup = ref(null);
             </div>
 
             <div class="divide-y divide-gray-200 md:hidden dark:divide-gray-900">
-                <article v-for="group in groupedRows" :key="group.patient.uuid" class="p-4">
+                <article
+                    v-for="group in groupedRows"
+                    :key="group.patient.uuid"
+                    :class="['border-s-4 p-4', group.orientations.some(isEmergency) ? 'border-s-red-500 bg-red-50/40 dark:bg-red-950/10' : 'border-s-transparent']"
+                >
                     <div class="flex items-start gap-3">
                         <span v-if="group.orientations.length === 1 && group.orientations[0].queue_number" class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ group.orientations[0].queue_number }}</span>
                         <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(group.patient)" />
                         <div class="min-w-0 flex-1">
                             <p class="font-bold text-slate-700 dark:text-white">{{ formatPatientName(group.patient) }}</p>
                             <template v-if="group.orientations.length === 1">
-                                <p class="mt-0.5 text-xs text-slate-400">{{ group.orientations[0].episode.episode_number }} · {{ formatRelativeTime(group.orientations[0].episode.started_at) }}</p>
+                                <p class="mt-0.5 text-xs text-slate-400">{{ group.orientations[0].episode.episode_number }}<template v-if="patientDetails(group.patient)"> · {{ patientDetails(group.patient) }}</template></p>
+                                <div class="mt-2 flex flex-wrap items-center gap-2">
+                                    <span :class="['inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold', statusPillClass(group.orientations[0].status)]">{{ group.orientations[0].status_label }}</span>
+                                    <span :class="['text-sm font-bold tabular-nums', elapsedTone(group.orientations[0])]">{{ elapsedLabel(group.orientations[0]) }}</span>
+                                    <span v-if="isEmergency(group.orientations[0])" class="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold uppercase text-red-700 dark:bg-red-950/50 dark:text-red-300"><Icon name="activity" />Urgence</span>
+                                </div>
                                 <p class="mt-3 text-sm text-slate-500">{{ designationSummary(group.orientations[0]) }}</p>
+                                <span v-if="group.orientations[0].episode.care_requires_allergy_check" class="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><Icon name="alert-circle" />Vérifier les allergies</span>
                                 <div class="mt-4">
-                                    <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="white-outline">Prendre en charge</Button></Link>
+                                    <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="primary"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button></Link>
                                     <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" block size="sm" variant="white-outline"><Icon class="text-base" :name="group.orientations[0].status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ group.orientations[0].status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
                                 </div>
                             </template>
@@ -303,14 +363,15 @@ const openGroup = ref(null);
                                 <div class="flex flex-wrap items-center gap-2">
                                     <span class="font-mono text-sm font-semibold text-slate-700 dark:text-white">{{ orientation.episode.episode_number }}</span>
                                     <span v-if="orientation.episode.priority === 'EMERGENCY'" class="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-red-600 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span>
-                                    <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-300"><span :class="['h-1.5 w-1.5 rounded-full', orientation.status === 'IN_PROGRESS' ? 'bg-primary-500' : orientation.status === 'COMPLETED' ? 'bg-emerald-500' : 'bg-amber-500']" />{{ orientation.status_label }}</span>
+                                    <span :class="['inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold', statusPillClass(orientation.status)]">{{ orientation.status_label }}</span>
+                                    <span :class="['text-xs font-bold tabular-nums', elapsedTone(orientation)]">{{ elapsedLabel(orientation) }}</span>
                                 </div>
                                 <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">{{ designationSummary(orientation) }}</p>
                                 <p class="mt-1 text-xs text-slate-400">{{ formatDateTime(orientation.episode.started_at) }} · {{ formatRelativeTime(orientation.episode.started_at) }}<template v-if="orientation.accepted_by"> · par {{ orientation.accepted_by }}</template></p>
                             </div>
                             <div class="shrink-0">
                                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
-                                    <Button size="sm" variant="white-outline">Prendre en charge</Button>
+                                    <Button size="sm" variant="primary"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
                                 </Link>
                                 <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="orientation.status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
                             </div>

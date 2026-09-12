@@ -102,6 +102,63 @@ class PatientControllerTest extends TestCase
             );
     }
 
+    public function test_index_exposes_the_directory_activity_signals_and_summary(): void
+    {
+        Carbon::setTestNow('2026-09-10 10:00:00');
+
+        $user = $this->userWithPermissions(['patients.view']);
+        $visited = Patient::create(['patient_number' => 'M-26-0001', ...$this->patientData(['last_name' => 'Rakoto'])]);
+        $neverVisited = Patient::create(['patient_number' => 'M-26-0002', ...$this->patientData(['last_name' => 'Rasoa'])]);
+
+        Episode::create([
+            'patient_id' => $visited->id,
+            'episode_number' => 'M-26-0001-01',
+            'status' => 'CLOSED',
+            'priority' => 'NORMAL',
+            'administrative_status' => 'ORIENTED',
+            'started_at' => '2026-09-01 08:00:00',
+            'created_by' => $user->id,
+        ]);
+        Episode::create([
+            'patient_id' => $visited->id,
+            'episode_number' => 'M-26-0001-02',
+            'status' => 'OPEN',
+            'priority' => 'NORMAL',
+            'administrative_status' => 'ORIENTED',
+            'started_at' => '2026-09-08 09:30:00',
+            'created_by' => $user->id,
+        ]);
+        // A cancelled passage is not a visit — it must not become the
+        // patient's "last visit" nor inflate the passage count.
+        Episode::create([
+            'patient_id' => $visited->id,
+            'episode_number' => 'M-26-0001-03',
+            'status' => 'CANCELLED',
+            'priority' => 'NORMAL',
+            'administrative_status' => 'ORIENTED',
+            'started_at' => '2026-09-09 15:00:00',
+            'created_by' => $user->id,
+        ]);
+
+        $this->actingAs($user)->get('/patients')
+            ->assertInertia(fn ($page) => $page
+                ->component('Patients/Index')
+                ->where('patients.data.1.uuid', $visited->uuid)
+                ->where('patients.data.1.open_episodes_count', 1)
+                ->where('patients.data.1.episodes_count', 2)
+                ->where('patients.data.1.last_visit_at', Carbon::parse('2026-09-08 09:30:00')->toIso8601String())
+                ->where('patients.data.0.uuid', $neverVisited->uuid)
+                ->where('patients.data.0.open_episodes_count', 0)
+                ->where('patients.data.0.last_visit_at', null)
+                ->where('summary.total', 2)
+                ->where('summary.emergency', 0)
+                ->where('summary.in_progress', 1)
+                ->where('summary.created_this_month', 2)
+            );
+
+        Carbon::setTestNow();
+    }
+
     public function test_index_supports_the_type_and_emergency_filters(): void
     {
         $user = $this->userWithPermissions(['patients.view']);

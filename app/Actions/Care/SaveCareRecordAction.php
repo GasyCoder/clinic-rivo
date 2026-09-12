@@ -16,6 +16,7 @@ use App\Enums\InvoiceStatus;
 use App\Models\AllergenReference;
 use App\Models\CareOrderItem;
 use App\Models\CareRecord;
+use App\Models\CareRecordDraft;
 use App\Models\CatalogItem;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
@@ -38,6 +39,7 @@ class SaveCareRecordAction
         private readonly CareWorkflow $careWorkflow,
         private readonly RecordBillableItemAction $recordBillableItem,
         private readonly AttachBillableItemToUnpaidInvoiceAction $attachToUnpaidInvoice,
+        private readonly RequestCareConsumablesAction $requestConsumables,
     ) {}
 
     /**
@@ -65,6 +67,14 @@ class SaveCareRecordAction
             $this->guardWorkflowFields($locked->episode, $data);
 
             $procedures = collect($data['procedures'] ?? []);
+            $consumables = collect($data['consumables'] ?? [])
+                ->filter(fn ($line) => filled($line['medicine_uuid'] ?? null))
+                ->values();
+
+            if ($consumables->isNotEmpty() && ! $actor->can('care_consumables.request')) {
+                throw new AuthorizationException('Vous ne pouvez pas déclarer de consommables aux Soins.');
+            }
+
             $attributes = $this->recordAttributes($data);
             $attributes = $this->appendAllergyAttributes(
                 $attributes,
@@ -76,6 +86,7 @@ class SaveCareRecordAction
 
             if ($locked->episode->careRecord === null
                 && $procedures->isEmpty()
+                && $consumables->isEmpty()
                 && collect($attributes)->every(fn ($value) => $value === null)) {
                 throw ValidationException::withMessages([
                     'care_record' => 'Renseignez au moins une information ou un acte réalisé.',
@@ -107,6 +118,29 @@ class SaveCareRecordAction
                     ->where('care_requires_allergy_check', true)
                     ->pluck('catalog_item_uuid'),
             );
+
+            // ADR-072 — the material used is part of the same gesture as the
+            // act: one submission, one save. Declaring it here is what
+            // notifies Pharmacy, so it can never be lost by finishing the
+            // visit before a second, separate button was pressed.
+            if ($consumables->isNotEmpty()) {
+                $this->requestConsumables->execute(
+                    $locked,
+                    [
+                        'lines' => $consumables->all(),
+                        'notes' => $data['consumable_notes'] ?? null,
+                    ],
+                    $actor,
+                    $record,
+                );
+            }
+
+            // The typing has become a real record: its draft has no reason
+            // to survive and must never be restored over saved data.
+            CareRecordDraft::query()
+                ->where('episode_orientation_id', $locked->getKey())
+                ->where('created_by', $actor->getKey())
+                ->delete();
 
             return $record->fresh(['procedures.performer', 'creator', 'updater']);
         });

@@ -91,6 +91,18 @@ class CatalogItem extends Model
         return $this->hasMany(AnalysisCatalog::class)->orderBy('display_order')->orderBy('designation');
     }
 
+    /**
+     * ADR-072 — material usually consumed by this nursing act, offered as a
+     * suggestion when a nurse records it. Configuration, never a rule: the
+     * nurse always confirms what was really used.
+     */
+    public function defaultConsumables(): HasMany
+    {
+        return $this->hasMany(CareActConsumable::class)
+            ->orderBy('position')
+            ->orderBy('id');
+    }
+
     public function medicine(): HasOne
     {
         return $this->hasOne(Medicine::class);

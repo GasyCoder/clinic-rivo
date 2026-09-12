@@ -8,6 +8,7 @@ import CheckBox from '@/Components/UI/CheckBox.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({
@@ -18,6 +19,7 @@ const props = defineProps({
     patients: Object,
     search: String,
     filters: Object,
+    summary: Object,
 });
 
 const { can } = usePermissions();
@@ -54,6 +56,53 @@ const submitFilters = () => {
         type: typeFilter.value || undefined,
         emergency: emergencyFilter.value || undefined,
     }, { preserveState: true, replace: true });
+};
+
+const TYPE_LABELS = {
+    STANDARD: 'Standard',
+    MUTUAL: 'Mutuelle',
+    STAFF: 'Personnel',
+};
+const EMERGENCY_LABELS = {
+    active: 'Urgence en cours',
+    none: 'Sans urgence',
+};
+
+const activeFilters = computed(() => {
+    const chips = [];
+
+    if (query.value) {
+        chips.push({ key: 'q', label: `« ${query.value} »` });
+    }
+    if (typeFilter.value) {
+        chips.push({ key: 'type', label: TYPE_LABELS[typeFilter.value] ?? typeFilter.value });
+    }
+    if (emergencyFilter.value) {
+        chips.push({ key: 'emergency', label: EMERGENCY_LABELS[emergencyFilter.value] ?? emergencyFilter.value });
+    }
+
+    return chips;
+});
+
+const clearFilter = (key) => {
+    if (key === 'q') query.value = '';
+    if (key === 'type') typeFilter.value = '';
+    if (key === 'emergency') emergencyFilter.value = '';
+
+    submitFilters();
+};
+
+const resetFilters = () => {
+    query.value = '';
+    typeFilter.value = '';
+    emergencyFilter.value = '';
+    submitFilters();
+};
+
+/** Jumps from the "Urgence en cours" counter straight into its own filter. */
+const focusEmergencies = () => {
+    emergencyFilter.value = 'active';
+    submitFilters();
 };
 
 const setViewMode = (mode) => {
@@ -145,18 +194,114 @@ const confirmDelete = () => {
     }, options);
 };
 
-const sexLabel = (sex) => (sex === 'M' ? 'Masculin' : 'Féminin');
-const patientTypeLabels = {
-    STANDARD: 'Standard',
-    MUTUAL: 'Mutuelle',
-    STAFF: 'Personnel',
-};
-const patientTypeLabel = (patient) => patientTypeLabels[patient.patient_type] ?? 'Standard';
-const patientAgeSummary = (patient) => {
-    const age = patient.age ?? patient.declared_age;
+const SEX_LABELS = { M: 'Homme', F: 'Femme' };
+const sexLabel = (patient) => SEX_LABELS[patient.sex] ?? 'Sexe non renseigné';
+const patientTypeLabel = (patient) => TYPE_LABELS[patient.patient_type] ?? 'Standard';
 
-    return age !== null && age !== undefined && age !== '' ? `${age} ans` : 'Non renseigné';
+/**
+ * "Femme · 35 ans" — sex and age are read together in practice, so they
+ * share one column instead of two nearly empty ones.
+ */
+const patientProfile = (patient) => {
+    const age = patient.age ?? patient.declared_age;
+    const ageLabel = age !== null && age !== undefined && age !== ''
+        ? `${age} an${age > 1 ? 's' : ''}`
+        : 'âge non renseigné';
+
+    return `${sexLabel(patient)} · ${ageLabel}`;
 };
+
+const ageIsDeclared = (patient) => !patient.birth_date && (patient.declared_age ?? null) !== null;
+
+/**
+ * Three mutually exclusive states, ordered by how much they demand the
+ * operator's attention. "Passage en cours" only means an OPEN episode
+ * exists — never a clinical assessment of the patient.
+ */
+const presenceState = (patient) => {
+    if (patient.active_emergency_episodes_count > 0) {
+        return {
+            label: 'Urgence',
+            tone: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300',
+            dot: 'bg-red-500',
+        };
+    }
+
+    if (patient.open_episodes_count > 0) {
+        return {
+            label: 'Passage en cours',
+            tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+            dot: 'bg-amber-500',
+        };
+    }
+
+    return {
+        label: 'Aucun passage ouvert',
+        tone: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
+        dot: 'bg-slate-300 dark:bg-slate-600',
+    };
+};
+
+const isEmergency = (patient) => patient.active_emergency_episodes_count > 0;
+const rowAccent = (patient) => (isEmergency(patient)
+    ? 'border-l-2 border-l-red-500'
+    : 'border-l-2 border-l-transparent');
+
+const lastVisitLabel = (patient) => (patient.last_visit_at
+    ? formatRelativeTime(patient.last_visit_at)
+    : 'Aucune visite');
+const lastVisitTitle = (patient) => (patient.last_visit_at
+    ? formatDateTime(patient.last_visit_at)
+    : 'Ce dossier n’a encore aucun passage enregistré');
+const visitCountLabel = (patient) => {
+    const count = patient.episodes_count ?? 0;
+
+    return count > 0 ? `${count} passage${count > 1 ? 's' : ''}` : null;
+};
+
+const summaryTiles = computed(() => [
+    {
+        key: 'total',
+        label: 'Dossiers patients',
+        value: props.summary?.total ?? props.patients.total,
+        icon: 'users',
+        tone: 'bg-slate-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300',
+    },
+    {
+        key: 'emergency',
+        label: 'Urgence en cours',
+        value: props.summary?.emergency ?? 0,
+        icon: 'alert-circle',
+        tone: 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300',
+        action: (props.summary?.emergency ?? 0) > 0 ? focusEmergencies : null,
+    },
+    {
+        key: 'in_progress',
+        label: 'Passages en cours',
+        value: props.summary?.in_progress ?? 0,
+        icon: 'activity',
+        tone: 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-300',
+    },
+    {
+        key: 'created_this_month',
+        label: 'Nouveaux ce mois',
+        value: props.summary?.created_this_month ?? 0,
+        icon: 'user-add',
+        tone: 'bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300',
+    },
+]);
+
+const rangeLabel = computed(() => {
+    const { from, to, total } = props.patients;
+
+    if (!total) {
+        return 'Aucun résultat';
+    }
+
+    return `${from}–${to} sur ${total}`;
+});
+
+const selectClass = 'h-9 appearance-none bg-none rounded border border-gray-200 bg-white ps-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950';
 
 watch(
     () => currentPageUuids.value.join(','),
@@ -169,12 +314,12 @@ watch(
 <template>
     <Head title="Patients" />
 
-    <div class="w-full space-y-5">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div class="w-full space-y-4">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
                 <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">Patients</h1>
                 <p class="mt-1 text-sm text-slate-500">
-                    {{ patients.total }} dossier{{ patients.total > 1 ? 's' : '' }} patient{{ patients.total > 1 ? 's' : '' }} enregistré{{ patients.total > 1 ? 's' : '' }}.
+                    Répertoire des dossiers administratifs permanents du site.
                 </p>
             </div>
 
@@ -190,43 +335,109 @@ watch(
             </div>
         </div>
 
+        <div class="grid grid-cols-2 divide-gray-200 overflow-hidden rounded-lg border border-gray-200 bg-white dark:divide-gray-900 dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-4 sm:divide-x">
+            <div
+                v-for="tile in summaryTiles"
+                :key="tile.key"
+                class="flex items-center gap-3 border-b border-gray-200 p-4 last:border-b-0 dark:border-gray-900 sm:border-b-0"
+            >
+                <span :class="['flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', tile.tone]">
+                    <Icon class="text-lg" :name="tile.icon" />
+                </span>
+                <div class="min-w-0">
+                    <p class="text-xl font-bold leading-none text-slate-700 dark:text-white">{{ tile.value }}</p>
+                    <p class="mt-1 truncate text-xs text-slate-400">{{ tile.label }}</p>
+                    <button
+                        v-if="tile.action"
+                        type="button"
+                        class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline dark:text-red-300"
+                        @click="tile.action()"
+                    >
+                        Filtrer<Icon class="text-xs" name="chevron-right" />
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:px-5">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                        <form class="relative w-full sm:max-w-xs sm:flex-1" role="search" @submit.prevent="submitFilters">
-                            <Input v-model="query" icon="start" type="search" placeholder="Nom, numéro patient ou téléphone" autocomplete="off" />
-                            <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400" aria-label="Rechercher">
-                                <Icon class="text-lg/4.5" name="search" />
-                            </button>
-                        </form>
-                        <span class="relative"><select v-model="typeFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Tous les types</option><option value="STANDARD">Standard</option><option value="MUTUAL">Mutuelle</option><option value="STAFF">Personnel</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
-                        <span class="relative"><select v-model="emergencyFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" @change="submitFilters"><option value="">Toute priorité</option><option value="active">Urgence en cours</option><option value="none">Normal</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <form class="relative w-full lg:max-w-sm lg:flex-1" role="search" @submit.prevent="submitFilters">
+                        <Input v-model="query" icon="start" type="search" placeholder="Nom, numéro patient ou téléphone" autocomplete="off" />
+                        <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400 hover:text-slate-600" aria-label="Rechercher">
+                            <Icon class="text-lg/4.5" name="search" />
+                        </button>
+                    </form>
+
+                    <div class="flex flex-1 flex-wrap items-center gap-2">
+                        <span class="relative">
+                            <select v-model="typeFilter" :class="selectClass" aria-label="Filtrer par type de dossier" @change="submitFilters">
+                                <option value="">Tous les types</option>
+                                <option value="STANDARD">Standard</option>
+                                <option value="MUTUAL">Mutuelle</option>
+                                <option value="STAFF">Personnel</option>
+                            </select>
+                            <span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span>
+                        </span>
+                        <span class="relative">
+                            <select v-model="emergencyFilter" :class="selectClass" aria-label="Filtrer par priorité" @change="submitFilters">
+                                <option value="">Toute priorité</option>
+                                <option value="active">Urgence en cours</option>
+                                <option value="none">Sans urgence</option>
+                            </select>
+                            <span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span>
+                        </span>
                     </div>
 
-                    <div class="inline-flex shrink-0 self-start rounded-md border border-gray-200 p-0.5 dark:border-gray-800 sm:self-auto" role="group" aria-label="Mode d’affichage">
-                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'list' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue liste" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">
-                            <Icon class="text-lg" name="list" />
-                        </button>
-                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'grid' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue grille" :aria-pressed="viewMode === 'grid'" @click="setViewMode('grid')">
-                            <Icon class="text-lg" name="grid-alt" />
-                        </button>
+                    <div class="flex items-center justify-between gap-3 lg:justify-end">
+                        <span class="text-xs font-medium text-slate-400">{{ rangeLabel }}</span>
+                        <div class="inline-flex shrink-0 rounded-md border border-gray-200 p-0.5 dark:border-gray-800" role="group" aria-label="Mode d’affichage">
+                            <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'list' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue liste" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">
+                                <Icon class="text-lg" name="list" />
+                            </button>
+                            <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', viewMode === 'grid' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue grille" :aria-pressed="viewMode === 'grid'" @click="setViewMode('grid')">
+                                <Icon class="text-lg" name="grid-alt" />
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div v-if="canDeletePatient && selectedUuids.length" class="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2 dark:border-gray-800">
-                    <span class="text-xs font-bold text-slate-600 dark:text-slate-300">
-                        {{ selectedUuids.length }} sélectionné{{ selectedUuids.length > 1 ? 's' : '' }}
+                <div v-if="activeFilters.length" class="flex flex-wrap items-center gap-2">
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
+                        <Icon class="text-sm" name="filter" />Filtres
                     </span>
-                    <Button size="sm" variant="danger" type="button" @click="openBulkDeleteDialog">
-                        <Icon class="text-base" name="trash" />
-                        <span class="ms-1.5">Supprimer</span>
-                    </Button>
+                    <button
+                        v-for="chip in activeFilters"
+                        :key="chip.key"
+                        type="button"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 py-1 pe-2 ps-2.5 text-xs font-medium text-slate-600 transition-colors hover:border-red-200 hover:text-red-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-300"
+                        :title="`Retirer le filtre ${chip.label}`"
+                        @click="clearFilter(chip.key)"
+                    >
+                        {{ chip.label }}
+                        <Icon class="text-xs" name="cross" />
+                    </button>
+                    <button type="button" class="text-xs font-semibold text-primary-600 hover:underline dark:text-primary-400" @click="resetFilters">
+                        Tout réinitialiser
+                    </button>
+                </div>
+
+                <div v-if="canDeletePatient && selectedUuids.length" class="flex flex-wrap items-center justify-between gap-3 rounded border border-primary-200 bg-primary-50 px-3 py-2 dark:border-primary-950 dark:bg-primary-950/30">
+                    <span class="text-xs font-bold text-primary-700 dark:text-primary-300">
+                        {{ selectedUuids.length }} dossier{{ selectedUuids.length > 1 ? 's' : '' }} sélectionné{{ selectedUuids.length > 1 ? 's' : '' }}
+                    </span>
+                    <div class="flex items-center gap-2">
+                        <button type="button" class="text-xs font-semibold text-slate-500 hover:underline" @click="selectedUuids = []">Annuler la sélection</button>
+                        <Button size="sm" variant="danger" type="button" @click="openBulkDeleteDialog">
+                            <Icon class="text-base" name="trash" />
+                            <span class="ms-1.5">Supprimer</span>
+                        </Button>
+                    </div>
                 </div>
             </div>
 
             <div v-if="viewMode === 'list'" class="overflow-x-auto">
-                <table class="w-full min-w-[1080px] border-collapse">
+                <table class="w-full min-w-[960px] border-collapse">
                     <caption class="sr-only">Liste des patients</caption>
                     <thead>
                         <tr class="bg-gray-50/70 dark:bg-gray-1000/40">
@@ -241,10 +452,9 @@ watch(
                             </th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Type</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Sexe</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Âge</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Téléphone</th>
-                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Priorité</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Profil</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Dernière visite</th>
+                            <th class="border-b border-gray-200 px-5 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Statut</th>
                             <th class="border-b border-gray-200 px-5 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Actions</th>
                         </tr>
                     </thead>
@@ -252,9 +462,9 @@ watch(
                         <tr
                             v-for="patient in patients.data"
                             :key="patient.uuid"
-                            class="transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000"
+                            :class="['transition-colors', isEmergency(patient) ? 'bg-red-50/40 hover:bg-red-50/70 dark:bg-red-950/10 dark:hover:bg-red-950/20' : 'hover:bg-gray-50/70 dark:hover:bg-gray-1000']"
                         >
-                            <td v-if="canDeletePatient" class="border-b border-gray-200 px-4 py-3 text-center dark:border-gray-900">
+                            <td v-if="canDeletePatient" :class="['border-b border-gray-200 px-4 py-3 text-center dark:border-gray-900', rowAccent(patient)]">
                                 <CheckBox
                                     :id="`patient-${patient.uuid}`"
                                     size="sm"
@@ -263,12 +473,12 @@ watch(
                                     @update:model-value="togglePatient(patient.uuid, $event)"
                                 />
                             </td>
-                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <div class="flex min-w-[230px] items-center gap-3">
+                            <td :class="['border-b border-gray-200 px-5 py-3 dark:border-gray-900', canDeletePatient ? '' : rowAccent(patient)]">
+                                <div class="flex min-w-[240px] items-center gap-3">
                                     <Avatar
                                         rounded
                                         size="sm"
-                                        variant="slate-pale"
+                                        :variant="isEmergency(patient) ? 'danger-pale' : 'slate-pale'"
                                         :text="formatPatientInitials(patient)"
                                         aria-hidden="true"
                                     />
@@ -279,26 +489,33 @@ watch(
                                         <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">
                                             {{ formatPatientName(patient) }}
                                         </span>
-                                        <span class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ patient.patient_number }}</span>
+                                        <span class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
+                                            <span class="inline-flex items-center gap-1 font-medium"><Icon class="text-sm" name="folder" />{{ patient.patient_number }}</span>
+                                            <a v-if="patient.phone" :href="`tel:${patient.phone}`" class="inline-flex items-center gap-1 hover:text-primary-600 dark:hover:text-primary-400">
+                                                <Icon class="text-sm" name="call" />{{ patient.phone }}
+                                            </a>
+                                            <span v-else class="inline-flex items-center gap-1 italic"><Icon class="text-sm" name="call" />Sans téléphone</span>
+                                        </span>
                                     </div>
                                 </div>
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <span class="inline-flex rounded border border-gray-200 px-2 py-1 text-xs font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">
+                                <span class="inline-flex rounded border border-gray-200 px-2 py-1 text-xs font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300" :title="patient.patient_type_label">
                                     {{ patientTypeLabel(patient) }}
                                 </span>
                             </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ sexLabel(patient.sex) }}</td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">
-                                {{ patientAgeSummary(patient) }}
-                            </td>
-                            <td class="border-b border-gray-200 px-5 py-3 text-sm text-slate-500 dark:border-gray-900">{{ patient.phone ?? '—' }}</td>
                             <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                                <span v-if="patient.active_emergency_episodes_count > 0" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-1 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence
-                                </span>
-                                <span v-else class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Normal
+                                <span class="text-sm text-slate-600 dark:text-slate-300">{{ patientProfile(patient) }}</span>
+                                <span v-if="ageIsDeclared(patient)" class="mt-0.5 block text-xs text-slate-400">âge déclaré</span>
+                            </td>
+                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                                <span class="text-sm text-slate-600 dark:text-slate-300" :title="lastVisitTitle(patient)">{{ lastVisitLabel(patient) }}</span>
+                                <span v-if="visitCountLabel(patient)" class="mt-0.5 block text-xs text-slate-400">{{ visitCountLabel(patient) }}</span>
+                            </td>
+                            <td class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+                                <span :class="['inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-1 text-xs font-semibold', presenceState(patient).tone]">
+                                    <span :class="['h-1.5 w-1.5 rounded-full', presenceState(patient).dot]"></span>
+                                    {{ presenceState(patient).label }}
                                 </span>
                             </td>
                             <td class="border-b border-gray-200 px-5 py-3 text-end dark:border-gray-900">
@@ -307,13 +524,12 @@ watch(
                                         v-if="canViewPatient"
                                         :as="Link"
                                         :href="`/patients/${patient.uuid}`"
-                                        icon
                                         size="sm"
                                         variant="white-outline"
-                                        :aria-label="`Voir ${formatPatientName(patient)}`"
-                                        title="Voir le dossier"
+                                        :aria-label="`Ouvrir le dossier de ${formatPatientName(patient)}`"
                                     >
                                         <Icon class="text-base" name="eye" />
+                                        <span class="ms-1.5">Ouvrir</span>
                                     </Button>
                                     <Button
                                         v-if="canUpdatePatient && patient.patient_type !== 'STAFF'"
@@ -323,7 +539,7 @@ watch(
                                         size="sm"
                                         variant="white-outline"
                                         :aria-label="`Modifier ${formatPatientName(patient)}`"
-                                        title="Modifier le patient"
+                                        title="Modifier le dossier"
                                     >
                                         <Icon class="text-base" name="edit" />
                                     </Button>
@@ -334,7 +550,7 @@ watch(
                                         variant="danger-outline"
                                         type="button"
                                         :aria-label="`Supprimer ${formatPatientName(patient)}`"
-                                        title="Supprimer le patient"
+                                        title="Archiver le dossier"
                                         @click="openDeleteDialog([patient])"
                                     >
                                         <Icon class="text-base" name="trash" />
@@ -344,12 +560,16 @@ watch(
                         </tr>
 
                         <tr v-if="patients.data.length === 0">
-                            <td :colspan="canDeletePatient ? 8 : 7" class="px-5 py-12 text-center">
+                            <td :colspan="canDeletePatient ? 7 : 6" class="px-5 py-12 text-center">
                                 <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900">
                                     <Icon class="text-xl" name="users" />
                                 </span>
                                 <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun patient trouvé</p>
                                 <p class="mt-1 text-xs text-slate-400">Modifiez votre recherche ou enregistrez une nouvelle arrivée.</p>
+                                <Button v-if="activeFilters.length" class="mt-4" size="sm" variant="white-outline" type="button" @click="resetFilters">
+                                    <Icon class="text-base" name="reload" />
+                                    <span class="ms-1.5">Réinitialiser les filtres</span>
+                                </Button>
                             </td>
                         </tr>
                     </tbody>
@@ -363,38 +583,66 @@ watch(
                     </span>
                     <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun patient trouvé</p>
                     <p class="mt-1 text-xs text-slate-400">Modifiez votre recherche ou enregistrez une nouvelle arrivée.</p>
+                    <Button v-if="activeFilters.length" class="mt-4" size="sm" variant="white-outline" type="button" @click="resetFilters">
+                        <Icon class="text-base" name="reload" />
+                        <span class="ms-1.5">Réinitialiser les filtres</span>
+                    </Button>
                 </div>
-                <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    <article v-for="patient in patients.data" :key="patient.uuid" class="flex flex-col gap-3 rounded-lg border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-800 dark:hover:border-gray-700">
+                <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <article
+                        v-for="patient in patients.data"
+                        :key="patient.uuid"
+                        :class="[
+                            'flex flex-col gap-3 rounded-lg border border-s-2 p-4 transition-colors',
+                            isEmergency(patient)
+                                ? 'border-red-200 border-s-red-500 bg-red-50/40 dark:border-red-900 dark:bg-red-950/10'
+                                : 'border-gray-200 border-s-transparent hover:border-gray-300 dark:border-gray-800 dark:hover:border-gray-700',
+                        ]"
+                    >
                         <div class="flex items-start justify-between gap-2">
                             <div class="flex min-w-0 items-center gap-3">
-                                <Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(patient)" aria-hidden="true" />
+                                <Avatar rounded size="sm" :variant="isEmergency(patient) ? 'danger-pale' : 'slate-pale'" :text="formatPatientInitials(patient)" aria-hidden="true" />
                                 <div class="min-w-0">
                                     <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">{{ formatPatientName(patient) }}</Link>
                                     <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(patient) }}</span>
-                                    <span class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400"><Icon class="text-sm" name="folder" />{{ patient.patient_number }}</span>
+                                    <span class="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-slate-400"><Icon class="text-sm" name="folder" />{{ patient.patient_number }}</span>
                                 </div>
                             </div>
                             <CheckBox v-if="canDeletePatient" :id="`patient-grid-${patient.uuid}`" size="sm" :model-value="selectedUuids.includes(patient.uuid)" :aria-label="`Sélectionner ${formatPatientName(patient)}`" @update:model-value="togglePatient(patient.uuid, $event)" />
                         </div>
 
                         <div class="flex flex-wrap items-center gap-1.5">
-                            <span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">{{ patientTypeLabel(patient) }}</span>
-                            <span v-if="patient.active_emergency_episodes_count > 0" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-xs font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence</span>
+                            <span :class="['inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold', presenceState(patient).tone]">
+                                <span :class="['h-1.5 w-1.5 rounded-full', presenceState(patient).dot]"></span>
+                                {{ presenceState(patient).label }}
+                            </span>
+                            <span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300" :title="patient.patient_type_label">{{ patientTypeLabel(patient) }}</span>
                         </div>
 
                         <dl class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                            <div><dt class="text-slate-400">Sexe</dt><dd class="mt-0.5 font-semibold text-slate-600 dark:text-slate-300">{{ sexLabel(patient.sex) }}</dd></div>
-                            <div><dt class="text-slate-400">Âge</dt><dd class="mt-0.5 font-semibold text-slate-600 dark:text-slate-300">{{ patientAgeSummary(patient) }}</dd></div>
-                            <div class="col-span-2"><dt class="text-slate-400">Téléphone</dt><dd class="mt-0.5 truncate font-semibold text-slate-600 dark:text-slate-300">{{ patient.phone ?? '—' }}</dd></div>
+                            <div class="col-span-2">
+                                <dt class="text-slate-400">Profil</dt>
+                                <dd class="mt-0.5 font-semibold text-slate-600 dark:text-slate-300">{{ patientProfile(patient) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-slate-400">Dernière visite</dt>
+                                <dd class="mt-0.5 font-semibold text-slate-600 dark:text-slate-300" :title="lastVisitTitle(patient)">{{ lastVisitLabel(patient) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-slate-400">Téléphone</dt>
+                                <dd class="mt-0.5 truncate font-semibold text-slate-600 dark:text-slate-300">
+                                    <a v-if="patient.phone" :href="`tel:${patient.phone}`" class="hover:text-primary-600 dark:hover:text-primary-400">{{ patient.phone }}</a>
+                                    <span v-else class="italic text-slate-400">—</span>
+                                </dd>
+                            </div>
                         </dl>
 
                         <div class="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-3 dark:border-gray-900">
-                            <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400"><Icon class="text-sm" name="eye" />Voir le dossier</Link>
+                            <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400"><Icon class="text-sm" name="eye" />Ouvrir le dossier</Link>
                             <span v-else></span>
                             <div class="flex shrink-0 items-center gap-1.5">
-                                <Button v-if="canUpdatePatient && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" icon size="sm" variant="white-outline" :aria-label="`Modifier ${formatPatientName(patient)}`" title="Modifier le patient"><Icon class="text-base" name="edit" /></Button>
-                                <Button v-if="canDeletePatient" icon size="sm" variant="danger-outline" type="button" :aria-label="`Supprimer ${formatPatientName(patient)}`" title="Supprimer le patient" @click="openDeleteDialog([patient])"><Icon class="text-base" name="trash" /></Button>
+                                <Button v-if="canUpdatePatient && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" icon size="sm" variant="white-outline" :aria-label="`Modifier ${formatPatientName(patient)}`" title="Modifier le dossier"><Icon class="text-base" name="edit" /></Button>
+                                <Button v-if="canDeletePatient" icon size="sm" variant="danger-outline" type="button" :aria-label="`Supprimer ${formatPatientName(patient)}`" title="Archiver le dossier" @click="openDeleteDialog([patient])"><Icon class="text-base" name="trash" /></Button>
                             </div>
                         </div>
                     </article>
@@ -402,7 +650,7 @@ watch(
             </div>
 
             <div v-if="patients.last_page > 1" class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 p-4 dark:border-gray-900">
-                <span class="text-xs text-slate-400">Page {{ patients.current_page }} sur {{ patients.last_page }}</span>
+                <span class="text-xs text-slate-400">{{ rangeLabel }} · page {{ patients.current_page }} sur {{ patients.last_page }}</span>
                 <div class="flex flex-wrap items-center gap-1">
                     <template v-for="(link, index) in patients.links" :key="index">
                         <Link
@@ -442,7 +690,14 @@ watch(
                     </div>
                 </div>
 
-                <div class="mt-5">
+                <ul class="mt-4 max-h-32 space-y-1 overflow-y-auto rounded border border-gray-200 p-2 dark:border-gray-800">
+                    <li v-for="target in deleteTargets" :key="target.uuid" class="flex items-center justify-between gap-2 text-xs">
+                        <span class="truncate font-semibold text-slate-600 dark:text-slate-300">{{ formatPatientName(target) }}</span>
+                        <span class="shrink-0 text-slate-400">{{ target.patient_number }}</span>
+                    </li>
+                </ul>
+
+                <div class="mt-4">
                     <label for="delete_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label>
                     <textarea
                         id="delete_reason"

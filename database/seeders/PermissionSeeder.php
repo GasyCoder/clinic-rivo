@@ -345,6 +345,16 @@ class PermissionSeeder extends Seeder
         'care_orders.create' => 'Demander un ordre de soins depuis une consultation',
         'care_orders.view' => 'Voir les ordres de soins',
 
+        // ADR-072 — consommables réellement utilisés aux Soins, notifiés à
+        // la Pharmacie. Distinctes de pharmacy.dispense : servir une
+        // demande Soins ne délivre pas une ordonnance et n'exige aucune
+        // facture réglée. Aucune permission `prescriptions.*` n'est
+        // ajoutée ici : les Soins ne prescrivent jamais.
+        'care_consumables.view' => 'Voir les demandes de consommables Soins',
+        'care_consumables.request' => 'Déclarer des consommables utilisés aux Soins',
+        'care_consumables.serve' => 'Servir une demande de consommables Soins et sortir le stock',
+        'care_consumables.cancel' => 'Annuler une demande de consommables Soins non servie',
+
         // Paraclinique et orientations depuis Médecine. surgery.request est
         // volontairement distincte de surgery.create (jamais accordée à
         // MEDICINE) : demander une intervention n'est pas piloter le

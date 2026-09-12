@@ -350,7 +350,16 @@ const onProfileChange = () => {
     removeProfilePreview();
     form.sync_profile_permissions = false;
 
-    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) return;
+    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) {
+        // Choosing a different profile used to clear the rights and stage
+        // nothing, so the remote site received sync_profile_permissions=false
+        // and saved an account carrying its new job title with none of its
+        // access. Staged straight away instead — still explicit, still
+        // adjustable, and MANUAL decisions are never overwritten.
+        applyProfileRecommendations();
+
+        return;
+    }
 
     for (const override of originalProfileOverrides.value) {
         if (permissionProvenance[override.permission_id]?.source === 'MANUAL') continue;

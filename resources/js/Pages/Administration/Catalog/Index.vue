@@ -21,6 +21,7 @@ const props = defineProps({
     staffCoveragePolicies: Array,
     summary: Object,
     pendingMedicines: { type: Array, default: () => [] },
+    careConsumableOptions: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -32,6 +33,70 @@ const statusFilter = ref(props.filters.status ?? 'active');
 const formOpen = ref(false);
 const editingItem = ref(null);
 const tariffTarget = ref(null);
+
+// ADR-072 — material a nursing act usually consumes, pre-selected for Soins.
+// Pure configuration: it creates no stock movement and no charge by itself.
+const careConsumableTarget = ref(null);
+const careConsumableLines = ref([]);
+const careConsumableSearch = ref('');
+const careConsumableProcessing = ref(false);
+const careConsumableError = ref('');
+
+const isCareAct = (item) => item.type === 'SERVICE' && item.module === 'CARE';
+const openCareConsumables = (item) => {
+    careConsumableTarget.value = item;
+    careConsumableError.value = '';
+    careConsumableSearch.value = '';
+    careConsumableLines.value = (item.default_consumables ?? []).map((line) => ({ ...line }));
+};
+const closeCareConsumables = () => {
+    if (careConsumableProcessing.value) return;
+    careConsumableTarget.value = null;
+};
+const availableCareConsumables = computed(() => {
+    const chosen = new Set(careConsumableLines.value.map((line) => line.medicine_uuid));
+    const term = careConsumableSearch.value.trim().toLowerCase();
+
+    return props.careConsumableOptions.filter((option) => {
+        if (chosen.has(option.medicine_uuid)) return false;
+
+        return !term || `${option.name} ${option.code}`.toLowerCase().includes(term);
+    });
+});
+const addCareConsumable = (option) => {
+    careConsumableLines.value = [...careConsumableLines.value, {
+        medicine_uuid: option.medicine_uuid,
+        code: option.code,
+        name: option.name,
+        unit: option.unit,
+        default_quantity: 1,
+    }];
+};
+const removeCareConsumable = (uuid) => {
+    careConsumableLines.value = careConsumableLines.value.filter((line) => line.medicine_uuid !== uuid);
+};
+const submitCareConsumables = () => {
+    router.put(
+        `/administration/catalog/${careConsumableTarget.value.uuid}/care-consumables`,
+        {
+            consumables: careConsumableLines.value.map((line) => ({
+                medicine_uuid: line.medicine_uuid,
+                default_quantity: Number(line.default_quantity) || 1,
+            })),
+        },
+        {
+            preserveScroll: true,
+            onStart: () => { careConsumableProcessing.value = true; careConsumableError.value = ''; },
+            onSuccess: () => { careConsumableTarget.value = null; },
+            onError: (errors) => {
+                careConsumableError.value = errors.consumables
+                    || errors.catalog_item
+                    || 'La configuration a été refusée.';
+            },
+            onFinish: () => { careConsumableProcessing.value = false; },
+        },
+    );
+};
 const archiveTarget = ref(null);
 const archiveMode = ref('item');
 const archiveTariffCategory = ref('STANDARD');
@@ -450,6 +515,7 @@ const formatDateTime = (value) => value
                                 <div class="inline-flex items-center gap-1">
                                     <button v-if="!item.archived && can('catalog.items.update')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:hover:text-white" title="Modifier" :aria-label="`Modifier ${item.name}`" @click="openEdit(item)"><Icon class="text-base" name="edit" /></button>
                                     <button v-if="!item.archived && item.billable && canSeeTariffs && (can('catalog.tariffs.create') || can('catalog.tariffs.update'))" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:hover:text-white" title="Tarif et historique" :aria-label="`Gérer le tarif de ${item.name}`" @click="openTariff(item)"><Icon class="text-base" name="history" /></button>
+                                    <button v-if="!item.archived && isCareAct(item) && can('catalog.items.update')" type="button" :class="['relative flex h-8 w-8 items-center justify-center rounded border text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:hover:text-white', (item.default_consumables ?? []).length ? 'border-primary-200 text-primary-600 dark:border-primary-900 dark:text-primary-300' : 'border-gray-200 dark:border-gray-800']" title="Matériel habituel de cet acte" :aria-label="`Configurer le matériel habituel de ${item.name}`" @click="openCareConsumables(item)"><Icon class="text-base" name="package" /><span v-if="(item.default_consumables ?? []).length" class="absolute -end-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary-600 px-1 text-[9px] font-bold text-white">{{ item.default_consumables.length }}</span></button>
                                     <button v-if="!item.archived && can('catalog.items.delete')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-red-300 hover:text-red-600 dark:border-gray-800" title="Archiver" :aria-label="`Archiver ${item.name}`" @click="openArchive(item)"><Icon class="text-base" name="archive" /></button>
                                     <button v-if="item.archived && can('catalog.items.restore')" type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:hover:text-white" title="Restaurer" :aria-label="`Restaurer ${item.name}`" @click="restoreItem(item)"><Icon class="text-base" name="reload" /></button>
                                 </div>
@@ -614,6 +680,70 @@ const formatDateTime = (value) => value
                         <Button size="rg" variant="primary" type="submit" :disabled="itemForm.processing"><Icon class="text-lg" name="check" /><span class="ms-2">{{ itemForm.processing ? 'Enregistrement…' : (isEditing ? 'Enregistrer' : 'Créer l’élément') }}</span></Button>
                     </footer>
                 </form>
+            </section>
+        </div>
+
+        <div v-if="careConsumableTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closeCareConsumables">
+            <section class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="care-consumables-title">
+                <header class="flex items-start gap-3 border-b border-gray-200 p-6 dark:border-gray-900">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-600 dark:bg-primary-950 dark:text-primary-300"><Icon class="text-xl" name="package" /></span>
+                    <div class="min-w-0">
+                        <h2 id="care-consumables-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Matériel habituel — {{ careConsumableTarget.name }}</h2>
+                        <p class="mt-1 text-sm leading-5 text-slate-500">
+                            Ce matériel sera <strong>proposé automatiquement</strong> aux Soins dès que cet acte est sélectionné.
+                            L’infirmier confirme, ajuste ou retire toujours ce qui a réellement servi : aucune sortie de stock et aucun montant ne découlent de cette configuration.
+                        </p>
+                    </div>
+                </header>
+
+                <div class="grid min-h-0 flex-1 gap-0 overflow-y-auto md:grid-cols-2 md:divide-x md:divide-gray-200 dark:md:divide-gray-900">
+                    <div class="p-5">
+                        <h3 class="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Proposé pour cet acte</h3>
+                        <div v-if="careConsumableLines.length" class="space-y-2">
+                            <div v-for="line in careConsumableLines" :key="line.medicine_uuid" class="flex items-center gap-2 rounded border border-gray-200 px-3 py-2 dark:border-gray-800">
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-xs font-bold text-slate-700 dark:text-white">{{ line.name }}</p>
+                                    <p class="mt-0.5 font-mono text-[10px] text-slate-400">{{ line.code }}</p>
+                                </div>
+                                <div class="shrink-0">
+                                    <label :for="`cac-${line.medicine_uuid}`" class="mb-0.5 block text-end text-[10px] text-slate-400">Qté ({{ line.unit }})</label>
+                                    <Input :id="`cac-${line.medicine_uuid}`" v-model="line.default_quantity" class="w-20 text-center" type="number" min="1" step="1" />
+                                </div>
+                                <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20" :aria-label="`Retirer ${line.name}`" @click="removeCareConsumable(line.medicine_uuid)"><Icon name="trash" /></button>
+                            </div>
+                        </div>
+                        <p v-else class="rounded border border-dashed border-gray-200 px-4 py-6 text-center text-[11px] leading-5 text-slate-400 dark:border-gray-800">
+                            Aucun matériel proposé pour l’instant. Les Soins pourront toujours en ajouter à la main.
+                        </p>
+                        <FormError class="mt-2" :message="careConsumableError" />
+                    </div>
+
+                    <div class="p-5">
+                        <label for="cac-search" class="mb-2 block text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Ajouter un consommable</label>
+                        <div class="relative"><Input id="cac-search" v-model="careConsumableSearch" icon="start" type="search" placeholder="Rechercher par nom ou code" autocomplete="off" /><span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400"><Icon name="search" /></span></div>
+                        <div class="mt-3 max-h-64 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
+                            <button v-for="option in availableCareConsumables" :key="option.medicine_uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-b-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="addCareConsumable(option)">
+                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 dark:border-gray-700"><Icon name="plus" /></span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block text-xs font-bold text-slate-700 dark:text-white">{{ option.name }}</span>
+                                    <span class="mt-0.5 block font-mono text-[10px] text-slate-400">{{ option.code }} · {{ option.unit }}</span>
+                                </span>
+                            </button>
+                            <div v-if="availableCareConsumables.length === 0" class="px-4 py-7 text-center">
+                                <Icon class="text-xl text-slate-300" name="search" />
+                                <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careConsumableSearch ? 'Aucun consommable trouvé' : (careConsumableOptions.length ? 'Tous les consommables sont déjà proposés' : 'Aucun consommable de parapharmacie n’est configuré en Pharmacie') }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <footer class="flex flex-col-reverse gap-3 border-t border-gray-200 p-5 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-end">
+                    <Button size="rg" variant="white-outline" type="button" :disabled="careConsumableProcessing" @click="closeCareConsumables">Annuler</Button>
+                    <Button size="rg" variant="primary" type="button" :disabled="careConsumableProcessing" @click="submitCareConsumables">
+                        <Icon class="text-lg" name="save" />
+                        <span class="ms-2">{{ careConsumableProcessing ? 'Enregistrement…' : 'Enregistrer la configuration' }}</span>
+                    </Button>
+                </footer>
             </section>
         </div>
 

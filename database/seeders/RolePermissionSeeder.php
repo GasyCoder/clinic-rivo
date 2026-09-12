@@ -132,6 +132,11 @@ class RolePermissionSeeder extends Seeder
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
             // Reads a doctor's Soins request — never creates one itself.
             'care_orders.view',
+            // ADR-072 — declares the consumables actually used, and follows
+            // what Pharmacy served. Never `pharmacy.dispense`, never
+            // `prescriptions.create`: Soins may not prescribe.
+            'care_consumables.view', 'care_consumables.request',
+            'care_consumables.cancel',
         ],
         // SURGERY is the surgeon/operating-team baseline. Access to the
         // separate Anesthesia workspace is granted explicitly per account;
@@ -164,6 +169,10 @@ class RolePermissionSeeder extends Seeder
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
             'stock.expiration.view', 'stock.alerts.view',
             'stock.cost.view', 'stock.cost.record',
+            // ADR-072 — records the stock exit of consumables already used
+            // at Soins. Separate from pharmacy.dispense, which stays bound
+            // to a settled invoice (ADR-049).
+            'care_consumables.view', 'care_consumables.serve',
         ],
         // Minimal follow-through only (request tracking + result entry) —
         // sample/analysis workflow itself remains unbuilt.

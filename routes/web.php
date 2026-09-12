@@ -326,6 +326,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/pharmacy/dispenses/{dispense}/deliveries', [PharmacyController::class, 'dispense'])
         ->name('pharmacy.dispenses.deliveries.store')
         ->middleware('can:pharmacy.dispense');
+    Route::post('/pharmacy/care-consumables/{careConsumableRequest}/serve', [PharmacyController::class, 'serveCareConsumables'])
+        ->name('pharmacy.care-consumables.serve')
+        ->middleware('can:care_consumables.serve');
     Route::post('/pharmacy/setup/categories', [PharmacyController::class, 'storeCategory'])
         ->name('pharmacy.setup.categories.store')->middleware('can:medicine_categories.create');
     Route::post('/pharmacy/setup/suppliers', [PharmacyController::class, 'storeSupplier'])
@@ -355,6 +358,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // le FormRequest puis l'Action vérifient précisément ce cas atomique.
     Route::post('/administration/catalog/{catalogItem}/tariff', [AdministrationCatalogController::class, 'setTariff'])->name('administration.catalog.tariff.store');
     Route::post('/administration/catalog/{catalogItem}/tariff/archive', [AdministrationCatalogController::class, 'archiveTariff'])->name('administration.catalog.tariff.archive')->middleware('can:catalog.tariffs.archive');
+    // ADR-072 — matériel habituel d'un acte de soins (suggestion de saisie).
+    Route::put('/administration/catalog/{catalogItem}/care-consumables', [AdministrationCatalogController::class, 'syncCareConsumables'])->name('administration.catalog.care-consumables.update')->middleware('can:catalog.items.update');
     Route::delete('/administration/catalog/{catalogItem}', [AdministrationCatalogController::class, 'destroy'])->name('administration.catalog.destroy')->middleware('can:catalog.items.delete');
     Route::post('/administration/catalog/{catalogItem}/restore', [AdministrationCatalogController::class, 'restore'])->name('administration.catalog.restore')->middleware(['can:trash.restore', 'can:catalog.items.restore']);
     // Médicament ajouté manuellement par un médecin (ordonnance jamais
@@ -492,6 +497,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
+    // Autosaved typing on the worksheet: survives a reload, discarded only
+    // by the nurse or by a real save.
+    Route::put('/care/orientations/{episodeOrientation}/draft', [CareController::class, 'saveDraft'])->name('care.orientations.draft.update')->middleware('can:care.view');
+    Route::delete('/care/orientations/{episodeOrientation}/draft', [CareController::class, 'discardDraft'])->name('care.orientations.draft.destroy')->middleware('can:care.view');
+    // ADR-072 — declaring consumables happens inside the care worksheet
+    // submission above (one act, one gesture); only cancelling an existing
+    // request needs its own endpoint.
+    Route::post('/care/orientations/{episodeOrientation}/consumables/{careConsumableRequest}/cancel', [CareController::class, 'cancelConsumables'])->name('care.consumables.cancel')->middleware('can:care_consumables.cancel');
     Route::post('/care/orientations/{episodeOrientation}/care-order-items/{careOrderItem}/not-performed', [CareController::class, 'markCareOrderItemNotPerformed'])->name('care.care-order-items.not-performed')->middleware('can:care.update');
 
     Route::get('/maternity', [MaternityController::class, 'index'])->name('maternity.index')->middleware('can:maternity.view');
@@ -505,9 +518,15 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
+        // 'examen' is kept accepted and redirected to the merged
+        // Consultation & examen step: existing links must not break.
         ->whereIn('step', ['dossier', 'consultation', 'examen', 'paraclinique', 'diagnostic', 'ordonnance', 'decision'])
         ->name('medicine.orientations.step')
         ->middleware('can:consultations.view');
+    // Autosaved typing across the consultation wizard: survives a reload,
+    // discarded only by the doctor.
+    Route::put('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'saveDraft'])->name('medicine.orientations.draft.update')->middleware('can:consultations.view');
+    Route::delete('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'discardDraft'])->name('medicine.orientations.draft.destroy')->middleware('can:consultations.view');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])
         ->name('medicine.orientations.emergency.store')

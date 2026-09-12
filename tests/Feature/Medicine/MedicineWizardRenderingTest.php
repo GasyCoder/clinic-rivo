@@ -26,6 +26,44 @@ class MedicineWizardRenderingTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Interrogatoire and clinical exam were merged into a single step: both
+     * fields live on the same Consultation row and one screen held a single
+     * field. The old URL must keep working rather than 404 a bookmark.
+     */
+    public function test_the_former_examen_step_redirects_to_the_merged_consultation_step(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->normalMedicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/examen")
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/consultation");
+    }
+
+    public function test_the_merged_step_carries_both_the_interrogation_and_the_exam(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->normalMedicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+                'reason' => '<p>Céphalées depuis trois jours</p>',
+                'clinical_exam' => '<p>Nuque souple, pas de déficit</p>',
+            ])
+            ->assertRedirect();
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/consultation")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Medicine/Show')
+                ->where('current_step', 'consultation')
+                ->where('consultation.reason', '<p>Céphalées depuis trois jours</p>')
+                ->where('consultation.clinical_exam', '<p>Nuque souple, pas de déficit</p>')
+            );
+    }
+
     public function test_paraclinique_step_exposes_lab_and_imaging_catalog_and_capabilities(): void
     {
         $doctor = $this->doctor();

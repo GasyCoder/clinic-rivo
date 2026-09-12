@@ -423,6 +423,28 @@ cash closing
 payment receipt
 ```
 
+Les Soins déclarent les consommables réellement utilisés sur le patient
+(sparadrap, coton, compresses, gants) dans la **même étape et la même
+soumission que les actes** : un pansement et ses compresses sont un seul geste
+pour un infirmier, et un formulaire séparé faisait perdre la saisie lorsque la
+prise en charge était terminée directement. Ce sont des produits Pharmacie de forme
+`ParapharmacyConsumable` : les Soins ne délivrent jamais un médicament ni une
+ordonnance, restriction appliquée côté serveur et non par l'interface. La
+déclaration constitue la notification : elle apparaît immédiatement dans la
+file « Consommables Soins » de l'espace Pharmacie. La sortie de stock est
+enregistrée par la Pharmacie, en FEFO, sans jamais entamer une quantité déjà
+réservée, et **sans attendre le règlement** — le consommable est déjà utilisé,
+ce qui amende l'ADR-049 pour ce seul circuit. La part patient est facturée
+séparément de l'acte sur la facture du passage et encaissée exclusivement par
+Réception/Caisse. Une demande est annulée avec motif tant qu'aucun lot n'a
+bougé, jamais supprimée. Un acte de soins peut porter son matériel habituel
+(`care_act_consumables`, configuré avec `catalog.items.update` depuis
+Administration › Catalogue) : sélectionner l'acte pré-remplit ces
+consommables, que l'infirmier confirme, corrige ou retire. C'est une
+suggestion de saisie, jamais une règle — rien n'est déduit du nom ou du code
+d'un acte, et une quantité corrigée par le soignant n'est jamais réécrite.
+Voir ADR-072.
+
 Une ordonnance Médecine sélectionne un médicament actif du référentiel
 Pharmacie. La disponibilité est calculée sur les lots actifs non périmés, moins
 les réservations actives. La validation réserve transactionnellement la
@@ -516,6 +538,20 @@ projection que Soins et Chirurgie/Anesthésie (ADR-048, ADR-054) : aucun seuil
 n'est recalculé dans `MedicineDossierPresenter`. Voir cette projection exige
 les permissions en lecture seule `care.view`/`vitals.view`, accordées par
 défaut à `MEDICINE` sans aucun droit `care.update`/`vitals.update`.
+
+La saisie en cours de la fiche de soins est conservée côté serveur
+(`care_record_drafts`), enregistrée automatiquement et restaurée après une
+actualisation. Elle est rattachée au passage **et** à son auteur : sur un
+poste partagé, un soignant ne récupère jamais la saisie non validée d'un
+collègue. Elle n'est ni auditée, ni lue par un module, et disparaît dès
+l'enregistrement réel ou l'annulation explicite. Voir ADR-073.
+
+Un patient venu uniquement pour un soin (`CARE_ONLY`, par exemple un
+pansement) reste aux Soins et ne voit aucun médecin : aucune orientation
+Médecine n'est créée et l'épisode passe en `PENDING_SETTLEMENT`. Les Soins
+peuvent y déclarer les consommables utilisés, transmis à la Pharmacie pour la
+sortie de stock et facturés séparément par Réception/Caisse ; ils ne
+prescrivent jamais. Voir ADR-072.
 
 Un antécédent permanent s'ajoute depuis Médecine (avec
 `patients.medical_history.manage`) via l'unique point d'entrée générique

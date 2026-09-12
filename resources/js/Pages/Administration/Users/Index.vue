@@ -238,7 +238,18 @@ const onProfileChange = () => {
     removeProfilePreview();
     form.sync_profile_permissions = false;
 
-    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) return;
+    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) {
+        // Choosing a different profile used to clear the rights and stage
+        // nothing, so saving produced an account that carried its new job
+        // title with none of its access — a Sage-femme without Maternité.
+        // The recommendations are now staged straight away: still explicit
+        // and adjustable before saving (the checkbox stays visible, and
+        // applyProfileRecommendations never overwrites a MANUAL decision),
+        // but the obvious outcome no longer needs a second discovery.
+        applyProfileRecommendations();
+
+        return;
+    }
 
     for (const override of originalProfileOverrides.value) {
         if (permissionProvenance[override.permission_id]?.source === 'MANUAL') continue;
@@ -289,6 +300,27 @@ const convertPermissionToManual = (permissionId) => {
 const roleRequiresProfile = (roleId) => {
     const role = props.roles.find((item) => Number(item.id) === Number(roleId));
     return Boolean(role?.profiles?.length);
+};
+
+/**
+ * Recommendations of an account's profile that it does not actually hold.
+ * Covers both the account saved without applying them and one whose profile
+ * was changed outside the app (ADR-033 calls direct SQL unsupported — this
+ * at least stops it from staying invisible).
+ */
+const missingProfileRights = (user) => {
+    if (! user.professional_profile) return [];
+
+    // Profiles are nested under their role, never a flat list.
+    const profile = props.roles
+        .flatMap((role) => role.profiles ?? [])
+        .find((item) => Number(item.id) === Number(user.professional_profile.id));
+    const held = new Set((user.permission_overrides ?? [])
+        .filter((override) => override.effect === 'allow')
+        .map((override) => Number(override.permission_id)));
+
+    return (profile?.recommended_permissions ?? [])
+        .filter((permission) => ! held.has(Number(permission.id)));
 };
 
 // A profile whose recommended permissions aren't reflected yet — freshly
@@ -451,6 +483,13 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                                 <p class="text-sm font-medium text-slate-600 dark:text-slate-200">{{ user.role?.name ?? 'Aucun rôle' }}</p>
                                 <p v-if="user.professional_profile" class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                                     {{ user.professional_profile.name }}
+                                </p>
+                                <!-- A profile whose recommendations were never applied leaves an
+                                     account carrying its job title with none of its access. That
+                                     used to be invisible until someone logged in and found the
+                                     menu missing. -->
+                                <p v-if="missingProfileRights(user).length" class="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                    <Icon name="alert-circle" />Droits du profil non appliqués ({{ missingProfileRights(user).length }})
                                 </p>
                                 <p v-else-if="roleRequiresProfile(user.role?.id)" class="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
                                     Profil métier à définir

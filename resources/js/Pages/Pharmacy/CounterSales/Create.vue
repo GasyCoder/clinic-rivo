@@ -69,6 +69,7 @@ const submit = () => {
         <PharmacyWorkspaceNav
             :capabilities="navigation"
             :dispense-count="navigation.dispense_count ?? 0"
+            :care-consumable-count="navigation.care_consumable_count ?? 0"
             link-mode
         />
 

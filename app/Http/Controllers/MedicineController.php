@@ -23,6 +23,7 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\PrescriptionStatus;
 use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
+use App\Http\Requests\Medicine\SaveConsultationDraftRequest;
 use App\Http\Requests\RecordImagingResultRequest;
 use App\Http\Requests\StoreCareOrderRequest;
 use App\Http\Requests\StoreImagingRequestRequest;
@@ -35,12 +36,14 @@ use App\Http\Requests\StoreSurgicalReferralRequest;
 use App\Http\Requests\UpdateMedicineConsultationRequest;
 use App\Http\Requests\UpdateMedicineDiagnosisRequest;
 use App\Http\Requests\UpdateMedicinePrescriptionRequest;
+use App\Models\ConsultationDraft;
 use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequestItem;
 use App\Models\Prescription;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\MedicineDossierPresenter;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -157,11 +160,18 @@ class MedicineController extends Controller
         Request $request,
         EpisodeOrientation $episodeOrientation,
         MedicineDossierPresenter $presenter,
-    ): Response {
+    ): Response|RedirectResponse {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Medicine, 404);
         abort_if($episodeOrientation->status === EpisodeOrientationStatus::Pending, 409, 'La consultation doit d’abord être prise en charge.');
 
         $step = (string) $request->route('step');
+
+        // Interrogatoire and clinical exam are one encounter and one save
+        // (both fields live on the same Consultation row), so they are one
+        // step. The old URL keeps working rather than 404-ing a bookmark.
+        if ($step === 'examen') {
+            return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'consultation']);
+        }
 
         $episodeOrientation->load([
             'episode.patient.allergies',
@@ -171,6 +181,7 @@ class MedicineController extends Controller
             'episode.careRecord.procedures.performer:id,name',
             'episode.medicalDischarge.creator:id,name',
             'consultation.doctor:id,name',
+            'consultation.currentTreatments',
             'consultation.diagnoses.recordedBy:id,name',
             'consultation.diagnoses.cancellation.cancelledBy:id,name',
             'consultation.prescriptions.prescribedBy:id,name',
@@ -189,7 +200,51 @@ class MedicineController extends Controller
                 includeMedicineCatalog: $step === 'ordonnance',
             ),
             'current_step' => $step,
+            // Typing in progress, restored after a reload. Scoped to this
+            // account: a doctor never inherits another's unvalidated entry.
+            'consultationDraft' => ConsultationDraft::query()
+                ->where('episode_orientation_id', $episodeOrientation->getKey())
+                ->where('created_by', $request->user()->getKey())
+                ->first(['payload', 'updated_at'])
+                ?->only(['payload', 'updated_at']),
         ]);
+    }
+
+    /**
+     * Autosaved typing across the consultation wizard, so a reload never
+     * loses it. Returns no Inertia response: the browser calls this in the
+     * background and must not have its page re-rendered mid-typing.
+     */
+    public function saveDraft(
+        SaveConsultationDraftRequest $request,
+        EpisodeOrientation $episodeOrientation,
+    ): JsonResponse {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Medicine, 404);
+
+        $draft = ConsultationDraft::query()->updateOrCreate(
+            [
+                'episode_orientation_id' => $episodeOrientation->getKey(),
+                'created_by' => $request->user()->getKey(),
+            ],
+            ['payload' => $request->draftPayload()],
+        );
+
+        return response()->json(['saved_at' => $draft->updated_at->toIso8601String()]);
+    }
+
+    /** The doctor explicitly discards their entry. */
+    public function discardDraft(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+    ): RedirectResponse {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Medicine, 404);
+
+        ConsultationDraft::query()
+            ->where('episode_orientation_id', $episodeOrientation->getKey())
+            ->where('created_by', $request->user()->getKey())
+            ->delete();
+
+        return back()->with('status', 'Saisie en cours annulée.');
     }
 
     public function updateConsultation(

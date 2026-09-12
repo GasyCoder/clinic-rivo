@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -14,6 +14,7 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     orientation: Object,
     careRecord: Object,
+    careRecordDraft: { type: Object, default: null },
     bmiReference: Object,
     bloodPressureReference: Object,
     heartRateReference: Object,
@@ -22,6 +23,8 @@ const props = defineProps({
     patientAllergies: Array,
     allergenReference: Array,
     procedureCatalog: Array,
+    consumableCatalog: { type: Array, default: () => [] },
+    consumableRequests: { type: Array, default: () => [] },
     careOrders: { type: Array, default: () => [] },
     hasActiveMedicineOrientation: { type: Boolean, default: false },
     latestDiagnosis: { type: Object, default: null },
@@ -59,6 +62,42 @@ const initialRequestedProcedures = (props.orientation.episode.designations ?? []
     })
     .filter(Boolean);
 
+// ADR-072 — an act planned at Réception already suggests its usual material,
+// so the nurse finds it pre-filled rather than having to think of it.
+const initialSuggestedConsumables = [];
+
+if (props.capabilities.can_request_consumables) {
+    initialRequestedProcedures.forEach((procedure) => {
+        const entry = props.procedureCatalog.find((item) => item.uuid === procedure.catalog_item_uuid);
+
+        (entry?.default_consumables ?? []).forEach((suggestion) => {
+            const existing = initialSuggestedConsumables.find(
+                (line) => line.medicine_uuid === suggestion.medicine_uuid,
+            );
+
+            if (existing) {
+                existing.suggested_by.push(procedure.catalog_item_uuid);
+
+                return;
+            }
+
+            const stock = props.consumableCatalog.find(
+                (item) => item.medicine_uuid === suggestion.medicine_uuid,
+            );
+            initialSuggestedConsumables.push({
+                medicine_uuid: suggestion.medicine_uuid,
+                name: suggestion.name,
+                code: suggestion.code,
+                unit: suggestion.unit,
+                available_quantity: stock?.available_quantity ?? 0,
+                quantity: suggestion.quantity,
+                suggested_by: [procedure.catalog_item_uuid],
+                suggested_quantity: suggestion.quantity,
+            });
+        });
+    });
+}
+
 const form = useForm({
     blood_group: props.careRecord?.blood_group ?? '',
     blood_pressure_systolic: props.careRecord?.blood_pressure_systolic ?? '',
@@ -79,9 +118,101 @@ const form = useForm({
     transmission_reason: props.orientation.episode.care_transmission_expected ? (props.careRecord?.transmission_reason ?? '') : '',
     no_procedure_reason: props.careRecord?.no_procedure_reason ?? '',
     procedures: initialRequestedProcedures,
+    // ADR-072 — material used, saved with the acts in one submission.
+    consumables: initialSuggestedConsumables,
+    consumable_notes: '',
 });
 
 const formEl = ref(null);
+
+// ── Saisie en cours ───────────────────────────────────────────────────────
+// A nurse's entry must survive a page reload: only an explicit "Annuler la
+// saisie" — or a real save — discards it. The draft lives server-side and is
+// scoped to this account, so nothing clinical is left in a shared browser
+// and no one inherits another nurse's unvalidated values.
+const DRAFT_KEYS = Object.keys(form.data());
+const draftSavedAt = ref(props.careRecordDraft?.updated_at ?? null);
+const draftRestored = ref(false);
+const draftSaving = ref(false);
+let draftTimer = null;
+let draftSuspended = false;
+
+if (props.careRecordDraft?.payload) {
+    Object.entries(props.careRecordDraft.payload).forEach(([key, value]) => {
+        if (!DRAFT_KEYS.includes(key) || value === undefined) return;
+
+        // A restored value must keep the shape the form expects. A null
+        // where a string is expected would break every .trim() on the
+        // worksheet and blank the page — never let the transport decide
+        // the form's types.
+        if (value === null) {
+            form[key] = Array.isArray(form[key]) ? [] : '';
+
+            return;
+        }
+
+        form[key] = value;
+    });
+    draftRestored.value = true;
+}
+
+const readCookie = (name) => document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(`${name}=`))
+    ?.split('=')[1];
+
+const persistDraft = async () => {
+    if (draftSuspended || !props.capabilities.can_edit) return;
+
+    draftSaving.value = true;
+
+    try {
+        const response = await fetch(`/care/orientations/${props.orientation.uuid}/draft`, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-XSRF-TOKEN': decodeURIComponent(readCookie('XSRF-TOKEN') ?? ''),
+            },
+            body: JSON.stringify({ payload: form.data() }),
+        });
+
+        if (response.ok) {
+            draftSavedAt.value = (await response.json()).saved_at;
+        }
+    } catch {
+        // Offline or the session expired: the entry stays on screen and the
+        // real save is still available. Never block the nurse for a draft.
+    } finally {
+        draftSaving.value = false;
+    }
+};
+
+watch(
+    () => form.data(),
+    () => {
+        if (draftSuspended || !props.capabilities.can_edit || !form.isDirty) return;
+
+        clearTimeout(draftTimer);
+        draftTimer = setTimeout(persistDraft, 1200);
+    },
+    { deep: true },
+);
+
+onBeforeUnmount(() => clearTimeout(draftTimer));
+
+const discardDraft = () => {
+    // Stop autosaving before the reload, otherwise the pending timer would
+    // immediately recreate the draft we are deleting.
+    draftSuspended = true;
+    clearTimeout(draftTimer);
+
+    router.delete(`/care/orientations/${props.orientation.uuid}/draft`, {
+        onFinish: () => { draftSuspended = false; },
+    });
+};
 
 // Wizard steps — a step only exists when the account can actually see that
 // data (ADR-032/048), and "Transmission" only exists at all when this care
@@ -90,13 +221,41 @@ const formEl = ref(null);
 // (allergySafetyReady below) — so a nurse can jump straight to any step.
 const steps = [
     { key: 'context', label: 'Contexte', icon: 'clipboard' },
-    ...(props.capabilities.can_view_vitals ? [{ key: 'vitals', label: 'Constantes', icon: 'activity' }] : []),
-    ...(props.capabilities.can_view_allergies ? [{ key: 'allergies', label: 'Allergies', icon: 'shield-check' }] : []),
-    { key: 'procedures', label: 'Actes', icon: 'check-circle' },
+    // ADR-032 — constants are optional for a standalone act (a dressing
+    // needs no blood pressure): the step is marked as such instead of
+    // looking like a gate the nurse must clear.
+    ...(props.capabilities.can_view_vitals
+        ? [{
+            key: 'vitals',
+            label: 'Constantes',
+            icon: 'activity',
+            optional: !props.orientation.episode.care_vitals_recommended,
+        }]
+        : []),
+    ...(props.capabilities.can_view_allergies
+        ? [{ key: 'allergies', label: 'Allergies', icon: 'shield-check', optional: true }]
+        : []),
+    // Acts and the material they consumed are one single gesture for a
+    // nurse (a dressing IS its compresses): one step, one save.
+    { key: 'procedures', label: 'Actes et matériel', icon: 'check-circle' },
     ...(props.orientation.episode.care_transmission_expected ? [{ key: 'transmission', label: 'Transmission', icon: 'send' }] : []),
     { key: 'finish', label: 'Terminer', icon: 'flag' },
 ];
-const currentStepIndex = ref(0);
+/**
+ * A patient who came only for a dressing has no constants to take, so the
+ * page opens straight on the acts instead of making the nurse walk through
+ * two optional steps first. Anything that expects constants, a transmission
+ * or an allergy check still opens at the beginning.
+ */
+const initialStepIndex = (() => {
+    const opensOnActs = !props.orientation.episode.care_vitals_recommended
+        && !props.orientation.episode.care_transmission_expected
+        && !props.careRecord;
+    const actsIndex = steps.findIndex((step) => step.key === 'procedures');
+
+    return opensOnActs && actsIndex > 0 ? actsIndex : 0;
+})();
+const currentStepIndex = ref(initialStepIndex);
 const currentStepKey = computed(() => steps[currentStepIndex.value]?.key);
 const stepIndexFor = (key) => steps.findIndex((step) => step.key === key);
 const goToStep = (index) => {
@@ -105,6 +264,158 @@ const goToStep = (index) => {
 };
 const nextStep = () => { if (currentStepIndex.value < steps.length - 1) goToStep(currentStepIndex.value + 1); };
 const prevStep = () => { if (currentStepIndex.value > 0) goToStep(currentStepIndex.value - 1); };
+
+// ── Consommables (ADR-072) ────────────────────────────────────────────────
+// A separate submission from the care worksheet: declaring a consumable is
+// what notifies Pharmacy, so it must not wait for the end of the visit.
+// Soins never sees or enters a price — the charge is resolved server-side
+// and collected by Réception/Caisse, exactly like a nursing act.
+const consumableSearch = ref('');
+const cancelTarget = ref(null);
+const cancelReason = ref('');
+const cancelProcessing = ref(false);
+const cancelError = ref('');
+
+const selectedConsumableUuids = computed(
+    () => new Set(form.consumables.map((line) => line.medicine_uuid)),
+);
+const filteredConsumables = computed(() => {
+    const term = consumableSearch.value.trim().toLowerCase();
+
+    return props.consumableCatalog.filter((item) => {
+        if (selectedConsumableUuids.value.has(item.medicine_uuid)) return false;
+        if (!term) return true;
+
+        return `${item.name} ${item.code}`.toLowerCase().includes(term);
+    });
+});
+const addConsumable = (item) => {
+    if (selectedConsumableUuids.value.has(item.medicine_uuid)) return;
+
+    form.consumables = [...form.consumables, {
+        medicine_uuid: item.medicine_uuid,
+        name: item.name,
+        code: item.code,
+        unit: item.unit,
+        available_quantity: item.available_quantity,
+        quantity: 1,
+    }];
+};
+const removeConsumable = (uuid) => {
+    form.consumables = form.consumables.filter((line) => line.medicine_uuid !== uuid);
+};
+
+/**
+ * ADR-072 — selecting an act pre-fills the material it usually consumes,
+ * so the nurse confirms instead of searching. It stays a suggestion: every
+ * line can be adjusted or removed, and the quantity the nurse types wins.
+ */
+const suggestConsumablesFor = (item) => {
+    if (!props.capabilities.can_request_consumables) return;
+
+    (item.default_consumables ?? []).forEach((suggestion) => {
+        const existing = form.consumables.find((line) => line.medicine_uuid === suggestion.medicine_uuid);
+
+        if (existing) {
+            // Already there (another act, or added by hand): remember this
+            // act needs it too, but never overwrite a chosen quantity.
+            existing.suggested_by = [...new Set([...(existing.suggested_by ?? []), item.uuid])];
+            return;
+        }
+
+        const stock = props.consumableCatalog.find(
+            (entry) => entry.medicine_uuid === suggestion.medicine_uuid,
+        );
+
+        form.consumables = [...form.consumables, {
+            medicine_uuid: suggestion.medicine_uuid,
+            name: suggestion.name,
+            code: suggestion.code,
+            unit: suggestion.unit,
+            available_quantity: stock?.available_quantity ?? 0,
+            quantity: suggestion.quantity,
+            suggested_by: [item.uuid],
+            suggested_quantity: suggestion.quantity,
+        }];
+    });
+};
+
+/**
+ * Removing an act withdraws only the suggestions it brought and that the
+ * nurse never touched — a quantity they adjusted is a real declaration and
+ * is kept.
+ */
+const dropSuggestedConsumables = (actUuid) => {
+    form.consumables = form.consumables.filter((line) => {
+        const origins = (line.suggested_by ?? []).filter((uuid) => uuid !== actUuid);
+
+        if (!(line.suggested_by ?? []).includes(actUuid)) return true;
+
+        line.suggested_by = origins;
+
+        if (origins.length > 0) return true;
+
+        const untouched = Number(line.quantity) === Number(line.suggested_quantity);
+
+        return !untouched;
+    });
+};
+
+const isSuggestedConsumable = (line) => (line.suggested_by ?? []).length > 0;
+const suggestingActNames = (line) => (line.suggested_by ?? [])
+    .map((uuid) => form.procedures.find((procedure) => procedure.catalog_item_uuid === uuid)?.name)
+    .filter(Boolean)
+    .join(' · ');
+
+/** Acts whose usual material is not configured yet, to say so plainly. */
+const actsWithoutConfiguredMaterial = computed(() => form.procedures
+    .filter((procedure) => {
+        const entry = props.procedureCatalog.find((item) => item.uuid === procedure.catalog_item_uuid);
+
+        return entry && (entry.default_consumables ?? []).length === 0;
+    })
+    .map((procedure) => procedure.name));
+const consumableLineError = (index, field) => form.errors[`consumables.${index}.${field}`];
+
+const openCancelDialog = (request) => {
+    cancelTarget.value = request;
+    cancelReason.value = '';
+    cancelError.value = '';
+};
+const closeCancelDialog = () => {
+    if (cancelProcessing.value) return;
+    cancelTarget.value = null;
+};
+const confirmCancel = () => {
+    const reason = cancelReason.value.trim();
+
+    if (!reason) {
+        cancelError.value = 'Indiquez le motif de l’annulation.';
+        return;
+    }
+
+    router.post(
+        `/care/orientations/${props.orientation.uuid}/consumables/${cancelTarget.value.uuid}/cancel`,
+        { reason },
+        {
+            preserveScroll: true,
+            onStart: () => { cancelProcessing.value = true; },
+            onSuccess: () => { cancelTarget.value = null; },
+            onFinish: () => { cancelProcessing.value = false; },
+        },
+    );
+};
+
+const CONSUMABLE_STATUS_TONES = {
+    PENDING: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300',
+    PARTIALLY_SERVED: 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/30 dark:text-primary-300',
+    SERVED: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300',
+    CANCELLED: 'border-gray-200 bg-gray-50 text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-400',
+};
+const consumableStatusTone = (status) => CONSUMABLE_STATUS_TONES[status] ?? CONSUMABLE_STATUS_TONES.CANCELLED;
+const pendingConsumableRequests = computed(
+    () => props.consumableRequests.filter((request) => request.can_be_served),
+);
 
 const historicalSnapshotAllergies = computed(() => (props.careRecord?.allergy_snapshot ?? []).filter(
     (allergy) => !allergy.uuid || !activePatientAllergyUuids.value.has(allergy.uuid),
@@ -134,7 +445,8 @@ const allergenReferenceSelection = ref('');
 const newAllergyError = ref('');
 const newAllergy = reactive({ substance: '', reaction: '', severity: '' });
 
-const normalizeAllergyName = (value) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr');
+const normalizeAllergyName = (value) => (typeof value === 'string' ? value : '')
+    .trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr');
 const selectedAllergenReferences = computed(() => props.allergenReference.filter(
     (reference) => form.allergen_reference_uuids.includes(reference.uuid),
 ));
@@ -408,7 +720,8 @@ const allergySafetyConfirmed = computed({
 const allergySafetyReady = computed(() => !requiresAllergySafetyCheck.value
     || (props.capabilities.can_view_allergies && allergySafetyConfirmed.value));
 const recordedProcedureCount = computed(() => props.careRecord?.procedures?.length ?? 0);
-const hasNoProcedureReason = computed(() => form.no_procedure_reason.trim().length > 0);
+const trimmed = (value) => (typeof value === 'string' ? value.trim() : '');
+const hasNoProcedureReason = computed(() => trimmed(form.no_procedure_reason).length > 0);
 const canCompleteWithoutSaving = computed(() => {
     if (episode.value.care_completion_mode === 'MEDICINE') return true;
     if (episode.value.care_completion_mode === 'FINISH') return recordedProcedureCount.value > 0;
@@ -420,6 +733,7 @@ const toggleProcedure = (item) => {
     const index = form.procedures.findIndex((procedure) => procedure.catalog_item_uuid === item.uuid);
     if (index >= 0) {
         form.procedures.splice(index, 1);
+        dropSuggestedConsumables(item.uuid);
         return;
     }
     noProcedureSelected.value = false;
@@ -434,6 +748,7 @@ const toggleProcedure = (item) => {
         care_recommends_vitals: Boolean(item.care_recommends_vitals),
         allergy_checked: false,
     });
+    suggestConsumablesFor(item);
 };
 
 const realizeOrderItem = (orderItem) => {
@@ -443,6 +758,8 @@ const realizeOrderItem = (orderItem) => {
     const catalogEntry = props.procedureCatalog.find((entry) => entry.code === orderItem.code);
     noProcedureSelected.value = false;
     form.no_procedure_reason = '';
+
+    if (catalogEntry) suggestConsumablesFor(catalogEntry);
     form.procedures.push({
         catalog_item_uuid: catalogEntry?.uuid,
         care_order_item_uuid: orderItem.uuid,
@@ -533,6 +850,122 @@ const toggleNoProcedure = () => {
 const procedureError = (index, field) => form.errors[`procedures.${index}.${field}`];
 const allergySafetyError = computed(() => Object.entries(form.errors)
     .find(([field]) => field.startsWith('procedures.') && field.endsWith('.allergy_checked'))?.[1]);
+// ── Récapitulatif de fin de prise en charge ──────────────────────────────
+// The nurse validates from here, so the recap must show what will actually
+// be recorded — not four counters. Every figure is read from the same
+// sources the submission uses; nothing is recomputed independently.
+
+/** Vitals actually entered, in the order a nurse reads them. */
+const enteredVitals = computed(() => {
+    if (!props.capabilities.can_view_vitals) return [];
+
+    const systolic = form.blood_pressure_systolic;
+    const diastolic = form.blood_pressure_diastolic;
+    const entries = [];
+
+    if (systolic && diastolic) {
+        entries.push({ label: 'TA', value: `${systolic}/${diastolic} mmHg`, assessment: bloodPressureAssessment.value });
+    }
+    if (form.heart_rate) {
+        entries.push({ label: 'FC', value: `${form.heart_rate} bpm`, assessment: heartRateAssessment.value });
+    }
+    if (form.spo2) {
+        entries.push({ label: 'SpO₂', value: `${form.spo2} %`, assessment: oxygenSaturationAssessment.value });
+    }
+    if (form.temperature_celsius) {
+        entries.push({ label: 'T°', value: `${form.temperature_celsius} °C`, assessment: temperatureAssessment.value });
+    }
+    if (displayedBmi.value) {
+        entries.push({ label: 'IMC', value: displayedBmi.value, assessment: bmiAssessment.value });
+    }
+    if (form.height_cm) entries.push({ label: 'Taille', value: `${form.height_cm} cm`, assessment: null });
+    if (form.weight_kg) entries.push({ label: 'Poids', value: `${form.weight_kg} kg`, assessment: null });
+    if (form.blood_group) entries.push({ label: 'Groupe', value: form.blood_group, assessment: null });
+    if (form.known_diabetes !== '') {
+        entries.push({ label: 'Diabète', value: form.known_diabetes === '1' ? 'Oui' : 'Non', assessment: null });
+    }
+    if (form.smoker !== '') {
+        entries.push({ label: 'Tabac', value: form.smoker === '1' ? 'Oui' : 'Non', assessment: null });
+    }
+
+    return entries;
+});
+
+/** Everything worth a second look before validating, never blocking. */
+const completionWarnings = computed(() => {
+    const warnings = [];
+
+    [bloodPressureAssessment, heartRateAssessment, oxygenSaturationAssessment, temperatureAssessment, bmiAssessment]
+        .map((assessment) => assessment.value)
+        .filter((assessment) => assessment && assessment.tone !== 'success')
+        .forEach((assessment) => warnings.push({
+            tone: assessment.tone === 'danger' ? 'danger' : 'warning',
+            text: `${assessment.label} — ${assessment.compact || assessment.message}`,
+        }));
+
+    if (requiresAllergySafetyCheck.value && !allergySafetyReady.value) {
+        warnings.push({
+            tone: 'danger',
+            text: 'Statut allergique à vérifier avant d’enregistrer un acte à risque.',
+        });
+    }
+
+    form.consumables
+        .filter((line) => Number(line.quantity) > Number(line.available_quantity))
+        .forEach((line) => warnings.push({
+            tone: 'warning',
+            text: `${line.name} : ${line.quantity} déclaré(s) pour ${line.available_quantity} en stock — la Pharmacie devra ajuster son inventaire.`,
+        }));
+
+    if (careOrderUnresolvedCount.value > 0) {
+        warnings.push({
+            tone: 'warning',
+            text: `${careOrderUnresolvedCount.value} acte(s) demandé(s) par le médecin ne sont ni réalisés ni marqués non réalisés.`,
+        });
+    }
+
+    if (props.capabilities.can_view_consumables && form.consumables.length > 0) {
+        warnings.push({
+            tone: 'info',
+            text: 'Le matériel déclaré sera transmis à la Pharmacie pour la sortie de stock et facturé au passage.',
+        });
+    }
+
+    return warnings;
+});
+
+/** What is already in the file and will not be recorded again. */
+const alreadyOnFile = computed(() => {
+    const entries = [];
+
+    if (recordedProcedureCount.value > 0) {
+        entries.push(`${recordedProcedureCount.value} acte(s) déjà enregistré(s)`);
+    }
+    if (props.consumableRequests.length > 0) {
+        entries.push(`${props.consumableRequests.length} demande(s) de matériel déjà transmise(s)`);
+    }
+    if (props.careRecord) {
+        entries.push(`Fiche ouverte par ${props.careRecord.created_by || '—'}`);
+    }
+
+    return entries;
+});
+
+const vitalCellClasses = (assessment) => {
+    if (assessment?.tone === 'danger') {
+        return 'border-red-200 bg-red-50/70 text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300';
+    }
+    if (assessment && assessment.tone !== 'success') {
+        return 'border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200';
+    }
+
+    return 'border-gray-200 text-slate-700 dark:border-gray-800 dark:text-white';
+};
+
+const newAllergyCount = computed(
+    () => form.new_allergies.length + form.allergen_reference_uuids.length,
+);
+
 const buildPayload = (data, orientToMedicine = undefined) => {
     const payload = {
             ...data,
@@ -545,11 +978,11 @@ const buildPayload = (data, orientToMedicine = undefined) => {
                 ? (data.temperature_celsius.trim().replace(',', '.') || null)
                 : (data.temperature_celsius || null),
             known_diabetes: data.known_diabetes === '' ? null : data.known_diabetes === '1',
-            diabetes_note: data.known_diabetes === '1' ? (data.diabetes_note.trim() || null) : null,
+            diabetes_note: data.known_diabetes === '1' ? (trimmed(data.diabetes_note) || null) : null,
             height_cm: data.height_cm || null,
             weight_kg: data.weight_kg || null,
             smoker: data.smoker === '' ? null : data.smoker === '1',
-            no_procedure_reason: data.no_procedure_reason.trim() || null,
+            no_procedure_reason: trimmed(data.no_procedure_reason) || null,
             procedures: data.procedures.map(({ catalog_item_uuid, care_order_item_uuid, quantity, notes, allergy_checked }) => ({
                 catalog_item_uuid,
                 care_order_item_uuid,
@@ -557,6 +990,13 @@ const buildPayload = (data, orientToMedicine = undefined) => {
                 notes,
                 allergy_checked,
             })),
+            consumables: data.consumables.map(({ medicine_uuid, quantity }) => ({
+                medicine_uuid,
+                quantity,
+            })),
+            // suggested_by / suggested_quantity stay in the browser: they
+            // describe how a line got there, never what to record.
+            consumable_notes: trimmed(data.consumable_notes) || null,
     };
 
     if (!props.capabilities.can_edit_vitals) {
@@ -588,6 +1028,11 @@ const buildPayload = (data, orientToMedicine = undefined) => {
         delete payload.transmission_reason;
     }
 
+    if (!props.capabilities.can_request_consumables || payload.consumables.length === 0) {
+        delete payload.consumables;
+        delete payload.consumable_notes;
+    }
+
     if (orientToMedicine !== undefined) payload.orient_to_medicine = orientToMedicine;
 
     return payload;
@@ -606,6 +1051,7 @@ const errorStepKeyByField = {
 };
 const stepKeyForErrorField = (field) => {
     if (field.startsWith('procedures.') || field === 'no_procedure_reason' || field === 'care_record') return 'procedures';
+    if (field.startsWith('consumables') || field === 'consumable_notes') return 'procedures';
     return errorStepKeyByField[field] ?? null;
 };
 
@@ -621,7 +1067,14 @@ const submit = () => {
     form.transform((data) => buildPayload(data)).put(`/care/orientations/${props.orientation.uuid}/record`, {
         preserveScroll: true,
         onSuccess: () => {
+            // The server deleted the draft with the record it saved.
+            draftSavedAt.value = null;
+            draftRestored.value = false;
+            clearTimeout(draftTimer);
             form.procedures = [];
+            form.consumables = [];
+            form.consumable_notes = '';
+            consumableSearch.value = '';
             form.allergy_uuids = selectedActiveAllergyUuids(props.careRecord?.allergy_snapshot ?? []);
             form.allergen_reference_uuids = [];
             form.new_allergies = [];
@@ -659,6 +1112,21 @@ const submitAndComplete = (orientToMedicine = false) => {
             Cette prise en charge est terminée. La fiche reste consultable dans l’historique clinique.
         </div>
 
+        <div v-if="capabilities.can_edit && (draftRestored || draftSavedAt)" class="flex flex-col gap-2 rounded-lg border border-primary-200 bg-primary-50/60 px-4 py-3 text-primary-900 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-100 sm:flex-row sm:items-center sm:justify-between">
+            <p class="flex items-start gap-2 text-xs leading-5">
+                <Icon name="save" class="mt-0.5 shrink-0 text-base" />
+                <span>
+                    <strong>{{ draftRestored ? 'Saisie en cours restaurée.' : 'Saisie en cours conservée.' }}</strong>
+                    Elle est enregistrée automatiquement et survit à une actualisation de la page. Rien n’est encore ajouté au dossier du patient.
+                    <span v-if="draftSaving" class="text-primary-600 dark:text-primary-300"> Enregistrement…</span>
+                    <span v-else-if="draftSavedAt" class="text-primary-600 dark:text-primary-300"> Dernier enregistrement {{ formatDateTime(draftSavedAt) }}.</span>
+                </span>
+            </p>
+            <Button class="shrink-0" type="button" size="sm" variant="white-outline" @click="discardDraft">
+                <Icon class="text-base" name="cross" /><span class="ms-1.5">Annuler la saisie</span>
+            </Button>
+        </div>
+
         <nav class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950" aria-label="Étapes de la fiche de soins">
             <ol class="flex overflow-x-auto">
                 <li v-for="(step, index) in steps" :key="step.key" class="min-w-[150px] flex-1">
@@ -672,7 +1140,10 @@ const submitAndComplete = (orientToMedicine = false) => {
                             <template v-else>{{ index + 1 }}</template>
                         </span>
                         <span class="min-w-0">
-                            <span :class="['block text-xs font-bold uppercase tracking-wide', currentStepIndex === index ? 'text-primary-600 dark:text-primary-300' : 'text-slate-500']">Étape {{ index + 1 }}</span>
+                            <span :class="['flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide', currentStepIndex === index ? 'text-primary-600 dark:text-primary-300' : 'text-slate-500']">
+                                Étape {{ index + 1 }}
+                                <span v-if="step.optional" class="rounded bg-gray-100 px-1 py-0.5 text-[9px] font-semibold normal-case tracking-normal text-slate-400 dark:bg-gray-900">facultatif</span>
+                            </span>
                             <span class="flex items-center gap-1.5 truncate text-sm font-bold text-slate-700 dark:text-white"><Icon class="shrink-0 text-sm text-slate-400" :name="step.icon" />{{ step.label }}<span v-if="step.key === 'procedures' && form.procedures.length" class="ms-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ form.procedures.length }}</span></span>
                         </span>
                     </button>
@@ -953,7 +1424,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                                 <label for="procedure-search" class="mb-2 block text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Ajouter un autre acte</label>
                                 <div class="relative"><Input id="procedure-search" v-model="procedureSearch" icon="start" type="search" placeholder="Rechercher par nom ou code" autocomplete="off" /><span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400"><Icon name="search" /></span></div>
                                 <div class="mt-3 max-h-56 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
-                                    <button v-for="item in filteredProcedures" :key="item.uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-b-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="toggleProcedure(item)"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 dark:border-gray-700"><Icon name="plus" /></span><span class="min-w-0 flex-1"><span class="block text-xs font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-[10px] text-slate-400"><span>{{ item.code }}</span><span v-if="requestedAtReception(item.uuid)" class="font-sans font-semibold text-primary-600 dark:text-primary-300">Demandé à l’accueil</span><span v-if="item.care_requires_allergy_check" class="font-sans font-semibold text-amber-600 dark:text-amber-300">Allergies à vérifier</span><span v-if="item.care_recommends_vitals" class="font-sans font-semibold">Constantes recommandées</span></span></span></button>
+                                    <button v-for="item in filteredProcedures" :key="item.uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-b-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="toggleProcedure(item)"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 dark:border-gray-700"><Icon name="plus" /></span><span class="min-w-0 flex-1"><span class="block text-xs font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-[10px] text-slate-400"><span>{{ item.code }}</span><span v-if="requestedAtReception(item.uuid)" class="font-sans font-semibold text-primary-600 dark:text-primary-300">Demandé à l’accueil</span><span v-if="item.care_requires_allergy_check" class="font-sans font-semibold text-amber-600 dark:text-amber-300">Allergies à vérifier</span><span v-if="item.care_recommends_vitals" class="font-sans font-semibold">Constantes recommandées</span><span v-if="(item.default_consumables ?? []).length" class="font-sans font-semibold text-primary-600 dark:text-primary-300">{{ item.default_consumables.length }} matériel(s) proposé(s)</span></span></span></button>
                                     <div v-if="filteredProcedures.length === 0" class="px-4 py-7 text-center"><Icon class="text-xl text-slate-300" name="search" /><p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ procedureSearch ? 'Aucun acte trouvé' : 'Tous les actes disponibles sont déjà sélectionnés' }}</p></div>
                                 </div>
                             </div>
@@ -969,6 +1440,144 @@ const submitAndComplete = (orientToMedicine = false) => {
                     </div>
                     <p v-else class="p-5 text-sm text-slate-400">La fiche est en lecture seule.</p>
                 </div>
+
+                <div v-if="capabilities.can_view_consumables" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm shadow-slate-200/20 dark:border-gray-900 dark:bg-gray-950 dark:shadow-none">
+                    <div class="flex items-center justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                        <div class="flex items-start gap-3">
+                            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="package" /></span>
+                            <div class="min-w-0">
+                                <h2 class="text-sm font-bold text-slate-700 dark:text-white">Matériel utilisé pour ces actes</h2>
+                                <p class="mt-1 text-xs text-slate-400">
+                                    Pré-rempli d’après les actes sélectionnés — corrigez les quantités ou retirez ce qui n’a pas servi.
+                                    Transmis à la Pharmacie pour la sortie de stock.
+                                    <span class="font-semibold text-slate-500 dark:text-slate-300">Aucun médicament : les Soins ne prescrivent jamais.</span>
+                                </p>
+                            </div>
+                        </div>
+                        <span v-if="form.consumables.length" class="rounded bg-gray-100 px-2 py-1 text-xs font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ form.consumables.length }}</span>
+                    </div>
+
+                    <div v-if="capabilities.can_request_consumables" class="grid gap-0 lg:grid-cols-[1fr_380px] lg:divide-x lg:divide-gray-200 dark:lg:divide-gray-900">
+                        <div class="p-5">
+                            <div v-if="form.consumables.length" class="space-y-2">
+                                <div v-for="(line, index) in form.consumables" :key="line.medicine_uuid" class="flex flex-wrap items-center gap-3 rounded border border-gray-200 px-3 py-2 dark:border-gray-800">
+                                    <div class="min-w-0 flex-1">
+                                        <p class="truncate text-xs font-bold text-slate-700 dark:text-white">{{ line.name }}</p>
+                                        <p class="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+                                            <span class="font-mono">{{ line.code }}</span>
+                                            <span>{{ line.available_quantity }} {{ line.unit }} en stock</span>
+                                            <span v-if="isSuggestedConsumable(line)" class="rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300" :title="`Proposé automatiquement pour : ${suggestingActNames(line)}`">
+                                                Proposé par l’acte
+                                            </span>
+                                            <span v-else class="rounded bg-gray-100 px-1.5 py-0.5 font-semibold text-slate-500 dark:bg-gray-900 dark:text-slate-300">Ajouté à la main</span>
+                                        </p>
+                                    </div>
+                                    <div class="flex shrink-0 items-center gap-1.5">
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900" :aria-label="`Diminuer ${line.name}`" @click="line.quantity = Math.max(1, Number(line.quantity || 1) - 1)"><Icon name="minus" /></button>
+                                        <Input :id="`consumable-qty-${index}`" v-model="line.quantity" class="w-16 text-center" type="number" min="1" step="1" :aria-label="`Quantité de ${line.name} en ${line.unit}`" />
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-slate-500 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900" :aria-label="`Augmenter ${line.name}`" @click="line.quantity = Number(line.quantity || 0) + 1"><Icon name="plus" /></button>
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20" :aria-label="`Retirer ${line.name}`" @click="removeConsumable(line.medicine_uuid)"><Icon name="trash" /></button>
+                                    </div>
+                                    <p v-if="Number(line.quantity) > line.available_quantity" class="w-full text-[11px] font-semibold text-amber-600 dark:text-amber-300">
+                                        Au-delà du stock enregistré — la Pharmacie devra ajuster son inventaire.
+                                    </p>
+                                    <FormError class="w-full" :message="consumableLineError(index, 'quantity') || consumableLineError(index, 'medicine_uuid')" />
+                                </div>
+                            </div>
+                            <p v-else class="rounded border border-dashed border-gray-200 px-4 py-4 text-center text-[11px] leading-5 text-slate-400 dark:border-gray-800">
+                                Aucun matériel déclaré. Laissez vide si aucun consommable n’a été utilisé.
+                            </p>
+
+                            <p v-if="actsWithoutConfiguredMaterial.length" class="mt-3 flex items-start gap-2 rounded border border-gray-200 bg-gray-50/60 px-3 py-2 text-[11px] leading-5 text-slate-500 dark:border-gray-800 dark:bg-gray-900/40 dark:text-slate-400">
+                                <Icon name="info" class="mt-0.5 shrink-0 text-sm" />
+                                <span>
+                                    Aucun matériel habituel n’est encore configuré pour {{ actsWithoutConfiguredMaterial.join(' · ') }}.
+                                    Ajoutez-le à la main ici ; le responsable peut le prédéfinir dans Administration&nbsp;›&nbsp;Catalogue.
+                                </span>
+                            </p>
+
+                            <div v-if="form.consumables.length" class="mt-3">
+                                <label for="consumable_notes" class="mb-1.5 block text-[11px] font-medium text-slate-500 dark:text-slate-300">Précision pour la Pharmacie <span class="font-normal text-slate-400">(facultatif)</span></label>
+                                <Input id="consumable_notes" v-model="form.consumable_notes" placeholder="Ex. pansement refait deux fois" />
+                                <FormError class="mt-1" :message="form.errors.consumable_notes || form.errors.consumables" />
+                            </div>
+                        </div>
+
+                        <div class="p-5">
+                            <label for="consumable-search" class="mb-2 block text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Ajouter du matériel</label>
+                            <div class="relative"><Input id="consumable-search" v-model="consumableSearch" icon="start" type="search" placeholder="Rechercher par nom ou code" autocomplete="off" /><span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400"><Icon name="search" /></span></div>
+                            <div class="mt-3 max-h-56 overflow-y-auto rounded border border-gray-200 dark:border-gray-800">
+                                <button v-for="item in filteredConsumables" :key="item.medicine_uuid" type="button" class="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-b-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="addConsumable(item)">
+                                    <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 dark:border-gray-700"><Icon name="plus" /></span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block text-xs font-bold text-slate-700 dark:text-white">{{ item.name }}</span>
+                                        <span class="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-[10px] text-slate-400">
+                                            <span>{{ item.code }}</span>
+                                            <span :class="['font-sans font-semibold', item.available ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300']">{{ item.available ? `${item.available_quantity} ${item.unit} en stock` : 'Rupture de stock' }}</span>
+                                        </span>
+                                    </span>
+                                </button>
+                                <div v-if="filteredConsumables.length === 0" class="px-4 py-7 text-center">
+                                    <Icon class="text-xl text-slate-300" name="search" />
+                                    <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ consumableSearch ? 'Aucun matériel trouvé' : (consumableCatalog.length ? 'Tout le matériel est déjà sélectionné' : 'Aucun consommable de parapharmacie n’est configuré en Pharmacie') }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <p v-else class="p-5 text-sm text-slate-400">Vous pouvez consulter le matériel de ce passage, mais pas en déclarer.</p>
+                </div>
+
+                <section v-if="consumableRequests.length" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
+                    <div class="flex items-center justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                        <div>
+                            <h2 class="text-sm font-bold text-slate-700 dark:text-white">Matériel transmis à la Pharmacie</h2>
+                            <p class="mt-1 text-xs text-slate-400">Une déclaration reste dans l’historique : elle est annulée, jamais supprimée.</p>
+                        </div>
+                        <span v-if="pendingConsumableRequests.length" class="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                            {{ pendingConsumableRequests.length }} en attente Pharmacie
+                        </span>
+                    </div>
+                    <div class="divide-y divide-gray-200 dark:divide-gray-900">
+                        <article v-for="request in consumableRequests" :key="request.uuid" class="p-5">
+                            <div class="flex flex-wrap items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="font-mono text-xs font-bold text-slate-700 dark:text-white">{{ request.request_number }}</span>
+                                        <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', consumableStatusTone(request.status)]">{{ request.status_label }}</span>
+                                    </div>
+                                    <p class="mt-1 text-[11px] text-slate-400">
+                                        Déclaré par {{ request.requested_by || '—' }} · {{ formatDateTime(request.requested_at) }}
+                                        <template v-if="request.served_at"> · servi par {{ request.served_by || 'Pharmacie' }} le {{ formatDateTime(request.served_at) }}</template>
+                                    </p>
+                                    <p v-if="request.notes" class="mt-1 text-xs text-slate-500 dark:text-slate-300">{{ request.notes }}</p>
+                                </div>
+                                <Button v-if="request.can_be_cancelled && capabilities.can_cancel_consumables" type="button" size="sm" variant="danger-outline" @click="openCancelDialog(request)">
+                                    <Icon class="text-base" name="cross" /><span class="ms-1.5">Annuler</span>
+                                </Button>
+                            </div>
+
+                            <ul class="mt-3 space-y-2">
+                                <li v-for="line in request.lines" :key="line.uuid" class="rounded border border-gray-200 px-3 py-2 dark:border-gray-800">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <span class="min-w-0 text-xs font-semibold text-slate-700 dark:text-white">{{ line.name }} <span class="font-mono font-normal text-slate-400">{{ line.code }}</span></span>
+                                        <span class="shrink-0 text-xs text-slate-500 dark:text-slate-300">
+                                            <strong class="text-slate-700 dark:text-white">{{ line.quantity_served }}</strong> / {{ line.quantity_requested }} {{ line.unit }} sortis du stock
+                                        </span>
+                                    </div>
+                                    <ul v-if="line.allocations.length" class="mt-1.5 flex flex-wrap gap-1.5">
+                                        <li v-for="allocation in line.allocations" :key="allocation.uuid" class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-gray-900 dark:text-slate-300">
+                                            Lot {{ allocation.lot_number }} · {{ allocation.quantity }}
+                                        </li>
+                                    </ul>
+                                </li>
+                            </ul>
+
+                            <p v-if="request.cancellation_reason" class="mt-2 text-[11px] text-slate-400">
+                                Annulé par {{ request.cancelled_by || '—' }} — {{ request.cancellation_reason }}
+                            </p>
+                        </article>
+                    </div>
+                </section>
 
                 <section v-if="careRecord?.procedures?.length" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
                     <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Actes réalisés</h2><p class="mt-1 text-xs text-slate-400">Les actes enregistrés restent dans l’historique et ne sont pas supprimés.</p></div>
@@ -999,25 +1608,120 @@ const submitAndComplete = (orientToMedicine = false) => {
                 </div>
             </section>
 
-            <section v-else-if="currentStepKey === 'finish'" class="space-y-5">
-                <div class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex items-start gap-3">
+            <section v-else-if="currentStepKey === 'finish'" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm shadow-slate-200/20 dark:border-gray-900 dark:bg-gray-950 dark:shadow-none">
+                <header class="flex items-start justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                    <div class="flex min-w-0 items-start gap-3">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="flag" /></span>
                         <div class="min-w-0">
                             <h2 class="text-sm font-bold text-slate-700 dark:text-white">Fin de prise en charge</h2>
-                            <p class="mt-1 text-xs text-slate-400">Vérifiez le récapitulatif avant de valider.</p>
+                            <p class="mt-1 truncate text-xs text-slate-400">{{ patient.last_name }} {{ patient.first_name }} · passage {{ episode.episode_number }}</p>
                         </div>
                     </div>
-                    <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-                        <div class="rounded border border-gray-200 px-3 py-2.5 dark:border-gray-800"><dt class="text-[11px] text-slate-400">Actes sélectionnés</dt><dd class="mt-0.5 font-bold text-slate-700 dark:text-white">{{ form.procedures.length }}</dd></div>
-                        <div class="rounded border border-gray-200 px-3 py-2.5 dark:border-gray-800"><dt class="text-[11px] text-slate-400">Allergies signalées</dt><dd class="mt-0.5 font-bold text-slate-700 dark:text-white">{{ knownSafetyAllergyNames.length }}</dd></div>
-                        <div class="rounded border border-gray-200 px-3 py-2.5 dark:border-gray-800"><dt class="text-[11px] text-slate-400">IMC calculé</dt><dd class="mt-0.5 font-bold text-slate-700 dark:text-white">{{ displayedBmi ?? '—' }}</dd></div>
-                    </dl>
+                    <span v-if="isEmergency" class="shrink-0 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">Urgence</span>
+                </header>
+
+                <!-- Content on the left, context on the right: a single wide
+                     column left "Aucun" floating in empty space and gave the
+                     alerts the same visual weight as the data. -->
+                <div :class="['grid gap-0', completionWarnings.length ? 'lg:grid-cols-[minmax(0,1fr)_340px] lg:divide-x lg:divide-gray-200 dark:lg:divide-gray-900' : '']">
+                    <div class="space-y-5 p-5">
+                        <div>
+                            <h3 class="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">À enregistrer maintenant</h3>
+                            <dl class="mt-3 space-y-2.5">
+                                <div class="grid gap-0.5 sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-3">
+                                    <dt class="text-xs text-slate-400">Actes</dt>
+                                    <dd>
+                                        <ul v-if="form.procedures.length" class="space-y-1">
+                                            <li v-for="procedure in form.procedures" :key="procedure.catalog_item_uuid" class="text-xs text-slate-700 dark:text-white">
+                                                <strong class="font-semibold">{{ procedure.name }}</strong>
+                                                <span class="text-slate-400"> × {{ procedure.quantity }}</span>
+                                                <span v-if="procedure.notes" class="block text-[11px] text-slate-400">{{ procedure.notes }}</span>
+                                            </li>
+                                        </ul>
+                                        <span v-else-if="hasNoProcedureReason" class="text-xs text-slate-600 dark:text-slate-300">Aucun — {{ form.no_procedure_reason }}</span>
+                                        <span v-else class="text-xs text-slate-300 dark:text-slate-600">—</span>
+                                    </dd>
+                                </div>
+
+                                <div v-if="capabilities.can_view_consumables" class="grid gap-0.5 sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-3">
+                                    <dt class="text-xs text-slate-400">Matériel</dt>
+                                    <dd>
+                                        <ul v-if="form.consumables.length" class="space-y-1">
+                                            <li v-for="line in form.consumables" :key="line.medicine_uuid" class="text-xs text-slate-700 dark:text-white">
+                                                <strong class="font-semibold">{{ line.name }}</strong>
+                                                <span class="text-slate-400"> × {{ line.quantity }} {{ line.unit }}</span>
+                                            </li>
+                                        </ul>
+                                        <span v-else class="text-xs text-slate-300 dark:text-slate-600">—</span>
+                                    </dd>
+                                </div>
+
+                                <div v-if="capabilities.can_view_allergies" class="grid gap-0.5 sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-3">
+                                    <dt class="text-xs text-slate-400">Allergies</dt>
+                                    <dd class="text-xs text-slate-700 dark:text-white">
+                                        <span v-if="knownSafetyAllergyNames.length" class="font-semibold">{{ knownSafetyAllergyNames.join(' · ') }}</span>
+                                        <span v-else class="text-slate-300 dark:text-slate-600">Aucune signalée</span>
+                                        <span v-if="newAllergyCount" class="mt-0.5 block text-[11px] text-primary-600 dark:text-primary-300">{{ newAllergyCount }} ajoutée(s) au dossier permanent</span>
+                                    </dd>
+                                </div>
+
+                                <div v-if="episode.care_transmission_expected" class="grid gap-0.5 sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-3">
+                                    <dt class="text-xs text-slate-400">Transmission</dt>
+                                    <dd class="text-xs">
+                                        <span v-if="trimmed(form.transmission_reason)" class="text-slate-700 dark:text-white">{{ form.transmission_reason }}</span>
+                                        <span v-else class="text-slate-300 dark:text-slate-600">Non renseignée</span>
+                                    </dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <div v-if="capabilities.can_view_vitals">
+                            <h3 class="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Constantes relevées</h3>
+                            <!-- Labelled cells rather than inline chips: this
+                                 is the densest data on the card and reads
+                                 like a monitor, value first. -->
+                            <div v-if="enteredVitals.length" class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                                <div v-for="vital in enteredVitals" :key="vital.label" :class="['rounded border px-2.5 py-2', vitalCellClasses(vital.assessment)]">
+                                    <p class="text-[10px] font-medium uppercase tracking-wide opacity-70">{{ vital.label }}</p>
+                                    <p class="mt-0.5 text-sm font-bold leading-5">{{ vital.value }}</p>
+                                </div>
+                            </div>
+                            <p v-else class="mt-3 rounded border border-dashed border-gray-200 px-3 py-3 text-center text-[11px] text-slate-400 dark:border-gray-800">
+                                Aucune constante relevée — facultatif pour ce passage.
+                            </p>
+                        </div>
+
+                        <p v-if="alreadyOnFile.length" class="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-gray-100 pt-3 text-[11px] text-slate-400 dark:border-gray-900">
+                            <Icon name="history" class="text-sm" />
+                            <span>Déjà au dossier : {{ alreadyOnFile.join(' · ') }}</span>
+                        </p>
+                    </div>
+
+                    <aside v-if="completionWarnings.length" class="border-t border-gray-200 p-5 dark:border-gray-900 lg:border-t-0">
+                        <h3 class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                            Points de vigilance
+                            <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ completionWarnings.length }}</span>
+                        </h3>
+                        <ul class="mt-3 space-y-2">
+                            <li v-for="warning in completionWarnings" :key="warning.text" :class="['flex items-start gap-2 rounded border-s-2 py-1.5 pe-2 ps-2.5 text-[11px] leading-4', {
+                                danger: 'border-s-red-500 bg-red-50/60 text-red-800 dark:bg-red-950/20 dark:text-red-300',
+                                warning: 'border-s-amber-500 bg-amber-50/60 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200',
+                                info: 'border-s-slate-300 bg-gray-50 text-slate-600 dark:border-s-slate-600 dark:bg-gray-900/40 dark:text-slate-300',
+                            }[warning.tone]]">
+                                <Icon :name="warning.tone === 'info' ? 'info' : 'alert-circle'" class="mt-px shrink-0 text-xs" />
+                                <span>{{ warning.text }}</span>
+                            </li>
+                        </ul>
+                        <p class="mt-3 text-[10px] leading-4 text-slate-400">
+                            Ces repères sont une aide au dépistage et ne bloquent pas la validation.
+                        </p>
+                    </aside>
                 </div>
 
-                <div v-if="activeCareOrder || capabilities.can_complete" class="rounded-lg border px-4 py-3 text-sm" :class="careOrderUnresolvedCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200' : 'border-primary-200 bg-primary-50 text-primary-800 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-200'">
-                    <p class="font-semibold">{{ completionWarning }}</p>
-                </div>
+                <footer v-if="activeCareOrder || capabilities.can_complete" :class="['flex items-start gap-2 border-t px-5 py-3 text-xs font-semibold', careOrderUnresolvedCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200' : 'border-gray-200 bg-gray-50/70 text-slate-600 dark:border-gray-900 dark:bg-gray-1000/40 dark:text-slate-300']">
+                    <Icon :name="careOrderUnresolvedCount > 0 ? 'alert-circle' : 'arrow-right'" class="mt-px shrink-0 text-sm" />
+                    <span>{{ completionWarning }}</span>
+                </footer>
             </section>
 
             <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
@@ -1028,7 +1732,8 @@ const submitAndComplete = (orientToMedicine = false) => {
 
                 <div v-else-if="capabilities.can_edit && (form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected || activeCareOrder)" class="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center">
                     <p class="text-xs font-medium text-slate-500 dark:text-slate-300 sm:me-2">
-                        <span v-if="form.procedures.length">Les actes seront enregistrés avec l’identité du soignant et l’heure de validation.</span>
+                        <span v-if="form.consumables.length">Les actes et le matériel seront enregistrés ensemble ; la Pharmacie recevra la demande de sortie de stock.</span>
+                        <span v-else-if="form.procedures.length">Les actes seront enregistrés avec l’identité du soignant et l’heure de validation.</span>
                         <span v-else>Enregistrez uniquement les informations réellement constatées.</span>
                     </p>
                     <div class="flex flex-wrap justify-end gap-2">
@@ -1061,5 +1766,46 @@ const submitAndComplete = (orientToMedicine = false) => {
                 <Link v-if="episode.care_completion_mode === 'CHOICE'" :href="`/care/orientations/${orientation.uuid}/complete-and-orient`" method="post" as="button" preserve-scroll><Button size="rg" variant="primary">Vers Médecine</Button></Link>
             </div>
         </section>
+
+        <div
+            v-if="cancelTarget"
+            class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4"
+            role="presentation"
+            @click.self="closeCancelDialog"
+        >
+            <section class="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cancel-consumables-title">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300"><Icon class="text-xl" name="cross" /></span>
+                    <div>
+                        <h2 id="cancel-consumables-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Annuler la demande {{ cancelTarget.request_number }} ?</h2>
+                        <p class="mt-1 text-sm leading-5 text-slate-500">
+                            La demande reste dans l’historique avec son motif. La Pharmacie ne la verra plus dans sa file et aucune sortie de stock n’aura lieu.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-5">
+                    <label for="cancel_consumable_reason" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label>
+                    <textarea
+                        id="cancel_consumable_reason"
+                        v-model="cancelReason"
+                        rows="3"
+                        autofocus
+                        placeholder="Ex. déclaré par erreur sur ce passage"
+                        class="block w-full resize-y rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition-all placeholder:text-slate-300 focus:border-red-500 focus:ring-2 focus:ring-red-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-red-950"
+                        @input="cancelError = ''"
+                    ></textarea>
+                    <FormError class="mt-1.5" :message="cancelError" />
+                </div>
+
+                <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                    <Button size="rg" variant="white-outline" type="button" :disabled="cancelProcessing" @click="closeCancelDialog">Conserver</Button>
+                    <Button size="rg" variant="danger" type="button" :disabled="cancelProcessing" @click="confirmCancel">
+                        <Icon class="text-lg" name="cross" />
+                        <span class="ms-2">{{ cancelProcessing ? 'Annulation…' : 'Confirmer l’annulation' }}</span>
+                    </Button>
+                </div>
+            </section>
+        </div>
     </div>
 </template>

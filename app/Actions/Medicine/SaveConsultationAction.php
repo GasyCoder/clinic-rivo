@@ -16,11 +16,11 @@ class SaveConsultationAction
     public function __construct(private readonly ClinicalRichTextSanitizer $richText) {}
 
     /**
-     * @param  array{reason: string, clinical_exam?: ?string, decision?: ?string, decision_notes?: ?string}  $data
+     * @param  array{reason: string, clinical_exam?: ?string, decision?: ?string, decision_notes?: ?string, current_treatments?: array<int, array{medication_name: string, dosage?: ?string, notes?: ?string}>}  $data
      */
     public function execute(EpisodeOrientation $orientation, array $data, User $actor): Consultation
     {
-        return DB::transaction(function () use ($orientation, $data): Consultation {
+        return DB::transaction(function () use ($orientation, $data, $actor): Consultation {
             $locked = EpisodeOrientation::query()
                 ->with('consultation')
                 ->lockForUpdate()
@@ -49,7 +49,40 @@ class SaveConsultationAction
                 'decision_notes' => $data['decision_notes'] ?? null,
             ]);
 
-            return $locked->consultation->fresh();
+            if (array_key_exists('current_treatments', $data)) {
+                $this->syncCurrentTreatments($locked->consultation, $data['current_treatments'] ?? [], $actor);
+            }
+
+            return $locked->consultation->fresh('currentTreatments');
         });
+    }
+
+    /**
+     * "Traitements actuels" is a corrigible statement of what the patient
+     * says they take, not an append-only clinical act: the doctor rewrites
+     * the list as the interview clarifies it. Replaced wholesale, and the
+     * consultation's own audit trail records the change.
+     *
+     * @param  array<int, array{medication_name: string, dosage?: ?string, notes?: ?string}>  $lines
+     */
+    private function syncCurrentTreatments(Consultation $consultation, array $lines, User $actor): void
+    {
+        $consultation->currentTreatments()->delete();
+
+        foreach (array_values($lines) as $position => $line) {
+            $name = trim((string) ($line['medication_name'] ?? ''));
+
+            if ($name === '') {
+                continue;
+            }
+
+            $consultation->currentTreatments()->create([
+                'medication_name' => $name,
+                'dosage' => filled($line['dosage'] ?? null) ? trim((string) $line['dosage']) : null,
+                'notes' => filled($line['notes'] ?? null) ? trim((string) $line['notes']) : null,
+                'position' => $position,
+                'recorded_by' => $actor->getKey(),
+            ]);
+        }
     }
 }

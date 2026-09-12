@@ -3216,3 +3216,379 @@ Un modèle de contrat déjà composé dans l'ancien système n'est pas converti
 automatiquement : au 2026-09-11, `employment_contract_templates` ne contient
 aucune ligne sur aucun site (constaté avant retrait), donc aucune donnée
 n'est perdue par cette suppression.
+
+---
+
+# ADR-072 — Consommables Soins et sortie de stock indépendante du règlement
+
+**Status:** ACCEPTED (2026-09-10 — enquête terrain et décisions explicites du
+propriétaire)
+
+Cette décision confirme le parcours Soins déjà en place et lui ajoute un
+circuit manquant. Elle **amende l'ADR-049** sur un point précis et
+volontairement étroit.
+
+## Ce que l'enquête terrain confirme sans changement
+
+Le parcours normal reste celui de l'ADR-030 et de l'ADR-053 : le patient
+annonce son besoin à la Réception, puis est orienté vers les Soins selon la
+désignation choisie. Un patient venu uniquement pour un pansement reste aux
+Soins et ne voit aucun médecin : `CareWorkflow::completionMode()` renvoie
+`CareCompletionMode::Finish` pour un parcours `CARE_ONLY`, aucune orientation
+Médecine n'est créée et l'épisode passe en `PENDING_SETTLEMENT` selon la règle
+de l'ADR-054. Aucune sortie médicale fictive n'est fabriquée. Les constantes
+relevées à l'arrivée aux Soins restent celles de l'ADR-032/ADR-038 à ADR-041.
+
+## Consommables déclarés par les Soins
+
+Les Soins peuvent utiliser du matériel sur le patient — sparadrap, coton,
+compresses, gants. Ce matériel existe déjà comme produit Pharmacie : un
+`Medicine` de forme `MedicineForm::ParapharmacyConsumable`, adossé à un
+`catalog_item` de type `MEDICINE` et de module `PHARMACY`, avec lots,
+péremptions et stock.
+
+Les Soins ne délivrent jamais un médicament ni une ordonnance. Cette
+interdiction n'est pas une convention d'interface : `RequestCareConsumablesAction`
+n'accepte que la forme `ParapharmacyConsumable`, et le rôle `NURSE` ne reçoit
+aucune permission `prescriptions.*`. Toute autre forme pharmaceutique est
+refusée côté serveur avec un message explicite.
+
+Une déclaration crée un `CareConsumableRequest` rattaché à l'épisode, à
+l'orientation Soins et à la fiche du passage, avec son numéro `DC-NNNNNN`,
+ainsi que ses `CareConsumableRequestLine` portant les instantanés du libellé,
+du code et de l'unité. La demande **est** la notification : elle apparaît
+immédiatement dans la file « Consommables Soins » de l'espace Pharmacie. Les
+Soins n'affichent et ne saisissent jamais un prix, exactement comme une ligne
+d'ordonnance (ADR-036).
+
+**Un acte et son matériel sont un seul geste.** La première implémentation
+séparait « Actes » et « Consommables » en deux étapes portant chacune son
+formulaire et son bouton. Le propriétaire a signalé le 2026-09-10 que ce
+découpage ne correspond à rien pour un infirmier — un pansement *est* ses
+compresses — et qu'une interface trop découpée n'est pas utilisée. Le défaut
+était aussi fonctionnel : le matériel saisi sur le second formulaire était
+silencieusement perdu si le soignant validait « Enregistrer l'acte et
+terminer » sans avoir cliqué le bouton propre à ce formulaire.
+
+Le matériel est donc déclaré dans la **même soumission** que les actes.
+`consumables[]` et `consumable_notes` appartiennent à `UpdateCareRecordRequest`,
+et `SaveCareRecordAction` appelle `RequestCareConsumablesAction` dans sa propre
+transaction, après avoir créé ou mis à jour la fiche. Les deux chemins
+d'enregistrement (`record` et `record-and-complete`) transportent donc le
+matériel : il ne peut plus être perdu. Il n'existe aucun endpoint autonome de
+déclaration ; seule l'annulation d'une demande existante garde le sien.
+
+## Facturation séparée de l'acte
+
+Décision explicite du propriétaire : le consommable est facturé au patient **en
+plus** de l'acte. Chaque ligne produit son propre `BillableItem` par
+`RecordBillableItemAction`, au tarif résolu côté serveur, et rejoint la facture
+du passage tant que celle-ci n'a reçu aucun encaissement (`DRAFT` ou
+`VALIDATED` avec `paid_amount = 0`), selon la règle déjà posée par l'ADR-054.
+La clé d'idempotence est dérivée de l'UUID de la ligne : une relance ne
+facture jamais deux fois le même consommable.
+
+Une erreur financière — prix de vente non configuré, contexte financier de
+l'épisode encore en attente, politique Personnel `UNCLASSIFIED` — n'annule
+jamais la déclaration ni la notification à la Pharmacie : le consommable est
+déjà sur la plaie du patient. La régularisation appartient à la Réception,
+comme pour tout acte clinique.
+
+## Matériel habituel proposé par l'acte (amendement 2026-09-10)
+
+Précision du propriétaire après enquête terrain : chercher chaque consommable
+dans la liste complète de la Pharmacie n'est pas réaliste au poste de soins.
+Un acte doit proposer de lui-même le matériel cohérent, que l'infirmier
+confirme ou corrige.
+
+`care_act_consumables` associe donc un acte de soins (`catalog_items`,
+`SERVICE` / `CARE`) à un ou plusieurs `Medicine` de forme
+`ParapharmacyConsumable`, avec une quantité par défaut et un ordre
+d'affichage. Sélectionner l'acte pré-remplit ces lignes dans le bloc
+« Matériel utilisé » ; une prestation déjà planifiée par la Réception les
+propose dès l'ouverture de la fiche.
+
+Cette association est **une suggestion de saisie, jamais une règle** :
+
+```text
+Configuration    -> ce que l'acte propose habituellement
+Déclaration      -> ce que l'infirmier confirme avoir réellement utilisé
+Sortie de stock  -> ce que la Pharmacie sort effectivement
+```
+
+Rien n'est déduit du nom ni du code d'un acte, conformément à l'ADR-052 : une
+association absente laisse simplement le bloc vide, l'interface le dit
+explicitement et la saisie manuelle reste disponible. Retirer un acte
+retire seulement les suggestions qu'il avait apportées **et que l'infirmier
+n'a pas modifiées** — une quantité corrigée est une déclaration réelle et
+n'est jamais effacée. La quantité saisie par l'infirmier prévaut toujours sur
+la quantité par défaut.
+
+La configuration est du référentiel : elle exige `catalog.items.update`
+(ADR-024), se fait depuis Administration › Catalogue, est auditée sous
+`catalog.care_act_consumables.update`, et ne crée ni mouvement de stock ni
+montant. Vider la liste est légitime — ce sont des paramètres, pas des
+enregistrements cliniques, et aucune déclaration passée ne les référence.
+
+## Constantes et actes restent facultatifs et à la demande
+
+Confirmation du propriétaire (2026-09-10), déjà couverte par l'ADR-032 et
+l'ADR-030 : un patient venu uniquement pour un pansement n'a pas de
+constantes à relever, et les actes sont enregistrés au cas par cas. Le
+parcours ne l'impose donc pas. L'étape « Constantes » porte le libellé
+`facultatif` lorsque `CareWorkflow::recommendsRoutineVitals()` est faux, et la
+fiche s'ouvre directement sur « Actes et matériel » quand ni constantes ni
+transmission ne sont attendues et qu'aucune fiche n'existe encore — le
+soignant arrive là où se trouve réellement son travail, sans traverser des
+étapes vides. Aucun champ de constantes n'est jamais rendu obligatoire.
+
+## Amendement de l'ADR-049 — la sortie de stock n'attend pas le règlement
+
+L'ADR-049 impose que la quantité physique d'un lot ne diminue qu'après
+paiement intégral ou prise en charge intégrale. Cette règle protège une
+délivrance Pharmacie : le produit reste sur l'étagère jusqu'au règlement.
+
+Elle ne peut pas s'appliquer à un consommable déjà utilisé aux Soins.
+Conserver en stock une compresse posée sur une plaie rendrait l'inventaire
+sciemment faux. Pour ce circuit, et pour lui seul :
+
+```text
+Délivrance Pharmacie (ADR-049)   → facture réglée, PUIS sortie de stock
+Consommables Soins (ADR-072)     → sortie de stock à la validation Pharmacie,
+                                    règlement de la part patient indépendant
+```
+
+`ServeCareConsumablesAction` est donc une action distincte de
+`DispenseMedicinesAction`, et `CareConsumableRequest` un modèle distinct de
+`PharmacyDispense` : la garde « facture intégralement réglée ou prise en
+charge » de la délivrance reste intacte, jamais contournée ni assouplie.
+`PharmacyDispenseStatus` n'est pas réutilisé pour la même raison.
+
+L'allocation est FEFO et **n'entame jamais** une quantité déjà réservée pour
+une ordonnance ou une vente comptoir. Si le stock enregistré ne couvre pas la
+quantité déclarée, l'opération entière est refusée avec un message nommant le
+manquant : le pharmacien ajuste d'abord son inventaire (`stock.adjust`). Aucun
+solde négatif, aucune sortie partielle silencieuse.
+
+Chaque sortie crée un `PharmacyStockMovement` immuable de type `DISPENSING`
+avec origine, destination, motif et `source_key` unique, plus une
+`CareConsumableAllocation` reliant la ligne, le lot et le mouvement. Une
+seconde sortie partielle sur la même ligne poursuit la séquence de
+`source_key` au lieu de la recommencer.
+
+La Pharmacie n'encaisse toujours rien : l'ADR-013 et l'ADR-012 restent
+inchangés. Servir une demande Soins ne crée ni paiement, ni reçu, ni
+mouvement de caisse.
+
+## Annulation, jamais suppression
+
+Une demande déclarée n'est jamais supprimée (ADR-010). Elle peut être annulée
+avec un motif obligatoire **tant qu'aucun lot n'a bougé** : les `BillableItem`
+encore `PENDING` sont annulés par `CancelBillableItemAction`, ceux déjà portés
+sur une facture ne sont pas détricotés ici — seule la Réception/Caisse touche
+un montant facturé. Une fois la demande servie, la correction relève d'un
+ajustement de stock audité côté Pharmacie.
+
+## Permissions
+
+```text
+care_consumables.view      NURSE, PHARMACY
+care_consumables.request   NURSE
+care_consumables.cancel    NURSE
+care_consumables.serve     PHARMACY
+```
+
+`care_consumables.request` est vérifiée deux fois : `UpdateCareRecordRequest`
+interdit le champ à un compte qui ne l'a pas, et `SaveCareRecordAction` refuse
+la soumission par `AuthorizationException` — l'interface n'est jamais la seule
+protection.
+
+`care_consumables.serve` est volontairement distincte de `pharmacy.dispense` :
+servir une demande Soins ne délivre pas une ordonnance et n'exige aucune
+facture réglée. Consulter la file est séparé de la servir, afin qu'un compte
+autorisé puisse suivre la consommation des services sans pouvoir sortir du
+stock. Conformément à l'ADR-064, ces attributions figurent dans
+`RolePermissionSeeder::GRANTS` pour la création d'un nouveau site, mais un site
+déjà en production doit les ajouter sans rejouer ce seeder, qui écraserait les
+socles personnalisés depuis le portail.
+
+Les écritures sont auditées sous `care.consumables.request`,
+`care.consumables.cancel` et `pharmacy.care_consumables.serve`.
+
+---
+
+# ADR-073 — Saisie en cours conservée côté serveur pour la fiche de soins
+
+**Status:** ACCEPTED (2026-09-10 — exigence explicite du propriétaire)
+
+Constat du propriétaire : tout ce qu'un soignant saisissait dans la fiche de
+soins disparaissait après une actualisation de la page. Rien n'était persisté
+avant le clic d'enregistrement, alors qu'un relevé de constantes, une
+sélection d'actes et une déclaration de matériel peuvent représenter plusieurs
+minutes de travail au chevet du patient. L'exigence est explicite : la saisie
+doit rester tant que l'utilisateur ne l'annule pas.
+
+`care_record_drafts` conserve donc cette saisie en cours, enregistrée
+automatiquement environ une seconde après la dernière frappe. Elle est
+restaurée telle quelle au rechargement de la page, avec un bandeau qui indique
+son état et propose « Annuler la saisie ».
+
+## Pourquoi côté serveur et non dans le navigateur
+
+`localStorage` aurait été plus simple mais est inacceptable ici. Un poste de
+soins est partagé : le stockage navigateur n'est pas cloisonné par compte, si
+bien que la saisie non validée d'un soignant serait restituée au suivant, qui
+pourrait l'enregistrer sous sa propre identité. L'ADR-032 attribue chaque acte
+à la personne qui l'a réalisé ; ce mélange d'identités est exactement ce
+qu'il faut empêcher. Des données cliniques resteraient de plus lisibles sur le
+poste après la déconnexion.
+
+Le brouillon est donc rattaché à la fois au passage **et** à son auteur
+(`unique(episode_orientation_id, created_by)`) :
+
+```text
+Infirmier A saisit    -> son brouillon, visible de lui seul
+Infirmier B ouvre     -> aucun brouillon restauré, il saisit le sien
+```
+
+## Ce que le brouillon n'est pas
+
+Ce n'est jamais une donnée clinique. Il n'est lu par aucun module, n'apparaît
+dans aucun dossier, ne produit ni `CareRecord`, ni acte, ni prestation
+facturable, ni demande à la Pharmacie. Il conserve volontairement des valeurs
+que la validation refuserait — une tension `145/` en cours de frappe doit
+survivre à une actualisation.
+
+Il est donc explicitement **disposable** :
+
+```text
+enregistrement réel de la fiche -> brouillon supprimé
+« Annuler la saisie »           -> brouillon supprimé
+```
+
+Un brouillon encore présent est par construction postérieur au dernier
+enregistrement : il ne peut jamais écraser des données déjà consignées.
+
+Le brouillon est un instantané **fidèle** de ce que le soignant a à l'écran :
+un champ vide doit revenir comme une chaîne vide. Le middleware Laravel
+`ConvertEmptyStringsToNull` transformait chaque champ vide en `null`, et ce
+`null` restitué cassait les `.trim()` du formulaire — la dernière étape de la
+fiche s'affichait blanche. La route du brouillon est donc explicitement
+exclue de ce middleware dans `bootstrap/app.php`, et la restauration côté
+navigateur conserve en plus le type attendu par le formulaire (`null` devient
+`''` pour un champ texte, `[]` pour une liste) : le transport ne décide jamais
+des types du formulaire.
+
+Les clés acceptées sont limitées à celles de la fiche et le payload est borné
+en taille : un brouillon ne doit pas devenir un canal de stockage arbitraire.
+Les champs interdits de la fiche (`hospitalized_at`, `discharged_at`,
+`orient_to_medicine`…) sont rejetés ici comme ils le sont à l'enregistrement.
+
+L'écriture exige le même droit que la fiche elle-même — `care.create` ou
+`care.update` selon qu'une fiche existe — et uniquement pendant une prise en
+charge `IN_PROGRESS`. Contrairement au reste du module, ce modèle n'est
+**pas** audité : il est réécrit toutes les quelques secondes pendant la
+frappe et noierait le journal d'audit sous des lots de saisie. Ce qui est
+audité reste le contenu réellement enregistré, sans changement.
+
+## Étendu à la consultation Médecine (2026-09-10)
+
+Le propriétaire a demandé la même garantie pour la consultation Médecine :
+tout ce qui est saisi reste, même après actualisation, et n'est supprimé que
+par une annulation explicite.
+
+`consultation_drafts` applique le même contrat que `care_record_drafts` —
+rattaché au passage **et** à son auteur, jamais audité, supprimé dès le vrai
+enregistrement ou l'annulation, clés bornées et route exclue de
+`ConvertEmptyStringsToNull`. Son payload est une **carte de sections** (une
+par formulaire de l'assistant : `consultation`, `diagnosis`, `prescription`,
+`care_order`, `lab_request`, `imaging_request`, `referral`,
+`surgical_referral`, `discharge`), car un même écran en porte plusieurs.
+
+Seules les sections réellement modifiées sont enregistrées : un formulaire
+intact stockerait ses valeurs par défaut et ressemblerait à une saisie.
+
+Le mécanisme est désormais partagé par le composable
+`resources/js/composables/useFormDraft.js` plutôt que recopié : c'est la
+deuxième occurrence du même besoin, et la fiche Soins pourra l'adopter sans
+changer son comportement. Les formulaires de correction ouverts en fenêtre
+modale (annulation d'un diagnostic, retrait d'une ligne d'ordonnance) ne sont
+volontairement pas conservés : ils sont courts, ouverts délibérément, et une
+actualisation referme la fenêtre de toute façon.
+
+## Constantes et actes facultatifs
+
+Cette décision confirme aussi, sans la modifier, la règle de l'ADR-032 : un
+patient venu seulement pour un pansement n'a aucune constante à relever.
+L'étape « Constantes » porte le libellé `facultatif` lorsque
+`CareWorkflow::recommendsRoutineVitals()` est faux, et la fiche s'ouvre
+directement sur « Actes et matériel » quand ni constantes ni transmission ne
+sont attendues et qu'aucune fiche n'existe encore. Aucun champ de constantes
+n'est jamais rendu obligatoire.
+
+---
+
+# ADR-074 — Champs du DOSSIER MÉDICAL papier absents de l'application
+
+**Status:** ACCEPTED (2026-09-10 — formulaire papier fourni par le propriétaire)
+
+Le formulaire papier « DOSSIER MÉDICAL » de la clinique a été confronté champ
+par champ à la base. La quasi-totalité était déjà couverte : identité,
+situation maritale, nombre d'enfants, profession, coordonnées
+(`patients`) ; groupe sanguin, taille, poids, IMC, allergies, tabac (fiche
+Soins, ADR-032) ; diagnostic (`diagnoses`) ; motif de transmission
+(`care_records`). Trois éléments manquaient réellement.
+
+## Traitements actuels
+
+`consultation_current_treatments` enregistre ce que le patient déclare déjà
+prendre : nom, posologie, précision, ligne par ligne. Rattaché à la
+**Consultation** et non au Patient : c'est ce qui était vrai à cette
+rencontre, et cela change d'une visite à l'autre — même raisonnement que la
+personne à contacter portée par l'Épisode (ADR-034).
+
+C'est une donnée **déclarative, jamais une prescription** : aucune référence
+au référentiel Pharmacie, aucune réservation de lot, aucun prix, exactement
+comme une ligne d'ordonnance manuelle (ADR-036, ADR-037). Un patient peut
+citer un médicament acheté ailleurs ou absent du référentiel.
+
+Contrairement à un acte réalisé, une déclaration est **corrigible** : la
+liste est remplacée à chaque enregistrement, le médecin la réécrivant au fur
+et à mesure que l'interrogatoire la précise. Omettre le champ ne l'efface pas
+— un enregistrement qui ne porte pas le bloc laisse intact ce qui a été
+déclaré.
+
+## Antécédents personnels et familiaux
+
+Le formulaire lit séparément l'histoire du patient et celle de sa famille :
+deux lectures cliniques différentes. `patient_antecedents.type`
+(`PatientAntecedentType` : `PERSONAL` | `FAMILIAL`) porte la distinction.
+
+Les lignes enregistrées avant cette distinction sont classées `PERSONAL` :
+c'est ce que collectait le formulaire sur lequel elles ont été saisies.
+Deviner lesquelles étaient familiales aurait inventé un fait clinique. Une
+requête sans type vaut donc `PERSONAL`, pour la même raison.
+
+L'ajout reste régi par `patients.medical_history.manage` et passe par
+l'unique point d'entrée `PatientController::storeAntecedent()` (ADR-054) ;
+un antécédent demeure une donnée permanente du Patient, jamais un champ de
+Consultation.
+
+## Lieu de naissance
+
+`patients.birth_place` complète la ligne « Date de Naissance … Lieu » du
+formulaire. Nullable : un dossier existant n'a pas à être bloqué faute de
+cette information.
+
+## Hors périmètre, volontairement
+
+« Motif d'hospitalisation », « Entrée hospitalisation » et « Sortie » du même
+formulaire ne sont pas ajoutés : l'ADR-032 pose que ces champs ne
+s'affichent pas avant l'existence du module Hospitalisation, l'entrée devant
+provenir du workflow d'admission après décision médicale et la sortie de
+l'action de sortie médicale.
+
+La grille d'examen clinique par appareil demandée pour l'étape « Examen
+clinique » n'est pas non plus créée : le formulaire papier fourni n'en
+contient aucune, et choisir les appareils à examiner est une décision
+médicale qui doit venir du document de la clinique, non de l'interface.

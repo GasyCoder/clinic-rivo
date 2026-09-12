@@ -10,14 +10,17 @@ use App\Actions\Pharmacy\CreateMedicineSupplierAction;
 use App\Actions\Pharmacy\DispenseMedicinesAction;
 use App\Actions\Pharmacy\PrepareDispenseInvoiceAction;
 use App\Actions\Pharmacy\RecordStockEntryAction;
+use App\Actions\Pharmacy\ServeCareConsumablesAction;
 use App\Http\Requests\Pharmacy\DispenseMedicinesRequest;
 use App\Http\Requests\Pharmacy\ImportMedicineCatalogRequest;
+use App\Http\Requests\Pharmacy\ServeCareConsumablesRequest;
 use App\Http\Requests\Pharmacy\StoreExternalDispenseRequest;
 use App\Http\Requests\Pharmacy\StoreMedicineCategoryRequest;
 use App\Http\Requests\Pharmacy\StoreMedicineProductRequest;
 use App\Http\Requests\Pharmacy\StoreMedicineSupplierRequest;
 use App\Http\Requests\Pharmacy\StoreStockAdjustmentRequest;
 use App\Http\Requests\Pharmacy\StoreStockEntryRequest;
+use App\Models\CareConsumableRequest;
 use App\Models\PharmacyDispense;
 use App\Services\Pharmacy\MedicineCatalogImportService;
 use App\Services\Pharmacy\PharmacyWorkspaceService;
@@ -43,6 +46,29 @@ class PharmacyController extends Controller
         return Inertia::render(
             'Pharmacy/CounterSales/Create',
             $workspace->externalCounterSaleFor($request->user()),
+        );
+    }
+
+    /**
+     * ADR-072 — records the stock exit of consumables already used at
+     * Soins. Deliberately not routed through DispenseMedicinesAction: that
+     * one refuses to move a lot before its invoice is settled (ADR-049),
+     * which cannot apply to an item already on a patient's wound.
+     */
+    public function serveCareConsumables(
+        ServeCareConsumablesRequest $request,
+        CareConsumableRequest $careConsumableRequest,
+        ServeCareConsumablesAction $action,
+    ): RedirectResponse {
+        $served = $action->execute(
+            $careConsumableRequest,
+            $request->validated(),
+            $request->user(),
+        );
+
+        return back()->with(
+            'status',
+            "Sortie de stock enregistrée pour la demande {$served->request_number} ({$served->status->label()}).",
         );
     }
 

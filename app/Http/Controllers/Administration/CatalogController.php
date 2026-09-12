@@ -8,6 +8,7 @@ use App\Actions\Catalog\CreateCatalogItemAction;
 use App\Actions\Catalog\RestoreCatalogItemAction;
 use App\Actions\Catalog\ReviewUnlistedPrescriptionLineAction;
 use App\Actions\Catalog\SetCatalogTariffAction;
+use App\Actions\Catalog\SyncCareActConsumablesAction;
 use App\Actions\Catalog\UpdateCatalogItemAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
@@ -21,10 +22,12 @@ use App\Http\Requests\Administration\CatalogReasonRequest;
 use App\Http\Requests\Administration\ReviewUnlistedPrescriptionLineRequest;
 use App\Http\Requests\Administration\SetCatalogTariffRequest;
 use App\Http\Requests\Administration\StoreCatalogItemRequest;
+use App\Http\Requests\Administration\SyncCareActConsumablesRequest;
 use App\Http\Requests\Administration\UpdateCatalogItemRequest;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\PrescriptionLine;
+use App\Services\Care\CareConsumableDirectory;
 use App\Services\Catalog\CatalogActor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,7 +36,7 @@ use Inertia\Response;
 
 class CatalogController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, CareConsumableDirectory $consumables): Response
     {
         $search = trim((string) $request->query('q', ''));
         $type = CatalogItemType::tryFrom((string) $request->query('type'));
@@ -51,6 +54,8 @@ class CatalogController extends Controller
                     'tariffs' => fn ($query) => $query->with('creator:id,name')->latest('effective_from')->limit(16),
                 ])
                 ->withCount('tariffs'))
+            ->with(['defaultConsumables.medicine' => fn ($medicine) => $medicine
+                ->with('catalogItem:id,code,name,unit')])
             ->when($status === 'archived', fn ($query) => $query->onlyTrashed())
             ->when($status === 'all', fn ($query) => $query->withTrashed())
             ->when($search !== '', fn ($query) => $query->where(function ($nested) use ($search) {
@@ -96,6 +101,9 @@ class CatalogController extends Controller
                 'value' => $policy->value,
                 'label' => $policy->label(),
             ]),
+            'careConsumableOptions' => $request->user()->can('catalog.items.update')
+                ? $consumables->selectableConsumables()
+                : [],
             'summary' => [
                 'active' => CatalogItem::query()->count(),
                 'archived' => CatalogItem::onlyTrashed()->count(),
@@ -111,6 +119,27 @@ class CatalogController extends Controller
                     : null,
             ],
         ]);
+    }
+
+    /**
+     * ADR-072 — configures the material a nursing act usually consumes, so
+     * that Soins gets a coherent pre-selection instead of searching the
+     * whole pharmacy list. The clinical content of these associations is a
+     * decision for whoever administers the catalogue; nothing is inferred
+     * from an act's name or code.
+     */
+    public function syncCareConsumables(
+        SyncCareActConsumablesRequest $request,
+        CatalogItem $catalogItem,
+        SyncCareActConsumablesAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $catalogItem,
+            $request->validated('consumables', []),
+            CatalogActor::fromUser($request->user()),
+        );
+
+        return back()->with('status', "Matériel habituel de {$catalogItem->name} mis à jour.");
     }
 
     public function store(StoreCatalogItemRequest $request, CreateCatalogItemAction $action): RedirectResponse
@@ -250,6 +279,20 @@ class CatalogController extends Controller
             'care_requires_allergy_check' => $item->care_requires_allergy_check,
             'care_recommends_vitals' => $item->care_recommends_vitals,
             'clinician_orderable' => $item->clinician_orderable,
+            // ADR-072 — material this nursing act usually consumes, offered
+            // as a pre-selection to Soins. Empty until configured: nothing
+            // is deduced from the act's name or code.
+            'default_consumables' => $item->relationLoaded('defaultConsumables')
+                ? $item->defaultConsumables
+                    ->filter(fn ($row) => $row->medicine && $row->medicine->catalogItem)
+                    ->map(fn ($row) => [
+                        'medicine_uuid' => $row->medicine->uuid,
+                        'code' => $row->medicine->catalogItem->code,
+                        'name' => $row->medicine->catalogItem->name,
+                        'unit' => $row->medicine->catalogItem->unit,
+                        'default_quantity' => $row->default_quantity,
+                    ])->values()
+                : [],
             'description' => $item->description,
             'archived' => $item->trashed(),
             'archived_at' => $item->deleted_at,

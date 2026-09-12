@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Care\AcceptCareOrientationAction;
+use App\Actions\Care\CancelCareConsumableRequestAction;
 use App\Actions\Care\CompleteCareAndOrientToMedicineAction;
 use App\Actions\Care\MarkCareOrderItemNotPerformedAction;
 use App\Actions\Care\SaveAndCompleteCareAction;
@@ -12,14 +13,19 @@ use App\Enums\CatalogModule;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
+use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
+use App\Http\Requests\Care\SaveCareRecordDraftRequest;
 use App\Http\Requests\MarkCareOrderItemNotPerformedRequest;
 use App\Http\Requests\UpdateCareRecordRequest;
 use App\Models\AllergenReference;
+use App\Models\CareConsumableRequest;
 use App\Models\CareOrder;
 use App\Models\CareOrderItem;
+use App\Models\CareRecordDraft;
 use App\Models\CatalogItem;
 use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
+use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
 use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
@@ -27,6 +33,7 @@ use App\Support\EpisodeQueuePresenter;
 use App\Support\HeartRateAssessment;
 use App\Support\OxygenSaturationAssessment;
 use App\Support\TemperatureAssessment;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -160,6 +167,7 @@ class CareController extends Controller
         OxygenSaturationAssessment $oxygenSaturationAssessment,
         TemperatureAssessment $temperatureAssessment,
         CareRecordReadModel $careRecordReadModel,
+        CareConsumableDirectory $consumables,
     ): Response {
         $episodeOrientation->load([
             'episode.patient',
@@ -189,6 +197,11 @@ class CareController extends Controller
         $canEditVitals = $canEdit
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
         $canViewCareOrders = $request->user()->can('care_orders.view');
+        // ADR-072 — declaring a consumable is a write on the visit, so it
+        // follows the same "orientation still in progress" rule as any
+        // other Soins entry, on top of its own permission.
+        $canViewConsumables = $request->user()->can('care_consumables.view');
+        $canRequestConsumables = $canEdit && $request->user()->can('care_consumables.request');
 
         // Same fact CompleteCareAndOrientToMedicineAction::settleAdministrativelyIfPathwayComplete()
         // checks before settling — surfaced read-only so Vue can label the
@@ -247,9 +260,18 @@ class CareController extends Controller
             'procedureCatalog' => CatalogItem::query()
                 ->where('type', CatalogItemType::Service->value)
                 ->where('module', CatalogModule::Care->value)
+                // ADR-072 — the material usually consumed by the act, so the
+                // nurse gets a coherent pre-selection instead of hunting for
+                // it. Only exposed to an account that may actually declare
+                // material; it is a suggestion, never a commitment.
+                ->when($canRequestConsumables, fn ($query) => $query->with([
+                    'defaultConsumables.medicine' => fn ($medicine) => $medicine
+                        ->where('active', true)
+                        ->with('catalogItem:id,code,name,unit'),
+                ]))
                 ->orderBy('name')
                 ->get([
-                    'uuid', 'code', 'name', 'unit',
+                    'id', 'uuid', 'code', 'name', 'unit',
                     'care_requires_allergy_check', 'care_recommends_vitals',
                 ])
                 ->map(fn (CatalogItem $item) => [
@@ -259,7 +281,34 @@ class CareController extends Controller
                     'unit' => $item->unit,
                     'care_requires_allergy_check' => $item->care_requires_allergy_check,
                     'care_recommends_vitals' => $item->care_recommends_vitals,
+                    'default_consumables' => $canRequestConsumables
+                        ? $item->defaultConsumables
+                            ->filter(fn ($row) => $row->medicine && $row->medicine->catalogItem)
+                            ->map(fn ($row) => [
+                                'medicine_uuid' => $row->medicine->uuid,
+                                'code' => $row->medicine->catalogItem->code,
+                                'name' => $row->medicine->catalogItem->name,
+                                'unit' => $row->medicine->catalogItem->unit,
+                                'quantity' => $row->default_quantity,
+                            ])
+                            ->values()
+                        : [],
                 ]),
+            // Typing in progress, restored after a reload. Scoped to this
+            // account: a nurse never inherits another's unvalidated entry.
+            'careRecordDraft' => $canEdit
+                ? CareRecordDraft::query()
+                    ->where('episode_orientation_id', $episodeOrientation->getKey())
+                    ->where('created_by', $request->user()->getKey())
+                    ->first(['payload', 'updated_at'])
+                    ?->only(['payload', 'updated_at'])
+                : null,
+            'consumableCatalog' => $canRequestConsumables
+                ? $consumables->selectableConsumables()
+                : [],
+            'consumableRequests' => $canViewConsumables
+                ? $consumables->forOrientation($episodeOrientation->getKey())
+                : [],
             'careOrders' => $canViewCareOrders
                 ? CareOrder::query()
                     ->where('care_orientation_id', $episodeOrientation->getKey())
@@ -299,6 +348,10 @@ class CareController extends Controller
                 'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
                     && $request->user()->can('care.complete'),
                 'can_view_care_orders' => $canViewCareOrders,
+                'can_view_consumables' => $canViewConsumables,
+                'can_request_consumables' => $canRequestConsumables,
+                'can_cancel_consumables' => $canViewConsumables
+                    && $request->user()->can('care_consumables.cancel'),
             ],
         ]);
     }
@@ -345,6 +398,63 @@ class CareController extends Controller
 
         return redirect()->route('care.orientations.show', $episodeOrientation)
             ->with('status', 'Acte marqué non réalisé.');
+    }
+
+    /**
+     * Autosaved typing, so a reload never loses what the nurse entered.
+     * Returns no Inertia response: the browser calls this in the background
+     * and must not have its page re-rendered mid-typing.
+     */
+    public function saveDraft(
+        SaveCareRecordDraftRequest $request,
+        EpisodeOrientation $episodeOrientation,
+    ): JsonResponse {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+
+        $draft = CareRecordDraft::query()->updateOrCreate(
+            [
+                'episode_orientation_id' => $episodeOrientation->getKey(),
+                'created_by' => $request->user()->getKey(),
+            ],
+            ['payload' => $request->draftPayload()],
+        );
+
+        return response()->json(['saved_at' => $draft->updated_at->toIso8601String()]);
+    }
+
+    /** The nurse explicitly discards their entry. */
+    public function discardDraft(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+    ): RedirectResponse {
+        abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+
+        CareRecordDraft::query()
+            ->where('episode_orientation_id', $episodeOrientation->getKey())
+            ->where('created_by', $request->user()->getKey())
+            ->delete();
+
+        return redirect()
+            ->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Saisie en cours annulée.');
+    }
+
+    public function cancelConsumables(
+        CancelCareConsumableRequestRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CareConsumableRequest $careConsumableRequest,
+        CancelCareConsumableRequestAction $action,
+    ): RedirectResponse {
+        abort_unless(
+            $careConsumableRequest->care_orientation_id === $episodeOrientation->getKey(),
+            404,
+        );
+
+        $action->execute($careConsumableRequest, $request->validated('reason'), $request->user());
+
+        return redirect()
+            ->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Demande de consommables annulée. La Pharmacie ne la verra plus dans sa file.');
     }
 
     public function accept(

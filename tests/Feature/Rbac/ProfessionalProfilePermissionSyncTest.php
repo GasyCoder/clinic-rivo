@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Rbac;
 
+use App\Actions\User\CreateUserAction;
 use App\Actions\User\UpdateUserAction;
 use App\Enums\UserPermissionSource;
 use App\Models\Permission;
@@ -259,8 +260,15 @@ class ProfessionalProfilePermissionSyncTest extends TestCase
         $this->assertTrue($user->fresh()->hasPermissionTo('surgery.view'));
     }
 
-    public function test_backend_profile_change_removes_old_profile_permissions_even_without_override_payload(): void
+    public function test_backend_profile_change_swaps_the_profile_rights_by_default(): void
     {
+        // Amends ADR-033's "only after the explicit apply" step: a payload
+        // that changes the profile without saying anything about the
+        // recommendations now applies them. Leaving an account with a new job
+        // title and none of its access was the incoherence reported over and
+        // over — a Sage-femme without Maternité, an Anesthésiste without
+        // Anesthésie. Opting out stays possible and is covered by
+        // test_profile_change_without_new_recommendations_removes_old_profile_permissions_only.
         $midwife = $this->createProfileUser('MIDWIFE', true);
         $actor = $this->siteManager();
         $anesthetist = $this->profile('ANESTHETIST');
@@ -272,13 +280,38 @@ class ProfessionalProfilePermissionSyncTest extends TestCase
             'professional_profile_id' => $anesthetist->id,
         ], $actor);
 
-        $this->assertFalse($midwife->fresh()->hasPermissionTo('maternity.view'));
-        $this->assertFalse($midwife->fresh()->hasPermissionTo('anesthesia.view'));
+        $updated = $midwife->fresh();
+        // The former profile's rights always go: an Anesthésiste is not a
+        // Sage-femme who kept Maternité.
+        $this->assertFalse($updated->hasPermissionTo('maternity.view'));
+        $this->assertTrue($updated->hasPermissionTo('anesthesia.view'));
+        $this->assertDatabaseHas('user_permissions', [
+            'user_id' => $midwife->id,
+            'permission_id' => $this->permission('anesthesia.view')->id,
+            'source' => 'PROFILE',
+            'source_profile_id' => $anesthetist->id,
+        ]);
         $this->assertDatabaseHas('audit_logs', [
             'entity_id' => $midwife->id,
             'action' => 'user.profile.permissions.sync',
             'module' => 'administration',
         ]);
+    }
+
+    public function test_a_new_account_starts_with_the_rights_of_the_profile_it_is_given(): void
+    {
+        $actor = $this->siteManager();
+        $role = Role::query()->where('code', 'NURSE')->sole();
+
+        $created = app(CreateUserAction::class)->execute([
+            'name' => 'Sage-femme sans consigne',
+            'email' => 'nouvelle.sage.femme@rivo.test',
+            'password' => 'Correct-Horse-Battery-9',
+            'role_id' => $role->id,
+            'professional_profile_id' => $this->profile('MIDWIFE')->id,
+        ], $actor);
+
+        $this->assertTrue($created->fresh()->hasPermissionTo('maternity.view'));
     }
 
     public function test_effective_permission_resolution_remains_deny_then_allow_then_role(): void

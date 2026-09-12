@@ -45,6 +45,8 @@ class UpdatePatientRequest extends FormRequest
             'last_name' => ['required', 'string', 'max:255'],
             'birth_date' => ['required_without:age', 'nullable', 'date', 'before_or_equal:today'],
             'age' => ['required_without:birth_date', 'nullable', 'integer', 'min:0', 'max:130'],
+            // "Lieu" of the DOSSIER MÉDICAL's birth line.
+            'birth_place' => ['nullable', 'string', 'max:150'],
             'sex' => ['required', new Enum(PatientSex::class)],
             'civility' => ['nullable', new Enum(PatientCivility::class)],
             'identity_document_type' => ['nullable', 'required_with:identity_document_number', new Enum(IdentityDocumentType::class)],

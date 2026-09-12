@@ -60,6 +60,7 @@ const form = useForm({
     first_name: props.patient.first_name ?? '',
     last_name: props.patient.last_name ?? '',
     birth_date: props.patient.birth_date ?? '',
+    birth_place: props.patient.birth_place ?? '',
     age: props.patient.birth_date ? '' : (props.patient.declared_age ?? props.patient.age ?? ''),
     sex: props.patient.sex ?? 'M',
     civility: props.patient.civility ?? null,
@@ -309,9 +310,10 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
                                 <p v-if="birthDateMode === 'date' && exactAge !== null" class="mt-1.5 text-xs text-slate-400">Âge calculé automatiquement : {{ exactAge }} ans.</p><p v-else-if="birthDateMode === 'age'" class="mt-1.5 text-xs text-slate-400">À utiliser uniquement lorsque la date exacte est inconnue.</p>
                                 <FormError v-if="form.errors.birth_date || form.errors.age" class="mt-1">{{ form.errors.birth_date || form.errors.age }}</FormError>
                             </div>
+                            <label class="lg:col-span-6"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Lieu de naissance</span><IconInput v-model="form.birth_place" size="lg" icon="map-pin" placeholder="Commune ou localité" /><FormError v-if="form.errors.birth_place" class="mt-1">{{ form.errors.birth_place }}</FormError></label>
                             <label class="lg:col-span-3"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Situation maritale</span><select v-model="form.marital_status" :class="selectLgClass"><option :value="null">Non renseignée</option><option v-for="option in maritalStatusOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select><FormError v-if="form.errors.marital_status" class="mt-1">{{ form.errors.marital_status }}</FormError></label>
                             <label class="lg:col-span-3"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Nombre d’enfants</span><Input v-model="form.children_count" size="lg" type="number" min="0" max="30" /><FormError v-if="form.errors.children_count" class="mt-1">{{ form.errors.children_count }}</FormError></label>
-                            <label class="lg:col-span-12"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profession</span><IconInput v-model="form.profession" size="lg" icon="briefcase" placeholder="Métier ou activité" /><FormError v-if="form.errors.profession" class="mt-1">{{ form.errors.profession }}</FormError></label>
+                            <label class="lg:col-span-6"><span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Profession</span><IconInput v-model="form.profession" size="lg" icon="briefcase" placeholder="Métier ou activité" /><FormError v-if="form.errors.profession" class="mt-1">{{ form.errors.profession }}</FormError></label>
                         </div>
                     </div>
                 </section>

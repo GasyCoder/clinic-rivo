@@ -102,9 +102,13 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
 - [x] Projection partagée des constantes et alertes (CareRecordReadModel) entre Soins, Médecine et Chirurgie/Anesthésie
 - [x] Antécédents patient exposés via un point d'entrée générique, consultables et ajoutables depuis Médecine
+- [x] Antécédents distingués personnels / familiaux, traitements actuels déclarés en consultation, lieu de naissance au dossier patient
 - [x] Clôture administrative automatique (PENDING_SETTLEMENT) d'un parcours Soins seul réellement terminé, sans sortie médicale fictive
 - [x] Page transversale « Détail du passage » en lecture seule, sécurisée section par section côté serveur
 - [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
+- [x] Consommables déclarés aux Soins, notifiés à la Pharmacie, facturés séparément et sortis du stock sans attendre le règlement
+- [x] Matériel habituel configurable par acte de soins, pré-rempli comme suggestion et toujours confirmé par le soignant
+- [x] Saisie en cours de la fiche de soins conservée par auteur et restaurée après actualisation
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
 - [ ] Hospitalisation
@@ -160,6 +164,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Délivrance complète ou partielle en FEFO
 - [x] Déstockage uniquement lors de la délivrance autorisée
 - [ ] Retours
+- [x] File Pharmacie des consommables Soins avec sortie de stock FEFO respectant les réservations
 - [x] Alertes automatiques de seuil minimal et rupture
 - [x] Alertes et visibilité des lots proches de la péremption
 - [ ] Transfert stock

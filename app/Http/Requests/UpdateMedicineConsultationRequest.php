@@ -70,12 +70,20 @@ class UpdateMedicineConsultationRequest extends FormRequest
             ],
             'decision' => ['nullable', Rule::enum(ConsultationDecision::class)],
             'decision_notes' => ['nullable', 'string', 'max:5000'],
+            // "Traitements actuels" of the DOSSIER MÉDICAL: what the patient
+            // reports already taking. Declarative — never a prescription, so
+            // no catalogue reference and no stock check (ADR-036/037).
+            'current_treatments' => ['sometimes', 'array', 'max:20'],
+            'current_treatments.*.medication_name' => ['required', 'string', 'max:255'],
+            'current_treatments.*.dosage' => ['nullable', 'string', 'max:150'],
+            'current_treatments.*.notes' => ['nullable', 'string', 'max:500'],
         ];
     }
 
     public function messages(): array
     {
         return [
+            'current_treatments.*.medication_name.required' => 'Indiquez le nom du traitement en cours.',
             'reason.required' => 'Indiquez le motif de la consultation.',
             'reason.max' => 'Le contenu du motif de la consultation est trop volumineux.',
             'clinical_exam.max' => 'Le contenu des constatations de l’examen est trop volumineux.',

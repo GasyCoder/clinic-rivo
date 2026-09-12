@@ -9,6 +9,7 @@ use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -20,6 +21,15 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             HandleInertiaRequests::class,
+        ]);
+
+        // A care worksheet draft is a faithful snapshot of what the nurse
+        // has on screen: an empty field must come back as an empty string,
+        // not as null. Converting it would break the form it is restored
+        // into (ADR-073).
+        $middleware->convertEmptyStringsToNull(except: [
+            fn (Request $request) => $request->is('care/orientations/*/draft'),
+            fn (Request $request) => $request->is('medicine/orientations/*/draft'),
         ]);
 
         $middleware->alias([

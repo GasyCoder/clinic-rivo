@@ -8,12 +8,14 @@ use App\Models\MedicineCategory;
 use App\Models\MedicineSupplier;
 use App\Models\PharmacyStockAlert;
 use App\Models\User;
+use App\Services\Care\CareConsumableDirectory;
 
 class PharmacyWorkspaceService
 {
     public function __construct(
         private readonly MedicineStockOverviewService $stockOverview,
         private readonly PharmacyPrescriptionQueueService $prescriptionQueue,
+        private readonly CareConsumableDirectory $careConsumables,
     ) {}
 
     /** @return array<string, mixed> */
@@ -51,6 +53,11 @@ class PharmacyWorkspaceService
                 && $user->can('catalog.items.create')
                 && $user->can('catalog.tariffs.create'),
             'can_return' => $user->can('pharmacy.return'),
+            // ADR-072 — the Soins consumable circuit. Viewing is separate
+            // from serving: a pharmacist without stock exit rights still
+            // needs to see what the wards are consuming.
+            'can_view_care_consumables' => $user->can('care_consumables.view'),
+            'can_serve_care_consumables' => $user->can('care_consumables.serve'),
         ];
 
         $stock = $capabilities['can_view_stock']
@@ -68,6 +75,9 @@ class PharmacyWorkspaceService
             'capabilities' => $capabilities,
             'stock' => $stock,
             'queue' => $queue,
+            'careConsumables' => $capabilities['can_view_care_consumables']
+                ? $this->careConsumables->pharmacyQueue()
+                : ['summary' => [], 'requests' => []],
             'categories' => $capabilities['can_view_categories']
                 ? MedicineCategory::query()->orderBy('name')->get(['uuid', 'code', 'name'])
                 : [],
@@ -108,6 +118,7 @@ class PharmacyWorkspaceService
         abort_unless($user->can('pharmacy.counter_sales.create'), 403);
 
         $canViewPrescriptions = $user->can('prescriptions.view');
+        $canViewCareConsumables = $user->can('care_consumables.view');
 
         return [
             'navigation' => [
@@ -118,6 +129,10 @@ class PharmacyWorkspaceService
                 'can_print_ticket' => $user->can('pharmacy.dispense.print'),
                 'dispense_count' => $canViewPrescriptions
                     ? $this->prescriptionQueue->activeDispenseCount()
+                    : 0,
+                'can_view_care_consumables' => $canViewCareConsumables,
+                'care_consumable_count' => $canViewCareConsumables
+                    ? $this->careConsumables->openRequestCount()
                     : 0,
             ],
             'medicines' => collect($this->stockOverview->overview()['medicines'])

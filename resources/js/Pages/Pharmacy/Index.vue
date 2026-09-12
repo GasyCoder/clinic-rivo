@@ -5,6 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
+import CareConsumableQueue from '@/Pages/Pharmacy/Partials/CareConsumableQueue.vue';
 import DispenseDeliveryWorkspace from '@/Pages/Pharmacy/Partials/DispenseDeliveryWorkspace.vue';
 import DispenseQueue from '@/Pages/Pharmacy/Partials/DispenseQueue.vue';
 import PharmacyWorkspaceNav from '@/Pages/Pharmacy/Partials/PharmacyWorkspaceNav.vue';
@@ -15,6 +16,7 @@ const props = defineProps({
     capabilities: { type: Object, required: true },
     stock: { type: Object, required: true },
     queue: { type: Object, required: true },
+    careConsumables: { type: Object, default: () => ({ summary: {}, requests: [] }) },
     categories: { type: Array, default: () => [] },
     suppliers: { type: Array, default: () => [] },
     alerts: { type: Array, default: () => [] },
@@ -26,10 +28,11 @@ const page = usePage();
 const requestedTab = new URLSearchParams(page.url.split('?')[1] ?? '').get('tab');
 const availableTabs = {
     dispenses: props.capabilities.can_view_prescriptions,
+    'care-consumables': props.capabilities.can_view_care_consumables,
     stock: props.capabilities.can_view_stock,
     setup: props.capabilities.can_view_categories || props.capabilities.can_view_suppliers,
 };
-const defaultTab = ['dispenses', 'stock', 'setup'].find((tab) => availableTabs[tab]) ?? 'dispenses';
+const defaultTab = ['dispenses', 'care-consumables', 'stock', 'setup'].find((tab) => availableTabs[tab]) ?? 'dispenses';
 const activeTab = ref(availableTabs[requestedTab] ? requestedTab : defaultTab);
 const search = ref('');
 const stockStatus = ref('ALL');
@@ -206,6 +209,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
             :capabilities="capabilities"
             :active="activeTab"
             :dispense-count="queue.summary.dispenses ?? 0"
+            :care-consumable-count="(careConsumables.summary.pending ?? 0) + (careConsumables.summary.partially_served ?? 0)"
             @select="activeTab = $event; search = ''"
         />
 
@@ -259,7 +263,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
         </form>
 
         <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div v-if="activeTab === 'stock'" class="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-900 sm:flex-row sm:justify-end">
+            <div v-if="activeTab === 'stock' || activeTab === 'care-consumables'" class="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-900 sm:flex-row sm:justify-end">
                     <label class="relative block sm:w-72"><Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" /><input v-model="search" type="search" class="h-9 w-full rounded border border-gray-200 bg-white ps-10 pe-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" :placeholder="activeTab === 'stock' ? 'Médicament, code, forme…' : 'Patient, passage, médicament…'"></label>
                     <select v-if="activeTab === 'stock'" v-model="stockStatus" class="h-9 rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="ALL">Tous les états</option><option value="AVAILABLE">Disponibles</option><option value="OUT_OF_STOCK">Ruptures</option><option v-if="capabilities.can_view_expiration" value="EXPIRING_SOON">Péremption proche</option><option value="INACTIVE">Inactifs</option></select>
             </div>
@@ -284,6 +288,13 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                 :capabilities="capabilities"
                 @prepare-invoice="prepareInvoice"
                 @deliver="openDelivery"
+            />
+
+            <CareConsumableQueue
+                v-else-if="activeTab === 'care-consumables' && capabilities.can_view_care_consumables"
+                :care-consumables="careConsumables"
+                :capabilities="capabilities"
+                :search="search"
             />
 
             <div v-else-if="activeTab === 'setup'" class="space-y-5 p-5">

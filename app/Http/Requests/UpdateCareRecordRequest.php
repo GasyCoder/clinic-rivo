@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Enums\AllergySeverity;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\MedicineForm;
 use App\Models\EpisodeOrientation;
 use App\Support\CareWorkflow;
 use Illuminate\Database\Query\Builder;
@@ -92,6 +93,7 @@ class UpdateCareRecordRequest extends FormRequest
         $canTransmitToMedicine = $orientation
             ? $careWorkflow->expectsMedicalTransmission($orientation->episode)
             : false;
+        $canDeclareConsumables = (bool) $this->user()?->can('care_consumables.request');
 
         return [
             'blood_group' => ['nullable', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
@@ -166,6 +168,25 @@ class UpdateCareRecordRequest extends FormRequest
             'procedures.*.notes' => ['nullable', 'string', 'max:1000'],
             'procedures.*.allergy_checked' => ['sometimes', 'boolean'],
             'procedures.*.care_order_item_uuid' => ['nullable', 'uuid'],
+            // ADR-072 — material used, declared in the same submission as
+            // the act. Restricting the form to consumables is a convenience;
+            // the parapharmacy-only rule itself is enforced by
+            // RequestCareConsumablesAction, server-side.
+            'consumables' => [Rule::prohibitedIf(! $canDeclareConsumables), 'sometimes', 'array', 'max:30'],
+            'consumables.*.medicine_uuid' => [
+                'required', 'uuid', 'distinct',
+                Rule::exists('medicines', 'uuid')->where(
+                    fn (Builder $query) => $query
+                        ->where('active', true)
+                        ->where('form', MedicineForm::ParapharmacyConsumable->value)
+                        ->whereNull('deleted_at'),
+                ),
+            ],
+            'consumables.*.quantity' => ['required', 'integer', 'min:1', 'max:10000'],
+            'consumable_notes' => [
+                Rule::prohibitedIf(! $canDeclareConsumables),
+                'nullable', 'string', 'max:2000',
+            ],
         ];
     }
 
@@ -177,6 +198,9 @@ class UpdateCareRecordRequest extends FormRequest
             'discharged_at.prohibited' => 'La sortie relève de la décision médicale et ne peut pas être saisie dans la fiche Soins.',
             'diagnostic_note.prohibited' => 'Ce passage ne prévoit pas de transmission vers Médecine.',
             'transmission_reason.prohibited' => 'Ce passage se termine aux Soins et ne prévoit pas de transmission vers Médecine.',
+            'consumables.prohibited' => 'Vous ne pouvez pas déclarer de consommables aux Soins.',
+            'consumables.*.medicine_uuid.exists' => 'Seuls les consommables de parapharmacie actifs peuvent être déclarés par les Soins.',
+            'consumables.*.medicine_uuid.distinct' => 'Un même consommable ne peut être ajouté qu’une fois : ajustez sa quantité.',
             'procedures.*.catalog_item_uuid.exists' => 'Un acte sélectionné est indisponible dans le référentiel Soins.',
             'procedures.*.catalog_item_uuid.distinct' => 'Un même acte ne peut être ajouté qu’une fois par enregistrement.',
             'procedures.*.allergy_checked.boolean' => 'La vérification du statut allergique doit être confirmée explicitement.',

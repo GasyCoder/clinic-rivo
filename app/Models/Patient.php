@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
+use App\Enums\PatientAntecedentType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
@@ -29,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 #[Fillable([
     'patient_number', 'patient_type', 'first_name', 'last_name', 'birth_date',
-    'birth_date_is_approximate', 'declared_age', 'declared_age_at',
+    'birth_date_is_approximate', 'birth_place', 'declared_age', 'declared_age_at',
     'sex', 'civility', 'identity_document_type', 'identity_document_number',
     'marital_status', 'children_count', 'profession', 'phone', 'email',
     'address', 'address_entry_id',
@@ -72,6 +73,17 @@ class Patient extends Model
     public function antecedents(): HasMany
     {
         return $this->hasMany(PatientAntecedent::class);
+    }
+
+    /** The patient's own history, as the DOSSIER MÉDICAL separates it. */
+    public function personalAntecedents(): HasMany
+    {
+        return $this->antecedents()->where('type', PatientAntecedentType::Personal->value);
+    }
+
+    public function familialAntecedents(): HasMany
+    {
+        return $this->antecedents()->where('type', PatientAntecedentType::Familial->value);
     }
 
     public function allergies(): HasMany

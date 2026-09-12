@@ -14,6 +14,9 @@ const props = defineProps({
 
 const isEmergency = computed(() => props.episode.priority === 'EMERGENCY');
 const sexLabel = computed(() => (props.patient.sex === 'F' ? 'F' : 'M'));
+// The single place the patient's identity is stated on a clinical page, so
+// it carries the whole of it rather than sending the reader elsewhere.
+const sexName = computed(() => (props.patient.sex === 'F' ? 'Femme' : 'Homme'));
 const financialModeLabel = computed(() => ({
     SELF: 'Sans mutuelle',
     MUTUAL: 'Mutuelle',
@@ -34,15 +37,24 @@ const financialModeLabel = computed(() => ({
                     <p class="mt-0.5 truncate text-xs text-slate-400">
                         <span class="font-mono">{{ patient.patient_number }}</span>
                         <span> · Passage <span class="font-mono">{{ episode.episode_number }}</span></span>
+                        <span> · {{ sexName }}</span>
                         <span v-if="patient.age !== null && patient.age !== undefined"> · {{ patient.age }} ans</span>
                         <span v-if="financialModeLabel"> · {{ financialModeLabel }}</span>
                     </p>
                 </div>
             </div>
-            <Button v-if="backHref" :as="Link" :href="backHref" size="sm" variant="white-outline"><Icon class="text-sm" name="arrow-left" /><span class="ms-1.5">{{ backLabel }}</span></Button>
+            <!-- Toutes les actions de la page tiennent sur cette seule ligne :
+                 un médecin ne doit pas chercher un bouton à trois endroits. -->
+            <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <slot name="actions" />
+                <Button v-if="backHref" :as="Link" :href="backHref" size="sm" variant="white-outline"><Icon class="text-sm" name="arrow-left" /><span class="ms-1.5">{{ backLabel }}</span></Button>
+            </div>
         </div>
         <div v-if="reason" class="border-t border-gray-200 bg-gray-50/60 px-4 py-2 text-xs text-slate-500 dark:border-gray-900 dark:bg-gray-1000/30 dark:text-slate-300">
             <span class="font-semibold uppercase tracking-wide text-slate-400">Motif</span> · {{ reason }}
         </div>
+        <!-- Extra rows belong to the same card: a clinical page should open on
+             one header, not on a stack of separate bands. -->
+        <slot />
     </div>
 </template>

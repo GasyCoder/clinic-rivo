@@ -31,6 +31,12 @@ class FinancialNumberGenerator
         return $this->next('pharmacy_delivery', 'BS');
     }
 
+    /** ADR-072 — Soins consumable slip handed to Pharmacy. */
+    public function careConsumableRequest(): string
+    {
+        return $this->next('care_consumable_request', 'DC');
+    }
+
     private function next(string $code, string $marker): string
     {
         return DB::transaction(function () use ($code, $marker) {

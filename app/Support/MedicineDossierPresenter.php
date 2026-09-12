@@ -9,6 +9,7 @@ use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\MedicalDischargeType;
+use App\Enums\PatientAntecedentType;
 use App\Enums\PrescriptionStatus;
 use App\Models\CareOrder;
 use App\Models\CatalogItem;
@@ -114,6 +115,28 @@ class MedicineDossierPresenter
             // read from (ADR-048): a single place computes the constants'
             // threshold assessments, so Médecine never re-derives them.
             'care_record' => $this->careRecord->present($careRecord, $user),
+            // The civil identity the doctor reads before examining. Served
+            // here rather than in the queue projection, which stays lean:
+            // a waiting list needs a name and an age, a file needs the rest.
+            'patient_profile' => [
+                'full_name' => trim("{$patient->last_name} {$patient->first_name}"),
+                'sex_label' => $patient->sex->value === 'F' ? 'Féminin' : 'Masculin',
+                'birth_date' => $patient->birth_date?->toDateString(),
+                'birth_date_is_approximate' => (bool) $patient->birth_date_is_approximate,
+                'declared_age' => $patient->declared_age,
+                'age' => $patient->birth_date?->age ?? $patient->declared_age,
+                'birth_place' => $patient->birth_place,
+                'marital_status' => $patient->marital_status?->label(),
+                'children_count' => $patient->children_count,
+                'profession' => $patient->profession,
+                'identity_document' => $patient->identity_document_number
+                    ? trim(($patient->identity_document_type?->value ?? '').' '.$patient->identity_document_number)
+                    : null,
+                'phone' => $patient->phone,
+                'email' => $patient->email,
+                'address' => $patient->address,
+                'patient_number' => $patient->patient_number,
+            ],
             'allergies' => $user->can('patients.medical_history.view')
                 ? $patient->allergies->map(fn ($allergy) => [
                     'uuid' => $allergy->uuid,
@@ -122,17 +145,37 @@ class MedicineDossierPresenter
                     'severity' => $allergy->severity?->value,
                 ])->values()
                 : [],
+            // The DOSSIER MÉDICAL reads the patient's own history and the
+            // family's separately, so they are served separately. `antecedents`
+            // stays as the full list for any caller that already used it.
             'antecedents' => $user->can('patients.medical_history.view')
                 ? $patient->antecedents->map(fn ($antecedent) => [
                     'uuid' => $antecedent->uuid,
+                    'type' => $antecedent->type->value,
+                    'type_label' => $antecedent->type->shortLabel(),
                     'description' => $antecedent->description,
                 ])->values()
+                : [],
+            'familial_antecedents' => $user->can('patients.medical_history.view')
+                ? $patient->antecedents
+                    ->where('type', PatientAntecedentType::Familial)
+                    ->map(fn ($antecedent) => [
+                        'uuid' => $antecedent->uuid,
+                        'description' => $antecedent->description,
+                    ])->values()
                 : [],
             'consultation' => $consultation ? [
                 'id' => $consultation->getKey(),
                 'doctor' => $consultation->doctor?->name,
                 'reason' => $this->richText->toSafeHtml($consultation->reason),
                 'clinical_exam' => $this->richText->toSafeHtml($consultation->clinical_exam),
+                'current_treatments' => $consultation->currentTreatments
+                    ->map(fn ($treatment) => [
+                        'uuid' => $treatment->uuid,
+                        'medication_name' => $treatment->medication_name,
+                        'dosage' => $treatment->dosage,
+                        'notes' => $treatment->notes,
+                    ])->values(),
                 'decision' => $consultation->decision?->value,
                 'decision_label' => $consultation->decision?->label(),
                 'decision_notes' => $consultation->decision_notes,

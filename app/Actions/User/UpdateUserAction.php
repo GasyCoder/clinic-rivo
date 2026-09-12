@@ -48,7 +48,15 @@ class UpdateUserAction
             $this->guard->assertLastActiveSuperAdminPreserved($user, $role);
 
             $hasOverrides = array_key_exists('permission_overrides', $data);
-            $syncRecommended = (bool) ($data['sync_profile_permissions'] ?? false);
+            // A profile change applies its recommendations by default. Not
+            // doing so produced the single most reported incoherence: an
+            // account carrying a new job title — Sage-femme, Anesthésiste —
+            // with none of its access, because every write path had to ask
+            // for the obvious separately. An explicit false still opts out
+            // (ADR-033 keeps the decision adjustable and audited), and a
+            // MANUAL row is never overwritten.
+            $profileChanged = $user->professional_profile_id !== $profile?->getKey();
+            $syncRecommended = (bool) ($data['sync_profile_permissions'] ?? $profileChanged);
 
             if ($hasOverrides || $syncRecommended) {
                 if (! $actor->can('permissions.assign')) {

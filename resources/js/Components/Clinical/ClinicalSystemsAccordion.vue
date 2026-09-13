@@ -1,14 +1,18 @@
 <script setup>
-import { computed, ref } from 'vue';
-import ClinicalSystemExam from '@/Components/Clinical/ClinicalSystemExam.vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
+import FormError from '@/Components/UI/FormError.vue';
+import Icon from '@/Components/UI/Icon.vue';
 
 /**
- * The nine body systems as compact accordions.
+ * The nine body systems as a horizontal slider: one card per system, swiped
+ * or scrolled through, with a chip bar on top that shows every status at a
+ * glance and jumps to any system.
  *
- * Only one opens at a time: nine expanded blocks would make the step a wall
- * of textareas, and the doctor examines one system at a time anyway. The
- * closed rows still state their status, so the whole examination is readable
- * without opening anything.
+ * Nothing is pre-selected and nothing is inferred: each card starts at
+ * « Non examiné » and only the doctor's choice moves it. Choosing « Normal »
+ * slides on to the next system — the common, quick path — while « Anormal »
+ * stays put, because its findings are now required.
  */
 const props = defineProps({
     /** [{ system_code, label, hint, status, findings }] — always all systems. */
@@ -20,9 +24,80 @@ const props = defineProps({
 
 const emit = defineEmits(['update', 'reset']);
 
-/** Anomalies start open: they are the rows that still need something. */
-const openSystem = ref(props.systems.find((system) => system.status === 'ABNORMAL')?.system_code ?? null);
-const toggle = (code) => { openSystem.value = openSystem.value === code ? null : code; };
+const OPTIONS = [
+    { value: 'NOT_EXAMINED', label: 'Non examiné' },
+    { value: 'NORMAL', label: 'Normal', tone: 'positive' },
+    { value: 'ABNORMAL', label: 'Anormal', tone: 'warning' },
+];
+
+const DOT = {
+    NORMAL: 'bg-emerald-500',
+    ABNORMAL: 'bg-amber-500',
+    NOT_EXAMINED: 'bg-gray-300 dark:bg-gray-700',
+};
+
+const track = ref(null);
+const current = ref(0);
+
+/**
+ * Brings a card into view. Scroll-snap does the positioning, so this only
+ * asks the browser to scroll — the track stays a native, swipeable scroller.
+ */
+const goTo = (index) => {
+    const bounded = Math.max(0, Math.min(props.systems.length - 1, index));
+    const card = track.value?.children[bounded];
+
+    current.value = bounded;
+    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+};
+
+let scrollFrame = null;
+
+/** The card nearest the left edge is the current one, whatever moved it. */
+const onScroll = () => {
+    if (scrollFrame !== null) return;
+
+    scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = null;
+        const el = track.value;
+
+        if (!el) return;
+
+        const cards = [...el.children];
+        const left = el.getBoundingClientRect().left;
+        let best = 0;
+        let distance = Infinity;
+
+        cards.forEach((card, index) => {
+            const gap = Math.abs(card.getBoundingClientRect().left - left);
+            if (gap < distance) { distance = gap; best = index; }
+        });
+
+        current.value = best;
+    });
+};
+
+onBeforeUnmount(() => {
+    if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+});
+
+const setStatus = async (index, code, value) => {
+    const next = value ?? 'NOT_EXAMINED';
+    update(code, { status: next });
+
+    // Normal is the quick path: move on. Anormal stays — its findings are
+    // now mandatory and the field has just appeared on this card.
+    if (next === 'NORMAL' && index < props.systems.length - 1) {
+        await nextTick();
+        goTo(index + 1);
+    }
+};
+
+const onTrackKeydown = (event) => {
+    if (event.target !== track.value) return;
+    if (event.key === 'ArrowRight') { goTo(current.value + 1); event.preventDefault(); }
+    if (event.key === 'ArrowLeft') { goTo(current.value - 1); event.preventDefault(); }
+};
 
 const examinedCount = computed(() => props.systems.filter((system) => system.status !== 'NOT_EXAMINED').length);
 const abnormalCount = computed(() => props.systems.filter((system) => system.status === 'ABNORMAL').length);
@@ -109,22 +184,106 @@ const setPerformed = (value) => {
                 Chaque appareil reste « Non examiné » tant que vous ne l’avez pas renseigné. Une absence de saisie n’est jamais un examen normal.
             </p>
 
-            <div class="mt-3 space-y-1.5">
-            <ClinicalSystemExam
-                v-for="system in systems"
-                :key="system.system_code"
-                :label="system.label"
-                :system-code="system.system_code"
-                :status="system.status"
-                :findings="system.findings ?? ''"
-                :hint="system.hint"
-                :open="openSystem === system.system_code"
-                :disabled="disabled"
-                :error="errors[system.system_code]"
-                @toggle="toggle(system.system_code)"
-                @update:status="update(system.system_code, { status: $event })"
-                @update:findings="update(system.system_code, { findings: $event })"
-            />
+            <!-- Barre de repères : les neuf statuts d'un coup d'œil, et un
+                 clic pour aller directement à un appareil. -->
+            <div class="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Appareils">
+                <button
+                    v-for="(system, index) in systems"
+                    :key="`chip-${system.system_code}`"
+                    type="button"
+                    role="tab"
+                    :aria-selected="current === index"
+                    :class="[
+                        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
+                        current === index
+                            ? 'border-primary-400 bg-primary-50 text-primary-700 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-300'
+                            : 'border-gray-200 text-slate-500 hover:border-gray-300 dark:border-gray-800 dark:text-slate-400',
+                    ]"
+                    @click="goTo(index)"
+                >
+                    <span :class="['h-1.5 w-1.5 rounded-full', DOT[system.status] ?? DOT.NOT_EXAMINED]" />{{ system.label }}
+                </button>
+            </div>
+
+            <div class="relative mt-3">
+                <!-- Piste native : défilement tactile, molette ou trackpad,
+                     calée carte par carte par scroll-snap. -->
+                <div
+                    ref="track"
+                    class="flex items-start snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2 [scrollbar-width:thin]"
+                    tabindex="0"
+                    aria-label="Examen par appareil — flèches gauche et droite pour changer d’appareil"
+                    @scroll.passive="onScroll"
+                    @keydown="onTrackKeydown"
+                >
+                    <article
+                        v-for="(system, index) in systems"
+                        :key="system.system_code"
+                        :class="[
+                            'flex w-[85%] shrink-0 snap-start flex-col rounded-lg border p-4 transition-colors sm:w-[20rem]',
+                            system.status === 'ABNORMAL'
+                                ? 'border-amber-300 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/10'
+                                : system.status === 'NORMAL'
+                                    ? 'border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/10'
+                                    : 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950',
+                        ]"
+                        :aria-label="`${system.label}, ${index + 1} sur ${systems.length}`"
+                    >
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ index + 1 }} / {{ systems.length }}</p>
+                                <h4 class="mt-0.5 truncate text-sm font-bold text-slate-700 dark:text-white">{{ system.label }}</h4>
+                                <p v-if="system.hint" class="mt-0.5 text-[11px] leading-4 text-slate-400">{{ system.hint }}</p>
+                            </div>
+                            <span :class="['mt-1 h-2 w-2 shrink-0 rounded-full', DOT[system.status] ?? DOT.NOT_EXAMINED]" />
+                        </div>
+
+                        <ClinicalSegmentedChoice
+                            class="mt-3"
+                            :name="`system_status_${system.system_code}`"
+                            :model-value="system.status"
+                            :options="OPTIONS"
+                            :clearable="false"
+                            :disabled="disabled"
+                            @update:model-value="setStatus(index, system.system_code, $event)"
+                        />
+
+                        <div v-if="system.status === 'ABNORMAL'" class="mt-3">
+                            <label :for="`findings_${system.system_code}`" class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">
+                                Constatations <span class="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                :id="`findings_${system.system_code}`"
+                                :value="system.findings ?? ''"
+                                :disabled="disabled"
+                                rows="3"
+                                maxlength="2000"
+                                class="block w-full resize-y rounded border border-gray-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"
+                                placeholder="Décrivez l’anomalie constatée…"
+                                @input="update(system.system_code, { findings: $event.target.value })"
+                            />
+                            <FormError :message="errors[system.system_code]" />
+                        </div>
+                    </article>
+                </div>
+
+                <div class="mt-2 flex items-center justify-between">
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 transition-colors hover:border-gray-300 disabled:opacity-30 dark:border-gray-800 dark:text-slate-400"
+                        :disabled="current === 0"
+                        aria-label="Appareil précédent"
+                        @click="goTo(current - 1)"
+                    ><Icon class="text-sm" name="chevron-left" />Précédent</button>
+                    <span class="text-[11px] tabular-nums text-slate-400">{{ current + 1 }} / {{ systems.length }}</span>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 transition-colors hover:border-gray-300 disabled:opacity-30 dark:border-gray-800 dark:text-slate-400"
+                        :disabled="current === systems.length - 1"
+                        aria-label="Appareil suivant"
+                        @click="goTo(current + 1)"
+                    >Suivant<Icon class="text-sm" name="chevron-right" /></button>
+                </div>
             </div>
         </template>
     </section>

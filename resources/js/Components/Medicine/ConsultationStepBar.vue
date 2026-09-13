@@ -18,6 +18,8 @@ import FormError from '@/Components/UI/FormError.vue';
  * diagnostic…) posts directly to the step endpoint instead of emitting.
  */
 const props = defineProps({
+    /** Colle au bas de l'écran. `false` quand le parent fournit déjà sa propre carte flottante. */
+    floating: { type: Boolean, default: true },
     orientationUuid: { type: String, required: true },
     stepKey: { type: String, required: true },
     /** Server step state: status, skippable, resolved, blocker, skip_reason. */
@@ -66,7 +68,16 @@ const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll:
 </script>
 
 <template>
-    <div class="border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30">
+    <!-- Flottante par défaut : Retour et Continuer restent sous la main
+         pendant tout le défilement, comme à l'étape Prescription. Elle colle
+         au bas de l'écran tant que sa carte est visible, puis reprend sa
+         place en fin de carte — jamais `position: fixed`, qui recouvrirait
+         le pied de page. -->
+    <div
+        :class="floating
+            ? 'sticky bottom-3 z-20 m-3 rounded-lg border border-gray-300 bg-white shadow-lg dark:border-gray-800 dark:bg-gray-950'
+            : 'border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30'"
+    >
         <div class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             <Button v-if="previous" :as="Link" :href="`/medicine/orientations/${orientationUuid}/${previous.key}`" size="rg" variant="white-outline">
                 <Icon class="me-2 text-lg" name="arrow-left" />{{ previous.label }}
@@ -116,6 +127,18 @@ const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll:
                     >
                         <Icon class="me-2 text-lg" name="check" />{{ processing ? 'Enregistrement…' : 'Enregistrer et continuer' }}
                         <Icon class="ms-2 text-lg" name="arrow-right" />
+                    </Button>
+                    <!-- Déjà résolue (validée ou déclarée non nécessaire) : il n'y
+                         a rien à revalider. Proposer « Valider » ici butait sur le
+                         minimum de l'étape — « aucun examen demandé » — alors que
+                         le médecin avait justement dit qu'il n'en fallait aucun. -->
+                    <Button
+                        v-else-if="isResolved && next"
+                        :as="Link"
+                        :href="`/medicine/orientations/${orientationUuid}/${next.key}`"
+                        size="rg"
+                    >
+                        Continuer · {{ next.label }}<Icon class="ms-2 text-lg" name="arrow-right" />
                     </Button>
                     <Button
                         v-else

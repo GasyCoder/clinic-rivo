@@ -6,6 +6,7 @@ import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoi
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
+import { formatDateTime } from '@/utilities/date';
 
 /**
  * « La conduite à tenir est-elle déjà déterminée ? »
@@ -33,6 +34,8 @@ const props = defineProps({
     /** Where to come back to once the request is transmitted. */
     returnStep: { type: String, required: true },
     disabled: { type: Boolean, default: false },
+    /** Replie la carte derrière son en-tête, là où elle n'est pas le sujet de l'écran. */
+    collapsible: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['discharge-selected']);
@@ -41,6 +44,8 @@ const active = computed(() => props.state?.active ?? null);
 const prefill = computed(() => props.state?.prefill ?? {});
 const canSelect = computed(() => props.state?.can_select && !props.disabled);
 const history = computed(() => props.state?.history ?? []);
+const showHistory = ref(false);
+const expanded = ref(!props.collapsible);
 
 /** Changing destination is deliberate, so it takes a click to reopen. */
 const picking = ref(false);
@@ -219,15 +224,30 @@ const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-w
 
 <template>
     <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
-        <header class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-900">
-            <div class="min-w-0">
+        <header :class="['flex flex-wrap items-center justify-between gap-3 px-4 py-3', expanded ? 'border-b border-gray-200 dark:border-gray-900' : '']">
+            <button
+                v-if="collapsible"
+                type="button"
+                class="flex min-w-0 flex-1 items-center gap-2 text-start"
+                :aria-expanded="expanded"
+                @click="expanded = !expanded"
+            >
+                <Icon class="shrink-0 text-sm text-slate-400" :name="expanded ? 'chevron-up' : 'chevron-down'" />
+                <span class="min-w-0">
+                    <span class="block text-sm font-bold text-slate-700 dark:text-white">Suite de la prise en charge</span>
+                    <span class="mt-0.5 block truncate text-[11px] text-slate-400">
+                        {{ active ? `${active.type_label} · ${active.status_label}` : 'Non déterminée — ouvrir pour la définir' }}
+                    </span>
+                </span>
+            </button>
+            <div v-else class="min-w-0">
                 <h3 class="text-sm font-bold text-slate-700 dark:text-white">Suite de la prise en charge</h3>
                 <p class="mt-0.5 text-[11px] text-slate-400">
                     La conduite à tenir peut être décidée dès que vous disposez d’assez d’éléments.
                 </p>
             </div>
 
-            <div v-if="active && !showPicker" class="flex shrink-0 items-center gap-2">
+            <div v-if="active && !showPicker && expanded" class="flex shrink-0 items-center gap-2">
                 <a
                     v-if="printUrl"
                     :href="printUrl"
@@ -243,7 +263,7 @@ const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-w
 
         <!-- L'orientation en cours, toujours visible : « Décision » quitte le
              parcours, l'information non (§15). -->
-        <div v-if="active && !showPicker" class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-gray-200 bg-primary-50/40 px-4 py-3 dark:border-gray-900 dark:bg-primary-950/20">
+        <div v-if="active && !showPicker && expanded" class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-gray-200 bg-primary-50/40 px-4 py-3 dark:border-gray-900 dark:bg-primary-950/20">
             <span class="inline-flex items-center gap-2 text-sm font-bold text-primary-700 dark:text-primary-300">
                 <Icon :name="ICONS[active.type] ?? 'share'" />{{ active.type_label }}
             </span>
@@ -261,7 +281,7 @@ const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-w
             <span v-if="active.request?.summary" class="min-w-0 truncate text-[11px] text-slate-500 dark:text-slate-400">{{ active.request.summary }}</span>
         </div>
 
-        <div class="p-4">
+        <div v-show="expanded" class="p-4">
             <!-- Le choix. Rien n'est pré-sélectionné : une orientation non
                  choisie n'est pas « Poursuivre l'évaluation » par défaut. -->
             <div v-if="showPicker">
@@ -475,13 +495,31 @@ const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-w
                 </p>
             </template>
 
-            <!-- Changer d'avis est tracé : la première intention reste lisible. -->
-            <div v-if="history.length" class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-900">
-                <p class="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">Orientations précédentes</p>
-                <ul class="space-y-1">
-                    <li v-for="entry in history" :key="entry.uuid" class="text-[11px] text-slate-500 dark:text-slate-400">
-                        <span class="line-through">{{ entry.type_label }}</span>
-                        <span class="ms-1.5">— annulée<span v-if="entry.cancelled_by"> par {{ entry.cancelled_by }}</span></span>
+            <!-- Changer d'avis reste tracé, mais replié : une ligne de
+                 résumé, la liste seulement à la demande, et bornée en hauteur
+                 pour qu'un historique long ne déborde jamais sur la page. -->
+            <div v-if="history.length" class="mt-4 border-t border-gray-200 pt-2.5 dark:border-gray-900">
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded px-1 py-1 text-start text-[11px] text-slate-500 hover:bg-gray-50 dark:text-slate-400 dark:hover:bg-gray-1000/60"
+                    :aria-expanded="showHistory"
+                    @click="showHistory = !showHistory"
+                >
+                    <Icon class="shrink-0 text-xs text-slate-400" name="history" />
+                    <span class="shrink-0 font-semibold">{{ history.length }} orientation{{ history.length > 1 ? 's' : '' }} annulée{{ history.length > 1 ? 's' : '' }}</span>
+                    <span v-if="!showHistory" class="min-w-0 flex-1 truncate text-slate-400">· dernière : {{ history[history.length - 1].type_label }}</span>
+                    <span v-else class="flex-1" />
+                    <Icon class="shrink-0 text-xs text-slate-400" :name="showHistory ? 'chevron-up' : 'chevron-down'" />
+                </button>
+                <ul v-if="showHistory" class="mt-1.5 max-h-36 divide-y divide-gray-100 overflow-y-auto rounded border border-gray-100 dark:divide-gray-900 dark:border-gray-900">
+                    <li
+                        v-for="entry in [...history].reverse()"
+                        :key="entry.uuid"
+                        class="flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-slate-400"
+                        :title="entry.cancellation_reason ?? undefined"
+                    >
+                        <span class="min-w-0 flex-1 truncate line-through">{{ entry.type_label }}</span>
+                        <span class="shrink-0 tabular-nums">{{ formatDateTime(entry.cancelled_at) }}<template v-if="entry.cancelled_by"> · {{ entry.cancelled_by }}</template></span>
                     </li>
                 </ul>
             </div>

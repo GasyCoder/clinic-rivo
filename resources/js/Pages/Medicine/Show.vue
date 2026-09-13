@@ -17,6 +17,7 @@ import ClinicalSystemsAccordion from '@/Components/Clinical/ClinicalSystemsAccor
 import ClinicalOrientationCard from '@/Components/Clinical/ClinicalOrientationCard.vue';
 import ClinicalDischargeForm from '@/Components/Clinical/ClinicalDischargeForm.vue';
 import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
+import SortableSections from '@/Components/UI/SortableSections.vue';
 import ClinicalExaminationSummary from '@/Components/Clinical/ClinicalExaminationSummary.vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
 import ClinicalTreatmentList from '@/Components/Clinical/ClinicalTreatmentList.vue';
@@ -509,6 +510,20 @@ const systemFindingErrors = computed(() => {
  * has documented the examination without writing prose. An entirely blank
  * record still counts as nothing.
  */
+/**
+ * L'ordre recommandé de l'examen — celui que suit un médecin qui déroule sa
+ * consultation. Chacun peut le réarranger pour son poste ; l'identifiant de
+ * chaque section, lui, ne bouge jamais : c'est la clé qui permet à Vue de
+ * déplacer les blocs sans les reconstruire, et à une préférence enregistrée
+ * de rester lisible quand l'écran évolue.
+ */
+const EXAM_SECTIONS = [
+    { id: 'GENERAL_STATE', label: 'État général' },
+    { id: 'SYSTEM_EXAM', label: 'Examen par appareil' },
+    { id: 'DIAGNOSIS', label: 'Diagnostic' },
+    { id: 'CARE_PLAN', label: 'Suite de la prise en charge' },
+];
+
 const clinicalExamDocumented = computed(() => Boolean(clinicalExamForm.general_condition)
     || Boolean(clinicalExamForm.consciousness_status)
     || clinicalExamForm.systems.some((system) => system.status !== 'NOT_EXAMINED')
@@ -1223,6 +1238,9 @@ const otherSiteOptions = computed(() => {
 // imprimé (§17).
 
 const prescriptionTab = ref('medicines');
+const prescriptionListOpen = ref(false);
+const prescribedLineCount = computed(() => (props.consultation?.prescriptions ?? [])
+    .reduce((total, prescription) => total + (prescription.lines?.length ?? 0), 0));
 /**
  * La conduite à tenir telle que le serveur la connaît. L'écran ne la déduit
  * jamais d'une donnée présente : une demande transmise et une destination
@@ -1335,7 +1353,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
         </div>
 
         <main class="space-y-3">
-                <Card v-if="cardIsOpen('dossier')" class="overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('dossier')" class="overflow-clip border-s-4 border-s-primary-500 shadow-sm">
                     <!-- Pas d'identité ici : le nom, le numéro, le sexe et l'âge
                          sont portés une seule fois par l'en-tête de la page. -->
                     <div class="flex items-center gap-3 border-b border-gray-200 px-5 py-3 dark:border-gray-900">
@@ -1417,7 +1435,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </ConsultationStepBar>
                 </Card>
 
-                <Card v-if="cardIsOpen('consultation')" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('consultation')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
                     <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">
                         <div class="flex items-start gap-3">
                             <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-xl" name="chat" /></span>
@@ -1638,7 +1656,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                              appareils, notes. -->
                         <ResizableSplit
                             class="p-5"
-                            storage-key="clinical_exam_split_ratio"
+                            storage-key="rivo:medicine:exam-split"
                             :default-ratio="0.7"
                             :min-ratio="0.45"
                             :max-ratio="0.75"
@@ -1646,7 +1664,15 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             end-label="panneau Notes cliniques"
                         >
                             <template #start>
-                            <div class="min-w-0 space-y-4">
+                        <!-- Chaque médecin ne lit pas un patient dans le même ordre.
+                             L'ordre reste une préférence d'affichage : il ne change ni
+                             ce qui est enregistré, ni ce que la clôture exige (§6, §25). -->
+                        <SortableSections
+                            storage-key="rivo:medicine:exam-sections"
+                            :sections="EXAM_SECTIONS"
+                            :enabled="capabilities.can_update_consultation"
+                        >
+                            <template #GENERAL_STATE>
                                 <ClinicalGeneralState
                                     v-model:general-condition="clinicalExamForm.general_condition"
                                     v-model:consciousness-status="clinicalExamForm.consciousness_status"
@@ -1656,6 +1682,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     :errors="clinicalExamForm.errors"
                                 />
 
+                            </template>
+
+                            <template #SYSTEM_EXAM>
                                 <ClinicalSystemsAccordion
                                     :systems="clinicalExamForm.systems"
                                     :disabled="!capabilities.can_update_consultation"
@@ -1665,6 +1694,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 />
 
 
+                            </template>
+
+                            <template #DIAGNOSIS>
                                 <!-- La conclusion de la rencontre, posée ici
                                      quand elle peut l'être. « Pas maintenant »
                                      laisse l'étape Diagnostic ouverte : un
@@ -1727,7 +1759,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
 
                                     <FormError class="mt-1" :message="clinicalExamForm.errors.diagnosis_ready" />
                                 </section>
+                            </template>
 
+                            <template #CARE_PLAN>
                                 <!-- §3 / §28 — la conduite à tenir se décide
                                      ici quand elle est déjà claire, et son
                                      formulaire s'ouvre aussitôt. Plus de
@@ -1757,7 +1791,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         <p v-else class="text-[11px] text-emerald-700 dark:text-emerald-300">Sortie médicale déjà prononcée — son détail figure à l’étape Clôture.</p>
                                     </template>
                                 </ClinicalOrientationCard>
-                            </div>
+                            </template>
+
+                        </SortableSections>
                             </template>
 
                             <template #end>
@@ -1804,7 +1840,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </form>
                 </Card>
 
-                <Card v-if="cardIsOpen('paraclinique')" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('paraclinique')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
                     <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
                         <div class="flex items-start gap-3">
                             <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-lg" name="activity" /></span>
@@ -2039,6 +2075,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             :transfer-destinations="otherSiteOptions"
                             :is-emergency="isEmergency"
                             return-step="paraclinique"
+                            collapsible
                             :disabled="!capabilities.can_update_consultation"
                         >
                             <template #discharge>
@@ -2061,7 +2098,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         step-key="paraclinique"
                         :state="stepState('paraclinique')"
                         :previous="{ key: 'examen', label: 'Examen clinique' }"
-                        :next="{ key: 'diagnostic', label: 'Diagnostic' }"
+                        :next="{ key: 'ordonnance', label: 'Prescription' }"
                         :can-edit="capabilities.can_resolve_step"
                         :local-blocker="hasPendingParaclinicalSelection ? 'Enregistrez les examens sélectionnés avant de valider cette étape.' : null"
                     >
@@ -2232,16 +2269,29 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                 </Card>
 
                 <Card v-if="cardIsOpen('ordonnance') && prescriptionTab === 'medicines'" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h2 class="text-sm font-bold text-slate-700 dark:text-white">Prescription — Médicaments</h2>
-                            <p class="mt-1 text-xs text-slate-400">Le stock disponible exclut les lots périmés et les quantités déjà réservées.</p>
-                        </div>
+                    <!-- Repliée par défaut : ce qui est déjà prescrit se résume en
+                         une ligne, et l'écran laisse la place à la nouvelle
+                         ordonnance qui se prépare en dessous. -->
+                    <div :class="['flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between', prescriptionListOpen ? 'border-b border-gray-200 dark:border-gray-900' : '']">
+                        <button
+                            type="button"
+                            class="flex min-w-0 items-center gap-2.5 text-start"
+                            :aria-expanded="prescriptionListOpen"
+                            @click="prescriptionListOpen = !prescriptionListOpen"
+                        >
+                            <Icon class="shrink-0 text-sm text-slate-400" :name="prescriptionListOpen ? 'chevron-up' : 'chevron-down'" />
+                            <span class="min-w-0">
+                                <span class="block text-sm font-bold text-slate-700 dark:text-white">Prescription — Médicaments</span>
+                                <span class="mt-0.5 block truncate text-xs text-slate-400">
+                                    <template v-if="prescribedLineCount">{{ prescribedLineCount }} médicament{{ prescribedLineCount > 1 ? 's' : '' }} prescrit{{ prescribedLineCount > 1 ? 's' : '' }} · </template>Le stock disponible exclut les lots périmés et les quantités déjà réservées.
+                                </span>
+                            </span>
+                        </button>
                         <span v-if="capabilities.can_view_pharmacy_availability" class="inline-flex w-fit items-center gap-1.5 rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-300">
                             <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />Stock Pharmacie en lecture seule
                         </span>
                     </div>
-                    <div v-if="consultation.prescriptions.length" class="overflow-x-auto">
+                    <div v-if="consultation.prescriptions.length && prescriptionListOpen" class="overflow-x-auto">
                         <table class="w-full min-w-[980px] text-sm">
                             <thead class="border-b border-gray-200 bg-gray-50/70 dark:border-gray-900 dark:bg-gray-1000/40">
                                 <tr class="text-left text-[10px] uppercase tracking-wide text-slate-400">
@@ -2309,7 +2359,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </tbody>
                         </table>
                     </div>
-                    <p v-else class="px-5 py-6 text-sm text-slate-400">Aucune ordonnance active.</p>
+                    <p v-else-if="!consultation.prescriptions.length" class="px-5 py-6 text-sm text-slate-400">Aucune ordonnance active.</p>
 
                     <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-gray-200 bg-gray-50/50 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="addPrescription">
                         <div class="mb-4">
@@ -2317,7 +2367,19 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <p class="mt-1 text-xs text-slate-400">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
                         </div>
 
-                        <div class="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(520px,1.1fr)]">
+                        <!-- La séparation se déplace selon le moment : large catalogue pour
+                             chercher, large ordonnance pour régler les posologies. Le choix
+                             est retrouvé à la visite suivante ; en dessous de la largeur utile,
+                             les deux panneaux s'empilent. -->
+                        <ResizableSplit
+                            storage-key="rivo:medicine:prescription-split"
+                            :default-ratio="0.45"
+                            :min-ratio="0.3"
+                            :max-ratio="0.65"
+                            start-label="panneau Médicaments disponibles"
+                            end-label="panneau Prescription en préparation"
+                        >
+                            <template #start>
                             <section class="overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950" aria-labelledby="medicine-catalog-title">
                                 <div class="border-b border-gray-200 p-3 dark:border-gray-800">
                                     <div class="mb-1.5 flex items-center justify-between gap-2">
@@ -2360,7 +2422,8 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     <p class="mt-1 text-xs text-slate-400">Vérifiez la recherche ou le stock Pharmacie.</p>
                                 </div>
                             </section>
-
+                            </template>
+                            <template #end>
                             <section class="overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950" aria-labelledby="prescription-selection-title">
                                 <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
                                     <div>
@@ -2404,7 +2467,8 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     <p class="mt-1 max-w-xs text-xs text-slate-400">Choisissez un médicament dans la liste. Les produits épuisés ne peuvent pas être ajoutés.</p>
                                 </div>
                             </section>
-                        </div>
+                            </template>
+                        </ResizableSplit>
 
                         <div class="mt-4 flex items-start gap-2 border-t border-gray-200 pt-4 text-xs text-slate-400 dark:border-gray-900">
                             <Icon class="mt-0.5 shrink-0 text-base text-primary-600" name="shield-check" />
@@ -2560,6 +2624,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
 
                 <Card v-if="current_step === 'ordonnance'" class="sticky bottom-3 z-20 overflow-hidden border-gray-300 shadow-lg dark:border-gray-800">
                     <ConsultationStepBar
+                        :floating="false"
                         class="border-t-0 bg-white dark:bg-gray-950"
                         :orientation-uuid="orientation.uuid"
                         :step-key="current_step"

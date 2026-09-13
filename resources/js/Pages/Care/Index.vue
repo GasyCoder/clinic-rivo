@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -24,6 +24,11 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
+const page = usePage();
+
+/** Someone else's patient is read, never worked on twice (CareHandlerGuard). */
+const isEditableByMe = (orientation) => orientation.status === 'IN_PROGRESS'
+    && (!orientation.accepted_by_id || orientation.accepted_by_id === page.props.auth?.user?.id);
 const query = ref(props.search ?? '');
 
 const visit = (params) => router.get('/care', params, {
@@ -260,7 +265,7 @@ const openGroup = ref(null);
                                     <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll>
                                         <Button size="sm" variant="primary"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
                                     </Link>
-                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="group.orientations[0].status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ group.orientations[0].status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
+                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="isEditableByMe(group.orientations[0]) ? 'edit' : 'eye'" /><span class="ms-1.5">{{ isEditableByMe(group.orientations[0]) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</span></Button>
                                 </td>
                             </template>
 
@@ -318,7 +323,7 @@ const openGroup = ref(null);
                                 <span v-if="group.orientations[0].episode.care_requires_allergy_check" class="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><Icon name="alert-circle" />Vérifier les allergies</span>
                                 <div class="mt-4">
                                     <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="primary"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button></Link>
-                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" block size="sm" variant="white-outline"><Icon class="text-base" :name="group.orientations[0].status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ group.orientations[0].status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
+                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" block size="sm" variant="white-outline"><Icon class="text-base" :name="isEditableByMe(group.orientations[0]) ? 'edit' : 'eye'" /><span class="ms-1.5">{{ isEditableByMe(group.orientations[0]) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</span></Button>
                                 </div>
                             </template>
                             <template v-else>
@@ -373,7 +378,7 @@ const openGroup = ref(null);
                                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
                                     <Button size="sm" variant="primary"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
                                 </Link>
-                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="orientation.status === 'COMPLETED' ? 'eye' : 'edit'" /><span class="ms-1.5">{{ orientation.status === 'COMPLETED' ? 'Voir la fiche' : 'Ouvrir la fiche' }}</span></Button>
+                                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><Icon class="text-base" :name="isEditableByMe(orientation) ? 'edit' : 'eye'" /><span class="ms-1.5">{{ isEditableByMe(orientation) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</span></Button>
                             </div>
                         </div>
                     </div>

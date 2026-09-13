@@ -8,11 +8,11 @@ use App\Enums\CareOrderStatus;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
-use App\Exceptions\InvalidEpisodeOrientationTransitionException;
 use App\Models\CareOrder;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
+use App\Support\CareHandlerGuard;
 use App\Support\CareWorkflow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -40,13 +40,7 @@ class CompleteCareAndOrientToMedicineAction
                 throw new InvalidArgumentException('Cette orientation ne concerne pas le service Soins.');
             }
 
-            if ($locked->status !== EpisodeOrientationStatus::InProgress) {
-                throw new InvalidEpisodeOrientationTransitionException(
-                    $locked,
-                    EpisodeOrientationStatus::Completed->value,
-                    $locked->status->value,
-                );
-            }
+            CareHandlerGuard::ensureWorkable($locked, $actor);
 
             $activeCareOrder = CareOrder::query()
                 ->where('care_orientation_id', $locked->getKey())
@@ -86,8 +80,9 @@ class CompleteCareAndOrientToMedicineAction
 
             $locked->complete($actor);
 
-            if ($completionMode === CareCompletionMode::Medicine
-                || ($isUnknownNeed && $orientUnknownNeedToMedicine)) {
+            if (($completionMode === CareCompletionMode::Medicine
+                || ($isUnknownNeed && $orientUnknownNeedToMedicine))
+                && ! $this->medicineAlreadyInvolved($locked->episode)) {
                 $this->createOrientation->execute(
                     $locked->episode,
                     CatalogModule::Care,
@@ -103,6 +98,28 @@ class CompleteCareAndOrientToMedicineAction
 
             return $locked->fresh(['episode.patient']);
         });
+    }
+
+    /**
+     * Soins hands a patient to Médecine once per arrival pathway.
+     *
+     * A Médecine orientation that is waiting, in progress or already
+     * completed means Médecine has this patient: the Emergency pathway opens
+     * both services in parallel, and a doctor may have closed the
+     * consultation before Soins finished. Handing the patient over again
+     * would open a second consultation for the same visit. Only a withdrawn
+     * (CANCELLED) orientation does not count. A doctor's CareOrder asking for
+     * the patient back is a different, explicit request and does not go
+     * through this check.
+     */
+    private function medicineAlreadyInvolved(Episode $episode): bool
+    {
+        return EpisodeOrientation::query()
+            ->where('episode_id', $episode->getKey())
+            ->where('destination_module', CatalogModule::Medicine->value)
+            ->where('status', '!=', EpisodeOrientationStatus::Cancelled->value)
+            ->lockForUpdate()
+            ->exists();
     }
 
     /** Explicit convenience entry point for an initially unknown need. */

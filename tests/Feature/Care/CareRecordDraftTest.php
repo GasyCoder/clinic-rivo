@@ -129,14 +129,15 @@ class CareRecordDraftTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page->where('careRecordDraft', null));
 
-        // And their own draft is a separate row.
+        // Nor can they start their own: the patient is someone else's to
+        // work on (CareHandlerGuard), so nothing of theirs is stored.
         $this->actingAs($colleague)
             ->putJson("/care/orientations/{$orientation->uuid}/draft", [
                 'payload' => ['heart_rate' => '95'],
             ])
-            ->assertOk();
+            ->assertStatus(409);
 
-        $this->assertDatabaseCount('care_record_drafts', 2);
+        $this->assertDatabaseCount('care_record_drafts', 1);
     }
 
     public function test_only_whitelisted_worksheet_fields_are_kept(): void

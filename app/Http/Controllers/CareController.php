@@ -29,6 +29,7 @@ use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
 use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
+use App\Support\CareHandlerGuard;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\HeartRateAssessment;
 use App\Support\OxygenSaturationAssessment;
@@ -192,7 +193,10 @@ class CareController extends Controller
             $episodeOrientation->episode->patient->load('allergies');
         }
 
-        $canEdit = $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+        // Only the person who took the patient in charge acts on the file;
+        // a colleague reads it (CareHandlerGuard).
+        $isHandler = CareHandlerGuard::isHandledBy($episodeOrientation, $request->user());
+        $canEdit = $isHandler
             && $request->user()->can($record ? 'care.update' : 'care.create');
         $canEditVitals = $canEdit
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
@@ -345,8 +349,10 @@ class CareController extends Controller
                 'can_manage_allergies' => $canManageAllergies,
                 'can_edit' => $canEdit,
                 'can_edit_vitals' => $canEditVitals,
-                'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                'can_complete' => $isHandler
                     && $request->user()->can('care.complete'),
+                'handled_by_other' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                    && ! $isHandler,
                 'can_view_care_orders' => $canViewCareOrders,
                 'can_view_consumables' => $canViewConsumables,
                 'can_request_consumables' => $canRequestConsumables,
@@ -410,6 +416,7 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
     ): JsonResponse {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
+        abort_unless(CareHandlerGuard::isHandledBy($episodeOrientation, $request->user()), 409);
 
         $draft = CareRecordDraft::query()->updateOrCreate(
             [

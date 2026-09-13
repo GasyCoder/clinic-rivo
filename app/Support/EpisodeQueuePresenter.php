@@ -156,6 +156,7 @@ class EpisodeQueuePresenter
             'oriented_at' => $orientation->oriented_at,
             'accepted_at' => $orientation->accepted_at,
             'accepted_by' => $orientation->acceptedBy?->name,
+            'accepted_by_id' => $orientation->accepted_by,
             'has_consultation' => $orientation->relationLoaded('consultation')
                 && $orientation->consultation !== null,
             'pending_reasons' => $pendingReasons,

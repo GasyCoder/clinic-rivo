@@ -22,5 +22,11 @@ class DatabaseSeeder extends Seeder
             HrReferenceSeeder::class,
             RolePermissionSeeder::class,
         ]);
+
+        // Local only: test accounts, catalogue, tariffs, analyses, stock and
+        // cash desks, so a fresh database is immediately usable.
+        if (app()->environment('local') || config('app.env') === 'local') {
+            $this->call(DevelopmentSeeder::class);
+        }
     }
 }

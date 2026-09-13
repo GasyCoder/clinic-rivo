@@ -6,6 +6,7 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\CareOrderItem;
 use App\Models\User;
+use App\Support\CareHandlerGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -32,6 +33,8 @@ class MarkCareOrderItemNotPerformedAction
                     'care_order_item' => 'Cette prise en charge Soins n’est plus active.',
                 ]);
             }
+
+            CareHandlerGuard::ensureWorkable($orientation, $actor, 'care_order_item');
 
             if ($locked->not_performed_at !== null) {
                 throw ValidationException::withMessages([

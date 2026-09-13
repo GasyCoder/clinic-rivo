@@ -4493,3 +4493,112 @@ Aucune permission nouvelle. Choisir une orientation relève de
 (`surgery.request`, `hospitalization.request`, `transfer.request`,
 `maternity.request`, `pediatrics.request`, `medical_discharge.create`). Le
 filtrage Vue sert l'ergonomie ; le serveur revérifie toujours.
+
+---
+
+# ADR-085 — Un seul soignant par prise en charge, un seul transfert vers Médecine
+
+**Status:** ACCEPTED (2026-09-13 — exigence explicite du propriétaire)
+
+Constat : n'importe quel compte Soins pouvait compléter la fiche d'un patient
+pris en charge par un collègue, ou le transférer vers Médecine alors que
+Médecine l'avait déjà. Un même passage pouvait ainsi être envoyé deux fois en
+Médecine, et une seconde tentative sur une page périmée produisait une erreur
+serveur.
+
+## Le soignant qui prend en charge est le seul à agir
+
+`episode_orientations.accepted_by` désigne la personne qui a pris le patient
+en charge. Elle seule peut enregistrer la fiche, sauvegarder un brouillon,
+marquer un acte non réalisé, terminer les soins ou transférer vers Médecine.
+Un collègue ouvre la fiche **en lecture seule**, avec le nom du soignant
+responsable. `CareHandlerGuard` porte la règle ; les actions la vérifient sur
+la ligne déjà verrouillée, jamais seulement l'interface. Une ligne ancienne
+sans `accepted_by` reste utilisable par tout compte autorisé.
+
+Même logique que l'exclusivité du titulaire d'une caisse (ADR-059).
+
+## Médecine ne reçoit un passage qu'une fois
+
+À la fin des Soins, aucune orientation Médecine n'est créée si le passage en
+possède déjà une en attente, en cours ou terminée (urgence ouverte en
+parallèle, consultation déjà clôturée, file Soins rouverte). Seule une
+orientation Médecine annulée ne compte pas. Le retour explicitement demandé
+par le médecin via un ordre de soins (ADR-055) reste un chemin distinct.
+
+## Refus lisibles
+
+Prendre en charge un patient déjà pris, ou agir sur des soins déjà terminés,
+renvoie un message qui nomme la personne et la date, jamais une erreur 500.
+
+## Hors périmètre
+
+Aucune reprise d'un patient par un autre soignant (fin de garde, absence)
+n'est définie : elle exigera une règle explicite et tracée.
+
+Aucune permission nouvelle.
+
+---
+
+# ADR-086 — Données de développement chargées par `migrate:fresh --seed` en local
+
+**Status:** ACCEPTED (2026-09-13 — exigence explicite du propriétaire)
+
+**Amende l'ADR-022** sur un point : « `DevelopmentUserSeeder` n'est jamais
+appelé par `DatabaseSeeder` » et « les seeders standards ne créent aucun
+compte de connexion ». Constat du propriétaire : après
+`php artisan migrate:fresh --seed`, la base locale était vide de tout ce qu'il
+faut pour tester — prestations, tarifs, mutuelles, analyses, stock, caisses,
+compte de connexion — alors que les seeders existaient déjà sans être appelés.
+
+## Ce qui change
+
+`DatabaseSeeder` appelle désormais `DevelopmentSeeder`, **uniquement quand
+`APP_ENV=local`**. Il enchaîne des seeders idempotents :
+
+```text
+clinic  DevelopmentTestAccountSeeder         user@rivo.test
+        ClinicalServiceCatalogSeeder         prestations + tarifs Standard / Mutuelle
+        DevelopmentMutualOrganizationSeeder  mutuelles et taux de couverture
+        DevelopmentParaclinicalCatalogSeeder analyses, ECG, échographies de base
+        DevelopmentLegacyAnalysisCatalogSeeder 719 analyses historiques (fixture JSON)
+        DevelopmentDiagnosticCatalogSeeder   diagnostics courants
+        DevelopmentMedicineStockSeeder       médicaments, lots, fournisseurs, stock
+        DevelopmentCashRegisterSeeder        Caisse 1 / Caisse 2
+admin   DevelopmentTestAccountSeeder         superadmin@rivo.test
+```
+
+Aucun ne crée de patient, passage, facture ni paiement.
+
+## Comptes de test
+
+Un seul compte par déploiement, mot de passe `password`, à la demande du
+propriétaire. Il est écrit directement par le seeder et contourne donc la
+politique de mot de passe des écrans : c'est précisément pourquoi il reste
+confiné au local. Le compte clinique garde le rôle `RECEPTION` et reçoit en
+`ALLOW` individuels (ADR-033) les permissions de tous les rôles opérationnels,
+plus celles du provisioning des référentiels, afin qu'un seul compte parcoure
+tout le circuit et serve d'auteur traçable aux seeders de catalogue.
+`DevelopmentUserSeeder` (un compte par rôle) reste disponible à la demande.
+
+Le compte n'est créé **qu'une fois**. S'il existe déjà, le seeder ne touche ni
+son rôle, ni son mot de passe, ni ses exceptions : il ajoute seulement les
+droits de provisioning manquants, sans jamais écraser une décision existante.
+Un `db:seed` relancé sur une base locale ne rend donc jamais un accès retiré
+depuis le portail (constat du 2026-09-13 : une première version réécrivait
+tous les droits du compte à chaque lancement).
+
+## Catalogue des 719 analyses
+
+`rivo:import-legacy-analyses` lit la base historique `ctb-cover`, absente d'un
+poste de développement ordinaire. Son résultat a été exporté une fois dans
+`database/seeders/data/legacy_analysis_catalog.json` ; le seeder le rejoue par
+code (comparé selon la collation de la base, « UREE » = « Urée »), sans jamais
+écraser une analyse existante ni inventer de tarif (ADR-024).
+
+## Garde-fou production
+
+Tous ces seeders refusent de s'exécuter hors `local`/`testing`
+(`Database\Seeders\Concerns\LocalOnly`). Le portail local étant lancé avec
+`--env=admin`, le garde-fou lit aussi `APP_ENV` ; un déploiement
+`APP_ENV=production` est refusé dans tous les cas.

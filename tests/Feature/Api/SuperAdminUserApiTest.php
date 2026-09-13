@@ -78,6 +78,64 @@ class SuperAdminUserApiTest extends TestCase
         ]);
     }
 
+    public function test_remote_super_admin_can_replace_surgery_allows_with_denies_and_access_disappears(): void
+    {
+        $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
+        $user = User::factory()->create([
+            'role_id' => $role->id,
+            'name' => 'User-Test',
+            'email' => 'user-test@example.test',
+        ]);
+        $surgeryPermissions = Permission::query()
+            ->where('name', 'like', 'surgery.%')
+            ->get();
+
+        $user->permissions()->attach($surgeryPermissions->pluck('id')->all(), [
+            'effect' => 'allow',
+            'source' => 'MANUAL',
+        ]);
+
+        $this->assertTrue($user->fresh()->can('surgery.view'));
+
+        $overrides = $surgeryPermissions
+            ->map(fn (Permission $permission) => [
+                'permission_id' => $permission->id,
+                'effect' => 'deny',
+            ])
+            ->values()
+            ->all();
+
+        $this->withHeaders($this->headers(
+            idempotencyKey: (string) Str::uuid(),
+            permissions: ['users.update', 'roles.assign', 'permissions.assign'],
+        ))->putJson("/api/v1/super-admin/users/{$user->uuid}", [
+            'name' => $user->name,
+            'email' => $user->email,
+            'role_id' => $role->id,
+            'permission_overrides' => $overrides,
+            'sync_profile_permissions' => false,
+        ])->assertOk();
+
+        $updated = User::query()->findOrFail($user->id);
+        $this->assertFalse($updated->can('surgery.view'));
+        $this->assertDatabaseHas('user_permissions', [
+            'user_id' => $updated->id,
+            'permission_id' => $surgeryPermissions->firstWhere('name', 'surgery.view')->id,
+            'effect' => 'deny',
+            'source' => 'MANUAL',
+        ]);
+
+        $this->actingAs($updated)
+            ->get('/surgery')
+            ->assertForbidden();
+
+        $this->actingAs($updated)
+            ->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('permissions', fn ($permissions) => ! collect($permissions)->contains('surgery.view')));
+    }
+
     public function test_remote_super_admin_can_explicitly_apply_profile_recommendations_with_provenance(): void
     {
         $this->seed(ProfessionalProfileSeeder::class);

@@ -12,12 +12,12 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
-use App\Exceptions\InvalidEpisodeOrientationTransitionException;
 use App\Models\AuditLog;
 use App\Models\EpisodeOrientation;
 use App\Models\Patient;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class EpisodeOrientationFlowTest extends TestCase
@@ -68,7 +68,8 @@ class EpisodeOrientationFlowTest extends TestCase
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
         $care = $episode->orientations()->sole();
 
-        $this->expectException(InvalidEpisodeOrientationTransitionException::class);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Prenez d’abord ce patient en charge.');
 
         $this->app->make(CompleteCareAndOrientToMedicineAction::class)
             ->execute($care, $actor);

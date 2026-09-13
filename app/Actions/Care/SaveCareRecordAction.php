@@ -24,6 +24,7 @@ use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientAllergy;
 use App\Models\User;
+use App\Support\CareHandlerGuard;
 use App\Support\CareWorkflow;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Arr;
@@ -56,6 +57,8 @@ class SaveCareRecordAction
             if ($locked->destination_module !== CatalogModule::Care) {
                 throw new InvalidArgumentException('Cette orientation ne concerne pas le service Soins.');
             }
+
+            CareHandlerGuard::ensureWorkable($locked, $actor, 'care_record');
 
             if ($locked->status !== EpisodeOrientationStatus::InProgress
                 || $locked->episode->status !== EpisodeStatus::Open) {

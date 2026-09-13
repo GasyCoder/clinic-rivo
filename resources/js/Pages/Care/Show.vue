@@ -1105,6 +1105,11 @@ const submitAndComplete = (orientToMedicine = false) => {
             <span class="text-xs text-slate-400">Pris en charge {{ orientation.accepted_at ? formatDateTime(orientation.accepted_at) : '—' }}<span v-if="orientation.accepted_by"> par {{ orientation.accepted_by }}</span></span>
         </div>
 
+        <div v-if="capabilities.handled_by_other" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200" role="status">
+            <Icon class="mt-0.5 shrink-0 text-base" name="lock" />
+            <span>Ce patient est pris en charge par <strong>{{ orientation.accepted_by ?? 'un autre soignant' }}</strong>. Vous consultez la fiche en lecture seule : seule la personne qui l’a pris en charge peut la compléter ou transférer le patient.</span>
+        </div>
+
         <div v-if="orientation.status === 'PENDING'" class="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
             Le patient doit être pris en charge avant de renseigner cette fiche.
         </div>

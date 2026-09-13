@@ -5,6 +5,7 @@ namespace App\Actions\Care;
 use App\Enums\CatalogModule;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
+use App\Support\CareHandlerGuard;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -21,6 +22,8 @@ class AcceptCareOrientationAction
             if ($locked->destination_module !== CatalogModule::Care) {
                 throw new InvalidArgumentException('Cette orientation ne concerne pas le service Soins.');
             }
+
+            CareHandlerGuard::ensureAcceptable($locked);
 
             $locked->accept($actor);
             $locked->episode->startCare();

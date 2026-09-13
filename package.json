@@ -4,7 +4,8 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "test:permissions": "node --test tests/JavaScript/permissionWorkspace.test.js"
     },
     "devDependencies": {
         "@headlessui/tailwindcss": "^0.2.2",

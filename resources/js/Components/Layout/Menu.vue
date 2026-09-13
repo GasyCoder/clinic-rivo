@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { CLINIC_WORKSPACES, WORKSPACE_GROUPS } from '@/utilities/clinicWorkspaces';
 
 const visibility = defineModel('visibility');
 
@@ -12,40 +13,28 @@ const isAdminPortal = computed(() => page.props.site?.type === 'admin');
 const overviewLabel = computed(() => (
     page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
 ));
-const clinicMenu = computed(() => [
-    { heading: 'Principal' },
-    { icon: 'growth', text: overviewLabel.value, link: '/' },
-    { heading: 'Gestion clinique' },
-    { icon: 'card-view', text: 'Réception', link: '/reception', permission: 'reception.view' },
-    { icon: 'wallet', text: 'Caisse', link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view' },
-    { icon: 'users', text: 'Patients', link: '/patients', permission: 'patients.view' },
-    { icon: 'activity', text: 'Médecine', link: '/medicine', permission: 'consultations.view' },
-    { icon: 'activity', text: 'Laboratoire', link: '/laboratory', permission: 'laboratory_orders.view' },
-    // care.view alone also powers the read-only projection embedded in
-    // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
-    // care.update instead keeps the full Soins queue's menu entry for the
-    // role that actually operates it (NURSE), without exposing it to roles
-    // that only ever consult that projection.
-    { icon: 'user-check', text: 'Soins', link: '/care', permission: 'care.update' },
-    { icon: 'heart', text: 'Maternité', link: '/maternity', permission: 'maternity.view' },
-    { icon: 'masks', text: 'Chirurgie', link: '/surgery', permission: 'surgery.view' },
-    { icon: 'shield-check', text: 'Anesthésie', link: '/anesthesia', permission: 'anesthesia.view' },
-    {
-        icon: 'capsule',
-        text: 'Pharmacie',
-        link: can('pharmacy.counter_sales.create') ? '/pharmacy/counter-sales/create' : '/pharmacy',
-        activeLinks: ['/pharmacy'],
-        permission: 'pharmacy.view',
-    },
-    { heading: 'Gestion' },
-    { icon: 'briefcase', text: 'Ressources humaines', link: '/administration', exact: true, permission: 'employees.view' },
-    { icon: 'package', text: 'Logistique', link: '/logistics', permission: 'logistics.view' },
-    { icon: 'shield-check', text: 'Gardiennage', link: '/reception/visitors', permission: 'guarding.view' },
-    { icon: 'users', text: 'Utilisateurs & accès', link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view' },
-    { icon: 'setting-alt', text: 'Référentiels & tarifs', link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view' },
-    { icon: 'activity', text: 'Catalogue analyses', link: '/administration/analyses', activeLinks: ['/administration/analyses'], permission: 'analysis_catalog.view' },
-    { icon: 'trash', text: 'Corbeille', link: '/trash', permission: 'trash.view' },
-]);
+// Built from the shared workspace list, so the sidebar and the overview can
+// never disagree on which modules exist or which permission opens them.
+const clinicMenu = computed(() => {
+    const items = CLINIC_WORKSPACES.map((workspace) => ({
+        icon: workspace.icon,
+        text: workspace.text,
+        link: workspace.resolveLink ? workspace.resolveLink(can) : workspace.link,
+        activeLinks: workspace.activeLinks,
+        exact: workspace.exact,
+        permission: workspace.permission,
+        group: workspace.group,
+    }));
+
+    return [
+        { heading: 'Principal' },
+        { icon: 'growth', text: overviewLabel.value, link: '/' },
+        ...Object.entries(WORKSPACE_GROUPS).flatMap(([group, heading]) => [
+            { heading },
+            ...items.filter((item) => item.group === group),
+        ]),
+    ];
+});
 
 const adminMenu = computed(() => [
     { heading: 'Vue centrale' },

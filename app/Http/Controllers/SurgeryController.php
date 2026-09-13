@@ -9,6 +9,7 @@ use App\Actions\Surgery\UpdateSurgicalPreparationAction;
 use App\Actions\Surgery\UpdateSurgicalRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\SurgicalRequestStatus;
 use App\Enums\SurgicalTeamFunction;
 use App\Http\Requests\DischargeSurgicalRequestRequest;
 use App\Http\Requests\ScheduleSurgicalRequestRequest;
@@ -42,6 +43,9 @@ class SurgeryController extends Controller
 
         $surgicalRequests = SurgicalRequest::query()
             ->with(['episode.patient', 'surgeon'])
+            // A request Médecine withdrew before the block took it up is kept
+            // for the record but must not sit in the working queue (ADR-084).
+            ->where('status', '!=', SurgicalRequestStatus::Cancelled->value)
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('procedure_name', 'like', "%{$search}%")

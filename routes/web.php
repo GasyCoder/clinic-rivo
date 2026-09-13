@@ -518,9 +518,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
-        // 'examen' is kept accepted and redirected to the merged
-        // Consultation & examen step: existing links must not break.
-        ->whereIn('step', ['dossier', 'consultation', 'examen', 'paraclinique', 'diagnostic', 'ordonnance', 'decision'])
+        // 'diagnostic' et 'decision' restent acceptées pour ne pas casser un
+        // signet : le contrôleur les redirige vers l'écran qui porte
+        // désormais leur fonction (ADR-081, ADR-084).
+        ->whereIn('step', ['dossier', 'consultation', 'examen', 'paraclinique', 'diagnostic', 'ordonnance', 'decision', 'cloture'])
         ->name('medicine.orientations.step')
         ->middleware('can:consultations.view');
     // Autosaved typing across the consultation wizard: survives a reload,
@@ -531,7 +532,17 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])
         ->name('medicine.orientations.emergency.store')
         ->middleware('can:episodes.mark_emergency');
-    Route::put('/medicine/orientations/{episodeOrientation}/consultation', [MedicineController::class, 'updateConsultation'])->name('medicine.consultations.update')->middleware('can:consultations.update');
+    Route::put('/medicine/orientations/{episodeOrientation}/interrogatoire', [MedicineController::class, 'updateInterview'])->name('medicine.interview.update')->middleware('can:consultations.update');
+    Route::put('/medicine/orientations/{episodeOrientation}/examen-clinique', [MedicineController::class, 'updateClinicalExam'])->name('medicine.clinical-exam.update')->middleware('can:consultations.update');
+    // La conduite à tenir est une donnée, pas une étape : elle se choisit
+    // dès que le médecin en sait assez, et ouvre aussitôt sa demande.
+    Route::post('/medicine/orientations/{episodeOrientation}/orientation', [MedicineController::class, 'selectOrientation'])->name('medicine.orientation.select')->middleware('can:consultations.update');
+    // L'étape est résolue explicitement par le médecin : validée, ou
+    // déclarée non nécessaire pour ce patient. Jamais un effet de bord de
+    // l'ouverture d'un écran.
+    Route::post('/medicine/orientations/{episodeOrientation}/complementary-exams', [MedicineController::class, 'decideComplementaryExams'])->name('medicine.complementary-exams.decide')->middleware('can:consultations.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/steps', [MedicineController::class, 'resolveStep'])->name('medicine.steps.resolve')->middleware('can:consultations.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/complete', [MedicineController::class, 'completeConsultation'])->name('medicine.consultations.complete')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'storeDiagnosis'])->name('medicine.diagnoses.store')->middleware('can:diagnoses.create');
     Route::get('/diagnostic-catalog/search', DiagnosticCatalogSearchController::class)->name('diagnostic-catalog.search')->middleware('can:diagnoses.create');
     Route::put('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'updateDiagnosis'])->name('medicine.diagnoses.update')->middleware('can:diagnoses.update');
@@ -546,6 +557,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result', [MedicineController::class, 'recordImagingResult'])->name('medicine.imaging-requests.result')->middleware('can:imaging_results.create');
     Route::post('/medicine/orientations/{episodeOrientation}/surgical-referrals', [MedicineController::class, 'storeSurgicalReferral'])->name('medicine.surgical-referrals.store')->middleware('can:surgery.request');
     Route::post('/medicine/orientations/{episodeOrientation}/referrals', [MedicineController::class, 'storeReferral'])->name('medicine.referrals.store');
+    Route::post('/medicine/orientations/{episodeOrientation}/hospitalization-requests', [MedicineController::class, 'storeHospitalizationRequest'])->name('medicine.hospitalization-requests.store')->middleware('can:hospitalization.request');
+    Route::post('/medicine/orientations/{episodeOrientation}/medical-referrals', [MedicineController::class, 'storeMedicalReferral'])->name('medicine.medical-referrals.store')->middleware('can:transfer.request');
+    Route::get('/medicine/orientations/{episodeOrientation}/hospitalization-requests/{hospitalizationRequest}/print', [MedicineController::class, 'printHospitalizationRequest'])->name('medicine.hospitalization-requests.print')->middleware('can:hospitalization.request');
+    Route::get('/medicine/orientations/{episodeOrientation}/medical-referrals/{medicalReferral}/print', [MedicineController::class, 'printMedicalReferral'])->name('medicine.medical-referrals.print')->middleware('can:transfer.request');
     Route::post('/medicine/orientations/{episodeOrientation}/discharge', [MedicineController::class, 'discharge'])->name('medicine.discharge.store')->middleware('can:medical_discharge.create');
 
     // Laboratoire — minimal, côté suivi/résultat uniquement : la demande

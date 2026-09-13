@@ -22,7 +22,7 @@ const areas = [
     { title: 'Congés', description: 'Demandes, intérim, validation, refus, annulation et impression.', icon: 'calendar', permission: 'leave.view', link: '/administration/leave', tone: 'amber' },
     { title: 'Planning', description: 'Organisation des équipes, services et créneaux de travail.', icon: 'calender-date', permission: 'planning.view', link: '/administration/planning', tone: 'violet' },
     { title: 'Rapports RH', description: 'Indicateurs de période, exports Excel et rapports imprimables.', icon: 'reports', permission: 'hr_reports.view', link: '/administration/reports', tone: 'rose' },
-    { title: 'Paramètres RH', description: 'Départements, fonctions, types de contrat et attestations configurables.', icon: 'settings', permission: 'hr_settings.view', link: '/administration/settings', tone: 'slate' },
+    { title: 'Paramètres RH', description: 'Départements, fonctions, types de contrat et attestations configurables.', icon: 'setting', permission: 'hr_settings.view', link: '/administration/settings', tone: 'slate' },
     { title: 'Crédit Bloc personnel', description: 'Allocation et registre des mouvements du crédit forfaitaire du personnel.', icon: 'wallet', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits', tone: 'primary' },
     { title: 'Caisses', description: 'Configuration des postes de caisse nommés du site.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers', tone: 'emerald' },
     { title: 'Diagnostics', description: 'Référentiel clinique utilisé par la recherche rapide des médecins.', icon: 'clipboard', permission: 'diagnostic_catalog.view', link: '/administration/diagnostics', tone: 'amber' },

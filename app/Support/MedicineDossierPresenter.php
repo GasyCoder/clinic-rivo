@@ -2,9 +2,15 @@
 
 namespace App\Support;
 
+use App\Enums\AdministrationRoute;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ClinicalExamSystem;
+use App\Enums\ClinicalPriority;
+use App\Enums\ClinicalSystemStatus;
 use App\Enums\ConsultationDecision;
+use App\Enums\ConsultationOrientationType;
+use App\Enums\ConsultationStep;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
@@ -13,6 +19,8 @@ use App\Enums\PatientAntecedentType;
 use App\Enums\PrescriptionStatus;
 use App\Models\CareOrder;
 use App\Models\CatalogItem;
+use App\Models\Consultation;
+use App\Models\ConsultationOrientation;
 use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
@@ -20,6 +28,7 @@ use App\Models\User;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Pharmacy\MedicineStockService;
+use Illuminate\Support\Collection;
 
 class MedicineDossierPresenter
 {
@@ -28,6 +37,7 @@ class MedicineDossierPresenter
         private readonly MedicineStockService $medicineStock,
         private readonly CareRecordReadModel $careRecord,
         private readonly ClinicalRichTextSanitizer $richText,
+        private readonly ConsultationWorkflow $workflow,
     ) {}
 
     /** @return array<string, mixed> */
@@ -39,6 +49,7 @@ class MedicineDossierPresenter
         $episode = $orientation->episode;
         $patient = $episode->patient;
         $consultation = $orientation->consultation;
+        $clinicalExamination = $consultation?->clinicalExamination;
         $careRecord = $episode->careRecord;
         $canViewMedicalRecord = $user->can('medical_record.view');
         $canViewDiagnoses = $user->can('diagnoses.view');
@@ -48,8 +59,12 @@ class MedicineDossierPresenter
         $canViewCareOrders = $user->can('care_orders.view');
         $canViewLabRequests = $user->can('laboratory_orders.view');
         $canViewImagingRequests = $user->can('imaging_orders.view');
+        // A closed consultation is read-only everywhere, not only where a
+        // discharge happens to exist: closure is now its own status, and a
+        // validated encounter is never silently overwritten (ADR-010).
         $isActive = $orientation->status === EpisodeOrientationStatus::InProgress
-            && $episode->medicalDischarge === null;
+            && $episode->medicalDischarge === null
+            && ($consultation === null || $consultation->isEditable());
         $referralDestinations = [
             CatalogModule::Maternity->value => CatalogModule::Maternity->label(),
             CatalogModule::Hospitalization->value => CatalogModule::Hospitalization->label(),
@@ -164,16 +179,111 @@ class MedicineDossierPresenter
                         'description' => $antecedent->description,
                     ])->values()
                 : [],
+            // The patient's known habitual treatments. Shown so the doctor
+            // reads them instead of re-typing them: the interview asks only
+            // whether the patient reports a change (ADR-078). Never a
+            // prescription, never a Pharmacy product.
+            'habitual_treatments' => $user->can('patients.medical_history.view')
+                ? $patient->treatments
+                    ->where('active', true)
+                    ->map(fn ($treatment) => [
+                        'uuid' => $treatment->uuid,
+                        'medication_name' => $treatment->medication_name,
+                        'dosage' => $treatment->dosage,
+                        'frequency' => $treatment->frequency,
+                        'duration' => $treatment->duration,
+                        'notes' => $treatment->notes,
+                    ])->values()
+                : [],
             'consultation' => $consultation ? [
                 'id' => $consultation->getKey(),
                 'doctor' => $consultation->doctor?->name,
+                // The interview, semi-structured: a short exploitable chief
+                // complaint beside the narrative, instead of both melted into
+                // one block of prose.
+                'chief_complaint' => $consultation->chief_complaint,
+                'symptom_onset' => $consultation->symptom_onset,
+                'evolution' => $consultation->evolution?->value,
+                'evolution_label' => $consultation->evolution?->label(),
+                'additional_notes' => $consultation->additional_notes,
+                'known_treatment_change' => $consultation->known_treatment_change,
+                'known_treatment_change_notes' => $consultation->known_treatment_change_notes,
+                // Snapshots of what the patient reported at this encounter.
+                // They stay on the consultation even if the permanent record
+                // is later corrected — the history is not rewritten.
+                'reported_allergies' => $consultation->reported_allergies ?? [],
+                'reported_antecedents' => $consultation->reported_antecedents ?? [],
+                'reported_habitual_treatments' => $consultation->reported_habitual_treatments ?? [],
+                'interviewed_by' => $consultation->interviewedBy?->name,
+                'interviewed_at' => $consultation->interviewed_at,
+                'status' => $consultation->status->value,
+                'status_label' => $consultation->status->label(),
+                'is_editable' => $consultation->isEditable(),
+                'completed_at' => $consultation->completed_at,
+                'completed_by' => $consultation->completedBy?->name,
+                // The stepper renders these and nothing else: a step is never
+                // shown as finished because the doctor merely opened it.
+                'steps' => $this->workflow->steps($consultation)
+                    ->mapWithKeys(fn (array $entry): array => [
+                        $entry['step']->value => [
+                            'status' => $entry['status']->value,
+                            'status_label' => $entry['status']->label(),
+                            'relevant' => $entry['relevant'],
+                            'skippable' => $entry['skippable'],
+                            'resolved' => $entry['status']->isResolved(),
+                            'completed_at' => $entry['completed_at'],
+                            'completed_by' => $entry['completed_by'],
+                            'skip_reason' => $entry['skip_reason'],
+                            'blocker' => $this->workflow->blockerFor($consultation, $entry['step']),
+                            'note' => match ($entry['step']) {
+                                ConsultationStep::Paraclinical => $this->workflow->paraclinicalNote($consultation),
+                                ConsultationStep::Diagnosis => $this->workflow->diagnosisNote($consultation),
+                                default => null,
+                            },
+                        ],
+                    ]),
+                'closure_blockers' => $this->workflow->blockersForClosure($consultation),
                 'reason' => $this->richText->toSafeHtml($consultation->reason),
                 'clinical_exam' => $this->richText->toSafeHtml($consultation->clinical_exam),
+                // The structured examination. Systems the doctor never looked
+                // at come back as NOT_EXAMINED — the grid is always complete
+                // so the screen can state what was not examined instead of
+                // leaving a gap the reader has to interpret.
+                'clinical_examination' => [
+                    'general_condition' => $clinicalExamination?->general_condition?->value,
+                    'general_condition_label' => $clinicalExamination?->general_condition?->label(),
+                    'consciousness_status' => $clinicalExamination?->consciousness_status?->value,
+                    'consciousness_status_label' => $clinicalExamination?->consciousness_status?->label(),
+                    'consciousness_details' => $clinicalExamination?->consciousness_details,
+                    'general_observation' => $clinicalExamination?->general_observation,
+                    // Tri-state: null is "not decided", never "non".
+                    'complementary_exams_required' => $clinicalExamination?->complementary_exams_required,
+                    'diagnosis_ready' => $clinicalExamination?->diagnosis_ready,
+                    // Whether answering "non" would withdraw something.
+                    'has_outstanding_requests' => $consultation !== null
+                        && ($consultation->labRequests()->whereNull('cancelled_at')->exists()
+                            || $consultation->imagingRequests()->whereNull('cancelled_at')->exists()),
+                    'examined_by' => $clinicalExamination?->examiner?->name,
+                    'examined_at' => $clinicalExamination?->examined_at,
+                    'systems' => ($clinicalExamination
+                        ? $clinicalExamination->systems()
+                        : $this->emptyClinicalSystems())
+                        ->map(fn (array $entry): array => [
+                            'system_code' => $entry['system']->value,
+                            'label' => $entry['system']->label(),
+                            'hint' => $entry['system']->findingsHint(),
+                            'status' => $entry['status']->value,
+                            'status_label' => $entry['status']->label(),
+                            'findings' => $entry['findings'],
+                        ])->values(),
+                ],
                 'current_treatments' => $consultation->currentTreatments
                     ->map(fn ($treatment) => [
                         'uuid' => $treatment->uuid,
                         'medication_name' => $treatment->medication_name,
                         'dosage' => $treatment->dosage,
+                        'frequency' => $treatment->frequency,
+                        'duration' => $treatment->duration,
                         'notes' => $treatment->notes,
                     ])->values(),
                 'decision' => $consultation->decision?->value,
@@ -223,6 +333,17 @@ class MedicineDossierPresenter
                                 'id' => $line->getKey(),
                                 'medicine_uuid' => $line->medicine?->catalogItem?->uuid,
                                 'medication_name' => $line->medication_name,
+                                'route' => $line->route?->value,
+                                'route_label' => $line->route?->label(),
+                                'route_short' => $line->route?->shortLabel(),
+                                // Composée côté serveur : l'écran n'a jamais à
+                                // deviner l'unité d'un nombre nu.
+                                'posology' => collect([
+                                    $line->dosage,
+                                    $line->route?->shortLabel(),
+                                    $line->frequency,
+                                    $line->duration,
+                                ])->filter()->implode(' · '),
                                 'quantity' => $line->quantity,
                                 'unit' => $line->medicine?->catalogItem?->unit,
                                 'stock_available_at_prescription' => $line->stock_available_at_prescription,
@@ -267,6 +388,9 @@ class MedicineDossierPresenter
                 'lab_requests' => $canViewLabRequests
                     ? LabRequest::query()
                         ->where('consultation_id', $consultation->getKey())
+                        // Une demande retirée quitte le plan de
+                        // soins ; elle reste en base, auditée.
+                        ->whereNull('cancelled_at')
                         ->with(['items.resultedBy:id,name', 'requestedBy:id,name'])
                         ->latest('requested_at')
                         ->get()
@@ -290,6 +414,9 @@ class MedicineDossierPresenter
                 'imaging_requests' => $canViewImagingRequests
                     ? ImagingRequest::query()
                         ->where('consultation_id', $consultation->getKey())
+                        // Une demande retirée quitte le plan de
+                        // soins ; elle reste en base, auditée.
+                        ->whereNull('cancelled_at')
                         ->with(['items.resultedBy:id,name', 'requestedBy:id,name'])
                         ->latest('requested_at')
                         ->get()
@@ -369,10 +496,32 @@ class MedicineDossierPresenter
                 'discharged_at' => $episode->medicalDischarge->discharged_at,
                 'created_by' => $episode->medicalDischarge->creator?->name,
             ] : null,
+            // La conduite à tenir : ce qui a été décidé, ce qu'il reste à
+            // transmettre, et de quoi préremplir la demande sans rien
+            // redemander au médecin (ADR-084).
+            'consultation_orientation' => $consultation
+                ? $this->presentOrientation($consultation, $user, $isActive)
+                : null,
             'options' => [
                 'decisions' => collect(ConsultationDecision::cases())->map(fn ($decision) => [
                     'value' => $decision->value,
                     'label' => $decision->label(),
+                ])->values(),
+                'clinical_priorities' => collect(ClinicalPriority::cases())->map(fn ($priority) => [
+                    'value' => $priority->value,
+                    'label' => $priority->label(),
+                ])->values(),
+                // Seules les destinations réellement autorisées au compte.
+                // Le serveur revérifie de toute façon à l'écriture.
+                'orientation_types' => collect(ConsultationOrientationType::cases())
+                    ->filter(fn (ConsultationOrientationType $type): bool => $user->can($type->permission()))
+                    ->map(fn (ConsultationOrientationType $type) => [
+                        'value' => $type->value,
+                        'label' => $type->label(),
+                        'form_title' => $type->formTitle(),
+                    ])->values(),
+                'administration_routes' => collect(AdministrationRoute::cases())->map(fn (AdministrationRoute $r) => [
+                    'value' => $r->value, 'label' => $r->label(), 'short_label' => $r->shortLabel(),
                 ])->values(),
                 'diagnosis_types' => [
                     ['value' => DiagnosisType::Hypothesis->value, 'label' => 'Hypothèse diagnostique'],
@@ -424,6 +573,12 @@ class MedicineDossierPresenter
             'capabilities' => [
                 'can_view_medical_record' => $canViewMedicalRecord,
                 'can_update_consultation' => $isActive && $user->can('consultations.update'),
+                // Validating a step and closing the encounter are the same
+                // authority as writing it: no new permission is invented.
+                'can_resolve_step' => $isActive && $user->can('consultations.update'),
+                'can_complete_consultation' => $isActive
+                    && $user->can('consultations.update')
+                    && $consultation !== null,
                 'can_create_diagnosis' => $isActive && $user->can('diagnoses.create'),
                 'can_create_prescription' => $isActive
                     && $user->can('prescriptions.create')
@@ -451,5 +606,200 @@ class MedicineDossierPresenter
                 'can_defer_decision' => $isActive && $pendingReasons !== [],
             ],
         ];
+    }
+
+    /**
+     * The grid before any examination exists: every system NOT_EXAMINED.
+     * The screen then renders the same shape whether or not the doctor has
+     * started, and no branch has to invent a status.
+     *
+     * @return Collection<int, array{system: ClinicalExamSystem, status: ClinicalSystemStatus, findings: ?string}>
+     */
+    private function emptyClinicalSystems(): Collection
+    {
+        return collect(ClinicalExamSystem::cases())->map(fn (ClinicalExamSystem $system): array => [
+            'system' => $system,
+            'status' => ClinicalSystemStatus::NotExamined,
+            'findings' => null,
+        ]);
+    }
+
+    /**
+     * The conduite à tenir, its request, and what the request forms are
+     * pre-filled with.
+     *
+     * The pre-fill is the whole point of §17: a doctor who has already
+     * written the history, examined the patient, read the results and
+     * prescribed must never retype any of it into a referral. The values
+     * travel composed and stay editable — the doctor corrects, never
+     * copies.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentOrientation(Consultation $consultation, User $user, bool $isActive): array
+    {
+        $active = $this->workflow->activeOrientation($consultation);
+
+        return [
+            'active' => $active ? [
+                'uuid' => $active->uuid,
+                'type' => $active->type->value,
+                'type_label' => $active->type->label(),
+                'form_title' => $active->type->formTitle(),
+                'status' => $active->status->value,
+                'status_label' => $active->status->label(),
+                'priority' => $active->priority?->value,
+                'priority_label' => $active->priority?->label(),
+                'submitted_at' => $active->submitted_at,
+                'selected_by' => $active->selectedBy?->name,
+                'request' => $this->presentOrientationRequest($active),
+            ] : null,
+            // Cancelled orientations stay visible: changing course is a
+            // clinical fact, and the first intention is never erased.
+            'history' => $consultation->orientations()
+                ->whereNotNull('cancelled_at')
+                ->with('cancelledBy:id,name')
+                ->get()
+                ->map(fn (ConsultationOrientation $orientation) => [
+                    'uuid' => $orientation->uuid,
+                    'type_label' => $orientation->type->label(),
+                    'cancelled_at' => $orientation->cancelled_at,
+                    'cancelled_by' => $orientation->cancelledBy?->name,
+                    'cancellation_reason' => $orientation->cancellation_reason,
+                ])->values(),
+            'can_select' => $isActive && $user->can('consultations.update'),
+            'prefill' => $this->orientationPrefill($consultation),
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function presentOrientationRequest(ConsultationOrientation $orientation): ?array
+    {
+        if ($request = $orientation->hospitalizationRequest) {
+            return [
+                'kind' => 'HOSPITALIZATION',
+                'uuid' => $request->uuid,
+                'summary' => $request->requested_service ?: $request->reason,
+                'status_label' => $request->status->label(),
+                'recorded_at' => $request->requested_at,
+            ];
+        }
+
+        if ($request = $orientation->medicalReferral) {
+            return [
+                'kind' => 'REFERRAL',
+                'uuid' => $request->uuid,
+                'summary' => $request->facility,
+                'status_label' => $request->status->label(),
+                'recorded_at' => $request->referred_at,
+            ];
+        }
+
+        if ($request = $orientation->surgicalRequest) {
+            return [
+                'kind' => 'SURGERY',
+                'uuid' => $request->uuid,
+                'summary' => $request->procedure_name,
+                'status_label' => $request->status->value,
+                'recorded_at' => $request->created_at,
+            ];
+        }
+
+        if ($request = $orientation->medicalDischarge) {
+            return [
+                'kind' => 'DISCHARGE',
+                'uuid' => $request->uuid,
+                'summary' => $request->type->label(),
+                'status_label' => 'Prononcée',
+                'recorded_at' => $request->discharged_at,
+            ];
+        }
+
+        if ($request = $orientation->episodeOrientation) {
+            return [
+                'kind' => 'SERVICE',
+                'uuid' => $request->uuid,
+                'summary' => $request->destination_module->label(),
+                'status_label' => $request->status->label(),
+                'recorded_at' => $request->oriented_at,
+            ];
+        }
+
+        return null;
+    }
+
+    /** @return array<string, ?string> */
+    private function orientationPrefill(Consultation $consultation): array
+    {
+        $examination = $consultation->clinicalExamination;
+        $findings = $examination
+            ? $examination->systems()
+                ->filter(fn (array $entry): bool => $entry['status'] === ClinicalSystemStatus::Abnormal)
+                ->map(fn (array $entry): string => $entry['system']->label().' : '.trim((string) $entry['findings']))
+                ->values()
+                ->all()
+            : [];
+
+        $clinicalSummary = collect([
+            $examination?->general_condition?->label() ? 'État général : '.$examination->general_condition->label() : null,
+            $examination?->consciousness_status?->label() ? 'Conscience : '.$examination->consciousness_status->label() : null,
+            ...$findings,
+            $this->toPlainText($consultation->clinical_exam),
+        ])->filter()->implode("\n");
+
+        $paraclinical = $consultation->labRequests()
+            ->whereNull('cancelled_at')
+            ->with('items')
+            ->get()
+            ->flatMap(fn (LabRequest $request) => $request->items->map(
+                fn ($item): string => trim($item->catalog_item_name_snapshot.($item->result_value ? ' : '.$item->result_value : ' — en attente')),
+            ))
+            ->merge($consultation->imagingRequests()
+                ->whereNull('cancelled_at')
+                ->with('items')
+                ->get()
+                ->flatMap(fn (ImagingRequest $request) => $request->items->map(
+                    fn ($item): string => trim($item->catalog_item_name_snapshot.($item->result_value ? ' : '.$item->result_value : ' — en attente')),
+                )))
+            ->implode("\n");
+
+        $treatments = $consultation->prescriptions()
+            ->where('status', PrescriptionStatus::Active->value)
+            ->with('lines')
+            ->get()
+            ->flatMap(fn ($prescription) => $prescription->lines->map(fn ($line): string => trim(collect([
+                $line->medication_name,
+                $line->dosage,
+                $line->route?->shortLabel(),
+                $line->frequency,
+                $line->duration,
+            ])->filter()->implode(' · '))))
+            ->implode("\n");
+
+        return [
+            'reason' => $consultation->chief_complaint ?: $this->toPlainText($consultation->reason),
+            'clinical_summary' => $clinicalSummary !== '' ? $clinicalSummary : null,
+            'diagnosis' => $consultation->diagnoses()
+                ->whereDoesntHave('cancellation')
+                ->pluck('description')
+                ->implode("\n") ?: null,
+            'paraclinical' => $paraclinical !== '' ? $paraclinical : null,
+            'treatments' => $treatments !== '' ? $treatments : null,
+        ];
+    }
+
+    /**
+     * The rich-text fields reach a printable letter as prose, not markup:
+     * the referral is read on paper by someone with no browser.
+     */
+    private function toPlainText(?string $html): ?string
+    {
+        if ($html === null) {
+            return null;
+        }
+
+        $text = trim(html_entity_decode(strip_tags(str_replace(['</p>', '<br>', '<br/>', '<br />'], "\n", $html)), ENT_QUOTES | ENT_HTML5));
+
+        return $text !== '' ? $text : null;
     }
 }

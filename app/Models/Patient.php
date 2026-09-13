@@ -91,6 +91,12 @@ class Patient extends Model
         return $this->hasMany(PatientAllergy::class);
     }
 
+    /** Treatments explicitly confirmed in the permanent medical record. */
+    public function treatments(): HasMany
+    {
+        return $this->hasMany(PatientTreatment::class);
+    }
+
     public function staffLinks(): HasMany
     {
         return $this->hasMany(PatientStaffLink::class);
@@ -124,6 +130,7 @@ class Patient extends Model
             || $this->invoices()->exists()
             || $this->antecedents()->exists()
             || $this->allergies()->exists()
+            || $this->treatments()->exists()
             || $this->staffLinks()->exists()
             || $this->mutualCoverages()->exists();
     }

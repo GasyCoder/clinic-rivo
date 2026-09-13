@@ -25,10 +25,10 @@ const financialModeLabel = computed(() => ({
 </script>
 
 <template>
-    <div :class="['overflow-hidden rounded-lg border shadow-sm', isEmergency ? 'border-red-300 dark:border-red-900' : 'border-gray-200 dark:border-gray-900']">
-        <div :class="['flex flex-wrap items-center justify-between gap-3 px-4 py-3', isEmergency ? 'bg-red-50 dark:bg-red-950/20' : 'bg-white dark:bg-gray-950']">
+    <div :class="['overflow-hidden rounded-lg border bg-white shadow-sm dark:bg-gray-950', isEmergency ? 'border-red-300 border-s-4 border-s-red-500 dark:border-red-900' : 'border-gray-200 dark:border-gray-900']">
+        <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
             <div class="flex min-w-0 items-center gap-3">
-                <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold', isEmergency ? 'bg-red-600 text-white' : 'bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300']">{{ sexLabel }}</span>
+                <span :class="['flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold', isEmergency ? 'bg-red-600 text-white' : 'bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300']">{{ sexLabel }}</span>
                 <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                         <h1 class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ patient.first_name }} {{ patient.last_name }}</h1>
@@ -41,6 +41,9 @@ const financialModeLabel = computed(() => ({
                         <span v-if="patient.age !== null && patient.age !== undefined"> · {{ patient.age }} ans</span>
                         <span v-if="financialModeLabel"> · {{ financialModeLabel }}</span>
                     </p>
+                    <p v-if="reason" class="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-300" :title="reason">
+                        <span class="font-semibold text-slate-400">Orientation :</span> {{ reason }}
+                    </p>
                 </div>
             </div>
             <!-- Toutes les actions de la page tiennent sur cette seule ligne :
@@ -49,9 +52,6 @@ const financialModeLabel = computed(() => ({
                 <slot name="actions" />
                 <Button v-if="backHref" :as="Link" :href="backHref" size="sm" variant="white-outline"><Icon class="text-sm" name="arrow-left" /><span class="ms-1.5">{{ backLabel }}</span></Button>
             </div>
-        </div>
-        <div v-if="reason" class="border-t border-gray-200 bg-gray-50/60 px-4 py-2 text-xs text-slate-500 dark:border-gray-900 dark:bg-gray-1000/30 dark:text-slate-300">
-            <span class="font-semibold uppercase tracking-wide text-slate-400">Motif</span> · {{ reason }}
         </div>
         <!-- Extra rows belong to the same card: a clinical page should open on
              one header, not on a stack of separate bands. -->

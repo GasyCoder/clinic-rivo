@@ -36,7 +36,8 @@ class MedicalDossierFieldsTest extends TestCase
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+            ->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+                'chief_complaint' => 'Douleur abdominale',
                 'reason' => '<p>Céphalées</p>',
                 'current_treatments' => [
                     ['medication_name' => 'Amlodipine', 'dosage' => '5 mg/j', 'notes' => 'depuis 2 ans'],
@@ -75,7 +76,8 @@ class MedicalDossierFieldsTest extends TestCase
 
         foreach ([['Amlodipine'], ['Metformine', 'Aspirine']] as $names) {
             $this->actingAs($doctor)
-                ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+                ->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+                    'chief_complaint' => 'Douleur abdominale',
                     'reason' => '<p>Céphalées</p>',
                     'current_treatments' => array_map(
                         fn (string $name) => ['medication_name' => $name],
@@ -91,20 +93,26 @@ class MedicalDossierFieldsTest extends TestCase
         );
     }
 
-    public function test_omitting_the_field_leaves_the_declared_treatments_untouched(): void
+    /**
+     * Interrogatoire and Examen clinique are now two separately-saved steps
+     * (each its own endpoint, its own Consultation column) — saving one can
+     * no longer even carry the other's field, so this guarantee is
+     * structural rather than a `array_key_exists` check to get right.
+     */
+    public function test_saving_the_clinical_exam_leaves_the_declared_treatments_untouched(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
-        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => '<p>Céphalées</p>',
             'current_treatments' => [['medication_name' => 'Amlodipine']],
         ])->assertRedirect();
 
-        // A later save that does not carry the block — the exam step, say —
-        // must not silently wipe what was declared.
-        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/consultation", [
-            'reason' => '<p>Céphalées</p>',
+        // A later save on the exam step must not silently wipe what was
+        // declared during the interview.
+        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => '<p>Nuque souple</p>',
         ])->assertRedirect();
 
@@ -117,7 +125,8 @@ class MedicalDossierFieldsTest extends TestCase
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+            ->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+                'chief_complaint' => 'Douleur abdominale',
                 'reason' => '<p>Céphalées</p>',
                 'current_treatments' => [['dosage' => '5 mg/j']],
             ])

@@ -18,4 +18,12 @@ enum SurgicalRequestStatus: string
     case InProgress = 'IN_PROGRESS';
     case Completed = 'COMPLETED';
     case Discharged = 'DISCHARGED';
+    /**
+     * Withdrawn by Médecine before Chirurgie took it up (ADR-084). Only
+     * reachable from PENDING: once the block has scheduled or validated
+     * anything, the request stops being the sending doctor's to withdraw.
+     * Every existing guard in the module compares against a specific status,
+     * so a cancelled request is already refused everywhere by construction.
+     */
+    case Cancelled = 'CANCELLED';
 }

@@ -759,7 +759,7 @@ onBeforeUnmount(() => {
                         <div class="pointer-events-none absolute inset-0 flex items-center justify-center"><span class="h-44 w-44 rounded-lg border-2 border-white/80 shadow-[0_0_0_999px_rgba(15,23,42,.35)]" /></div>
                         <button type="button" class="absolute end-3 top-3 inline-flex h-8 items-center gap-1.5 rounded bg-white px-2.5 text-xs font-bold text-slate-700 shadow" @click="stopQrScanner"><Icon name="cross" /> Fermer</button>
                     </div>
-                    <p v-if="scannerError" class="mx-auto flex max-w-2xl items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"><Icon class="mt-0.5 shrink-0" name="alert-triangle" />{{ scannerError }}</p>
+                    <p v-if="scannerError" class="mx-auto flex max-w-2xl items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"><Icon class="mt-0.5 shrink-0" name="alert" />{{ scannerError }}</p>
                 </div>
 
                 <div class="overflow-x-auto">

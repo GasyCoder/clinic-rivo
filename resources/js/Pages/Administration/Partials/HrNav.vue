@@ -17,7 +17,7 @@ const items = [
     { label: 'Planning', href: '/administration/planning', icon: 'calender-date', permission: 'planning.view' },
     { label: 'Rapports', href: '/administration/reports', icon: 'reports', permission: 'hr_reports.view' },
     { label: 'Crédit Bloc', href: '/administration/staff-block-credits', icon: 'wallet', permission: 'staff_block_credits.view' },
-    { label: 'Paramètres', href: '/administration/settings', icon: 'settings', permission: 'hr_settings.view' },
+    { label: 'Paramètres', href: '/administration/settings', icon: 'setting', permission: 'hr_settings.view' },
 ];
 const isActive = (item) => item.exact ? currentUrl.value === item.href : currentUrl.value.startsWith(item.href);
 </script>

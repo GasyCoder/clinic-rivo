@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\AdministrationRoute;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
@@ -53,6 +54,8 @@ class StoreMedicinePrescriptionRequest extends FormRequest
             'lines.*.medication_name' => ['nullable', 'required_if:lines.*.manual,true', 'string', 'max:255'],
             'lines.*.quantity' => ['required', 'integer', 'min:1', 'max:100000'],
             'lines.*.dosage' => ['required', 'string', 'max:255'],
+            // Clinically decisive: 500 mg orally is not 500 mg IV.
+            'lines.*.route' => ['nullable', Rule::in(AdministrationRoute::values())],
             'lines.*.frequency' => ['required', 'string', 'max:255'],
             'lines.*.duration' => ['nullable', 'string', 'max:255'],
             'lines.*.instructions' => ['nullable', 'string', 'max:1000'],

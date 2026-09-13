@@ -16,7 +16,7 @@ class SaveConsultationDraftRequest extends FormRequest
 {
     /** Wizard forms whose typing is worth keeping; anything else is dropped. */
     public const ALLOWED_SECTIONS = [
-        'consultation', 'diagnosis', 'prescription', 'care_order',
+        'consultation', 'interview', 'clinical_exam', 'diagnosis', 'prescription', 'care_order',
         'lab_request', 'imaging_request', 'referral', 'surgical_referral',
         'discharge',
     ];

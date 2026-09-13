@@ -527,6 +527,159 @@ medical discharge
 
 La Médecine ne peut pas encaisser.
 
+Interrogatoire et Examen clinique sont deux étapes réelles et séparément
+enregistrées du parcours Consultation (`SaveConsultationAction::saveInterview()`/
+`saveClinicalExam()`), chacune sa propre permission de lecture d'écran et sa
+propre requête PUT — jamais un écran unique partageant un seul enregistrement,
+pour qu'une saisie tardive de l'un ne puisse jamais écraser l'autre resté
+ouvert dans un onglet distinct. Le médecin prépare ensuite, à l'étape
+Prescription, une intention d'orientation facultative parmi les six décisions
+de référence (sortie médicale, hospitalisation, Maternité, Chirurgie,
+Pédiatrie, transfert externe) : ce geste écrit uniquement `Consultation.decision`
+et ne crée jamais lui-même l'orientation, la `SurgicalRequest` ou la
+`MedicalDischarge` réelles, qui restent une action explicite de l'étape
+Décision dans le module destinataire. Voir ADR-075.
+
+L'avancement du parcours appartient au serveur, jamais au navigateur :
+`consultation_steps` porte le statut réel de chacune des sept étapes
+(`NOT_STARTED`, `IN_PROGRESS`, `COMPLETED`, `SKIPPED`) et
+`ConsultationWorkflow` en est la source unique — le stepper n'affiche que ce
+qu'elle renvoie. Enregistrer n'est pas valider : « Enregistrer » laisse
+l'étape `IN_PROGRESS`, « Enregistrer et continuer » la valide, « Passer cette
+étape » la déclare non nécessaire avec auteur, date et motif facultatif. Une
+étape n'est jamais affichée terminée parce qu'elle a été ouverte, et
+`ResolveConsultationStepAction` refuse de valider une étape dont le minimum
+propre n'est pas atteint. Seules Paraclinique et Prescription sont passables.
+Pour un passage paraclinique seul (`MEDICINE_DIRECT` + `IMAGING`/`LABORATORY`),
+Interrogatoire et Examen clinique sont sans objet : ni exigés à la clôture, ni
+verrouillés. `consultations.status` (`DRAFT`/`IN_PROGRESS`/`COMPLETED`/
+`CANCELLED`) remplace la déduction « clôturée parce qu'une `MedicalDischarge`
+existe » ; `CompleteConsultationAction` est idempotente, refuse la clôture tant
+qu'une étape pertinente reste non résolue et n'exige jamais une analyse, une
+imagerie, une prescription ou une hospitalisation. Après clôture, tous les
+chemins d'écriture ordinaires refusent (ADR-010). Aucune permission nouvelle :
+`consultations.update` couvre la validation comme la clôture. Voir ADR-076.
+
+La décision « des examens complémentaires sont-ils nécessaires ? » est posée en
+tête de l'étape Paraclinique qu'elle gouverne (ADR-079), par son endpoint dédié
+`POST /medicine/orientations/{orientation}/complementary-exams` :
+`clinical_examinations.complementary_exams_required` est un booléen nullable —
+null = pas encore répondu, aucun bouton pré-sélectionné. « Non » résout l'étape en `SKIPPED` avec auteur, date et motif, puis conduit
+au Diagnostic sans faire traverser un écran vide ; le stepper affiche « Non nécessaire », qui n'est ni « non
+commencé », ni « résultat normal », ni « examen absent ». « Oui » conduit à
+Paraclinique, où les examens se choisissent dans les catalogues existants
+(`LABORATORY` pour les analyses, `IMAGING` pour ECG et échographie, ADR-063) —
+aucune seconde liste, aucun résultat saisi ni affiché dans l'examen clinique.
+Repasser à « Non » alors que des demandes sont parties les annule
+(`cancelled_at`/`cancelled_by`/`cancel_reason` sur `lab_requests` et
+`imaging_requests`, `displayStatus()` renvoie `CANCELLED`) après confirmation
+explicite revérifiée côté serveur ; une demande portant déjà un résultat n'est
+jamais retirée et le changement est refusé. Rien n'est jamais supprimé
+physiquement (ADR-010). Un diagnostic provisoire reste possible sans attendre
+les résultats.
+
+Le diagnostic se conclut dans l'Examen clinique (ADR-080) :
+`clinical_examinations.diagnosis_ready` est un booléen nullable — « Oui » saisit
+le diagnostic sur place et mène à la Prescription ; « Pas maintenant » diffère
+sans rien bloquer, afin qu'un médecin en attente de résultats ne soit jamais
+poussé à conclure avant de les lire. Répondre « Oui » sans avoir rien enregistré
+est refusé côté serveur. `ClinicalDiagnosisEntry.vue` poste vers l'endpoint
+`/diagnoses` existant : même validation, même append-only, même audit (ADR-035).
+
+La conduite à tenir est une **donnée**, plus une étape (ADR-084, amende
+ADR-075 et ADR-076). `consultation_orientations` la porte avec son statut —
+`SELECTED` (destination choisie), `SUBMITTED` (demande réellement partie),
+`CANCELLED` (changement d'avis) — et une seule est active par consultation,
+garantie par `active_key`. Elle se décide là où le médecin en sait assez :
+une carte « Suite de la prise en charge » clôt l'examen clinique, et
+répondre ouvre aussitôt le formulaire correspondant. Le parcours devient
+Dossier → Interrogatoire → Examen → Paraclinique → Prescription → **Clôture**,
+cette dernière ne demandant plus la décision mais vérifiant, signalant ce qui
+manque et validant. Choisir n'est pas transmettre : la clôture refuse une
+orientation restée « à configurer ». Hospitalisation et Référence/Transfert
+ont désormais leur demande (`hospitalization_requests`, `medical_referrals`,
+statut `REQUESTED`/`CANCELLED` seulement) avec leur document imprimable ;
+elles ne modélisent jamais l'admission ni le transfert eux-mêmes, faute de
+règles définies. Maternité et Pédiatrie gardent l'orientation de service.
+Changer d'orientation annule ce qui était parti sans jamais l'effacer, et est
+refusé dès que la destination a pris la demande en charge
+(`EpisodeOrientation::cancel()`, `SurgicalRequestStatus::Cancelled`).
+Enregistrer une sortie médicale ne termine plus la rencontre :
+`CompleteConsultationAction` est le seul acte qui complète l'orientation
+Médecine et porte la sortie sur l'épisode. Les formulaires arrivent
+préremplis du motif, des diagnostics, de l'examen, des résultats et de
+l'ordonnance — aucune donnée n'est jamais redemandée (§17).
+`ConsultationStep::Decision` reste dans l'enum pour les lignes déjà
+enregistrées et `/decision` redirige vers `/cloture` ;
+`consultations.decision` continue d'être écrite pour tous les lecteurs
+existants. Aucune permission nouvelle.
+
+L'étape Diagnostic a été retirée de l'assistant (ADR-081) : le parcours compte
+six étapes. Correction et annulation vivent dans la carte Diagnostic de
+l'examen, réservées à l'auteur de la saisie ; l'historique complet — diagnostics
+annulés compris, barrés et marqués « Annulé » — est dans « Contexte clinique ».
+Le cas `ConsultationStep::Diagnosis` reste dans l'enum pour que les lignes
+`consultation_steps` déjà enregistrées se lisent encore, mais `isWizardStep()` /
+`wizardCases()` l'excluent du parcours ; `/diagnostic` redirige vers `/examen`.
+La clôture ne vérifie plus l'état d'un écran mais **directement** l'existence
+d'un diagnostic actif : la garantie a changé de support, pas disparu.
+
+Une ligne d'ordonnance porte sa voie d'administration (`prescription_lines.route`,
+ADR-083) : « 500 mg orale » n'est pas « 500 mg IV ». Facultative, jamais
+rétro-remplie — les lignes antérieures s'affichent « Non précisée » plutôt qu'un
+tiret muet — et conservée par `UpdatePrescriptionAction` quand une correction ne
+la porte pas. La posologie est composée avec ses unités dès la saisie et servie
+déjà assemblée par le presenter (`posology`), si bien qu'aucun écran n'a à
+deviner l'unité d'un nombre nu. Prescrire reste une décision : la validation
+réserve en FEFO (ADR-036) sans décrémenter aucune quantité physique, seule la
+délivrance Pharmacie le fait.
+
+La saisie ne distingue plus hypothèse et diagnostic final (ADR-082, amende
+ADR-035) : toute nouvelle ligne est enregistrée `FINAL`. `DiagnosisType`
+conserve ses deux cas — des hypothèses existent déjà en base, les supprimer les
+rendrait illisibles et les réétiqueter affirmerait une certitude jamais
+exprimée. Un badge « Hypothèse » n'apparaît donc que sur une ligne qui en est
+réellement une ; les nouvelles n'en portent aucun. Le serveur accepte toujours
+les deux valeurs, mais aucune interface ne produit plus d'hypothèse.
+
+L'étape Interrogatoire est semi-structurée (ADR-078) : `chief_complaint`
+porte la raison réelle de la venue, courte et exploitable dans l'historique,
+les résumés et la recherche — jamais le type de prestation demandée, qui
+vient déjà de l'`EpisodeServiceRequest`. `reason` reste l'unique domicile du
+récit ; `symptom_onset`, `evolution` et `additional_notes` complètent sans
+l'absorber. Seuls le motif et l'histoire sont exigés, et uniquement pour
+valider l'étape : « Enregistrer » n'impose rien. `patient_treatments` porte
+les traitements habituels du dossier permanent — déclaratifs, sans
+`catalog_item`, lot ni prix — affichés sans ressaisie, l'entretien ne posant
+que la question du changement déclaré. Ce que le patient révèle pendant
+l'entretien (`reported_allergies`, `reported_antecedents`,
+`reported_habitual_treatments`) est toujours conservé sur la consultation ;
+le porter au dossier permanent est un second acte explicite par case à
+cocher, soumis à `patients.medical_history.manage` et refusé côté serveur
+sans elle. Omettre un bloc ne l'efface jamais (ADR-074). Aucune constante
+vitale, aucune constatation d'examen, aucun diagnostic ni prescription
+n'entre dans cette étape.
+
+L'étape Examen clinique est semi-structurée (ADR-077, amende ADR-074) :
+`clinical_examinations` porte l'état général, la conscience et une
+observation facultative ; `clinical_examination_findings` porte un statut par
+appareil parmi neuf (`CARDIOVASCULAR` … `OTHER`). Trois états seulement :
+`NOT_EXAMINED`, `NORMAL`, `ABNORMAL`. Rien n'est pré-coché, `NOT_EXAMINED`
+est la valeur par défaut et **ne stocke aucune ligne** — une absence de
+saisie n'est jamais un examen normal, et `ClinicalExamination::systems()` est
+le seul endroit qui décide ce que signifie une ligne absente. `ABNORMAL`
+exige ses constatations, vérifiées dans la FormRequest **et** dans
+`SaveClinicalExaminationAction` ; `NORMAL` n'en demande ni n'en conserve
+aucune. Aucune constante vitale n'est ressaisie ici : tension, FC, SpO₂,
+température, poids, taille et IMC restent relevées une seule fois par les
+Soins et lues en lecture seule via `CareRecordReadModel` (ADR-054) depuis
+« Contexte clinique » — un recontrôle éventuel devra créer un nouveau relevé,
+jamais modifier la mesure d'origine. `consultations.clinical_exam` n'est ni
+supprimée ni dupliquée : elle devient les « Notes cliniques
+complémentaires », désormais facultatives. L'étape se valide donc sur un
+examen réellement réalisé (état général, conscience ou au moins un appareil
+examiné), jamais sur le fait qu'un texte est rempli.
+
 Avec `episodes.mark_emergency`, Médecine peut requalifier l'Épisode de la
 Consultation active en urgence. L'action partagée avec Réception conserve la
 Consultation et tout état `IN_CARE`, ouvre de façon idempotente les files Soins

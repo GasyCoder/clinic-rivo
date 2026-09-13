@@ -199,7 +199,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
                 <div class="inline-flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-xs text-slate-500 dark:border-gray-900 dark:bg-gray-950"><Icon class="text-base text-emerald-500" name="shield-check" /><span>Aucune caisse · aucun encaissement</span></div>
-                <Button v-if="capabilities.can_create_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" size="rg" variant="secondary"><Icon name="shopping-cart" /><span class="ms-2">Nouveau client externe</span></Button>
+                <Button v-if="capabilities.can_create_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" size="rg" variant="secondary"><Icon name="cart" /><span class="ms-2">Nouveau client externe</span></Button>
                 <Button v-if="capabilities.can_adjust_stock" size="rg" variant="white-outline" type="button" @click="showAdjustmentForm = !showAdjustmentForm"><Icon name="edit" /><span class="ms-2">Ajustement</span></Button>
                 <Button v-if="capabilities.can_record_entry" size="rg" type="button" @click="showEntryForm = !showEntryForm"><Icon :name="showEntryForm ? 'cross' : 'plus'" /><span class="ms-2">{{ showEntryForm ? 'Fermer' : 'Nouvelle entrée' }}</span></Button>
             </div>
@@ -214,7 +214,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
         />
 
         <section v-if="activeTab === 'stock' && alerts.length && capabilities.can_view_alerts" class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-            <div class="flex items-start gap-3"><Icon class="mt-0.5 text-lg text-amber-600" name="alert-triangle" /><div><h2 class="text-sm font-bold text-amber-900 dark:text-amber-100">Réapprovisionnement requis</h2><div class="mt-2 flex flex-wrap gap-2"><span v-for="alert in alerts" :key="alert.uuid" class="rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-gray-950 dark:text-amber-200"><strong>{{ alert.medicine_name }}</strong> · {{ alert.available_quantity }} disponible(s) / seuil {{ alert.threshold }}</span></div></div></div>
+            <div class="flex items-start gap-3"><Icon class="mt-0.5 text-lg text-amber-600" name="alert" /><div><h2 class="text-sm font-bold text-amber-900 dark:text-amber-100">Réapprovisionnement requis</h2><div class="mt-2 flex flex-wrap gap-2"><span v-for="alert in alerts" :key="alert.uuid" class="rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-gray-950 dark:text-amber-200"><strong>{{ alert.medicine_name }}</strong> · {{ alert.available_quantity }} disponible(s) / seuil {{ alert.threshold }}</span></div></div></div>
         </section>
 
         <section v-if="activeTab === 'stock' && capabilities.can_view_stock" class="grid overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 sm:grid-cols-2 xl:grid-cols-5">

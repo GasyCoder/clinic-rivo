@@ -22,7 +22,7 @@ const emit = defineEmits(['submit']);
 const steps = [
     { number: 1, label: 'Identité', hint: 'Qui est la personne ?', icon: 'user' },
     { number: 2, label: 'Poste', hint: 'Où travaille-t-elle ?', icon: 'briefcase' },
-    { number: 3, label: 'Contact', hint: 'Comment la joindre ?', icon: 'phone' },
+    { number: 3, label: 'Contact', hint: 'Comment la joindre ?', icon: 'call' },
     { number: 4, label: 'Compléments', hint: 'Données facultatives', icon: 'list' },
     { number: 5, label: 'Confirmer', hint: 'Contrôle du dossier', icon: 'check-circle' },
 ];

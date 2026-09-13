@@ -27,20 +27,20 @@ class MedicineParaclinicalFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_consultation_and_examen_clinique_persist_to_the_same_field_via_two_steps(): void
+    public function test_interrogatoire_and_examen_clinique_persist_via_their_own_separate_steps(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
-        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur abdominale depuis 2 jours',
-            'clinical_exam' => '',
-        ])->assertRedirect();
+            'current_treatments' => [],
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
 
-        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/consultation", [
-            'reason' => 'Douleur abdominale depuis 2 jours',
+        $this->actingAs($doctor)->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'Sensibilité en fosse iliaque droite.',
-        ])->assertRedirect();
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/paraclinique");
 
         $consultation = $orientation->consultation()->sole();
         $this->assertSame('Douleur abdominale depuis 2 jours', $consultation->reason);
@@ -62,7 +62,7 @@ class MedicineParaclinicalFlowTest extends TestCase
             ],
             'notes' => 'Bilan infectieux',
             'continue_to_diagnosis' => true,
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
 
         $labRequest = LabRequest::query()->sole();
         $this->assertSame($episode->id, $labRequest->episode_id);
@@ -140,25 +140,45 @@ class MedicineParaclinicalFlowTest extends TestCase
         ]);
     }
 
+    /**
+     * Each destination now goes through the endpoint that owns its request:
+     * Maternité and Pédiatrie keep the lightweight service orientation,
+     * Hospitalisation and Référence/Transfert have a record of their own
+     * (ADR-084). All four still orient the SAME episode — a referral is
+     * never a new passage.
+     */
     public function test_referrals_to_maternity_hospitalization_transfer_and_pediatrics_orient_without_a_new_episode(): void
     {
         $doctor = $this->doctor();
-        foreach (['MATERNITY', 'HOSPITALIZATION', 'TRANSFER', 'PEDIATRICS'] as $destination) {
+
+        foreach ([
+            ['destination' => 'MATERNITY', 'url' => 'referrals', 'payload' => ['destination' => 'MATERNITY', 'reason' => 'Motif : test']],
+            ['destination' => 'PEDIATRICS', 'url' => 'referrals', 'payload' => ['destination' => 'PEDIATRICS', 'reason' => 'Motif : test']],
+            ['destination' => 'HOSPITALIZATION', 'url' => 'hospitalization-requests', 'payload' => ['reason' => 'Surveillance rapprochée', 'priority' => 'NORMAL']],
+            ['destination' => 'TRANSFER', 'url' => 'medical-referrals', 'payload' => ['facility' => 'CHU Mahajanga', 'reason' => 'Plateau technique', 'priority' => 'URGENT']],
+        ] as $case) {
             [$episode, $orientation] = $this->normalMedicineConsultation($doctor);
 
-            $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/referrals", [
-                'destination' => $destination,
-                'reason' => "Motif : test\nDestination : {$destination}",
-            ])->assertRedirect();
+            $this->actingAs($doctor)
+                ->post("/medicine/orientations/{$orientation->uuid}/{$case['url']}", $case['payload'])
+                ->assertSessionHasNoErrors();
 
             $this->assertDatabaseHas('episode_orientations', [
                 'episode_id' => $episode->id,
-                'destination_module' => $destination,
+                'destination_module' => $case['destination'],
             ]);
+            // The Médecine consultation stays open: transmitting a request is
+            // not closing the encounter (ADR-084).
             $this->assertSame('IN_PROGRESS', $orientation->fresh()->status->value);
+            $this->assertSame(
+                'SUBMITTED',
+                $orientation->consultation()->firstOrFail()->activeOrientation->status->value,
+            );
         }
 
         $this->assertSame(4, Episode::query()->count());
+        $this->assertDatabaseCount('hospitalization_requests', 1);
+        $this->assertDatabaseCount('medical_referrals', 1);
     }
 
     public function test_emergency_episode_can_receive_a_lab_request_without_being_blocked(): void

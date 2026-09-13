@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import Icon from '@/Components/UI/Icon.vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -74,15 +75,15 @@ onMounted(syncEditor);
 <template>
     <div :class="['overflow-hidden rounded border bg-white transition-shadow dark:bg-gray-950', disabled ? 'border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-1000' : 'border-gray-200 focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-100 dark:border-gray-800 dark:focus-within:border-primary-500']">
         <div class="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-800 dark:bg-gray-1000" role="toolbar" aria-label="Mise en forme de l’interrogatoire">
-            <button type="button" class="editor-tool font-bold" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')">G</button>
-            <button type="button" class="editor-tool italic" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')">I</button>
-            <button type="button" class="editor-tool underline" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')">S</button>
-            <button type="button" class="editor-tool" title="Surligner" aria-label="Surligner" :disabled="disabled" @mousedown.prevent @click="highlight"><span class="border-b-4 border-yellow-300 px-0.5">A</span></button>
+            <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Icon name="bold" /></button>
+            <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Icon name="italic" /></button>
+            <button type="button" class="editor-tool" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')"><Icon name="underline" /></button>
+            <button type="button" class="editor-tool" title="Surligner" aria-label="Surligner" :disabled="disabled" @mousedown.prevent @click="highlight"><span class="border-b-4 border-yellow-300 px-0.5 font-bold">A</span></button>
             <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
-            <button type="button" class="editor-tool-wide" title="Liste à puces" :disabled="disabled" @mousedown.prevent @click="command('insertUnorderedList')"><span class="text-base leading-none">•</span> Liste</button>
-            <button type="button" class="editor-tool-wide" title="Liste numérotée" :disabled="disabled" @mousedown.prevent @click="command('insertOrderedList')"><span class="font-mono">1.</span> Liste</button>
+            <button type="button" class="editor-tool-wide" title="Liste à puces" :disabled="disabled" @mousedown.prevent @click="command('insertUnorderedList')"><Icon class="text-sm" name="list" /> Liste</button>
+            <button type="button" class="editor-tool-wide" title="Liste numérotée" :disabled="disabled" @mousedown.prevent @click="command('insertOrderedList')"><Icon class="text-sm" name="list-ol" /> Liste</button>
             <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
-            <button type="button" class="editor-tool-wide text-slate-500" title="Effacer la mise en forme" :disabled="disabled" @mousedown.prevent @click="command('removeFormat')">Effacer le format</button>
+            <button type="button" class="editor-tool-wide text-slate-500" title="Effacer la mise en forme" :disabled="disabled" @mousedown.prevent @click="command('removeFormat')"><Icon class="text-sm" name="cross-circle" />Effacer le format</button>
         </div>
 
         <div

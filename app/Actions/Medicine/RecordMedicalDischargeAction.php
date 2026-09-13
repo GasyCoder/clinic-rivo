@@ -3,9 +3,8 @@
 namespace App\Actions\Medicine;
 
 use App\Enums\CatalogModule;
-use App\Enums\ConsultationDecision;
+use App\Enums\ConsultationOrientationType;
 use App\Enums\DiagnosisType;
-use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Models\Diagnosis;
@@ -17,6 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class RecordMedicalDischargeAction
 {
+    public function __construct(
+        private readonly RecordConsultationOrientationAction $recordOrientation,
+    ) {}
+
     /** @param array<string, mixed> $data */
     public function execute(EpisodeOrientation $orientation, array $data, User $actor): MedicalDischarge
     {
@@ -74,20 +77,20 @@ class RecordMedicalDischargeAction
                 'created_by' => $actor->getKey(),
             ]);
 
-            $locked->consultation->update([
-                'decision' => $type === MedicalDischargeType::Transfer
-                    ? ConsultationDecision::ExternalTransfer
-                    : ConsultationDecision::Discharge,
-            ]);
-
-            $locked->complete($actor);
-            $locked->episode->medical_status = $type->medicalStatus();
-
-            if ($locked->episode->administrative_status === EpisodeAdministrativeStatus::InCare) {
-                $locked->episode->administrative_status = EpisodeAdministrativeStatus::PendingSettlement;
-            }
-
-            $locked->episode->save();
+            // Recording the discharge no longer ends the encounter (ADR-084).
+            // The Médecine orientation and the episode statuses move at the
+            // Clôture step, so a doctor who pronounces a discharge can still
+            // prescribe, print and check their file before closing — which
+            // is exactly what the old "Décision"-last pathway prevented.
+            $this->recordOrientation->submit(
+                $locked->consultation,
+                $type === MedicalDischargeType::Transfer
+                    ? ConsultationOrientationType::Referral
+                    : ConsultationOrientationType::Discharge,
+                ['medical_discharge_id' => $discharge->getKey()],
+                null,
+                $actor,
+            );
 
             return $discharge->fresh(['creator:id,name']);
         });

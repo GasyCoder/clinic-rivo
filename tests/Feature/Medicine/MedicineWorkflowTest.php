@@ -5,7 +5,6 @@ namespace Tests\Feature\Medicine;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
-use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
@@ -141,7 +140,9 @@ class MedicineWorkflowTest extends TestCase
                 ->where('current_step', 'dossier')
                 ->where('capabilities.can_discharge', true));
 
-        foreach (['consultation', 'diagnostic', 'ordonnance', 'decision'] as $step) {
+        // 'diagnostic' et 'decision' ne sont plus des écrans : ils redirigent
+        // vers celui qui porte leur fonction (ADR-081, ADR-084).
+        foreach (['consultation', 'examen', 'paraclinique', 'ordonnance', 'cloture'] as $step) {
             $this->get("/medicine/orientations/{$orientation->uuid}/{$step}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page
@@ -165,11 +166,14 @@ class MedicineWorkflowTest extends TestCase
         $medicine = $this->stockedMedicine($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
 
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur abdominale aiguë',
+            'current_treatments' => [],
+        ])->assertRedirect();
+
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'Sensibilité de la fosse iliaque droite.',
-            'decision' => 'MEDICATION_PRESCRIPTION',
-            'decision_notes' => 'Surveillance et réévaluation.',
         ])->assertRedirect();
 
         $this->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
@@ -214,8 +218,13 @@ class MedicineWorkflowTest extends TestCase
         $orientation = $this->medicineOrientation($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
 
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => '<p onclick="alert(1)"><b>Douleur abdominale</b> <span style="background-color: yellow">depuis hier</span><script>alert(1)</script></p><ul><li>Fièvre</li><li>Nausées</li></ul>',
+            'current_treatments' => [],
+        ])->assertRedirect();
+
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => '<p><b>Palpation</b></p><ol><li>Sensibilité FID</li><li>Défense absente</li></ol><img src=x onerror="alert(1)">',
         ])->assertRedirect();
 
@@ -239,43 +248,96 @@ class MedicineWorkflowTest extends TestCase
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
 
         $this->from("/medicine/orientations/{$orientation->uuid}/consultation")
-            ->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+            ->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+                'chief_complaint' => 'Douleur abdominale',
                 'reason' => '<p><br></p><script>alert(1)</script>',
+                'current_treatments' => [],
             ])
             ->assertRedirect("/medicine/orientations/{$orientation->uuid}/consultation")
             ->assertSessionHasErrors('reason');
     }
 
     /**
-     * ConsultationDecision is data capture only (see the enum's own
-     * docblock): acting on these values still requires the module that owns
-     * that workflow, none of which exist yet. Pins down that saving one of
-     * them today creates no orientation, no SurgicalRequest and no
-     * MedicalDischarge — so a future implementation of one of these
-     * workflows can be told apart from an accidental regression.
+     * The conduite à tenir accepts the six real destinations and nothing
+     * else. LABORATORY_TESTS, IMAGING, SIMPLE_TREATMENT,
+     * MEDICATION_PRESCRIPTION and NURSING_CARE are inferred from the
+     * doctor's actual acts (a lab request, an imaging request, a
+     * prescription, a care order) elsewhere in the wizard, never from a raw
+     * dropdown — so the endpoint must reject them outright rather than
+     * record an orientation no destination will ever act on (ADR-084).
      */
-    public function test_unwired_consultation_decisions_are_recorded_without_any_side_effect(): void
+    public function test_orientation_rejects_values_outside_the_six_destinations(): void
     {
-        $doctor = $this->doctor();
+        $doctor = $this->doctor([
+            'consultations.view', 'consultations.create', 'consultations.update',
+            'surgery.request', 'hospitalization.request', 'maternity.request',
+            'transfer.request', 'pediatrics.request', 'medical_discharge.create',
+        ]);
 
-        foreach (['LABORATORY_TESTS', 'HOSPITALIZATION', 'SURGERY', 'IMAGING'] as $decision) {
+        foreach (['LABORATORY_TESTS', 'IMAGING', 'SIMPLE_TREATMENT', 'MEDICATION_PRESCRIPTION', 'NURSING_CARE'] as $decision) {
             $orientation = $this->medicineOrientation($doctor);
             $episode = $orientation->episode;
             $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
 
-            $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
-                'reason' => 'Motif de consultation',
-                'decision' => $decision,
-            ])->assertRedirect();
+            $this->post("/medicine/orientations/{$orientation->uuid}/orientation", [
+                'type' => $decision,
+            ])->assertSessionHasErrors('type');
 
-            $consultation = $orientation->consultation()->firstOrFail();
-            $this->assertSame($decision, $consultation->decision->value);
+            $this->assertNull($orientation->consultation()->firstOrFail()->decision);
             $this->assertSame(2, $episode->orientations()->count());
             $this->assertSame('OPEN', $episode->fresh()->status->value);
         }
 
         $this->assertDatabaseCount('surgical_requests', 0);
         $this->assertDatabaseCount('medical_discharges', 0);
+    }
+
+    public function test_doctor_can_prepare_authorized_orientations_without_starting_destination_workflows(): void
+    {
+        $doctor = $this->doctor([
+            'consultations.view', 'consultations.create', 'consultations.update',
+            'surgery.request', 'hospitalization.request', 'maternity.request',
+        ]);
+        $cases = [
+            ['type' => 'SURGERY', 'decision' => 'SURGERY', 'destination' => 'SURGERY'],
+            ['type' => 'HOSPITALIZATION', 'decision' => 'HOSPITALIZATION', 'destination' => 'HOSPITALIZATION'],
+            ['type' => 'MATERNITY', 'decision' => 'MATERNITY_REFERRAL', 'destination' => 'MATERNITY'],
+        ];
+
+        foreach ($cases as $case) {
+            $orientation = $this->medicineOrientation($doctor);
+            $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+            $this->post("/medicine/orientations/{$orientation->uuid}/orientation", [
+                'type' => $case['type'],
+            ])->assertSessionHasNoErrors();
+
+            $consultation = $orientation->consultation()->firstOrFail();
+            // Choosing is not transmitting: the destination module is still
+            // untouched, and the orientation says so.
+            $this->assertSame($case['decision'], $consultation->decision->value);
+            $this->assertSame('SELECTED', $consultation->activeOrientation->status->value);
+            $this->assertDatabaseMissing('episode_orientations', [
+                'episode_id' => $orientation->episode_id,
+                'destination_module' => $case['destination'],
+            ]);
+        }
+
+        $this->assertDatabaseCount('surgical_requests', 0);
+    }
+
+    public function test_doctor_cannot_prepare_an_orientation_without_its_effective_permission(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->post("/medicine/orientations/{$orientation->uuid}/orientation", [
+            'type' => 'SURGERY',
+        ])->assertSessionHasErrors('type');
+
+        $this->assertNull($orientation->consultation()->firstOrFail()->decision);
+        $this->assertDatabaseCount('surgical_requests', 0);
     }
 
     /**
@@ -365,10 +427,13 @@ class MedicineWorkflowTest extends TestCase
         $orientation = $this->medicineOrientation($doctor);
         $medicine = $this->stockedMedicine($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Fièvre persistante',
+            'current_treatments' => [],
+        ])->assertRedirect();
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'Examen sans particularité.',
-            'decision' => 'MEDICATION_PRESCRIPTION',
         ])->assertRedirect();
 
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
@@ -423,10 +488,13 @@ class MedicineWorkflowTest extends TestCase
         $doctor = $this->doctor();
         $orientation = $this->medicineOrientation($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur',
+            'current_treatments' => [],
+        ]);
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'RAS',
-            'decision' => 'MEDICATION_PRESCRIPTION',
         ]);
 
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
@@ -443,10 +511,13 @@ class MedicineWorkflowTest extends TestCase
         $doctor = $this->doctor();
         $orientation = $this->medicineOrientation($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur',
+            'current_treatments' => [],
+        ]);
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'RAS',
-            'decision' => 'MEDICATION_PRESCRIPTION',
         ]);
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
             'lines' => [[
@@ -481,10 +552,13 @@ class MedicineWorkflowTest extends TestCase
         $doctor = $this->doctor();
         $orientation = $this->medicineOrientation($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur',
+            'current_treatments' => [],
+        ]);
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'RAS',
-            'decision' => 'MEDICATION_PRESCRIPTION',
         ]);
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
             'lines' => [[
@@ -509,10 +583,13 @@ class MedicineWorkflowTest extends TestCase
         $doctor = $this->doctor();
         $orientation = $this->medicineOrientation($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur',
+            'current_treatments' => [],
+        ]);
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'RAS',
-            'decision' => 'MEDICATION_PRESCRIPTION',
         ]);
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
             'lines' => [[
@@ -550,10 +627,13 @@ class MedicineWorkflowTest extends TestCase
         $doctor = $this->doctor();
         $orientation = $this->medicineOrientation($doctor);
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
-        $this->put("/medicine/orientations/{$orientation->uuid}/consultation", [
+        $this->put("/medicine/orientations/{$orientation->uuid}/interrogatoire", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Douleur',
+            'current_treatments' => [],
+        ]);
+        $this->put("/medicine/orientations/{$orientation->uuid}/examen-clinique", [
             'clinical_exam' => 'RAS',
-            'decision' => 'MEDICATION_PRESCRIPTION',
         ]);
         $this->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
             'lines' => [[
@@ -591,7 +671,7 @@ class MedicineWorkflowTest extends TestCase
 
         $this->post("/medicine/orientations/{$orientation->uuid}/diagnoses/cancel", [
             'diagnosis_id' => $diagnosis->id,
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
 
         $this->assertDatabaseHas('diagnoses', [
             'id' => $diagnosis->id,
@@ -609,7 +689,7 @@ class MedicineWorkflowTest extends TestCase
             'reason' => 'Annulation par l’auteur de la saisie.',
         ]);
 
-        $this->get("/medicine/orientations/{$orientation->uuid}/diagnostic")
+        $this->get("/medicine/orientations/{$orientation->uuid}/examen")
             ->assertInertia(fn ($page) => $page
                 ->where('consultation.diagnoses.0.cancelled', true)
                 ->where('consultation.diagnoses.0.can_cancel', false));
@@ -630,7 +710,7 @@ class MedicineWorkflowTest extends TestCase
             'diagnosis_id' => $original->id,
             'type' => 'FINAL',
             'description' => 'Gastrite aiguë confirmée',
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/diagnostic");
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
 
         $replacement = Diagnosis::query()->where('id', '!=', $original->id)->sole();
         $this->assertSame('Gastrite suspectée', $original->fresh()->description);
@@ -648,7 +728,7 @@ class MedicineWorkflowTest extends TestCase
             'reason' => 'Rectification par l’auteur de la saisie.',
         ]);
 
-        $this->get("/medicine/orientations/{$orientation->uuid}/diagnostic")
+        $this->get("/medicine/orientations/{$orientation->uuid}/examen")
             ->assertInertia(fn ($page) => $page
                 ->where('consultation.diagnoses.0.correction', true)
                 ->where('consultation.diagnoses.0.can_edit', false)
@@ -724,15 +804,21 @@ class MedicineWorkflowTest extends TestCase
             'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
         ]);
 
-        $response->assertRedirect("/medicine/orientations/{$orientation->uuid}/decision");
+        $response->assertSessionHasNoErrors();
 
         $freshOrientation = $orientation->fresh();
         $episode = Episode::query()->findOrFail($orientation->episode_id);
-        $this->assertSame(EpisodeOrientationStatus::Completed, $freshOrientation->status);
-        $this->assertSame(EpisodeMedicalStatus::MedicallyDischarged, $episode->medical_status);
-        $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->administrative_status);
+        // Recording the discharge no longer ends the encounter (ADR-084):
+        // the doctor can still prescribe, print and check the file. The
+        // Médecine orientation and the episode statuses move at the Clôture.
+        $this->assertSame(EpisodeOrientationStatus::InProgress, $freshOrientation->status);
+        $this->assertNotSame(EpisodeMedicalStatus::MedicallyDischarged, $episode->medical_status);
         $this->assertSame(EpisodeStatus::Open, $episode->status);
         $this->assertNull($episode->ended_at);
+        $this->assertSame(
+            'DISCHARGE',
+            $freshOrientation->consultation->activeOrientation->type->value,
+        );
         $this->assertDatabaseHas('medical_discharges', [
             'episode_id' => $episode->id,
             'type' => MedicalDischargeType::Normal->value,
@@ -747,7 +833,7 @@ class MedicineWorkflowTest extends TestCase
         $this->assertDatabaseCount('cash_movements', 0);
     }
 
-    public function test_decision_step_exposes_the_full_recorded_discharge_including_prescription_and_observations(): void
+    public function test_closure_step_exposes_the_full_recorded_discharge_including_prescription_and_observations(): void
     {
         $doctor = $this->doctor();
         $orientation = $this->medicineOrientation($doctor);
@@ -763,7 +849,7 @@ class MedicineWorkflowTest extends TestCase
             'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
         ]);
 
-        $this->get("/medicine/orientations/{$orientation->uuid}/decision")
+        $this->get("/medicine/orientations/{$orientation->uuid}/cloture")
             ->assertInertia(fn ($page) => $page
                 ->where('medical_discharge.discharge_prescription', 'Ceftriaxone 1 g — 3×/jour — 7 jours')
                 ->where('medical_discharge.observations', 'Famille informée de la sortie.')
@@ -914,6 +1000,7 @@ class MedicineWorkflowTest extends TestCase
         $this->actingAs($doctor)->post("/medicine/orientations/{$second->uuid}/accept");
 
         $this->post("/medicine/orientations/{$second->uuid}/prescriptions/{$prescription->uuid}/cancel", [
+            'chief_complaint' => 'Douleur abdominale',
             'reason' => 'Tentative hors dossier',
         ])->assertForbidden();
 

@@ -105,6 +105,33 @@ class EpisodeOrientation extends Model
         $this->save();
     }
 
+    /**
+     * Withdraws an orientation the destination has not taken up yet — the
+     * doctor changed course before anyone acted on it (ADR-084).
+     *
+     * Only from PENDING, deliberately: once a service has accepted the
+     * patient, the sending module no longer disposes of that work, and the
+     * transition refuses rather than unpicking it silently. The row stays
+     * in the episode history; only `active_key` is released so another
+     * orientation toward the same destination becomes possible.
+     */
+    public function cancel(User $actor): void
+    {
+        if ($this->status !== EpisodeOrientationStatus::Pending) {
+            throw new InvalidEpisodeOrientationTransitionException(
+                $this,
+                EpisodeOrientationStatus::Cancelled->value,
+                $this->status->value,
+            );
+        }
+
+        $this->status = EpisodeOrientationStatus::Cancelled;
+        $this->completed_by = $actor->getKey();
+        $this->completed_at = now();
+        $this->active_key = null;
+        $this->save();
+    }
+
     protected function auditModule(): ?string
     {
         return 'clinical_flow';

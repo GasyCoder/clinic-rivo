@@ -132,7 +132,7 @@ const submit = (nextSection = null) => {
                     <div>
                         <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-600">Étape anesthésie · 1/3</p>
                         <h2 class="mt-0.5 flex items-center gap-2 font-heading text-base font-bold text-slate-700 dark:text-white">
-                            <Icon name="user-round-search" /> Consultation pré-anesthésique
+                            <Icon name="user-check" /> Consultation pré-anesthésique
                         </h2>
                         <p class="mt-1 max-w-3xl text-sm text-slate-500">Deux sous-étapes courtes. Les données déjà enregistrées aux Soins restent consultables au-dessus, sans nouvelle saisie.</p>
                     </div>

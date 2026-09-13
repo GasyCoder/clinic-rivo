@@ -217,6 +217,12 @@ class ClinicalQueueControllerTest extends TestCase
             'patient_condition' => 'Stable',
             'discharged_at' => now(),
         ], $doctor);
+        // Since ADR-084 the Médecine orientation is completed by closing the
+        // consultation, not by recording the discharge — a doctor who has
+        // pronounced a discharge may still prescribe and print. "Seen by
+        // Médecine" therefore means the encounter is finished, which is what
+        // this queue rule has always been about.
+        $emergencyMedicine->fresh()->complete($doctor);
 
         // Médecine has now seen this patient once: the still-open Care
         // orientation is no longer fast-tracked, joins the numbered queue,

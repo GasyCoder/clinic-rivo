@@ -18,8 +18,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * possibly bought elsewhere.
  */
 #[Fillable([
-    'consultation_id', 'medication_name', 'dosage', 'notes', 'position',
-    'recorded_by',
+    'consultation_id', 'medication_name', 'dosage', 'frequency', 'duration',
+    'source', 'notes', 'position', 'recorded_by',
 ])]
 class ConsultationCurrentTreatment extends Model
 {

@@ -32,7 +32,7 @@ const steps = [
     { number: 1, label: 'Classification', hint: 'Prestation, code et niveau', icon: 'activity' },
     { number: 2, label: 'Définition', hint: 'Désignation et type de résultat', icon: 'edit' },
     { number: 3, label: 'Références', hint: 'Valeurs normales, facultatif', icon: 'list' },
-    { number: 4, label: 'Sous-analyses', hint: 'Uniquement pour un groupe', icon: 'tree' },
+    { number: 4, label: 'Sous-analyses', hint: 'Uniquement pour un groupe', icon: 'layers' },
     { number: 5, label: 'Confirmer', hint: 'Contrôle avant enregistrement', icon: 'check-circle' },
 ];
 const stepFields = {

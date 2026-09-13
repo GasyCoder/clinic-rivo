@@ -6,7 +6,8 @@ use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Surgery\CreateSurgicalRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
-use App\Enums\ConsultationDecision;
+use App\Enums\ClinicalPriority;
+use App\Enums\ConsultationOrientationType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
@@ -27,6 +28,7 @@ class CreateSurgicalReferralAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly CreateSurgicalRequestAction $createSurgicalRequest,
+        private readonly RecordConsultationOrientationAction $recordOrientation,
     ) {}
 
     public function execute(
@@ -67,7 +69,7 @@ class CreateSurgicalReferralAction
 
             $episode = $medicineOrientation->episode;
 
-            $this->createOrientation->execute(
+            $orientation = $this->createOrientation->execute(
                 $episode,
                 CatalogModule::Medicine,
                 CatalogModule::Surgery,
@@ -82,7 +84,19 @@ class CreateSurgicalReferralAction
                 'notes' => trim("Diagnostic : {$diagnostic}\nPriorité : {$priority}".($notes ? "\n{$notes}" : '')),
             ]);
 
-            $lockedConsultation->update(['decision' => ConsultationDecision::Surgery]);
+            // The conduite à tenir now has a record of its own, pointing at
+            // the request it produced (ADR-084). `decision` keeps being
+            // written by it, so nothing that reads the old field changes.
+            $this->recordOrientation->submit(
+                $lockedConsultation,
+                ConsultationOrientationType::Surgery,
+                [
+                    'episode_orientation_id' => $orientation->getKey(),
+                    'surgical_request_id' => $surgicalRequest->getKey(),
+                ],
+                ClinicalPriority::tryFrom($priority),
+                $actor,
+            );
 
             return $surgicalRequest;
         });

@@ -144,7 +144,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                 <header class="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-4 dark:border-gray-900 dark:bg-gray-950 sm:px-6">
                     <div class="flex min-w-0 items-center gap-3">
                         <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-xl text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300">
-                            <Icon name="shopping-cart" />
+                            <Icon name="cart" />
                         </span>
                         <div class="min-w-0">
                             <p class="text-[10px] font-bold uppercase tracking-relaxed text-emerald-600">Parcours client externe</p>
@@ -163,7 +163,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
 
                 <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-gray-200 bg-white p-2 dark:border-gray-900 dark:bg-gray-950 lg:hidden" aria-label="Étapes de la demande externe">
                     <button type="button" :class="['flex h-10 items-center justify-center gap-2 rounded-lg text-xs font-bold transition', mobileStep === 'catalog' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'catalog'"><Icon name="capsule" /> Catalogue</button>
-                    <button type="button" :class="['flex h-10 items-center justify-center gap-2 rounded-lg text-xs font-bold transition', mobileStep === 'cart' ? 'bg-slate-700 text-white shadow-sm' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'cart'"><Icon name="shopping-cart" /> Panier <span :class="['rounded-full px-1.5 py-0.5 text-[10px]', mobileStep === 'cart' ? 'bg-white/20' : 'bg-white dark:bg-gray-950']">{{ cartQuantity }}</span></button>
+                    <button type="button" :class="['flex h-10 items-center justify-center gap-2 rounded-lg text-xs font-bold transition', mobileStep === 'cart' ? 'bg-slate-700 text-white shadow-sm' : 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'cart'"><Icon name="cart" /> Panier <span :class="['rounded-full px-1.5 py-0.5 text-[10px]', mobileStep === 'cart' ? 'bg-white/20' : 'bg-white dark:bg-gray-950']">{{ cartQuantity }}</span></button>
                 </nav>
 
                 <div class="grid lg:grid-cols-[minmax(0,1fr)_480px]">

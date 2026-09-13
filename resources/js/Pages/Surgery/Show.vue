@@ -307,6 +307,7 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
             <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
             <CareSummaryReadOnly
                 v-if="careSummary && ((isAnesthesiaWorkspace && activeTab === 'consultation') || (!isAnesthesiaWorkspace && activeTab === 'preparation'))"
+                class="xl:col-span-12"
                 :care-summary="careSummary"
             />
 

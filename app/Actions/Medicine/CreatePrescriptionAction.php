@@ -74,6 +74,7 @@ class CreatePrescriptionAction
                         'medication_name' => trim($line['medication_name']),
                         'quantity' => $line['quantity'],
                         'dosage' => $line['dosage'] ?? null,
+                        'route' => $line['route'] ?? null,
                         'frequency' => $line['frequency'] ?? null,
                         'duration' => $line['duration'] ?? null,
                         'instructions' => $line['instructions'] ?? null,
@@ -90,6 +91,9 @@ class CreatePrescriptionAction
                     'medication_name' => $medicine->catalogItem->name,
                     'quantity' => $line['quantity'],
                     'dosage' => $line['dosage'] ?? null,
+                    // Voie d'administration : « 500 mg orale » n'est pas
+                    // « 500 mg IV » (ADR-083).
+                    'route' => $line['route'] ?? null,
                     'frequency' => $line['frequency'] ?? null,
                     'duration' => $line['duration'] ?? null,
                     'instructions' => $line['instructions'] ?? null,

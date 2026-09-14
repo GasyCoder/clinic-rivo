@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'lineage_id', 'document_type', 'data_context', 'name', 'description', 'content', 'content_html', 'variables_used', 'active',
+    'lineage_id', 'document_type', 'data_context', 'name', 'description', 'content', 'content_html', 'active',
     'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
     'external_updated_by_uuid', 'external_updated_by_name',
@@ -26,7 +26,6 @@ class DocumentTemplate extends Model
         return [
             'data_context' => DocumentDataContext::class,
             'content' => 'array',
-            'variables_used' => 'array',
             'active' => 'boolean',
         ];
     }

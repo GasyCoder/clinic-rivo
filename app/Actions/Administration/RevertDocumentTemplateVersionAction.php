@@ -45,7 +45,6 @@ class RevertDocumentTemplateVersionAction
                 'description' => $historicalVersion->description,
                 'content' => $historicalVersion->content,
                 'content_html' => $historicalVersion->content_html,
-                'variables_used' => $historicalVersion->variables_used,
                 'active' => $historicalVersion->active,
                 'created_by' => $actor->localUserId(),
                 'updated_by' => $actor->localUserId(),

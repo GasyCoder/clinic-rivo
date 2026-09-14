@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'document_template_id', 'template_name_snapshot', 'document_type_snapshot',
     'employee_id', 'employment_contract_id', 'leave_request_id',
-    'resolved_variables_snapshot', 'manual_variables_snapshot', 'rendered_html_snapshot',
+    'form_data_snapshot', 'rendered_html_snapshot',
     'generated_by',
 ])]
 class GeneratedDocument extends Model
@@ -22,8 +22,7 @@ class GeneratedDocument extends Model
     protected function casts(): array
     {
         return [
-            'resolved_variables_snapshot' => 'array',
-            'manual_variables_snapshot' => 'array',
+            'form_data_snapshot' => 'array',
         ];
     }
 

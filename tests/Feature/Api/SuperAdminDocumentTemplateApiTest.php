@@ -25,21 +25,21 @@ class SuperAdminDocumentTemplateApiTest extends TestCase
         ]);
     }
 
-    public function test_store_requires_the_permission_extracts_placeholders_and_is_visible_to_the_portal_actor(): void
+    public function test_store_requires_the_permission_and_is_visible_to_the_portal_actor(): void
     {
         $this->withHeaders($this->headers([]))
             ->postJson('/api/v1/super-admin/document-templates', $this->payload())
             ->assertForbidden();
 
-        $response = $this->withHeaders($this->headers(['document_templates.create']))
+        $this->withHeaders($this->headers(['document_templates.create']))
             ->postJson('/api/v1/super-admin/document-templates', $this->payload())
             ->assertCreated()
             ->assertJsonPath('data.document_type', 'ATTESTATION')
             ->assertJsonPath('data.data_context', 'EMPLOYEE_ONLY')
             ->assertJsonPath('data.active', true)
-            ->assertJsonPath('data.creator', 'Direction centrale');
+            ->assertJsonPath('data.creator', 'Direction centrale')
+            ->assertJsonMissingPath('data.variables_used');
 
-        $this->assertSame(['matricule', 'nom', 'prenom'], $response->json('data.variables_used'));
         $this->assertDatabaseHas('document_templates', [
             'name' => 'Attestation de travail',
             'external_created_by_name' => 'Direction centrale',
@@ -57,16 +57,15 @@ class SuperAdminDocumentTemplateApiTest extends TestCase
             'template_name_snapshot' => $template->name,
             'document_type_snapshot' => $template->document_type,
             'employee_id' => $employee->id,
-            'resolved_variables_snapshot' => ['nom' => 'Rabe'],
+            'form_data_snapshot' => ['nom' => 'Rabe'],
             'rendered_html_snapshot' => '<p>Rabe</p>',
         ]);
 
-        $newPayload = [...$this->payload(), 'name' => 'Attestation de travail v2', 'content_html' => '<p>{{nom}} {{prenom}} — {{service}}</p>'];
+        $newPayload = [...$this->payload(), 'name' => 'Attestation de travail v2', 'content_html' => '<p>Nouveau contenu du canevas.</p>'];
         $this->withHeaders($this->headers(['document_templates.update']))
             ->putJson("/api/v1/super-admin/document-templates/{$template->uuid}", $newPayload)
             ->assertOk()
-            ->assertJsonPath('data.name', 'Attestation de travail v2')
-            ->assertJsonPath('data.variables_used', ['nom', 'prenom', 'service']);
+            ->assertJsonPath('data.name', 'Attestation de travail v2');
 
         $this->assertTrue($template->fresh()->trashed());
         $this->assertNotNull($template->fresh()->delete_reason);
@@ -129,7 +128,7 @@ class SuperAdminDocumentTemplateApiTest extends TestCase
             'template_name_snapshot' => $v1->name,
             'document_type_snapshot' => $v1->document_type,
             'employee_id' => $employee->id,
-            'resolved_variables_snapshot' => ['nom' => 'Rakoto'],
+            'form_data_snapshot' => ['nom' => 'Rakoto'],
             'rendered_html_snapshot' => '<p>Rakoto</p>',
         ]);
 
@@ -203,7 +202,7 @@ class SuperAdminDocumentTemplateApiTest extends TestCase
             'name' => 'Attestation de travail',
             'description' => null,
             'content' => ['type' => 'doc', 'content' => []],
-            'content_html' => '<p>Je soussigné, {{nom}} {{prenom}}, matricule {{matricule}}.</p>',
+            'content_html' => '<p>Je soussigné, certifie que l’employé travaille au sein de l’établissement.</p>',
             'active' => true,
         ];
     }

@@ -11,6 +11,7 @@ use App\Models\GeneratedDocument;
 use App\Models\HrReferenceValue;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Administration\DocumentFormFieldCatalog;
 use Database\Seeders\HrReferenceSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -46,36 +47,42 @@ class GeneratedDocumentsTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->component('Administration/Documents/Create'));
     }
 
-    public function test_preview_reports_missing_variables_and_store_requires_them_filled_then_freezes_the_snapshot(): void
+    public function test_preview_prefills_page_one_and_store_requires_required_fields_then_freezes_the_snapshot(): void
     {
-        $employee = $this->employee();
-        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>Je soussigné {{nom}} {{prenom}}, matricule {{matricule}}. Motif : {{motif}}.</p>');
+        // No first_name: "Prénom(s)" is a required page-1 field with no
+        // known value to auto-fill from — a real, unavoidable gap the RH
+        // must fill in, exactly like {{salaire}} used to be under the old
+        // variable system.
+        $employee = $this->employee(['first_name' => null]);
+        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>Attestation émise par la Clinique Saint Georges.</p>');
 
         $preview = $this->actingAs($this->administration)->postJson('/administration/generated-documents/preview', [
             'document_template_uuid' => $template->uuid,
             'employee_uuid' => $employee->uuid,
         ])->assertOk();
-        $this->assertSame(['motif'], $preview->json('missing_variables'));
+        $this->assertSame('Rabe', $preview->json('form_values.nom'));
+        $this->assertSame(['Prénom(s)'], $preview->json('missing_required_fields'));
         $this->assertStringContainsString('Rabe', $preview->json('rendered_html'));
+        $this->assertStringContainsString('Attestation émise par la Clinique Saint Georges.', $preview->json('rendered_html'));
 
-        // Blocked: {{motif}} is a manual-only variable (absent from the
-        // known catalogue, exactly like {{salaire}} would be) and was never
-        // filled in.
+        // Blocked: "Prénom(s)" is required and still has no value.
         $this->actingAs($this->administration)->post('/administration/generated-documents', [
             'document_template_uuid' => $template->uuid,
             'employee_uuid' => $employee->uuid,
-        ])->assertSessionHasErrors('manual_variables');
+        ])->assertSessionHasErrors('form_data');
         $this->assertDatabaseCount('generated_documents', 0);
 
         $this->actingAs($this->administration)->post('/administration/generated-documents', [
             'document_template_uuid' => $template->uuid,
             'employee_uuid' => $employee->uuid,
-            'manual_variables' => ['motif' => 'Voyage professionnel'],
+            'form_data' => ['prenom' => 'Soa'],
         ])->assertSessionHasNoErrors();
 
         $document = GeneratedDocument::query()->sole();
-        $this->assertStringContainsString('Voyage professionnel', $document->rendered_html_snapshot);
+        $this->assertSame('Soa', $document->form_data_snapshot['prenom']);
+        $this->assertStringContainsString('Soa', $document->rendered_html_snapshot);
         $this->assertStringContainsString('Rabe', $document->rendered_html_snapshot);
+        $this->assertStringContainsString('Attestation émise par la Clinique Saint Georges.', $document->rendered_html_snapshot);
 
         // The employee's identity changes afterward — the already-generated
         // document must never reflect it (same guarantee as
@@ -86,6 +93,59 @@ class GeneratedDocumentsTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('document.rendered_html', fn (string $html) => str_contains($html, 'Rabe')
                     && ! str_contains($html, 'Nom modifié')));
+    }
+
+    public function test_page_one_fields_are_prefilled_but_overridable_by_form_data(): void
+    {
+        $employee = $this->employee();
+        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>Contenu du canevas.</p>');
+
+        $preview = $this->actingAs($this->administration)->postJson('/administration/generated-documents/preview', [
+            'document_template_uuid' => $template->uuid,
+            'employee_uuid' => $employee->uuid,
+            'form_data' => ['nom' => 'Nom saisi manuellement par le RH'],
+        ])->assertOk();
+
+        // The RH-submitted value wins over the auto-filled known value for
+        // the same key.
+        $this->assertSame('Nom saisi manuellement par le RH', $preview->json('form_values.nom'));
+        $this->assertSame([], $preview->json('missing_required_fields'));
+    }
+
+    public function test_generated_document_content_is_the_canevas_verbatim_with_no_substitution(): void
+    {
+        $employee = $this->employee();
+        // A literal "{{nom}}" typed by the Super Admin is now meaningless
+        // plain text — there is no substitution mechanism left to act on it.
+        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>Texte libre contenant littéralement {{nom}} et {{prenom}}.</p>');
+
+        $this->actingAs($this->administration)->post('/administration/generated-documents', [
+            'document_template_uuid' => $template->uuid,
+            'employee_uuid' => $employee->uuid,
+        ])->assertSessionHasNoErrors();
+
+        $document = GeneratedDocument::query()->sole();
+        $this->assertStringContainsString('Texte libre contenant littéralement {{nom}} et {{prenom}}.', $document->rendered_html_snapshot);
+    }
+
+    public function test_document_form_field_catalog_returns_expected_fields_per_data_context(): void
+    {
+        $catalog = app(DocumentFormFieldCatalog::class);
+
+        $employeeOnlyKeys = collect($catalog->fieldsForContext(DocumentDataContext::EmployeeOnly))->pluck('key')->all();
+        $this->assertSame(['nom', 'prenom', 'matricule', 'poste', 'service', 'date_naissance', 'date_embauche', 'date'], $employeeOnlyKeys);
+
+        $contractKeys = collect($catalog->fieldsForContext(DocumentDataContext::EmployeeAndContract))->pluck('key')->all();
+        $this->assertSame([
+            'nom', 'prenom', 'matricule', 'poste', 'service', 'date_naissance', 'date_embauche', 'date',
+            'type_contrat', 'reference_contrat', 'date_signature', 'date_debut', 'fin_periode_essai', 'date_fin',
+        ], $contractKeys);
+
+        $leaveKeys = collect($catalog->fieldsForContext(DocumentDataContext::EmployeeAndLeave))->pluck('key')->all();
+        $this->assertSame([
+            'nom', 'prenom', 'matricule', 'poste', 'service', 'date_naissance', 'date_embauche', 'date',
+            'type_conge', 'date_depart', 'date_retour', 'jours_demandes', 'motif_conge',
+        ], $leaveKeys);
     }
 
     public function test_employee_and_contract_context_requires_a_contract_belonging_to_the_employee(): void
@@ -103,7 +163,7 @@ class GeneratedDocumentsTest extends TestCase
             'contract_type_id' => $contractType->id,
             'starts_on' => '2026-01-01',
         ]);
-        $template = $this->template(DocumentDataContext::EmployeeAndContract, '<p>{{nom}} — {{type_contrat}} du {{date_debut}}.</p>');
+        $template = $this->template(DocumentDataContext::EmployeeAndContract, '<p>Contrat de travail — contenu du canevas.</p>');
 
         $this->actingAs($this->administration)->post('/administration/generated-documents', [
             'document_template_uuid' => $template->uuid,
@@ -128,7 +188,7 @@ class GeneratedDocumentsTest extends TestCase
     public function test_an_inactive_or_archived_template_is_not_selectable(): void
     {
         $employee = $this->employee();
-        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>{{nom}}</p>');
+        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>Contenu du canevas.</p>');
         $template->update(['active' => false]);
 
         $this->actingAs($this->administration)->postJson('/administration/generated-documents/preview', [
@@ -148,8 +208,6 @@ class GeneratedDocumentsTest extends TestCase
 
     private function template(DocumentDataContext $context, string $html): DocumentTemplate
     {
-        preg_match_all('/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/u', $html, $matches);
-
         return DocumentTemplate::query()->create([
             'lineage_id' => (string) Str::uuid(),
             'document_type' => 'ATTESTATION',
@@ -157,12 +215,12 @@ class GeneratedDocumentsTest extends TestCase
             'name' => 'Attestation de travail',
             'content' => ['type' => 'doc', 'content' => []],
             'content_html' => $html,
-            'variables_used' => collect($matches[1])->unique()->sort()->values()->all(),
             'active' => true,
         ]);
     }
 
-    private function employee(): Employee
+    /** @param array<string, mixed> $overrides */
+    private function employee(array $overrides = []): Employee
     {
         return Employee::query()->create([
             'employee_number' => 'DOC-EMP-'.str()->random(8),
@@ -170,6 +228,7 @@ class GeneratedDocumentsTest extends TestCase
             'last_name' => 'Rabe',
             'sex' => 'F',
             'active' => true,
+            ...$overrides,
         ]);
     }
 

@@ -248,8 +248,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] RH
 - [x] Contrats
 - [x] ~~Modèles de contrat privés Word/PDF, variables serveur et versionnement~~ — retiré (ADR-071), remplacé par le canevas ci-dessous
-- [x] Canevas de documents administratifs (contrat/congé/attestation/certificat/lettre/décision) composés par le Super Admin et poussés par site
-- [x] Génération de documents par le RH depuis un canevas actif, aperçu serveur, snapshot figé
+- [x] Canevas de documents administratifs (contrat/congé/attestation/certificat/lettre/décision), rédaction libre façon traitement de texte avec import DOCX/PDF, composés par le Super Admin et poussés par site
+- [x] Génération de documents par le RH : page 1 (infos RH, pré-remplie) + canevas verbatim, aperçu serveur, snapshot figé
 - [x] Présences
 - [x] Congés
 - [x] Types de congé configurables, date serveur, durée et soldes automatisés

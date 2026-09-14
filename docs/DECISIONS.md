@@ -4602,3 +4602,84 @@ Tous ces seeders refusent de s'exécuter hors `local`/`testing`
 (`Database\Seeders\Concerns\LocalOnly`). Le portail local étant lancé avec
 `--env=admin`, le garde-fou lit aussi `APP_ENV` ; un déploiement
 `APP_ENV=production` est refusé dans tous les cas.
+
+---
+
+# ADR-087 — Retrait des variables `{{code}}` du canevas au profit d'une page 1 saisie par le RH et de l'import DOCX/PDF
+
+**Status:** ACCEPTED (2026-09-12 — exigence explicite du propriétaire)
+
+Le mécanisme `{{variable}}` d'ADR-070 (panneau « Variables disponibles »,
+extraction `variables_used` à l'enregistrement, résolution/substitution par
+`DocumentVariableResolver`) s'est avéré contraire à l'objectif du
+propriétaire : composer un canevas « comme dans Microsoft Word », sans jamais
+manipuler de jeton technique. Cette décision retire ce mécanisme et le
+remplace par un modèle en deux parties fixes, plus l'import de fichiers
+`.docx`/`.pdf` dans l'éditeur.
+
+## Ce qui est superseded d'ADR-070
+
+Le mécanisme `{{variable}}` complet : le panneau d'insertion et son marquage
+visuel (`VariableMark`), l'extraction `variables_used` à chaque
+enregistrement (`SaveDocumentTemplateAction::extractPlaceholders()`),
+`DocumentVariableCatalog`, `DocumentVariableResolver`, la colonne
+`document_templates.variables_used`, et les colonnes
+`generated_documents.resolved_variables_snapshot`/`manual_variables_snapshot`.
+Le paragraphe d'ADR-070 « Variables : jamais d'invention, `{{salaire}}`
+inclus » est remplacé par le mécanisme de page 1 ci-dessous — le principe
+« jamais d'invention » survit sous une autre forme : un champ requis encore
+vide bloque toujours la génération, il n'est simplement plus un code de
+variable mais un champ de formulaire nommé.
+
+## Ce qui reste inchangé d'ADR-070
+
+Propriétaire/diffusion Super Admin → site par API sécurisée ; `data_context`
+comme enum fermé (gouverne désormais le schéma de champs de page 1 plutôt que
+le catalogue de variables) ; versionnement/lineage
+(`SaveDocumentTemplateAction` : une modification d'un canevas déjà utilisé
+crée toujours une nouvelle version et archive l'ancienne) ; snapshot figé sur
+`generated_documents` (renommé `form_data_snapshot`) ; éditeur TipTap
+multi-page ; génération par impression navigateur et sa limite connue de
+numérotation de page ; permissions `document_templates.*`/
+`generated_documents.*`, inchangées.
+
+## Nouveau modèle en deux parties
+
+Chaque document généré est désormais composé de :
+
+```text
+Page 1   informations de la personne, pré-remplies automatiquement depuis
+         Employee (+ EmploymentContract ou LeaveRequest selon data_context),
+         modifiables par le RH avant génération
+Page 2+  le canevas du Super Admin, tel qu'il l'a écrit — jamais de
+         substitution, aucun code de variable à interpréter
+```
+
+`DocumentFormFieldCatalog` (remplace `DocumentVariableCatalog`) déclare, par
+`data_context`, la liste fixe des champs de page 1 (clé, libellé français,
+type, obligatoire). `DocumentFormDataResolver` (remplace
+`DocumentVariableResolver`) construit les valeurs connues (mêmes attributs
+Employee/EmploymentContract/LeaveRequest qu'avant, mêmes dates au format
+`d/m/Y`), les fusionne avec les valeurs saisies par le RH — qui l'emportent
+toujours sur la valeur connue pour la même clé — et rend la page 1 en HTML,
+suivie du même séparateur de saut de page que celui utilisé entre les pages
+du canevas (`canevas-page-break`), puis du `content_html` du canevas
+strictement inchangé. Un champ requis encore vide après fusion bloque la
+génération (jamais l'aperçu, qui reste permissif) avec un message listant les
+champs manquants.
+
+## Import DOCX/PDF
+
+L'éditeur Super Admin (`Editor.vue`) permet d'importer un fichier `.docx` ou
+`.pdf`, qui remplace le contenu de la page active (jamais de découpage
+automatique sur plusieurs pages — hors périmètre, non fiable à déduire d'une
+structure arbitraire). Le parseur `.docx` (mammoth.js) conserve gras,
+italique, souligné, titres, listes, tableaux et alignements du mieux que son
+analyse le permet. Le parseur `.pdf` (pdfjs-dist) n'extrait que le texte brut
+— la mise en page d'origine d'un PDF n'est jamais fiable à reconstituer côté
+navigateur — et l'interface affiche un avertissement explicite invitant le
+Super Admin à remettre en forme manuellement. Les deux bibliothèques
+s'exécutent entièrement dans le navigateur du Super Admin, chargées à la
+demande (import dynamique) uniquement lors d'un import réel : aucune nouvelle
+dépendance serveur n'est ajoutée, dans le même esprit que la limite déjà
+actée par ADR-070 (« pas de génération PDF serveur »).

@@ -25,7 +25,6 @@ class SaveDocumentTemplateAction
             'description' => filled($data['description'] ?? null) ? trim((string) $data['description']) : null,
             'content' => $data['content'],
             'content_html' => (string) $data['content_html'],
-            'variables_used' => $this->extractPlaceholders((string) $data['content_html']),
             'active' => (bool) ($data['active'] ?? true),
         ];
 
@@ -72,13 +71,5 @@ class SaveDocumentTemplateAction
                 ...$actor->externalAttribution('updated'),
             ]);
         });
-    }
-
-    /** @return array<int, string> */
-    private function extractPlaceholders(string $html): array
-    {
-        preg_match_all('/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/u', $html, $matches);
-
-        return collect($matches[1])->unique()->sort()->values()->all();
     }
 }

@@ -12,6 +12,7 @@ const props = defineProps({
     templates: { type: Array, default: () => [] },
     contractsByEmployee: { type: Object, default: () => ({}) },
     leavesByEmployee: { type: Object, default: () => ({}) },
+    formFieldsByContext: { type: Object, default: () => ({}) },
 });
 
 const form = useForm({
@@ -19,7 +20,7 @@ const form = useForm({
     employee_uuid: '',
     employment_contract_uuid: '',
     leave_request_uuid: '',
-    manual_variables: {},
+    form_data: {},
 });
 
 const selectedTemplate = computed(() => props.templates.find((template) => template.uuid === form.document_template_uuid));
@@ -28,11 +29,20 @@ const needsContract = computed(() => selectedTemplate.value?.data_context === 'E
 const needsLeave = computed(() => selectedTemplate.value?.data_context === 'EMPLOYEE_AND_LEAVE');
 const availableContracts = computed(() => props.contractsByEmployee[form.employee_uuid] ?? []);
 const availableLeaves = computed(() => props.leavesByEmployee[form.employee_uuid] ?? []);
+const activeFields = computed(() => props.formFieldsByContext[selectedTemplate.value?.data_context] ?? []);
+
+// Keys the RH has explicitly edited — once touched, a later debounced
+// preview refresh must never clobber that in-progress edit with the
+// auto-filled value again (this is what makes "pre-filled but still
+// editable" actually work).
+const touchedFields = ref(new Set());
+const markTouched = (key) => touchedFields.value.add(key);
 
 watch(() => form.document_template_uuid, () => {
     form.employment_contract_uuid = '';
     form.leave_request_uuid = '';
-    form.manual_variables = {};
+    form.form_data = {};
+    touchedFields.value = new Set();
 });
 watch(() => form.employee_uuid, () => {
     form.employment_contract_uuid = '';
@@ -75,7 +85,7 @@ const loadPreview = async () => {
                 employee_uuid: form.employee_uuid,
                 employment_contract_uuid: form.employment_contract_uuid || null,
                 leave_request_uuid: form.leave_request_uuid || null,
-                manual_variables: form.manual_variables,
+                form_data: form.form_data,
             }),
         });
         const data = await response.json().catch(() => ({}));
@@ -86,7 +96,17 @@ const loadPreview = async () => {
             throw new Error(message);
         }
 
-        if (sequence === requestSequence) preview.value = data;
+        if (sequence === requestSequence) {
+            preview.value = data;
+            // Auto-prefill: only fields the RH hasn't touched yet get the
+            // server's known/auto-filled value — anything already being
+            // typed is left alone.
+            for (const field of activeFields.value) {
+                if (!touchedFields.value.has(field.key) && data.form_values?.[field.key] !== undefined) {
+                    form.form_data[field.key] = data.form_values[field.key];
+                }
+            }
+        }
     } catch (error) {
         if (sequence === requestSequence) {
             preview.value = null;
@@ -98,7 +118,7 @@ const loadPreview = async () => {
 };
 
 watch(
-    () => [form.document_template_uuid, form.employee_uuid, form.employment_contract_uuid, form.leave_request_uuid, JSON.stringify(form.manual_variables)],
+    () => [form.document_template_uuid, form.employee_uuid, form.employment_contract_uuid, form.leave_request_uuid, JSON.stringify(form.form_data)],
     () => {
         clearTimeout(previewTimer);
         previewTimer = setTimeout(loadPreview, 350);
@@ -106,7 +126,6 @@ watch(
 );
 onBeforeUnmount(() => clearTimeout(previewTimer));
 
-const missingVariables = computed(() => preview.value?.missing_variables ?? []);
 const submit = () => {
     form.post('/administration/generated-documents', { preserveScroll: true });
 };
@@ -163,16 +182,23 @@ const submit = () => {
                     </div>
                 </section>
 
-                <section v-if="missingVariables.length" class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-                    <h2 class="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">Informations à compléter</h2>
-                    <p class="mt-1 text-[11px] leading-4 text-amber-700/80 dark:text-amber-300/80">Ce canevas contient des variables que le système ne peut pas déduire automatiquement.</p>
+                <section v-if="activeFields.length" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-900 dark:bg-gray-950">
+                    <h2 class="text-xs font-bold uppercase tracking-wide text-slate-400">Page 1 : informations du document</h2>
+                    <p class="mt-1 text-[11px] leading-4 text-slate-400">Pré-rempli automatiquement à partir du dossier de l’employé — modifiable avant génération.</p>
                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div v-for="code in missingVariables" :key="code">
-                            <label class="mb-1 block text-xs font-bold text-amber-800 dark:text-amber-300">{{ code }}</label>
-                            <input v-model="form.manual_variables[code]" type="text" class="h-9 w-full rounded border border-amber-200 bg-white px-3 text-sm dark:border-amber-900 dark:bg-gray-950">
+                        <div v-for="field in activeFields" :key="field.key">
+                            <label class="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-300">
+                                {{ field.label }} <span v-if="field.required" class="text-red-500">*</span>
+                            </label>
+                            <input
+                                v-model="form.form_data[field.key]"
+                                :type="field.type === 'date' ? 'date' : 'text'"
+                                class="h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm dark:border-gray-800 dark:bg-gray-950"
+                                @input="markTouched(field.key)"
+                            >
                         </div>
                     </div>
-                    <p v-if="form.errors.manual_variables" class="mt-2 text-xs text-red-600">{{ form.errors.manual_variables }}</p>
+                    <p v-if="form.errors.form_data" class="mt-2 text-xs text-red-600">{{ form.errors.form_data }}</p>
                 </section>
 
                 <div class="flex justify-end gap-2">

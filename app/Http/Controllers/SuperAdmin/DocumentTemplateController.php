@@ -4,7 +4,6 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Enums\DocumentDataContext;
 use App\Http\Controllers\Controller;
-use App\Services\Administration\DocumentVariableCatalog;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -31,7 +30,7 @@ class DocumentTemplateController extends Controller
         ]);
     }
 
-    public function create(Request $request, string $site, DocumentVariableCatalog $catalog): Response
+    public function create(Request $request, string $site): Response
     {
         $this->assertRouteSite($site);
         // Unlike edit() (which already discovers this via the GET-detail
@@ -44,11 +43,10 @@ class DocumentTemplateController extends Controller
             'site' => $this->siteMeta($site),
             'template' => null,
             'dataContexts' => $this->dataContextOptions(),
-            'variablesByContext' => $this->variablesByContext($catalog),
         ]);
     }
 
-    public function edit(Request $request, string $site, string $documentTemplate, PortalSiteApiClient $client, DocumentVariableCatalog $catalog): Response
+    public function edit(Request $request, string $site, string $documentTemplate, PortalSiteApiClient $client): Response
     {
         $this->assertRouteSite($site);
         $detail = $client->documentTemplate($site, $documentTemplate, $request->user());
@@ -58,7 +56,6 @@ class DocumentTemplateController extends Controller
             'site' => $this->siteMeta($site),
             'template' => $detail['data'],
             'dataContexts' => $this->dataContextOptions(),
-            'variablesByContext' => $this->variablesByContext($catalog),
         ]);
     }
 
@@ -218,14 +215,6 @@ class DocumentTemplateController extends Controller
         return collect(DocumentDataContext::cases())->map(fn ($context) => [
             'value' => $context->value, 'label' => $context->label(),
         ])->values()->all();
-    }
-
-    /** @return array<string, array<string, array<string, string>>> data_context value => grouped variables */
-    private function variablesByContext(DocumentVariableCatalog $catalog): array
-    {
-        return collect(DocumentDataContext::cases())
-            ->mapWithKeys(fn ($context) => [$context->value => $catalog->groupedForContext($context)])
-            ->all();
     }
 
     private function respond(array $result, string $successMessage): RedirectResponse

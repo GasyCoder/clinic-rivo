@@ -220,7 +220,6 @@ class DocumentTemplateController extends Controller
             'description' => $template->description,
             'content' => $template->content,
             'content_html' => $template->content_html,
-            'variables_used' => $template->variables_used ?? [],
             'active' => $template->active,
             'archived' => $template->trashed(),
             'archived_at' => $template->deleted_at?->toIso8601String(),

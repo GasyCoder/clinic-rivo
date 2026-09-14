@@ -23,8 +23,8 @@ class StoreGeneratedDocumentRequest extends FormRequest
             'employee_uuid' => ['required', 'uuid', Rule::exists('employees', 'uuid')->whereNull('deleted_at')],
             'employment_contract_uuid' => ['nullable', 'uuid', Rule::exists('employment_contracts', 'uuid')],
             'leave_request_uuid' => ['nullable', 'uuid', Rule::exists('leave_requests', 'uuid')],
-            'manual_variables' => ['nullable', 'array'],
-            'manual_variables.*' => ['nullable', 'string', 'max:2000'],
+            'form_data' => ['nullable', 'array'],
+            'form_data.*' => ['nullable', 'string', 'max:2000'],
         ];
     }
 }

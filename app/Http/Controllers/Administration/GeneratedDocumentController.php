@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Administration;
 
 use App\Actions\Administration\CreateGeneratedDocumentAction;
 use App\Actions\Administration\PreviewGeneratedDocumentAction;
+use App\Enums\DocumentDataContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\PreviewGeneratedDocumentRequest;
 use App\Http\Requests\Administration\StoreGeneratedDocumentRequest;
@@ -12,6 +13,7 @@ use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\GeneratedDocument;
 use App\Models\LeaveRequest;
+use App\Services\Administration\DocumentFormFieldCatalog;
 use App\Services\Administration\HrPresenter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -47,7 +49,7 @@ class GeneratedDocumentController extends Controller
         ]);
     }
 
-    public function create(Request $request): Response
+    public function create(Request $request, DocumentFormFieldCatalog $catalog): Response
     {
         Gate::forUser($request->user())->authorize('create', GeneratedDocument::class);
 
@@ -56,6 +58,9 @@ class GeneratedDocumentController extends Controller
             'templates' => $this->activeTemplates(),
             'contractsByEmployee' => $this->contractsByEmployee(),
             'leavesByEmployee' => $this->leavesByEmployee(),
+            'formFieldsByContext' => collect(DocumentDataContext::cases())
+                ->mapWithKeys(fn (DocumentDataContext $context) => [$context->value => $catalog->fieldsForContext($context)])
+                ->all(),
         ]);
     }
 
@@ -68,7 +73,7 @@ class GeneratedDocumentController extends Controller
             $employee,
             $contract,
             $leave,
-            $request->validated('manual_variables', []) ?? [],
+            $request->validated('form_data', []) ?? [],
         ));
     }
 
@@ -80,7 +85,7 @@ class GeneratedDocumentController extends Controller
             $employee,
             $contract,
             $leave,
-            $request->validated('manual_variables', []) ?? [],
+            $request->validated('form_data', []) ?? [],
             $request->user(),
         );
 
@@ -133,7 +138,6 @@ class GeneratedDocumentController extends Controller
                 'name' => $template->name,
                 'document_type' => $template->document_type,
                 'data_context' => $template->data_context->value,
-                'variables_used' => $template->variables_used ?? [],
             ])->all();
     }
 

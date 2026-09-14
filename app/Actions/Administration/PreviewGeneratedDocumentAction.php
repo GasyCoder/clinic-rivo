@@ -6,14 +6,14 @@ use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\LeaveRequest;
-use App\Services\Administration\DocumentVariableResolver;
+use App\Services\Administration\DocumentFormDataResolver;
 
 class PreviewGeneratedDocumentAction
 {
-    public function __construct(private readonly DocumentVariableResolver $resolver) {}
+    public function __construct(private readonly DocumentFormDataResolver $resolver) {}
 
     /**
-     * @param  array<string, string>  $manualVariables
+     * @param  array<string, string>  $formData
      * @return array<string, mixed>
      */
     public function execute(
@@ -21,14 +21,16 @@ class PreviewGeneratedDocumentAction
         Employee $employee,
         ?EmploymentContract $contract,
         ?LeaveRequest $leave,
-        array $manualVariables,
+        array $formData,
     ): array {
-        $resolution = $this->resolver->resolve($template, $employee, $contract, $leave, $manualVariables);
+        $this->resolver->assertContext($template->data_context, $contract, $leave);
+        $resolution = $this->resolver->resolve($template->data_context, $employee, $contract, $leave, $formData);
+        $pageOneHtml = $this->resolver->renderPageOne($template->data_context, $resolution['values']);
 
         return [
-            'resolved_variables' => $resolution['resolved'],
-            'missing_variables' => $resolution['missing'],
-            'rendered_html' => $this->resolver->render($template->content_html, $resolution['replacements']),
+            'form_values' => $resolution['values'],
+            'missing_required_fields' => $resolution['missing_required'],
+            'rendered_html' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html,
         ];
     }
 }

@@ -19,7 +19,7 @@ import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
 import { FontSize } from '@/tiptap/FontSize';
 import { BlockStyle, parseStyle, stringifyStyle } from '@/tiptap/BlockStyle';
-import { VariableMark } from '@/tiptap/VariableMark';
+import { convertDocxToHtml, extractPdfPlainText } from '@/tiptap/documentImport';
 
 defineOptions({ layout: AppLayout });
 
@@ -27,7 +27,6 @@ const props = defineProps({
     site: { type: Object, required: true },
     template: { type: Object, default: null },
     dataContexts: { type: Array, default: () => [] },
-    variablesByContext: { type: Object, default: () => ({}) },
 });
 
 const isEditing = computed(() => props.template !== null);
@@ -41,25 +40,19 @@ const form = useForm({
     active: props.template?.active ?? true,
 });
 
-const PAGE_TYPES = [
-    { value: 'FORM', label: 'Formulaire' },
-    { value: 'FIXED', label: 'Contenu fixe' },
-    { value: 'MIXED', label: 'Mixte' },
-];
 const PAGE_BREAK_HTML = '<div data-page-break class="canevas-page-break"></div>';
 const newPageId = () => (crypto.randomUUID ? crypto.randomUUID() : `page-${Date.now()}-${Math.random()}`);
 
-/** @typedef {{ id: string, type: string, content: string }} CanevasPage */
+/** @typedef {{ id: string, content: string }} CanevasPage */
 
 /** @type {import('vue').Ref<CanevasPage[]>} */
 const pages = ref(
     Array.isArray(props.template?.content?.pages) && props.template.content.pages.length
         ? props.template.content.pages.map((page) => ({
             id: page.id ?? newPageId(),
-            type: page.type ?? 'MIXED',
             content: page.content ?? '<p></p>',
         }))
-        : [{ id: newPageId(), type: 'MIXED', content: '<p></p>' }],
+        : [{ id: newPageId(), content: '<p></p>' }],
 );
 const activePageId = ref(pages.value[0].id);
 const activePageIndex = computed(() => pages.value.findIndex((page) => page.id === activePageId.value));
@@ -92,7 +85,6 @@ const mountPage = (page) => {
             TableHeader,
             TableCell,
             BlockStyle,
-            VariableMark,
         ],
         onUpdate: () => { isDirty.value = true; },
     });
@@ -129,7 +121,7 @@ onBeforeUnmount(() => {
 
 const addPage = () => {
     commitActivePage();
-    const page = { id: newPageId(), type: 'MIXED', content: '<p></p>' };
+    const page = { id: newPageId(), content: '<p></p>' };
     pages.value.push(page);
     selectPage(page.id);
     isDirty.value = true;
@@ -138,7 +130,7 @@ const duplicatePage = (id) => {
     commitActivePage();
     const index = pages.value.findIndex((page) => page.id === id);
     const source = pages.value[index];
-    pages.value.splice(index + 1, 0, { id: newPageId(), type: source.type, content: source.content });
+    pages.value.splice(index + 1, 0, { id: newPageId(), content: source.content });
     isDirty.value = true;
 };
 const deletePage = (id) => {
@@ -158,22 +150,37 @@ const movePage = (id, direction) => {
     isDirty.value = true;
 };
 
-const groupedVariables = computed(() => props.variablesByContext[form.data_context] ?? {});
-const knownVariableCodes = computed(() => new Set(
-    Object.values(groupedVariables.value).flatMap((variables) => Object.keys(variables)),
-));
 const isActive = (name, attrs) => editor.value?.isActive(name, attrs) ?? false;
 
-const insertVariable = (code) => {
-    // Marked so it reads visually distinct from hand-typed text — inserting
-    // via this panel is the only supported way to add a variable, precisely
-    // so a typo can never silently fail to be replaced at generation time.
-    editor.value?.chain().focus().insertContent({
-        type: 'text',
-        marks: [{ type: 'variableToken' }],
-        text: `{{${code}}}`,
-    }).run();
+const importInput = ref(null);
+const importWarning = ref('');
+const triggerImport = () => importInput.value?.click();
+const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !editor.value) return;
+
+    const currentContent = editor.value.getHTML();
+    if (currentContent && currentContent !== '<p></p>'
+        && !confirm('La page active contient déjà du texte. Remplacer son contenu par le fichier importé ?')) {
+        return;
+    }
+
+    importWarning.value = '';
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+
+    try {
+        const html = isPdf ? await extractPdfPlainText(file) : (await convertDocxToHtml(file)).html;
+        editor.value.commands.setContent(html);
+        isDirty.value = true;
+        if (isPdf) {
+            importWarning.value = 'Import PDF : seul le texte a été récupéré, sans mise en forme — reformatez manuellement (gras, titres, tableaux…).';
+        }
+    } catch (error) {
+        alert(`Échec de l’import : ${error.message}`);
+    }
 };
+
 const insertTable = () => {
     editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
 };
@@ -294,11 +301,6 @@ const confirmRevert = () => {
     );
 };
 
-// Kept as a helper so the template never spells out a literal `{{ }}` pair
-// inside a mustache expression (the SFC tokenizer reads that as closing the
-// interpolation early).
-const braces = (code) => `{{${code}}}`;
-
 watch(() => [form.document_type, form.data_context, form.name, form.description, form.active], () => {
     isDirty.value = true;
 });
@@ -315,7 +317,7 @@ const submit = () => {
     const contentHtml = buildContentHtml();
     form.transform((data) => ({
         ...data,
-        content: { pages: pages.value.map(({ id, type, content }) => ({ id, type, content })) },
+        content: { pages: pages.value.map(({ id, content }) => ({ id, content })) },
         content_html: contentHtml,
         ...(isEditing.value ? {} : { site_code: props.site.code }),
     }));
@@ -343,10 +345,12 @@ const submit = () => {
                 <h1 class="mt-1 font-heading text-xl font-bold text-slate-700 dark:text-white">{{ isEditing ? `Modifier « ${template.name} »` : 'Nouveau canevas' }}</h1>
                 <p class="mt-1 text-xs text-slate-500">Site destinataire : <strong>{{ site.name }}</strong><span v-if="isEditing && template.generated_documents_count"> · {{ template.generated_documents_count }} document(s) déjà généré(s) — toute modification crée une nouvelle version, sans affecter ceux-là.</span></p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <span v-if="isDirty" class="text-xs font-bold text-amber-600">● Modifications non enregistrées</span>
                 <Button v-if="isEditing" size="rg" variant="white-outline" type="button" @click="openHistory"><Icon name="history" /><span class="ms-2">Historique</span></Button>
                 <Button size="rg" variant="white-outline" type="button" @click="showPreview = true"><Icon name="eye" /><span class="ms-2">Aperçu de la structure</span></Button>
+                <Button v-if="!isArchivedTemplate" size="rg" variant="white-outline" type="button" title="Importer un fichier Word (.docx) ou PDF dans la page active" @click="triggerImport"><Icon name="upload" /><span class="ms-2">Importer un fichier</span></Button>
+                <input ref="importInput" type="file" accept=".docx,.pdf" class="hidden" @change="handleImportFile">
                 <Button size="rg" variant="white-outline" type="button" @click="leaveEditor">Annuler</Button>
                 <Button v-if="!isArchivedTemplate" size="rg" :disabled="form.processing" @click="submit">
                     <Icon class="text-lg" name="save" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer' }}</span>
@@ -389,7 +393,7 @@ const submit = () => {
             </div>
         </section>
 
-        <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)_260px]">
+        <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
             <aside class="space-y-2">
                 <h2 class="px-1 text-xs font-bold uppercase tracking-wide text-slate-400">Pages ({{ pages.length }})</h2>
                 <div
@@ -398,9 +402,6 @@ const submit = () => {
                 >
                     <button type="button" class="block w-full text-start" @click="selectPage(page.id)">
                         <p class="text-xs font-bold text-slate-700 dark:text-white">Page {{ index + 1 }}</p>
-                        <select v-model="page.type" :disabled="isArchivedTemplate" class="mt-1 h-7 w-full rounded border border-gray-200 bg-white px-1.5 text-[11px] dark:border-gray-800 dark:bg-gray-950" @click.stop>
-                            <option v-for="pageType in PAGE_TYPES" :key="pageType.value" :value="pageType.value">{{ pageType.label }}</option>
-                        </select>
                     </button>
                     <div v-if="!isArchivedTemplate" class="mt-2 flex items-center justify-between gap-1">
                         <div class="flex gap-0.5">
@@ -421,7 +422,6 @@ const submit = () => {
             <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
                 <div class="flex items-center justify-between border-b border-gray-200 px-3 py-1.5 text-[11px] font-bold text-slate-400 dark:border-gray-900">
                     <span>Page {{ activePageIndex + 1 }} / {{ pages.length }}</span>
-                    <span>{{ PAGE_TYPES.find((pageType) => pageType.value === activePage?.type)?.label }}</span>
                 </div>
                 <div v-if="editor" class="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50/70 p-2 dark:border-gray-900 dark:bg-gray-1000/40">
                     <select :disabled="isArchivedTemplate" class="toolbar-select" @change="$event.target.value ? editor.chain().focus().setFontFamily($event.target.value).run() : editor.chain().focus().unsetFontFamily().run()">
@@ -441,10 +441,10 @@ const submit = () => {
                     <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn', isActive('heading', { level: 4 }) && 'toolbar-btn-active']" title="Sous-titre 2" @click="editor.chain().focus().toggleHeading({ level: 4 }).run()">H4</button>
                     <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn', isActive('paragraph') && 'toolbar-btn-active']" title="Paragraphe" @click="editor.chain().focus().setParagraph().run()">¶</button>
                     <span class="toolbar-sep" />
-                    <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn font-bold', isActive('bold') && 'toolbar-btn-active']" title="Gras" @click="editor.chain().focus().toggleBold().run()">B</button>
+                    <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn font-bold', isActive('bold') && 'toolbar-btn-active']" title="Gras" @click="editor.chain().focus().toggleBold().run()">G</button>
                     <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn italic', isActive('italic') && 'toolbar-btn-active']" title="Italique" @click="editor.chain().focus().toggleItalic().run()">I</button>
-                    <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn underline', isActive('underline') && 'toolbar-btn-active']" title="Souligné" @click="editor.chain().focus().toggleUnderline().run()">U</button>
-                    <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn line-through', isActive('strike') && 'toolbar-btn-active']" title="Barré" @click="editor.chain().focus().toggleStrike().run()">S</button>
+                    <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn underline', isActive('underline') && 'toolbar-btn-active']" title="Souligné" @click="editor.chain().focus().toggleUnderline().run()">S</button>
+                    <button type="button" :disabled="isArchivedTemplate" :class="['toolbar-btn line-through', isActive('strike') && 'toolbar-btn-active']" title="Barré" @click="editor.chain().focus().toggleStrike().run()">B</button>
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn text-[10px]" title="MAJUSCULES" @click="transformCase('upper')">AB</button>
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn text-[10px]" title="minuscules" @click="transformCase('lower')">ab</button>
                     <span class="toolbar-sep" />
@@ -481,36 +481,12 @@ const submit = () => {
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Annuler" @click="editor.chain().focus().undo().run()"><Icon name="undo" /></button>
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Rétablir" @click="editor.chain().focus().redo().run()"><Icon name="redo" /></button>
                 </div>
+                <div v-if="importWarning" class="flex items-start justify-between gap-3 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+                    <span>{{ importWarning }}</span>
+                    <button type="button" class="shrink-0 text-amber-600 hover:text-amber-800" @click="importWarning = ''"><Icon name="cross" /></button>
+                </div>
                 <EditorContent :editor="editor" class="canevas-editor-content" />
             </section>
-
-            <aside class="space-y-3 xl:sticky xl:top-4">
-                <section class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="text-xs font-bold uppercase tracking-wide text-slate-400">Variables disponibles</h2>
-                    <p class="mt-1 text-[11px] leading-4 text-slate-400">Cliquez pour insérer dans la page active. Une variable absente de cette liste (ex. montant, motif libre) reste utilisable — elle sera demandée au RH à la génération.</p>
-                    <div v-for="(variables, group) in groupedVariables" :key="group" class="mt-3">
-                        <h3 class="text-[10px] font-bold uppercase text-slate-400">{{ group }}</h3>
-                        <div class="mt-1.5 flex flex-wrap gap-1.5">
-                            <button v-for="(label, code) in variables" :key="code" type="button" :disabled="isArchivedTemplate" class="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-bold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-300" :title="label" @click="insertVariable(code)">+ {{ label }}</button>
-                        </div>
-                    </div>
-                </section>
-                <section v-if="isEditing && template.variables_used?.length" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-900 dark:bg-gray-950">
-                    <h2 class="text-xs font-bold uppercase tracking-wide text-slate-400">Variables détectées (dernier enregistrement)</h2>
-                    <p class="mt-1 text-[11px] leading-4 text-slate-400">En vert : remplies automatiquement. En orange : demandées au RH à chaque génération.</p>
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                        <code
-                            v-for="code in template.variables_used" :key="code"
-                            :class="[
-                                'rounded px-1.5 py-0.5 text-[10px] font-bold',
-                                knownVariableCodes.has(code)
-                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
-                                    : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
-                            ]"
-                        >{{ braces(code) }}</code>
-                    </div>
-                </section>
-            </aside>
         </div>
 
         <div v-if="showPreview" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" @click.self="showPreview = false">
@@ -518,7 +494,7 @@ const submit = () => {
                 <header class="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-900">
                     <div>
                         <h2 class="text-sm font-bold text-slate-700 dark:text-white">Aperçu de la structure ({{ pages.length }} page(s))</h2>
-                        <p class="mt-0.5 text-[11px] text-slate-400">Les variables ({{ braces('nom') }}, {{ braces('salaire') }}…) restent affichées telles quelles — pour un aperçu avec les vraies informations d’une personne, utilisez « Générer un document » côté Administration/RH.</p>
+                        <p class="mt-0.5 text-[11px] text-slate-400">Aperçu du canevas seul — la page 1 (informations du RH) est ajoutée automatiquement à la génération. Pour un aperçu avec les vraies informations d’une personne, utilisez « Générer un document » côté Administration/RH.</p>
                     </div>
                     <button type="button" class="text-slate-400 hover:text-slate-700" @click="showPreview = false"><Icon class="text-xl" name="cross" /></button>
                 </header>
@@ -585,6 +561,7 @@ const submit = () => {
     font-size: 0.75rem;
     font-weight: 700;
     color: rgb(100 116 139);
+    transition: background-color 150ms, color 150ms;
 }
 .toolbar-btn:hover:not(:disabled) {
     background-color: rgb(243 244 246);
@@ -598,21 +575,21 @@ const submit = () => {
     background-color: rgb(238 242 255);
     color: rgb(79 70 229);
 }
-.toolbar-select {
+.toolbar-select,
+.toolbar-color {
     height: 2rem;
     border-radius: 0.375rem;
     border: 1px solid rgb(229 231 235);
     background-color: white;
+    color: rgb(51 65 85);
+}
+.toolbar-select {
     padding: 0 0.375rem;
     font-size: 0.75rem;
 }
 .toolbar-color {
-    height: 2rem;
     width: 2rem;
-    border-radius: 0.375rem;
-    border: 1px solid rgb(229 231 235);
     padding: 0.125rem;
-    background-color: white;
 }
 .toolbar-sep {
     margin: 0 0.25rem;
@@ -620,7 +597,45 @@ const submit = () => {
     width: 1px;
     background-color: rgb(229 231 235);
 }
-:deep(.canevas-editor-content) {
+
+/* Dark mode: this app toggles a `.dark` class higher up the tree, so plain
+   (non-Tailwind-utility) CSS in a scoped block needs an explicit :global()
+   override — same pattern already used by ClinicalRichTextEditor.vue. */
+:global(.dark) .toolbar-btn {
+    color: rgb(203 213 225);
+}
+:global(.dark) .toolbar-btn:hover:not(:disabled) {
+    background-color: rgb(30 41 59);
+    color: white;
+}
+:global(.dark) .toolbar-btn-active {
+    background-color: rgb(49 46 129 / 0.4);
+    color: rgb(165 180 252);
+}
+:global(.dark) .toolbar-select,
+:global(.dark) .toolbar-color {
+    border-color: rgb(31 41 55);
+    background-color: rgb(2 6 23);
+    color: rgb(226 232 240);
+}
+:global(.dark) .toolbar-select option {
+    background-color: rgb(2 6 23);
+    color: rgb(226 232 240);
+}
+:global(.dark) .toolbar-sep {
+    background-color: rgb(31 41 55);
+}
+
+/* The editing canvas — and the structure-preview modal below — represent an
+   actual printed page (same convention as Print.vue's `.print-doc`): always
+   literal white paper with dark text, in both themes, never following the
+   app's dark mode. Reversing this to dark-on-dark would misrepresent what
+   the document will actually look like once printed, and previously left
+   the text unreadable (near-black on near-black) in dark mode. */
+:deep(.canevas-editor-content),
+.canevas-document {
+    background-color: white;
+    color: rgb(15 23 42);
     min-height: 28rem;
     padding: 1.5rem;
 }
@@ -647,16 +662,6 @@ const submit = () => {
 }
 :deep(.ProseMirror img) {
     max-width: 100%;
-}
-/* Editor-only: this styling is intentionally scoped to this component and
-   never reused in Print.vue / the RH preview, so a generated document never
-   ships with a colored box around the substituted value. */
-:deep(.canevas-variable-token) {
-    border-radius: 0.25rem;
-    background-color: rgb(238 242 255);
-    padding: 0.0625rem 0.25rem;
-    color: rgb(79 70 229);
-    font-weight: 700;
 }
 :deep(.canevas-page-break),
 .canevas-document :deep(.canevas-page-break) {

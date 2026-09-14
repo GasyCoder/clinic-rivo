@@ -22,7 +22,6 @@ class DuplicateDocumentTemplateAction
             'description' => $template->description,
             'content' => $template->content,
             'content_html' => $template->content_html,
-            'variables_used' => $template->variables_used,
             // A new, independent canevas going forward — not another
             // version of the source's own history.
             'lineage_id' => (string) Str::uuid(),

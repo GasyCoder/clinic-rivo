@@ -91,10 +91,10 @@ class CompleteConsultationAction
      * final check. Those two effects now happen once, here, when the doctor
      * says they are done.
      *
-     * The Médecine orientation may already be closed: asking Soins for an
-     * act ends it on purpose for a NORMAL patient (ADR-055). Completing it
-     * again would be an invalid transition, so its state is checked rather
-     * than assumed.
+     * Asking Soins for an act no longer ends it (ADR-088): the consultation
+     * stays open while the patient is at Soins. A consultation recorded
+     * before that change may still point at an orientation already closed,
+     * so its state is checked rather than assumed.
      */
     private function endMedicalPathway(Consultation $consultation, User $actor): void
     {

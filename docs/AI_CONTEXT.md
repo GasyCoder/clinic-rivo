@@ -590,12 +590,13 @@ La conduite à tenir est une **donnée**, plus une étape (ADR-084, amende
 ADR-075 et ADR-076). `consultation_orientations` la porte avec son statut —
 `SELECTED` (destination choisie), `SUBMITTED` (demande réellement partie),
 `CANCELLED` (changement d'avis) — et une seule est active par consultation,
-garantie par `active_key`. Elle se décide là où le médecin en sait assez :
-une carte « Suite de la prise en charge » clôt l'examen clinique, et
-répondre ouvre aussitôt le formulaire correspondant. Le parcours devient
-Dossier → Interrogatoire → Examen → Paraclinique → Prescription → **Clôture**,
-cette dernière ne demandant plus la décision mais vérifiant, signalant ce qui
-manque et validant. Choisir n'est pas transmettre : la clôture refuse une
+garantie par `active_key`. Elle se décide en un seul endroit (ADR-089) : la dernière étape,
+**« Décision & clôture »**, réunit de haut en bas le diagnostic, la conduite à
+tenir avec son formulaire prérempli, puis la vérification et la clôture. Le
+parcours devient Dossier → Interrogatoire → Examen → Paraclinique →
+Prescription → Décision & clôture ; les étapes précédentes sont du recueil et
+ne portent plus la carte « Suite de la prise en charge ». Décider tôt reste
+possible : le parcours n'est pas verrouillé. Choisir n'est pas transmettre : la clôture refuse une
 orientation restée « à configurer ». Hospitalisation et Référence/Transfert
 ont désormais leur demande (`hospitalization_requests`, `medical_referrals`,
 statut `REQUESTED`/`CANCELLED` seulement) avec leur document imprimable ;

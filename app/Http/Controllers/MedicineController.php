@@ -530,6 +530,18 @@ class MedicineController extends Controller
             ->with('status', $status);
     }
 
+    /**
+     * A diagnosis is recorded from the clinical examination or from
+     * « Décision & clôture » (ADR-089): the doctor stays on the screen they
+     * were on. Without a valid step, the examination remains the default.
+     */
+    private function diagnosisReturnStep(Request $request): string
+    {
+        $step = ConsultationStep::tryFrom((string) $request->input('return_step'));
+
+        return $step !== null && $step->isWizardStep() ? $step->value : ConsultationStep::ClinicalExam->value;
+    }
+
     public function storeDiagnosis(
         StoreMedicineDiagnosisRequest $request,
         EpisodeOrientation $episodeOrientation,
@@ -546,7 +558,7 @@ class MedicineController extends Controller
             $request->validated('notes'),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'examen'])
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $this->diagnosisReturnStep($request)])
             ->with('status', 'Diagnostic ajouté au dossier médical.');
     }
 
@@ -561,7 +573,7 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'examen'])
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $this->diagnosisReturnStep($request)])
             ->with('status', 'Diagnostic annulé avec conservation de la trace médicale.')
             ->with('status_type', 'warning');
     }
@@ -579,7 +591,7 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'examen'])
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $this->diagnosisReturnStep($request)])
             ->with('status', 'Diagnostic rectifié avec conservation de la version précédente.');
     }
 

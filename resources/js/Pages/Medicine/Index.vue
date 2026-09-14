@@ -238,6 +238,9 @@ const EMPTY_STATES = {
                         >
                             <td :class="['border-s-2 px-4 py-3 text-center', isEmergency(orientation) ? 'border-s-red-500' : 'border-s-transparent']">
                                 <span v-if="orientation.queue_number" :class="['inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold', isEmergency(orientation) ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300' : 'bg-primary-100 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300']">{{ orientation.queue_number }}</span>
+                                <!-- Déjà pris en charge : la place dans l'attente est consommée,
+                                     le numéro passe au patient suivant. -->
+                                <span v-else-if="orientation.status === 'IN_PROGRESS'" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900" title="Déjà pris en charge — ne compte plus dans l'attente" aria-label="Déjà pris en charge"><Icon name="activity" /></span>
                                 <span v-else class="text-slate-300 dark:text-slate-700">—</span>
                             </td>
                             <td class="px-4 py-3">

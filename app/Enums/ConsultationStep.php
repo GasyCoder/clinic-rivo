@@ -33,7 +33,7 @@ enum ConsultationStep: string
             self::Diagnosis => 'Diagnostic',
             self::Prescription => 'Prescription',
             self::Decision => 'Décision médicale',
-            self::Closure => 'Clôture de la consultation',
+            self::Closure => 'Décision & clôture',
         };
     }
 

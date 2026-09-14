@@ -243,7 +243,7 @@ const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-w
             <div v-else class="min-w-0">
                 <h3 class="text-sm font-bold text-slate-700 dark:text-white">Suite de la prise en charge</h3>
                 <p class="mt-0.5 text-[11px] text-slate-400">
-                    La conduite à tenir peut être décidée dès que vous disposez d’assez d’éléments.
+                    Choisissez où va le patient et transmettez sa demande : c’est elle qui permet de clôturer.
                 </p>
             </div>
 

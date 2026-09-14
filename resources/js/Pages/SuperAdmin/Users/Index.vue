@@ -486,6 +486,15 @@ const nextStep = () => {
 
     step.value = Math.min(3, step.value + 1);
     maxStepReached.value = Math.max(maxStepReached.value, step.value);
+
+    // A new account lands on the access its role gives it, not on a wall of
+    // 300 rows: the role's grants first, in the first category that has one.
+    if (step.value === 3 && !editingUser.value) {
+        permissionFilter.value = 'allowed';
+        selectedPermissionCategory.value = permissionCategories.value
+            .find((category) => permissionCatalog.value.some((permission) => permission.module === category.key && effectivelyGranted(permission)))
+            ?.key ?? selectedPermissionCategory.value;
+    }
 };
 
 const prevStep = () => { step.value = Math.max(1, step.value - 1); };
@@ -1230,11 +1239,24 @@ const saveRoleBaseline = () => {
                             <div class="rounded border border-emerald-200 bg-emerald-50/40 px-3 py-2 dark:border-emerald-900 dark:bg-emerald-950/10"><p class="text-[10px] font-bold uppercase text-emerald-600">Accès effectifs</p><p class="mt-0.5 text-lg font-bold text-emerald-700 dark:text-emerald-300">{{ permissionSummary.effectiveAllowed }}</p></div>
                             <div class="rounded border border-red-200 bg-red-50/30 px-3 py-2 dark:border-red-900 dark:bg-red-950/10"><p class="text-[10px] font-bold uppercase text-red-500">Interdits effectifs</p><p class="mt-0.5 text-lg font-bold text-red-700 dark:text-red-300">{{ permissionSummary.effectiveDenied }}</p></div>
                             <div class="rounded border border-primary-200 bg-primary-50/30 px-3 py-2 dark:border-primary-900 dark:bg-primary-950/10"><p class="text-[10px] font-bold uppercase text-primary-600">Exceptions</p><p class="mt-0.5 text-lg font-bold text-primary-700 dark:text-primary-300">{{ permissionSummary.exceptions }}</p></div>
-                            <div class="rounded border border-gray-200 px-3 py-2 dark:border-gray-800"><p class="text-[10px] font-bold uppercase text-slate-400">Héritées</p><p class="mt-0.5 text-lg font-bold text-slate-600 dark:text-slate-200">{{ permissionSummary.inherited }}</p></div>
+                            <div class="rounded border border-gray-200 px-3 py-2 dark:border-gray-800"><p class="text-[10px] font-bold uppercase text-slate-400">Selon le rôle</p><p class="mt-0.5 text-lg font-bold text-slate-600 dark:text-slate-200">{{ permissionSummary.inherited }}</p></div>
                             <div class="rounded border border-gray-200 px-3 py-2 dark:border-gray-800"><p class="text-[10px] font-bold uppercase text-slate-400">Autor. manuelles</p><p class="mt-0.5 text-lg font-bold text-emerald-600">{{ permissionSummary.manualAllowed }}</p></div>
                             <div class="rounded border border-gray-200 px-3 py-2 dark:border-gray-800"><p class="text-[10px] font-bold uppercase text-slate-400">Refus manuels</p><p class="mt-0.5 text-lg font-bold text-red-600">{{ permissionSummary.manualDenied }}</p></div>
                         </div>
                     </header>
+
+                    <!-- Ce que le rôle choisi accorde déjà, sans rien cocher : le socle
+                         s'applique automatiquement et suit ses mises à jour futures
+                         (ADR-064). Les exceptions ne servent qu'à s'en écarter. -->
+                    <div v-if="selectedRole" class="flex items-start gap-2.5 border-b border-emerald-200 bg-emerald-50/60 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/15" role="status">
+                        <Icon class="mt-0.5 shrink-0 text-lg text-emerald-600 dark:text-emerald-300" name="shield-check" />
+                        <p class="text-xs leading-5 text-emerald-900 dark:text-emerald-100">
+                            <strong>Le rôle « {{ selectedRole.name }} » accorde automatiquement {{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }} cohérente{{ selectedRole.permissions.length > 1 ? 's' : '' }} avec ce métier</strong>
+                            — affichées « Inclus dans le rôle ». Rien à cocher : elles restent à jour si le socle du rôle évolue.
+                            <template v-if="selectedProfile"> Le profil « {{ selectedProfile.name }} » y ajoute ses permissions recommandées.</template>
+                            Utilisez « Autoriser » ou « Interdire » seulement pour une exception propre à ce compte.
+                        </p>
+                    </div>
 
                     <FormError v-if="form.errors.permission_overrides" class="mx-4 mt-4">{{ form.errors.permission_overrides }}</FormError>
                     <p v-if="!canAssignPermissions" class="m-4 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">Vous n'avez pas la permission <code>permissions.assign</code> : le compte utilisera uniquement le socle de son rôle.</p>

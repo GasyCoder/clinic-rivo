@@ -23,6 +23,8 @@ const props = defineProps({
     orientationUuid: { type: String, required: true },
     disabled: { type: Boolean, default: false },
     compact: { type: Boolean, default: false },
+    /** Wizard step to come back to once recorded — the screen the doctor is on. */
+    returnStep: { type: String, default: null },
 });
 
 const emit = defineEmits(['recorded']);
@@ -91,7 +93,7 @@ const submit = (catalogUuid = null) => {
         form.manual_code = '';
     }
 
-    form.post(`/medicine/orientations/${props.orientationUuid}/diagnoses`, {
+    form.transform((data) => ({ ...data, return_step: props.returnStep })).post(`/medicine/orientations/${props.orientationUuid}/diagnoses`, {
         preserveScroll: true,
         onSuccess: () => {
             reset();
@@ -129,8 +131,13 @@ const submit = (catalogUuid = null) => {
                     @click="submit(diagnostic.uuid)"
                 >
                     <span class="min-w-0 flex-1">
-                        <span class="block truncate text-xs font-semibold text-slate-700 dark:text-white">{{ diagnostic.label }}</span>
-                        <span v-if="diagnostic.code" class="mt-0.5 block font-mono text-[10px] text-slate-400">{{ diagnostic.code }}</span>
+                        <!-- The search endpoint returns the catalogue's own `name`
+                             (DiagnosticCatalogSearchController): reading a `label`
+                             that does not exist left every result blank. -->
+                        <span class="block truncate text-xs font-semibold text-slate-700 dark:text-white">{{ diagnostic.name }}</span>
+                        <span v-if="diagnostic.code || diagnostic.category" class="mt-0.5 block text-[10px] text-slate-400">
+                            <span v-if="diagnostic.code" class="font-mono">{{ diagnostic.code }}</span><template v-if="diagnostic.code && diagnostic.category"> · </template>{{ diagnostic.category }}
+                        </span>
                     </span>
                     <Icon name="plus" class="shrink-0 text-slate-400" />
                 </button>

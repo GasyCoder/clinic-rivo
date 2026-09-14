@@ -25,6 +25,11 @@ const props = defineProps({
         type: String,
         required: true,
     },
+    /** Reached from a new account's welcome email rather than "forgot password". */
+    welcome: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const page = usePage();
@@ -33,6 +38,7 @@ const showPassword = ref(false);
 const form = useForm({
     token: props.token,
     email: props.email,
+    welcome: props.welcome,
     password: '',
     password_confirmation: '',
 });
@@ -45,7 +51,7 @@ const submit = () => {
 </script>
 
 <template>
-    <Head title="Réinitialiser le mot de passe" />
+    <Head :title="welcome ? 'Activer mon compte' : 'Réinitialiser le mot de passe'" />
 
     <div class="relative flex min-h-screen">
         <div class="relative z-10 flex w-full flex-shrink-0 flex-col bg-white dark:bg-gray-950 lg:w-[45%]">
@@ -54,9 +60,12 @@ const submit = () => {
 
                 <div class="mb-8">
                     <h1 class="font-heading text-xl font-bold -tracking-snug leading-tighter text-slate-700 dark:text-white">
-                        Nouveau mot de passe
+                        {{ welcome ? 'Bienvenue — activez votre compte' : 'Nouveau mot de passe' }}
                     </h1>
-                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                    <p v-if="welcome" class="mt-2 text-sm leading-6 text-slate-400">
+                        Choisissez votre mot de passe personnel pour {{ form.email }}. Il protège les données des patients : ne le communiquez à personne.
+                    </p>
+                    <p v-else class="mt-2 text-sm leading-6 text-slate-400">
                         Choisissez un nouveau mot de passe pour {{ form.email }}.
                     </p>
                 </div>
@@ -130,7 +139,7 @@ const submit = () => {
                                 v-if="form.processing"
                                 class="me-2 inline-block h-4 w-4 flex-none animate-spin rounded-full border-2 border-white/40 border-t-white"
                             />
-                            {{ form.processing ? 'Enregistrement…' : 'Réinitialiser le mot de passe' }}
+                            {{ form.processing ? 'Enregistrement…' : (welcome ? 'Activer mon compte' : 'Réinitialiser le mot de passe') }}
                         </Button>
                     </FormGroup>
                 </form>

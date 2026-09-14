@@ -8,8 +8,8 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ConsultationDecision;
 use App\Enums\EpisodeOrientationStatus;
-use App\Enums\EpisodePriority;
 use App\Models\CareOrder;
+use App\Models\CareOrderItem;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
@@ -75,13 +75,37 @@ class CreateCareOrderAction
                 ]);
             }
 
-            // A Normal patient has one active clinical orientation at a
-            // time: closing the current Médecine consultation before Soins
-            // opens keeps the operational location unambiguous. Emergency
-            // keeps its existing parallel Care+Médecine queues untouched.
-            if ($episode->priority !== EpisodePriority::Emergency) {
-                $medicineOrientation->complete($actor);
+            // One pending request per act: asking Soins again for an act
+            // that is still waiting would put the same act twice in their
+            // queue. Resolved acts (done, or marked not performed) can be
+            // asked for again; a different act is a new, legitimate request.
+            $stillPending = CareOrderItem::query()
+                ->whereIn('catalog_item_id', $catalogItems->pluck('id'))
+                ->whereHas('careOrder', fn ($query) => $query
+                    ->where('consultation_id', $lockedConsultation->getKey())
+                    ->where('status', CareOrderStatus::Pending->value))
+                ->with(['careOrder', 'careRecordProcedures'])
+                ->lockForUpdate()
+                ->get()
+                ->reject(fn (CareOrderItem $item) => $item->isResolved())
+                ->first();
+
+            if ($stillPending) {
+                throw ValidationException::withMessages([
+                    'items' => sprintf(
+                        '« %s » est déjà demandé aux Soins (%s) et n’a pas encore été réalisé.',
+                        $stillPending->catalog_item_name_snapshot,
+                        $stillPending->careOrder->ordered_at?->format('d/m/Y à H:i'),
+                    ),
+                ]);
             }
+
+            // The consultation stays open while the patient goes to Soins
+            // (ADR-088, amends ADR-055). Only closing the consultation ends
+            // Médecine's orientation (ADR-084): completing it here left the
+            // encounter "in progress" on a finished orientation — read-only,
+            // with no way to record a diagnosis, choose what comes next or
+            // close it.
 
             $careOrientation = $this->createOrientation->execute(
                 $episode,

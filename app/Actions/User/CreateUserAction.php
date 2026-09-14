@@ -2,6 +2,7 @@
 
 namespace App\Actions\User;
 
+use App\Jobs\SendUserInvitationJob;
 use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
@@ -11,7 +12,6 @@ use App\Services\Authorization\UserAdministrationGuard;
 use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -78,8 +78,11 @@ class CreateUserAction
                 $syncRecommended,
             );
 
+            // Queued, and only once this transaction has committed: a slow or
+            // unreachable mail server can neither time the request out nor
+            // roll the account back (SendUserInvitationJob).
             if ($invited) {
-                Password::sendResetLink(['email' => $user->email]);
+                SendUserInvitationJob::dispatch($user)->afterCommit();
             }
 
             $this->auditor->record(
@@ -99,7 +102,7 @@ class CreateUserAction
 
             if ($invited) {
                 $this->auditor->record(
-                    'user.invite.sent',
+                    'user.invite.queued',
                     entity: $user,
                     newValues: ['email' => $user->email],
                     module: 'administration',

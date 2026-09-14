@@ -3,20 +3,32 @@ import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
 import { usePermissions } from '@/composables/usePermissions';
-import { CLINIC_WORKSPACES, WORKSPACE_GROUPS } from '@/utilities/clinicWorkspaces';
+import { CLINIC_WORKSPACES, ROLE_FOCUS, WORKSPACE_GROUPS } from '@/utilities/clinicWorkspaces';
 
 const visibility = defineModel('visibility');
 
 const page = usePage();
 const { can } = usePermissions();
 const isAdminPortal = computed(() => page.props.site?.type === 'admin');
+const currentUser = computed(() => page.props.auth?.user ?? null);
+const roleLabel = computed(() => currentUser.value?.role?.name ?? 'Accès clinique');
+const profileLabel = computed(() => currentUser.value?.professional_profile?.name ?? null);
+const roleFocus = computed(() => ROLE_FOCUS[currentUser.value?.role?.code] ?? null);
 const overviewLabel = computed(() => (
     page.props.auth?.user?.role?.code === 'SUPER_ADMIN' ? 'Dashboard' : 'Vue d’ensemble'
 ));
 // Built from the shared workspace list, so the sidebar and the overview can
 // never disagree on which modules exist or which permission opens them.
 const clinicMenu = computed(() => {
-    const items = CLINIC_WORKSPACES.map((workspace) => ({
+    const primaryWorkspace = roleFocus.value?.primary?.link
+        ? [...CLINIC_WORKSPACES]
+            .filter((workspace) => roleFocus.value.primary.link === workspace.link
+                || roleFocus.value.primary.link.startsWith(`${workspace.link}/`))
+            .sort((left, right) => right.link.length - left.link.length)[0]
+        : null;
+    const focusOrder = [primaryWorkspace?.key, ...(roleFocus.value?.shortcuts ?? [])].filter(Boolean);
+    const items = CLINIC_WORKSPACES.map((workspace, originalIndex) => ({
+        key: workspace.key,
         icon: workspace.icon,
         text: workspace.text,
         link: workspace.resolveLink ? workspace.resolveLink(can) : workspace.link,
@@ -24,7 +36,18 @@ const clinicMenu = computed(() => {
         exact: workspace.exact,
         permission: workspace.permission,
         group: workspace.group,
-    }));
+        originalIndex,
+    })).sort((left, right) => {
+        if (left.group !== right.group) return left.originalIndex - right.originalIndex;
+        const leftFocus = focusOrder.indexOf(left.key);
+        const rightFocus = focusOrder.indexOf(right.key);
+        if (leftFocus !== -1 || rightFocus !== -1) {
+            if (leftFocus === -1) return 1;
+            if (rightFocus === -1) return -1;
+            return leftFocus - rightFocus;
+        }
+        return left.originalIndex - right.originalIndex;
+    });
 
     return [
         { heading: 'Principal' },
@@ -101,6 +124,8 @@ const menuData = computed(() => {
     return visible;
 });
 
+const visibleWorkspaceCount = computed(() => menuData.value.filter((item) => !item.heading && item.link !== '/').length);
+
 const isActive = (item) => {
     if (item.activeLinks) {
         return item.activeLinks.some((link) => page.url.startsWith(link));
@@ -130,16 +155,31 @@ const closeMobile = () => {
 </script>
 
 <template>
-    <ul :class="['nk-menu pb-5', isAdminPortal && 'px-3']">
+    <ul class="nk-menu px-3 pb-5">
+        <li v-if="!isAdminPortal" class="group-[&.is-compact:not(.has-hover)]/sidebar:hidden px-1 pb-1 pt-3">
+            <div class="relative overflow-hidden rounded-lg border border-slate-200/10 bg-slate-800/40 px-3 py-3 shadow-sm dark:border-white/5 dark:bg-white/[0.035]">
+                <span class="absolute inset-y-0 start-0 w-0.5 bg-primary-500" />
+                <div class="flex items-center gap-2.5">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-500/10 text-primary-400 ring-1 ring-inset ring-primary-500/20">
+                        <Icon class="text-lg" name="shield-check" />
+                    </span>
+                    <div class="min-w-0 flex-1">
+                        <p class="truncate text-xs font-bold text-slate-200 dark:text-white">{{ profileLabel || roleLabel }}</p>
+                        <p class="mt-0.5 truncate text-[10px] text-slate-400">{{ profileLabel ? roleLabel : 'Espace professionnel' }} · {{ visibleWorkspaceCount }} module{{ visibleWorkspaceCount > 1 ? 's' : '' }}</p>
+                    </div>
+                </div>
+            </div>
+        </li>
+
         <template v-for="(item, index) in menuData" :key="index">
             <li
                 v-if="item.heading"
                 :class="[
                     'relative first:pt-1 pb-2 before:absolute before:h-px before:w-full before:start-0 before:top-1/2 before:bg-gray-200 dark:before:bg-gray-900 first:before:hidden before:opacity-0 group-[&.is-compact:not(.has-hover)]/sidebar:before:opacity-100',
-                    isAdminPortal ? 'px-3 pt-6' : 'px-6 pt-10',
+                    isAdminPortal ? 'px-3 pt-6' : 'px-2 pt-6',
                 ]"
             >
-                <h6 :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 whitespace-nowrap uppercase font-bold leading-tight', isAdminPortal ? 'text-[10px] tracking-[0.16em] text-slate-400 dark:text-slate-500' : 'text-xs tracking-relaxed text-slate-500 dark:text-slate-300']">
+                <h6 :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 whitespace-nowrap uppercase font-bold leading-tight', isAdminPortal ? 'text-[10px] tracking-[0.16em] text-slate-400 dark:text-slate-500' : 'text-[10px] tracking-[0.18em] text-slate-500 dark:text-slate-400']">
                     {{ item.heading }}
                 </h6>
             </li>
@@ -150,8 +190,8 @@ const closeMobile = () => {
             >
                 <details v-if="item.children" :open="isActive(item)" class="group/site">
                     <summary :class="['nk-menu-link flex cursor-pointer list-none items-center font-heading font-bold tracking-snug transition-colors', isAdminPortal ? 'rounded-md px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-white/5' : 'py-2.5 ps-6 pe-5', isAdminPortal && isActive(item) ? 'bg-primary-500/10' : '']">
-                        <span :class="['shrink-0 text-slate-400 group-[.active]/item:text-primary-500', isAdminPortal ? 'flex h-8 w-8 items-center justify-center' : 'w-9']">
-                            <Icon :class="isAdminPortal ? 'text-lg leading-none' : 'text-2xl leading-none'" :name="item.icon" />
+                        <span :class="['shrink-0 text-slate-400 group-[.active]/item:text-primary-500', isAdminPortal ? 'flex h-8 w-8 items-center justify-center' : 'flex h-8 w-8 items-center justify-center rounded-md bg-slate-500/5']">
+                            <Icon :class="isAdminPortal ? 'text-lg leading-none' : 'text-xl leading-none'" :name="item.icon" />
                         </span>
                         <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300 group-[.active]/item:text-primary-500">
                             {{ item.text }}
@@ -177,28 +217,31 @@ const closeMobile = () => {
                 <Link
                     v-else-if="item.link"
                     :href="item.link"
+                    :aria-current="isActive(item) ? 'page' : undefined"
+                    :title="item.text"
                     :class="[
                         'nk-menu-link nk-route-toggle relative flex items-center align-middle font-heading font-bold tracking-snug transition-colors group',
-                        isAdminPortal ? 'rounded-md px-3 py-2.5' : 'py-2.5 ps-6 pe-10',
-                        isAdminPortal && isActive(item) ? 'bg-primary-500/10 text-primary-500' : '',
-                        isAdminPortal && !isActive(item) ? 'hover:bg-gray-100 dark:hover:bg-white/5' : '',
+                        isAdminPortal ? 'rounded-md px-3 py-2.5' : 'rounded-lg px-2.5 py-2',
+                        isActive(item) ? 'bg-primary-500/10 text-primary-500 ring-1 ring-inset ring-primary-500/10' : '',
+                        !isActive(item) ? 'hover:bg-slate-500/[0.07] dark:hover:bg-white/5' : '',
                     ]"
                     @click="closeMobile"
                 >
-                    <span :class="['inline-flex flex-grow-0 flex-shrink-0 items-center font-normal tracking-normal text-slate-400 group-[.active]/item:text-primary-500 group-hover:text-primary-500', isAdminPortal ? 'h-8 w-8 justify-center' : 'w-9']">
-                        <Icon :class="isAdminPortal ? 'text-lg leading-none text-current' : 'text-2xl leading-none text-current transition-all duration-300'" :name="item.icon" />
+                    <span :class="['inline-flex h-8 w-8 flex-grow-0 flex-shrink-0 items-center justify-center rounded-md font-normal tracking-normal text-slate-400 transition-colors group-[.active]/item:bg-primary-500/10 group-[.active]/item:text-primary-500 group-hover:text-primary-500', isAdminPortal ? '' : 'me-1']">
+                        <Icon :class="isAdminPortal ? 'text-lg leading-none text-current' : 'text-xl leading-none text-current transition-all duration-300'" :name="item.icon" />
                     </span>
-                    <span :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 inline-block flex-grow whitespace-nowrap transition-all duration-300 group-[.active]/item:text-primary-500 group-hover:text-primary-500', isAdminPortal ? 'text-[13px] text-slate-600 dark:text-slate-300' : 'text-slate-600 dark:text-slate-300']">
+                    <span :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-grow truncate whitespace-nowrap transition-all duration-300 group-[.active]/item:text-primary-500 group-hover:text-primary-500', isAdminPortal ? 'text-[13px] text-slate-600 dark:text-slate-300' : 'text-[13px] text-slate-600 dark:text-slate-300']">
                         {{ item.text }}
                     </span>
+                    <span v-if="isActive(item)" class="group-[&.is-compact:not(.has-hover)]/sidebar:hidden ms-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-500 shadow-[0_0_0_3px_rgba(14,165,233,0.12)]" aria-hidden="true" />
                 </Link>
 
                 <div
                     v-else
-                    class="nk-menu-link flex relative items-center align-middle py-2.5 ps-6 pe-10 font-heading font-bold tracking-snug cursor-default opacity-60"
+                    class="nk-menu-link relative flex cursor-default items-center rounded-lg px-2.5 py-2 font-heading font-bold tracking-snug opacity-60"
                 >
-                    <span class="font-normal tracking-normal w-9 inline-flex flex-grow-0 flex-shrink-0 text-slate-400">
-                        <Icon class="text-2xl leading-none text-current" :name="item.icon" />
+                    <span class="me-1 inline-flex h-8 w-8 flex-grow-0 flex-shrink-0 items-center justify-center rounded-md font-normal tracking-normal text-slate-400">
+                        <Icon class="text-xl leading-none text-current" :name="item.icon" />
                     </span>
                     <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 flex-grow inline-flex items-center justify-between gap-2 whitespace-nowrap text-slate-500 dark:text-slate-500">
                         <span>{{ item.text }}</span>

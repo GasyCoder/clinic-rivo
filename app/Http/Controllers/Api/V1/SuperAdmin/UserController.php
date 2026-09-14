@@ -99,7 +99,11 @@ class UserController extends Controller
         $user = $action->execute($validated, $actor);
 
         return response()->json([
-            'message' => "Compte de {$user->name} créé.",
+            // No password means an invitation: it leaves through the queue,
+            // so the portal says so instead of implying the email is already out.
+            'message' => blank($validated['password'] ?? null)
+                ? "Compte de {$user->name} créé. L’invitation par e-mail part en file d’attente."
+                : "Compte de {$user->name} créé.",
             'data' => $this->serializeUser($user),
         ], 201);
     }

@@ -30,6 +30,8 @@ class StoreMedicineDiagnosisRequest extends FormRequest
             'description' => ['nullable', 'required_without:diagnostic_catalog_uuid', 'string', 'max:5000'],
             'manual_code' => ['nullable', 'string', 'max:50'],
             'notes' => ['nullable', 'string', 'max:5000'],
+            // The wizard step to return to (examen or cloture, ADR-089).
+            'return_step' => ['nullable', 'string', 'max:30'],
         ];
     }
 

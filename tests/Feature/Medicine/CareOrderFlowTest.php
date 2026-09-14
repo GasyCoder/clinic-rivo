@@ -57,8 +57,9 @@ class CareOrderFlowTest extends TestCase
             'catalog_item_name_snapshot' => 'Injection IM',
         ]);
 
-        // Normal patient: exactly one active clinical orientation.
-        $this->assertSame('COMPLETED', $medicineOrientation->fresh()->status->value);
+        // The consultation stays open while the patient is at Soins: only
+        // closing it ends Médecine's orientation (ADR-084, ADR-088).
+        $this->assertSame('IN_PROGRESS', $medicineOrientation->fresh()->status->value);
         $careOrientation = EpisodeOrientation::query()->findOrFail($careOrder->care_orientation_id);
         $this->assertSame('CARE', $careOrientation->destination_module->value);
         $this->assertSame('PENDING', $careOrientation->status->value);
@@ -69,6 +70,34 @@ class CareOrderFlowTest extends TestCase
 
         // The first Consultation is never touched by this handoff.
         $this->assertSame(1, Consultation::query()->count());
+    }
+
+    public function test_an_act_already_waiting_at_soins_cannot_be_ordered_twice(): void
+    {
+        $doctor = $this->doctor();
+        [, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
+        $aspiration = $this->clinicianOrderableItem($doctor, 'CARE-ASPIRATION', 'Aspiration');
+        $injection = $this->clinicianOrderableItem($doctor, 'INJECTION-IM', 'Injection IM');
+        $url = "/medicine/orientations/{$medicineOrientation->uuid}/care-orders";
+
+        $this->actingAs($doctor)->post($url, [
+            'items' => [['catalog_item_uuid' => $aspiration->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ])->assertSessionHasNoErrors();
+
+        // The same act, still waiting: refused, nothing queued twice.
+        $this->actingAs($doctor)->post($url, [
+            'items' => [['catalog_item_uuid' => $aspiration->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ])->assertSessionHasErrors('items');
+        $this->assertSame(1, CareOrder::query()->count());
+
+        // A different act is a new, legitimate request.
+        $this->actingAs($doctor)->post($url, [
+            'items' => [['catalog_item_uuid' => $injection->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame(2, CareOrder::query()->count());
     }
 
     public function test_only_clinician_orderable_care_service_items_can_be_ordered(): void
@@ -154,7 +183,7 @@ class CareOrderFlowTest extends TestCase
         );
     }
 
-    public function test_completing_a_care_order_with_return_to_medicine_opens_a_fresh_consultation_without_touching_the_first(): void
+    public function test_completing_a_care_order_with_return_to_medicine_hands_back_to_the_still_open_consultation(): void
     {
         $doctor = $this->doctor();
         [$episode, $medicineOrientation, $firstConsultation] = $this->normalMedicineConsultation($doctor);
@@ -180,26 +209,15 @@ class CareOrderFlowTest extends TestCase
         $this->assertSame('COMPLETED', $careOrder->fresh()->status->value);
         $this->assertNotNull($careOrder->fresh()->completed_at);
 
-        $newMedicineOrientation = $episode->orientations()
-            ->where('destination_module', CatalogModule::Medicine->value)
-            ->where('id', '!=', $medicineOrientation->id)
-            ->sole();
-        $this->assertSame('PENDING', $newMedicineOrientation->status->value);
-
-        $this->app->make(AcceptMedicineOrientationAction::class)->execute($newMedicineOrientation, $doctor);
-
-        $this->assertSame(2, Consultation::query()->count());
-        $secondConsultation = Consultation::query()
-            ->where('episode_orientation_id', $newMedicineOrientation->id)
-            ->sole();
-        $this->assertNotSame($firstConsultation->id, $secondConsultation->id);
-        $this->assertSame(
-            $firstConsultation->reason,
-            $firstConsultation->fresh()->reason,
-        );
+        // The consultation never closed: the patient comes back to it, with
+        // no second Médecine orientation and no second consultation (ADR-088).
+        $this->assertSame(1, $episode->orientations()->where('destination_module', CatalogModule::Medicine->value)->count());
+        $this->assertSame('IN_PROGRESS', $medicineOrientation->fresh()->status->value);
+        $this->assertSame(1, Consultation::query()->count());
+        $this->assertTrue($firstConsultation->fresh()->isEditable());
     }
 
-    public function test_completing_a_care_order_without_return_to_medicine_settles_administratively(): void
+    public function test_completing_a_care_order_without_return_waits_for_the_consultation_to_close_before_settling(): void
     {
         $doctor = $this->doctor();
         [$episode, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
@@ -230,8 +248,11 @@ class CareOrderFlowTest extends TestCase
             'destination_module' => CatalogModule::Medicine->value,
             'status' => 'PENDING',
         ]);
+        // Soins are done, but the consultation is still open: the passage is
+        // not handed to Réception until the doctor closes it (ADR-088).
+        $this->assertSame('IN_PROGRESS', $medicineOrientation->fresh()->status->value);
         $freshEpisode = Episode::find($episode->id);
-        $this->assertSame('PENDING_SETTLEMENT', $freshEpisode->administrative_status->value);
+        $this->assertSame('IN_CARE', $freshEpisode->administrative_status->value);
         $this->assertSame('OPEN', $freshEpisode->status->value);
         $this->assertDatabaseCount('medical_discharges', 0);
     }

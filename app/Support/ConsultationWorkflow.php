@@ -122,10 +122,8 @@ class ConsultationWorkflow
         $orientation = $this->activeOrientation($consultation);
 
         if (! $orientation) {
-            return sprintf(
-                'Indiquez la suite de la prise en charge avant de clôturer (étape %s).',
-                $this->isRelevant($consultation, ConsultationStep::ClinicalExam) ? 'Examen clinique' : 'Paraclinique',
-            );
+            // ADR-089 — decided in one place only, the last step.
+            return 'Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).';
         }
 
         if (! $orientation->isSubmitted()) {
@@ -196,12 +194,9 @@ class ConsultationWorkflow
         // still cannot close without a clinical conclusion. The requirement
         // moved support; it did not disappear.
         if (! $this->hasActiveDiagnosis($consultation)) {
-            // Le message nomme l'écran où ce patient-là peut réellement
-            // conclure : un passage venu pour une seule échographie n'a pas
-            // d'examen clinique, et l'y envoyer serait une impasse.
-            $blockers[] = $this->isRelevant($consultation, ConsultationStep::ClinicalExam)
-                ? 'Diagnostic : aucun diagnostic enregistré — consignez-le à l’examen clinique.'
-                : 'Diagnostic : aucun diagnostic enregistré — consignez-le à l’étape Paraclinique.';
+            // ADR-089 — every patient, with or without a clinical
+            // examination, concludes on the same step.
+            $blockers[] = 'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.';
         }
 
         // Same for the conduite à tenir: the "Décision" step is gone, the

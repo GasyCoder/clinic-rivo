@@ -2,18 +2,23 @@
 
 namespace Tests\Feature\Api;
 
+use App\Jobs\SendUserInvitationJob;
 use App\Models\AuditLog;
 use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\AccountInvitationNotification;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -175,9 +180,9 @@ class SuperAdminUserApiTest extends TestCase
         ]);
     }
 
-    public function test_remote_super_admin_can_create_a_user_without_a_password_and_an_invitation_is_sent_instead(): void
+    public function test_remote_super_admin_can_create_a_user_without_a_password_and_an_invitation_is_queued_instead(): void
     {
-        Notification::fake();
+        Queue::fake();
         $receptionRoleId = Role::query()->where('code', 'RECEPTION')->value('id');
 
         $response = $this->withHeaders($this->headers(idempotencyKey: (string) Str::uuid(), permissions: ['users.create', 'roles.assign']))
@@ -187,13 +192,60 @@ class SuperAdminUserApiTest extends TestCase
                 'role_id' => $receptionRoleId,
             ]);
 
+        // The account exists whatever the mail server does: the email is a
+        // queued side effect, never part of the request that creates it.
         $response->assertCreated();
         $user = User::query()->where('email', 'nirina@example.test')->sole();
-        Notification::assertSentTo($user, ResetPassword::class);
+        Queue::assertPushed(SendUserInvitationJob::class, fn (SendUserInvitationJob $job) => $job->user->is($user));
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'user.invite.sent',
+            'action' => 'user.invite.queued',
             'entity_id' => $user->id,
         ]);
+    }
+
+    public function test_the_invitation_job_sends_a_welcome_email_to_an_active_account_only(): void
+    {
+        Notification::fake();
+        $receptionRoleId = Role::query()->where('code', 'RECEPTION')->value('id');
+        $active = User::factory()->create(['role_id' => $receptionRoleId]);
+        $inactive = User::factory()->create(['role_id' => $receptionRoleId, 'active' => false]);
+
+        (new SendUserInvitationJob($active))->handle();
+        (new SendUserInvitationJob($inactive))->handle();
+
+        // A welcome email, never Laravel's "Reset your password".
+        Notification::assertSentTo($active, AccountInvitationNotification::class, function (AccountInvitationNotification $notification) use ($active) {
+            $mail = $notification->toMail($active);
+
+            return str_contains($mail->subject, 'Bienvenue')
+                && str_contains($mail->render(), 'Définir mon mot de passe')
+                && str_contains($mail->render(), 'welcome=1');
+        });
+        Notification::assertNotSentTo($active, ResetPassword::class);
+        Notification::assertNotSentTo($inactive, AccountInvitationNotification::class);
+    }
+
+    public function test_an_invitation_link_activates_the_account_and_a_reset_token_cannot_pose_as_one(): void
+    {
+        $receptionRoleId = Role::query()->where('code', 'RECEPTION')->value('id');
+        $user = User::factory()->create(['role_id' => $receptionRoleId, 'email' => 'invite@example.test']);
+        $password = 'Nouveau-Mot-De-Passe-2026!';
+
+        // A "forgot password" token replayed through the welcome page is refused.
+        $resetToken = Password::broker()->createToken($user);
+        $this->post('/reset-password', [
+            'token' => $resetToken, 'email' => $user->email, 'welcome' => 1,
+            'password' => $password, 'password_confirmation' => $password,
+        ])->assertSessionHasErrors('email');
+
+        $invitationToken = Password::broker('invitations')->createToken($user);
+        $this->post('/reset-password', [
+            'token' => $invitationToken, 'email' => $user->email, 'welcome' => 1,
+            'password' => $password, 'password_confirmation' => $password,
+        ])->assertRedirect(route('login'));
+
+        $this->assertTrue(Hash::check($password, $user->fresh()->password));
+        $this->assertDatabaseHas('audit_logs', ['action' => 'user.invite.accepted', 'entity_id' => $user->id]);
     }
 
     public function test_remote_super_admin_can_deactivate_a_user_with_external_attribution(): void

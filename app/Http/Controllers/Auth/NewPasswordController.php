@@ -27,6 +27,9 @@ class NewPasswordController extends Controller
         return Inertia::render('Auth/ResetPassword', [
             'email' => $request->query('email', ''),
             'token' => $request->route('token'),
+            // Reached from a new account's welcome email: same form, but the
+            // person is activating an account, not recovering a password.
+            'welcome' => $request->boolean('welcome'),
         ]);
     }
 
@@ -43,9 +46,13 @@ class NewPasswordController extends Controller
             'password' => ['required', 'confirmed', SecurePassword::rule()],
         ]);
 
-        $status = Password::reset(
+        // Each flow only accepts its own tokens: an invitation token lives in
+        // its own table (config/auth.php), so a one-hour reset token cannot
+        // be replayed here to gain an invitation's longer lifetime.
+        $welcome = $request->boolean('welcome');
+        $status = Password::broker($welcome ? 'invitations' : null)->reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),
-            function (User $user) use ($request, $auditor) {
+            function (User $user) use ($request, $auditor, $welcome) {
                 $user->forceFill([
                     'password' => Hash::make($request->string('password')),
                     'remember_token' => Str::random(60),
@@ -57,19 +64,23 @@ class NewPasswordController extends Controller
 
                 event(new PasswordReset($user));
 
-                $auditor->record('password.reset', entity: $user, module: 'auth', actor: $user);
+                $auditor->record($welcome ? 'user.invite.accepted' : 'password.reset', entity: $user, module: 'auth', actor: $user);
             }
         );
 
         if ($status !== Password::PASSWORD_RESET) {
             throw ValidationException::withMessages([
-                'email' => 'Ce lien de réinitialisation est invalide ou a expiré.',
+                'email' => $welcome
+                    ? 'Ce lien d’activation est invalide ou a expiré. Demandez à l’administration de vous renvoyer une invitation.'
+                    : 'Ce lien de réinitialisation est invalide ou a expiré.',
             ]);
         }
 
         return redirect()->route('login')->with(
             'status',
-            'Votre mot de passe a été modifié. Vous pouvez vous connecter.'
+            $welcome
+                ? 'Votre compte est activé. Vous pouvez maintenant vous connecter avec votre mot de passe.'
+                : 'Votre mot de passe a été modifié. Vous pouvez vous connecter.'
         );
     }
 }

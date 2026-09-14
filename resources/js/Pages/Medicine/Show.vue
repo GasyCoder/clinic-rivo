@@ -161,7 +161,7 @@ const WIZARD_LAYOUT = [
     { key: 'examen', label: 'Examen clinique', navLabel: 'Examen', hint: 'Constatations', icon: 'plus-medi' },
     { key: 'paraclinique', label: 'Examens paracliniques', navLabel: 'Paraclinique', hint: 'Selon indication', icon: 'activity' },
     { key: 'ordonnance', label: 'Prescription', navLabel: 'Prescription', hint: 'Traitement', icon: 'file-check' },
-    { key: 'cloture', label: 'Clôture de la consultation', navLabel: 'Clôture', hint: 'Vérifier et valider', icon: 'check-circle' },
+    { key: 'cloture', label: 'Décision & clôture', navLabel: 'Décision & clôture', hint: 'Conclure le passage', icon: 'check-circle' },
 ];
 const serverSteps = computed(() => props.consultation?.steps ?? {});
 const stepState = (key) => serverSteps.value[key] ?? {
@@ -521,7 +521,6 @@ const EXAM_SECTIONS = [
     { id: 'GENERAL_STATE', label: 'État général' },
     { id: 'SYSTEM_EXAM', label: 'Examen par appareil' },
     { id: 'DIAGNOSIS', label: 'Diagnostic' },
-    { id: 'CARE_PLAN', label: 'Suite de la prise en charge' },
 ];
 
 const clinicalExamDocumented = computed(() => Boolean(clinicalExamForm.general_condition)
@@ -698,6 +697,18 @@ const careOrderForm = useForm({
     instructions: '',
     requires_return_to_medicine: true,
 });
+/**
+ * Acts already waiting at Soins for this consultation: asking again would
+ * queue the same act twice. The server refuses it too; the list says so
+ * before the doctor tries.
+ */
+const pendingCareOrderCodes = computed(() => new Set((props.consultation?.care_orders ?? [])
+    .filter((order) => order.status === 'PENDING')
+    .flatMap((order) => order.items)
+    .filter((item) => !item.not_performed_at && Number(item.remaining_quantity) > 0)
+    .map((item) => item.code)));
+const isCareOrderItemPending = (item) => pendingCareOrderCodes.value.has(item.code);
+
 const isCareOrderItemSelected = (item) => careOrderForm.items.some((line) => line.catalog_item_uuid === item.uuid);
 const addCareOrderItem = (item) => {
     if (isCareOrderItemSelected(item)) return;
@@ -1174,6 +1185,9 @@ const activePrescriptionSummary = computed(() => (props.consultation?.prescripti
     .map((line) => [line.medication_name, line.posology].filter(Boolean).join(' — '))
     .join('\n'));
 
+/** The same lines, one per entry, for the discharge form's checkboxes. */
+const activePrescriptionLines = computed(() => activePrescriptionSummary.value.split('\n').filter(Boolean));
+
 const dischargeForm = useForm({
     type: 'NORMAL',
     final_diagnosis: latestFinalDiagnosis.value,
@@ -1257,9 +1271,8 @@ const orientationIsSubmitted = computed(() => activeOrientation.value?.status ==
  * déclare sa décision n'aurait aucun sens. Le lien mène alors à la
  * Paraclinique, c'est-à-dire devant le résultat qu'il vient lire.
  */
-const orientationStep = computed(
-    () => (stepState('examen').relevant === false ? 'paraclinique' : 'examen'),
-);
+// ADR-089 — la conduite à tenir ne se décide plus qu'à « Décision & clôture ».
+const orientationStep = computed(() => 'cloture');
 
 
 
@@ -1583,35 +1596,6 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         </div>
 
 
-                    <!-- §2 — la conduite à tenir peut déjà être claire à
-                         l'interrogatoire : un patient qui vient pour être
-                         transféré le dit dès la première minute. -->
-                    <div class="border-t border-gray-200 p-5 dark:border-gray-900">
-                        <ClinicalOrientationCard
-                            :orientation-uuid="orientation.uuid"
-                            :state="consultation_orientation ?? {}"
-                            :types="options.orientation_types ?? []"
-                            :priorities="options.clinical_priorities ?? []"
-                            :surgery-catalog="options.surgery_catalog ?? []"
-                            :transfer-destinations="otherSiteOptions"
-                            :is-emergency="isEmergency"
-                            return-step="consultation"
-                            :disabled="!capabilities.can_update_consultation"
-                        >
-                            <template #discharge>
-                                <ClinicalDischargeForm
-                                    v-if="!medical_discharge"
-                                    :form="dischargeForm"
-                                    :types="options.discharge_types ?? []"
-                                    :site-options="otherSiteOptions"
-                                    :disabled="!capabilities.can_discharge"
-                                    :cancellable="false"
-                                    @submit="submitDischarge"
-                                />
-                                <p v-else class="text-[11px] text-emerald-700 dark:text-emerald-300">Sortie médicale déjà prononcée.</p>
-                            </template>
-                        </ClinicalOrientationCard>
-                    </div>
 
                         <ConsultationStepBar
                             :orientation-uuid="orientation.uuid"
@@ -1747,6 +1731,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         <div class="mt-3">
                                             <ClinicalDiagnosisEntry
                                                 :orientation-uuid="orientation.uuid"
+                                                return-step="examen"
                                                 :disabled="!capabilities.can_create_diagnosis"
                                                 compact
                                             />
@@ -1761,37 +1746,6 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 </section>
                             </template>
 
-                            <template #CARE_PLAN>
-                                <!-- §3 / §28 — la conduite à tenir se décide
-                                     ici quand elle est déjà claire, et son
-                                     formulaire s'ouvre aussitôt. Plus de
-                                     « Décision » à atteindre pour redire une
-                                     décision déjà prise (ADR-084). -->
-                                <ClinicalOrientationCard
-                                    :orientation-uuid="orientation.uuid"
-                                    :state="consultation_orientation ?? {}"
-                                    :types="options.orientation_types ?? []"
-                                    :priorities="options.clinical_priorities ?? []"
-                                    :surgery-catalog="options.surgery_catalog ?? []"
-                                    :transfer-destinations="otherSiteOptions"
-                                    :is-emergency="isEmergency"
-                                    return-step="examen"
-                                    :disabled="!capabilities.can_update_consultation"
-                                >
-                                    <template #discharge>
-                                        <ClinicalDischargeForm
-                                            v-if="!medical_discharge"
-                                            :form="dischargeForm"
-                                            :types="options.discharge_types ?? []"
-                                            :site-options="otherSiteOptions"
-                                            :disabled="!capabilities.can_discharge"
-                                            :cancellable="false"
-                                            @submit="submitDischarge"
-                                        />
-                                        <p v-else class="text-[11px] text-emerald-700 dark:text-emerald-300">Sortie médicale déjà prononcée — son détail figure à l’étape Clôture.</p>
-                                    </template>
-                                </ClinicalOrientationCard>
-                            </template>
 
                         </SortableSections>
                             </template>
@@ -2038,60 +1992,6 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </template>
 
 
-                    <!-- §2 — la conduite à tenir se décide « dès
-                         l'interrogatoire, l'examen clinique, ou après les
-                         examens complémentaires ». Un patient venu pour une
-                         seule échographie n'a ni interrogatoire ni examen :
-                         c'est ici, devant son résultat, qu'il est conclu. -->
-                    <div class="border-t border-gray-200 p-5 dark:border-gray-900">
-                        <!-- Le diagnostic n'est proposé ici que lorsque
-                             l'examen clinique est sans objet : ailleurs il
-                             reste conclu à l'examen (ADR-080), et deux points
-                             de saisie pour un même acte se contrediraient. -->
-                        <section v-if="stepState('examen').relevant === false" class="mb-4 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-                            <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Diagnostic</h3>
-                            <p class="mt-1 text-[11px] leading-4 text-slate-400">Ce passage ne comporte pas d’examen clinique : la conclusion se consigne ici.</p>
-                            <ul v-if="activeDiagnoses.length" class="mt-3 space-y-1.5">
-                                <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-950">
-                                    <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ diagnosis.description }}</span>
-                                    <span class="mt-0.5 block truncate text-[10px] text-slate-400">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</span>
-                                </li>
-                            </ul>
-                            <div class="mt-3">
-                                <ClinicalDiagnosisEntry
-                                    :orientation-uuid="orientation.uuid"
-                                    :disabled="!capabilities.can_create_diagnosis"
-                                    compact
-                                />
-                            </div>
-                        </section>
-
-                        <ClinicalOrientationCard
-                            :orientation-uuid="orientation.uuid"
-                            :state="consultation_orientation ?? {}"
-                            :types="options.orientation_types ?? []"
-                            :priorities="options.clinical_priorities ?? []"
-                            :surgery-catalog="options.surgery_catalog ?? []"
-                            :transfer-destinations="otherSiteOptions"
-                            :is-emergency="isEmergency"
-                            return-step="paraclinique"
-                            collapsible
-                            :disabled="!capabilities.can_update_consultation"
-                        >
-                            <template #discharge>
-                                <ClinicalDischargeForm
-                                    v-if="!medical_discharge"
-                                    :form="dischargeForm"
-                                    :types="options.discharge_types ?? []"
-                                    :site-options="otherSiteOptions"
-                                    :disabled="!capabilities.can_discharge"
-                                    :cancellable="false"
-                                    @submit="submitDischarge"
-                                />
-                                <p v-else class="text-[11px] text-emerald-700 dark:text-emerald-300">Sortie médicale déjà prononcée.</p>
-                            </template>
-                        </ClinicalOrientationCard>
-                    </div>
 
                     <ConsultationStepBar
                         :orientation-uuid="orientation.uuid"
@@ -2205,12 +2105,13 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <label class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Ajouter un acte de soins</label>
                             <IconInput v-model="careOrderSearch" icon="search" placeholder="Injection, perfusion, pansement…" />
                             <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
-                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-start transition-colors hover:bg-gray-50 disabled:cursor-default disabled:bg-gray-50/70 dark:hover:bg-gray-1000 dark:disabled:bg-gray-1000/60" @click="addCareOrderItem(item)">
+                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item) || isCareOrderItemPending(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-start transition-colors hover:bg-gray-50 disabled:cursor-default disabled:bg-gray-50/70 dark:hover:bg-gray-1000 dark:disabled:bg-gray-1000/60" @click="addCareOrderItem(item)">
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span>
                                         <span v-if="item.code" class="mt-0.5 block font-mono text-[10px] text-slate-400">{{ item.code }}</span>
                                     </span>
-                                    <span v-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary-700 dark:text-primary-300"><Icon name="check" />Ajouté</span>
+                                    <span v-if="isCareOrderItemPending(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><Icon name="clock" />Déjà en attente aux Soins</span>
+                                    <span v-else-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary-700 dark:text-primary-300"><Icon name="check" />Ajouté</span>
                                     <span v-else class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-primary-600 dark:border-gray-800 dark:text-primary-300"><Icon name="plus" /></span>
                                 </button>
                             </div>
@@ -2491,41 +2392,67 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                      à faire — et comment y retourner. -->
                 <Card v-if="cardIsOpen('cloture')" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
                     <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Clôture de la consultation</h2>
+                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Décision & clôture</h2>
                         <p class="mt-1 text-xs text-slate-400">La clôture ne réalise aucun encaissement et ne ferme pas le passage administratif.</p>
                     </div>
 
                     <div class="p-5">
-                        <!-- La conduite à tenir se coche, elle ne se remplit
-                             pas : sa demande a déjà été transmise depuis
-                             l'examen clinique. « Modifier » y ramène. -->
-                        <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-800">
-                            <div class="flex min-w-0 items-center gap-3">
-                                <span
-                                    :class="[
-                                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border',
-                                        orientationIsSubmitted
-                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                                            : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
-                                    ]"
-                                >
-                                    <Icon :name="orientationIsSubmitted ? 'check' : 'alert-circle'" />
-                                </span>
-                                <div class="min-w-0">
-                                    <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Suite de la prise en charge</p>
-                                    <p v-if="activeOrientation" class="mt-0.5 truncate text-sm font-bold text-slate-700 dark:text-white">
-                                        {{ activeOrientation.type_label }}
-                                        <span class="font-normal text-slate-400">· {{ activeOrientation.status_label }}</span>
-                                        <span v-if="activeOrientation.request?.summary" class="font-normal text-slate-400"> · {{ activeOrientation.request.summary }}</span>
-                                    </p>
-                                    <p v-else class="mt-0.5 text-sm text-slate-500 dark:text-slate-300">Non déterminée</p>
-                                </div>
+                        <!-- ADR-089 — un seul endroit pour conclure le passage :
+                             diagnostic, conduite à tenir et vérification, de haut
+                             en bas, sans jamais renvoyer le médecin ailleurs. -->
+                        <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">1 · Diagnostic</h3>
+                                <span v-if="activeDiagnoses.length" class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><Icon class="text-sm" name="check-circle" />{{ activeDiagnoses.length }} enregistré{{ activeDiagnoses.length > 1 ? 's' : '' }}</span>
                             </div>
-                            <Button :as="Link" :href="stepUrl(orientationStep)" size="sm" variant="white-outline">
-                                <Icon class="me-1.5 text-sm" name="edit" />{{ activeOrientation ? 'Modifier' : 'Définir' }}
-                            </Button>
-                        </div>
+                            <ul v-if="activeDiagnoses.length" class="mt-3 space-y-1.5">
+                                <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-950">
+                                    <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ diagnosis.description }}</span>
+                                    <span class="mt-0.5 block truncate text-[10px] text-slate-400">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</span>
+                                </li>
+                            </ul>
+                            <p v-else class="mt-1 text-[11px] leading-4 text-slate-400">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
+                            <div class="mt-3">
+                                <ClinicalDiagnosisEntry
+                                    :orientation-uuid="orientation.uuid"
+                                    return-step="cloture"
+                                    :disabled="!capabilities.can_create_diagnosis"
+                                    compact
+                                />
+                            </div>
+                        </section>
 
+                        <section class="mt-4">
+                            <h3 class="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">2 · Conduite à tenir</h3>
+                            <ClinicalOrientationCard
+                                :orientation-uuid="orientation.uuid"
+                                :state="consultation_orientation ?? {}"
+                                :types="options.orientation_types ?? []"
+                                :priorities="options.clinical_priorities ?? []"
+                                :surgery-catalog="options.surgery_catalog ?? []"
+                                :transfer-destinations="otherSiteOptions"
+                                :is-emergency="isEmergency"
+                                return-step="cloture"
+                                :disabled="!capabilities.can_update_consultation"
+                            >
+                                <template #discharge>
+                                    <ClinicalDischargeForm
+                                        v-if="!medical_discharge"
+                                        :form="dischargeForm"
+                                        :types="options.discharge_types ?? []"
+                                        :diagnoses="activeDiagnoses"
+                                        :prescription-lines="activePrescriptionLines"
+                                        :site-options="otherSiteOptions"
+                                        :disabled="!capabilities.can_discharge"
+                                        :cancellable="false"
+                                        @submit="submitDischarge"
+                                    />
+                                    <p v-else class="text-[11px] text-emerald-700 dark:text-emerald-300">Sortie médicale déjà prononcée — son détail figure ci-dessous.</p>
+                                </template>
+                            </ClinicalOrientationCard>
+                        </section>
+
+                        <h3 class="mb-2 mt-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">3 · Vérification</h3>
                         <!-- Ce qui manque est dit ici, avec le chemin pour y
                              revenir — jamais un bouton grisé sans explication. -->
                         <div v-if="closureBlockers.length" class="mt-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/20">

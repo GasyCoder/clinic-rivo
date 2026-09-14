@@ -793,7 +793,23 @@ const confirmNotPerformed = () => {
 };
 
 const activeCareOrder = computed(() => props.careOrders.find((order) => order.status !== 'COMPLETED') ?? null);
-const careOrderUnresolvedCount = computed(() => activeCareOrder.value?.items.filter((item) => Number(item.remaining_quantity) > 0 && !item.not_performed_at).length ?? 0);
+/**
+ * Acts the doctor asked for that nothing covers yet.
+ *
+ * "Terminer" is the very action that records the acts entered on this page
+ * (record-and-complete). Counting only what is already saved kept the button
+ * disabled forever: an act typed here, linked to the order line, covers it.
+ * The server re-checks after saving, in the same transaction.
+ */
+const careOrderUnresolvedCount = computed(() => activeCareOrder.value?.items.filter((item) => {
+    if (item.not_performed_at) return false;
+
+    const entered = form.procedures
+        .filter((line) => line.care_order_item_uuid === item.uuid)
+        .reduce((total, line) => total + (Number(line.quantity) || 0), 0);
+
+    return Number(item.remaining_quantity) - entered > 0;
+}).length ?? 0);
 const isEmergency = computed(() => episode.value.priority === 'EMERGENCY');
 
 // Purely a label: the actual destination/settlement rule is decided

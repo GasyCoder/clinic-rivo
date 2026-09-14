@@ -229,6 +229,8 @@ const openGroup = ref(null);
                         >
                             <td class="px-5 py-3">
                                 <span v-if="group.orientations.length === 1 && group.orientations[0].queue_number" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ group.orientations[0].queue_number }}</span>
+                                <!-- Déjà pris en charge : la place dans l'attente est consommée. -->
+                                <span v-else-if="group.orientations.length === 1 && group.orientations[0].status === 'IN_PROGRESS'" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900" title="Déjà pris en charge — ne compte plus dans l'attente" aria-label="Déjà pris en charge"><Icon name="user-check" /></span>
                                 <span v-else class="text-slate-300 dark:text-slate-700">—</span>
                             </td>
                             <td class="px-5 py-3">

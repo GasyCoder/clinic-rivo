@@ -36,7 +36,8 @@ class EpisodeQueuePresenter
     public function __construct(private readonly CareWorkflow $careWorkflow) {}
 
     /**
-     * Sequential queue position (1, 2, 3…) in arrival order. A Normal
+     * Sequential queue position (1, 2, 3…) in arrival order, among patients
+     * still waiting to be taken in charge only. A Normal
      * patient gets one immediately; an Emergency patient only joins once
      * Médecine has completed its first consultation for that episode — no
      * longer being fast-tracked ahead of everyone waiting. Computed over
@@ -119,6 +120,14 @@ class EpisodeQueuePresenter
 
     private function isQueueEligible(EpisodeOrientation $orientation): bool
     {
+        // A queue number is a place in the waiting line. Once a professional
+        // has taken the patient in charge, that place is used up: keeping it
+        // would let a consultation waiting for a result, or a patient at
+        // Soins, sit ahead of the next person who actually waits.
+        if ($orientation->status !== EpisodeOrientationStatus::Pending) {
+            return false;
+        }
+
         if ($orientation->episode->priority !== EpisodePriority::Emergency) {
             return true;
         }

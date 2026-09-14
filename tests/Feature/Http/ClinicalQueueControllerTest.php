@@ -263,6 +263,35 @@ class ClinicalQueueControllerTest extends TestCase
                 ->where('orientations.data.1.queue_number', 1));
     }
 
+    public function test_a_patient_already_taken_in_charge_gives_up_their_queue_number(): void
+    {
+        $doctor = $this->user('MEDICINE', ['consultations.view', 'consultations.create']);
+        $service = $this->service($doctor, ReceptionRoutingMode::MedicineDirect);
+
+        $seen = $this->app->make(CreateEpisodeAction::class)->execute($this->patient('M-000011'));
+        $this->app->make(PlanEpisodeRoutingAction::class)->execute($seen, [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]], $doctor);
+        $waiting = $this->app->make(CreateEpisodeAction::class)->execute($this->patient('M-000012'));
+        $this->app->make(PlanEpisodeRoutingAction::class)->execute($waiting, [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]], $doctor);
+
+        $seenOrientation = $seen->orientations()->where('destination_module', 'MEDICINE')->sole();
+        $seenOrientation->forceFill(['oriented_at' => now()->subMinutes(30)])->saveQuietly();
+        $waiting->orientations()->where('destination_module', 'MEDICINE')->sole()
+            ->forceFill(['oriented_at' => now()->subMinutes(5)])->saveQuietly();
+
+        // Arrived first, but already in consultation: their place in the
+        // waiting line is used up, and the next person who waits is N°1.
+        $this->app->make(AcceptMedicineOrientationAction::class)->execute($seenOrientation, $doctor);
+
+        $this->actingAs($doctor)->get('/medicine')
+            ->assertInertia(fn ($page) => $page->where('orientations.data', function ($rows) use ($seen, $waiting) {
+                $byEpisode = collect($rows)->keyBy(fn ($row) => $row['episode']['uuid']);
+
+                return $byEpisode[$seen->uuid]['queue_number'] === null
+                    && $byEpisode[$seen->uuid]['status'] === 'IN_PROGRESS'
+                    && $byEpisode[$waiting->uuid]['queue_number'] === 1;
+            }));
+    }
+
     public function test_queue_keeps_a_mutual_designation_visible_when_its_tariff_is_not_configured(): void
     {
         $nurse = $this->user('NURSE', ['care.view']);

@@ -15,7 +15,9 @@ defineProps({
 defineEmits(['change']);
 
 const choices = [
-    { value: '', label: 'Hériter' },
+    // "Selon le rôle", not "Hériter": the neutral state is not an absence of
+    // decision, it is the role's own grant — green when the role allows it.
+    { value: '', label: 'Selon le rôle' },
     { value: 'allow', label: 'Autoriser' },
     { value: 'deny', label: 'Interdire' },
 ];
@@ -25,7 +27,7 @@ const choices = [
     <div
         :class="[
             'grid gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-900 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center',
-            state === 'allow' ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : state === 'deny' ? 'bg-red-50/30 dark:bg-red-950/10' : '',
+            state === 'allow' ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : state === 'deny' ? 'bg-red-50/30 dark:bg-red-950/10' : roleGranted ? 'bg-emerald-50/15 dark:bg-emerald-950/5' : '',
         ]"
     >
         <div class="min-w-0">
@@ -34,7 +36,8 @@ const choices = [
                 <span v-if="sensitive" class="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900">
                     <Icon class="text-xs" name="alert-circle" />Sensible
                 </span>
-                <span v-if="state === ''" class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900">Hérité</span>
+                <span v-if="state === '' && roleGranted" class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900">Inclus dans le rôle</span>
+                <span v-else-if="state === ''" class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900">Non inclus dans le rôle</span>
                 <span v-else-if="state === 'allow'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">Exception · Autorisé</span>
                 <span v-else class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950 dark:text-red-300">Exception · Interdit</span>
             </div>
@@ -63,7 +66,9 @@ const choices = [
                                 ? 'bg-emerald-600 text-white shadow-sm'
                                 : choice.value === 'deny'
                                     ? 'bg-red-600 text-white shadow-sm'
-                                    : 'bg-white text-slate-700 shadow-sm dark:bg-gray-950 dark:text-white'
+                                    : roleGranted
+                                        ? 'bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900'
+                                        : 'bg-white text-slate-700 shadow-sm dark:bg-gray-950 dark:text-white'
                             : 'text-slate-500 hover:bg-white hover:text-slate-700 dark:hover:bg-gray-950 dark:hover:text-white',
                     ]"
                     @click="$emit('change', choice.value)"

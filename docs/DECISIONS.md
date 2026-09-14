@@ -4683,3 +4683,105 @@ s'exécutent entièrement dans le navigateur du Super Admin, chargées à la
 demande (import dynamique) uniquement lors d'un import réel : aucune nouvelle
 dépendance serveur n'est ajoutée, dans le même esprit que la limite déjà
 actée par ADR-070 (« pas de génération PDF serveur »).
+---
+
+# ADR-088 — « Demander un soin » ne termine plus la consultation
+
+**Status:** ACCEPTED (2026-09-13 — arbitrage explicite du propriétaire)
+
+**Amende l'ADR-055** sur un point : « pour un patient `NORMAL`, l'orientation
+Médecine active est terminée avant l'ouverture de Soins, afin qu'une seule
+orientation clinique active existe à la fois ».
+
+## Le conflit constaté
+
+L'ADR-084 a fait de la clôture le **seul** acte qui termine l'orientation
+Médecine. `CreateCareOrderAction` la terminait pourtant encore dès la demande
+de soins. Cas réel du 2026-09-13 : un médecin demande une échographie puis un
+soin ; la consultation reste `IN_PROGRESS` sur une orientation `COMPLETED`. Le
+dossier devient lecture seule : impossible de consigner le diagnostic, de
+choisir la suite de la prise en charge ou de clôturer, alors même que la
+clôture l'exige.
+
+## La règle
+
+La consultation **reste ouverte** pendant que le patient est aux Soins. Le
+médecin continue d'y consigner diagnostic, examens, prescription et suite de la
+prise en charge, puis clôture quand il a terminé — c'est la clôture qui termine
+l'orientation Médecine (ADR-084), quelle que soit la priorité du passage.
+
+Pendant ce temps, le patient figure à la fois dans la file Soins (l'acte
+demandé) et dans la consultation Médecine en cours. Ce n'est pas un doublon :
+ce sont deux travaux distincts sur le même passage, et l'ADR-085 empêche
+toujours tout second transfert vers Médecine.
+
+Conséquences, sans nouveau mécanisme :
+
+```text
+retour en Médecine demandé   la consultation est déjà ouverte : aucune
+                             nouvelle orientation ni consultation n'est créée
+sans retour en Médecine      les Soins terminent leur acte ; le passage ne
+                             passe en PENDING_SETTLEMENT qu'une fois la
+                             consultation aussi clôturée (ADR-054)
+```
+
+## Données existantes
+
+La consultation n°1 du site Ambondromamy (passage `A-26-0001-01`), bloquée par
+l'ancien comportement, a été rouverte à la demande du propriétaire : son
+orientation Médecine est repassée `IN_PROGRESS`, tracée dans l'audit sous
+`episode.orientation.reopen`. La demande de soins envoyée reste valable.
+
+Aucune permission nouvelle.
+
+---
+
+# ADR-089 — Une seule étape pour conclure : « Décision & clôture »
+
+**Status:** ACCEPTED (2026-09-13 — validation explicite du propriétaire)
+
+**Amende l'ADR-084** sur sa section « Décidée aux trois moments où elle peut
+l'être », et l'ADR-080 pour le lieu de saisie du diagnostic d'un passage sans
+examen clinique.
+
+## Le problème
+
+La carte « Suite de la prise en charge » était présente à l'Interrogatoire, à
+l'Examen et à la Paraclinique, et l'étape Clôture se contentait de vérifier.
+En pratique, la Clôture listait ce qui manquait — « consignez le diagnostic à
+l'étape Paraclinique », « Sortie médicale : à configurer » — et renvoyait le
+médecin ailleurs pour le faire. Conclure un passage demandait des allers-retours
+entre trois écrans.
+
+## La règle
+
+La dernière étape devient **« Décision & clôture »**. Conclure s'y fait en un
+seul écran, de haut en bas :
+
+```text
+1 · Diagnostic        liste des diagnostics actifs + saisie
+2 · Conduite à tenir  choix de la destination et son formulaire prérempli
+3 · Vérification      ce qui manque encore, puis « Clôturer la consultation »
+```
+
+La carte de conduite à tenir disparaît de l'Interrogatoire, de l'Examen et de
+la Paraclinique : ces étapes redeviennent du recueil. Les messages d'obstacle
+nomment désormais cette seule étape.
+
+## Ce qui justifiait trois emplacements, et pourquoi ce n'est plus nécessaire
+
+- **Décider tôt** (patient au bloc dès l'examen) : le parcours n'est pas
+  verrouillé ; le médecin ouvre directement « Décision & clôture », transmet la
+  demande, et peut revenir prescrire ensuite.
+- **Passage paraclinique seul** (échographie, ECG, analyse) : ses étapes sans
+  objet sont sautées ; il arrive à la même étape finale, où il pose son
+  diagnostic et sa conduite comme tout autre patient.
+
+## Ce qui ne change pas
+
+Le diagnostic peut toujours être posé à l'Examen clinique (ADR-080), avec sa
+correction et son annulation par l'auteur (ADR-035/081). Une orientation choisie
+mais non transmise bloque toujours la clôture ; changer d'avis annule sans
+effacer ; seule la clôture termine l'orientation Médecine (ADR-084, ADR-088).
+Aucun endpoint, aucune donnée ni permission ne change : seul le lieu de saisie
+dans l'assistant est déplacé.

@@ -436,8 +436,11 @@ class ConsultationOrientationTest extends TestCase
         $this->assertSame('COMPLETED', $orientation->consultation()->firstOrFail()->status->value);
     }
 
-    /** Le message d'obstacle nomme l'écran où CE patient peut conclure. */
-    public function test_the_closure_blocker_names_the_step_this_patient_can_actually_use(): void
+    /**
+     * ADR-089 — every patient concludes on the same step: the blockers never
+     * send the doctor back to the examination or the paraclinical screen.
+     */
+    public function test_the_closure_blockers_point_every_patient_to_the_decision_step(): void
     {
         $doctor = $this->doctor();
         [, $imagingOnly] = $this->consultation($doctor, module: CatalogModule::Imaging);
@@ -447,11 +450,31 @@ class ConsultationOrientationTest extends TestCase
             ->get("/medicine/orientations/{$uuid}/cloture")
             ->viewData('page')['props']['consultation']['closure_blockers']);
 
-        $imagingBlockers = $blockersFor($imagingOnly->uuid);
-        $this->assertStringContainsString('Paraclinique', $imagingBlockers);
-        $this->assertStringNotContainsString('examen clinique', $imagingBlockers);
+        foreach ([$blockersFor($imagingOnly->uuid), $blockersFor($normal->uuid)] as $blockers) {
+            $this->assertStringContainsString('Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.', $blockers);
+            $this->assertStringContainsString('Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).', $blockers);
+            $this->assertStringNotContainsString('Paraclinique', $blockers);
+            $this->assertStringNotContainsString('examen clinique', $blockers);
+        }
+    }
 
-        $this->assertStringContainsString('examen clinique', $blockersFor($normal->uuid));
+    /** ADR-089 — a diagnosis recorded at « Décision & clôture » keeps the doctor there. */
+    public function test_a_diagnosis_recorded_from_the_decision_step_stays_on_that_step(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
+            'type' => 'FINAL',
+            'description' => 'Otite moyenne aiguë',
+            'return_step' => 'cloture',
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/cloture");
+
+        // Without a step, the examination stays the default.
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
+            'type' => 'FINAL',
+            'description' => 'Rhinite',
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
     }
 
     /** An old bookmark must land on the screen that carries the function. */

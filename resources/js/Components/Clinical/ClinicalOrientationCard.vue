@@ -24,6 +24,11 @@ import { formatDateTime } from '@/utilities/date';
  */
 const props = defineProps({
     orientationUuid: { type: String, required: true },
+    /**
+     * La poignée `useFormDraft` de la page. Les demandes saisies ici sont
+     * longues ; sans elle, une actualisation les efface (ADR-073).
+     */
+    draft: { type: Object, default: null },
     /** The server's `consultation_orientation` payload. */
     state: { type: Object, default: () => ({}) },
     types: { type: Array, default: () => [] },
@@ -190,6 +195,17 @@ const submitReferral = () => referralForm.post(
  * the receiving service reads a structured note rather than a blob.
  */
 const serviceReferralForm = useForm({ destination: '', reason: '', return_step: props.returnStep });
+
+// Rattachés au brouillon serveur : ce que le médecin tape dans une demande
+// de chirurgie, d'hospitalisation ou de transfert survit à une actualisation
+// comme le reste de la consultation.
+if (props.draft?.register) {
+    props.draft.register('surgical_referral', surgeryForm);
+    props.draft.register('hospitalization', hospitalizationForm);
+    props.draft.register('referral', referralForm);
+    props.draft.register('service_orientation', serviceForm);
+    props.draft.register('service_referral', serviceReferralForm);
+}
 const submitService = () => {
     serviceReferralForm.destination = serviceForm.destination;
     serviceReferralForm.reason = [

@@ -126,7 +126,7 @@ class MedicineWizardRenderingTest extends TestCase
             'items' => [['catalog_item_uuid' => $ecg->uuid]],
             'notes' => 'Douleur thoracique',
             'continue_to_diagnosis' => true,
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
 
         $item = ImagingRequestItem::query()->sole();
         $this->assertSame($episode->id, $item->imagingRequest->episode_id);

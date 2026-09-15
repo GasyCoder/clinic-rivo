@@ -79,7 +79,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Caisse unique
 - [ ] Paiements
 - [ ] Paiements partiels
-- [ ] Créances
+- [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
+- [x] Créance immuable créée par une sortie non soldée, jamais effacée par une évasion
+- [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
 - [ ] Remboursements autorisés
 - [ ] Remises autorisées
 - [ ] Reçus
@@ -109,6 +111,11 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Consommables déclarés aux Soins, notifiés à la Pharmacie, facturés séparément et sortis du stock sans attendre le règlement
 - [x] Matériel habituel configurable par acte de soins, pré-rempli comme suggestion et toujours confirmé par le soignant
 - [x] Saisie en cours de la fiche de soins conservée par auteur et restaurée après actualisation
+- [x] Fiche de soins corrigeable après le transfert vers Médecine, par tout compte Soins autorisé et tracée à l'audit ; le transfert lui-même reste unique (ADR-092)
+- [x] Alcool déclaré à côté du Tabac, à trois états (non renseigné / non / oui)
+- [x] Constantes corrigeables par le médecin depuis la consultation, périmètre borné aux constantes et écrasement tracé à l'audit (ADR-093)
+- [x] Alertes de constantes hors bornes présentées comme des alertes actionnables en Médecine, et confirmation explicite avant de clôturer sur une constante critique
+- [x] Brouillon serveur étendu aux demandes de « Conduite à tenir » (chirurgie, hospitalisation, transfert), jusque-là perdues à l'actualisation (ADR-073)
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
 - [ ] Hospitalisation
@@ -129,6 +136,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Diagnostic conclu dans l'Examen clinique quand il peut l'être ; « Pas maintenant » diffère sans rien bloquer (ADR-080)
 - [x] Étape Diagnostic retirée de l'assistant (six étapes) : correction et annulation dans l'examen, historique complet — annulés compris — dans « Contexte clinique » (ADR-081)
 - [x] Clôture vérifiant directement l'existence d'un diagnostic actif, au lieu de l'état d'un écran
+- [x] Diagnostic final facultatif pour un passage venu seulement pour un examen (ECG, écho, analyse) : la conclusion de l'examen en tient lieu, et le résultat n'est souvent pas revenu à la clôture (ADR-094)
+- [x] « Le diagnostic peut-il être posé maintenant ? » posée à Décision & clôture, seule étape que tout patient atteint ; un report est nommé comme tel dans les blocages au lieu de passer pour un oubli (ADR-095)
 - [x] Saisie de diagnostic sans distinction hypothèse / final ; les hypothèses déjà enregistrées gardent leur type et restent signalées (ADR-082)
 - [x] Voie d'administration sur les lignes d'ordonnance, facultative et jamais rétro-remplie (ADR-083)
 - [x] Posologie composée avec ses unités à la saisie ; plus de « Dose 500 / Fréquence 3 » sans contexte
@@ -141,6 +150,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Module Hospitalisation (admission, lit, séjour, sortie du service) — règles non définies au CDC, demande seule implémentée
 - [x] Changement d'orientation traçable : annulation propre tant que la destination n'a pas pris la demande, refus explicite ensuite
 - [x] Clôture seule responsable de terminer l'orientation Médecine et de porter la sortie sur l'épisode
+- [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
+- [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)
 
 ---
 

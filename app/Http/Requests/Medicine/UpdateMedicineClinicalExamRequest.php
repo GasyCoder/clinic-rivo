@@ -70,10 +70,6 @@ class UpdateMedicineClinicalExamRequest extends FormRequest
             ],
             'general_observation' => ['nullable', 'string', 'max:2000'],
 
-            // « Le diagnostic peut-il être posé maintenant ? » — même
-            // tri-état : null tant que le médecin n'a pas répondu.
-            'diagnosis_ready' => ['nullable', 'boolean'],
-
             'systems' => ['sometimes', 'array', 'max:'.count(ClinicalExamSystem::cases())],
             'systems.*.system_code' => ['required', Rule::in(ClinicalExamSystem::values())],
             'systems.*.status' => ['required', Rule::in(ClinicalSystemStatus::values())],

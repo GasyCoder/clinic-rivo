@@ -35,6 +35,23 @@ const form = useForm({
     cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
 });
 
+// Le mode choisi décide si sa référence externe est obligatoire : un
+// transfert mobile, un chèque ou un virement portent un numéro sans lequel
+// le paiement ne peut pas être rapproché. Le champ existait déjà ici, mais
+// toujours annoncé « (facultatif) » — la réceptionniste le laissait donc
+// vide et `RecordPaymentAction` refusait l'encaissement côté serveur, sans
+// que l'écran n'ait jamais demandé la valeur manquante.
+const selectedPaymentMethod = computed(() => props.paymentMethods
+    .find((method) => method.id === form.payment_method_id) ?? null);
+const paymentReferenceRequired = computed(() => Boolean(selectedPaymentMethod.value?.requires_reference));
+const paymentReferenceLabel = computed(() => ({
+    CHECK: 'N° du chèque',
+    BANK_TRANSFER: 'Référence du virement',
+    MOBILE_MONEY_ORANGE: 'N° de transaction Orange Money',
+    MOBILE_MONEY_MVOLA: 'N° de transaction MVola',
+    MOBILE_MONEY_AIRTEL: 'N° de transaction Airtel Money',
+}[selectedPaymentMethod.value?.code] ?? 'Référence'));
+
 const patientTypeLabels = {
     STANDARD: 'Patient standard',
     MUTUAL: 'Patient mutualiste',
@@ -214,7 +231,7 @@ const submit = () => {
                             <template v-if="form.payment_choice === 'NOW'">
                                 <label v-if="openCashSessions.length > 1"><span class="mb-1 block text-xs font-medium text-slate-500">Caisse</span><select v-model="form.cash_register_uuid" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="">Choisir…</option><option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option></select><FormError v-if="form.errors.cash_register_uuid">{{ form.errors.cash_register_uuid }}</FormError></label>
                                 <label><span class="mb-1 block text-xs font-medium text-slate-500">Mode de paiement</span><select v-model="form.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select></label>
-                                <label><span class="mb-1 block text-xs font-medium text-slate-500">Référence <span class="font-normal text-slate-400">(facultatif)</span></span><Input v-model="form.payment_reference" /></label>
+                                <label><span class="mb-1 block text-xs font-medium text-slate-500">{{ paymentReferenceLabel }} <span v-if="paymentReferenceRequired" class="text-red-500">*</span><span v-else class="font-normal text-slate-400">(facultatif)</span></span><Input v-model="form.payment_reference" :required="paymentReferenceRequired" :placeholder="paymentReferenceRequired ? 'N° de transaction' : ''" /><FormError v-if="form.errors.payment_reference">{{ form.errors.payment_reference }}</FormError></label>
                             </template>
                         </div>
                         <div v-else class="px-4 py-3 text-xs text-slate-400">Le choix du règlement apparaît après l’ajout d’une prestation tarifée.</div>

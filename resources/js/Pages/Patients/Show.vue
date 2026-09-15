@@ -1,16 +1,36 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    ArrowRight,
+    CircleDollarSign,
+    Clock3,
+    FileHeart,
+    FileText,
+    History,
+    LayoutGrid,
+    List,
+    Pencil,
+    ReceiptText,
+    Search,
+    ShieldCheck,
+    UserRound,
+    WalletCards,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Avatar from '@/Components/UI/Avatar.vue';
-import Button from '@/Components/UI/Button.vue';
+import Avatar from '@/Components/Shadcn/Avatar.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormGroup from '@/Components/UI/FormGroup.vue';
 import FormLabel from '@/Components/UI/FormLabel.vue';
 import Icon from '@/Components/UI/Icon.vue';
-import IconInput from '@/Components/UI/IconInput.vue';
-import Input from '@/Components/UI/Input.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -27,6 +47,24 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
+
+const billingCatalogOptions = computed(() => (props.billingCatalog ?? []).map((catalogItem) => ({
+    value: catalogItem.uuid,
+    label: `${catalogItem.code} · ${catalogItem.name} — patient ${formatMoney(catalogItem.patient_amount ?? catalogItem.tariff_amount)}`,
+})));
+const cashRegisterOptions = computed(() => props.openCashSessions.map((session) => ({
+    value: session.register_uuid ?? '',
+    label: session.register_name ?? session.session_number,
+})));
+const paymentMethodOptions = computed(() => (props.paymentMethods ?? []).map((method) => ({
+    value: String(method.id),
+    label: method.name,
+})));
+// Le Select travaille en chaînes ; `payment_method_id` doit rester un entier,
+// comme l'attend le reste de ce formulaire et la validation serveur.
+const setPaymentMethod = (value) => {
+    paymentForm.payment_method_id = value === '' ? '' : Number(value);
+};
 const validSections = ['overview', 'billing', 'episodes'];
 const requestedSection = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('section')
@@ -40,6 +78,17 @@ const mutualAttachmentsOpen = ref(false);
 const episodeQuery = ref('');
 const episodeStatusFilter = ref('');
 const episodeUrgencyFilter = ref('');
+const episodeStatusOptions = [
+    { value: '', label: 'Tous les statuts' },
+    { value: 'OPEN', label: 'Ouvert' },
+    { value: 'CLOSED', label: 'Clos' },
+    { value: 'CANCELLED', label: 'Annulé' },
+];
+const episodeUrgencyOptions = [
+    { value: '', label: 'Toutes les priorités' },
+    { value: 'emergency', label: 'Urgence' },
+    { value: 'normal', label: 'Priorité normale' },
+];
 const storedEpisodeViewMode = (() => {
     try {
         return localStorage.getItem('rivo:patient-episodes:view');
@@ -221,6 +270,9 @@ const openPaymentDialog = (invoice) => {
 const closePaymentDialog = () => {
     if (!paymentForm.processing) paymentTarget.value = null;
 };
+const handlePaymentDialogOpen = (open) => {
+    if (!open) closePaymentDialog();
+};
 
 const recordPayment = () => {
     paymentForm.post(`/patients/${props.patient.uuid}/payments`, {
@@ -237,6 +289,9 @@ const openCancellationDialog = (payment) => {
 
 const closeCancellationDialog = () => {
     if (!cancellationForm.processing) cancellationTarget.value = null;
+};
+const handleCancellationDialogOpen = (open) => {
+    if (!open) closeCancellationDialog();
 };
 
 const cancelPayment = () => {
@@ -275,7 +330,13 @@ const administrativeStatusLabels = {
     ORIENTED: 'Orienté',
     IN_CARE: 'En cours de soins',
     PENDING_SETTLEMENT: 'En attente de règlement',
+    // CDC §33.3 — les trois sorties administratives réelles. DISCHARGED est
+    // l'ancien fourre-tout, jamais écrit depuis l'ADR-090 mais conservé
+    // lisible.
     DISCHARGED: 'Sorti',
+    DISCHARGED_PAID: 'Sorti — payé comptant',
+    DISCHARGED_DEBT: 'Sorti — dette validée',
+    DISCHARGED_ESCAPED: 'Sorti — évadé',
 };
 const pathwayStatus = (episode) => {
     const orientations = episode.orientations ?? [];
@@ -351,6 +412,7 @@ const careVitalsSummary = (record) => {
     if (record.blood_group) rows.push({ label: 'Groupe sanguin', value: record.blood_group });
     if (record.known_diabetes !== null && record.known_diabetes !== undefined) rows.push({ label: 'Diabète connu', value: record.known_diabetes ? 'Oui' : 'Non' });
     if (record.smoker !== null && record.smoker !== undefined) rows.push({ label: 'Tabac', value: record.smoker ? 'Oui' : 'Non' });
+    if (record.alcohol !== null && record.alcohol !== undefined) rows.push({ label: 'Alcool', value: record.alcohol ? 'Oui' : 'Non' });
     return rows;
 };
 const statusLabels = { OPEN: 'Ouvert', CLOSED: 'Clos', CANCELLED: 'Annulé' };
@@ -421,21 +483,17 @@ const invoiceStatusBadgeClass = (statusValue) => ({
     <Head :title="formatPatientName(patient)" />
 
     <div class="mx-auto w-full max-w-[1480px] space-y-4">
-        <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <Card class="overflow-hidden shadow-sm">
+            <div class="flex flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-6">
                 <div class="flex min-w-0 items-center gap-4">
-                    <Avatar rounded size="lg" variant="slate-pale" :text="formatPatientInitials(patient)" aria-hidden="true" />
+                    <Avatar size="lg" :initials="formatPatientInitials(patient)" :emergency="Boolean(activeEmergencyEpisode)" aria-hidden="true" />
                     <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2">
-                            <span class="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{{ patient.patient_number }}</span>
-                            <span class="inline-flex rounded border border-gray-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-gray-800 dark:text-slate-300">
-                                {{ patientTypeLabel }}
-                            </span>
-                            <span v-if="activeEmergencyEpisode" class="inline-flex items-center gap-1.5 rounded border border-red-200 px-2 py-0.5 text-[11px] font-bold uppercase text-red-600 dark:border-red-900 dark:text-red-300">
-                                <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> Urgence en cours
-                            </span>
+                            <span class="font-mono text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{{ patient.patient_number }}</span>
+                            <Badge variant="outline">{{ patientTypeLabel }}</Badge>
+                            <Badge v-if="activeEmergencyEpisode" variant="destructive"><span class="h-1.5 w-1.5 rounded-full bg-current" />Urgence en cours</Badge>
                         </div>
-                        <h1 class="mt-1 truncate font-heading text-2xl font-bold text-slate-800 dark:text-white">
+                        <h1 class="mt-1.5 truncate font-heading text-2xl font-bold tracking-tight text-foreground">
                             <span v-if="patient.civility">{{ civilityLabels[patient.civility] }}</span>
                             {{ formatPatientName(patient) }}
                         </h1>
@@ -443,47 +501,44 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
-                    <Button :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Liste des patients</span></Button>
-                    <Button v-if="can('patients.update') && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="rg" variant="white-outline"><Icon class="text-lg" name="edit" /><span class="ms-2">Modifier</span></Button>
-                    <Button v-if="can('cash.view')" :as="Link" href="/cash" size="rg" variant="white-outline"><Icon class="text-lg" name="wallet" /><span class="ms-2">Caisse</span></Button>
+                    <Button :as="Link" href="/patients" variant="outline"><ArrowLeft class="h-4 w-4" />Liste des patients</Button>
+                    <Button v-if="can('patients.update') && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" variant="outline"><Pencil class="h-4 w-4" />Modifier</Button>
+                    <Button v-if="can('cash.view')" :as="Link" href="/cash" variant="outline"><WalletCards class="h-4 w-4" />Caisse</Button>
                 </div>
             </div>
 
-            <dl class="grid grid-cols-2 border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30 sm:grid-cols-4">
-                <div class="border-e border-gray-200 px-5 py-3 dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">{{ birthLabel }}</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ birthSummary }}</dd></div>
-                <div class="px-5 py-3 sm:border-e sm:border-gray-200 sm:dark:border-gray-900"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Sexe</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ sexLabel(patient.sex) }}</dd></div>
-                <div class="border-e border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Téléphone</dt><dd class="mt-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
-                <div class="border-t border-gray-200 px-5 py-3 dark:border-gray-900 sm:border-t-0"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Dernier passage</dt><dd class="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ latestEpisode?.episode_number ?? 'Aucun passage' }}</dd></div>
+            <dl class="grid grid-cols-2 border-y border-border bg-muted/30 sm:grid-cols-4">
+                <div class="border-e border-border px-5 py-3.5 lg:px-6"><dt class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{{ birthLabel }}</dt><dd class="mt-1 text-sm font-semibold text-foreground">{{ birthSummary }}</dd></div>
+                <div class="px-5 py-3.5 sm:border-e sm:border-border lg:px-6"><dt class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Sexe</dt><dd class="mt-1 text-sm font-semibold text-foreground">{{ sexLabel(patient.sex) }}</dd></div>
+                <div class="border-e border-t border-border px-5 py-3.5 sm:border-t-0 lg:px-6"><dt class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Téléphone</dt><dd class="mt-1 truncate text-sm font-semibold text-foreground">{{ patient.phone ?? 'Non renseigné' }}</dd></div>
+                <div class="border-t border-border px-5 py-3.5 sm:border-t-0 lg:px-6"><dt class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Dernier passage</dt><dd class="mt-1 font-mono text-sm font-semibold text-foreground">{{ latestEpisode?.episode_number ?? 'Aucun passage' }}</dd></div>
             </dl>
 
-            <nav class="flex overflow-x-auto border-t border-gray-200 px-2 dark:border-gray-900" role="tablist" aria-label="Sections du dossier patient">
-                <button type="button" :class="['relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors', activeSection === 'overview' ? 'text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" role="tab" :aria-selected="activeSection === 'overview'" @click="activeSection = 'overview'">
-                    <Icon class="text-base" name="user" /> Aperçu
-                    <span v-if="activeSection === 'overview'" class="absolute inset-x-4 bottom-0 h-0.5 bg-primary-600"></span>
+            <nav class="flex gap-1 overflow-x-auto p-2" role="tablist" aria-label="Sections du dossier patient">
+                <button type="button" :class="['flex h-10 shrink-0 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeSection === 'overview' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']" role="tab" :aria-selected="activeSection === 'overview'" @click="activeSection = 'overview'">
+                    <UserRound class="h-4 w-4" />Aperçu
                 </button>
-                <button v-if="account" type="button" :class="['relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors', activeSection === 'billing' ? 'text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" role="tab" :aria-selected="activeSection === 'billing'" @click="activeSection = 'billing'">
-                    <Icon class="text-base" name="wallet" /> Facturation
-                    <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ account.invoices.length }}</span>
-                    <span v-if="activeSection === 'billing'" class="absolute inset-x-4 bottom-0 h-0.5 bg-primary-600"></span>
+                <button v-if="account" type="button" :class="['flex h-10 shrink-0 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeSection === 'billing' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']" role="tab" :aria-selected="activeSection === 'billing'" @click="activeSection = 'billing'">
+                    <ReceiptText class="h-4 w-4" />Facturation
+                    <span class="rounded-full bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">{{ account.invoices.length }}</span>
                 </button>
-                <button type="button" :class="['relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors', activeSection === 'episodes' ? 'text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200']" role="tab" :aria-selected="activeSection === 'episodes'" @click="activeSection = 'episodes'">
-                    <Icon class="text-base" name="clock" /> Passages
-                    <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-gray-900 dark:text-slate-300">{{ patient.episodes.length }}</span>
-                    <span v-if="activeSection === 'episodes'" class="absolute inset-x-4 bottom-0 h-0.5 bg-primary-600"></span>
+                <button type="button" :class="['flex h-10 shrink-0 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeSection === 'episodes' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']" role="tab" :aria-selected="activeSection === 'episodes'" @click="activeSection = 'episodes'">
+                    <History class="h-4 w-4" />Passages
+                    <span class="rounded-full bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">{{ patient.episodes.length }}</span>
                 </button>
             </nav>
-        </section>
+        </Card>
 
-        <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded border border-gray-200 border-s-4 border-s-red-500 bg-white px-4 py-3 dark:border-gray-800 dark:border-s-red-500 dark:bg-gray-950" role="status">
-            <Icon class="mt-0.5 shrink-0 text-lg text-red-600 dark:text-red-400" name="alert-circle" />
-            <div><p class="text-xs font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Passage prioritaire — {{ activeEmergencyEpisode.episode_number }}</p><p class="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">Les soins urgents restent prioritaires et ne sont jamais bloqués par le paiement.</p></div>
+        <div v-if="activeEmergencyEpisode" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50/70 px-4 py-3.5 text-red-900 shadow-sm dark:border-red-900 dark:bg-red-950/30 dark:text-red-100" role="status">
+            <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+            <div><p class="text-xs font-bold uppercase tracking-wide">Passage prioritaire — {{ activeEmergencyEpisode.episode_number }}</p><p class="mt-0.5 text-xs leading-5 text-red-800/75 dark:text-red-200/75">Les soins urgents restent prioritaires et ne sont jamais bloqués par le paiement.</p></div>
         </div>
 
-        <section v-if="account && activeSection === 'billing'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-3 border-b border-gray-200 bg-gradient-to-r from-primary-50/60 to-white px-5 py-4 dark:border-gray-900 dark:from-gray-900/30 dark:to-gray-950 sm:flex-row sm:items-center sm:justify-between">
+        <Card v-if="account && activeSection === 'billing'" class="overflow-hidden">
+            <div class="flex flex-col gap-3 border-b border-border bg-gradient-to-r from-primary/10 via-card to-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"><Icon class="text-lg" name="wallet" /></span>
-                    <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Compte patient</h2><p class="mt-0.5 text-xs text-slate-400">Factures, paiements successifs et reçus.</p></div>
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><WalletCards class="h-5 w-5" /></span>
+                    <div><h2 class="text-sm font-bold text-foreground">Compte patient</h2><p class="mt-0.5 text-xs text-muted-foreground">Factures, paiements successifs et reçus.</p></div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                     <span v-if="openCashSessions.length > 0" class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Caisse ouverte</span>
@@ -492,11 +547,11 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 divide-x divide-y divide-gray-200 border-b border-gray-200 dark:divide-gray-900 dark:border-gray-900 lg:grid-cols-4 lg:divide-y-0">
-                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="clock" />À facturer</span><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.unbilled_amount) }}</p></div>
-                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="file-text" />Part patient facturée</span><p class="mt-1.5 text-xl font-bold text-slate-700 dark:text-white">{{ formatMoney(account.total_amount) }}</p></div>
-                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="check-circle" />Total payé</span><p class="mt-1.5 text-xl font-bold text-emerald-600 dark:text-emerald-400">{{ formatMoney(account.paid_amount) }}</p></div>
-                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500"><Icon class="text-sm" name="alert-circle" />Reste à payer</span><p :class="['mt-1.5 text-xl font-bold', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white']">{{ formatMoney(account.balance_amount) }}</p></div>
+            <div class="grid grid-cols-2 divide-x divide-y divide-border border-b border-border bg-muted/15 lg:grid-cols-4 lg:divide-y-0">
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Clock3 class="h-3.5 w-3.5" />À facturer</span><p class="mt-1.5 text-xl font-bold tabular-nums text-foreground">{{ formatMoney(account.unbilled_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><FileText class="h-3.5 w-3.5" />Part patient facturée</span><p class="mt-1.5 text-xl font-bold tabular-nums text-foreground">{{ formatMoney(account.total_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><ShieldCheck class="h-3.5 w-3.5" />Total payé</span><p class="mt-1.5 text-xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{{ formatMoney(account.paid_amount) }}</p></div>
+                <div class="px-5 py-4"><span class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><CircleDollarSign class="h-3.5 w-3.5" />Reste à payer</span><p :class="['mt-1.5 text-xl font-bold tabular-nums', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground']">{{ formatMoney(account.balance_amount) }}</p></div>
             </div>
 
             <details v-if="cancelledBillableItems.length" class="border-b border-gray-200 px-5 py-3 dark:border-gray-900">
@@ -570,10 +625,7 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <div class="hidden gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:border-gray-800 dark:bg-gray-1000/50 sm:grid sm:grid-cols-[minmax(0,1fr)_110px_170px_36px]"><span>Désignation</span><span>Quantité</span><span class="text-end">Total patient</span><span></span></div>
                         <div class="divide-y divide-gray-100 dark:divide-gray-900">
                             <div v-for="(line, index) in invoiceForm.catalog_lines" :key="index" class="grid grid-cols-1 gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_110px_170px_36px] sm:items-center">
-                                <select v-model="line.catalog_item_uuid" :aria-label="`Désignation ${index + 1}`" class="block h-10 w-full rounded border-gray-200 bg-white py-1.5 ps-3 pe-9 text-sm text-slate-700 focus:border-primary-500 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white" required>
-                                    <option value="" disabled>Choisir une prestation</option>
-                                    <option v-for="catalogItem in billingCatalog" :key="catalogItem.uuid" :value="catalogItem.uuid">{{ catalogItem.code }} · {{ catalogItem.name }} — patient {{ formatMoney(catalogItem.patient_amount ?? catalogItem.tariff_amount) }}</option>
-                                </select>
+                                <Select v-model="line.catalog_item_uuid" class="w-full" :options="billingCatalogOptions" :aria-label="`Désignation ${index + 1}`" placeholder="Choisir une prestation" />
                                 <Input v-model="line.quantity" type="number" min="0.01" step="0.01" aria-label="Quantité" placeholder="Quantité" required />
                                 <div class="flex h-10 items-center justify-end rounded border border-gray-200 bg-gray-50 px-3 text-sm font-bold text-slate-600 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">
                                     {{ formatMoney((Number(line.quantity) || 0) * Number(catalogByUuid.get(line.catalog_item_uuid)?.patient_amount ?? catalogByUuid.get(line.catalog_item_uuid)?.tariff_amount ?? 0)) }}
@@ -692,14 +744,14 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                 </div>
             </aside>
             </div>
-        </section>
+        </Card>
 
         <div v-if="activeSection === 'overview'" class="grid grid-cols-1 gap-4 xl:grid-cols-3">
             <div class="space-y-4 xl:col-span-2">
-                <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="user" /></span>
-                        <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Informations administratives</h2><p class="mt-0.5 text-xs text-slate-400">Coordonnées et document d’identité du patient.</p></div>
+                <Card class="overflow-hidden">
+                    <div class="flex items-start gap-3 border-b border-border px-5 py-4">
+                        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><UserRound class="h-4 w-4" /></span>
+                        <div><h2 class="text-sm font-bold text-foreground">Informations administratives</h2><p class="mt-0.5 text-xs text-muted-foreground">Coordonnées et document d’identité du patient.</p></div>
                     </div>
                     <dl class="grid grid-cols-1 sm:grid-cols-2">
                         <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-e"><dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Type de patient</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">{{ patientTypeLabel }}</dd></div>
@@ -711,12 +763,12 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <div class="border-b border-gray-100 px-5 py-3.5 dark:border-gray-900 sm:border-b-0 sm:border-e"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="map-pin" /> Adresse</dt><dd class="mt-1.5 text-sm font-medium leading-5 text-slate-700 dark:text-slate-200">{{ patient.address_entry?.label ?? patient.address ?? 'Non renseignée' }}</dd></div>
                         <div class="px-5 py-3.5"><dt class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400"><Icon name="cards" /> Pièce d’identité</dt><dd class="mt-1.5 text-sm font-medium text-slate-700 dark:text-slate-200"><template v-if="patient.identity_document_type">{{ patient.identity_document_type === 'CIN' ? 'CIN' : 'Passeport' }} · {{ patient.identity_document_number }}</template><template v-else>Non renseignée</template></dd></div>
                     </dl>
-                </section>
+                </Card>
             </div>
 
             <aside class="space-y-4">
-                <section class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Passages récents</h2><button v-if="patient.episodes.length" type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="activeSection = 'episodes'">Voir tout</button></div>
+                <Card class="p-5">
+                    <div class="flex items-center justify-between gap-3"><div class="flex items-center gap-2"><History class="h-4 w-4 text-primary" /><h2 class="text-sm font-bold text-foreground">Passages récents</h2></div><Button v-if="patient.episodes.length" size="xs" variant="ghost" type="button" @click="activeSection = 'episodes'">Voir tout<ArrowRight class="h-3.5 w-3.5" /></Button></div>
                     <ul v-if="recentEpisodes.length" class="mt-3 space-y-3">
                         <li v-for="episode in recentEpisodes" :key="episode.uuid" class="flex gap-2.5 border-t border-gray-100 pt-3 first:border-t-0 first:pt-0 dark:border-gray-900">
                             <span :class="['flex h-7 w-7 shrink-0 items-center justify-center rounded-full', episodeStatusIconClass(episode.status)]"><Icon class="text-sm" :name="episodeStatusIcon(episode.status)" /></span>
@@ -732,9 +784,9 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         </li>
                     </ul>
                     <p v-else class="mt-3 text-sm text-slate-400">Aucun passage enregistré.</p>
-                </section>
+                </Card>
 
-                <section v-if="patient.patient_type === 'MUTUAL' && can('patient_coverages.view')" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                <Card v-if="patient.patient_type === 'MUTUAL' && can('patient_coverages.view')" class="p-5">
                     <h2 class="text-sm font-bold text-slate-700 dark:text-white">Couverture mutuelle</h2>
                     <dl v-if="activeMutualCoverage" class="mt-3 space-y-2.5 text-xs">
                         <div class="flex justify-between gap-4"><dt class="text-slate-400">Organisme</dt><dd class="text-end font-semibold text-slate-700 dark:text-slate-200">{{ activeMutualCoverage.organization?.name }}</dd></div>
@@ -777,9 +829,9 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                             <Icon class="shrink-0 text-lg text-slate-400" name="eye" />
                         </button>
                     </div>
-                </section>
+                </Card>
 
-                <section v-if="patient.patient_type === 'STAFF' && can('patient_staff_links.view')" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
+                <Card v-if="patient.patient_type === 'STAFF' && can('patient_staff_links.view')" class="p-5">
                     <h2 class="text-sm font-bold text-slate-700 dark:text-white">Dossier personnel lié</h2>
                     <template v-if="activeStaffLink?.employee">
                         <p class="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{{ formatPatientName(activeStaffLink.employee) }}</p>
@@ -788,20 +840,23 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <p class="mt-3 border-t border-gray-100 pt-3 text-xs leading-5 text-slate-400 dark:border-gray-900">Prise en charge hors bloc et crédit bloc calculés par RH / Finance avant facturation.</p>
                     </template>
                     <p v-else class="mt-3 text-sm text-slate-400">Aucun lien actif avec un dossier RH.</p>
-                </section>
+                </Card>
 
-                <section v-if="account" class="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-900 dark:bg-gray-950">
-                    <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Situation financière</h2><button type="button" class="text-xs font-semibold text-primary-600 hover:text-primary-700" @click="activeSection = 'billing'">Détails</button></div>
-                    <p class="mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-400">Reste à payer</p><p class="mt-1 text-2xl font-bold text-slate-800 dark:text-white">{{ formatMoney(account.balance_amount) }}</p>
-                    <div class="mt-4 grid grid-cols-2 gap-4 border-t border-gray-200 pt-3 text-xs dark:border-gray-900"><div><p class="text-slate-400">Facturé</p><p class="mt-1 font-bold text-slate-700 dark:text-slate-200">{{ formatMoney(account.total_amount) }}</p></div><div><p class="text-slate-400">Payé</p><p class="mt-1 font-bold text-slate-700 dark:text-slate-200">{{ formatMoney(account.paid_amount) }}</p></div></div>
-                </section>
+                <Card v-if="account" class="p-5">
+                    <div class="flex items-center justify-between gap-3"><div class="flex items-center gap-2"><CircleDollarSign class="h-4 w-4 text-primary" /><h2 class="text-sm font-bold text-foreground">Situation financière</h2></div><Button size="xs" variant="ghost" type="button" @click="activeSection = 'billing'">Détails<ArrowRight class="h-3.5 w-3.5" /></Button></div>
+                    <p class="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reste à payer</p><p :class="['mt-1 text-2xl font-bold tabular-nums', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground']">{{ formatMoney(account.balance_amount) }}</p>
+                    <div class="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-3 text-xs"><div><p class="text-muted-foreground">Facturé</p><p class="mt-1 font-bold text-foreground">{{ formatMoney(account.total_amount) }}</p></div><div><p class="text-muted-foreground">Payé</p><p class="mt-1 font-bold text-emerald-600 dark:text-emerald-400">{{ formatMoney(account.paid_amount) }}</p></div></div>
+                </Card>
             </aside>
         </div>
 
         <div v-else-if="activeSection === 'episodes'" class="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:order-2 xl:col-span-1">
-                <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Repères médicaux déclarés</h2><p class="mt-0.5 text-xs text-slate-400">Dossier médical permanent du patient, confirmé et complété au fil des passages.</p></div>
-                <div class="divide-y divide-gray-200 dark:divide-gray-900">
+            <Card class="overflow-hidden xl:order-2 xl:col-span-1">
+                <div class="flex items-start gap-3 border-b border-border px-5 py-4">
+                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><FileHeart class="h-4 w-4" /></span>
+                    <div><h2 class="text-sm font-bold text-foreground">Repères médicaux déclarés</h2><p class="mt-0.5 text-xs leading-5 text-muted-foreground">Dossier permanent, enrichi au fil des passages.</p></div>
+                </div>
+                <div class="divide-y divide-border">
                     <div class="px-5 py-4">
                         <h3 class="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Icon class="text-slate-400" name="alert-circle" /> Allergies</h3>
                         <ul v-if="patient.allergies.length" class="mt-3 space-y-2.5 text-sm"><li v-for="allergy in patient.allergies" :key="allergy.id" class="text-slate-600 dark:text-slate-300"><span class="font-semibold text-slate-700 dark:text-white">{{ allergy.substance }}</span><span v-if="allergy.severity" class="ms-1.5 text-xs text-red-600 dark:text-red-300">{{ severityLabels[allergy.severity] }}</span><p v-if="allergy.reaction" class="mt-0.5 text-xs text-slate-400">{{ allergy.reaction }}</p></li></ul>
@@ -813,23 +868,26 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                         <p v-else class="mt-3 text-sm text-slate-400">Aucun antécédent connu.</p>
                     </div>
                 </div>
-            </section>
+            </Card>
 
-            <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:order-1 xl:col-span-2">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+            <Card class="overflow-hidden xl:order-1 xl:col-span-2">
+            <div class="flex flex-col gap-4 border-b border-border px-5 py-4">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des passages</h2><p class="mt-0.5 text-xs text-slate-400">Les arrivées sont créées depuis la Réception patient.</p></div>
-                    <span class="text-xs font-medium text-slate-400">{{ filteredEpisodes.length }} sur {{ patient.episodes.length }} passage{{ patient.episodes.length > 1 ? 's' : '' }}</span>
+                    <div><h2 class="text-sm font-bold text-foreground">Historique des passages</h2><p class="mt-0.5 text-xs text-muted-foreground">Les arrivées sont créées depuis la Réception patient.</p></div>
+                    <Badge variant="secondary">{{ filteredEpisodes.length }} sur {{ patient.episodes.length }}</Badge>
                 </div>
                 <div v-if="patient.episodes.length" class="flex flex-col gap-3 sm:flex-row sm:items-center">
                     <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                        <div class="w-full sm:max-w-xs sm:flex-1"><IconInput v-model="episodeQuery" icon="search" type="search" placeholder="Numéro de passage…" autocomplete="off" /></div>
-                        <span class="relative"><select v-model="episodeStatusFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950"><option value="">Tout statut</option><option value="OPEN">Ouvert</option><option value="CLOSED">Clos</option><option value="CANCELLED">Annulé</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
-                        <span class="relative"><select v-model="episodeUrgencyFilter" class="h-9 appearance-none bg-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950"><option value="">Toute priorité</option><option value="emergency">Urgence</option><option value="normal">Normal</option></select><span class="pointer-events-none absolute inset-y-0 end-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-sm" name="chevron-down" /></span></span>
+                        <div class="relative w-full sm:max-w-xs sm:flex-1">
+                            <Search class="pointer-events-none absolute start-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input v-model="episodeQuery" class="ps-9" type="search" placeholder="Numéro de passage…" autocomplete="off" aria-label="Rechercher un passage" />
+                        </div>
+                        <Select v-model="episodeStatusFilter" :options="episodeStatusOptions" class="w-full sm:w-[175px]" aria-label="Filtrer par statut" />
+                        <Select v-model="episodeUrgencyFilter" :options="episodeUrgencyOptions" class="w-full sm:w-[190px]" aria-label="Filtrer par priorité" />
                     </div>
-                    <div class="inline-flex shrink-0 self-start rounded-md border border-gray-200 p-0.5 dark:border-gray-800 sm:self-auto" role="group" aria-label="Mode d’affichage">
-                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', episodeViewMode === 'list' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue liste" :aria-pressed="episodeViewMode === 'list'" @click="setEpisodeViewMode('list')"><Icon class="text-lg" name="list" /></button>
-                        <button type="button" :class="['flex h-8 w-8 items-center justify-center rounded transition-colors', episodeViewMode === 'grid' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300']" aria-label="Vue grille" :aria-pressed="episodeViewMode === 'grid'" @click="setEpisodeViewMode('grid')"><Icon class="text-lg" name="grid-alt" /></button>
+                    <div class="inline-flex shrink-0 self-start rounded-lg border border-border bg-muted/30 p-1 sm:self-auto" role="group" aria-label="Mode d’affichage">
+                        <Button icon size="sm" :variant="episodeViewMode === 'list' ? 'secondary' : 'ghost'" type="button" aria-label="Vue liste" :aria-pressed="episodeViewMode === 'list'" @click="setEpisodeViewMode('list')"><List class="h-4 w-4" /></Button>
+                        <Button icon size="sm" :variant="episodeViewMode === 'grid' ? 'secondary' : 'ghost'" type="button" aria-label="Vue grille" :aria-pressed="episodeViewMode === 'grid'" @click="setEpisodeViewMode('grid')"><LayoutGrid class="h-4 w-4" /></Button>
                     </div>
                 </div>
             </div>
@@ -885,102 +943,90 @@ const invoiceStatusBadgeClass = (statusValue) => ({
                     </div>
                 </article>
             </div>
-            </section>
+            </Card>
         </div>
 
-        <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closePaymentDialog">
-            <section class="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="payment-dialog-title">
-                <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-xl" name="money" /></span><div><h2 id="payment-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Encaisser un paiement</h2><p class="mt-1 text-sm text-slate-400">{{ paymentTarget.invoice_number }} · solde {{ formatMoney(paymentTarget.balance_amount) }}</p></div></div>
-                    <button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closePaymentDialog"><Icon class="text-xl" name="cross" /></button>
-                </div>
-
-                <form class="mt-6 space-y-4" @submit.prevent="recordPayment">
-                    <FormGroup v-if="openCashSessions.length > 1" class="!mb-0"><FormLabel class="mb-1.5" for="payment_register">Caisse <span class="text-red-500">*</span></FormLabel><select id="payment_register" v-model="paymentForm.cash_register_uuid" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required><option value="">Choisir…</option><option v-for="session in openCashSessions" :key="session.uuid" :value="session.register_uuid">{{ session.register_name ?? session.session_number }}</option></select><FormError v-if="paymentForm.errors.cash_register_uuid">{{ paymentForm.errors.cash_register_uuid }}</FormError></FormGroup>
+        <Dialog
+            :open="Boolean(paymentTarget)"
+            title="Encaisser un paiement"
+            :description="paymentTarget ? `${paymentTarget.invoice_number} · solde ${formatMoney(paymentTarget.balance_amount)}` : ''"
+            @update:open="handlePaymentDialogOpen"
+        >
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><CircleDollarSign class="h-5 w-5" /></span></template>
+            <form v-if="paymentTarget" class="space-y-4" @submit.prevent="recordPayment">
+                    <FormGroup v-if="openCashSessions.length > 1" class="!mb-0"><FormLabel class="mb-1.5" for="payment_register">Caisse <span class="text-red-500">*</span></FormLabel><Select id="payment_register" v-model="paymentForm.cash_register_uuid" class="w-full" :options="cashRegisterOptions" placeholder="Choisir…" /><FormError v-if="paymentForm.errors.cash_register_uuid">{{ paymentForm.errors.cash_register_uuid }}</FormError></FormGroup>
                     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_amount">Montant <span class="text-red-500">*</span></FormLabel><Input id="payment_amount" v-model="paymentForm.amount" type="number" min="0.01" :max="paymentTarget.balance_amount" step="0.01" required autofocus /><FormError v-if="paymentForm.errors.amount">{{ paymentForm.errors.amount }}</FormError></FormGroup>
-                        <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel><select id="payment_method" v-model="paymentForm.payment_method_id" class="block h-9 w-full rounded border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" required><option v-for="method in paymentMethods" :key="method.id" :value="method.id">{{ method.name }}</option></select><FormError v-if="paymentForm.errors.payment_method_id">{{ paymentForm.errors.payment_method_id }}</FormError></FormGroup>
+                        <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_method">Mode de paiement <span class="text-red-500">*</span></FormLabel><Select id="payment_method" class="w-full" :options="paymentMethodOptions" :model-value="String(paymentForm.payment_method_id ?? '')" placeholder="Choisir…" @update:model-value="setPaymentMethod" /><FormError v-if="paymentForm.errors.payment_method_id">{{ paymentForm.errors.payment_method_id }}</FormError></FormGroup>
                     </div>
                     <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_reference">Référence</FormLabel><Input id="payment_reference" v-model="paymentForm.reference" placeholder="Référence mobile money, virement…" /><FormError v-if="paymentForm.errors.reference">{{ paymentForm.errors.reference }}</FormError></FormGroup>
                     <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="payment_notes">Note</FormLabel><Input id="payment_notes" v-model="paymentForm.notes" placeholder="Observation facultative" /><FormError v-if="paymentForm.errors.notes">{{ paymentForm.errors.notes }}</FormError></FormGroup>
                     <FormError v-if="paymentForm.errors.cash_session">{{ paymentForm.errors.cash_session }}</FormError><FormError v-if="paymentForm.errors.invoice_uuid">{{ paymentForm.errors.invoice_uuid }}</FormError><FormError v-if="openCashSessions.length <= 1 && paymentForm.errors.cash_register_uuid">{{ paymentForm.errors.cash_register_uuid }}</FormError>
-                    <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:justify-end">
+                    <div class="flex flex-col-reverse gap-2 border-t border-border pt-5 sm:flex-row sm:justify-end">
                         <Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button>
-                        <Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : 'Confirmer et générer le reçu' }}</span></Button>
+                        <Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing"><CircleDollarSign class="h-4 w-4" />{{ paymentForm.processing ? 'Encaissement…' : 'Confirmer et générer le reçu' }}</Button>
                     </div>
-                </form>
-            </section>
-        </div>
+            </form>
+        </Dialog>
 
-        <div v-if="cancellationTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/50 p-4" role="presentation" @click.self="closeCancellationDialog">
-            <section class="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cancellation-dialog-title">
-                <div class="flex items-start justify-between gap-4">
-                    <div>
-                        <h2 id="cancellation-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Annuler le paiement</h2>
-                        <p class="mt-1 text-sm text-slate-400">{{ cancellationTarget.payment_number }} · {{ formatMoney(cancellationTarget.amount) }}</p>
-                    </div>
-                    <button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closeCancellationDialog"><Icon class="text-xl" name="cross" /></button>
-                </div>
-
-                <form class="mt-6" @submit.prevent="cancelPayment">
+        <Dialog
+            :open="Boolean(cancellationTarget)"
+            title="Annuler le paiement"
+            :description="cancellationTarget ? `${cancellationTarget.payment_number} · ${formatMoney(cancellationTarget.amount)}` : ''"
+            @update:open="handleCancellationDialogOpen"
+        >
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"><AlertTriangle class="h-5 w-5" /></span></template>
+            <form v-if="cancellationTarget" @submit.prevent="cancelPayment">
                     <FormGroup class="!mb-0">
                         <FormLabel class="mb-1.5" for="payment_cancellation_reason">Motif <span class="text-red-500">*</span></FormLabel>
-                        <textarea id="payment_cancellation_reason" v-model="cancellationForm.reason" rows="4" maxlength="1000" required class="block w-full rounded border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:focus:ring-primary-950" placeholder="Expliquez la correction à apporter…"></textarea>
+                        <textarea id="payment_cancellation_reason" v-model="cancellationForm.reason" rows="4" maxlength="1000" required class="block w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-ring/25" placeholder="Expliquez la correction à apporter…"></textarea>
                         <FormError v-if="cancellationForm.errors.reason">{{ cancellationForm.errors.reason }}</FormError>
                         <FormError v-if="cancellationForm.errors.payment">{{ cancellationForm.errors.payment }}</FormError>
                     </FormGroup>
-                    <p class="mt-3 text-xs leading-5 text-slate-400">Le paiement, son reçu et la trace d’origine resteront visibles. Un mouvement inverse sera ajouté à la caisse ouverte.</p>
-                    <div class="mt-5 flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 dark:border-gray-900 sm:flex-row sm:justify-end">
+                    <p class="mt-3 text-xs leading-5 text-muted-foreground">Le paiement, son reçu et la trace d’origine resteront visibles. Un mouvement inverse sera ajouté à la caisse ouverte.</p>
+                    <div class="mt-5 flex flex-col-reverse gap-2 border-t border-border pt-5 sm:flex-row sm:justify-end">
                         <Button size="rg" variant="white-outline" type="button" :disabled="cancellationForm.processing" @click="closeCancellationDialog">Retour</Button>
                         <Button size="rg" variant="danger-outline" type="submit" :disabled="cancellationForm.processing">{{ cancellationForm.processing ? 'Annulation…' : 'Confirmer l’annulation' }}</Button>
                     </div>
-                </form>
-            </section>
-        </div>
+            </form>
+        </Dialog>
     </div>
 
-    <Dialog :open="mutualAttachmentsOpen" as="div" class="relative z-[1200]" @close="mutualAttachmentsOpen = false">
-        <div class="fixed inset-0 bg-slate-950/60" aria-hidden="true"></div>
-        <div class="fixed inset-0 overflow-y-auto p-4">
-            <div class="flex min-h-full items-center justify-center">
-                <DialogPanel v-if="activeMutualCoverage?.attachments?.length" class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950">
-                <header class="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-4 dark:border-gray-800 dark:bg-gray-950">
-                    <div class="min-w-0">
-                        <DialogTitle class="text-sm font-bold text-slate-700 dark:text-white">Justificatifs de mutuelle</DialogTitle>
-                        <p class="mt-0.5 text-xs text-slate-400">{{ activeMutualCoverage.organization?.name }} · {{ activeMutualCoverage.attachments.length }} fichier{{ activeMutualCoverage.attachments.length > 1 ? 's' : '' }}</p>
-                    </div>
-                    <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-gray-100 hover:text-slate-700 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer" @click="mutualAttachmentsOpen = false">
-                        <Icon class="text-xl" name="cross" />
-                    </button>
-                </header>
-
-                <div class="grid gap-3 p-5 sm:grid-cols-2">
+    <Dialog
+        :open="mutualAttachmentsOpen"
+        title="Justificatifs de mutuelle"
+        :description="activeMutualCoverage ? `${activeMutualCoverage.organization?.name} · ${activeMutualCoverage.attachments?.length ?? 0} fichier(s)` : ''"
+        size="xl"
+        content-class="max-h-[90vh] overflow-hidden"
+        body-class="max-h-[calc(90vh-96px)] overflow-y-auto"
+        @update:open="mutualAttachmentsOpen = $event"
+    >
+        <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><FileText class="h-5 w-5" /></span></template>
+        <div v-if="activeMutualCoverage?.attachments?.length" class="grid gap-3 sm:grid-cols-2">
                     <a
                         v-for="attachment in activeMutualCoverage.attachments"
                         :key="attachment.uuid"
                         :href="mutualAttachmentUrl(attachment)"
                         target="_blank"
                         rel="noopener"
-                        class="overflow-hidden rounded-md border border-gray-200 transition-colors hover:border-primary-300 dark:border-gray-800 dark:hover:border-primary-800"
+                        class="overflow-hidden rounded-lg border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                     >
-                        <span class="flex h-48 items-center justify-center bg-gray-50 dark:bg-gray-1000/40">
+                        <span class="flex h-48 items-center justify-center bg-muted/40">
                             <img v-if="attachment.is_image" :src="mutualAttachmentUrl(attachment)" :alt="attachment.original_name" loading="lazy" class="h-full w-full object-contain" />
-                            <span v-else class="flex flex-col items-center text-slate-500 dark:text-slate-300">
-                                <Icon class="text-4xl" name="file-text" />
+                            <span v-else class="flex flex-col items-center text-muted-foreground">
+                                <FileText class="h-9 w-9" />
                                 <span class="mt-2 text-xs font-bold">Document PDF</span>
                             </span>
                         </span>
-                        <span class="flex items-center gap-3 border-t border-gray-100 p-3 dark:border-gray-900">
+                        <span class="flex items-center gap-3 border-t border-border p-3">
                             <span class="min-w-0 flex-1">
-                                <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ attachment.original_name }}</span>
-                                <span class="mt-0.5 block text-[11px] text-slate-400">{{ formatFileSize(attachment.size) }} · Ouvrir</span>
+                                <span class="block truncate text-xs font-bold text-foreground">{{ attachment.original_name }}</span>
+                                <span class="mt-0.5 block text-[11px] text-muted-foreground">{{ formatFileSize(attachment.size) }} · Ouvrir</span>
                             </span>
-                            <Icon class="shrink-0 text-base text-slate-400" name="external" />
+                            <ArrowRight class="h-4 w-4 shrink-0 text-muted-foreground" />
                         </span>
                     </a>
-                </div>
-                </DialogPanel>
-            </div>
         </div>
+        <p v-else class="py-8 text-center text-sm text-muted-foreground">Aucun justificatif disponible.</p>
     </Dialog>
 </template>

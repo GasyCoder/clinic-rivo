@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'heart_rate', 'spo2',
     'temperature_celsius', 'known_diabetes', 'diabetes_note',
     'height_cm', 'weight_kg', 'bmi',
-    'allergy_note', 'allergy_snapshot', 'smoker', 'no_procedure_reason',
+    'allergy_note', 'allergy_snapshot', 'smoker', 'alcohol', 'no_procedure_reason',
     'hospitalization_reason', 'hospitalized_at',
     'discharged_at', 'diagnostic_note', 'transmission_reason',
     'created_by', 'updated_by',
@@ -43,6 +43,7 @@ class CareRecord extends Model
             'bmi' => 'decimal:2',
             'allergy_snapshot' => 'array',
             'smoker' => 'boolean',
+            'alcohol' => 'boolean',
             'hospitalized_at' => 'datetime',
             'discharged_at' => 'datetime',
         ];

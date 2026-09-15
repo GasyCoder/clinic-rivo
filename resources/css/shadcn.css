@@ -1,0 +1,62 @@
+/*
+ * RIVO's gradual shadcn-vue layer.
+ *
+ * These semantic tokens are opt-in: existing DashWind screens keep their
+ * current palette while migrated screens use background/card/muted/etc.
+ */
+@layer base {
+    :root {
+        --background: 216 33% 97%;
+        --foreground: 214 39% 23%;
+        --card: 0 0% 100%;
+        --card-foreground: 214 39% 23%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 214 39% 23%;
+        --primary: 197 60% 39%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 218 43% 96%;
+        --secondary-foreground: 214 39% 23%;
+        --muted: 218 43% 96%;
+        --muted-foreground: 217 20% 48%;
+        --accent: 197 65% 94%;
+        --accent-foreground: 198 58% 30%;
+        --destructive: 4 78% 59%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 217 36% 90%;
+        --input: 217 36% 88%;
+        --ring: 197 60% 39%;
+        --radius: 0.75rem;
+    }
+
+    .dark {
+        --background: 216 39% 9%;
+        --foreground: 216 33% 96%;
+        --card: 215 35% 12%;
+        --card-foreground: 216 33% 96%;
+        --popover: 215 35% 12%;
+        --popover-foreground: 216 33% 96%;
+        --primary: 193 57% 56%;
+        --primary-foreground: 215 40% 10%;
+        --secondary: 215 27% 18%;
+        --secondary-foreground: 216 33% 96%;
+        --muted: 215 27% 18%;
+        --muted-foreground: 215 18% 66%;
+        --accent: 197 42% 19%;
+        --accent-foreground: 194 65% 76%;
+        --destructive: 4 63% 45%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 215 24% 21%;
+        --input: 215 24% 24%;
+        --ring: 193 57% 56%;
+    }
+}
+
+@keyframes rivo-dialog-in {
+    from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes rivo-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

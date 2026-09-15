@@ -50,11 +50,18 @@ class RecordMedicalDischargeAction
                 ->latest('id')
                 ->first();
 
-            if (! $latestFinal || trim($latestFinal->description) !== trim($data['final_diagnosis'])) {
+            // ADR-094 — absent pour un passage paraclinique seul, où le
+            // résultat de l'examen tient lieu de conclusion. On ne fabrique
+            // alors ni diagnostic vide, ni chaîne vide : une absence reste
+            // une absence.
+            $finalDiagnosis = trim((string) ($data['final_diagnosis'] ?? ''));
+
+            if ($finalDiagnosis !== ''
+                && (! $latestFinal || trim($latestFinal->description) !== $finalDiagnosis)) {
                 Diagnosis::query()->create([
                     'consultation_id' => $locked->consultation->getKey(),
                     'type' => DiagnosisType::Final,
-                    'description' => trim($data['final_diagnosis']),
+                    'description' => $finalDiagnosis,
                     'recorded_by' => $actor->getKey(),
                 ]);
             }
@@ -63,7 +70,7 @@ class RecordMedicalDischargeAction
                 'episode_id' => $locked->episode_id,
                 'consultation_id' => $locked->consultation->getKey(),
                 'type' => $type,
-                'final_diagnosis' => trim($data['final_diagnosis']),
+                'final_diagnosis' => $finalDiagnosis !== '' ? $finalDiagnosis : null,
                 'patient_condition' => trim($data['patient_condition']),
                 'discharge_prescription' => $data['discharge_prescription'] ?? null,
                 'recommendations' => $data['recommendations'] ?? null,

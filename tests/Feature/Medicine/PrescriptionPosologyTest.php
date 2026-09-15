@@ -34,6 +34,79 @@ class PrescriptionPosologyTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * « Valider et réserver » valide aussi l'étape Prescription.
+     *
+     * Le défaut constaté : `continue_to_decision` ne faisait que rediriger.
+     * Le médecin enregistrait son ordonnance, atterrissait sur la Clôture, et
+     * y lisait « Prescription : à valider ou à déclarer non nécessaire » —
+     * le parcours l'avait emmené *au-delà* de l'étape qu'il devait valider,
+     * sans jamais la valider, et « Clôturer » restait grisé sans qu'il
+     * comprenne pourquoi.
+     *
+     * ADR-076 : « Enregistrer et continuer » valide l'étape.
+     */
+    public function test_saving_and_continuing_also_resolves_the_prescription_step(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation, $medicine] = $this->consultationWithStock($doctor);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
+                'continue_to_decision' => true,
+                'lines' => [[
+                    'manual' => false,
+                    'medicine_uuid' => $medicine->catalogItem->uuid,
+                    'quantity' => 21,
+                    'dosage' => '500 mg',
+                    'route' => AdministrationRoute::Oral->value,
+                    'frequency' => '3 fois/jour',
+                    'duration' => '7 jours',
+                ]],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $consultation = $orientation->consultation()->firstOrFail();
+
+        $this->assertSame(
+            'COMPLETED',
+            $consultation->steps()->where('step', 'ordonnance')->sole()->status->value,
+        );
+
+        // Et la clôture ne réclame plus la prescription.
+        $blockers = collect(app(\App\Support\ConsultationWorkflow::class)
+            ->blockersForClosure($consultation))->pluck('message')->implode(' ');
+
+        $this->assertStringNotContainsString('Prescription :', $blockers);
+    }
+
+    /** « Enregistrer » seul ne valide rien : c'est la moitié de l'ADR-076. */
+    public function test_saving_without_continuing_leaves_the_step_open(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation, $medicine] = $this->consultationWithStock($doctor);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/prescriptions", [
+                'continue_to_decision' => false,
+                'lines' => [[
+                    'manual' => false,
+                    'medicine_uuid' => $medicine->catalogItem->uuid,
+                    'quantity' => 10,
+                    'dosage' => '500 mg',
+                    'route' => AdministrationRoute::Oral->value,
+                    'frequency' => '2 fois/jour',
+                    'duration' => '5 jours',
+                ]],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            0,
+            $orientation->consultation()->firstOrFail()->steps()->where('step', 'ordonnance')->count(),
+        );
+    }
+
     public function test_it_records_the_route_of_administration(): void
     {
         $doctor = $this->doctor();

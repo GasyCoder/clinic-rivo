@@ -8,6 +8,7 @@ use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Models\EpisodeOrientation;
 use App\Support\CareWorkflow;
+use App\Support\VitalSignRules;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -63,7 +64,7 @@ class UpdateCareRecordRequest extends FormRequest
             'blood_pressure_systolic', 'blood_pressure_diastolic',
             'heart_rate', 'spo2',
             'temperature_celsius', 'known_diabetes', 'diabetes_note',
-            'height_cm', 'weight_kg', 'smoker',
+            'height_cm', 'weight_kg', 'smoker', 'alcohol',
         ])
             ->contains(fn (string $field) => $this->input($field) !== null
                 && $this->input($field) !== '');
@@ -96,27 +97,7 @@ class UpdateCareRecordRequest extends FormRequest
         $canDeclareConsumables = (bool) $this->user()?->can('care_consumables.request');
 
         return [
-            'blood_group' => ['nullable', Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
-            'blood_pressure_systolic' => [
-                'nullable', 'integer', 'min:40', 'max:300',
-                'required_with:blood_pressure_diastolic',
-                'gt:blood_pressure_diastolic',
-            ],
-            'blood_pressure_diastolic' => [
-                'nullable', 'integer', 'min:20', 'max:200',
-                'required_with:blood_pressure_systolic',
-                'lt:blood_pressure_systolic',
-            ],
-            'heart_rate' => ['nullable', 'integer', 'min:20', 'max:250'],
-            'spo2' => ['nullable', 'integer', 'min:0', 'max:100'],
-            'temperature_celsius' => ['nullable', 'numeric', 'min:25', 'max:45', 'decimal:0,2'],
-            'known_diabetes' => ['nullable', 'boolean'],
-            'diabetes_note' => [
-                Rule::prohibitedIf($this->boolean('known_diabetes') !== true),
-                'nullable', 'string', 'max:1000',
-            ],
-            'height_cm' => ['nullable', 'numeric', 'min:20', 'max:250', 'decimal:0,2'],
-            'weight_kg' => ['nullable', 'numeric', 'min:0.1', 'max:500', 'decimal:0,2'],
+            ...VitalSignRules::rules($this->boolean('known_diabetes') === true),
             'allergy_note' => [Rule::prohibitedIf(! $canViewAllergies), 'nullable', 'string', 'max:2000'],
             'allergy_uuids' => [Rule::prohibitedIf(! $canViewAllergies), 'sometimes', 'array', 'max:20'],
             'allergy_uuids.*' => [
@@ -144,7 +125,6 @@ class UpdateCareRecordRequest extends FormRequest
             'new_allergies.*.substance' => ['required', 'string', 'max:255'],
             'new_allergies.*.reaction' => ['nullable', 'string', 'max:1000'],
             'new_allergies.*.severity' => ['nullable', Rule::enum(AllergySeverity::class)],
-            'smoker' => ['nullable', 'boolean'],
             'hospitalization_reason' => ['prohibited'],
             'hospitalized_at' => ['prohibited'],
             'discharged_at' => ['prohibited'],
@@ -207,24 +187,7 @@ class UpdateCareRecordRequest extends FormRequest
             'allergy_uuids.*.exists' => 'Une allergie sélectionnée n’appartient pas à ce patient ou n’est plus disponible.',
             'allergen_reference_uuids.*.exists' => 'Cet allergène n’est plus disponible dans le référentiel.',
             'new_allergies.*.substance.required' => 'Indiquez la substance ou le produit allergène.',
-            'blood_pressure_systolic.required_with' => 'Renseignez la pression systolique.',
-            'blood_pressure_diastolic.required_with' => 'Renseignez la pression diastolique.',
-            'blood_pressure_systolic.gt' => 'La pression systolique doit être supérieure à la pression diastolique.',
-            'blood_pressure_diastolic.lt' => 'La pression diastolique doit être inférieure à la pression systolique.',
-            'temperature_celsius.min' => 'La température doit être comprise entre 25 et 45 °C.',
-            'temperature_celsius.max' => 'La température doit être comprise entre 25 et 45 °C.',
-            'blood_pressure_systolic.min' => 'La pression systolique doit être comprise entre 40 et 300 mmHg.',
-            'blood_pressure_systolic.max' => 'La pression systolique doit être comprise entre 40 et 300 mmHg.',
-            'blood_pressure_diastolic.min' => 'La pression diastolique doit être comprise entre 20 et 200 mmHg.',
-            'blood_pressure_diastolic.max' => 'La pression diastolique doit être comprise entre 20 et 200 mmHg.',
-            'heart_rate.min' => 'La fréquence cardiaque doit être comprise entre 20 et 250 btt/mn.',
-            'heart_rate.max' => 'La fréquence cardiaque doit être comprise entre 20 et 250 btt/mn.',
-            'spo2.min' => 'La SpO2 doit être comprise entre 0 et 100 %.',
-            'spo2.max' => 'La SpO2 doit être comprise entre 0 et 100 %.',
-            'height_cm.min' => 'La taille doit être comprise entre 20 et 250 cm.',
-            'height_cm.max' => 'La taille doit être comprise entre 20 et 250 cm.',
-            'weight_kg.min' => 'Le poids doit être compris entre 0,1 et 500 kg.',
-            'weight_kg.max' => 'Le poids doit être compris entre 0,1 et 500 kg.',
+            ...VitalSignRules::messages(),
         ];
     }
 }

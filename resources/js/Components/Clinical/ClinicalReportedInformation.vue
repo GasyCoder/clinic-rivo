@@ -1,10 +1,10 @@
 <script setup>
 import { computed } from 'vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import CheckBox from '@/Components/UI/CheckBox.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import { Plus, Trash2 } from 'lucide-vue-next';
+import Input from '@/Components/Shadcn/Input.vue';
 
 /**
  * Information the patient reveals during the interview: a new allergy, a new
@@ -38,28 +38,28 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
 </script>
 
 <template>
-    <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900">
+    <section class="rounded-lg border border-border p-4">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Informations nouvelles signalées</h3>
-            <span v-if="total" class="text-[11px] font-semibold text-primary-700 dark:text-primary-300">{{ total }} signalée(s)</span>
+            <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Informations nouvelles signalées</h3>
+            <span v-if="total" class="text-[11px] font-semibold text-primary">{{ total }} signalée(s)</span>
         </div>
-        <p class="mt-1 text-[11px] leading-4 text-slate-400">
+        <p class="mt-1 text-[11px] leading-4 text-muted-foreground">
             Ce que le patient révèle pendant l’entretien. Conservé sur la consultation ; le dossier permanent n’est mis à jour que si vous le cochez.
         </p>
 
         <div v-if="!disabled" class="mt-3 flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="white-outline" @click="emit('add', 'allergies')">
-                <Icon class="me-1.5 text-sm" name="plus" />Nouvelle allergie
+                <Plus class="h-4 w-4 me-1.5" aria-hidden="true" />Nouvelle allergie
             </Button>
             <Button type="button" size="sm" variant="white-outline" @click="emit('add', 'antecedents')">
-                <Icon class="me-1.5 text-sm" name="plus" />Nouvel antécédent
+                <Plus class="h-4 w-4 me-1.5" aria-hidden="true" />Nouvel antécédent
             </Button>
             <Button type="button" size="sm" variant="white-outline" @click="emit('add', 'habitualTreatments')">
-                <Icon class="me-1.5 text-sm" name="plus" />Traitement habituel
+                <Plus class="h-4 w-4 me-1.5" aria-hidden="true" />Traitement habituel
             </Button>
         </div>
 
-        <p v-if="!total" class="mt-3 text-[11px] text-slate-400">Aucune information nouvelle signalée.</p>
+        <p v-if="!total" class="mt-3 text-[11px] text-muted-foreground">Aucune information nouvelle signalée.</p>
 
         <div v-else class="mt-3 space-y-2">
             <!-- Allergies -->
@@ -89,8 +89,8 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
                             @update:model-value="patch('allergies', index, 'reaction', $event)"
                         />
                     </div>
-                    <button v-if="!disabled" type="button" class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 hover:border-red-200 hover:text-red-600 dark:border-gray-800" aria-label="Retirer cette allergie" @click="emit('remove', { group: 'allergies', index })">
-                        <Icon name="trash" class="text-sm" />
+                    <button v-if="!disabled" type="button" class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:border-red-200 hover:text-red-600" aria-label="Retirer cette allergie" @click="emit('remove', { group: 'allergies', index })">
+                        <Trash2 class="h-4 w-4" aria-hidden="true" />
                     </button>
                 </div>
                 <CheckBox
@@ -108,11 +108,11 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
             <div
                 v-for="(item, index) in antecedents"
                 :key="`antecedent-${index}`"
-                class="rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950"
+                class="rounded-md border border-border bg-card p-3"
             >
                 <div class="flex items-start gap-2">
                     <div class="min-w-0 flex-1 space-y-2">
-                        <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Antécédent</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Antécédent</p>
                         <div class="flex flex-wrap gap-1.5">
                             <button
                                 v-for="type in ANTECEDENT_TYPES"
@@ -124,8 +124,8 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
                                 :class="[
                                     'rounded border px-2.5 py-1 text-[11px] font-semibold transition-colors',
                                     item.type === type.value
-                                        ? 'border-primary-300 bg-primary-50 text-primary-800 dark:border-primary-800 dark:bg-primary-950/40 dark:text-primary-200'
-                                        : 'border-gray-200 bg-white text-slate-500 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950',
+                                        ? 'border-primary-300 bg-primary/10 text-primary-800'
+                                        : 'border-border bg-card text-muted-foreground hover:bg-muted/35',
                                 ]"
                                 @click="patch('antecedents', index, 'type', type.value)"
                             >{{ type.label }}</button>
@@ -140,8 +140,8 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
                         />
                         <FormError :message="errors[`reported_antecedents.${index}.description`]" />
                     </div>
-                    <button v-if="!disabled" type="button" class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 hover:border-red-200 hover:text-red-600 dark:border-gray-800" aria-label="Retirer cet antécédent" @click="emit('remove', { group: 'antecedents', index })">
-                        <Icon name="trash" class="text-sm" />
+                    <button v-if="!disabled" type="button" class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:border-red-200 hover:text-red-600" aria-label="Retirer cet antécédent" @click="emit('remove', { group: 'antecedents', index })">
+                        <Trash2 class="h-4 w-4" aria-hidden="true" />
                     </button>
                 </div>
                 <CheckBox
@@ -159,11 +159,11 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
             <div
                 v-for="(item, index) in habitualTreatments"
                 :key="`habitual-${index}`"
-                class="rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950"
+                class="rounded-md border border-border bg-card p-3"
             >
                 <div class="flex items-start gap-2">
                     <div class="min-w-0 flex-1 space-y-2">
-                        <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Traitement habituel</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Traitement habituel</p>
                         <Input
                             :model-value="item.medication_name"
                             :disabled="disabled"
@@ -178,8 +178,8 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
                             <Input :model-value="item.frequency" :disabled="disabled" maxlength="150" placeholder="1 fois/jour" aria-label="Fréquence du traitement habituel" @update:model-value="patch('habitualTreatments', index, 'frequency', $event)" />
                         </div>
                     </div>
-                    <button v-if="!disabled" type="button" class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 hover:border-red-200 hover:text-red-600 dark:border-gray-800" aria-label="Retirer ce traitement habituel" @click="emit('remove', { group: 'habitualTreatments', index })">
-                        <Icon name="trash" class="text-sm" />
+                    <button v-if="!disabled" type="button" class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:border-red-200 hover:text-red-600" aria-label="Retirer ce traitement habituel" @click="emit('remove', { group: 'habitualTreatments', index })">
+                        <Trash2 class="h-4 w-4" aria-hidden="true" />
                     </button>
                 </div>
                 <CheckBox
@@ -196,7 +196,7 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
 
         <!-- Dit une seule fois, et seulement quand c'est vrai : le compte ne
              peut pas écrire le dossier permanent, la saisie reste utile. -->
-        <p v-if="total && !canPromote" class="mt-2 text-[11px] leading-4 text-slate-400">
+        <p v-if="total && !canPromote" class="mt-2 text-[11px] leading-4 text-muted-foreground">
             Ces informations sont conservées sur la consultation. Votre compte ne peut pas modifier le dossier patient permanent.
         </p>
         <FormError class="mt-1" :message="errors.reported_information" />

@@ -186,6 +186,97 @@ class ReceptionBillingFlowTest extends TestCase
         $this->assertNotNull($episode->fresh()->service_plan_finalized_at);
     }
 
+    /**
+     * Un mode à référence externe (Mobile Money, chèque, virement) ne peut
+     * pas être encaissé sans son numéro : sans lui le paiement ne peut pas
+     * être rapproché. L'écran de la Réception annonçait pourtant ce champ
+     * comme « facultatif », si bien que l'encaissement échouait côté serveur
+     * sans que rien n'ait jamais demandé la valeur manquante.
+     */
+    public function test_a_tender_requiring_a_reference_is_not_collected_without_it(): void
+    {
+        $actor = $this->userWithPermissions([
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate',
+            'payments.create', 'receipts.view',
+        ]);
+        $service = $this->service($actor, 'Consultation', '30000.00');
+        $method = PaymentMethod::create([
+            'code' => 'MOBILE_MONEY_ORANGE',
+            'name' => 'Orange Money',
+            'active' => true,
+            'affects_cash_balance' => false,
+            'requires_reference' => true,
+        ]);
+        CashSession::create([
+            'session_number' => 'CS-000001',
+            'active_key' => 'SINGLE_OPEN_CASH',
+            'status' => 'OPEN',
+            'opening_amount' => '10000.00',
+            'opened_by' => $actor->id,
+            'opened_at' => now(),
+        ]);
+        $episode = $this->registerArrival($actor);
+
+        $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
+            'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
+            'payment_choice' => 'NOW',
+            'payment_method_id' => $method->id,
+            'payment_reference' => '',
+        ]);
+
+        // La demande clinique survit (ADR-030) : seule la partie financière
+        // échoue. Facture et paiement sont créés dans la même transaction,
+        // donc le refus de l'encaissement les annule tous les deux — aucune
+        // facture orpheline, aucun paiement sans référence.
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('receipts', 0);
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertDatabaseCount('episode_service_requests', 1);
+    }
+
+    public function test_a_tender_requiring_a_reference_is_collected_once_it_is_supplied(): void
+    {
+        $actor = $this->userWithPermissions([
+            'patients.create', 'episodes.create', 'episodes.update',
+            'billing.create', 'billing.validate',
+            'payments.create', 'receipts.view',
+        ]);
+        $service = $this->service($actor, 'Consultation', '30000.00');
+        $method = PaymentMethod::create([
+            'code' => 'MOBILE_MONEY_ORANGE',
+            'name' => 'Orange Money',
+            'active' => true,
+            'affects_cash_balance' => false,
+            'requires_reference' => true,
+        ]);
+        CashSession::create([
+            'session_number' => 'CS-000001',
+            'active_key' => 'SINGLE_OPEN_CASH',
+            'status' => 'OPEN',
+            'opening_amount' => '10000.00',
+            'opened_by' => $actor->id,
+            'opened_at' => now(),
+        ]);
+        $episode = $this->registerArrival($actor);
+
+        $this->actingAs($actor)->post(route('reception.passages.services.store', $episode), [
+            'catalog_lines' => [['catalog_item_uuid' => $service->uuid, 'quantity' => 1]],
+            'payment_choice' => 'NOW',
+            'payment_method_id' => $method->id,
+            'payment_reference' => 'OM-8891234',
+        ]);
+
+        $payment = Invoice::query()->sole()->payments()->sole();
+
+        $this->assertSame('OM-8891234', $payment->reference);
+        $this->assertSame('PAID', Invoice::query()->sole()->status->value);
+        // Le mouvement existe — c'est la trace du règlement dans la session —
+        // mais il ne compte pas dans les espèces attendues à la clôture :
+        // aucun billet n'est entré dans le tiroir.
+        $this->assertDatabaseHas('cash_movements', ['affects_cash_balance' => false]);
+    }
+
     public function test_pay_now_atomically_creates_paid_invoice_cash_movement_and_receipt(): void
     {
         $actor = $this->userWithPermissions([

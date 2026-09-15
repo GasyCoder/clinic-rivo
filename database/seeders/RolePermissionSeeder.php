@@ -25,6 +25,15 @@ class RolePermissionSeeder extends Seeder
             'employees.import', 'employees.export', 'employees.print',
             'employees.patient_lookup',
             'staff_block_credits.view', 'staff_block_credits.allocate',
+            // CDC §33.3 / §34.1 règle 6 — la « personne habilitée » qui
+            // autorise la dérogation « dette validée ». Elle reçoit aussi
+            // la file de règlement et le droit de prononcer la sortie,
+            // sans quoi l'autorisation seule ne permettrait rien : aucun
+            // rôle ne posséderait les deux droits et la dérogation serait
+            // impossible par défaut. Elle n'encaisse toujours rien —
+            // aucune permission payments.*/cash.* ici (ADR-012).
+            'debts.view', 'debts.authorize',
+            'episodes.settlement.view', 'episodes.administrative_exit',
             'patient_staff_links.view', 'patient_staff_links.create', 'patient_staff_links.end',
             'address_entries.view', 'address_entries.create', 'address_entries.update',
             'address_entries.archive',
@@ -89,6 +98,13 @@ class RolePermissionSeeder extends Seeder
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
             'patients.medical_history.view', 'patients.medical_history.manage',
             'episodes.view', 'episodes.create', 'episodes.update', 'episodes.mark_emergency', 'episodes.cancel',
+            // CDC §33.3 — Réception contrôle le compte et prononce la
+            // sortie : payé comptant et évadé (un constat, pas une
+            // dérogation). Pas `debts.authorize` : renoncer à encaisser un
+            // solde est la dérogation de §34.1 règle 6, réservée à une
+            // personne habilitée — ADMINISTRATION par défaut, ou un chef de
+            // poste Réception par exception individuelle auditée (ADR-022).
+            'episodes.settlement.view', 'episodes.administrative_exit', 'debts.view',
             'billing.view', 'billing.create', 'billing.validate',
             'billing.print',
             'payments.view', 'payments.create', 'payments.cancel',
@@ -103,14 +119,27 @@ class RolePermissionSeeder extends Seeder
             'prescriptions.view', 'prescriptions.create', 'prescriptions.update',
             'medicines.view', 'stock.availability.view',
             'prescriptions.cancel', 'medical_discharge.create', 'patients.medical_history.view',
+            'consultations.reopen',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
             // Le médecin peut requalifier ce passage précis pendant la
             // consultation ; ce droit ne modifie jamais le Patient.
             'episodes.mark_emergency',
-            // Same read-only projection of the Soins worksheet Surgery reads
-            // through CareRecordReadModel (ADR-048): view only, never
-            // care.update/vitals.update — Médecine never edits the fiche.
-            'care.view', 'vitals.view',
+            // La même projection de la fiche Soins que lit la Chirurgie
+            // (ADR-048). `vitals.update` s'y ajoute depuis l'ADR-093 : le
+            // médecin corrige une constante manifestement fausse — 32 °C au
+            // lieu de 36,2 — sans attendre le retour du soignant qui l'a
+            // saisie. Toujours pas de `care.update` : les actes, le matériel
+            // et la transmission restent la parole des Soins.
+            // `care.update` s'y ajoute à la demande explicite du propriétaire
+            // (2026-09-15) : le médecin corrige la fiche Soins entière, pas
+            // seulement les constantes. Conséquence assumée et signalée —
+            // un acte facturable ajouté ici crée son BillableItem par le
+            // circuit habituel (ADR-054). `care.create` reste exclu : une
+            // fiche que personne n'a remplie ne se signe pas depuis une
+            // consultation. `care_consumables.request` aussi : déclarer du
+            // matériel sortirait du stock Pharmacie (ADR-072), et c'est le
+            // geste de l'infirmier au chevet, pas celui du médecin.
+            'care.view', 'vitals.view', 'vitals.update', 'care.update',
             // Phase B: a doctor may request Soins acts from a consultation,
             // never edit the resulting fiche itself.
             'care_orders.create', 'care_orders.view',

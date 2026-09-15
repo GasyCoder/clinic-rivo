@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Bold, CircleX, Italic, List, ListOrdered, Underline } from 'lucide-vue-next';
 
 defineOptions({ inheritAttrs: false });
 
@@ -73,17 +73,17 @@ onMounted(syncEditor);
 </script>
 
 <template>
-    <div :class="['overflow-hidden rounded border bg-white transition-shadow dark:bg-gray-950', disabled ? 'border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-1000' : 'border-gray-200 focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-100 dark:border-gray-800 dark:focus-within:border-primary-500']">
-        <div class="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-800 dark:bg-gray-1000" role="toolbar" aria-label="Mise en forme de l’interrogatoire">
-            <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Icon name="bold" /></button>
-            <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Icon name="italic" /></button>
-            <button type="button" class="editor-tool" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')"><Icon name="underline" /></button>
+    <div :class="['overflow-hidden rounded border bg-card transition-shadow', disabled ? 'border-border bg-muted/35' : 'border-border focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-100']">
+        <div class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" aria-label="Mise en forme de l’interrogatoire">
+            <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Bold class="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Italic class="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" class="editor-tool" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')"><Underline class="h-4 w-4" aria-hidden="true" /></button>
             <button type="button" class="editor-tool" title="Surligner" aria-label="Surligner" :disabled="disabled" @mousedown.prevent @click="highlight"><span class="border-b-4 border-yellow-300 px-0.5 font-bold">A</span></button>
-            <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
-            <button type="button" class="editor-tool-wide" title="Liste à puces" :disabled="disabled" @mousedown.prevent @click="command('insertUnorderedList')"><Icon class="text-sm" name="list" /> Liste</button>
-            <button type="button" class="editor-tool-wide" title="Liste numérotée" :disabled="disabled" @mousedown.prevent @click="command('insertOrderedList')"><Icon class="text-sm" name="list-ol" /> Liste</button>
-            <span class="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
-            <button type="button" class="editor-tool-wide text-slate-500" title="Effacer la mise en forme" :disabled="disabled" @mousedown.prevent @click="command('removeFormat')"><Icon class="text-sm" name="cross-circle" />Effacer le format</button>
+            <span class="mx-1 h-5 w-px bg-muted" aria-hidden="true" />
+            <button type="button" class="editor-tool-wide" title="Liste à puces" :disabled="disabled" @mousedown.prevent @click="command('insertUnorderedList')"><List class="h-4 w-4" aria-hidden="true" /> Liste</button>
+            <button type="button" class="editor-tool-wide" title="Liste numérotée" :disabled="disabled" @mousedown.prevent @click="command('insertOrderedList')"><ListOrdered class="h-4 w-4" aria-hidden="true" /> Liste</button>
+            <span class="mx-1 h-5 w-px bg-muted" aria-hidden="true" />
+            <button type="button" class="editor-tool-wide text-muted-foreground" title="Effacer la mise en forme" :disabled="disabled" @mousedown.prevent @click="command('removeFormat')"><CircleX class="h-4 w-4" aria-hidden="true" />Effacer le format</button>
         </div>
 
         <div
@@ -95,12 +95,12 @@ onMounted(syncEditor);
             :aria-disabled="disabled"
             :contenteditable="disabled ? 'false' : 'true'"
             :data-placeholder="placeholder"
-            :class="['clinical-editor px-4 py-3 text-sm leading-6 text-slate-700 outline-none dark:text-slate-100', minHeightClass]"
+            :class="['clinical-editor px-4 py-3 text-sm leading-6 text-foreground outline-none', minHeightClass]"
             @input="updateValue"
             @paste="pastePlainText"
         />
 
-        <div class="flex justify-end border-t border-gray-100 px-3 py-1.5 text-[11px] tabular-nums text-slate-400 dark:border-gray-900">
+        <div class="flex justify-end border-t border-border px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
             {{ plainLength.toLocaleString('fr-FR') }} / {{ maxLength.toLocaleString('fr-FR') }} caractères
         </div>
     </div>

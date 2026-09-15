@@ -10,10 +10,12 @@ use App\Enums\ClinicalPriority;
 use App\Enums\ClinicalSystemStatus;
 use App\Enums\ConsultationDecision;
 use App\Enums\ConsultationOrientationType;
+use App\Enums\ConsultationStatus;
 use App\Enums\ConsultationStep;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
+use App\Enums\EpisodeStatus;
 use App\Enums\MedicalDischargeType;
 use App\Enums\PatientAntecedentType;
 use App\Enums\PrescriptionStatus;
@@ -59,12 +61,28 @@ class MedicineDossierPresenter
         $canViewCareOrders = $user->can('care_orders.view');
         $canViewLabRequests = $user->can('laboratory_orders.view');
         $canViewImagingRequests = $user->can('imaging_orders.view');
-        // A closed consultation is read-only everywhere, not only where a
-        // discharge happens to exist: closure is now its own status, and a
-        // validated encounter is never silently overwritten (ADR-010).
+        // Une consultation clôturée est en lecture seule partout — mais la
+        // clôture est un statut, pas la présence d'une sortie médicale.
+        //
+        // La clause `medicalDischarge === null` qui figurait ici est
+        // exactement le défaut que l'ADR-084 a supprimé : « la consultation
+        // devenait lecture seule à l'instant où le médecin remplissait ce
+        // formulaire — impossible de prescrire, d'imprimer ou de relire
+        // ensuite ». Depuis l'ADR-084, `RecordMedicalDischargeAction`
+        // enregistre la sortie sans rien terminer, et
+        // `CompleteConsultationAction` est le seul acte qui termine la
+        // rencontre. Le presenter avait conservé l'ancienne règle et
+        // reverrouillait donc tout le dossier dès la sortie enregistrée,
+        // avant même que la moindre étape soit validée.
         $isActive = $orientation->status === EpisodeOrientationStatus::InProgress
-            && $episode->medicalDischarge === null
             && ($consultation === null || $consultation->isEditable());
+        // L'orientation Soins du même passage : c'est elle qui porte la
+        // fiche, et son UUID est ce qui permet d'y renvoyer le médecin.
+        $careOrientation = $episode->orientations()
+            ->where('destination_module', CatalogModule::Care->value)
+            ->latest('id')
+            ->first();
+
         $referralDestinations = [
             CatalogModule::Maternity->value => CatalogModule::Maternity->label(),
             CatalogModule::Hospitalization->value => CatalogModule::Hospitalization->label(),
@@ -118,6 +136,10 @@ class MedicineDossierPresenter
         ];
         $base['episode']['patient'] = [
             ...$base['episode']['patient'],
+            // L'en-tête clinique affiche la date de naissance à côté de
+            // l'âge : deux patients du même âge n'ont pas le même dossier,
+            // et la date est ce qui lève l'ambiguïté à l'appel.
+            'birth_date' => $patient->birth_date?->toDateString(),
             'phone' => $patient->phone,
             'email' => $patient->email,
             'address' => $patient->address,
@@ -129,7 +151,23 @@ class MedicineDossierPresenter
             // Same permission-aware projection Care and Surgery/Anesthesia
             // read from (ADR-048): a single place computes the constants'
             // threshold assessments, so Médecine never re-derives them.
-            'care_record' => $this->careRecord->present($careRecord, $user),
+            'care_record' => $careRecord === null ? null : [
+                ...$this->careRecord->present($careRecord, $user),
+                /*
+                 * La fiche Soins complète — constantes, actes réalisés,
+                 * observations — s'ouvre sur son propre écran plutôt que
+                 * d'être recopiée ici. Une seule fiche, un seul formulaire,
+                 * un seul jeu de règles : en rebâtir une seconde version
+                 * dans la consultation, c'était garantir que les deux
+                 * divergent.
+                 *
+                 * Le lien n'apparaît que si le passage est réellement passé
+                 * par les Soins et que le médecin peut y écrire.
+                 */
+                'full_record_url' => $careOrientation !== null && $user->can('care.update')
+                    ? "/care/orientations/{$careOrientation->uuid}"
+                    : null,
+            ],
             // The civil identity the doctor reads before examining. Served
             // here rather than in the queue projection, which stays lean:
             // a waiting list needs a name and an age, a file needs the rest.
@@ -237,12 +275,21 @@ class MedicineDossierPresenter
                             'blocker' => $this->workflow->blockerFor($consultation, $entry['step']),
                             'note' => match ($entry['step']) {
                                 ConsultationStep::Paraclinical => $this->workflow->paraclinicalNote($consultation),
-                                ConsultationStep::Diagnosis => $this->workflow->diagnosisNote($consultation),
+                                // ADR-095 — la note suit la question : elle
+                                // visait l'étape Diagnostic, retirée de
+                                // l'assistant par l'ADR-081, et ne s'affichait
+                                // donc plus nulle part.
+                                ConsultationStep::Closure => $this->workflow->diagnosisNote($consultation),
                                 default => null,
                             },
                         ],
                     ]),
                 'closure_blockers' => $this->workflow->blockersForClosure($consultation),
+                // ADR-094 — l'écran doit dire la même chose que le serveur :
+                // sans ce drapeau, le formulaire de sortie afficherait encore
+                // « Diagnostic final * » et son bandeau d'avertissement sur
+                // un passage où plus rien ne l'exige.
+                'requires_final_diagnosis' => $this->workflow->requiresFinalDiagnosis($consultation),
                 'reason' => $this->richText->toSafeHtml($consultation->reason),
                 'clinical_exam' => $this->richText->toSafeHtml($consultation->clinical_exam),
                 // The structured examination. Systems the doctor never looked
@@ -391,7 +438,7 @@ class MedicineDossierPresenter
                         // Une demande retirée quitte le plan de
                         // soins ; elle reste en base, auditée.
                         ->whereNull('cancelled_at')
-                        ->with(['items.resultedBy:id,name', 'requestedBy:id,name'])
+                        ->with(['items.resultedBy:id,name', 'items.catalogItem:id,uuid', 'requestedBy:id,name'])
                         ->latest('requested_at')
                         ->get()
                         ->map(fn (LabRequest $labRequest) => [
@@ -402,6 +449,12 @@ class MedicineDossierPresenter
                             'requested_at' => $labRequest->requested_at,
                             'items' => $labRequest->items->map(fn ($item) => [
                                 'uuid' => $item->uuid,
+                                // L'UUID de la prestation, et non seulement son
+                                // libellé figé : c'est lui que le sélecteur
+                                // compare pour ne pas proposer un examen déjà
+                                // demandé — un libellé se compare mal et un
+                                // instantané peut différer du catalogue actuel.
+                                'catalog_item_uuid' => $item->catalogItem?->uuid,
                                 'name' => $item->catalog_item_name_snapshot,
                                 'code' => $item->catalog_item_code_snapshot,
                                 'result_value' => $item->result_value,
@@ -417,7 +470,7 @@ class MedicineDossierPresenter
                         // Une demande retirée quitte le plan de
                         // soins ; elle reste en base, auditée.
                         ->whereNull('cancelled_at')
-                        ->with(['items.resultedBy:id,name', 'requestedBy:id,name'])
+                        ->with(['items.resultedBy:id,name', 'items.catalogItem:id,uuid', 'requestedBy:id,name'])
                         ->latest('requested_at')
                         ->get()
                         ->map(fn (ImagingRequest $imagingRequest) => [
@@ -428,6 +481,7 @@ class MedicineDossierPresenter
                             'requested_at' => $imagingRequest->requested_at,
                             'items' => $imagingRequest->items->map(fn ($item) => [
                                 'uuid' => $item->uuid,
+                                'catalog_item_uuid' => $item->catalogItem?->uuid,
                                 'name' => $item->catalog_item_name_snapshot,
                                 'code' => $item->catalog_item_code_snapshot,
                                 'result_value' => $item->result_value,
@@ -579,6 +633,25 @@ class MedicineDossierPresenter
                 'can_complete_consultation' => $isActive
                     && $user->can('consultations.update')
                     && $consultation !== null,
+                // ADR-096 — délibérément **hors** de `$isActive` : une
+                // consultation clôturée n'est jamais « active », et exiger
+                // qu'elle le soit rendrait la réouverture inatteignable. La
+                // limite est ailleurs — le passage doit rester ouvert, la
+                // Réception ne l'ayant pas encore clos (ADR-090).
+                'can_reopen_consultation' => $consultation?->status === ConsultationStatus::Completed
+                    && $episode->status === EpisodeStatus::Open
+                    && $user->can('consultations.reopen'),
+                // Pourquoi c'est impossible, dit par le serveur. L'écran ne
+                // doit pas deviner entre « le passage est clos » et « vous
+                // n'avez pas le droit » : ce sont deux impasses différentes,
+                // et l'une se règle auprès de la Réception.
+                'reopen_blocker' => $consultation?->status !== ConsultationStatus::Completed
+                    ? null
+                    : ($episode->status !== EpisodeStatus::Open
+                        ? 'Le passage a été clos par la Réception : la consultation ne peut plus être rouverte.'
+                        : (! $user->can('consultations.reopen')
+                            ? 'Vous n’avez pas le droit de rouvrir une consultation clôturée.'
+                            : null)),
                 'can_create_diagnosis' => $isActive && $user->can('diagnoses.create'),
                 'can_create_prescription' => $isActive
                     && $user->can('prescriptions.create')

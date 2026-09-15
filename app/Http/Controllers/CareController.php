@@ -193,10 +193,14 @@ class CareController extends Controller
             $episodeOrientation->episode->patient->load('allergies');
         }
 
-        // Only the person who took the patient in charge acts on the file;
-        // a colleague reads it (CareHandlerGuard).
+        // Terminer les soins et transférer vers Médecine restent réservés à
+        // la personne qui a pris le patient en charge (ADR-085).
         $isHandler = CareHandlerGuard::isHandledBy($episodeOrientation, $request->user());
-        $canEdit = $isHandler
+        // Corriger la fiche, en revanche, reste possible après le transfert
+        // et pour tout compte Soins autorisé — décision du 2026-09-15, qui
+        // amende l'ADR-085 : une erreur de saisie doit pouvoir être
+        // rectifiée même quand le soignant a fini son service.
+        $canEdit = CareHandlerGuard::isEditable($episodeOrientation)
             && $request->user()->can($record ? 'care.update' : 'care.create');
         $canEditVitals = $canEdit
             && $request->user()->can($record ? 'vitals.update' : 'vitals.create');
@@ -416,7 +420,11 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
     ): JsonResponse {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
-        abort_unless(CareHandlerGuard::isHandledBy($episodeOrientation, $request->user()), 409);
+        // Le brouillon suit la fiche : il reste possible après le transfert
+        // vers Médecine, et pour tout compte Soins autorisé (décision du
+        // 2026-09-15). Il reste rattaché à son auteur : sur un poste
+        // partagé, personne ne récupère la saisie d'un collègue (ADR-073).
+        abort_unless(CareHandlerGuard::isEditable($episodeOrientation), 409);
 
         $draft = CareRecordDraft::query()->updateOrCreate(
             [

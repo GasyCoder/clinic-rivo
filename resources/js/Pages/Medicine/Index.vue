@@ -63,6 +63,58 @@ const waitTone = (orientation) => {
 
 const isEmergency = (orientation) => orientation.episode.priority === 'EMERGENCY';
 
+/* ------------------------------------------------------------------ *
+ * Sauter un patient de la file : on demande, on n'interdit pas.
+ *
+ * Prendre le n° 2 avant le n° 1 est parfois la bonne décision — le
+ * premier est aux toilettes, son dossier n'est pas remonté, il n'est pas
+ * revenu des Soins. Aucune règle du CDC n'impose l'ordre d'arrivée, et le
+ * serveur ne bloque donc rien : ce garde-fou est ergonomique, il évite
+ * l'oubli, pas la décision.
+ * ------------------------------------------------------------------ */
+
+/** Les patients encore à prendre en charge placés avant celui-ci. */
+const pendingAhead = (orientation) => {
+    const rows = props.orientations.data;
+    const index = rows.findIndex((row) => row.uuid === orientation.uuid);
+
+    return index <= 0 ? [] : rows.slice(0, index).filter((row) => row.status === 'PENDING');
+};
+
+const skipConfirm = ref(null);
+
+const goToOrientation = (orientation) => router.post(
+    `/medicine/orientations/${orientation.uuid}/accept`,
+    {},
+    { preserveScroll: true },
+);
+
+const requestAccept = (orientation) => {
+    const ahead = pendingAhead(orientation);
+    // Une page précédente contient forcément des patients arrivés avant,
+    // que cette page n'affiche pas : on ne peut pas prétendre le contraire.
+    const earlierPages = (props.orientations.current_page ?? 1) > 1;
+
+    if (ahead.length === 0 && ! earlierPages) {
+        goToOrientation(orientation);
+
+        return;
+    }
+
+    skipConfirm.value = { orientation, ahead, earlierPages };
+};
+
+const confirmSkip = () => {
+    const target = skipConfirm.value?.orientation;
+    skipConfirm.value = null;
+
+    if (target) goToOrientation(target);
+};
+
+// Passer devant une urgence n'est pas passer devant une attente ordinaire :
+// le message change de ton pour que la différence se voie.
+const skippedEmergencies = computed(() => (skipConfirm.value?.ahead ?? []).filter(isEmergency));
+
 // Full words, as on the patient directory: a queue cell has room for them
 // and "H"/"F" is jargon the app avoids elsewhere.
 const SEX_LABELS = { M: 'Homme', F: 'Femme' };
@@ -281,9 +333,7 @@ const EMPTY_STATES = {
                                 <span v-if="orientation.accepted_by" class="mt-1 block text-[11px] text-slate-400">Dr {{ orientation.accepted_by }}</span>
                             </td>
                             <td class="px-4 py-3 text-end">
-                                <Link v-if="orientation.status === 'PENDING' && can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
-                                    <Button size="sm" :variant="isEmergency(orientation) ? 'danger' : 'primary'"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
-                                </Link>
+                                <Button v-if="orientation.status === 'PENDING' && can('consultations.create')" size="sm" type="button" :variant="isEmergency(orientation) ? 'danger' : 'primary'" @click="requestAccept(orientation)"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
                                 <Button v-else-if="orientation.has_consultation" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/dossier`" size="sm" variant="white-outline"><Icon class="text-base" :name="orientation.is_waiting_on_results ? 'reload' : 'eye'" /><span class="ms-1.5">{{ orientation.is_waiting_on_results ? 'Reprendre' : 'Ouvrir' }}</span></Button>
                                 <Link v-else-if="can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
                                     <Button size="sm" variant="white-outline"><Icon class="text-base" name="eye" /><span class="ms-1.5">Ouvrir</span></Button>
@@ -312,5 +362,58 @@ const EMPTY_STATES = {
                 </div>
             </div>
         </Card>
+    </div>
+
+    <!-- Confirmation, jamais blocage : le médecin garde la décision, on lui
+         rappelle seulement qui attend devant. -->
+    <div v-if="skipConfirm" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="skipConfirm = null">
+        <section class="w-full max-w-lg overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="skip-queue-title">
+            <header class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-full', skippedEmergencies.length ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">
+                    <Icon class="text-xl" name="alert-circle" />
+                </span>
+                <div class="min-w-0">
+                    <h2 id="skip-queue-title" class="font-heading text-base font-bold text-slate-700 dark:text-white">
+                        {{ skippedEmergencies.length ? 'Une urgence attend avant ce patient' : 'Un patient attend avant celui-ci' }}
+                    </h2>
+                    <p class="mt-0.5 text-xs text-slate-400">
+                        Vous allez prendre en charge {{ formatPatientName(skipConfirm.orientation.episode.patient) }}.
+                    </p>
+                </div>
+            </header>
+
+            <div class="space-y-3 px-5 py-4">
+                <ul v-if="skipConfirm.ahead.length" class="space-y-1.5">
+                    <li
+                        v-for="row in skipConfirm.ahead.slice(0, 4)"
+                        :key="row.uuid"
+                        :class="['flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm', isEmergency(row) ? 'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20' : 'border-gray-200 dark:border-gray-800']"
+                    >
+                        <span class="min-w-0">
+                            <span class="block truncate font-semibold text-slate-700 dark:text-white">{{ formatPatientName(row.episode.patient) }}</span>
+                            <span class="text-xs text-slate-400">{{ row.episode.episode_number }}<template v-if="isEmergency(row)"> · Urgence</template></span>
+                        </span>
+                        <span :class="['shrink-0 text-sm font-bold', waitTone(row)]">{{ waitedLabel(row) }}</span>
+                    </li>
+                </ul>
+                <p v-if="skipConfirm.ahead.length > 4" class="text-xs text-slate-400">
+                    … et {{ skipConfirm.ahead.length - 4 }} autre{{ skipConfirm.ahead.length - 4 > 1 ? 's' : '' }} patient{{ skipConfirm.ahead.length - 4 > 1 ? 's' : '' }} avant celui-ci.
+                </p>
+                <p v-if="skipConfirm.earlierPages" class="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                    <Icon class="mt-px shrink-0" name="info" />Les pages précédentes de la file contiennent d’autres patients arrivés avant, non affichés ici.
+                </p>
+                <p class="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    Prendre ce patient d’abord reste possible — dossier incomplet, patient absent, priorité clinique.
+                    Ce rappel n’empêche rien.
+                </p>
+            </div>
+
+            <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30 sm:flex-row sm:justify-end">
+                <Button size="rg" type="button" variant="white-outline" @click="skipConfirm = null">Annuler</Button>
+                <Button size="rg" type="button" :variant="skippedEmergencies.length ? 'danger' : 'primary'" @click="confirmSkip">
+                    <Icon class="me-1.5 text-base" name="play" />Prendre celui-ci quand même
+                </Button>
+            </footer>
+        </section>
     </div>
 </template>

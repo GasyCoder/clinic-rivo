@@ -90,20 +90,46 @@ export function useFormDraft({ endpoint, forms, initial = null, enabled = true, 
         }
     };
 
-    if (enabled) {
-        Object.values(forms).forEach((form) => {
-            watch(
-                () => form.data(),
-                () => {
-                    if (suspended || !form.isDirty) return;
+    const observe = (form) => {
+        if (!enabled) return;
 
-                    clearTimeout(timer);
-                    timer = setTimeout(persist, debounceMs);
-                },
-                { deep: true },
-            );
-        });
-    }
+        watch(
+            () => form.data(),
+            () => {
+                if (suspended || !form.isDirty) return;
+
+                clearTimeout(timer);
+                timer = setTimeout(persist, debounceMs);
+            },
+            { deep: true },
+        );
+    };
+
+    Object.values(forms).forEach(observe);
+
+    /**
+     * Rattacher un formulaire qui vit dans un composant enfant.
+     *
+     * Les formulaires de « Conduite à tenir » — demande de chirurgie,
+     * d'hospitalisation, de transfert — appartiennent à
+     * `ClinicalOrientationCard`, et non à la page. Tant qu'ils n'étaient
+     * pas rattachés ici, tout ce que le médecin y saisissait disparaissait
+     * à l'actualisation : ce sont pourtant les formulaires les plus longs
+     * du parcours (motif, résumé clinique, traitement prévu).
+     *
+     * L'enregistrement restaure immédiatement ce que le brouillon portait
+     * déjà pour cette section, puis l'observe comme les autres.
+     */
+    const register = (name, form) => {
+        forms[name] = form;
+
+        if (initial?.payload?.[name] !== undefined) {
+            restoreInto(form, initial.payload[name]);
+            restored.value = true;
+        }
+
+        observe(form);
+    };
 
     onBeforeUnmount(() => clearTimeout(timer));
 
@@ -121,5 +147,5 @@ export function useFormDraft({ endpoint, forms, initial = null, enabled = true, 
     };
     const resume = () => { suspended = false; };
 
-    return { savedAt, restored, saving, persist, markSaved, suspend, resume };
+    return { savedAt, restored, saving, persist, markSaved, suspend, resume, register };
 }

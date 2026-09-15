@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Activity, ChevronDown, CircleAlert, Eye } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 
 const props = defineProps({
@@ -118,13 +118,13 @@ const vitalCellClasses = (assessment) => {
         return 'border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20';
     }
 
-    return 'border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950';
+    return 'border-border bg-card';
 };
 const vitalValueClasses = (assessment) => {
     if (assessment?.tone === 'danger') return 'text-red-700 dark:text-red-300';
     if (assessment && assessment.tone !== 'success') return 'text-amber-800 dark:text-amber-200';
 
-    return 'text-slate-700 dark:text-white';
+    return 'text-foreground';
 };
 </script>
 
@@ -134,27 +134,27 @@ const vitalValueClasses = (assessment) => {
          either ignore an unmatched span or, worse, need an `!important`
          override to fight it — exactly what silently squeezed this panel's
          height there. The caller states its own grid context via `class`. -->
-    <section :class="['overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950', compact ? '' : 'shadow-sm']">
+    <section :class="['overflow-hidden rounded-lg border border-border bg-card', compact ? '' : 'shadow-sm']">
         <button
             type="button"
-            :class="['flex w-full items-center text-start transition-colors hover:bg-gray-50/70 dark:hover:bg-gray-1000/40', compact ? 'gap-2.5 px-3 py-2.5' : 'gap-3 px-4 py-3 sm:px-5']"
+            :class="['flex w-full items-center text-start transition-colors hover:bg-muted/35', compact ? 'gap-2.5 px-3 py-2.5' : 'gap-3 px-4 py-3 sm:px-5']"
             :aria-expanded="open"
             aria-controls="care-summary-content"
             @click="open = !open"
         >
-            <span :class="['flex shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300', compact ? 'size-7 text-sm' : 'size-9']"><Icon name="activity" /></span>
+            <span :class="['flex shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary', compact ? 'size-7 text-sm' : 'size-9']"><Activity class="h-4 w-4" aria-hidden="true" /></span>
             <span class="min-w-0 flex-1">
                 <span class="flex flex-wrap items-center gap-2">
-                    <strong :class="[compact ? 'text-xs' : 'text-sm', 'text-slate-700 dark:text-white']">Synthèse transmise par les Soins</strong>
-                    <span class="inline-flex items-center gap-1 rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-300"><Icon name="eye" /> Lecture seule</span>
+                    <strong :class="[compact ? 'text-xs' : 'text-sm', 'text-foreground']">Synthèse transmise par les Soins</strong>
+                    <span class="inline-flex items-center gap-1 rounded border border-border bg-muted/35 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground"><Eye class="h-4 w-4" aria-hidden="true" /> Lecture seule</span>
                 </span>
-                <span v-if="!compact" class="mt-0.5 block text-xs leading-5 text-slate-500">Constantes, allergies, actes et transmission sont repris du même passage ; aucune ressaisie ici.</span>
+                <span v-if="!compact" class="mt-0.5 block text-xs leading-5 text-muted-foreground">Constantes, allergies, actes et transmission sont repris du même passage ; aucune ressaisie ici.</span>
             </span>
-            <span class="hidden text-xs font-semibold text-primary-700 sm:block dark:text-primary-300">{{ open ? 'Replier' : 'Consulter' }}</span>
-            <Icon :class="['text-slate-400 transition-transform', open ? 'rotate-180' : '']" name="chevron-down" />
+            <span class="hidden text-xs font-semibold text-primary sm:block">{{ open ? 'Replier' : 'Consulter' }}</span>
+            <ChevronDown :class="['h-4 w-4 text-muted-foreground transition-transform', open ? 'rotate-180' : '']" aria-hidden="true" />
         </button>
 
-        <div v-show="open" id="care-summary-content" :class="['border-t border-gray-200 bg-gray-50/40 dark:border-gray-900 dark:bg-gray-1000/20', compact ? 'p-3' : 'p-4 sm:p-5']">
+        <div v-show="open" id="care-summary-content" :class="['border-t border-border bg-muted/35', compact ? 'p-3' : 'p-4 sm:p-5']">
             <div v-if="careSummary.can_view_vitals">
                 <ul v-if="vitalAlerts.length" :class="[compact ? 'mb-2 space-y-1' : 'mb-3 space-y-1.5']">
                     <li
@@ -165,7 +165,7 @@ const vitalValueClasses = (assessment) => {
                             : 'border-s-amber-500 bg-amber-50/70 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200']"
                         :title="alert.message"
                     >
-                        <Icon name="alert-circle" class="mt-px shrink-0 text-xs" />
+                        <CircleAlert class="h-4 w-4" aria-hidden="true" />
                         <span><strong class="font-bold">{{ alert.text }}</strong> — à recontrôler et interpréter avec le contexte clinique.</span>
                     </li>
                 </ul>
@@ -179,18 +179,18 @@ const vitalValueClasses = (assessment) => {
                      label readable in both. -->
                 <div v-if="vitals.length" :class="['grid gap-2', dense ? 'grid-cols-2' : (compact ? 'grid-cols-2 sm:grid-cols-4 xl:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3 2xl:grid-cols-4')]">
                     <div v-for="vital in vitals" :key="vital.label" :class="['rounded border', compact ? 'px-2.5 py-1.5' : 'px-3 py-2', vitalCellClasses(vital.assessment)]">
-                        <span class="block truncate text-[10px] font-bold uppercase tracking-wide text-slate-400" :title="vital.label">{{ vital.label }}</span>
+                        <span class="block truncate text-[10px] font-bold uppercase tracking-wide text-muted-foreground" :title="vital.label">{{ vital.label }}</span>
                         <strong :class="['mt-0.5 block leading-5', compact ? 'text-xs' : 'text-sm', vitalValueClasses(vital.assessment)]">
                             {{ vital.value }}<span v-if="vital.unit" class="ms-0.5 text-[11px] font-medium opacity-70">{{ vital.unit }}</span>
                         </strong>
-                        <span v-if="vital.note" class="mt-0.5 block truncate text-[10px] text-slate-400" :title="vital.note">{{ vital.note }}</span>
+                        <span v-if="vital.note" class="mt-0.5 block truncate text-[10px] text-muted-foreground" :title="vital.note">{{ vital.note }}</span>
                     </div>
                 </div>
-                <p v-else class="rounded border border-dashed border-gray-200 px-3 py-3 text-center text-[11px] text-slate-400 dark:border-gray-800">
+                <p v-else class="rounded border border-dashed border-border px-3 py-3 text-center text-[11px] text-muted-foreground">
                     Aucune constante relevée pendant ce passage.
                 </p>
 
-                <p v-if="vitals.length && notMeasured.length" class="mt-2 text-[10px] leading-4 text-slate-400">
+                <p v-if="vitals.length && notMeasured.length" class="mt-2 text-[10px] leading-4 text-muted-foreground">
                     Non relevé : {{ notMeasured.join(', ') }}.
                 </p>
             </div>
@@ -200,39 +200,39 @@ const vitalValueClasses = (assessment) => {
                      "aucune allergie signalée" in red cried wolf. -->
                 <div v-if="careSummary.can_view_allergies" :class="['rounded border', compact ? 'p-2.5' : 'p-3', allergies.length
                     ? 'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/15'
-                    : 'border-gray-200 dark:border-gray-900']">
-                    <h3 :class="['flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide', allergies.length ? 'text-red-600 dark:text-red-300' : 'text-slate-400']">
-                        <Icon v-if="allergies.length" name="alert-circle" class="text-xs" />Allergies / vigilance
+                    : 'border-border']">
+                    <h3 :class="['flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide', allergies.length ? 'text-red-600 dark:text-red-300' : 'text-muted-foreground']">
+                        <CircleAlert v-if="allergies.length" class="h-3.5 w-3.5" aria-hidden="true" />Allergies / vigilance
                     </h3>
                     <p v-if="allergies.length" :class="[compact ? 'mt-1 text-xs' : 'mt-2 text-sm', 'font-semibold text-red-700 dark:text-red-300']">{{ allergies.join(' · ') }}</p>
-                    <p v-else :class="[compact ? 'mt-1 text-xs' : 'mt-2 text-sm', 'text-slate-500 dark:text-slate-400']">Aucune allergie signalée pendant ce passage.</p>
-                    <p v-if="careSummary.allergy_note" class="mt-1 text-xs text-slate-400">{{ careSummary.allergy_note }}</p>
+                    <p v-else :class="[compact ? 'mt-1 text-xs' : 'mt-2 text-sm', 'text-muted-foreground']">Aucune allergie signalée pendant ce passage.</p>
+                    <p v-if="careSummary.allergy_note" class="mt-1 text-xs text-muted-foreground">{{ careSummary.allergy_note }}</p>
                 </div>
-                <div :class="['rounded border border-gray-200 dark:border-gray-900', compact ? 'p-2.5' : 'p-3']">
-                    <h3 class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Transmission Soins</h3>
-                    <p :class="[compact ? 'mt-1 text-xs leading-4' : 'mt-2 text-sm', 'text-slate-600 dark:text-slate-300']">{{ careSummary.transmission_reason || careSummary.diagnostic_note || 'Aucune transmission renseignée.' }}</p>
+                <div :class="['rounded border border-border', compact ? 'p-2.5' : 'p-3']">
+                    <h3 class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Transmission Soins</h3>
+                    <p :class="[compact ? 'mt-1 text-xs leading-4' : 'mt-2 text-sm', 'text-muted-foreground']">{{ careSummary.transmission_reason || careSummary.diagnostic_note || 'Aucune transmission renseignée.' }}</p>
                 </div>
-                <div :class="['rounded border border-gray-200 dark:border-gray-900', compact ? 'p-2.5' : 'p-3']">
-                    <h3 class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Traçabilité</h3>
-                    <p :class="[compact ? 'mt-1 text-xs' : 'mt-2 text-sm', 'text-slate-600 dark:text-slate-300']">{{ careSummary.updated_by || careSummary.created_by || '—' }}</p>
-                    <p :class="[compact ? 'mt-0.5 text-[10px]' : 'mt-1 text-xs', 'text-slate-400']">Mise à jour : {{ formatDateTime(careSummary.updated_at) || '—' }}</p>
+                <div :class="['rounded border border-border', compact ? 'p-2.5' : 'p-3']">
+                    <h3 class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Traçabilité</h3>
+                    <p :class="[compact ? 'mt-1 text-xs' : 'mt-2 text-sm', 'text-muted-foreground']">{{ careSummary.updated_by || careSummary.created_by || '—' }}</p>
+                    <p :class="[compact ? 'mt-0.5 text-[10px]' : 'mt-1 text-xs', 'text-muted-foreground']">Mise à jour : {{ formatDateTime(careSummary.updated_at) || '—' }}</p>
                 </div>
             </div>
 
-            <div v-if="careSummary.procedures?.length || !compact" :class="['overflow-hidden rounded border border-gray-200 dark:border-gray-900', compact ? 'mt-3' : 'mt-4']">
-                <div :class="['flex items-center justify-between border-b border-gray-200 dark:border-gray-900', compact ? 'px-3 py-2' : 'px-4 py-2.5']">
-                    <h3 class="text-xs font-bold text-slate-700 dark:text-white">Actes réalisés aux Soins</h3>
-                    <span class="rounded bg-gray-100 px-2 py-1 text-[10px] font-bold text-slate-500 dark:bg-gray-900">{{ careSummary.procedures?.length ?? 0 }}</span>
+            <div v-if="careSummary.procedures?.length || !compact" :class="['overflow-hidden rounded border border-border', compact ? 'mt-3' : 'mt-4']">
+                <div :class="['flex items-center justify-between border-b border-border', compact ? 'px-3 py-2' : 'px-4 py-2.5']">
+                    <h3 class="text-xs font-bold text-foreground">Actes réalisés aux Soins</h3>
+                    <span class="rounded bg-muted px-2 py-1 text-[10px] font-bold text-muted-foreground">{{ careSummary.procedures?.length ?? 0 }}</span>
                 </div>
                 <div v-if="careSummary.procedures?.length" class="overflow-x-auto">
                     <table :class="['w-full border-collapse', dense ? 'min-w-[420px]' : (compact ? 'min-w-[580px]' : 'min-w-[680px]')]">
-                        <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Acte</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Qté</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Observation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Réalisation</th></tr></thead>
-                        <tbody class="divide-y divide-gray-200 dark:divide-gray-900"><tr v-for="procedure in careSummary.procedures" :key="procedure.uuid"><td class="px-4 py-3"><strong class="block text-xs text-slate-700 dark:text-white">{{ procedure.name }}</strong><small class="font-mono text-[10px] text-slate-400">{{ procedure.code }}</small></td><td class="px-4 py-3 text-xs text-slate-500">{{ procedure.quantity }}</td><td class="px-4 py-3 text-xs text-slate-500">{{ procedure.notes || '—' }}</td><td class="px-4 py-3 text-end text-xs text-slate-500">{{ procedure.performed_by || '—' }}<small class="mt-0.5 block text-[10px] text-slate-400">{{ formatDateTime(procedure.performed_at) }}</small></td></tr></tbody>
+                        <thead class="bg-muted/35"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Acte</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Qté</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Observation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Réalisation</th></tr></thead>
+                        <tbody class="divide-y divide-border"><tr v-for="procedure in careSummary.procedures" :key="procedure.uuid"><td class="px-4 py-3"><strong class="block text-xs text-foreground">{{ procedure.name }}</strong><small class="font-mono text-[10px] text-muted-foreground">{{ procedure.code }}</small></td><td class="px-4 py-3 text-xs text-muted-foreground">{{ procedure.quantity }}</td><td class="px-4 py-3 text-xs text-muted-foreground">{{ procedure.notes || '—' }}</td><td class="px-4 py-3 text-end text-xs text-muted-foreground">{{ procedure.performed_by || '—' }}<small class="mt-0.5 block text-[10px] text-muted-foreground">{{ formatDateTime(procedure.performed_at) }}</small></td></tr></tbody>
                     </table>
                 </div>
-                <p v-else class="px-4 py-5 text-center text-xs text-slate-400">Aucun acte réalisé n’est enregistré dans la fiche Soins.</p>
+                <p v-else class="px-4 py-5 text-center text-xs text-muted-foreground">Aucun acte réalisé n’est enregistré dans la fiche Soins.</p>
             </div>
-            <p v-else class="mt-2 text-[10px] text-slate-400">Aucun acte réalisé aux Soins pour ce passage.</p>
+            <p v-else class="mt-2 text-[10px] text-muted-foreground">Aucun acte réalisé aux Soins pour ce passage.</p>
         </div>
     </section>
 </template>

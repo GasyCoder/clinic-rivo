@@ -790,6 +790,37 @@ class MedicineWorkflowTest extends TestCase
         $this->assertDatabaseCount('diagnoses', 1);
     }
 
+    /**
+     * L'ADR-084 était vérifiée sur les données mais jamais sur l'écran.
+     *
+     * `MedicineDossierPresenter` conservait `medicalDischarge === null` dans
+     * son calcul de `$isActive` : enregistrer une sortie reverrouillait donc
+     * tout le dossier — interrogatoire, examen, prescription — alors que la
+     * consultation était encore `IN_PROGRESS` et qu'aucune étape n'avait été
+     * validée. C'est précisément le trajet que l'ADR-084 a supprimé.
+     */
+    public function test_recording_a_discharge_leaves_the_consultation_writable(): void
+    {
+        $doctor = $this->doctor();
+        $orientation = $this->medicineOrientation($doctor);
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/accept");
+
+        $this->post("/medicine/orientations/{$orientation->uuid}/discharge", [
+            'type' => MedicalDischargeType::Normal->value,
+            'final_diagnosis' => 'État clinique stable',
+            'patient_condition' => 'Patient conscient et stable au départ.',
+            'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/dossier")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('capabilities.can_update_consultation', true)
+                ->where('capabilities.can_resolve_step', true)
+                ->where('capabilities.can_complete_consultation', true));
+    }
+
     public function test_medical_discharge_completes_only_the_clinical_orientation_and_never_collects_payment(): void
     {
         $doctor = $this->doctor();

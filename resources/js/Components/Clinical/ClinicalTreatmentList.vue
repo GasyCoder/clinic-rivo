@@ -1,8 +1,8 @@
 <script setup>
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import { Plus, Trash2 } from 'lucide-vue-next';
+import Input from '@/Components/Shadcn/Input.vue';
 
 /**
  * Treatments the patient declares taking, line by line.
@@ -29,7 +29,7 @@ const patch = (index, field, value) => emit('update', { index, field, value });
         <div
             v-for="(treatment, index) in treatments"
             :key="index"
-            class="rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950"
+            class="rounded-md border border-border bg-card p-3"
         >
             <div class="flex items-start gap-2">
                 <div class="min-w-0 flex-1 space-y-2">
@@ -87,17 +87,17 @@ const patch = (index, field, value) => emit('update', { index, field, value });
                 <button
                     v-if="!disabled"
                     type="button"
-                    class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-gray-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-gray-800 dark:hover:border-red-900 dark:hover:bg-red-950/30"
+                    class="mt-1 flex size-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900 dark:hover:bg-red-950/30"
                     :aria-label="`Retirer le traitement ${index + 1}`"
                     @click="emit('remove', index)"
                 >
-                    <Icon name="trash" class="text-sm" />
+                    <Trash2 class="h-4 w-4" aria-hidden="true" />
                 </button>
             </div>
         </div>
 
         <Button v-if="!disabled" type="button" size="sm" variant="white-outline" class="w-full" @click="emit('add')">
-            <Icon class="me-1.5 text-sm" name="plus" />{{ addLabel }}
+            <Plus class="h-4 w-4 me-1.5" aria-hidden="true" />{{ addLabel }}
         </Button>
     </div>
 </template>

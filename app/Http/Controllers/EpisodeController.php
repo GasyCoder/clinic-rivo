@@ -136,6 +136,7 @@ class EpisodeController extends Controller
                         'weight_kg' => $episode->careRecord->weight_kg,
                         'bmi' => $episode->careRecord->bmi,
                         'smoker' => $episode->careRecord->smoker,
+                        'alcohol' => $episode->careRecord->alcohol,
                     ] : []),
                     'allergy_snapshot' => $episode->careRecord->allergy_snapshot ?? [],
                     'no_procedure_reason' => $episode->careRecord->no_procedure_reason,

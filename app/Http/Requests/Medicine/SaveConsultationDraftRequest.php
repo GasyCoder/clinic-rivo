@@ -19,6 +19,11 @@ class SaveConsultationDraftRequest extends FormRequest
         'consultation', 'interview', 'clinical_exam', 'diagnosis', 'prescription', 'care_order',
         'lab_request', 'imaging_request', 'referral', 'surgical_referral',
         'discharge',
+        // Les demandes de « Conduite à tenir » vivent dans
+        // ClinicalOrientationCard, et n'étaient rattachées à aucune section :
+        // leur saisie — souvent la plus longue du parcours — disparaissait à
+        // chaque actualisation, contre l'intention de l'ADR-073.
+        'hospitalization', 'service_orientation', 'service_referral',
     ];
 
     public function authorize(): bool

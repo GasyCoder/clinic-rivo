@@ -48,7 +48,7 @@ class CompleteConsultationAction
                 ]);
             }
 
-            $blockers = $this->workflow->blockersForClosure($locked);
+            $blockers = $this->workflow->closureBlockerMessages($locked);
 
             if ($blockers !== []) {
                 throw ValidationException::withMessages([

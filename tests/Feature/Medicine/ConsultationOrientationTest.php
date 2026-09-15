@@ -437,6 +437,99 @@ class ConsultationOrientationTest extends TestCase
     }
 
     /**
+     * Le cul-de-sac constaté sur le passage A-26-0001-01.
+     *
+     * Une sortie médicale était prononcée et affichée, mais l'orientation
+     * active restait `SELECTED` : la clôture réclamait « complétez sa
+     * demande » tandis que `RecordMedicalDischargeAction` refusait d'agir —
+     * une sortie existait déjà. Le médecin ne pouvait ni transmettre ni
+     * clôturer.
+     *
+     * Cet état ne se produit plus par l'interface (changer d'orientation est
+     * refusé après une sortie prononcée), mais il existe en base sur les
+     * passages antérieurs à ce lien. Il est donc reconstitué tel quel : une
+     * sortie prononcée **est** la demande, l'orientation s'y rattache.
+     */
+    public function test_an_orientation_left_unsubmitted_attaches_the_discharge_already_pronounced(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+        $consultation = $orientation->consultation()->firstOrFail();
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/discharge", [
+            'type' => 'NORMAL',
+            'final_diagnosis' => 'Otite moyenne aiguë',
+            'patient_condition' => 'Guéri',
+            'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
+        ])->assertSessionHasNoErrors();
+
+        // L'état hérité : la sortie existe, l'orientation n'y renvoie pas.
+        $consultation->orientations()->whereNotNull('active_key')->update([
+            'status' => 'SELECTED',
+            'submitted_at' => null,
+            'medical_discharge_id' => null,
+        ]);
+
+        $blockersBefore = collect(app(\App\Support\ConsultationWorkflow::class)
+            ->blockersForClosure($consultation->fresh()))->pluck('message')->implode(' ');
+        $this->assertStringContainsString('non transmise', $blockersBefore);
+
+        // Le médecin reclique « Sortie médicale ».
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/orientation", [
+            'type' => 'DISCHARGE',
+        ])->assertSessionHasNoErrors();
+
+        $active = $consultation->orientations()->whereNotNull('active_key')->sole();
+
+        $this->assertSame('SUBMITTED', $active->status->value);
+        $this->assertNotNull($active->submitted_at);
+        $this->assertSame(
+            $consultation->medicalDischarge()->firstOrFail()->getKey(),
+            $active->medical_discharge_id,
+        );
+
+        $blockersAfter = collect(app(\App\Support\ConsultationWorkflow::class)
+            ->blockersForClosure($consultation->fresh()))->pluck('message')->implode(' ');
+        $this->assertStringNotContainsString('non transmise', $blockersAfter);
+    }
+
+    /**
+     * Le type doit correspondre, sinon choisir « Référence » sur une sortie
+     * normale se transmettrait tout seul — en prétendant qu'une lettre de
+     * transfert est partie alors que personne ne l'a écrite.
+     */
+    public function test_a_normal_discharge_never_submits_a_referral_on_its_own(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+        $consultation = $orientation->consultation()->firstOrFail();
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/discharge", [
+            'type' => 'NORMAL',
+            'final_diagnosis' => 'Otite moyenne aiguë',
+            'patient_condition' => 'Guéri',
+            'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
+        ])->assertSessionHasNoErrors();
+
+        // Même état hérité, mais l'orientation active vise une Référence.
+        $consultation->orientations()->whereNotNull('active_key')->update([
+            'type' => 'REFERRAL',
+            'status' => 'SELECTED',
+            'submitted_at' => null,
+            'medical_discharge_id' => null,
+        ]);
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/orientation", [
+            'type' => 'REFERRAL',
+        ])->assertSessionHasNoErrors();
+
+        $active = $consultation->orientations()->whereNotNull('active_key')->sole();
+
+        $this->assertSame('SELECTED', $active->status->value);
+        $this->assertNull($active->medical_discharge_id);
+    }
+
+    /**
      * ADR-089 — every patient concludes on the same step: the blockers never
      * send the doctor back to the examination or the paraclinical screen.
      */
@@ -446,16 +539,27 @@ class ConsultationOrientationTest extends TestCase
         [, $imagingOnly] = $this->consultation($doctor, module: CatalogModule::Imaging);
         [, $normal] = $this->consultation($doctor);
 
-        $blockersFor = fn (string $uuid): string => implode(' ', $this->actingAs($doctor)
+        $blockersFor = fn (string $uuid): string => collect($this->actingAs($doctor)
             ->get("/medicine/orientations/{$uuid}/cloture")
-            ->viewData('page')['props']['consultation']['closure_blockers']);
+            ->viewData('page')['props']['consultation']['closure_blockers'])->pluck('message')->implode(' ');
 
         foreach ([$blockersFor($imagingOnly->uuid), $blockersFor($normal->uuid)] as $blockers) {
-            $this->assertStringContainsString('Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.', $blockers);
+            // La garantie d'origine : quel que soit le patient, ce qui manque
+            // se règle sur la dernière étape — jamais un renvoi vers l'examen
+            // clinique ou la Paraclinique.
             $this->assertStringContainsString('Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).', $blockers);
             $this->assertStringNotContainsString('Paraclinique', $blockers);
             $this->assertStringNotContainsString('examen clinique', $blockers);
         }
+
+        // ADR-094 — le diagnostic, lui, ne concerne plus les deux : un
+        // passage venu seulement pour un ECG ou une écho n'en doit aucun,
+        // et le réclamer reviendrait à en faire inventer un.
+        $this->assertStringNotContainsString('Diagnostic :', $blockersFor($imagingOnly->uuid));
+        $this->assertStringContainsString(
+            'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.',
+            $blockersFor($normal->uuid),
+        );
     }
 
     /** ADR-089 — a diagnosis recorded at « Décision & clôture » keeps the doctor there. */

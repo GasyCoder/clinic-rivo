@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AdministrativeExitType;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodeMedicalStatus;
@@ -37,6 +38,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'service_plan_finalized_at', 'started_at', 'ended_at', 'created_by',
     'emergency_contact_name', 'emergency_contact_phone',
     'emergency_contact_relationship', 'emergency_contact_email',
+    'administrative_exit_type', 'administrative_exit_at', 'administrative_exit_by',
+    'administrative_exit_balance', 'administrative_exit_reason',
 ])]
 class Episode extends Model
 {
@@ -54,6 +57,9 @@ class Episode extends Model
             'medical_status' => EpisodeMedicalStatus::class,
             'financial_mode' => EpisodeFinancialMode::class,
             'administrative_status' => EpisodeAdministrativeStatus::class,
+            'administrative_exit_type' => AdministrativeExitType::class,
+            'administrative_exit_at' => 'datetime',
+            'administrative_exit_balance' => 'decimal:2',
             'financial_context_completed_at' => 'datetime',
             'designation_deferred' => 'boolean',
             'service_plan_finalized_at' => 'datetime',
@@ -107,6 +113,21 @@ class Episode extends Model
     public function financialContextCompleter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'financial_context_completed_by');
+    }
+
+    public function administrativeExitAuthor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'administrative_exit_by');
+    }
+
+    /**
+     * CDC §33.3 — at most one receivable per passage today (an exit happens
+     * once), kept as HasMany so a future correction flow can add a reversal
+     * line instead of rewriting history.
+     */
+    public function debts(): HasMany
+    {
+        return $this->hasMany(PatientDebt::class);
     }
 
     public function serviceRequests(): HasMany
@@ -190,7 +211,15 @@ class Episode extends Model
 
     protected function auditableSkipsChange(array $changes): bool
     {
-        return $this->status === EpisodeStatus::Cancelled && array_key_exists('status', $changes);
+        if ($this->status === EpisodeStatus::Cancelled && array_key_exists('status', $changes)) {
+            return true;
+        }
+
+        // RecordAdministrativeExitAction records its own
+        // `episode.administrative_exit` entry, with the reason and the
+        // frozen balance. Letting the generic hook fire too would leave a
+        // redundant pair for one decision (ADR-090).
+        return array_key_exists('administrative_exit_type', $changes);
     }
 
     protected function auditModule(): ?string

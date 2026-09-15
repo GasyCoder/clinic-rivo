@@ -28,7 +28,13 @@ const administrativeStatusLabels = {
     ORIENTED: 'Orienté',
     IN_CARE: 'En cours de soins',
     PENDING_SETTLEMENT: 'En attente de règlement',
+    // CDC §33.3 — les trois sorties administratives réelles. DISCHARGED est
+    // l'ancien fourre-tout, jamais écrit depuis l'ADR-090 mais conservé
+    // lisible.
     DISCHARGED: 'Sorti',
+    DISCHARGED_PAID: 'Sorti — payé comptant',
+    DISCHARGED_DEBT: 'Sorti — dette validée',
+    DISCHARGED_ESCAPED: 'Sorti — évadé',
 };
 const orientationStatusBadgeClass = {
     PENDING: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
@@ -101,6 +107,7 @@ const vitalsRows = computed(() => {
     if (record.weight_kg) rows.push({ label: 'Poids', value: `${record.weight_kg} kg` });
     if (record.bmi) rows.push({ label: 'IMC', value: record.bmi });
     if (record.smoker !== null && record.smoker !== undefined) rows.push({ label: 'Tabac', value: record.smoker ? 'Oui' : 'Non' });
+    if (record.alcohol !== null && record.alcohol !== undefined) rows.push({ label: 'Alcool', value: record.alcohol ? 'Oui' : 'Non' });
 
     return rows;
 });

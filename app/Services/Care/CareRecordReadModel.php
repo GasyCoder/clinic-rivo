@@ -44,6 +44,12 @@ class CareRecordReadModel
         ]);
 
         $canViewVitals = $viewer->can('vitals.view');
+        // `read_only` reste vrai : actes, allergies et transmission ne
+        // s'écrivent jamais depuis cette projection. Seules les constantes
+        // s'ouvrent, et seulement à qui possède `vitals.update` — la
+        // Chirurgie ne l'a pas (ADR-048) et garde donc exactement le
+        // comportement qu'elle avait. ADR-093.
+        $canCorrectVitals = $canViewVitals && $viewer->can('vitals.update');
         $canViewAllergies = $viewer->can('patients.medical_history.view');
         $patientAge = $this->patientAgeAtEpisode($record);
         $requestedCatalogUuids = $record->episode?->serviceRequests
@@ -54,6 +60,7 @@ class CareRecordReadModel
             'uuid' => $record->uuid,
             'read_only' => true,
             'can_view_vitals' => $canViewVitals,
+            'can_correct_vitals' => $canCorrectVitals,
             'can_view_allergies' => $canViewAllergies,
             ...($canViewVitals ? [
                 'blood_group' => $record->blood_group,
@@ -79,6 +86,7 @@ class CareRecordReadModel
                     $patientAge,
                 ),
                 'smoker' => $record->smoker,
+                'alcohol' => $record->alcohol,
             ] : []),
             ...($canViewAllergies ? [
                 'allergy_note' => $record->allergy_note,

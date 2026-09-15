@@ -132,18 +132,23 @@ class SaveConsultationAction
             ]);
         }
 
-        // The consultation's own status is now the gate. The discharge check
-        // below is kept for the episodes closed before that status existed,
-        // whose consultation rows the backfill could not always reach.
+        // Le statut de la consultation est la seule porte.
+        //
+        // Un second garde refusait aussi l'écriture dès qu'une sortie
+        // médicale existait. C'était le comportement **d'avant** l'ADR-084,
+        // dont le motif déclaré est précisément ce défaut : « la consultation
+        // devenait lecture seule à l'instant où le médecin remplissait ce
+        // formulaire — impossible de prescrire, d'imprimer ou de relire
+        // ensuite ». Il rendait le dossier muet alors que le passage était
+        // toujours en cours pour la Réception.
+        //
+        // Il se présentait comme un filet pour les dossiers clos avant que
+        // `consultations.status` existe. Il n'en était pas un : ces
+        // dossiers-là portent une orientation `COMPLETED`, que le garde
+        // ci-dessus refuse déjà.
         if (! $locked->consultation->isEditable()) {
             throw ValidationException::withMessages([
                 'consultation' => 'Cette consultation est clôturée : elle est désormais en lecture seule.',
-            ]);
-        }
-
-        if ($locked->episode->medicalDischarge()->exists()) {
-            throw ValidationException::withMessages([
-                'consultation' => 'La sortie médicale est déjà prononcée ; cette consultation est désormais en lecture seule.',
             ]);
         }
 

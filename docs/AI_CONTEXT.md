@@ -586,6 +586,28 @@ poussé à conclure avant de les lire. Répondre « Oui » sans avoir rien enreg
 est refusé côté serveur. `ClinicalDiagnosisEntry.vue` poste vers l'endpoint
 `/diagnoses` existant : même validation, même append-only, même audit (ADR-035).
 
+« Le diagnostic peut-il être posé maintenant ? » est posée à **Décision &
+clôture** (ADR-095, amende ADR-080), en tête de la section Diagnostic — la
+seule étape que tout patient atteint. Elle vivait à l'Examen clinique, qui
+est « sans objet » pour un passage paraclinique seul (ADR-076) : ce patient
+ne pouvait donc ni répondre, ni expliquer pourquoi sa consultation restait
+ouverte. Trois états, jamais deux : `null` tant que le médecin n'a pas
+répondu, aucun bouton pré-sélectionné. « Pas maintenant » ne débloque rien —
+la clôture exige toujours un diagnostic (CDC §33.1, ADR-081), sauf passage
+paraclinique (ADR-094) — mais le blocage dit « différé par le médecin » au
+lieu de « aucun diagnostic enregistré », et le stepper affiche « Diagnostic
+différé » sous l'étape Clôture. Un blanc signifie que personne n'a décidé,
+un report que quelqu'un a décidé d'attendre. L'endpoint dédié
+`POST /medicine/orientations/{orientation}/diagnostic-timing` porte la
+réponse, pour la même raison que l'ADR-079 : répondre à une question ne doit
+jamais réécrire l'état général, la conscience ou les appareils examinés ;
+`diagnosis_ready` quitte donc `UpdateMedicineClinicalExamRequest`. Répondre
+« Oui » sans rien avoir enregistré reste refusé côté serveur. La **saisie**
+du diagnostic reste disponible à l'Examen clinique (ADR-080) ; seule la
+question a bougé. L'Examen clinique mène désormais toujours à l'étape
+suivante — le raccourci qui sautait la Paraclinique la contournait sans que
+personne réponde à sa propre question (ADR-079).
+
 La conduite à tenir est une **donnée**, plus une étape (ADR-084, amende
 ADR-075 et ADR-076). `consultation_orientations` la porte avec son statut —
 `SELECTED` (destination choisie), `SUBMITTED` (demande réellement partie),
@@ -614,6 +636,52 @@ l'ordonnance — aucune donnée n'est jamais redemandée (§17).
 enregistrées et `/decision` redirige vers `/cloture` ;
 `consultations.decision` continue d'être écrite pour tous les lecteurs
 existants. Aucune permission nouvelle.
+
+Un passage venu **uniquement pour un examen** (ECG, échographie, analyse :
+`MEDICINE_DIRECT` + module `IMAGING`/`LABORATORY`) ne doit **aucun diagnostic
+final** (ADR-094, amende ADR-081 et ADR-035). Le cas constaté : le médecin
+devait consigner la conclusion d'un ECG dont le résultat n'était pas encore
+saisi, si bien que le passage restait indéfiniment `IN_CARE` et n'atteignait
+jamais la file de règlement. `ConsultationWorkflow::requiresFinalDiagnosis()`
+porte la règle une seule fois — définie par le `isParaclinicalOnly()` qui
+rendait déjà Interrogatoire et Examen « sans objet » (ADR-076) — et la garde
+de clôture comme `StoreMedicalDischargeRequest` la consultent toutes les
+deux ; recopiée, la sortie serait partie sur un dossier que la clôture aurait
+ensuite refusé. C'est tout ou rien : « écho + consultation » n'est pas un
+passage paraclinique et le diagnostic y reste exigé.
+`medical_discharges.final_diagnosis` devient nullable et
+`RecordMedicalDischargeAction` ne fabrique plus de `Diagnosis` vide : une
+absence reste une absence (ADR-077). Le médecin garde le droit d'en poser un.
+La conduite à tenir, `patient_condition` et la résolution des étapes restent
+obligatoires — ADR-094 ne lève que le diagnostic. Le CDC §33.1 ne traite
+nulle part la venue paraclinique isolée ; la divergence est signalée, jamais
+masquée.
+
+Une consultation clôturée peut être **rouverte**, avec motif obligatoire et
+trace d'audit (`consultation.reopen`), tant que la Réception n'a pas clos le
+passage (ADR-096 — construit le mécanisme que l'ADR-076 annonçait). Le cas :
+un ECG demandé le matin, la consultation clôturée, le résultat qui arrive
+l'après-midi. `ReopenConsultationAction` défait exactement ce que
+`CompleteConsultationAction` a fait — consultation et orientation reviennent
+`IN_PROGRESS`, l'étape Clôture redevient `NOT_STARTED`, l'épisode repasse de
+`PENDING_SETTLEMENT` à `IN_CARE` pour quitter la file « Sorties & règlements »
+pendant qu'un médecin y écrit encore. **Rouvrir n'est pas annuler** : aucune
+donnée clinique n'est supprimée, une sortie médicale prononcée le reste, les
+diagnostics restent append-only. Refusé dès que `Episode.status` est `CLOSED`
+(ADR-090) : le compte est soldé, une créance a pu naître, et le CDC ne dit
+nulle part ce qu'elles deviendraient. Permission dédiée
+`consultations.reopen`, accordée à `MEDICINE` — écrire dans une consultation
+ouverte et revenir sur une consultation conclue ne sont pas la même autorité.
+
+Le compte rendu d'un examen d'imagerie se saisit depuis **« Demandes
+d'examens »** (`/medicine/demandes-examens`), en éditeur riche assaini par
+`ClinicalRichTextSanitizer`, via l'endpoint existant de la consultation —
+aucun second chemin d'écriture. L'imagerie seulement : un résultat d'analyse
+appartient au Laboratoire (`laboratory_results.create`). La saisie reste
+possible **après** la clôture, sinon un résultat tardif serait impossible à
+consigner. Le compte rendu est imprimable (`Medicine/ImagingReportPrint`),
+avec l'identité du patient et l'en-tête du site issu de `page.props.site` —
+impression navigateur, jamais de PDF serveur (ADR-070).
 
 L'étape Diagnostic a été retirée de l'assistant (ADR-081) : le parcours compte
 six étapes. Correction et annulation vivent dans la carte Diagnostic de
@@ -699,6 +767,43 @@ actualisation. Elle est rattachée au passage **et** à son auteur : sur un
 poste partagé, un soignant ne récupère jamais la saisie non validée d'un
 collègue. Elle n'est ni auditée, ni lue par un module, et disparaît dès
 l'enregistrement réel ou l'annulation explicite. Voir ADR-073.
+
+La fiche de soins reste **corrigeable après le transfert vers Médecine**, et
+par tout compte Soins autorisé (ADR-092, amende l'ADR-085) : une température
+saisie 32 °C au lieu de 36,2 doit pouvoir être rectifiée même quand le
+soignant qui a pris le patient en charge a fini son service.
+`CareHandlerGuard::isEditable()` autorise l'écriture tant que l'orientation
+est `IN_PROGRESS` ou `COMPLETED` et que le passage reste `OPEN` ; `PENDING` et
+`CANCELLED` restent refusés. Le périmètre couvre la fiche entière — un acte
+ajouté après le transfert crée donc son `BillableItem` et un consommable sa
+demande Pharmacie, plus tard qu'avant mais par les mêmes circuits. Le
+**transfert vers Médecine reste unique et réservé au soignant qui a pris le
+patient en charge** : `CompleteCareAndOrientToMedicineAction` conserve
+`ensureWorkable()`. Chaque correction est tracée (`Auditable`, ancienne et
+nouvelle valeur). Le brouillon suit la fiche sans jamais être partagé entre
+comptes (ADR-073). Voir ADR-092.
+
+Le médecin **corrige les constantes** relevées par les Soins (ADR-093,
+amende ADR-077/054/092) : une température saisie 32 °C au lieu de 36,2 lui
+parvenait en lecture seule et restait fausse dans le dossier.
+`vitals.update` est ajoutée au socle `MEDICINE` ; `care.update` ne l'est
+pas, et c'est ce qui borne le périmètre — les constantes seules. Les actes,
+le matériel, les allergies et la transmission sont explicitement
+`prohibited` dans `CorrectCareRecordVitalsRequest` et refusés par
+`CorrectCareRecordVitalsAction` : les autoriser ferait naître, depuis un
+écran de consultation, une prestation à facturer (ADR-054) ou une sortie de
+stock Pharmacie (ADR-072). L'écrasement est réel — la mesure d'origine
+quitte l'écran — mais jamais silencieux : `CareRecord` est `Auditable` et
+conserve l'ancienne comme la nouvelle valeur avec son auteur et sa date.
+`App\Support\VitalSignRules` porte une seule fois les bornes cliniques,
+leurs messages et le calcul de l'IMC, consommés par la fiche Soins **et**
+par la correction Médecine : une tension refusée à l'infirmier ne peut pas
+être acceptée au médecin. L'épisode doit rester `OPEN` et la consultation
+éditable ; sans fiche Soins existante la correction refuse, Médecine
+corrigeant une mesure sans jamais en signer une. `read_only` reste `true`
+dans `CareRecordReadModel` : seul le drapeau `can_correct_vitals`, calculé
+depuis `vitals.update`, ouvre les constantes — la Chirurgie ne possède pas
+cette permission (ADR-048) et son comportement est inchangé. Voir ADR-093.
 
 Un patient venu uniquement pour un soin (`CARE_ONLY`, par exemple un
 pansement) reste aux Soins et ne voit aucun médecin : aucune orientation
@@ -858,6 +963,25 @@ aucun encaissement (`DRAFT` ou `VALIDATED` avec `paid_amount = 0`) ; une
 facture `PARTIALLY_PAID`, `PAID`, `COVERED` ou `CANCELLED` n'est jamais
 modifiée silencieusement. Voir ADR-054.
 
+Après la clôture de la consultation, le passage reste en
+`PENDING_SETTLEMENT` et attend la décision administrative de Réception
+(CDC §33.3, ADR-090). `/reception/sorties` (« Sorties & règlements »,
+`episodes.settlement.view`) liste ces passages avec le contrôle du compte
+du §33.2 — total facturé, payé, reste à payer, et les prestations encore
+non facturées signalées à part. Le type de sortie est décidé par le solde,
+recalculé sous verrou côté serveur : solde nul → « payé comptant » ; solde
+restant → « dette validée » (dérogation, `debts.authorize`, non accordée à
+RECEPTION par défaut) ou « évadé » (constat). La sortie clôt le passage
+(`Episode.status = CLOSED`), n'encaisse jamais rien — l'encaissement reste
+à `/cash` (ADR-012) — et ne touche aucune donnée clinique. Un solde
+restant crée une `PatientDebt` immuable portant les informations
+obligatoires du §33.3 ; une évasion n'efface jamais la créance (§34.2
+règle 9) et ne nomme ni responsable ni autorisateur. `patient_debts` ne
+porte aucun statut de règlement : le CDC n'en définit aucun. Une évasion
+survenue avant la sortie médicale n'est pas enregistrable — elle exigerait
+d'annuler des orientations cliniques actives, règle absente du CDC. Voir
+ADR-090.
+
 La page `/passages/{episode}` (« Détail du passage ») agrège en lecture seule
 orientations, fiche Soins, consultations Médecine et facturation d'un même
 passage, déjà accessibles séparément par module. Chaque section reste
@@ -893,9 +1017,12 @@ DashWind
 Tailwind CSS
 ```
 
-DashWind constitue la base visuelle.
-
-Ne pas introduire un autre design system sans validation.
+DashWind constitue la base visuelle historique. Depuis l'ADR-091, shadcn-vue
+devient progressivement la couche de composants cible, sans remplacement
+brutal : les écrans migrent un par un et DashWind reste en place tant que ses
+usages n'ont pas été remplacés et vérifiés. Le premier pilote est le répertoire
+`/patients`; cette migration visuelle ne modifie aucune autorisation ni règle
+métier.
 
 ---
 

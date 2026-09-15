@@ -55,6 +55,25 @@ class ResolveConsultationStepAction
                 ]);
             }
 
+            /*
+             * Déclarer la Paraclinique « non nécessaire » alors qu'une
+             * demande est partie ferait mentir le dossier : le Laboratoire
+             * ou l'Imagerie garderait un examen à réaliser pendant que la
+             * consultation affiche « aucun examen complémentaire ».
+             *
+             * Le chemin qui gère ce changement d'avis existe déjà et fait
+             * les choses proprement : la question en tête d'étape
+             * (`DecideComplementaryExamsAction`, ADR-079) annule les
+             * demandes sans résultat avec auteur, date et motif, et refuse
+             * de retirer une demande qui porte déjà un résultat. Ce
+             * raccourci-ci n'annulait rien du tout.
+             */
+            if ($step === StepKey::Paraclinical && $this->hasActiveParaclinicalRequest($locked)) {
+                throw ValidationException::withMessages([
+                    'step' => 'Des examens ont déjà été demandés pour ce passage. Répondez « Non » à la question en tête d’étape pour les annuler, ou laissez l’étape ouverte.',
+                ]);
+            }
+
             return $this->write($locked, $step, [
                 'status' => ConsultationStepStatus::Skipped,
                 'completed_at' => now(),
@@ -62,6 +81,13 @@ class ResolveConsultationStepAction
                 'skip_reason' => filled($reason) ? trim($reason) : null,
             ]);
         });
+    }
+
+    /** Une demande encore active — ni annulée, ni retirée — du Laboratoire ou de l'Imagerie. */
+    private function hasActiveParaclinicalRequest(Consultation $consultation): bool
+    {
+        return $consultation->labRequests()->whereNull('cancelled_at')->exists()
+            || $consultation->imagingRequests()->whereNull('cancelled_at')->exists();
     }
 
     /** Saving content marks progress, never completion. */

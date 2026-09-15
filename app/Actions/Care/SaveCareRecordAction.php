@@ -26,6 +26,7 @@ use App\Models\PatientAllergy;
 use App\Models\User;
 use App\Support\CareHandlerGuard;
 use App\Support\CareWorkflow;
+use App\Support\VitalSignRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
@@ -58,14 +59,23 @@ class SaveCareRecordAction
                 throw new InvalidArgumentException('Cette orientation ne concerne pas le service Soins.');
             }
 
-            CareHandlerGuard::ensureWorkable($locked, $actor, 'care_record');
+            // Corrigeable pendant ET après le transfert vers Médecine, par
+            // tout compte Soins autorisé (décision du 2026-09-15, amende
+            // l'ADR-085). Le passage doit rester ouvert : une fois clos par
+            // la sortie administrative (ADR-090), plus rien ne s'y écrit.
+            CareHandlerGuard::ensureEditable($locked, 'care_record');
 
-            if ($locked->status !== EpisodeOrientationStatus::InProgress
-                || $locked->episode->status !== EpisodeStatus::Open) {
+            if ($locked->episode->status !== EpisodeStatus::Open) {
                 throw ValidationException::withMessages([
-                    'care_record' => 'La fiche est modifiable uniquement pendant une prise en charge active aux Soins.',
+                    'care_record' => 'Ce passage est clos : la fiche n’est plus modifiable.',
                 ]);
             }
+
+            // Terminer les soins reste un acte unique : une fiche déjà
+            // transférée se corrige, elle ne se re-transfère pas. Cette
+            // garde-là vit dans CompleteCareAndOrientToMedicineAction, qui
+            // conserve `ensureWorkable()` et refuse une orientation déjà
+            // terminée (ADR-085) — la dupliquer ici la ferait diverger.
 
             $this->guardWorkflowFields($locked->episode, $data);
 
@@ -164,7 +174,7 @@ class SaveCareRecordAction
             'blood_pressure_systolic', 'blood_pressure_diastolic',
             'heart_rate', 'spo2',
             'temperature_celsius', 'known_diabetes', 'diabetes_note',
-            'height_cm', 'weight_kg', 'smoker',
+            'height_cm', 'weight_kg', 'smoker', 'alcohol',
         ];
 
         if (collect($vitalFields)->contains(fn (string $field) => array_key_exists($field, $data))) {
@@ -183,8 +193,9 @@ class SaveCareRecordAction
                 'diabetes_note' => $knownDiabetes === true ? $this->nullableText($data['diabetes_note'] ?? null) : null,
                 'height_cm' => $height,
                 'weight_kg' => $weight,
-                'bmi' => $this->calculateBmi($height, $weight),
+                'bmi' => VitalSignRules::bmi($height, $weight),
                 'smoker' => array_key_exists('smoker', $data) ? $data['smoker'] : null,
+                'alcohol' => array_key_exists('alcohol', $data) ? $data['alcohol'] : null,
             ];
         }
 
@@ -517,17 +528,6 @@ class SaveCareRecordAction
         if ($unpaidInvoice) {
             $this->attachToUnpaidInvoice->execute($unpaidInvoice, $billableItem);
         }
-    }
-
-    private function calculateBmi(int|float|string|null $height, int|float|string|null $weight): ?string
-    {
-        if ($height === null || $weight === null || (float) $height <= 0 || (float) $weight <= 0) {
-            return null;
-        }
-
-        $heightInMeters = (float) $height / 100;
-
-        return number_format((float) $weight / ($heightInMeters ** 2), 2, '.', '');
     }
 
     private function nullableText(mixed $value): ?string

@@ -40,7 +40,12 @@ class DocumentTemplate extends Model
     {
         return $this->hasMany(self::class, 'lineage_id', 'lineage_id')
             ->withTrashed()
-            ->latest('created_at');
+            // `id` départage : deux versions enregistrées dans la même
+            // seconde ont le même `created_at`, et l'historique les
+            // renvoyait alors dans un ordre arbitraire — lisible à
+            // l'écran comme une chronologie fausse.
+            ->latest('created_at')
+            ->orderByDesc('id');
     }
 
     public function creator(): BelongsTo

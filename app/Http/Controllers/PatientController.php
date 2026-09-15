@@ -7,6 +7,7 @@ use App\Actions\Patient\RecordPatientAntecedentAction;
 use App\Actions\Patient\UpdatePatientAction;
 use App\Enums\BillableItemStatus;
 use App\Enums\CashSessionStatus;
+use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
@@ -61,6 +62,14 @@ class PatientController extends Controller
                 // usually looked up at all.
                 'episodes as open_episodes_count' => fn ($query) => $query
                     ->where('status', EpisodeStatus::Open->value),
+                // Le passage dont la partie clinique est finie : Médecine a
+                // clôturé, il n'attend plus que la Réception. Sans cette
+                // distinction, le répertoire affichait « Passage en cours »
+                // à un médecin qui venait justement de conclure — deux écrans
+                // qui semblaient se contredire.
+                'episodes as settlement_episodes_count' => fn ($query) => $query
+                    ->where('status', EpisodeStatus::Open->value)
+                    ->where('administrative_status', EpisodeAdministrativeStatus::PendingSettlement->value),
                 'episodes as episodes_count' => fn ($query) => $query
                     ->where('status', '!=', EpisodeStatus::Cancelled->value),
             ])

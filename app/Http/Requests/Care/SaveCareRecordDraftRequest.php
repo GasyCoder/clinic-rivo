@@ -4,6 +4,7 @@ namespace App\Http\Requests\Care;
 
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\EpisodeOrientation;
+use App\Support\CareHandlerGuard;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -18,7 +19,7 @@ class SaveCareRecordDraftRequest extends FormRequest
     public const ALLOWED_KEYS = [
         'blood_group', 'blood_pressure_systolic', 'blood_pressure_diastolic',
         'heart_rate', 'spo2', 'temperature_celsius', 'known_diabetes',
-        'diabetes_note', 'height_cm', 'weight_kg', 'smoker',
+        'diabetes_note', 'height_cm', 'weight_kg', 'smoker', 'alcohol',
         'allergy_note', 'allergy_uuids', 'allergen_reference_uuids',
         'new_allergies', 'diagnostic_note', 'transmission_reason',
         'no_procedure_reason', 'procedures', 'consumables', 'consumable_notes',
@@ -34,9 +35,9 @@ class SaveCareRecordDraftRequest extends FormRequest
 
         $orientation->loadMissing('episode.careRecord');
 
-        // Same right as writing the sheet itself, and only while the visit
-        // is actually being handled.
-        return $orientation->status === EpisodeOrientationStatus::InProgress
+        // Même droit que l'écriture de la fiche, et tant qu'elle reste
+        // corrigeable — donc aussi après le transfert vers Médecine.
+        return CareHandlerGuard::isEditable($orientation)
             && $this->user()?->can($orientation->episode->careRecord ? 'care.update' : 'care.create') === true;
     }
 

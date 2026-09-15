@@ -12,6 +12,7 @@ use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
 use App\Models\LabRequest;
 use App\Models\User;
+use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -66,6 +67,15 @@ class CreateLabRequestAction
                     'items' => 'Une analyse sélectionnée n’est plus disponible.',
                 ]);
             }
+
+            // Sous le verrou déjà posé sur la consultation : deux envois
+            // simultanés du même examen ne peuvent pas passer tous les deux.
+            ParaclinicalRequestGuard::ensureNoActiveDuplicate(
+                $lockedConsultation,
+                $catalogItems,
+                'labRequests',
+                'lab_request',
+            );
 
             $labOrientation = $this->createOrientation->execute(
                 $episode,

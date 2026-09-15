@@ -5,6 +5,7 @@ namespace App\Actions\Medicine;
 use App\Enums\ClinicalPriority;
 use App\Enums\ConsultationOrientationStatus;
 use App\Enums\ConsultationOrientationType;
+use App\Enums\MedicalDischargeType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalRequestStatus;
 use App\Enums\SurgicalRequestStatus;
@@ -51,7 +52,7 @@ class RecordConsultationOrientationAction
                     $active->update(['priority' => $priority]);
                 }
 
-                return $active->fresh();
+                return $this->attachPronouncedDischarge($locked, $active->fresh());
             }
 
             if ($active) {
@@ -72,7 +73,7 @@ class RecordConsultationOrientationAction
             // to learn nothing new (§32).
             $locked->update(['decision' => $type->legacyDecision()]);
 
-            return $orientation;
+            return $this->attachPronouncedDischarge($locked, $orientation);
         });
     }
 
@@ -82,6 +83,59 @@ class RecordConsultationOrientationAction
      *
      * @param  array<string, int|null>  $links
      */
+    /**
+     * Une sortie déjà prononcée **est** la demande transmise.
+     *
+     * Le cul-de-sac constaté : la clôture exigeait « complétez sa demande »
+     * sur une orientation `SELECTED`, alors que la sortie médicale figurait
+     * juste en dessous, prononcée et datée. Seul
+     * `RecordMedicalDischargeAction` fait passer l'orientation à `SUBMITTED`
+     * — et il refuse d'agir quand une sortie existe déjà. Le médecin ne
+     * pouvait donc ni transmettre ni clôturer.
+     *
+     * On ne fabrique rien : on rattache l'orientation au fait déjà
+     * enregistré. Le type doit correspondre — un transfert répond à
+     * `Referral`, toute autre sortie à `Discharge` — sinon choisir
+     * « Référence » sur une sortie normale se transmettrait tout seul.
+     */
+    private function attachPronouncedDischarge(
+        Consultation $consultation,
+        ConsultationOrientation $orientation,
+    ): ConsultationOrientation {
+        if ($orientation->status === ConsultationOrientationStatus::Submitted) {
+            return $orientation;
+        }
+
+        if (! in_array($orientation->type, [
+            ConsultationOrientationType::Discharge,
+            ConsultationOrientationType::Referral,
+        ], true)) {
+            return $orientation;
+        }
+
+        $discharge = $consultation->medicalDischarge()->first();
+
+        if (! $discharge) {
+            return $orientation;
+        }
+
+        $expected = $discharge->type === MedicalDischargeType::Transfer
+            ? ConsultationOrientationType::Referral
+            : ConsultationOrientationType::Discharge;
+
+        if ($orientation->type !== $expected) {
+            return $orientation;
+        }
+
+        $orientation->update([
+            'medical_discharge_id' => $discharge->getKey(),
+            'status' => ConsultationOrientationStatus::Submitted,
+            'submitted_at' => $discharge->discharged_at ?? now(),
+        ]);
+
+        return $orientation->fresh();
+    }
+
     public function submit(
         Consultation $consultation,
         ConsultationOrientationType $type,

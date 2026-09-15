@@ -75,6 +75,30 @@ class ConsultationWorkflow
     }
 
     /**
+     * Whether this encounter owes a final diagnosis.
+     *
+     * CDC §33.1 lists "diagnostic final" among what the doctor records at
+     * medical discharge, and ADR-081 moved that guarantee onto the clinical
+     * fact itself. It stays the rule for every real consultation.
+     *
+     * A paraclinical-only passage is the one case where it cannot be one
+     * (ADR-094). The patient came for an ECG, an ultrasound or a lab test;
+     * the conclusion of that exam *is* the diagnosis, and the exam often has
+     * no result yet when the doctor closes. Demanding one there asks for a
+     * conclusion drawn from nothing — precisely what ADR-076 refuses when it
+     * states that requiring what does not concern every encounter
+     * "pousserait à fabriquer des actes".
+     *
+     * Public because two guards need the same answer — the closure blocker
+     * below and `StoreMedicalDischargeRequest`. Recopied, they would drift,
+     * and one would demand what the other waives.
+     */
+    public function requiresFinalDiagnosis(Consultation $consultation): bool
+    {
+        return ! $this->isParaclinicalOnly($consultation);
+    }
+
+    /**
      * What still blocks this step from being validated, or null when it can
      * be. Each rule restates a fact already enforced by the step's own
      * FormRequest — stated here so the stepper can explain itself before
@@ -180,32 +204,66 @@ class ConsultationWorkflow
             // to validate the very action they are performing.
             ->reject(fn (array $entry): bool => $entry['step'] === ConsultationStep::Closure)
             ->filter(fn (array $entry): bool => $entry['relevant'] && ! $entry['status']->isResolved())
-            ->map(fn (array $entry): string => sprintf(
-                '%s : %s',
-                $entry['step']->label(),
-                $entry['step']->isSkippable()
-                    ? 'à valider ou à déclarer non nécessaire.'
-                    : 'à valider avant la clôture.',
-            ))
+            ->map(fn (array $entry): array => [
+                'message' => sprintf(
+                    '%s : %s',
+                    $entry['step']->label(),
+                    $entry['step']->isSkippable()
+                        ? 'à valider ou à déclarer non nécessaire.'
+                        : 'à valider avant la clôture.',
+                ),
+                // L'étape à rejoindre. L'ADR-084 promet « ce qui manque
+                // encore **et le chemin pour y retourner** » ; sans elle,
+                // l'écran énonçait l'obstacle et laissait le médecin le
+                // chercher.
+                'step' => $entry['step']->value,
+            ])
             ->values()
             ->all();
 
         // The diagnosis no longer has a step of its own, but a consultation
         // still cannot close without a clinical conclusion. The requirement
         // moved support; it did not disappear.
-        if (! $this->hasActiveDiagnosis($consultation)) {
+        if ($this->requiresFinalDiagnosis($consultation) && ! $this->hasActiveDiagnosis($consultation)) {
             // ADR-089 — every patient, with or without a clinical
             // examination, concludes on the same step.
-            $blockers[] = 'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.';
+            //
+            // ADR-095 — a doctor who answered "pas maintenant" is waiting for
+            // something, not forgetting. Saying "aucun diagnostic enregistré"
+            // to them would read as an oversight, and the distinction between
+            // a deliberate deferral and a blank is the one this dossier keeps
+            // everywhere else.
+            $blockers[] = [
+                'message' => $this->diagnosisDeferred($consultation)
+                    ? 'Diagnostic : différé par le médecin — enregistrez-le à l’étape Décision & clôture pour pouvoir clôturer.'
+                    : 'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.',
+                // Déjà sur place : le diagnostic se pose à la Clôture.
+                'step' => null,
+            ];
         }
 
         // Same for the conduite à tenir: the "Décision" step is gone, the
         // obligation to say where the patient goes is not (ADR-084).
         if ($blocker = $this->closureBlocker($consultation)) {
-            $blockers[] = $blocker;
+            // Également sur place : la conduite à tenir se choisit ici.
+            $blockers[] = ['message' => $blocker, 'step' => null];
         }
 
         return $blockers;
+    }
+
+    /**
+     * Les mêmes obstacles, réduits à leurs phrases.
+     *
+     * `CompleteConsultationAction` les assemble en un seul message d'erreur :
+     * il n'a que faire des étapes, et les extraire chez lui dupliquerait la
+     * connaissance de cette forme.
+     *
+     * @return array<int, string>
+     */
+    public function closureBlockerMessages(Consultation $consultation): array
+    {
+        return array_column($this->blockersForClosure($consultation), 'message');
     }
 
     /** The conduite à tenir that currently stands, cancelled ones excluded. */
@@ -316,11 +374,23 @@ class ConsultationWorkflow
             return null;
         }
 
+        return $this->diagnosisDeferred($consultation) ? 'Diagnostic différé' : null;
+    }
+
+    /**
+     * The doctor said, explicitly, that they are not concluding yet.
+     *
+     * Distinct from "no diagnosis": a blank means nobody decided anything,
+     * a deferral means someone decided to wait. `null` — never answered —
+     * is therefore not a deferral either.
+     */
+    private function diagnosisDeferred(Consultation $consultation): bool
+    {
         $examination = $consultation->relationLoaded('clinicalExamination')
             ? $consultation->clinicalExamination
             : $consultation->clinicalExamination()->first();
 
-        return $examination?->diagnosis_ready === false ? 'Différé' : null;
+        return $examination?->diagnosis_ready === false;
     }
 
     public function paraclinicalNote(Consultation $consultation): ?string

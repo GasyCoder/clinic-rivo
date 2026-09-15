@@ -62,7 +62,12 @@ class MedicineParaclinicalFlowTest extends TestCase
             ],
             'notes' => 'Bilan infectieux',
             'continue_to_diagnosis' => true,
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+            // Vers la Prescription, jamais vers l'Examen clinique :
+            // demander une analyse ne signifie pas qu'il faut recommencer
+            // l'examen physique. Ce renvoi datait de l'ADR-080, où le
+            // diagnostic se saisissait dans l'examen ; depuis l'ADR-089 il
+            // vit à l'étape « Décision & clôture ».
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
 
         $labRequest = LabRequest::query()->sole();
         $this->assertSame($episode->id, $labRequest->episode_id);

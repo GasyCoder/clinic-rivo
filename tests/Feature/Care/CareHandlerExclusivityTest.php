@@ -40,17 +40,17 @@ class CareHandlerExclusivityTest extends TestCase
         $this->assertSame(EpisodeOrientationStatus::InProgress, $care->fresh()->status);
         $this->assertSame(0, $this->medicineOrientations($episode));
 
-        // The colleague reads the file but is offered no action.
+        // Le collègue voit la fiche, signalée comme prise par quelqu'un
+        // d'autre, et ne peut pas la terminer. Depuis la décision du
+        // 2026-09-15 il peut en revanche la corriger : une erreur de saisie
+        // ne doit pas attendre le retour de service du soignant. Seul le
+        // transfert reste exclusif.
         $this->actingAs($colleague)->get(route('care.orientations.show', $care))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('capabilities.can_edit', false)
+                ->where('capabilities.can_edit', true)
                 ->where('capabilities.can_complete', false)
                 ->where('capabilities.handled_by_other', true));
-
-        $this->actingAs($colleague)
-            ->put("/care/orientations/{$care->uuid}/record", ['clinical_notes' => 'Doublon'])
-            ->assertSessionHasErrors('care_record');
     }
 
     public function test_a_patient_is_handed_to_medicine_only_once(): void

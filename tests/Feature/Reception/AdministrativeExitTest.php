@@ -1,0 +1,489 @@
+<?php
+
+namespace Tests\Feature\Reception;
+
+use App\Actions\Reception\RecordAdministrativeExitAction;
+use App\Enums\AdministrativeExitType;
+use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\EpisodeStatus;
+use App\Enums\InvoiceStatus;
+use App\Models\AuditLog;
+use App\Models\Episode;
+use App\Models\Invoice;
+use App\Models\Patient;
+use App\Models\PatientDebt;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
+use Tests\TestCase;
+
+/**
+ * CDC §33.3 — sortie administrative, et la créance qu'elle laisse quand le
+ * compte n'est pas soldé.
+ */
+class AdministrativeExitTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function userWithPermissions(array $names, string $roleCode = 'RECEPTION'): User
+    {
+        $role = Role::query()->create(['code' => $roleCode, 'name' => $roleCode]);
+
+        foreach ($names as $name) {
+            $permission = Permission::query()->firstOrCreate(['name' => $name]);
+            $role->permissions()->attach($permission);
+        }
+
+        return User::factory()->create(['role_id' => $role->id]);
+    }
+
+    private function receptionist(array $extra = []): User
+    {
+        return $this->userWithPermissions([
+            'episodes.settlement.view', 'episodes.administrative_exit', 'billing.view',
+            ...$extra,
+        ]);
+    }
+
+    private function episode(
+        User $actor,
+        EpisodeAdministrativeStatus $status = EpisodeAdministrativeStatus::PendingSettlement,
+    ): Episode {
+        $patient = Patient::create([
+            'patient_number' => fake()->unique()->bothify('M-26-####'),
+            'first_name' => 'Soa',
+            'last_name' => 'Rakoto',
+            'birth_date' => '1992-04-14',
+            'sex' => 'F',
+        ]);
+
+        return Episode::create([
+            'patient_id' => $patient->id,
+            'episode_number' => $patient->patient_number.'-01',
+            'status' => EpisodeStatus::Open,
+            'administrative_status' => $status,
+            'started_at' => now()->subHours(3),
+            'created_by' => $actor->id,
+        ]);
+    }
+
+    private function invoice(Episode $episode, User $actor, string $total, string $paid): Invoice
+    {
+        return Invoice::create([
+            'patient_id' => $episode->patient_id,
+            'episode_id' => $episode->id,
+            'invoice_number' => fake()->unique()->bothify('MF-######'),
+            'status' => bccomp($paid, '0.00', 2) === 0 ? InvoiceStatus::Validated : InvoiceStatus::PartiallyPaid,
+            'currency' => 'MGA',
+            'subtotal_amount' => $total,
+            'total_amount' => $total,
+            'paid_amount' => $paid,
+            'balance_amount' => bcsub($total, $paid, 2),
+            'created_by' => $actor->id,
+        ]);
+    }
+
+    private function exit(User $actor, Episode $episode, array $data): Episode
+    {
+        return app(RecordAdministrativeExitAction::class)->execute($episode, $data, $actor);
+    }
+
+    public function test_a_settled_account_exits_as_paid_cash_and_closes_the_passage(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '25000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Compte soldé, patient sorti.',
+        ]);
+
+        $this->assertSame(EpisodeAdministrativeStatus::DischargedPaid, $exited->administrative_status);
+        $this->assertSame(AdministrativeExitType::PaidCash, $exited->administrative_exit_type);
+        $this->assertSame(EpisodeStatus::Closed, $exited->status);
+        $this->assertNotNull($exited->ended_at);
+        $this->assertSame($actor->id, $exited->administrative_exit_by);
+        $this->assertSame('0.00', $exited->administrative_exit_balance);
+        // §34.2 rule 8 — no debt is fabricated for a settled account.
+        $this->assertSame(0, PatientDebt::query()->count());
+    }
+
+    /* ── Motif composé par le serveur ──────────────────────────────── */
+
+    /**
+     * §34.1 règle 8 exige que la sortie porte sa cause. Elle n'exige pas
+     * qu'un agent la tape : laissé vide, le motif est composé des chiffres
+     * que la transaction vient de recalculer sous verrou.
+     */
+    public function test_an_omitted_reason_is_composed_from_the_locked_account(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '50000.00', '50000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+        ]);
+
+        $this->assertSame(
+            'Compte soldé : 50000.00 facturés, 50000.00 réglés. Sortie prononcée après vérification du compte.',
+            $exited->administrative_exit_reason,
+        );
+    }
+
+    /** Ce que l'agent écrit l'emporte : lui seul connaît les circonstances. */
+    public function test_a_written_reason_is_never_replaced(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '50000.00', '50000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Patient reparti avec sa famille après vérification.',
+        ]);
+
+        $this->assertSame(
+            'Patient reparti avec sa famille après vérification.',
+            $exited->administrative_exit_reason,
+        );
+    }
+
+    /** Le motif généré nomme le responsable réellement enregistré. */
+    public function test_the_generated_reason_for_a_debt_names_the_responsible_payer(): void
+    {
+        $actor = $this->receptionist(['debts.authorize']);
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '50000.00', '20000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::DebtValidated->value,
+            'responsible_name' => 'RAKOTO Jean',
+            'responsible_phone' => '034 00 000 00',
+        ]);
+
+        $this->assertSame(
+            'Dérogation autorisée : reste à payer 30000.00 sur 50000.00 facturés, pris en charge par RAKOTO Jean.',
+            $exited->administrative_exit_reason,
+        );
+    }
+
+    public function test_the_generated_reason_for_an_escape_states_what_remains_due(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '50000.00', '20000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::Escaped->value,
+            'left_at_estimate' => now()->subHour()->toDateTimeString(),
+            'last_known_service' => 'Médecine',
+        ]);
+
+        $this->assertSame(
+            'Départ constaté sans règlement régulier : reste à payer 30000.00 sur 50000.00 facturés, dernier service connu : Médecine.',
+            $exited->administrative_exit_reason,
+        );
+    }
+
+    /** Le motif généré part aussi à l'audit : la trace n'est jamais muette. */
+    public function test_the_generated_reason_reaches_the_audit_trail(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '50000.00', '50000.00');
+
+        $this->actingAs($actor);
+        $this->exit($actor, $episode, ['exit_type' => AdministrativeExitType::PaidCash->value]);
+
+        $entry = \App\Models\AuditLog::query()->where('action', 'episode.administrative_exit')->sole();
+
+        $this->assertStringContainsString('Compte soldé', (string) $entry->reason);
+    }
+
+    public function test_paid_cash_is_refused_while_a_balance_remains(): void
+    {
+        // §34.1 rule 6 / §34.1 rule 11 — the normal exit depends on the
+        // financial status, and the operator cannot declare it settled.
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '10000.00');
+
+        $this->actingAs($actor);
+        $this->expectException(ValidationException::class);
+
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Le patient dit avoir payé.',
+        ]);
+    }
+
+    public function test_a_debt_exit_is_refused_when_the_account_is_already_settled(): void
+    {
+        $actor = $this->receptionist(['debts.authorize']);
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '25000.00');
+
+        $this->actingAs($actor);
+        $this->expectException(ValidationException::class);
+
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::DebtValidated->value,
+            'reason' => 'Dette de complaisance',
+            'responsible_name' => 'Jean Rakoto',
+            'responsible_phone' => '0341234567',
+        ]);
+    }
+
+    public function test_a_validated_debt_creates_an_attributable_receivable(): void
+    {
+        $actor = $this->receptionist(['debts.authorize']);
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '10000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::DebtValidated->value,
+            'reason' => 'Sortie autorisée, règlement sous 30 jours.',
+            'responsible_name' => 'Jean Rakoto',
+            'responsible_phone' => '0341234567',
+            'responsible_relationship' => 'Époux',
+            'due_date' => now()->addDays(30)->toDateString(),
+            'comment' => 'Employeur informé.',
+        ]);
+
+        $this->assertSame(EpisodeAdministrativeStatus::DischargedDebt, $exited->administrative_status);
+        $this->assertSame('15000.00', $exited->administrative_exit_balance);
+
+        $debt = PatientDebt::query()->firstOrFail();
+        $this->assertSame('15000.00', $debt->amount);
+        $this->assertSame(AdministrativeExitType::DebtValidated, $debt->origin);
+        $this->assertSame('Jean Rakoto', $debt->responsible_name);
+        $this->assertSame($actor->id, $debt->authorized_by);
+        $this->assertSame($episode->id, $debt->episode_id);
+        $this->assertNotNull($debt->debt_number);
+    }
+
+    public function test_recording_a_debt_exit_requires_the_authorisation_permission(): void
+    {
+        // §34.1 rule 6 — waiving a balance is a derogation, not an ordinary
+        // desk act. An agent who may record exits still cannot grant one.
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '0.00');
+
+        $this->actingAs($actor);
+        $this->expectException(AuthorizationException::class);
+
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::DebtValidated->value,
+            'reason' => 'Sortie autorisée',
+            'responsible_name' => 'Jean Rakoto',
+            'responsible_phone' => '0341234567',
+        ]);
+    }
+
+    public function test_an_escape_keeps_the_receivable_and_names_no_responsible_payer(): void
+    {
+        // §34.2 rule 9 — une évasion ne doit jamais supprimer la créance.
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '40000.00', '5000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::Escaped->value,
+            'reason' => 'Patient introuvable après la consultation.',
+            'left_at_estimate' => now()->subHour()->toDateTimeString(),
+            'last_known_service' => 'Médecine',
+        ]);
+
+        $this->assertSame(EpisodeAdministrativeStatus::DischargedEscaped, $exited->administrative_status);
+
+        $debt = PatientDebt::query()->firstOrFail();
+        $this->assertSame('35000.00', $debt->amount);
+        $this->assertSame(AdministrativeExitType::Escaped, $debt->origin);
+        $this->assertNull($debt->responsible_name);
+        $this->assertNull($debt->authorized_by);
+        $this->assertSame('Médecine', $debt->last_known_service);
+        $this->assertSame($actor->id, $debt->recorded_by);
+    }
+
+    public function test_a_receivable_can_never_be_deleted(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '40000.00', '5000.00');
+        $this->actingAs($actor);
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::Escaped->value,
+            'reason' => 'Patient parti sans régler.',
+            'left_at_estimate' => now()->subHour()->toDateTimeString(),
+        ]);
+
+        $this->expectException(\LogicException::class);
+        PatientDebt::query()->firstOrFail()->delete();
+    }
+
+    public function test_a_passage_still_in_care_cannot_be_closed_administratively(): void
+    {
+        // §33.3 — the administrative exit comes after the medical one.
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor, EpisodeAdministrativeStatus::InCare);
+        $this->invoice($episode, $actor, '25000.00', '25000.00');
+
+        $this->actingAs($actor);
+        $this->expectException(ValidationException::class);
+
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Le patient veut partir.',
+        ]);
+    }
+
+    public function test_a_passage_is_never_exited_twice(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '25000.00');
+        $this->actingAs($actor);
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Compte soldé.',
+        ]);
+
+        $this->expectException(ValidationException::class);
+        $this->exit($actor, $episode->fresh(), [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Deuxième tentative.',
+        ]);
+    }
+
+    public function test_the_exit_is_audited_with_its_reason(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '25000.00');
+
+        $this->actingAs($actor);
+        $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Compte soldé, sortie normale.',
+        ]);
+
+        $entry = AuditLog::query()->where('action', 'episode.administrative_exit')->sole();
+        $this->assertSame($actor->id, $entry->user_id);
+        $this->assertSame('Compte soldé, sortie normale.', $entry->reason);
+        $this->assertSame('reception', $entry->module);
+        $this->assertSame($episode->uuid, $entry->entity_uuid);
+
+        // One decision, one entry: the generic Auditable `update` hook must
+        // not shadow it with a second, reason-less row.
+        $this->assertSame(0, AuditLog::query()
+            ->where('action', 'update')
+            ->where('entity_uuid', $episode->uuid)
+            ->count());
+    }
+
+    public function test_a_cancelled_invoice_is_not_counted_as_a_debt(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '25000.00');
+        $cancelled = $this->invoice($episode, $actor, '10000.00', '0.00');
+        $cancelled->forceFill([
+            'status' => InvoiceStatus::Cancelled,
+            'cancelled_at' => now(),
+            'cancellation_reason' => 'Erreur de saisie',
+        ])->save();
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, [
+            'exit_type' => AdministrativeExitType::PaidCash->value,
+            'reason' => 'Compte soldé après annulation de la facture erronée.',
+        ]);
+
+        $this->assertSame(EpisodeAdministrativeStatus::DischargedPaid, $exited->administrative_status);
+    }
+
+    public function test_the_settlement_board_lists_passages_awaiting_settlement(): void
+    {
+        $actor = $this->receptionist();
+        $waiting = $this->episode($actor);
+        $this->invoice($waiting, $actor, '25000.00', '10000.00');
+        $inCare = $this->episode($actor, EpisodeAdministrativeStatus::InCare);
+
+        $this->actingAs($actor)
+            ->get('/reception/sorties')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Reception/Settlements/Index')
+                ->where('counts.pending', 1)
+                ->where('episodes.data.0.episode_number', $waiting->episode_number)
+                ->where('episodes.data.0.account.balance_amount', '15000.00')
+                ->where('capabilities.can_authorize_debt', false)
+                ->count('episodes.data', 1));
+
+        $this->assertNotNull($inCare);
+    }
+
+    public function test_the_board_hides_amounts_without_billing_view(): void
+    {
+        // ADR-054 — a section is guarded by the permission that owns its
+        // data, not by the one that opens the route.
+        $actor = $this->userWithPermissions(['episodes.settlement.view']);
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '0.00');
+
+        $this->actingAs($actor)
+            ->get('/reception/sorties')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('capabilities.can_view_accounts', false)
+                ->where('episodes.data.0.account', null));
+    }
+
+    public function test_the_board_is_closed_without_its_permission(): void
+    {
+        $actor = $this->userWithPermissions(['episodes.view']);
+
+        $this->actingAs($actor)->get('/reception/sorties')->assertForbidden();
+    }
+
+    public function test_the_exit_endpoint_refuses_an_account_without_the_permission(): void
+    {
+        $actor = $this->userWithPermissions(['episodes.settlement.view', 'billing.view']);
+        $episode = $this->episode($actor);
+
+        $this->actingAs($actor)
+            ->post("/reception/passages/{$episode->uuid}/sortie-administrative", [
+                'exit_type' => AdministrativeExitType::PaidCash->value,
+                'reason' => 'Compte soldé.',
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_a_validated_debt_requires_its_responsible_payer(): void
+    {
+        // §33.3 "informations obligatoires".
+        $actor = $this->receptionist(['debts.authorize']);
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '25000.00', '0.00');
+
+        $this->actingAs($actor)
+            ->post("/reception/passages/{$episode->uuid}/sortie-administrative", [
+                'exit_type' => AdministrativeExitType::DebtValidated->value,
+                'reason' => 'Sortie autorisée.',
+            ])
+            ->assertSessionHasErrors(['responsible_name', 'responsible_phone']);
+    }
+}

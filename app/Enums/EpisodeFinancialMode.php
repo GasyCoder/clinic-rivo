@@ -24,7 +24,11 @@ enum EpisodeFinancialMode: string
     public function label(): string
     {
         return match ($this) {
-            self::Self => 'Patient',
+            // « Standard » et non « Patient » : c'est le barème appliqué qui
+            // nomme ce mode sur tous les écrans, et « Patient » se confondait
+            // avec la personne elle-même. Voir resources/js/utilities/
+            // financialMode.js, qui reprend exactement ces libellés.
+            self::Self => 'Standard',
             self::Mutual => 'Mutuelle',
             self::Staff => 'Personnel',
             self::Partner => 'Partenaire',

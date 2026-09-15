@@ -53,21 +53,27 @@ class DecideComplementaryExamsAction
         $lab = $this->activeLabRequests($consultation);
         $imaging = $this->activeImagingRequests($consultation);
 
-        $resulted = $lab->filter(fn (LabRequest $request): bool => $request->hasAnyResult())
-            ->map(fn (LabRequest $request): string => 'analyse')
-            ->merge(
-                $imaging->filter(fn (ImagingRequest $request): bool => $request->hasAnyResult())
-                    ->map(fn (ImagingRequest $request): string => 'imagerie'),
-            );
+        // On compte, sans fabriquer de libellés intermédiaires.
+        //
+        // La version précédente construisait deux collections de chaînes puis
+        // les fusionnait. `Eloquent\Collection::map()` ne redescend en
+        // collection de base *que si son résultat n'est pas vide* : aucune
+        // analyse résultée laissait donc une Eloquent\Collection vide, dont
+        // le `merge()` appelle `getKey()` sur chaque élément ajouté — sur des
+        // chaînes. Répondre « Non » sur un passage n'ayant que de l'imagerie
+        // résultée produisait alors une erreur 500, précisément là où le
+        // serveur devait expliquer un refus.
+        $resultedCount = $lab->filter(fn (LabRequest $request): bool => $request->hasAnyResult())->count()
+            + $imaging->filter(fn (ImagingRequest $request): bool => $request->hasAnyResult())->count();
 
         // A result is an act that happened. Withdrawing the request that
         // produced it would erase clinical history, so the answer is refused
         // and the doctor is told why rather than losing data.
-        if ($resulted->isNotEmpty()) {
+        if ($resultedCount > 0) {
             throw ValidationException::withMessages([
                 'required' => sprintf(
                     'Impossible de déclarer « aucun examen nécessaire » : %d demande(s) ont déjà un résultat. Elles font partie du dossier et ne peuvent pas être retirées.',
-                    $resulted->count(),
+                    $resultedCount,
                 ),
             ]);
         }

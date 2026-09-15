@@ -10,6 +10,7 @@ use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequest;
 use App\Models\User;
+use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -60,6 +61,15 @@ class CreateImagingRequestAction
                     'items' => 'Un examen sélectionné n’est plus disponible.',
                 ]);
             }
+
+            // Sous le verrou déjà posé sur la consultation : deux envois
+            // simultanés du même examen ne peuvent pas passer tous les deux.
+            ParaclinicalRequestGuard::ensureNoActiveDuplicate(
+                $lockedConsultation,
+                $catalogItems,
+                'imagingRequests',
+                'imaging_request',
+            );
 
             $imagingRequest = ImagingRequest::query()->create([
                 'episode_id' => $episode->getKey(),

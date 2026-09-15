@@ -75,6 +75,167 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->assertNotNull($step->skip_reason);
     }
 
+    /**
+     * Le raccourci « Passer cette étape » n'annulait rien.
+     *
+     * Il marquait la Paraclinique « non nécessaire » pendant qu'une demande
+     * restait active au Laboratoire ou en Imagerie : le dossier annonçait
+     * « aucun examen complémentaire » alors que le service avait toujours
+     * l'examen à réaliser. Le chemin correct — la question en tête d'étape —
+     * annule les demandes avec auteur, date et motif (ADR-079).
+     */
+    public function test_the_step_cannot_be_declared_unnecessary_while_a_request_is_live(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $request = $this->labRequest($orientation, $doctor);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/steps", [
+                'step' => ConsultationStep::Paraclinical->value,
+                'intent' => 'SKIP',
+            ])
+            ->assertSessionHasErrors('step');
+
+        $consultation = $orientation->consultation()->firstOrFail();
+        $step = $consultation->steps()->where('step', ConsultationStep::Paraclinical->value)->first();
+
+        $this->assertNotSame(ConsultationStepStatus::Skipped, $step?->status);
+        $this->assertNull($request->fresh()->cancelled_at, 'la demande ne doit pas être touchée par un refus');
+    }
+
+    /** Le chemin prévu, lui, annule proprement puis déclare l'étape non nécessaire. */
+    public function test_answering_no_cancels_the_live_request_and_then_skips(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $request = $this->labRequest($orientation, $doctor);
+
+        $this->actingAs($doctor)
+            ->post($this->decisionUrl($orientation), ['required' => false, 'withdraw_confirmed' => true])
+            ->assertSessionHasNoErrors();
+
+        $consultation = $orientation->consultation()->firstOrFail();
+        $step = $consultation->steps()->where('step', ConsultationStep::Paraclinical->value)->sole();
+
+        $this->assertSame(ConsultationStepStatus::Skipped, $step->status);
+        $this->assertNotNull($request->fresh()->cancelled_at);
+    }
+
+    /**
+     * Deux clics sur « Envoyer la demande » créaient deux ECG réellement
+     * distincts : le service en voyait deux à réaliser, et le compteur
+     * affichait « 2 » sans mentir. L'unicité est vérifiée côté serveur, sous
+     * le verrou de la consultation.
+     */
+    public function test_the_same_exam_cannot_be_requested_twice_while_it_is_still_pending(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $first = $this->labRequest($orientation, $doctor);
+        $catalogUuid = $first->items->first()->catalogItem->uuid;
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+                'items' => [['catalog_item_uuid' => $catalogUuid]],
+            ])
+            ->assertSessionHasErrors('lab_request');
+
+        $this->assertSame(
+            1,
+            $orientation->consultation()->firstOrFail()->labRequests()->count(),
+            'aucune seconde demande ne doit exister',
+        );
+    }
+
+    /** Une demande retirée libère la place : la redemander est légitime. */
+    public function test_the_same_exam_can_be_requested_again_once_the_first_is_withdrawn(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $first = $this->labRequest($orientation, $doctor);
+        $catalogUuid = $first->items->first()->catalogItem->uuid;
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/paraclinical-requests/cancel", [
+                'kind' => 'lab',
+                'uuid' => $first->uuid,
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNotNull($first->fresh()->cancelled_at);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+                'items' => [['catalog_item_uuid' => $catalogUuid]],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(2, $orientation->consultation()->firstOrFail()->labRequests()->count());
+    }
+
+    /** Retirer est un changement d'état, jamais une suppression (ADR-010). */
+    public function test_withdrawing_keeps_the_request_and_its_trace(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $request = $this->labRequest($orientation, $doctor);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/paraclinical-requests/cancel", [
+                'kind' => 'lab',
+                'uuid' => $request->uuid,
+                'reason' => 'Finalement sans indication',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $fresh = $request->fresh();
+
+        $this->assertNotNull($fresh, 'la demande ne doit jamais être supprimée');
+        $this->assertSame($doctor->id, $fresh->cancelled_by);
+        $this->assertSame('Finalement sans indication', $fresh->cancel_reason);
+        $this->assertSame('CANCELLED', $fresh->displayStatus());
+    }
+
+    /** Envoyer une demande ne renvoie plus à l'Examen clinique (ADR-089). */
+    public function test_sending_a_request_never_sends_the_doctor_back_to_the_examination(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $item = $this->laboratoryCatalogItem($doctor);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+                'items' => [['catalog_item_uuid' => $item->uuid]],
+                'continue_to_diagnosis' => true,
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
+    }
+
+    /**
+     * L'écran ne doit pas proposer ce que le serveur refusera.
+     *
+     * Le sélecteur listait l'examen déjà demandé : on pouvait le préparer,
+     * le voir à côté de la demande transmise, et n'apprendre qu'au clic que
+     * l'envoi était impossible.
+     */
+    public function test_the_page_marks_an_exam_that_is_already_pending(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $request = $this->labRequest($orientation, $doctor);
+        $catalogUuid = $request->items->first()->catalogItem->uuid;
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/paraclinique")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                // La demande transmise porte l'UUID de prestation que le
+                // sélecteur compare pour se désactiver.
+                ->where('consultation.lab_requests.0.items.0.catalog_item_uuid', $catalogUuid)
+                ->where('consultation.lab_requests.0.status', 'REQUESTED'));
+    }
+
     /** "Non nécessaire" is not "not started" and not "normal". */
     public function test_the_stepper_says_the_paraclinical_step_was_not_required(): void
     {
@@ -257,11 +418,16 @@ class ComplementaryExamDecisionTest extends TestCase
     }
 
     /**
-     * The whole point of the simplification: a straightforward consultation
-     * concludes in the examination and lands on the Prescription, never
-     * crossing an empty Paraclinique nor a separate Diagnostic screen.
+     * ADR-095 — l'examen clinique ne décide plus de la navigation.
+     *
+     * Il menait directement à la Prescription lorsque le médecin répondait
+     * « Oui » au diagnostic, contournant ainsi la Paraclinique sans que
+     * personne réponde à la question que cette étape pose elle-même
+     * (ADR-079). Il mène désormais toujours à l'étape suivante ; le saut de
+     * la Paraclinique reste possible, mais parce qu'elle a été *déclarée*
+     * non nécessaire — ce que ce test vérifie toujours.
      */
-    public function test_no_exams_and_a_diagnosis_go_straight_from_the_examination_to_the_prescription(): void
+    public function test_the_examination_always_leads_to_the_next_step(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->medicineConsultation($doctor);
@@ -271,12 +437,8 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->actingAs($doctor)->post($this->decisionUrl($orientation), ['required' => false]);
 
         $this->actingAs($doctor)
-            ->put($this->url($orientation), [
-                ...$this->examPayload(),
-                'diagnosis_ready' => true,
-                'complete' => true,
-            ])
-            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
+            ->put($this->url($orientation), [...$this->examPayload(), 'complete' => true])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/paraclinique");
 
         $consultation = $orientation->consultation()->firstOrFail();
 
@@ -289,31 +451,30 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->assertSame(1, $consultation->diagnoses()->count());
     }
 
-    /** Saying "oui" without recording anything is an intention, not a diagnosis. */
+    /**
+     * Saying "oui" without recording anything is an intention, not a
+     * diagnosis. La garantie est inchangée ; seul l'endroit où on répond a
+     * bougé, de l'Examen clinique à « Décision & clôture » (ADR-095).
+     */
     public function test_claiming_the_diagnosis_can_be_made_without_recording_one_is_refused(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->medicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->put($this->url($orientation), [
-                ...$this->examPayload(),
-                'diagnosis_ready' => true,
-                'complete' => true,
-            ])
-            ->assertSessionHasErrors('diagnosis_ready');
+            ->post($this->diagnosisTimingUrl($orientation), ['ready' => true])
+            ->assertSessionHasErrors('ready');
 
-        $this->assertSame(
-            0,
-            $orientation->consultation()->firstOrFail()->steps()
-                ->where('step', ConsultationStep::Diagnosis->value)->count(),
+        $this->assertNull(
+            $orientation->consultation()->firstOrFail()->clinicalExamination?->diagnosis_ready,
+            'Une réponse refusée ne doit rien enregistrer.',
         );
     }
 
     /**
      * A doctor waiting for results must never be pushed to conclude. The
-     * answer is kept, and the examination stays the place to record the
-     * diagnosis once the results arrive.
+     * answer is kept, and the screens stay reachable to record the diagnosis
+     * once the results arrive.
      */
     public function test_deferring_the_diagnosis_is_recorded_and_blocks_nothing(): void
     {
@@ -322,21 +483,42 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->labRequest($orientation, $doctor);
 
         $this->actingAs($doctor)
-            ->put($this->url($orientation), [
-                ...$this->examPayload(),
-                'diagnosis_ready' => false,
-                'complete' => true,
-            ])
-            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/paraclinique");
+            ->post($this->diagnosisTimingUrl($orientation), ['ready' => false])
+            ->assertSessionHasNoErrors();
 
         $consultation = $orientation->consultation()->firstOrFail();
 
         $this->assertFalse($consultation->clinicalExamination->diagnosis_ready);
 
-        // The examination screen stays reachable to conclude later.
+        // Un report n'est pas un examen : la ligne créée pour le porter ne
+        // doit pas faire croire qu'un examen clinique a eu lieu.
+        $this->assertNull($consultation->clinicalExamination->general_condition);
+
+        // Les deux écrans restent atteignables pour conclure plus tard.
+        foreach (['examen', 'cloture'] as $step) {
+            $this->actingAs($doctor)
+                ->get("/medicine/orientations/{$orientation->uuid}/{$step}")
+                ->assertOk();
+        }
+    }
+
+    /** Le report explique le blocage, au lieu de le faire passer pour un oubli. */
+    public function test_a_deferred_diagnosis_is_named_as_such_in_the_closure_blockers(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+
+        $blockers = fn (): string => collect($this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
+            ->viewData('page')['props']['consultation']['closure_blockers'])->pluck('message')->implode(' ');
+
+        $this->assertStringContainsString('aucun diagnostic enregistré', $blockers());
+
         $this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/examen")
-            ->assertOk();
+            ->post($this->diagnosisTimingUrl($orientation), ['ready' => false])
+            ->assertSessionHasNoErrors();
+
+        $this->assertStringContainsString('différé par le médecin', $blockers());
     }
 
     /** Nothing is pre-selected here either. */
@@ -384,11 +566,109 @@ class ComplementaryExamDecisionTest extends TestCase
         return "/medicine/orientations/{$orientation->uuid}/complementary-exams";
     }
 
+    /** ADR-095 — « Le diagnostic peut-il être posé maintenant ? », à la clôture. */
+    private function diagnosisTimingUrl(EpisodeOrientation $orientation): string
+    {
+        return "/medicine/orientations/{$orientation->uuid}/diagnostic-timing";
+    }
+
     /**
      * Built through the real action, not by hand: a lab request also opens a
      * Laboratory orientation, and a fixture that skipped it would not be the
      * thing the workflow actually reasons about.
      */
+    private function laboratoryCatalogItem(User $doctor): CatalogItem
+    {
+        return CatalogItem::query()->create([
+            'code' => 'LAB-'.uniqid(),
+            'name' => 'NFS',
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Laboratory,
+            'unit' => 'analyse',
+            'billable' => false,
+            'stockable' => false,
+            'created_by' => $doctor->id,
+            'updated_by' => $doctor->id,
+        ]);
+    }
+
+    /**
+     * Régression : répondre « Non » sur un passage n'ayant que de
+     * l'imagerie résultée produisait une erreur 500.
+     *
+     * Le code construisait deux collections de libellés puis les fusionnait.
+     * `Eloquent\Collection::map()` ne redescend en collection de base que si
+     * son résultat n'est pas vide : sans aucune analyse résultée, la première
+     * restait une Eloquent\Collection, dont le `merge()` appelle `getKey()`
+     * sur chaque élément — ici des chaînes.
+     *
+     * Le défaut ne se voyait qu'avec de l'imagerie **et** aucune analyse :
+     * les tests existants avaient toujours une analyse, donc une collection
+     * non vide, donc le bon type.
+     */
+    public function test_refusing_with_only_a_resulted_imaging_request_is_explained_not_crashed(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $imaging = $this->imagingRequestWithResult($orientation, $doctor);
+
+        $this->actingAs($doctor)
+            ->post($this->decisionUrl($orientation), ['required' => false, 'withdraw_confirmed' => true])
+            ->assertSessionHasErrors('required');
+
+        // La demande résultée n'est pas retirée : un résultat est un acte.
+        $this->assertNull($imaging->fresh()->cancelled_at);
+    }
+
+    /** Sans résultat, la même réponse retire bien la demande d'imagerie. */
+    public function test_refusing_withdraws_an_imaging_request_that_has_no_result(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $imaging = $this->imagingRequest($orientation, $doctor);
+
+        $this->actingAs($doctor)
+            ->post($this->decisionUrl($orientation), ['required' => false, 'withdraw_confirmed' => true])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNotNull($imaging->fresh()->cancelled_at);
+    }
+
+    private function imagingRequestWithResult(EpisodeOrientation $orientation, User $doctor): \App\Models\ImagingRequest
+    {
+        $request = $this->imagingRequest($orientation, $doctor);
+
+        $request->items()->update([
+            'result_value' => '<p>Rythme sinusal régulier.</p>',
+            'resulted_at' => now(),
+            'resulted_by' => $doctor->id,
+        ]);
+
+        return $request->fresh('items');
+    }
+
+    private function imagingRequest(EpisodeOrientation $orientation, User $doctor): \App\Models\ImagingRequest
+    {
+        $item = CatalogItem::query()->create([
+            'code' => 'IMG-'.uniqid(),
+            'name' => 'Électrocardiogramme (ECG)',
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Imaging,
+            'unit' => 'examen',
+            'billable' => false,
+            'stockable' => false,
+            'created_by' => $doctor->id,
+            'updated_by' => $doctor->id,
+        ]);
+
+        return $this->app->make(\App\Actions\Medicine\CreateImagingRequestAction::class)->execute(
+            $orientation->consultation()->firstOrFail(),
+            [['catalog_item_uuid' => $item->uuid]],
+            null,
+            $doctor,
+        )->fresh('items');
+    }
+
     private function labRequest(EpisodeOrientation $orientation, User $doctor): LabRequest
     {
         $item = CatalogItem::query()->create([

@@ -129,15 +129,22 @@ class CareRecordDraftTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page->where('careRecordDraft', null));
 
-        // Nor can they start their own: the patient is someone else's to
-        // work on (CareHandlerGuard), so nothing of theirs is stored.
+        // Le collègue peut saisir la sienne — depuis le 2026-09-15 il peut
+        // corriger la fiche — mais elle lui reste propre : deux brouillons
+        // coexistent, un par auteur, et aucun ne restitue celui de l'autre
+        // (ADR-073, unique(episode_orientation_id, created_by)).
         $this->actingAs($colleague)
             ->putJson("/care/orientations/{$orientation->uuid}/draft", [
                 'payload' => ['heart_rate' => '95'],
             ])
-            ->assertStatus(409);
+            ->assertOk();
 
-        $this->assertDatabaseCount('care_record_drafts', 1);
+        $this->assertDatabaseCount('care_record_drafts', 2);
+        $this->assertSame(
+            '58',
+            CareRecordDraft::query()->where('created_by', $author->id)->sole()->payload['heart_rate'],
+            'le brouillon de l’auteur n’est pas écrasé par celui du collègue',
+        );
     }
 
     public function test_only_whitelisted_worksheet_fields_are_kept(): void
@@ -210,7 +217,12 @@ class CareRecordDraftTest extends TestCase
         $this->assertDatabaseCount('care_record_drafts', 0);
     }
 
-    public function test_a_draft_is_refused_once_the_visit_is_no_longer_in_progress(): void
+    /**
+     * Le brouillon suit la fiche : corrigeable après le transfert vers
+     * Médecine (décision du 2026-09-15), refusé dès que la prise en charge
+     * est annulée — il n'y a alors plus rien à corriger.
+     */
+    public function test_a_draft_follows_the_sheet_after_the_transfer_but_not_after_a_cancellation(): void
     {
         $nurse = $this->nurse();
         $orientation = $this->orientation($nurse);
@@ -219,6 +231,14 @@ class CareRecordDraftTest extends TestCase
         $this->actingAs($nurse)
             ->putJson("/care/orientations/{$orientation->uuid}/draft", [
                 'payload' => ['heart_rate' => '58'],
+            ])
+            ->assertSuccessful();
+
+        $orientation->update(['status' => 'CANCELLED']);
+
+        $this->actingAs($nurse)
+            ->putJson("/care/orientations/{$orientation->uuid}/draft", [
+                'payload' => ['heart_rate' => '60'],
             ])
             ->assertForbidden();
     }

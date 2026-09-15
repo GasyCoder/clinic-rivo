@@ -12,6 +12,7 @@ use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AllergenReference;
 use App\Models\BillableItem;
+use App\Enums\EpisodeOrientationStatus;
 use App\Models\CareRecord;
 use App\Models\CareRecordProcedure;
 use App\Models\CatalogItem;
@@ -56,6 +57,7 @@ class CareRecordFlowTest extends TestCase
             'weight_kg' => '70',
             'allergy_note' => 'Pénicilline signalée',
             'smoker' => false,
+            'alcohol' => true,
             'diagnostic_note' => 'Diagnostic communiqué par le médecin',
             'transmission_reason' => 'Contrôler la température.',
             'procedures' => [[
@@ -77,6 +79,7 @@ class CareRecordFlowTest extends TestCase
         $this->assertTrue($record->known_diabetes);
         $this->assertSame('Type 2, sous metformine', $record->diabetes_note);
         $this->assertFalse($record->smoker);
+        $this->assertTrue($record->alcohol);
         $this->assertSame($nurse->id, $record->created_by);
         $this->assertDatabaseHas('care_record_procedures', [
             'care_record_id' => $record->id,
@@ -134,6 +137,99 @@ class CareRecordFlowTest extends TestCase
                 ->has('careRecord.procedures', 1)
                 ->where('careRecord.procedures.0.name', 'Injection IM')
             );
+    }
+
+    /**
+     * Trois états distincts, pas deux : un patient à qui on n'a pas posé la
+     * question n'est pas un patient qui a répondu « non ». Omettre la clé
+     * laisse donc `null`, jamais `false`.
+     */
+    /**
+     * Décision du 2026-09-15 (amende l'ADR-085) : une erreur de saisie doit
+     * pouvoir être rectifiée après le transfert vers Médecine, et par tout
+     * compte Soins autorisé — celui qui a pris le patient en charge peut
+     * avoir fini son service.
+     */
+    public function test_the_sheet_stays_correctable_after_the_transfer_to_medicine(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'temperature_celsius' => '32.00',
+        ]);
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record-and-complete", []);
+
+        $this->assertSame(
+            EpisodeOrientationStatus::Completed,
+            $orientation->fresh()->status,
+            'le passage est bien transféré',
+        );
+
+        // Un autre compte Soins, qui n'a jamais pris ce patient en charge.
+        $other = $this->userWithPermissions([
+            'care.view', 'care.update', 'vitals.view', 'vitals.update',
+        ]);
+
+        $this->actingAs($other)->put("/care/orientations/{$orientation->uuid}/record", [
+            'temperature_celsius' => '36.20',
+        ]);
+
+        $this->assertSame('36.20', CareRecord::query()->sole()->temperature_celsius);
+        // La correction reste tracée avec l'ancienne valeur.
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'update',
+            'entity_type' => CareRecord::class,
+            'user_id' => $other->id,
+        ]);
+    }
+
+    public function test_a_transferred_patient_is_never_transferred_a_second_time(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", ['temperature_celsius' => '37.00']);
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record-and-complete", []);
+
+        $medicineBefore = $orientation->episode->orientations()
+            ->where('destination_module', 'MEDICINE')->count();
+
+        $this->actingAs($nurse)
+            ->put("/care/orientations/{$orientation->uuid}/record-and-complete", [])
+            ->assertSessionHasErrors();
+
+        $this->assertSame(
+            $medicineBefore,
+            $orientation->episode->orientations()->where('destination_module', 'MEDICINE')->count(),
+            'aucune seconde orientation Médecine',
+        );
+    }
+
+    public function test_alcohol_and_tobacco_keep_not_asked_distinct_from_no(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'height_cm' => '175',
+            'weight_kg' => '70',
+            'smoker' => false,
+        ]);
+
+        $record = CareRecord::query()->sole();
+
+        $this->assertFalse($record->smoker, 'Tabac renseigné à Non');
+        $this->assertNull($record->alcohol, 'Alcool non posé : jamais déduit comme Non');
     }
 
     public function test_diabetes_note_is_rejected_unless_known_diabetes_is_yes(): void

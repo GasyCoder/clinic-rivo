@@ -294,6 +294,35 @@ class ConsultationStepStateTest extends TestCase
      * physical examination to record. Those steps are not omissions to make
      * up before closing — but they stay reachable, never locked.
      */
+    /**
+     * ADR-084 : la Clôture montre « ce qui manque encore **et le chemin pour
+     * y retourner** ». L'écran énonçait l'obstacle sans ce chemin, laissant
+     * le médecin chercher l'étape à valider.
+     */
+    public function test_each_closure_blocker_carries_the_step_to_go_to(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $consultation = $orientation->consultation()->firstOrFail();
+
+        $blockers = collect($this->app->make(ConsultationWorkflow::class)
+            ->blockersForClosure($consultation));
+
+        $this->assertNotNull(
+            $blockers->first(fn (array $b): bool => str_contains($b['message'], 'Prescription'))['step'] ?? null,
+            'Un obstacle d’étape doit nommer l’étape à rejoindre.',
+        );
+
+        // Le diagnostic et la conduite à tenir se règlent sur place : aucun
+        // renvoi, sinon l'écran proposerait d'aller là où l'on est déjà.
+        foreach ($blockers as $blocker) {
+            if (str_contains($blocker['message'], 'Diagnostic :')
+                || str_contains($blocker['message'], 'Conduite à tenir :')) {
+                $this->assertNull($blocker['step']);
+            }
+        }
+    }
+
     public function test_a_paraclinical_only_encounter_owes_no_interview_or_clinical_exam(): void
     {
         $doctor = $this->doctor();
@@ -308,8 +337,8 @@ class ConsultationStepStateTest extends TestCase
             );
 
         $consultation = $orientation->consultation()->firstOrFail();
-        $blockers = implode(' ', $this->app->make(ConsultationWorkflow::class)
-            ->blockersForClosure($consultation));
+        $blockers = collect($this->app->make(ConsultationWorkflow::class)
+            ->blockersForClosure($consultation))->pluck('message')->implode(' ');
 
         $this->assertStringNotContainsString('Interrogatoire', $blockers);
         $this->assertStringNotContainsString('Examen clinique', $blockers);

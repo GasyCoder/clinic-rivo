@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { ArrowLeft, ArrowRight, Check, CircleCheck, Clock, NotebookPen, Save, SkipForward } from 'lucide-vue-next';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
 
 /**
  * The footer every wizard step shares, with three deliberately distinct
@@ -40,31 +41,78 @@ const props = defineProps({
      * the server blocker; the server one always stays authoritative.
      */
     localBlocker: { type: String, default: null },
+    /**
+     * `{ saving, savedAt }` du brouillon serveur (ADR-073). Absent, la barre
+     * n'affiche aucun statut : elle ne prétend jamais un enregistrement que
+     * personne n'a confirmé.
+     */
+    saveState: { type: Object, default: null },
+    /**
+     * `false` quand l'étape porte déjà sa propre façon de se déclarer non
+     * nécessaire. La Paraclinique pose la question en tête d'écran
+     * (ADR-079), et c'est ce chemin-là qui annule proprement les demandes
+     * déjà transmises — le raccourci du pied, lui, n'annulait rien.
+     */
+    allowSkip: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(['save', 'save-continue']);
+const emit = defineEmits(['save', 'save-continue', 'blocked']);
 
-const askSkip = ref(false);
 const skipForm = useForm({ step: props.stepKey, intent: 'SKIP', skip_reason: '' });
 const completeForm = useForm({ step: props.stepKey, intent: 'COMPLETE' });
 
 const endpoint = computed(() => `/medicine/orientations/${props.orientationUuid}/steps`);
 const blocker = computed(() => props.localBlocker ?? props.state?.blocker ?? null);
 const isResolved = computed(() => Boolean(props.state?.resolved));
-const isSkippable = computed(() => Boolean(props.state?.skippable));
+const isSkippable = computed(() => props.allowSkip && Boolean(props.state?.skippable));
 
 const STATUS_NOTES = {
-    COMPLETED: { icon: 'check-circle', text: 'Étape validée', class: 'text-emerald-600 dark:text-emerald-300' },
-    SKIPPED: { icon: 'forward-arrow', text: 'Étape déclarée non nécessaire', class: 'text-slate-400' },
-    IN_PROGRESS: { icon: 'clock', text: 'Enregistrée, pas encore validée', class: 'text-amber-600 dark:text-amber-300' },
+    COMPLETED: { icon: CircleCheck, text: 'Étape validée', class: 'text-emerald-600 dark:text-emerald-300' },
+    SKIPPED: { icon: SkipForward, text: 'Étape déclarée non nécessaire', class: 'text-muted-foreground' },
+    IN_PROGRESS: { icon: Clock, text: 'Enregistrée, pas encore validée', class: 'text-amber-600 dark:text-amber-300' },
 };
 const statusNote = computed(() => STATUS_NOTES[props.state?.status] ?? null);
 
-const submitSkip = () => skipForm.post(endpoint.value, {
-    preserveScroll: true,
-    onSuccess: () => { askSkip.value = false; skipForm.reset('skip_reason'); },
-});
-const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll: true });
+/**
+ * L'action principale nomme sa destination. « Continuer » obligeait le
+ * médecin à deviner l'écran suivant, alors que le parcours la connaît.
+ */
+const continueLabel = computed(() => (props.next?.label
+    ? `Enregistrer et passer à ${props.next.label.toLocaleLowerCase('fr')}`
+    : 'Enregistrer et valider l’étape'));
+
+/**
+ * « Passer cette étape » agit immédiatement.
+ *
+ * Elle ouvrait auparavant un champ « Motif (facultatif) » avec Annuler et
+ * Confirmer. Confirmer un geste déjà explicite, pour remplir un champ que
+ * l'ADR-076 déclare facultatif — « aucun examen complémentaire » est un
+ * énoncé complet — ajoutait deux clics sans rien garantir.
+ *
+ * `skip_reason` reste accepté par le serveur : la question en tête de
+ * l'étape Paraclinique (ADR-079) continue d'en fournir un.
+ */
+const submitSkip = () => skipForm.post(endpoint.value, { preserveScroll: true });
+/**
+ * Un obstacle local n'éteint plus le bouton : il l'explique.
+ *
+ * `localBlocker` décrit une saisie encore en préparation dans le navigateur —
+ * des lignes d'ordonnance jamais envoyées, par exemple. Griser le bouton
+ * laissait le médecin devant une commande muette, sans savoir ce qui manquait.
+ * Le clic passe donc, et l'écran répond.
+ *
+ * L'obstacle venant du serveur (`state.blocker`) continue, lui, de désactiver :
+ * c'est une règle métier, pas une saisie à finir.
+ */
+const submitComplete = () => {
+    if (props.localBlocker) {
+        emit('blocked', props.localBlocker);
+
+        return;
+    }
+
+    completeForm.post(endpoint.value, { preserveScroll: true });
+};
 </script>
 
 <template>
@@ -75,27 +123,43 @@ const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll:
          le pied de page. -->
     <div
         :class="floating
-            ? 'sticky bottom-3 z-20 m-3 rounded-lg border border-gray-300 bg-white shadow-lg dark:border-gray-800 dark:bg-gray-950'
-            : 'border-t border-gray-200 bg-gray-50/50 dark:border-gray-900 dark:bg-gray-1000/30'"
+            ? 'sticky bottom-3 z-20 m-3 rounded-lg border border-border bg-card shadow-lg'
+            : 'border-t border-border bg-muted/35'"
     >
         <div class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             <Button v-if="previous" :as="Link" :href="`/medicine/orientations/${orientationUuid}/${previous.key}`" size="rg" variant="white-outline">
-                <Icon class="me-2 text-lg" name="arrow-left" />{{ previous.label }}
+                <ArrowLeft class="me-2 h-4 w-4" aria-hidden="true" />{{ previous.label }}
             </Button>
             <span v-else />
 
             <div class="min-w-0 text-center">
+                <ClinicalSaveStatus
+                    v-if="saveState"
+                    :saving="saveState.saving"
+                    :saved-at="saveState.savedAt"
+                    :dirty="dirty"
+                    :failed="Boolean(error)"
+                />
                 <FormError :message="error" />
+                <!-- `step` est la clé sous laquelle
+                     ResolveConsultationStepAction refuse : minimum de l'étape
+                     non atteint, ou saut d'une Paraclinique dont une demande
+                     est encore active. Elle n'était pas affichée — le clic
+                     restait sans effet ni explication. -->
+                <FormError :message="completeForm.errors.step" />
+                <FormError :message="skipForm.errors.step" />
                 <FormError :message="completeForm.errors.consultation" />
                 <FormError :message="skipForm.errors.consultation" />
                 <slot name="note">
-                    <p v-if="dirty" class="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-300">
-                        <Icon name="alert-circle" class="text-sm" />Modifications non enregistrées
+                    <!-- L'état « non enregistré » appartient à
+                         ClinicalSaveStatus ci-dessus. Il vivait aussi ici, si
+                         bien que « Modifications non enregistrées » s'affichait
+                         deux fois. Ne reste que ce qu'il ne dit pas : le statut
+                         de l'étape et l'obstacle éventuel. -->
+                    <p v-if="!dirty && statusNote" :class="['flex items-center justify-center gap-1.5 text-xs', statusNote.class]">
+                        <component :is="statusNote.icon" class="h-3.5 w-3.5" aria-hidden="true" />{{ statusNote.text }}
                     </p>
-                    <p v-else-if="statusNote" :class="['flex items-center justify-center gap-1.5 text-xs', statusNote.class]">
-                        <Icon :name="statusNote.icon" class="text-sm" />{{ statusNote.text }}
-                    </p>
-                    <p v-else-if="blocker" class="text-xs text-slate-400">{{ blocker }}</p>
+                    <p v-else-if="blocker" class="text-xs text-muted-foreground">{{ blocker }}</p>
                 </slot>
             </div>
 
@@ -108,13 +172,14 @@ const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll:
                         type="button"
                         size="rg"
                         variant="white-outline"
-                        @click="askSkip = !askSkip"
+                        :disabled="skipForm.processing"
+                        @click="submitSkip"
                     >
-                        <Icon class="me-2 text-lg" name="forward-arrow" />Passer cette étape
+                        <SkipForward class="me-2 h-4 w-4" aria-hidden="true" />{{ skipForm.processing ? 'Enregistrement…' : 'Passer cette étape' }}
                     </Button>
 
                     <Button v-if="hasForm" type="button" size="rg" variant="white-outline" :disabled="processing" @click="emit('save')">
-                        <Icon class="me-2 text-lg" name="save" />Enregistrer
+                        <Save class="me-2 h-4 w-4" aria-hidden="true" />Enregistrer
                     </Button>
 
                     <Button
@@ -125,8 +190,8 @@ const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll:
                         :title="canContinue ? undefined : (blocker ?? undefined)"
                         @click="emit('save-continue')"
                     >
-                        <Icon class="me-2 text-lg" name="check" />{{ processing ? 'Enregistrement…' : 'Enregistrer et continuer' }}
-                        <Icon class="ms-2 text-lg" name="arrow-right" />
+                        <Check class="me-2 h-4 w-4" aria-hidden="true" />{{ processing ? 'Enregistrement…' : continueLabel }}
+                        <ArrowRight class="ms-2 h-4 w-4" aria-hidden="true" />
                     </Button>
                     <!-- Déjà résolue (validée ou déclarée non nécessaire) : il n'y
                          a rien à revalider. Proposer « Valider » ici butait sur le
@@ -138,49 +203,26 @@ const submitComplete = () => completeForm.post(endpoint.value, { preserveScroll:
                         :href="`/medicine/orientations/${orientationUuid}/${next.key}`"
                         size="rg"
                     >
-                        Continuer · {{ next.label }}<Icon class="ms-2 text-lg" name="arrow-right" />
+                        Continuer · {{ next.label }}<ArrowRight class="ms-2 h-4 w-4" aria-hidden="true" />
                     </Button>
                     <Button
                         v-else
                         type="button"
                         size="rg"
-                        :disabled="Boolean(blocker) || completeForm.processing"
+                        :disabled="Boolean(state?.blocker) || completeForm.processing"
                         :title="blocker ?? undefined"
                         @click="submitComplete"
                     >
-                        <Icon class="me-2 text-lg" name="check" />{{ completeForm.processing ? 'Validation…' : 'Valider et continuer' }}
-                        <Icon class="ms-2 text-lg" name="arrow-right" />
+                        <Check class="me-2 h-4 w-4" aria-hidden="true" />{{ completeForm.processing ? 'Validation…' : 'Valider et continuer' }}
+                        <ArrowRight class="ms-2 h-4 w-4" aria-hidden="true" />
                     </Button>
                 </template>
 
                 <Button v-else-if="next" :as="Link" :href="`/medicine/orientations/${orientationUuid}/${next.key}`" size="rg">
-                    {{ next.label }}<Icon class="ms-2 text-lg" name="arrow-right" />
+                    {{ next.label }}<ArrowRight class="ms-2 h-4 w-4" aria-hidden="true" />
                 </Button>
             </div>
         </div>
 
-        <!-- Why the step was not needed. Optional on purpose: "aucun examen
-             complémentaire" is a complete statement, and demanding prose
-             would only push the doctor to type filler. -->
-        <form v-if="askSkip" class="border-t border-gray-200 px-5 py-3 dark:border-gray-900" @submit.prevent="submitSkip">
-            <label :for="`skip-${stepKey}`" class="block text-xs font-bold text-slate-700 dark:text-white">Motif (facultatif)</label>
-            <div class="mt-2 flex flex-col gap-2 sm:flex-row">
-                <input
-                    :id="`skip-${stepKey}`"
-                    v-model="skipForm.skip_reason"
-                    type="text"
-                    maxlength="500"
-                    placeholder="Ex. aucun examen complémentaire indiqué"
-                    class="block h-9 w-full rounded border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"
-                >
-                <div class="flex shrink-0 gap-2">
-                    <Button type="button" size="rg" variant="white-outline" @click="askSkip = false">Annuler</Button>
-                    <Button type="submit" size="rg" variant="secondary" :disabled="skipForm.processing">
-                        {{ skipForm.processing ? 'Enregistrement…' : 'Confirmer' }}
-                    </Button>
-                </div>
-            </div>
-            <FormError class="mt-1" :message="skipForm.errors.skip_reason" />
-        </form>
     </div>
 </template>

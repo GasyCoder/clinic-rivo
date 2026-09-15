@@ -34,9 +34,19 @@ class ReceptionController extends Controller
 
     public function index(Request $request): Response
     {
+        // Les arrivées du jour, pas l'historique.
+        //
+        // Cette liste est un pense-bête d'accueil : « qui vient d'arriver ? ».
+        // Sans borne, elle affichait encore avant-hier, si bien qu'un passage
+        // vieux de trois jours se lisait comme une arrivée récente.
+        //
+        // Ce n'est qu'un filtre d'affichage : aucun passage n'est modifié ni
+        // supprimé. Un passage plus ancien reste entier dans le dossier du
+        // patient, dans « Sorties & règlements » et dans la recherche.
         $recentEpisodes = $request->user()->can('episodes.view')
             ? Episode::query()
                 ->with('patient:id,uuid,patient_number,first_name,last_name,deleted_at')
+                ->where('started_at', '>=', now()->subDay())
                 ->latest('started_at')
                 ->limit(8)
                 ->get([

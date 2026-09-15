@@ -259,6 +259,12 @@ class PermissionSeeder extends Seeder
         'episodes.update' => 'Modifier un épisode',
         'episodes.mark_emergency' => 'Classer un épisode en urgence',
         'episodes.cancel' => 'Annuler un épisode',
+        // CDC §33.3 — sortie administrative. Voir la file d'attente de
+        // règlement et prononcer la sortie sont deux droits distincts :
+        // un compte peut avoir besoin de suivre les passages en attente
+        // sans pouvoir clore un compte patient.
+        'episodes.settlement.view' => 'Voir les passages en attente de règlement',
+        'episodes.administrative_exit' => 'Prononcer la sortie administrative d’un passage',
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
         // L'annulation contrôlée d'un paiement reste dans la session de
@@ -272,6 +278,13 @@ class PermissionSeeder extends Seeder
         'payments.view' => 'Voir les paiements',
         'payments.create' => 'Enregistrer un paiement',
         'payments.cancel' => 'Annuler un paiement',
+        // CDC §33.3 / §34.1 règle 6 — la dérogation « dette validée » est
+        // autorisée par une personne habilitée, distincte de l'agent qui
+        // enregistre la sortie. Elle n'est donc pas accordée par défaut à
+        // RECEPTION. Une évasion (§33.3) est un constat, pas une
+        // dérogation : elle relève d'episodes.administrative_exit.
+        'debts.view' => 'Voir les créances patients',
+        'debts.authorize' => 'Autoriser une sortie avec dette validée',
         'cash.view' => 'Voir la caisse',
         'cash.open' => 'Ouvrir la caisse',
         'cash.close' => 'Clôturer la caisse',
@@ -302,6 +315,7 @@ class PermissionSeeder extends Seeder
         'consultations.view' => 'Voir les consultations',
         'consultations.create' => 'Créer une consultation',
         'consultations.update' => 'Modifier une consultation',
+        'consultations.reopen' => 'Rouvrir une consultation clôturée pour la compléter',
         'consultations.delete' => 'Supprimer une consultation',
         'consultations.restore' => 'Restaurer une consultation',
 

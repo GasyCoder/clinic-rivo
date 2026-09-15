@@ -29,6 +29,10 @@ const props = defineProps({
     diagnoses: { type: Array, default: () => [] },
     /** Lignes de l'ordonnance active, déjà composées avec leur posologie. */
     prescriptionLines: { type: Array, default: () => [] },
+    // ADR-094 — faux uniquement pour un passage venu seulement pour un ECG,
+    // une échographie ou une analyse. Le serveur décide ; ce drapeau ne fait
+    // que reproduire sa réponse à l'écran.
+    requiresDiagnosis: { type: Boolean, default: true },
     disabled: { type: Boolean, default: false },
     cancellable: { type: Boolean, default: true },
 });
@@ -183,9 +187,17 @@ watch([destinationChoice, destinationOther], () => {
 
 const showPrecision = ref(Boolean(props.form.observations));
 
+/**
+ * Ce que le serveur exigera, dit avant de cliquer.
+ *
+ * Le diagnostic n'en fait partie que lorsqu'il est réellement dû : un
+ * passage venu seulement pour un ECG, une échographie ou une analyse n'en
+ * doit aucun (ADR-094). Ce garde-fou reproduit la règle serveur — il ne la
+ * décide pas, et `StoreMedicalDischargeRequest` la revérifie toujours.
+ */
 const canSubmit = computed(() => !props.disabled
     && !props.form.processing
-    && selectedDiagnoses.value.size > 0
+    && (!props.requiresDiagnosis || selectedDiagnoses.value.size > 0)
     && Boolean(props.form.patient_condition));
 
 const chipClass = (active) => [
@@ -263,7 +275,7 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
         <div class="grid gap-5 lg:grid-cols-2">
             <!-- Diagnostic final : cochés d'office -->
             <div>
-                <p :class="labelClass">Diagnostic final <span class="text-red-500">*</span></p>
+                <p :class="labelClass">Diagnostic final <span v-if="requiresDiagnosis" class="text-red-500">*</span><span v-else class="font-normal text-muted-foreground"> · facultatif</span></p>
                 <div v-if="diagnoses.length" class="space-y-1.5">
                     <button
                         v-for="diagnosis in diagnoses"
@@ -278,8 +290,14 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                         <span class="font-semibold">{{ diagnosis.description }}</span>
                     </button>
                 </div>
-                <p v-else class="rounded-md border border-dashed border-amber-300 bg-amber-50/50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                <p v-else-if="requiresDiagnosis" class="rounded-md border border-dashed border-amber-300 bg-amber-50/50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
                     Aucun diagnostic posé : ajoutez-le dans « 1 · Diagnostic » ci-dessus, il apparaîtra ici déjà coché.
+                </p>
+                <!-- Passage paraclinique seul : le compte rendu de l'examen
+                     tient lieu de conclusion, et le résultat n'est souvent
+                     pas encore revenu. Rien à réclamer (ADR-094). -->
+                <p v-else class="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                    Passage venu uniquement pour un examen : le diagnostic n’est pas exigé. Vous pouvez en poser un dans « 1 · Diagnostic » si vous le souhaitez.
                 </p>
                 <FormError :message="form.errors.final_diagnosis" />
             </div>
@@ -388,7 +406,7 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
 
         <div class="flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 pt-3 dark:border-gray-900">
             <p v-if="!canSubmit && !disabled" class="me-auto text-[11px] text-slate-400">
-                {{ !diagnoses.length || !selectedDiagnoses.size ? 'Cochez au moins un diagnostic.' : 'Choisissez l’état du patient.' }}
+                {{ requiresDiagnosis && !selectedDiagnoses.size ? 'Cochez au moins un diagnostic.' : 'Choisissez l’état du patient.' }}
             </p>
             <Button v-if="cancellable" type="button" size="sm" variant="white-outline" @click="emit('cancel')">Annuler</Button>
             <Button type="submit" size="sm" :disabled="!canSubmit">

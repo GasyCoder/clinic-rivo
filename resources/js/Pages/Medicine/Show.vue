@@ -1,15 +1,51 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import Card from '@/Components/UI/Card.vue';
+import {
+    Activity,
+    ArrowLeft,
+    ArrowRight,
+    Check,
+    ChevronDown,
+    ChevronUp,
+    CircleAlert,
+    CircleCheck,
+    CirclePlus,
+    Clipboard,
+    ClipboardCheck,
+    Clock,
+    Eye,
+    FileSearch,
+    FileStack,
+    FileText,
+    History,
+    Info,
+    List,
+    Lock,
+    MessageSquare,
+    Pencil,
+    Pill,
+    Plus,
+    Printer,
+    RotateCcw,
+    Save,
+    ScanLine,
+    Search,
+    Send,
+    Stethoscope,
+    Share2,
+    ShieldCheck,
+    Trash2,
+    User,
+    X,
+} from 'lucide-vue-next';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import ShadcnDialog from '@/Components/Shadcn/Dialog.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import IconInput from '@/Components/UI/IconInput.vue';
-import Input from '@/Components/UI/Input.vue';
-import RadioButton from '@/Components/UI/RadioButton.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 import MedicineWorkflowNav from '@/Components/Medicine/MedicineWorkflowNav.vue';
 import ConsultationStepBar from '@/Components/Medicine/ConsultationStepBar.vue';
 import ClinicalGeneralState from '@/Components/Clinical/ClinicalGeneralState.vue';
@@ -20,15 +56,20 @@ import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import SortableSections from '@/Components/UI/SortableSections.vue';
 import ClinicalExaminationSummary from '@/Components/Clinical/ClinicalExaminationSummary.vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
-import ClinicalTreatmentList from '@/Components/Clinical/ClinicalTreatmentList.vue';
-import ClinicalReportedInformation from '@/Components/Clinical/ClinicalReportedInformation.vue';
 import ClinicalDiagnosisEntry from '@/Components/Clinical/ClinicalDiagnosisEntry.vue';
 import PrescriptionLineEditor from '@/Components/Clinical/PrescriptionLineEditor.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
+import ClinicalVitalsCorrection from '@/Components/Clinical/ClinicalVitalsCorrection.vue';
 import ClinicalPatientHeader from '@/Components/Clinical/ClinicalPatientHeader.vue';
+import ClinicalSection from '@/Components/Clinical/ClinicalSection.vue';
+import ClinicalCondensedHeader from '@/Components/Clinical/ClinicalCondensedHeader.vue';
+import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
+import VitalSignsStrip from '@/Components/Clinical/VitalSignsStrip.vue';
+import PatientContextPanel from '@/Components/Clinical/PatientContextPanel.vue';
 import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
 import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor.vue';
 import { useFormDraft } from '@/composables/useFormDraft';
+import { useToastStore } from '@/stores/toast';
 import { formatDate, formatDateTime } from '@/utilities/date';
 
 defineOptions({ layout: AppLayout });
@@ -75,24 +116,119 @@ const showClinicalContext = ref(false);
  * 64px is the fixed application header; 12px keeps a small gap under it.
  */
 const APP_HEADER_HEIGHT = 64;
-const stickyStack = ref(null);
-const stickyStackOffset = ref(APP_HEADER_HEIGHT + 16);
+/** Hauteur présumée du bandeau réduit avant sa première mesure. */
+const CONDENSED_BAR_FALLBACK = 56;
+const fullHeader = ref(null);
+const pinnedHeaderOffset = ref(APP_HEADER_HEIGHT + 16);
+
+/**
+ * L'en-tête complet défile normalement ; un bandeau réduit s'épingle.
+ *
+ * Deux versions ont échoué avant celle-ci, pour la même raison de fond :
+ * elles repliaient un en-tête **resté dans le flux**.
+ *
+ *   1. Replier retirait ~310 px au-dessus de la position de lecture, donc
+ *      tout le contenu sautait vers le haut — le défilement « dépassait ».
+ *      Sur une page courte, le document devenait même plus court que la
+ *      fenêtre : le navigateur ramenait le défilement en haut, l'en-tête se
+ *      dépliait, et la page vibrait sans pouvoir défiler.
+ *   2. Interdire le repli sur les pages courtes supprimait la vibration
+ *      mais aussi l'épinglage : sur l'étape Dossier, plus rien ne restait
+ *      en haut.
+ *
+ * Le bandeau réduit est donc désormais une **surcouche de hauteur nulle** :
+ * son conteneur est `sticky h-0`, l'enfant déborde par-dessus le contenu.
+ * Afficher ou masquer ce bandeau ne retire pas un pixel au document — ni
+ * saut, ni oscillation, ni garde-fou à régler — et l'en-tête complet
+ * redevient un bloc ordinaire qui défile.
+ *
+ * La bascule s'appuie sur `IntersectionObserver` plutôt que sur un écouteur
+ * `scroll` : le navigateur fait le travail hors du fil principal.
+ *
+ * En dessous de 1024 px, rien ne s'épingle : la surcouche mangerait une
+ * part trop grande d'un écran étroit.
+ */
+const headerSentinel = ref(null);
+const condensedBar = ref(null);
+const headerCondensed = ref(false);
+const stickyEnabled = ref(false);
+const condensedBarHeight = ref(0);
+const headerIsFull = computed(() => !headerCondensed.value);
+/** La surcouche n'existe que repliée : sinon elle doublerait l'en-tête complet. */
+const showCondensedBar = computed(() => stickyEnabled.value && !headerIsFull.value);
+
+let sentinelObserver = null;
 let stackObserver = null;
+let barObserver = null;
+let stickyQuery = null;
+let stickyQueryHandler = null;
+
+/**
+ * Remonter à l'en-tête complet.
+ *
+ * Il n'est plus « déplié » sur place : il vit en haut du document et la
+ * surcouche ne fait que le remplacer pendant le défilement. Le seul geste
+ * qui a du sens est donc d'y retourner — la sentinelle redevient visible et
+ * le bandeau s'efface de lui-même.
+ */
+const scrollToHeader = () => {
+    if (typeof window === 'undefined') return;
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
 onMounted(() => {
-    if (!stickyStack.value || typeof ResizeObserver === 'undefined') return;
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        stickyQuery = window.matchMedia('(min-width: 1024px)');
+        stickyQueryHandler = () => {
+            stickyEnabled.value = stickyQuery.matches;
 
+            if (!stickyQuery.matches) headerCondensed.value = false;
+        };
+
+        stickyQueryHandler();
+        stickyQuery.addEventListener('change', stickyQueryHandler);
+    }
+
+    if (headerSentinel.value && typeof IntersectionObserver !== 'undefined') {
+        sentinelObserver = new IntersectionObserver(
+            ([entry]) => { headerCondensed.value = !entry.isIntersecting; },
+            { rootMargin: `-${APP_HEADER_HEIGHT}px 0px 0px 0px`, threshold: 0 },
+        );
+        sentinelObserver.observe(headerSentinel.value);
+    }
+
+    if (typeof ResizeObserver === 'undefined') return;
+
+    // La colonne de notes de l'Examen se cale sous ce qui est réellement
+    // épinglé — c'est-à-dire le bandeau réduit, plus l'en-tête applicatif.
     const measure = () => {
-        stickyStackOffset.value = APP_HEADER_HEIGHT + Math.round(stickyStack.value.offsetHeight) + 12;
+        const bar = condensedBar.value ? Math.round(condensedBar.value.offsetHeight) : 0;
+
+        if (bar > 0) condensedBarHeight.value = bar;
+
+        pinnedHeaderOffset.value = APP_HEADER_HEIGHT + (condensedBarHeight.value || CONDENSED_BAR_FALLBACK) + 12;
     };
 
     measure();
     stackObserver = new ResizeObserver(measure);
-    stackObserver.observe(stickyStack.value);
+    if (fullHeader.value) stackObserver.observe(fullHeader.value);
+    barObserver = new ResizeObserver(measure);
+
+    watch(condensedBar, (element) => {
+        barObserver.disconnect();
+
+        if (element) barObserver.observe(element);
+
+        measure();
+    }, { flush: 'post' });
 });
 
 onBeforeUnmount(() => {
+    sentinelObserver?.disconnect();
     stackObserver?.disconnect();
+    barObserver?.disconnect();
+    if (stickyQueryHandler) stickyQuery?.removeEventListener?.('change', stickyQueryHandler);
     stackObserver = null;
 });
 const markEpisodeEmergency = () => {
@@ -122,7 +258,16 @@ const submitAntecedent = () => antecedentForm.post(`/patients/${patient.value.uu
     preserveScroll: true,
     onSuccess: () => antecedentForm.reset(),
 });
-const isClosed = computed(() => Boolean(props.medical_discharge));
+const hasDischarge = computed(() => Boolean(props.medical_discharge));
+/**
+ * Ce pour quoi le patient est venu, tel que la Réception l'a enregistré.
+ * Plusieurs prestations sont possibles sur un même passage ; on les joint
+ * plutôt que d'en élire une arbitrairement.
+ */
+const requestedServiceLabel = computed(() => (episode.value.designations ?? [])
+    .map((designation) => designation.description)
+    .filter(Boolean)
+    .join(' · ') || null);
 const richTextToPlainText = (value) => {
     if (!value || typeof document === 'undefined') return value ?? '';
     const container = document.createElement('div');
@@ -156,12 +301,12 @@ const paracliniqueRecorded = computed(() => (props.consultation?.lab_requests?.l
  * garantie a changé de support, pas disparu.
  */
 const WIZARD_LAYOUT = [
-    { key: 'dossier', label: 'Dossier du passage', navLabel: 'Dossier', hint: 'Contexte', icon: 'file-text' },
-    { key: 'consultation', label: 'Interrogatoire', hint: 'Histoire clinique', icon: 'chat' },
-    { key: 'examen', label: 'Examen clinique', navLabel: 'Examen', hint: 'Constatations', icon: 'plus-medi' },
-    { key: 'paraclinique', label: 'Examens paracliniques', navLabel: 'Paraclinique', hint: 'Selon indication', icon: 'activity' },
-    { key: 'ordonnance', label: 'Prescription', navLabel: 'Prescription', hint: 'Traitement', icon: 'file-check' },
-    { key: 'cloture', label: 'Décision & clôture', navLabel: 'Décision & clôture', hint: 'Conclure le passage', icon: 'check-circle' },
+    { key: 'dossier', label: 'Dossier du passage', navLabel: 'Dossier', hint: 'Contexte', icon: FileText },
+    { key: 'consultation', label: 'Interrogatoire', hint: 'Histoire clinique', icon: MessageSquare },
+    { key: 'examen', label: 'Examen clinique', navLabel: 'Examen', hint: 'Constatations', icon: Stethoscope },
+    { key: 'paraclinique', label: 'Examens paracliniques', navLabel: 'Paraclinique', hint: 'Selon indication', icon: Activity },
+    { key: 'ordonnance', label: 'Prescription', navLabel: 'Prescription', hint: 'Traitement', icon: Pill },
+    { key: 'cloture', label: 'Décision & clôture', navLabel: 'Décision & clôture', hint: 'Conclure le passage', icon: CircleCheck },
 ];
 const serverSteps = computed(() => props.consultation?.steps ?? {});
 const stepState = (key) => serverSteps.value[key] ?? {
@@ -174,15 +319,151 @@ const wizardSteps = computed(() => WIZARD_LAYOUT.map((step, index) => ({
 })));
 const currentStepIndex = computed(() => Math.max(0, wizardSteps.value.findIndex((step) => step.key === props.current_step)));
 const currentStepState = computed(() => stepState(props.current_step));
+const relevantWizardSteps = computed(() => wizardSteps.value.filter((step) => step.relevant !== false));
+const currentStepLabel = computed(() => wizardSteps.value[currentStepIndex.value]?.navLabel
+    ?? wizardSteps.value[currentStepIndex.value]?.label
+    ?? null);
+const currentStepPosition = computed(() => {
+    const index = relevantWizardSteps.value.findIndex((step) => step.key === props.current_step);
+
+    return index === -1 ? null : index + 1;
+});
 
 /** What the server says still stands between here and a closed consultation. */
+const toast = useToastStore();
+
 const closureBlockers = computed(() => props.consultation?.closure_blockers ?? []);
+
+/**
+ * Rouvrir une consultation clôturée (ADR-096).
+ *
+ * Le cas réel : un ECG demandé le matin, la consultation clôturée, le
+ * résultat qui arrive l'après-midi. Sans cela, le compte rendu existe et la
+ * conclusion du dossier l'ignore pour toujours.
+ *
+ * Le motif est obligatoire : revenir sur un dossier conclu est exceptionnel,
+ * et l'audit doit dire pourquoi. Le serveur le revérifie.
+ */
+const reopenOpen = ref(false);
+const reopenForm = useForm({ reason: '' });
+
+const submitReopen = () => reopenForm.post(`/medicine/orientations/${props.orientation.uuid}/reopen`, {
+    preserveScroll: true,
+    onSuccess: () => {
+        reopenOpen.value = false;
+        reopenForm.reset();
+    },
+});
+
+/**
+ * « Le diagnostic peut-il être posé maintenant ? » (ADR-095).
+ *
+ * Trois états, jamais deux : `null` tant que le médecin n'a pas répondu —
+ * aucun bouton pré-sélectionné, parce qu'une absence de réponse n'est pas
+ * un report.
+ *
+ * Son endpoint est distinct de l'enregistrement de l'examen clinique :
+ * répondre à une question ne doit jamais réécrire l'état général, la
+ * conscience ou les appareils examinés.
+ */
+const diagnosisReady = computed(() => props.consultation?.clinical_examination?.diagnosis_ready ?? null);
+
+/**
+ * Les trois temps de la clôture, parcourus un par un.
+ *
+ * Les trois étaient empilés sur un même écran : le médecin devait faire
+ * défiler pour savoir où il en était, et la vérification — ce qui manque
+ * encore — se lisait tout en bas, après deux blocs déjà traités.
+ *
+ * Avancer n'est jamais bloqué. Un diagnostic peut légitimement être différé
+ * (ADR-095) ou ne pas être dû du tout (ADR-094) : c'est la clôture
+ * elle-même qui refuse, avec son motif, à l'étape 3. Un bouton « Suivant »
+ * grisé n'expliquerait rien.
+ *
+ * `done` ne fait que refléter ce que le serveur dit déjà — jamais une règle
+ * recalculée ici.
+ */
+const closureSubStep = ref(1);
+
+const closureSections = computed(() => [
+    {
+        step: 1,
+        label: 'Diagnostic',
+        done: activeDiagnoses.value.length > 0 || !requiresFinalDiagnosis.value,
+    },
+    {
+        step: 2,
+        label: 'Conduite à tenir',
+        done: activeOrientation.value?.status === 'SUBMITTED',
+    },
+    {
+        step: 3,
+        label: 'Vérification',
+        done: closureBlockers.value.length === 0,
+    },
+]);
+const diagnosisTimingForm = useForm({ ready: false });
+
+const decideDiagnosisTiming = (ready) => {
+    diagnosisTimingForm.ready = ready;
+    diagnosisTimingForm.post(`/medicine/orientations/${props.orientation.uuid}/diagnostic-timing`, {
+        preserveScroll: true,
+    });
+};
+
+/**
+ * Un passage venu seulement pour un ECG, une échographie ou une analyse ne
+ * doit pas de diagnostic final (ADR-094). Le serveur tranche ; l'écran ne
+ * fait que refléter sa réponse, et retombe sur « exigé » si elle manque —
+ * c'est le comportement de toute vraie consultation.
+ */
+const requiresFinalDiagnosis = computed(() => props.consultation?.requires_final_diagnosis !== false);
 const consultationIsClosed = computed(() => props.consultation?.status === 'COMPLETED');
 const completeConsultationForm = useForm({});
-const completeConsultation = () => completeConsultationForm.post(
-    `/medicine/orientations/${props.orientation.uuid}/complete`,
-    { preserveScroll: true },
-);
+const showCriticalVitalConfirm = ref(false);
+
+const submitCompleteConsultation = () => {
+    showCriticalVitalConfirm.value = false;
+    showAwaitingResultConfirm.value = false;
+    completeConsultationForm.post(
+        `/medicine/orientations/${props.orientation.uuid}/complete`,
+        { preserveScroll: true },
+    );
+};
+
+/**
+ * Clôturer sur une constante critique demande une confirmation.
+ *
+ * Ce n'est volontairement **pas** une règle serveur : le CDC n'interdit
+ * nulle part de terminer une consultation sur une SpO₂ basse, et il existe
+ * de bonnes raisons de le faire — le patient part en chirurgie, la valeur a
+ * déjà été prise en compte, ou la mesure est simplement fausse. Inventer un
+ * blocage ici fabriquerait une règle métier que personne n'a validée.
+ *
+ * Ce que le système peut légitimement faire, c'est refuser de laisser
+ * passer la chose en silence : il nomme la constante et demande une
+ * confirmation explicite. Les vrais obstacles de clôture (`closureBlockers`)
+ * restent, eux, vérifiés côté serveur.
+ */
+const showAwaitingResultConfirm = ref(false);
+
+const completeConsultation = () => {
+    if (hasCriticalVital.value) {
+        showCriticalVitalConfirm.value = true;
+
+        return;
+    }
+
+    // Clôturer alors qu'un résultat est attendu reste possible — le médecin
+    // peut avoir conclu sans lui — mais jamais en silence.
+    if (awaitingResults.value.length) {
+        showAwaitingResultConfirm.value = true;
+
+        return;
+    }
+
+    submitCompleteConsultation();
+};
 
 /**
  * A patient who came only for an ECG, an ultrasound or a lab test has no
@@ -269,8 +550,8 @@ const nextStep = computed(() => {
     return null;
 });
 const stepUrl = (step) => `/medicine/orientations/${props.orientation.uuid}/${step}`;
-const selectClass = 'block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000';
-const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000';
+const selectClass = 'block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-sm text-foreground outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-muted/35';
+const textareaClass = 'block w-full resize-y rounded border border-border bg-card px-3 py-2 text-sm leading-5 text-foreground outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-muted/35';
 
 const toLocalDateTimeInput = (value = new Date()) => {
     const date = value instanceof Date ? value : new Date(value);
@@ -397,10 +678,6 @@ const clinicalExamForm = useForm({
     consciousness_status: props.consultation?.clinical_examination?.consciousness_status ?? null,
     consciousness_details: props.consultation?.clinical_examination?.consciousness_details ?? '',
     general_observation: props.consultation?.clinical_examination?.general_observation ?? '',
-    // Tri-state, never pre-selected: null until the doctor answers.
-    // « Le diagnostic peut-il être posé maintenant ? » — null tant que
-    // le médecin n'a pas répondu ; « Non » laisse l'étape ouverte.
-    diagnosis_ready: props.consultation?.clinical_examination?.diagnosis_ready ?? null,
     // The server always sends all nine systems, unexamined ones included, so
     // the grid never has to invent a status for a missing row.
     systems: (props.consultation?.clinical_examination?.systems ?? []).map((system) => ({
@@ -457,27 +734,43 @@ const complementaryExamsForm = useForm({
     withdraw_confirmed: false,
 });
 
-const decideComplementaryExams = (value) => {
-    if (!props.capabilities.can_update_consultation || value === complementaryExamsForm.required) return;
+/**
+ * Répondre « Non » retire ce qui a déjà été demandé : on le confirme, jamais
+ * en silence.
+ *
+ * La confirmation passait par `window.confirm()` — une fenêtre du navigateur
+ * qui ne peut nommer ni les examens concernés ni ce qui leur arrive, et qui
+ * ignore le thème de l'application. Elle nomme désormais chaque demande.
+ *
+ * Ce n'est pas la protection : le serveur exige `withdraw_confirmed` et
+ * refuse de lui-même toute demande portant déjà un résultat.
+ */
+const withdrawConfirmOpen = ref(false);
 
-    // Answering "Non" withdraws what was already ordered, so it is confirmed
-    // first — never silently. A request carrying a result is refused server-side.
-    if (value === false && paraclinicalRequests.value.length > 0) {
-        const confirmed = window.confirm(
-            `Des examens complémentaires ont déjà été demandés (${paraclinicalRequests.value.length}). `
-            + 'Passer à « Aucun examen nécessaire » annulera les demandes non réalisées. Continuer ?',
-        );
-
-        if (!confirmed) return;
-
-        complementaryExamsForm.withdraw_confirmed = true;
-    }
-
+const submitComplementaryExams = (value) => {
     complementaryExamsForm.required = value;
     complementaryExamsForm.post(
         `/medicine/orientations/${props.orientation.uuid}/complementary-exams`,
-        { preserveScroll: true },
+        { preserveScroll: true, onSuccess: () => { withdrawConfirmOpen.value = false; } },
     );
+};
+
+const decideComplementaryExams = (value) => {
+    if (!props.capabilities.can_update_consultation || value === complementaryExamsForm.required) return;
+
+    if (value === false && paraclinicalRequests.value.length > 0) {
+        withdrawConfirmOpen.value = true;
+
+        return;
+    }
+
+    complementaryExamsForm.withdraw_confirmed = false;
+    submitComplementaryExams(value);
+};
+
+const confirmWithdrawAndDecide = () => {
+    complementaryExamsForm.withdraw_confirmed = true;
+    submitComplementaryExams(false);
 };
 
 const resetExamSystems = ({ restore }) => {
@@ -618,72 +911,43 @@ const trimDecimals = (value) => {
     return Number.isFinite(numeric) ? String(numeric) : String(value);
 };
 
-const NEUTRAL_TONE = 'text-slate-700 dark:text-white';
-const toneFor = (assessment) => {
-    if (assessment?.tone === 'danger') return 'text-red-600 dark:text-red-300';
-    if (assessment && assessment.tone !== 'success') return 'text-amber-600 dark:text-amber-300';
-
-    return NEUTRAL_TONE;
-};
-const dotFor = (assessment) => (assessment?.tone === 'danger' ? 'bg-red-500' : 'bg-amber-500');
-
-const vigilanceVitals = computed(() => {
+/**
+ * Les constantes hors bornes, pour la confirmation de clôture.
+ *
+ * L'affichage, lui, appartient à `VitalSignsStrip`, qui porte la valeur et
+ * son interprétation dans la même pastille. Ce calcul ne sert plus qu'à
+ * savoir s'il faut demander confirmation avant de clôturer sur une valeur
+ * critique.
+ *
+ * Les messages et la gravité viennent du serveur (ADR-039 à ADR-041) :
+ * aucun seuil n'est recalculé ici, et ce n'est jamais un diagnostic.
+ */
+const vitalAlerts = computed(() => {
     const record = props.care_record ?? {};
-    const bloodPressure = careRecordBloodPressure.value;
-    const allergyNames = (props.allergies ?? []).map((allergy) => allergy.substance);
 
     return [
-        {
-            label: 'TA',
-            value: bloodPressure || 'N/R',
-            unit: bloodPressure ? 'mmHg' : null,
-            tone: bloodPressure ? toneFor(record.blood_pressure_assessment) : 'text-slate-400',
-            alert: bloodPressure ? record.blood_pressure_assessment?.tone !== 'success'
-                ? record.blood_pressure_assessment?.label : null : null,
-            dotClass: dotFor(record.blood_pressure_assessment),
-            title: record.blood_pressure_assessment?.message,
-        },
-        {
-            label: 'FC',
-            value: record.heart_rate ?? 'N/R',
-            unit: record.heart_rate ? 'bpm' : null,
-            tone: record.heart_rate ? toneFor(record.heart_rate_assessment) : 'text-slate-400',
-            alert: record.heart_rate && record.heart_rate_assessment?.tone !== 'success'
-                ? record.heart_rate_assessment?.label : null,
-            dotClass: dotFor(record.heart_rate_assessment),
-            title: record.heart_rate_assessment?.message,
-        },
-        {
-            label: 'SpO₂',
-            value: record.spo2 ?? 'N/R',
-            unit: record.spo2 !== null && record.spo2 !== undefined ? '%' : null,
-            tone: record.spo2 !== null && record.spo2 !== undefined ? toneFor(record.spo2_assessment) : 'text-slate-400',
-            alert: record.spo2_assessment && record.spo2_assessment.tone !== 'success'
-                ? record.spo2_assessment.label : null,
-            dotClass: dotFor(record.spo2_assessment),
-            title: record.spo2_assessment?.message,
-        },
-        {
-            label: 'T°',
-            value: trimDecimals(record.temperature_celsius) ?? 'N/R',
-            unit: record.temperature_celsius ? '°C' : null,
-            tone: record.temperature_celsius ? toneFor(record.temperature_assessment) : 'text-slate-400',
-            alert: record.temperature_celsius && record.temperature_assessment?.tone !== 'success'
-                ? record.temperature_assessment?.label : null,
-            dotClass: dotFor(record.temperature_assessment),
-            title: record.temperature_assessment?.message,
-        },
-        {
-            label: 'Allergies',
-            value: allergyNames.length ? allergyNames.join(', ') : 'Aucune enregistrée',
-            unit: null,
-            tone: allergyNames.length ? 'text-red-600 dark:text-red-300' : 'text-slate-400',
-            alert: null,
-            dotClass: 'bg-slate-300',
-            title: allergyNames.join(', ') || null,
-        },
-    ].filter((vital) => vital.value !== 'N/R');
+        ['Tension artérielle', 'TA', careRecordBloodPressure.value, 'mmHg', record.blood_pressure_assessment],
+        ['Fréquence cardiaque', 'FC', record.heart_rate, 'bpm', record.heart_rate_assessment],
+        ['Saturation en oxygène', 'SpO₂', record.spo2, '%', record.spo2_assessment],
+        ['Température', 'T°', trimDecimals(record.temperature_celsius), '°C', record.temperature_assessment],
+    ]
+        .filter(([, , value, , assessment]) => value !== null && value !== undefined && value !== ''
+            && assessment && assessment.tone !== 'success')
+        .map(([label, short, value, unit, assessment]) => ({
+            label,
+            // Le résumé d'une ligne utilise l'abréviation ; le détail
+            // déplié garde le nom complet, plus sûr à la relecture.
+            short,
+            reading: `${value} ${unit}`,
+            severity: assessment.tone === 'danger' ? 'danger' : 'warning',
+            title: assessment.label,
+            message: assessment.message,
+        }))
+        // Le plus grave d'abord : c'est ce qui doit être lu en premier.
+        .sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'danger' ? -1 : 1));
 });
+
+const hasCriticalVital = computed(() => vitalAlerts.value.some((alert) => alert.severity === 'danger'));
 
 const careOrderCatalog = computed(() => props.options?.care_order_catalog ?? []);
 const careOrderSearch = ref('');
@@ -735,8 +999,10 @@ const filteredLabCatalog = computed(() => {
 });
 const labRequestForm = useForm({ items: [], notes: '', continue_to_diagnosis: true });
 const isLabItemSelected = (item) => labRequestForm.items.some((line) => line.catalog_item_uuid === item.uuid);
+const isAlreadyRequestedLab = (item) => alreadyRequestedLabUuids.value.has(item.uuid);
 const addLabItem = (item) => {
-    if (isLabItemSelected(item)) return;
+    // Ni deux fois dans la sélection, ni un examen déjà parti au service.
+    if (isLabItemSelected(item) || isAlreadyRequestedLab(item)) return;
 
     labRequestForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name });
     labSearch.value = '';
@@ -762,9 +1028,33 @@ const submitLabRequest = () => {
 const labRequestStatusLabel = (status) => ({ REQUESTED: 'Demandé', IN_PROGRESS: 'En cours', COMPLETED: 'Résultats disponibles' }[status] ?? status);
 const labRequestStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px] font-bold uppercase', {
     REQUESTED: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
-    IN_PROGRESS: 'bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-200',
+    IN_PROGRESS: 'bg-primary/10 text-primary',
     COMPLETED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200',
-}[status] ?? 'bg-gray-100 text-slate-600 dark:bg-gray-900'];
+}[status] ?? 'bg-muted text-muted-foreground'];
+
+/**
+ * Retirer une demande précise.
+ *
+ * Seule l'annulation en bloc existait (répondre « Non » en tête d'étape).
+ * Le serveur refuse le retrait d'une demande qui porte déjà un résultat :
+ * le service a fait le travail, et l'effacer de la file nierait un acte
+ * réalisé.
+ */
+const withdrawalForm = useForm({ kind: 'lab', uuid: null, reason: '' });
+const requestToWithdraw = ref(null);
+
+const askWithdrawal = (kind, request) => {
+    requestToWithdraw.value = { kind, request };
+    withdrawalForm.clearErrors();
+    withdrawalForm.kind = kind;
+    withdrawalForm.uuid = request.uuid;
+    withdrawalForm.reason = '';
+};
+const closeWithdrawal = () => { requestToWithdraw.value = null; };
+const confirmWithdrawal = () => withdrawalForm.post(
+    `/medicine/orientations/${props.orientation.uuid}/paraclinical-requests/cancel`,
+    { preserveScroll: true, onSuccess: closeWithdrawal },
+);
 
 const paracliniqueTab = ref('lab');
 const imagingCatalog = computed(() => props.options?.imaging_catalog ?? []);
@@ -774,10 +1064,32 @@ const filteredImagingCatalog = computed(() => {
 
     return imagingCatalog.value.filter((item) => `${item.name} ${item.code ?? ''}`.toLocaleLowerCase('fr').includes(query));
 });
+/**
+ * Les examens déjà demandés et toujours en attente d'un résultat.
+ *
+ * Le serveur les refuse (`ParaclinicalRequestGuard`), mais le sélecteur les
+ * proposait quand même : on pouvait donc préparer une demande impossible à
+ * envoyer, et ne l'apprendre qu'au clic. D'où l'impression de voir deux
+ * fois le même examen, côte à côte, sans comprendre pourquoi.
+ *
+ * Les noms sont comparés par UUID de prestation, jamais par libellé.
+ */
+const activeRequestedCatalogUuids = (requests) => new Set(
+    (requests ?? [])
+        .filter((request) => request.status === 'REQUESTED' || request.status === 'IN_PROGRESS')
+        .flatMap((request) => (request.items ?? [])
+            .filter((item) => !item.resulted_at)
+            .map((item) => item.catalog_item_uuid)),
+);
+const alreadyRequestedLabUuids = computed(() => activeRequestedCatalogUuids(props.consultation?.lab_requests));
+const alreadyRequestedImagingUuids = computed(() => activeRequestedCatalogUuids(props.consultation?.imaging_requests));
+
 const imagingRequestForm = useForm({ items: [], notes: '', continue_to_diagnosis: true });
 const isImagingItemSelected = (item) => imagingRequestForm.items.some((line) => line.catalog_item_uuid === item.uuid);
+const isAlreadyRequestedImaging = (item) => alreadyRequestedImagingUuids.value.has(item.uuid);
 const addImagingItem = (item) => {
-    if (isImagingItemSelected(item)) return;
+    // Ni deux fois dans la sélection, ni un examen déjà parti au service.
+    if (isImagingItemSelected(item) || isAlreadyRequestedImaging(item)) return;
 
     imagingRequestForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name });
     imagingSearch.value = '';
@@ -804,6 +1116,28 @@ const hasExistingParaclinicalRequest = computed(() => (
     (props.consultation?.lab_requests?.length ?? 0) > 0
     || (props.consultation?.imaging_requests?.length ?? 0) > 0
 ));
+/**
+ * Les examens demandés dont le résultat n'est pas revenu.
+ *
+ * Dérivé, jamais stocké : une demande sans `cancelled_at` dont au moins une
+ * ligne n'a pas de `resulted_at`. Inventer une colonne « en attente de
+ * résultat » aurait créé un second état à tenir synchrone avec les faits
+ * qui le produisent déjà.
+ *
+ * Ce n'est pas un blocage. L'ADR-076 pose qu'aucun examen n'est exigé pour
+ * clore une consultation, et beaucoup de rencontres se concluent sans
+ * attendre un résultat. Ce qui est en jeu ici est que le médecin ne clôture
+ * pas *sans le savoir*.
+ */
+const awaitingResults = computed(() => [
+    ...(props.consultation?.lab_requests ?? []),
+    ...(props.consultation?.imaging_requests ?? []),
+]
+    .filter((request) => request.status === 'REQUESTED' || request.status === 'IN_PROGRESS')
+    .flatMap((request) => (request.items ?? [])
+        .filter((item) => !item.resulted_at)
+        .map((item) => item.name)));
+
 const hasPendingParaclinicalSelection = computed(() => (
     labRequestForm.items.length > 0 || imagingRequestForm.items.length > 0
 ));
@@ -826,9 +1160,9 @@ const submitImagingResult = (item) => imagingResultForm(item.uuid).post(
 
 const careOrderStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px] font-bold uppercase', {
     PENDING: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
-    IN_PROGRESS: 'bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-200',
+    IN_PROGRESS: 'bg-primary/10 text-primary',
     COMPLETED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200',
-}[status] ?? 'bg-gray-100 text-slate-600 dark:bg-gray-900'];
+}[status] ?? 'bg-muted text-muted-foreground'];
 
 const diagnosisForm = useForm({
     type: 'HYPOTHESIS',
@@ -1224,6 +1558,34 @@ const draft = useFormDraft({
     },
 });
 
+/**
+ * Purge de la sélection devenue impossible à envoyer.
+ *
+ * Un brouillon peut porter un examen qui, depuis, a été réellement transmis
+ * — soit parce qu'il a été envoyé depuis un autre onglet, soit parce que la
+ * sélection date d'avant le garde d'unicité. Le serveur refuse désormais un
+ * doublon actif, si bien que cette ligne restait affichée sous « Demande en
+ * préparation » en face de la demande transmise, sans pouvoir jamais partir.
+ *
+ * On retire donc la sélection, jamais la demande transmise : celle-ci est le
+ * fait clinique, elle porte la saisie du compte rendu et son retrait.
+ */
+const dropAlreadyRequestedSelection = () => {
+    labRequestForm.items = labRequestForm.items
+        .filter((line) => !alreadyRequestedLabUuids.value.has(line.catalog_item_uuid));
+    imagingRequestForm.items = imagingRequestForm.items
+        .filter((line) => !alreadyRequestedImagingUuids.value.has(line.catalog_item_uuid));
+};
+
+// À l'ouverture — après restauration du brouillon — puis à chaque fois qu'une
+// demande part réellement au service.
+dropAlreadyRequestedSelection();
+watch(
+    () => [props.consultation?.lab_requests, props.consultation?.imaging_requests],
+    dropAlreadyRequestedSelection,
+    { deep: true },
+);
+
 const discardDraft = () => {
     draft.suspend();
     router.delete(`/medicine/orientations/${props.orientation.uuid}/draft`, {
@@ -1299,101 +1661,202 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
 <template>
     <Head :title="`Consultation ${episode.episode_number}`" />
 
-    <div class="w-full space-y-3" :style="{ '--clinical-stack-top': `${stickyStackOffset}px` }">
-        <!-- Identité, constantes et parcours restent sous les yeux pendant
-             tout le défilement : le médecin ne doit jamais remonter pour
-             vérifier de quel patient il s'agit ni où il en est.
+    <div class="w-full space-y-3" :style="{ '--clinical-stack-top': `${pinnedHeaderOffset}px` }">
+        <!-- Sentinelle de défilement, hors de tout bloc épinglé : sa
+             position ne bouge jamais, quoi que fasse l'en-tête. -->
+        <div ref="headerSentinel" class="h-px" aria-hidden="true" />
 
-             `top-16` dégage le header applicatif fixe (64px). Le fond est
-             opaque et repris du `body`, sinon le contenu défilerait au
-             travers. Collant à partir de 1024px seulement : sur un écran
-             étroit ce bloc mangerait la moitié de la hauteur utile. -->
-        <div
-            ref="stickyStack"
-            class="space-y-3 bg-gray-50 dark:bg-gray-1000 lg:sticky lg:top-16 lg:z-30 lg:pb-3 lg:pt-1"
+        <!-- Surcouche épinglée, de hauteur nulle.
+             `h-0` est ce qui rend l'ensemble stable : le bandeau déborde
+             par-dessus le contenu au lieu de l'occuper, donc l'afficher ou
+             le masquer ne change pas d'un pixel la hauteur du document.
+             Sans cela, replier faisait sauter la page. -->
+        <div class="pointer-events-none sticky top-16 z-40 hidden h-0 lg:block">
+            <Transition
+                enter-active-class="transition duration-150 ease-out"
+                enter-from-class="-translate-y-2 opacity-0"
+                leave-active-class="transition duration-100 ease-in"
+                leave-to-class="-translate-y-2 opacity-0"
+            >
+                <div v-if="showCondensedBar" ref="condensedBar" class="pointer-events-auto">
+                    <ClinicalCondensedHeader
+                        :patient="patient"
+                        :episode="episode"
+                        :alerts="vitalAlerts"
+                        :step-label="currentStepLabel"
+                        :step-position="currentStepPosition"
+                        :step-total="relevantWizardSteps.length"
+                        @expand="scrollToHeader"
+                    >
+                        <template #actions>
+                            <Button
+                                type="button"
+                                size="sm"
+                                :variant="showClinicalContext ? 'warning-outline' : 'warning'"
+                                @click="showClinicalContext = !showClinicalContext"
+                            >
+                                <FileStack class="h-4 w-4" aria-hidden="true" />
+                                <span class="ms-1.5 hidden xl:inline">Contexte clinique</span>
+                            </Button>
+                        </template>
+                    </ClinicalCondensedHeader>
+                </div>
+            </Transition>
+        </div>
+
+        <!-- L'en-tête complet est un bloc ordinaire : il défile et
+             disparaît, le bandeau réduit prend le relais. -->
+        <div ref="fullHeader" class="space-y-3">
+        <!-- Sans identité : elle est portée une seule fois, par la carte
+             « Dossier du passage ». Ce bandeau ne garde que l'état de la
+             consultation, les constantes et les actions. -->
+        <!-- QUI et POURQUOI. L'identité n'est énoncée qu'ici : la carte
+             « Dossier du passage » ne la répète plus. -->
+        <ClinicalPatientHeader
+            :patient="patient"
+            :episode="episode"
+            :reason="orientation.reason"
+            :consultation-type="requestedServiceLabel"
+            :doctor="consultation?.doctor"
+            :started-at="episode.started_at"
         >
-        <ClinicalPatientHeader :patient="patient" :episode="episode" :reason="orientation.reason" back-href="/medicine" back-label="File Médecine">
             <template #actions>
-                        <!-- Always red: requalifying a visit as an emergency is a
-                             grave decision, and its button must read as such whatever
-                             the surrounding design. -->
-                        <Button v-if="capabilities.can_mark_emergency" size="sm" variant="danger" :disabled="emergencyForm.processing" @click="markEpisodeEmergency"><Icon class="text-sm" name="alert-circle" /><span class="ms-1.5 hidden sm:inline">Classer en urgence</span></Button>
-                        <Button type="button" size="sm" :variant="showClinicalContext ? 'secondary' : 'white-outline'" :aria-expanded="showClinicalContext" aria-controls="medicine-clinical-context" @click="showClinicalContext = !showClinicalContext">
-                            <Icon class="text-sm" name="file-docs" /><span class="ms-1.5 hidden sm:inline">{{ showClinicalContext ? 'Masquer le contexte' : 'Contexte clinique' }}</span>
-                        </Button>
-                        <Button :as="Link" :href="`/patients/${patient.uuid}`" size="sm" variant="white-outline"><Icon class="text-sm" name="user" /><span class="ms-1.5 hidden sm:inline">Dossier patient</span></Button>
-            </template>
-            <!-- One thin line instead of two bands. Naissance, sexe, téléphone,
-                 adressé par and pris en charge were all repeating what the header
-                 or the Dossier step already says; they now live once, on the
-                 Dossier step. What stays is the consultation's state, the vitals
-                 worth a glance, and the two actions. -->
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-gray-200 px-4 py-2.5 dark:border-gray-900">
-                <span :class="['inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold', isClosed ? 'text-emerald-600 dark:text-emerald-300' : 'text-primary-600 dark:text-primary-300']">
-                    <span :class="['h-1.5 w-1.5 rounded-full', isClosed ? 'bg-emerald-500' : 'bg-primary-500']" />
-                    {{ isClosed ? medical_discharge.type_label : 'En consultation' }}
-                </span>
-
-                <!-- Abnormal values are marked by the value's own colour and a
-                     single dot — no background, no icon, no repeated label. The
-                     full wording stays in the tooltip and in the Soins panel. -->
-                <dl class="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                    <div v-for="vital in vigilanceVitals" :key="vital.label" class="flex items-baseline gap-1.5">
-                        <dt class="text-slate-400">{{ vital.label }}</dt>
-                        <dd :class="['font-semibold', vital.tone]" :title="vital.alert ? `${vital.alert} — ${vital.title}` : vital.title">
-                            {{ vital.value }}<span v-if="vital.unit" class="ms-0.5 font-normal opacity-60">{{ vital.unit }}</span>
-                            <span v-if="vital.alert" class="ms-1 inline-block h-1.5 w-1.5 rounded-full align-middle" :class="vital.dotClass" />
-                        </dd>
-                    </div>
-                </dl>
-            </div>
-            <div v-if="draft.restored.value || draft.savedAt.value" class="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 bg-slate-50 px-4 py-2 text-xs dark:border-gray-900 dark:bg-gray-1000/50">
-                <p class="flex items-center gap-2 text-slate-500 dark:text-slate-300">
-                    <Icon name="save" class="shrink-0 text-sm text-primary-600" />
-                    <span><strong class="font-semibold text-slate-700 dark:text-white">{{ draft.restored.value ? 'Brouillon restauré' : 'Brouillon sauvegardé' }}</strong> · non versé au dossier<span v-if="draft.saving.value"> · enregistrement…</span><span v-else-if="draft.savedAt.value"> · {{ formatDateTime(draft.savedAt.value) }}</span></span>
-                </p>
-                <Button class="shrink-0" type="button" size="sm" variant="white-outline" @click="discardDraft">
-                    <Icon class="text-sm" name="cross" /><span class="ms-1.5">Effacer le brouillon</span>
+                <Button :as="Link" :href="`/patients/${patient.uuid}`" size="sm" variant="white-outline">
+                    <User class="me-1.5 h-4 w-4" aria-hidden="true" /><span class="hidden sm:inline">Dossier patient</span>
                 </Button>
+                <!-- Jaune, et jamais discret : c'est par là que passent les
+                     constantes, les allergies et les actes déjà réalisés. -->
+                <Button
+                    type="button"
+                    size="sm"
+                    :variant="showClinicalContext ? 'warning-outline' : 'warning'"
+                    :aria-expanded="showClinicalContext"
+                    aria-controls="medicine-clinical-context"
+                    @click="showClinicalContext = !showClinicalContext"
+                >
+                    <FileStack class="me-1.5 h-4 w-4" aria-hidden="true" /><span class="hidden sm:inline">Contexte clinique</span>
+                </Button>
+                <Button :as="Link" href="/medicine" size="sm" variant="white-outline">
+                    <ArrowLeft class="me-1.5 h-4 w-4" aria-hidden="true" /><span class="hidden sm:inline">File Médecine</span>
+                </Button>
+                <!-- Toujours rouge et en dernier, détaché des actions
+                     ordinaires : requalifier un passage en urgence est une
+                     décision grave, son bouton doit se lire comme telle. -->
+                <Button
+                    v-if="capabilities.can_mark_emergency"
+                    class="ms-1"
+                    size="sm"
+                    variant="danger"
+                    :disabled="emergencyForm.processing"
+                    @click="markEpisodeEmergency"
+                >
+                    <CircleAlert class="me-1.5 h-4 w-4" aria-hidden="true" /><span class="hidden sm:inline">Classer en urgence</span>
+                </Button>
+            </template>
+
+            <!-- Affiché seulement quand un brouillon existe : c'est la seule
+                 information que l'en-tête ne peut pas déduire, et le seul
+                 endroit d'où l'annuler. Le statut d'enregistrement courant,
+                 lui, vit dans la barre d'action basse. -->
+            <div
+                v-if="draft.restored.value || draft.savedAt.value"
+                class="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-4 py-2 text-xs"
+            >
+                <p class="flex items-center gap-2 text-muted-foreground">
+                    <Save class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>
+                        <strong class="font-semibold text-foreground">{{ draft.restored.value ? 'Brouillon restauré' : 'Brouillon enregistré' }}</strong>
+                        · non versé au dossier
+                        <template v-if="hasDischarge"> · {{ medical_discharge.type_label }} déjà enregistrée</template>
+                    </span>
+                </p>
+                <button
+                    type="button"
+                    class="shrink-0 rounded px-2 py-1 font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    @click="discardDraft"
+                >
+                    Effacer le brouillon
+                </button>
             </div>
         </ClinicalPatientHeader>
 
-        <MedicineWorkflowNav
-            :steps="wizardSteps"
-            :current-key="current_step"
-            :orientation-uuid="orientation.uuid"
+        <!-- RISQUE : d'abord les valeurs, puis ce qu'elles impliquent. -->
+        <VitalSignsStrip
+            :care-record="care_record"
+            :blood-pressure="careRecordBloodPressure"
+            :allergies="allergies ?? []"
+            :recorded-at="care_record?.updated_at ?? care_record?.created_at"
         />
+
+            <!-- Une consultation clôturée est en lecture seule. Ce bandeau
+                 existe sur **toutes** les étapes, et non sur la seule Clôture :
+                 « Ouvrir la consultation » depuis « Demandes d'examens » mène
+                 à la Paraclinique, où le médecin se retrouvait devant des
+                 champs verrouillés sans une seule commande pour en sortir. -->
+            <div
+                v-if="consultationIsClosed"
+                class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20"
+            >
+                <p class="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200">
+                    <Lock class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>
+                        <strong class="font-bold">Consultation clôturée</strong><template v-if="consultation.completed_by"> par {{ consultation.completed_by }}</template><template v-if="consultation.completed_at"> le {{ formatDateTime(consultation.completed_at) }}</template> — le dossier est en lecture seule.
+                        <template v-if="capabilities.reopen_blocker"> {{ capabilities.reopen_blocker }}</template>
+                        <template v-else> Rouvrez-la pour compléter ce passage, puis clôturez de nouveau.</template>
+                    </span>
+                </p>
+
+                <Button
+                    v-if="capabilities.can_reopen_consultation"
+                    type="button"
+                    size="sm"
+                    variant="warning-outline"
+                    class="shrink-0"
+                    @click="reopenOpen = true"
+                >
+                    <RotateCcw class="h-4 w-4" />Rouvrir la consultation
+                </Button>
+            </div>
+
+            <MedicineWorkflowNav
+                :steps="wizardSteps"
+                :current-key="current_step"
+                :orientation-uuid="orientation.uuid"
+            />
         </div>
 
         <main class="space-y-3">
+
                 <Card v-if="cardIsOpen('dossier')" class="overflow-clip border-s-4 border-s-primary-500 shadow-sm">
-                    <!-- Pas d'identité ici : le nom, le numéro, le sexe et l'âge
-                         sont portés une seule fois par l'en-tête de la page. -->
-                    <div class="flex items-center gap-3 border-b border-gray-200 px-5 py-3 dark:border-gray-900">
-                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-base" name="file-text" /></span>
+                    <!-- Pas d'identité ici : elle est énoncée une seule
+                         fois, par l'en-tête clinique de la page. La répéter
+                         obligeait à lire deux fois le même nom sur le même
+                         écran. -->
+                    <div class="flex items-center gap-3 border-b border-border px-5 py-3">
+                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary" aria-hidden="true"><FileText class="h-4 w-4" /></span>
                         <div class="min-w-0">
-                            <h2 class="text-sm font-bold text-slate-700 dark:text-white">Dossier du passage</h2>
-                            <p class="mt-0.5 text-xs text-slate-400">L’essentiel avant de commencer la consultation.</p>
+                            <p class="text-xs font-semibold uppercase tracking-wide text-primary">Étape 1 · Contexte</p>
+                            <h2 class="text-sm font-bold text-foreground">Dossier du passage</h2>
                         </div>
                     </div>
                     <div class="p-5">
                         <div class="grid gap-3 lg:grid-cols-2">
-                        <section :class="['rounded-md border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-900 dark:bg-gray-1000/30', !(care_record?.transmission_reason || care_record?.diagnostic_note) ? 'lg:col-span-2' : '']">
-                            <p class="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-400"><Icon class="text-sm" name="clipboard" />Besoin exprimé à l’accueil</p>
+                        <section :class="['rounded-md border border-border bg-muted/35 p-4', !(care_record?.transmission_reason || care_record?.diagnostic_note) ? 'lg:col-span-2' : '']">
+                            <p class="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground"><Clipboard class="h-4 w-4" />Besoin exprimé à l’accueil</p>
                             <div v-if="episode.designations.length" class="flex flex-wrap gap-1.5">
-                                <span v-for="designation in episode.designations" :key="designation.uuid" class="inline-flex items-center gap-1.5 rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-200">
+                                <span v-for="designation in episode.designations" :key="designation.uuid" class="inline-flex items-center gap-1.5 rounded border border-border bg-muted/35 px-2.5 py-1.5 text-xs font-semibold text-foreground">
                                     {{ designation.description }}
-                                    <span v-if="Number(designation.quantity) > 1" class="text-slate-400">× {{ designation.quantity }}</span>
+                                    <span v-if="Number(designation.quantity) > 1" class="text-muted-foreground">× {{ designation.quantity }}</span>
                                 </span>
                             </div>
-                            <p v-else class="text-sm text-slate-500">Motif à préciser pendant la consultation.</p>
+                            <p v-else class="text-sm text-muted-foreground">Motif à préciser pendant la consultation.</p>
                         </section>
 
-                        <section v-if="care_record?.transmission_reason || care_record?.diagnostic_note" class="rounded-md border border-primary-200 bg-primary-50/40 p-4 dark:border-primary-900 dark:bg-primary-950/15">
-                            <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
-                                <Icon name="send" class="text-xs" />Transmission des Soins
+                        <section v-if="care_record?.transmission_reason || care_record?.diagnostic_note" class="rounded-md border border-primary-200 bg-primary-50/40 p-4 dark:border-primary-900">
+                            <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                <Send class="h-4 w-4" />Transmission des Soins
                             </p>
-                            <p class="mt-1.5 text-sm leading-5 text-slate-700 dark:text-white">{{ care_record.transmission_reason || care_record.diagnostic_note }}</p>
+                            <p class="mt-1.5 text-sm leading-5 text-foreground">{{ care_record.transmission_reason || care_record.diagnostic_note }}</p>
                         </section>
                         </div>
 
@@ -1402,33 +1865,33 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                              commencer — masquer l'état civil et les
                              coordonnées par défaut a déjà été rejeté une
                              fois sur cette même page. -->
-                        <div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-900">
-                            <p class="flex items-center gap-2 px-2 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300"><Icon class="text-slate-400" name="user" />Informations administratives et coordonnées</p>
+                        <div class="mt-4 border-t border-border pt-3">
+                            <p class="flex items-center gap-2 px-2 py-2 text-sm font-semibold text-muted-foreground"><User class="h-4 w-4 text-muted-foreground" />Informations administratives et coordonnées</p>
                             <div class="grid gap-3 pt-1 lg:grid-cols-3">
-                                <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900">
-                                    <h3 class="mb-3 text-[10px] font-bold uppercase tracking-wide text-slate-400">Informations administratives</h3>
+                                <section class="rounded-md border border-border p-4">
+                                    <h3 class="mb-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Informations administratives</h3>
                                     <dl class="grid gap-x-5 gap-y-2 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-                                        <div v-for="field in civilIdentityFields" :key="field.label" class="min-w-0 border-b border-gray-100 pb-1.5 dark:border-gray-900">
-                                            <dt class="text-[10px] text-slate-400">{{ field.label }}</dt>
-                                            <dd :class="['truncate text-sm font-semibold text-slate-700 dark:text-white', field.mono ? 'font-mono' : '']" :title="field.value"><span v-if="field.value">{{ field.value }}</span><span v-else class="font-normal text-slate-300 dark:text-slate-600">Non renseigné</span></dd>
+                                        <div v-for="field in civilIdentityFields" :key="field.label" class="min-w-0 border-b border-border pb-1.5">
+                                            <dt class="text-[10px] text-muted-foreground">{{ field.label }}</dt>
+                                            <dd :class="['truncate text-sm font-semibold text-foreground', field.mono ? 'font-mono' : '']" :title="field.value"><span v-if="field.value">{{ field.value }}</span><span v-else class="font-normal text-muted-foreground">Non renseigné</span></dd>
                                         </div>
                                     </dl>
                                 </section>
-                                <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900">
-                                    <h3 class="mb-3 text-[10px] font-bold uppercase tracking-wide text-slate-400">Coordonnées</h3>
+                                <section class="rounded-md border border-border p-4">
+                                    <h3 class="mb-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Coordonnées</h3>
                                     <dl class="space-y-3">
                                         <div v-for="field in contactFields" :key="field.label" class="min-w-0">
-                                            <dt class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{{ field.label }}</dt>
-                                            <dd class="mt-0.5 truncate text-sm font-semibold text-slate-700 dark:text-white" :title="field.value"><a v-if="field.href && field.value" :href="field.href" class="hover:text-primary-600 dark:hover:text-primary-400">{{ field.value }}</a><span v-else-if="field.value">{{ field.value }}</span><span v-else class="font-normal text-slate-300 dark:text-slate-600">Non renseigné</span></dd>
+                                            <dt class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{{ field.label }}</dt>
+                                            <dd class="mt-0.5 truncate text-sm font-semibold text-foreground" :title="field.value"><a v-if="field.href && field.value" :href="field.href" class="hover:text-primary">{{ field.value }}</a><span v-else-if="field.value">{{ field.value }}</span><span v-else class="font-normal text-muted-foreground">Non renseigné</span></dd>
                                         </div>
                                     </dl>
                                 </section>
-                                <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900">
-                                    <h3 class="mb-3 text-[10px] font-bold uppercase tracking-wide text-slate-400">Traçabilité</h3>
+                                <section class="rounded-md border border-border p-4">
+                                    <h3 class="mb-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Traçabilité</h3>
                                     <dl class="space-y-3">
                                         <div v-for="field in visitFields" :key="field.label" class="min-w-0">
-                                            <dt class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{{ field.label }}</dt>
-                                            <dd class="mt-0.5 truncate text-sm font-semibold text-slate-700 dark:text-white" :title="field.value">{{ field.value || '—' }}</dd>
+                                            <dt class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{{ field.label }}</dt>
+                                            <dd class="mt-0.5 truncate text-sm font-semibold text-foreground" :title="field.value">{{ field.value || '—' }}</dd>
                                         </div>
                                     </dl>
                                 </section>
@@ -1437,168 +1900,164 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </div>
                     <ConsultationStepBar
                         :orientation-uuid="orientation.uuid"
+                        :save-state="{ saving: draft.saving.value, savedAt: draft.savedAt.value }"
                         step-key="dossier"
                         :state="stepState('dossier')"
                         :next="nextStep ? { key: nextStep.key, label: nextStep.label } : null"
                         :can-edit="capabilities.can_resolve_step"
                     >
                         <template #note>
-                            <p class="flex items-center justify-center gap-2 text-xs text-slate-500"><Icon class="text-primary-600" name="eye" />La synthèse Soins reste consultable depuis « Contexte clinique ».</p>
+                            <p class="flex items-center justify-center gap-2 text-xs text-muted-foreground"><Eye class="h-4 w-4 text-primary" />La synthèse Soins reste consultable depuis « Contexte clinique ».</p>
                         </template>
                     </ConsultationStepBar>
                 </Card>
 
-                <Card v-if="cardIsOpen('consultation')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">
+                <Card v-if="cardIsOpen('consultation')" class="w-full overflow-clip shadow-sm">
+                    <!-- QUOI SAISIR. L'en-tête situe l'étape et rappelle la
+                         demande ; le reste de l'écran est du formulaire. -->
+                    <div class="flex flex-col gap-3 border-b border-border px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
                         <div class="flex items-start gap-3">
-                            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-xl" name="chat" /></span>
+                            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><MessageSquare class="h-4 w-4" /></span>
                             <div>
-                                <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-primary-600 dark:text-primary-300">Étape 2 · Entretien médical</p>
-                                <h2 class="mt-0.5 text-base font-bold text-slate-800 dark:text-white">Interrogatoire</h2>
-                                <p class="mt-0.5 text-xs text-slate-400">Documentez ce que rapporte le patient avant tout examen physique.</p>
+                                <p class="text-xs font-semibold uppercase tracking-wide text-primary">Étape 2 · Entretien médical</p>
+                                <h2 class="mt-0.5 text-base font-bold text-foreground">Interrogatoire</h2>
+                                <p class="mt-0.5 text-sm text-muted-foreground">Documentez ce que rapporte le patient avant tout examen physique.</p>
                             </div>
                         </div>
-                        <div class="flex shrink-0 flex-wrap items-center gap-2 text-xs">
-                            <span v-if="episode.designations.length" class="flex flex-wrap items-center gap-1.5">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Demande</span>
-                                <span v-for="designation in episode.designations" :key="designation.uuid" class="rounded border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">{{ designation.description }}</span>
-                            </span>
-                            <span class="text-slate-400">Dr {{ consultation.doctor }}</span>
+                        <div v-if="episode.designations.length" class="flex shrink-0 flex-wrap items-center gap-1.5">
+                            <span class="text-xs font-medium text-muted-foreground">Demande</span>
+                            <span
+                                v-for="designation in episode.designations"
+                                :key="designation.uuid"
+                                class="rounded border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-foreground"
+                            >{{ designation.description }}</span>
                         </div>
                     </div>
 
                     <form @submit.prevent="saveInterview">
-                        <!-- 70/30 dès 1024px. En dessous : motif, histoire,
-                             traitements, informations nouvelles, empilés. -->
-                        <div class="grid gap-5 p-5 lg:grid-cols-[minmax(0,2.33fr)_minmax(18rem,1fr)]">
-                            <fieldset class="min-w-0 space-y-4">
+                        <!-- 70/30 à partir de 1024 px. En dessous, le contexte
+                             patient passe sous le formulaire plutôt que de
+                             comprimer la saisie. -->
+                        <div class="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_22rem] xl:gap-8">
+                            <fieldset class="min-w-0 space-y-6">
                                 <legend class="sr-only">Interrogatoire du patient</legend>
 
-                                <!-- Court et exploitable : ce champ alimente
-                                     l'historique, les résumés et la recherche.
-                                     Il ne reprend jamais le type de demande,
-                                     déjà affiché dans l'en-tête. -->
-                                <div>
-                                    <label for="chief_complaint" class="block text-sm font-bold text-slate-700 dark:text-white">Motif principal de consultation <span class="text-red-500">*</span></label>
-                                    <p class="mt-1 text-[11px] leading-4 text-slate-400">La raison réelle de la venue, en quelques mots.</p>
-                                    <Input id="chief_complaint" v-model="interviewForm.chief_complaint" class="mt-2" :disabled="!capabilities.can_update_consultation" maxlength="255" placeholder="Ex. douleur abdominale persistante" />
-                                    <FormError class="mt-1" :message="interviewForm.errors.chief_complaint" />
-                                </div>
+                                <ClinicalSection
+                                    title="Motif principal de consultation"
+                                    hint="La raison réelle de la venue, en quelques mots. Jamais le type de prestation demandée."
+                                    required
+                                >
+                                    <Input
+                                        id="chief_complaint"
+                                        v-model="interviewForm.chief_complaint"
+                                        :disabled="!capabilities.can_update_consultation"
+                                        maxlength="255"
+                                        placeholder="Ex. douleur abdominale persistante"
+                                        aria-describedby="chief-complaint-error"
+                                    />
+                                    <FormError id="chief-complaint-error" class="mt-1" :message="interviewForm.errors.chief_complaint" />
+                                </ClinicalSection>
 
-                                <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900">
-                                    <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Histoire de la maladie actuelle</h3>
+                                <div class="border-t border-border pt-6">
+                                    <ClinicalSection title="Histoire de la maladie actuelle">
+                                        <div class="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-10">
+                                            <div class="min-w-0 sm:w-56">
+                                                <label for="symptom_onset" class="mb-1.5 block text-sm font-medium text-foreground">Début / durée</label>
+                                                <Input
+                                                    id="symptom_onset"
+                                                    v-model="interviewForm.symptom_onset"
+                                                    :disabled="!capabilities.can_update_consultation"
+                                                    maxlength="150"
+                                                    placeholder="Ex. depuis 3 jours"
+                                                />
+                                                <FormError :message="interviewForm.errors.symptom_onset" />
+                                            </div>
 
-                                    <div class="mt-3 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:gap-x-10">
-                                        <div class="min-w-0 sm:w-56">
-                                            <label for="symptom_onset" class="block text-xs font-bold text-slate-700 dark:text-white">Début / durée</label>
-                                            <Input id="symptom_onset" v-model="interviewForm.symptom_onset" class="mt-2" :disabled="!capabilities.can_update_consultation" maxlength="150" placeholder="Ex. depuis 3 jours" />
-                                            <FormError :message="interviewForm.errors.symptom_onset" />
+                                            <ClinicalSegmentedChoice
+                                                name="evolution"
+                                                label="Évolution"
+                                                :model-value="interviewForm.evolution"
+                                                :options="EVOLUTION_OPTIONS"
+                                                :disabled="!capabilities.can_update_consultation"
+                                                @update:model-value="interviewForm.evolution = $event"
+                                            />
                                         </div>
 
-                                        <ClinicalSegmentedChoice
-                                            name="evolution"
-                                            label="Évolution"
-                                            :model-value="interviewForm.evolution"
-                                            :options="EVOLUTION_OPTIONS"
-                                            :disabled="!capabilities.can_update_consultation"
-                                            @update:model-value="interviewForm.evolution = $event"
-                                        />
-                                    </div>
-
-                                    <div class="mt-4">
-                                        <label for="reason" class="block text-xs font-bold text-slate-700 dark:text-white">Histoire clinique <span class="text-red-500">*</span></label>
-                                        <p class="mt-1 text-[11px] leading-4 text-slate-400">Décrivez le début, l’évolution des symptômes, les symptômes associés, les facteurs aggravants ou soulageants et les informations rapportées par le patient.</p>
-                                        <div class="mt-2">
-                                            <ClinicalRichTextEditor id="reason" v-model="interviewForm.reason" :disabled="!capabilities.can_update_consultation" :max-length="3000" min-height-class="min-h-56" placeholder="Récit clinique du patient…" />
+                                        <div class="mt-5">
+                                            <label for="reason" class="mb-1 block text-sm font-medium text-foreground">
+                                                Histoire clinique <span class="text-destructive" aria-hidden="true">*</span>
+                                            </label>
+                                            <p class="mb-2 text-xs leading-5 text-muted-foreground">
+                                                Début et évolution des symptômes, symptômes associés, facteurs aggravants ou soulageants, informations rapportées par le patient.
+                                            </p>
+                                            <ClinicalRichTextEditor
+                                                id="reason"
+                                                v-model="interviewForm.reason"
+                                                :disabled="!capabilities.can_update_consultation"
+                                                :max-length="3000"
+                                                min-height-class="min-h-56"
+                                                placeholder="Récit clinique du patient…"
+                                            />
                                             <FormError class="mt-1" :message="interviewForm.errors.reason" />
                                         </div>
-                                    </div>
+                                    </ClinicalSection>
+                                </div>
 
-                                    <div class="mt-4">
-                                        <label for="additional_notes" class="block text-xs font-bold text-slate-700 dark:text-white">Notes complémentaires <span class="font-normal text-slate-400">· facultatif</span></label>
-                                        <textarea id="additional_notes" v-model="interviewForm.additional_notes" rows="2" maxlength="2000" :disabled="!capabilities.can_update_consultation" :class="[textareaClass, 'mt-2']" placeholder="Éléments de contexte utiles à la relecture…" />
-                                        <FormError :message="interviewForm.errors.additional_notes" />
-                                    </div>
-                                </section>
+                                <!-- Importance visuelle volontairement moindre :
+                                     ce champ complète le récit, il ne le porte pas. -->
+                                <div class="border-t border-border pt-6">
+                                    <label for="additional_notes" class="mb-1 block text-sm font-medium text-muted-foreground">
+                                        Notes complémentaires <span class="font-normal">· facultatif</span>
+                                    </label>
+                                    <textarea
+                                        id="additional_notes"
+                                        v-model="interviewForm.additional_notes"
+                                        rows="2"
+                                        maxlength="2000"
+                                        :disabled="!capabilities.can_update_consultation"
+                                        :class="[textareaClass, 'resize-y']"
+                                        placeholder="Éléments de contexte utiles à la relecture…"
+                                    />
+                                    <FormError :message="interviewForm.errors.additional_notes" />
+                                </div>
                             </fieldset>
 
-                            <div class="min-w-0 space-y-4">
-                                <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900" aria-labelledby="current-treatments-title">
-                                    <h3 id="current-treatments-title" class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Traitements actuels</h3>
-                                    <p class="mt-1 text-[11px] leading-4 text-slate-400">Déclarés par le patient, sans action sur le stock.</p>
-
-                                    <!-- Ce que le dossier sait déjà, montré
-                                         avant toute saisie : on ne redemande
-                                         jamais de ressaisir un traitement
-                                         connu. -->
-                                    <div v-if="habitualTreatments.length" class="mt-3 rounded-md border border-gray-200 bg-gray-50/60 p-2.5 dark:border-gray-800 dark:bg-gray-1000/40">
-                                        <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Traitements connus du dossier</p>
-                                        <ul class="mt-1.5 space-y-1">
-                                            <li v-for="treatment in habitualTreatments" :key="treatment.uuid" class="text-[11px] leading-4 text-slate-600 dark:text-slate-300">
-                                                <strong class="font-semibold text-slate-700 dark:text-white">{{ treatment.medication_name }}</strong>
-                                                <template v-if="treatment.dosage || treatment.frequency"> · {{ [treatment.dosage, treatment.frequency].filter(Boolean).join(' · ') }}</template>
-                                            </li>
-                                        </ul>
-
-                                        <div class="mt-2.5 border-t border-gray-200 pt-2.5 dark:border-gray-800">
-                                            <p class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Le patient signale-t-il un changement ?</p>
-                                            <ClinicalSegmentedChoice
-                                                class="mt-1.5"
-                                                name="known_treatment_change"
-                                                :model-value="interviewForm.known_treatment_change"
-                                                :options="TREATMENT_CHANGE_OPTIONS"
-                                                :disabled="!capabilities.can_update_consultation"
-                                                @update:model-value="setKnownTreatmentChange"
-                                            />
-                                            <div v-if="interviewForm.known_treatment_change === 'YES'" class="mt-2">
-                                                <label for="known_treatment_change_notes" class="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">Modification rapportée <span class="text-red-500">*</span></label>
-                                                <textarea id="known_treatment_change_notes" v-model="interviewForm.known_treatment_change_notes" rows="3" maxlength="2000" :disabled="!capabilities.can_update_consultation" :class="textareaClass" placeholder="Ex. le patient indique avoir arrêté l’Amlodipine depuis 2 semaines…" />
-                                                <FormError :message="interviewForm.errors.known_treatment_change_notes" />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="mt-3 flex flex-wrap items-center gap-2.5">
-                                        <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Traitements en cours ?</span>
-                                        <span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950" role="radiogroup" aria-label="Le patient a-t-il des traitements en cours ?">
-                                            <button type="button" role="radio" :aria-checked="hasCurrentTreatments" :disabled="!capabilities.can_update_consultation" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', hasCurrentTreatments ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="setHasCurrentTreatments(true)">Oui</button>
-                                            <button type="button" role="radio" :aria-checked="!hasCurrentTreatments" :disabled="!capabilities.can_update_consultation" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', !hasCurrentTreatments ? 'bg-gray-200 text-slate-700 dark:bg-gray-800 dark:text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="setHasCurrentTreatments(false)">Non</button>
-                                        </span>
-                                    </div>
-
-                                    <div v-if="hasCurrentTreatments" class="mt-3">
-                                        <ClinicalTreatmentList
-                                            :treatments="interviewForm.current_treatments"
-                                            :disabled="!capabilities.can_update_consultation"
-                                            :error-for="treatmentError"
-                                            @add="addCurrentTreatment"
-                                            @remove="removeCurrentTreatment"
-                                            @update="updateCurrentTreatment"
-                                        />
-                                    </div>
-                                    <p v-else class="mt-3 text-[11px] leading-4 text-slate-400">
-                                        Aucun traitement déclaré par le patient pour cette consultation.
-                                    </p>
-                                </section>
-
-                                <ClinicalReportedInformation
-                                    :allergies="interviewForm.reported_allergies"
-                                    :antecedents="interviewForm.reported_antecedents"
-                                    :habitual-treatments="interviewForm.reported_habitual_treatments"
+                            <!-- QUEL CONTEXTE -->
+                            <div class="min-w-0 lg:border-s lg:border-border lg:ps-6 xl:ps-8">
+                                <PatientContextPanel
+                                    :allergies="allergies ?? []"
+                                    :antecedents="antecedents ?? []"
+                                    :familial-antecedents="familial_antecedents"
+                                    :habitual-treatments="habitualTreatments"
+                                    :has-current-treatments="hasCurrentTreatments"
+                                    :current-treatments="interviewForm.current_treatments"
+                                    :known-treatment-change="interviewForm.known_treatment_change"
+                                    :known-treatment-change-notes="interviewForm.known_treatment_change_notes"
+                                    :reported-allergies="interviewForm.reported_allergies"
+                                    :reported-antecedents="interviewForm.reported_antecedents"
+                                    :reported-habitual-treatments="interviewForm.reported_habitual_treatments"
+                                    :treatment-change-options="TREATMENT_CHANGE_OPTIONS"
+                                    :errors="interviewForm.errors"
+                                    :treatment-error="treatmentError"
                                     :disabled="!capabilities.can_update_consultation"
                                     :can-promote="capabilities.can_manage_medical_history"
-                                    :errors="interviewForm.errors"
-                                    @add="addReportedInformation"
-                                    @remove="removeReportedInformation"
-                                    @update="updateReportedInformation"
+                                    :textarea-class="textareaClass"
+                                    @update:has-current-treatments="setHasCurrentTreatments"
+                                    @update:known-treatment-change="setKnownTreatmentChange"
+                                    @update:known-treatment-change-notes="interviewForm.known_treatment_change_notes = $event"
+                                    @add-treatment="addCurrentTreatment"
+                                    @remove-treatment="removeCurrentTreatment"
+                                    @update-treatment="updateCurrentTreatment"
+                                    @add-reported="addReportedInformation"
+                                    @remove-reported="removeReportedInformation"
+                                    @update-reported="updateReportedInformation"
                                 />
                             </div>
                         </div>
 
-
-
                         <ConsultationStepBar
                             :orientation-uuid="orientation.uuid"
+                            :save-state="{ saving: draft.saving.value, savedAt: draft.savedAt.value }"
                             step-key="consultation"
                             :state="stepState('consultation')"
                             :previous="{ key: 'dossier', label: 'Dossier' }"
@@ -1620,13 +2079,13 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                      conteneur de défilement qui rendrait inopérant le
                      `sticky` de la colonne de notes ci-dessous. -->
                 <Card v-if="cardIsOpen('examen')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div class="flex items-start gap-3">
-                            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-xl" name="plus-medi" /></span>
+                            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><CirclePlus class="h-4 w-4" /></span>
                             <div>
-                                <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-primary-600 dark:text-primary-300">Étape 3 · Examen du médecin</p>
-                                <h2 class="mt-0.5 text-base font-bold text-slate-800 dark:text-white">Examen clinique</h2>
-                                <p class="mt-0.5 text-xs text-slate-400">Consignez les constatations observées par le médecin, distinctes du récit du patient.</p>
+                                <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Étape 3 · Examen du médecin</p>
+                                <h2 class="mt-0.5 text-base font-bold text-foreground">Examen clinique</h2>
+                                <p class="mt-0.5 text-xs text-muted-foreground">Consignez les constatations observées par le médecin, distinctes du récit du patient.</p>
                             </div>
                         </div>
                     </div>
@@ -1681,36 +2140,20 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </template>
 
                             <template #DIAGNOSIS>
-                                <!-- La conclusion de la rencontre, posée ici
-                                     quand elle peut l'être. « Pas maintenant »
-                                     laisse l'étape Diagnostic ouverte : un
-                                     médecin qui attend des résultats ne doit
-                                     jamais être poussé à conclure avant. -->
-                                <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900 sm:p-5">
-                                    <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Diagnostic</h3>
+                                <!-- Le diagnostic peut être conclu ici quand
+                                     le médecin le peut déjà (ADR-080). La
+                                     question « peut-il être posé maintenant ? »
+                                     a rejoint « Décision & clôture », la seule
+                                     étape que tout patient atteint (ADR-095) ;
+                                     la saisie, elle, reste disponible ici. -->
+                                <section class="rounded-lg border border-border p-4 sm:p-5">
+                                    <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Diagnostic</h3>
 
-                                    <div class="mt-2 flex flex-wrap items-center gap-2.5">
-                                        <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Le diagnostic peut-il être posé maintenant ?</span>
-                                        <span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950" role="radiogroup" aria-label="Le diagnostic peut-il être posé maintenant ?">
-                                            <button type="button" role="radio" :aria-checked="clinicalExamForm.diagnosis_ready === false" :disabled="!capabilities.can_update_consultation" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', clinicalExamForm.diagnosis_ready === false ? 'bg-gray-200 text-slate-700 dark:bg-gray-800 dark:text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="clinicalExamForm.diagnosis_ready = false">Pas maintenant</button>
-                                            <button type="button" role="radio" :aria-checked="clinicalExamForm.diagnosis_ready === true" :disabled="!capabilities.can_update_consultation" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', clinicalExamForm.diagnosis_ready === true ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="clinicalExamForm.diagnosis_ready = true">Oui</button>
-                                        </span>
-                                    </div>
-
-                                    <p v-if="clinicalExamForm.diagnosis_ready === null" class="mt-3 text-[11px] leading-4 text-slate-400">
-                                        Répondez pour poursuivre : « Oui » conclut ici, « Pas maintenant » garde l’étape Diagnostic ouverte.
-                                    </p>
-
-                                    <p v-else-if="clinicalExamForm.diagnosis_ready === false" class="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                                        <Icon name="clock" class="text-xs" />Diagnostic différé. L’étape Diagnostic reste ouverte pour y revenir.
-                                    </p>
-
-                                    <template v-else>
-                                        <ul v-if="activeDiagnoses.length" class="mt-3 space-y-1.5">
-                                            <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="flex items-start justify-between gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-950">
+                                    <ul v-if="activeDiagnoses.length" class="mt-3 space-y-1.5">
+                                            <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="flex items-start justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
                                                 <span class="min-w-0 flex-1">
-                                                    <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ diagnosis.description }}</span>
-                                                    <span class="mt-0.5 block truncate text-[10px] text-slate-400">
+                                                    <span class="block truncate text-xs font-bold text-foreground">{{ diagnosis.description }}</span>
+                                                    <span class="mt-0.5 block truncate text-[10px] text-muted-foreground">
                                                         <template v-if="diagnosis.code"><span class="font-mono">{{ diagnosis.code }}</span> · </template>{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}
                                                     </span>
                                                 </span>
@@ -1722,8 +2165,8 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                                     <!-- Corriger et annuler restent réservés à l'auteur de
                                                          la saisie : le serveur le revérifie (ADR-035), et
                                                          une annulation laisse une trace, jamais un trou. -->
-                                                    <button v-if="diagnosis.can_edit" type="button" class="flex size-7 items-center justify-center rounded border border-gray-200 text-slate-400 transition-colors hover:border-primary-300 hover:text-primary-600 dark:border-gray-800" :title="`Modifier « ${diagnosis.description} »`" :aria-label="`Modifier le diagnostic ${diagnosis.description}`" @click="startDiagnosisEdit(diagnosis)"><Icon name="edit" class="text-sm" /></button>
-                                                    <button v-if="diagnosis.can_cancel" type="button" class="flex size-7 items-center justify-center rounded border border-gray-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-gray-800 dark:hover:border-red-900 dark:hover:bg-red-950/30" :title="`Annuler « ${diagnosis.description} »`" :aria-label="`Annuler le diagnostic ${diagnosis.description}`" :disabled="diagnosisCancellationForm.processing" @click="openDiagnosisCancellation(diagnosis)"><Icon name="trash" class="text-sm" /></button>
+                                                    <button v-if="diagnosis.can_edit" type="button" class="flex size-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:border-primary-300 hover:text-primary" :title="`Modifier « ${diagnosis.description} »`" :aria-label="`Modifier le diagnostic ${diagnosis.description}`" @click="startDiagnosisEdit(diagnosis)"><Pencil class="h-4 w-4" /></button>
+                                                    <button v-if="diagnosis.can_cancel" type="button" class="flex size-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900 dark:hover:bg-red-950/30" :title="`Annuler « ${diagnosis.description} »`" :aria-label="`Annuler le diagnostic ${diagnosis.description}`" :disabled="diagnosisCancellationForm.processing" @click="openDiagnosisCancellation(diagnosis)"><Trash2 class="h-4 w-4" /></button>
                                                 </span>
                                             </li>
                                         </ul>
@@ -1737,12 +2180,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                             />
                                         </div>
 
-                                        <p class="mt-2 text-[11px] leading-4 text-slate-400">
-                                            Seul l’auteur d’une saisie peut la corriger ou l’annuler ; un diagnostic enregistré n’est jamais réécrit, et l’historique complet reste dans « Contexte clinique ».
-                                        </p>
-                                    </template>
-
-                                    <FormError class="mt-1" :message="clinicalExamForm.errors.diagnosis_ready" />
+                                    <p class="mt-2 text-[11px] leading-4 text-muted-foreground">
+                                        Seul l’auteur d’une saisie peut la corriger ou l’annuler ; un diagnostic enregistré n’est jamais réécrit, et l’historique complet reste dans « Contexte clinique ».
+                                    </p>
                                 </section>
                             </template>
 
@@ -1761,9 +2201,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                      grille ne peut pas porter doit rester
                                      consignable. Mais elles ne sont plus le
                                      seul domicile de l'examen. -->
-                                <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900">
-                                    <label for="clinical_exam" class="block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Notes cliniques complémentaires</label>
-                                    <p class="mt-1 text-[11px] leading-4 text-slate-400">Consignez ici les constatations qui ne sont pas couvertes par les rubriques précédentes. Facultatif.</p>
+                                <section class="rounded-lg border border-border p-4">
+                                    <label for="clinical_exam" class="block text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Notes cliniques complémentaires</label>
+                                    <p class="mt-1 text-[11px] leading-4 text-muted-foreground">Consignez ici les constatations qui ne sont pas couvertes par les rubriques précédentes. Facultatif.</p>
                                     <div class="mt-3">
                                         <!-- Assez haute pour écrire, bornée pour
                                              ne pas dépasser le rail du sticky :
@@ -1777,6 +2217,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         </ResizableSplit>
                         <ConsultationStepBar
                             :orientation-uuid="orientation.uuid"
+                            :save-state="{ saving: draft.saving.value, savedAt: draft.savedAt.value }"
                             step-key="examen"
                             :state="stepState('examen')"
                             :previous="{ key: 'consultation', label: 'Interrogatoire' }"
@@ -1795,72 +2236,90 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                 </Card>
 
                 <Card v-if="cardIsOpen('paraclinique')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div class="flex items-start gap-3">
-                            <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-lg" name="activity" /></span>
+                            <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
                             <div>
-                                <h2 class="text-sm font-bold text-slate-700 dark:text-white">Examens paracliniques</h2>
-                                <p class="mt-0.5 text-xs text-slate-400">Prescrivez les examens utiles et transmettez une indication claire au service concerné.</p>
+                                <h2 class="text-sm font-bold text-foreground">Examens paracliniques</h2>
+                                <p class="mt-0.5 text-xs text-muted-foreground">Prescrivez les examens utiles et transmettez une indication claire au service concerné.</p>
                             </div>
                         </div>
-                        <span class="self-start rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300">Étape facultative</span>
+                        <span class="self-start rounded-md border border-border bg-muted/35 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">Étape facultative</span>
                     </div>
 
                     <!-- La question qui gouverne l'étape est posée au début de
                          l'étape qu'elle gouverne. « Non » la marque non
                          nécessaire et mène au diagnostic, sans faire traverser
                          un écran vide. -->
-                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+                    <div class="border-b border-border px-5 py-4">
                         <div class="flex flex-wrap items-center gap-2.5">
-                            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Des examens complémentaires sont-ils nécessaires ?</span>
-                            <span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950" role="radiogroup" aria-label="Des examens complémentaires sont-ils nécessaires ?">
-                                <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === false" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === false ? 'bg-gray-200 text-slate-700 dark:bg-gray-800 dark:text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="decideComplementaryExams(false)">Non</button>
-                                <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === true" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === true ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']" @click="decideComplementaryExams(true)">Oui</button>
+                            <span class="text-xs font-semibold text-muted-foreground">Des examens complémentaires sont-ils nécessaires ?</span>
+                            <span class="inline-flex rounded border border-border bg-card p-0.5" role="radiogroup" aria-label="Des examens complémentaires sont-ils nécessaires ?">
+                                <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === false" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === false ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/35']" @click="decideComplementaryExams(false)">Non</button>
+                                <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === true" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === true ? 'bg-primary-600 text-white' : 'text-muted-foreground hover:bg-muted/35']" @click="decideComplementaryExams(true)">Oui</button>
                             </span>
                         </div>
-                        <p v-if="complementaryExamsForm.required === null" class="mt-2 text-[11px] leading-4 text-slate-400">
+                        <p v-if="complementaryExamsForm.required === null" class="mt-2 text-[11px] leading-4 text-muted-foreground">
                             Répondez pour poursuivre : « Non » déclare l’étape non nécessaire et passe au diagnostic.
                         </p>
                         <FormError class="mt-1" :message="complementaryExamsForm.errors.required" />
                     </div>
 
-                    <div v-if="complementaryExamsForm.required !== false" class="border-b border-gray-200 bg-gray-50/60 px-5 py-2.5 dark:border-gray-900 dark:bg-gray-1000/20">
-                        <div class="grid max-w-xl grid-cols-2 gap-1 rounded-lg border border-gray-200 bg-gray-100 p-1 dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="Type d’examen paraclinique">
-                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'lab'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'lab' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="paracliniqueTab = 'lab'">
-                                <Icon class="text-base" name="activity" />
+                    <div v-if="complementaryExamsForm.required !== false" class="border-b border-border bg-muted/35 px-5 py-2.5">
+                        <div class="grid max-w-xl grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1" role="tablist" aria-label="Type d’examen paraclinique">
+                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'lab'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'lab' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="paracliniqueTab = 'lab'">
+                                <Activity class="h-4 w-4" />
                                 <span>Laboratoire</span>
-                                <span v-if="consultation.lab_requests?.length || labRequestForm.items.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ (consultation.lab_requests?.length ?? 0) + labRequestForm.items.length }}</span>
+                                <!-- Les demandes réellement transmises, et elles
+                                     seules. Additionner la sélection en cours
+                                     annonçait « 2 examens » quand un seul était
+                                     parti au service. Ce qui reste à envoyer se
+                                     lit dans le bloc « Demande en préparation ». -->
+                                <span v-if="consultation.lab_requests?.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">{{ consultation.lab_requests.length }}</span>
                             </button>
-                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'imaging'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'imaging' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="paracliniqueTab = 'imaging'">
-                                <Icon class="text-base" name="scan" />
+                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'imaging'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'imaging' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="paracliniqueTab = 'imaging'">
+                                <ScanLine class="h-4 w-4" />
                                 <span>ECG / Échographie</span>
-                                <span v-if="consultation.imaging_requests?.length || imagingRequestForm.items.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ (consultation.imaging_requests?.length ?? 0) + imagingRequestForm.items.length }}</span>
+                                <span v-if="consultation.imaging_requests?.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">{{ consultation.imaging_requests.length }}</span>
                             </button>
                         </div>
                     </div>
 
                     <template v-if="paracliniqueTab === 'lab'">
-                        <div v-if="consultation.lab_requests?.length" class="space-y-3 border-b border-gray-200 bg-gray-50/30 p-5 dark:border-gray-900 dark:bg-gray-1000/10">
+                        <div v-if="consultation.lab_requests?.length" class="space-y-3 border-b border-border bg-muted/35 p-5">
                             <div class="flex items-center justify-between gap-3">
-                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Demandes transmises</p>
-                                <span class="text-xs text-slate-400">{{ consultation.lab_requests.length }} demande(s)</span>
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Demandes transmises</p>
+                                <span class="text-xs text-muted-foreground">{{ consultation.lab_requests.length }} demande(s)</span>
                             </div>
-                            <div v-for="request in consultation.lab_requests" :key="request.uuid" class="rounded-lg border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+                            <div v-for="request in consultation.lab_requests" :key="request.uuid" class="rounded-lg border border-border bg-card p-3.5 shadow-sm">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <p class="text-xs font-semibold text-slate-700 dark:text-white">{{ formatDateTime(request.requested_at) }} — Dr {{ request.requested_by }}</p>
-                                    <span :class="labRequestStatusBadgeClass(request.status)">{{ labRequestStatusLabel(request.status) }}</span>
+                                    <p class="text-xs font-semibold text-foreground">{{ formatDateTime(request.requested_at) }} — Dr {{ request.requested_by }}</p>
+                                    <div class="flex items-center gap-2">
+                                        <span :class="labRequestStatusBadgeClass(request.status)">{{ labRequestStatusLabel(request.status) }}</span>
+                                        <!-- Retirable tant qu'aucun résultat n'est arrivé ;
+                                             le serveur revérifie. -->
+                                        <Button
+                                            v-if="capabilities.can_update_consultation && request.status === 'REQUESTED'"
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            @click="askWithdrawal('lab', request)"
+                                        >
+                                            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" /><span class="ms-1.5">Retirer</span>
+                                        </Button>
+                                    </div>
                                 </div>
                                 <ul class="mt-2 space-y-1.5">
                                     <li v-for="item in request.items" :key="item.uuid" class="text-xs">
                                         <div class="flex items-center justify-between gap-3">
-                                            <span class="font-semibold text-slate-700 dark:text-white">{{ item.name }}</span>
+                                            <span class="font-semibold text-foreground">{{ item.name }}</span>
                                             <span v-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">{{ item.result_value }}</span>
-                                            <span v-else class="text-slate-400">En attente de résultat</span>
+                                            <span v-else class="text-muted-foreground">En attente de résultat</span>
                                         </div>
-                                        <p v-if="item.result_notes" class="mt-0.5 text-[11px] text-slate-400">{{ item.result_notes }}</p>
+                                        <p v-if="item.result_notes" class="mt-0.5 text-[11px] text-muted-foreground">{{ item.result_notes }}</p>
                                     </li>
                                 </ul>
-                                <p v-if="request.notes" class="mt-1.5 text-[11px] text-slate-400">{{ request.notes }}</p>
+                                <p v-if="request.notes" class="mt-1.5 text-[11px] text-muted-foreground">{{ request.notes }}</p>
                             </div>
                         </div>
                         <form v-if="capabilities.can_create_lab_request" id="lab-request-form" class="p-5" @submit.prevent="submitLabRequest">
@@ -1868,44 +2327,60 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 <div class="min-w-0 space-y-4">
                                     <div>
                                         <div class="mb-1.5 flex items-center justify-between gap-3">
-                                            <label class="block text-sm font-semibold text-slate-700 dark:text-white">Ajouter une analyse</label>
-                                            <span v-if="labRequestForm.items.length" class="text-xs font-semibold text-primary-700 dark:text-primary-300">{{ labRequestForm.items.length }} sélectionnée(s)</span>
+                                            <label class="block text-sm font-semibold text-foreground">Ajouter une analyse</label>
+                                            <span v-if="labRequestForm.items.length" class="text-xs font-semibold text-primary">{{ labRequestForm.items.length }} sélectionnée(s)</span>
                                         </div>
-                                <IconInput v-model="labSearch" icon="search" placeholder="NFS, CRP, glycémie…" />
-                                        <div v-if="labSearch.trim() && filteredLabCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
-                                    <button v-for="item in filteredLabCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start transition-colors hover:bg-primary-50/60 dark:hover:bg-primary-950/20" @click="addLabItem(item)">
-                                                <span class="min-w-0"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span><span v-if="item.code" class="mt-0.5 block text-[11px] text-slate-400">{{ item.code }}</span></span>
-                                                <span :class="['flex size-7 shrink-0 items-center justify-center rounded-md border', isLabItemSelected(item) ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/50 dark:text-primary-300' : 'border-gray-200 text-slate-400 dark:border-gray-800']"><Icon :name="isLabItemSelected(item) ? 'check' : 'plus'" /></span>
+                                <IconInput v-model="labSearch" :icon="Search" placeholder="NFS, CRP, glycémie…" />
+                                        <div v-if="labSearch.trim() && filteredLabCatalog.length" class="mt-2 max-h-52 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                                    <!-- Un examen déjà demandé et en attente n'est pas
+                                         proposable : le serveur le refuserait, et l'offrir
+                                         menait à préparer une demande impossible à envoyer. -->
+                                    <button
+                                        v-for="item in filteredLabCatalog"
+                                        :key="item.uuid"
+                                        type="button"
+                                        :disabled="isAlreadyRequestedLab(item)"
+                                        :class="['flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start transition-colors', isAlreadyRequestedLab(item) ? 'cursor-not-allowed bg-muted/40' : 'hover:bg-accent']"
+                                        @click="addLabItem(item)"
+                                    >
+                                        <span class="min-w-0">
+                                            <span class="block truncate text-sm font-semibold text-foreground">{{ item.name }}</span>
+                                            <span v-if="isAlreadyRequestedLab(item)" class="mt-0.5 block text-xs font-medium text-amber-600 dark:text-amber-400">Déjà demandé · en attente de résultat</span>
+                                            <span v-else-if="item.code" class="mt-0.5 block text-xs text-muted-foreground">{{ item.code }}</span>
+                                        </span>
+                                        <span :class="['flex size-7 shrink-0 items-center justify-center rounded-md border', isAlreadyRequestedLab(item) ? 'border-border text-muted-foreground' : isLabItemSelected(item) ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground']">
+                                            <component :is="isAlreadyRequestedLab(item) ? Clock : isLabItemSelected(item) ? Check : Plus" class="h-4 w-4" aria-hidden="true" />
+                                        </span>
                                     </button>
                                 </div>
-                                <p v-else-if="labSearch.trim()" class="mt-2 text-xs text-slate-400">Aucune analyse ne correspond.</p>
+                                <p v-else-if="labSearch.trim()" class="mt-2 text-xs text-muted-foreground">Aucune analyse ne correspond.</p>
                                 <FormError :message="labRequestForm.errors.items" />
                                     </div>
 
-                                    <div v-if="labRequestForm.items.length" class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-                                        <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3.5 py-2.5 dark:border-gray-800 dark:bg-gray-1000/30">
-                                            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Prescription en préparation</p>
-                                            <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-500 ring-1 ring-gray-200 dark:bg-gray-950 dark:ring-gray-800">{{ labRequestForm.items.length }}</span>
+                                    <div v-if="labRequestForm.items.length" class="overflow-hidden rounded-lg border border-border">
+                                        <div class="flex items-center justify-between border-b border-border bg-muted/35 px-3.5 py-2.5">
+                                            <p class="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Prescription en préparation</p>
+                                            <span class="rounded-full bg-card px-2 py-0.5 text-[10px] font-bold tabular-nums text-muted-foreground ring-1 ring-border">{{ labRequestForm.items.length }}</span>
                                         </div>
-                                        <div class="divide-y divide-gray-100 dark:divide-gray-900">
+                                        <div class="divide-y divide-border">
                                             <div v-for="line in labRequestForm.items" :key="line.catalog_item_uuid" class="flex items-center gap-3 px-3.5 py-3">
-                                                <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon name="activity" /></span>
-                                                <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ line.name }}</span><span v-if="line.code" class="mt-0.5 block text-[11px] text-slate-400">{{ line.code }}</span></span>
-                                                <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md border border-gray-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-gray-800 dark:hover:border-red-900 dark:hover:bg-red-950/30" :aria-label="`Retirer ${line.name}`" @click="removeLabItem(line)"><Icon name="trash" /></button>
+                                                <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
+                                                <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-foreground">{{ line.name }}</span><span v-if="line.code" class="mt-0.5 block text-[11px] text-muted-foreground">{{ line.code }}</span></span>
+                                                <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900 dark:hover:bg-red-950/30" :aria-label="`Retirer ${line.name}`" @click="removeLabItem(line)"><Trash2 class="h-4 w-4" /></button>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-1000/20">
+                                <div class="rounded-lg border border-border bg-muted/35 p-4">
                                     <div class="flex items-start gap-2.5">
-                                        <Icon class="mt-0.5 shrink-0 text-base text-primary-600 dark:text-primary-300" name="file-text" />
+                                        <FileText class="h-4 w-4 mt-0.5 shrink-0  text-primary" />
                                         <div class="min-w-0 flex-1">
-                                            <label for="lab_notes" class="block text-sm font-semibold text-slate-700 dark:text-white">Indication clinique</label>
-                                            <p class="mt-0.5 text-xs leading-5 text-slate-400">Ajoutez le contexte nécessaire à l’interprétation et à la réalisation des analyses.</p>
+                                            <label for="lab_notes" class="block text-sm font-semibold text-foreground">Indication clinique</label>
+                                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">Ajoutez le contexte nécessaire à l’interprétation et à la réalisation des analyses.</p>
                                         </div>
                                     </div>
-                                    <textarea id="lab_notes" v-model="labRequestForm.notes" rows="5" :class="[textareaClass, 'mt-3 bg-white dark:bg-gray-950']" placeholder="Contexte clinique, symptômes, traitement en cours…" />
+                                    <textarea id="lab_notes" v-model="labRequestForm.notes" rows="5" :class="[textareaClass, 'mt-3 bg-card']" placeholder="Contexte clinique, symptômes, traitement en cours…" />
                                     <FormError :message="labRequestForm.errors.notes" />
                                 </div>
                             </div>
@@ -1913,32 +2388,45 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </template>
 
                     <template v-else>
-                        <div v-if="consultation.imaging_requests?.length" class="space-y-3 border-b border-gray-200 bg-gray-50/30 p-5 dark:border-gray-900 dark:bg-gray-1000/10">
+                        <div v-if="consultation.imaging_requests?.length" class="space-y-3 border-b border-border bg-muted/35 p-5">
                             <div class="flex items-center justify-between gap-3">
-                                <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Demandes transmises</p>
-                                <span class="text-xs text-slate-400">{{ consultation.imaging_requests.length }} demande(s)</span>
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Demandes transmises</p>
+                                <span class="text-xs text-muted-foreground">{{ consultation.imaging_requests.length }} demande(s)</span>
                             </div>
-                            <div v-for="request in consultation.imaging_requests" :key="request.uuid" class="rounded-lg border border-gray-200 bg-white p-3.5 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+                            <div v-for="request in consultation.imaging_requests" :key="request.uuid" class="rounded-lg border border-border bg-card p-3.5 shadow-sm">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <p class="text-xs font-semibold text-slate-700 dark:text-white">{{ formatDateTime(request.requested_at) }} — Dr {{ request.requested_by }}</p>
-                                    <span :class="labRequestStatusBadgeClass(request.status)">{{ labRequestStatusLabel(request.status) }}</span>
+                                    <p class="text-xs font-semibold text-foreground">{{ formatDateTime(request.requested_at) }} — Dr {{ request.requested_by }}</p>
+                                    <div class="flex items-center gap-2">
+                                        <span :class="labRequestStatusBadgeClass(request.status)">{{ labRequestStatusLabel(request.status) }}</span>
+                                        <!-- Retirable tant qu'aucun résultat n'est arrivé ;
+                                             le serveur revérifie. -->
+                                        <Button
+                                            v-if="capabilities.can_update_consultation && request.status === 'REQUESTED'"
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            @click="askWithdrawal('imaging', request)"
+                                        >
+                                            <Trash2 class="h-3.5 w-3.5" aria-hidden="true" /><span class="ms-1.5">Retirer</span>
+                                        </Button>
+                                    </div>
                                 </div>
                                 <ul class="mt-2 space-y-2">
                                     <li v-for="item in request.items" :key="item.uuid" class="text-xs">
                                         <div class="flex items-center justify-between gap-3">
-                                            <span class="font-semibold text-slate-700 dark:text-white">{{ item.name }}</span>
+                                            <span class="font-semibold text-foreground">{{ item.name }}</span>
                                             <span v-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">Compte rendu disponible</span>
-                                            <span v-else class="text-slate-400">En attente</span>
+                                            <span v-else class="text-muted-foreground">En attente</span>
                                         </div>
-                                        <p v-if="item.resulted_at" class="mt-0.5 text-[11px] text-slate-500">{{ item.result_value }}<template v-if="item.result_notes"> — {{ item.result_notes }}</template></p>
-                                        <form v-else-if="capabilities.can_record_imaging_result" class="mt-2 flex flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-1000/30" @submit.prevent="submitImagingResult(item)">
+                                        <p v-if="item.resulted_at" class="mt-0.5 text-[11px] text-muted-foreground">{{ item.result_value }}<template v-if="item.result_notes"> — {{ item.result_notes }}</template></p>
+                                        <form v-else-if="capabilities.can_record_imaging_result" class="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-muted/35 p-3" @submit.prevent="submitImagingResult(item)">
                                             <textarea v-model="imagingResultForm(item.uuid).result_value" rows="2" :class="textareaClass" placeholder="Compte rendu (résultat)" />
                                             <FormError :message="imagingResultForm(item.uuid).errors.result_value" />
                                             <div class="flex justify-end"><Button type="submit" size="sm" :disabled="imagingResultForm(item.uuid).processing || !imagingResultForm(item.uuid).result_value.trim()">Enregistrer le compte rendu</Button></div>
                                         </form>
                                     </li>
                                 </ul>
-                                <p v-if="request.notes" class="mt-1.5 text-[11px] text-slate-400">{{ request.notes }}</p>
+                                <p v-if="request.notes" class="mt-1.5 text-[11px] text-muted-foreground">{{ request.notes }}</p>
                             </div>
                         </div>
                         <form v-if="capabilities.can_create_imaging_request" id="imaging-request-form" class="p-5" @submit.prevent="submitImagingRequest">
@@ -1946,45 +2434,61 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 <div class="min-w-0 space-y-4">
                                     <div>
                                         <div class="mb-1.5 flex items-center justify-between gap-3">
-                                            <label class="block text-sm font-semibold text-slate-700 dark:text-white">Ajouter un examen</label>
-                                            <span v-if="imagingRequestForm.items.length" class="text-xs font-semibold text-primary-700 dark:text-primary-300">{{ imagingRequestForm.items.length }} sélectionné(s)</span>
+                                            <label class="block text-sm font-semibold text-foreground">Ajouter un examen</label>
+                                            <span v-if="imagingRequestForm.items.length" class="text-xs font-semibold text-primary">{{ imagingRequestForm.items.length }} sélectionné(s)</span>
                                         </div>
-                                        <IconInput v-model="imagingSearch" icon="search" placeholder="ECG, échographie abdominale…" />
-                                        <div v-if="imagingSearch.trim() && filteredImagingCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
-                                            <button v-for="item in filteredImagingCatalog" :key="item.uuid" type="button" class="flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start transition-colors hover:bg-primary-50/60 dark:hover:bg-primary-950/20" @click="addImagingItem(item)">
-                                                <span class="min-w-0"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span><span v-if="item.code" class="mt-0.5 block text-[11px] text-slate-400">{{ item.code }}</span></span>
-                                                <span :class="['flex size-7 shrink-0 items-center justify-center rounded-md border', isImagingItemSelected(item) ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/50 dark:text-primary-300' : 'border-gray-200 text-slate-400 dark:border-gray-800']"><Icon :name="isImagingItemSelected(item) ? 'check' : 'plus'" /></span>
+                                        <IconInput v-model="imagingSearch" :icon="Search" placeholder="ECG, échographie abdominale…" />
+                                        <div v-if="imagingSearch.trim() && filteredImagingCatalog.length" class="mt-2 max-h-52 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                                            <!-- Un examen déjà demandé et en attente n'est pas
+                                                 proposable : le serveur le refuserait, et l'offrir
+                                                 menait à préparer une demande impossible à envoyer. -->
+                                            <button
+                                                v-for="item in filteredImagingCatalog"
+                                                :key="item.uuid"
+                                                type="button"
+                                                :disabled="isAlreadyRequestedImaging(item)"
+                                                :class="['flex w-full items-center justify-between gap-4 px-3.5 py-2.5 text-start transition-colors', isAlreadyRequestedImaging(item) ? 'cursor-not-allowed bg-muted/40' : 'hover:bg-accent']"
+                                                @click="addImagingItem(item)"
+                                            >
+                                                <span class="min-w-0">
+                                                    <span class="block truncate text-sm font-semibold text-foreground">{{ item.name }}</span>
+                                                    <span v-if="isAlreadyRequestedImaging(item)" class="mt-0.5 block text-xs font-medium text-amber-600 dark:text-amber-400">Déjà demandé · en attente de résultat</span>
+                                                    <span v-else-if="item.code" class="mt-0.5 block text-xs text-muted-foreground">{{ item.code }}</span>
+                                                </span>
+                                                <span :class="['flex size-7 shrink-0 items-center justify-center rounded-md border', isAlreadyRequestedImaging(item) ? 'border-border text-muted-foreground' : isImagingItemSelected(item) ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground']">
+                                                    <component :is="isAlreadyRequestedImaging(item) ? Clock : isImagingItemSelected(item) ? Check : Plus" class="h-4 w-4" aria-hidden="true" />
+                                                </span>
                                             </button>
                                         </div>
-                                        <p v-else-if="imagingSearch.trim()" class="mt-2 text-xs text-slate-400">Aucun examen ne correspond.</p>
-                                        <p v-else-if="!imagingCatalog.length" class="mt-2 text-xs text-slate-400">Aucun examen ECG/échographie n’est encore configuré au référentiel.</p>
+                                        <p v-else-if="imagingSearch.trim()" class="mt-2 text-xs text-muted-foreground">Aucun examen ne correspond.</p>
+                                        <p v-else-if="!imagingCatalog.length" class="mt-2 text-xs text-muted-foreground">Aucun examen ECG/échographie n’est encore configuré au référentiel.</p>
                                         <FormError :message="imagingRequestForm.errors.items" />
                                     </div>
 
-                                    <div v-if="imagingRequestForm.items.length" class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-                                        <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3.5 py-2.5 dark:border-gray-800 dark:bg-gray-1000/30">
-                                            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Demande en préparation</p>
-                                            <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-500 ring-1 ring-gray-200 dark:bg-gray-950 dark:ring-gray-800">{{ imagingRequestForm.items.length }}</span>
+                                    <div v-if="imagingRequestForm.items.length" class="overflow-hidden rounded-lg border border-border">
+                                        <div class="flex items-center justify-between border-b border-border bg-muted/35 px-3.5 py-2.5">
+                                            <p class="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Demande en préparation</p>
+                                            <span class="rounded-full bg-card px-2 py-0.5 text-[10px] font-bold tabular-nums text-muted-foreground ring-1 ring-border">{{ imagingRequestForm.items.length }}</span>
                                         </div>
-                                        <div class="divide-y divide-gray-100 dark:divide-gray-900">
+                                        <div class="divide-y divide-border">
                                             <div v-for="line in imagingRequestForm.items" :key="line.catalog_item_uuid" class="flex items-center gap-3 px-3.5 py-3">
-                                                <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon name="scan" /></span>
-                                                <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ line.name }}</span><span v-if="line.code" class="mt-0.5 block text-[11px] text-slate-400">{{ line.code }}</span></span>
-                                                <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md border border-gray-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-gray-800 dark:hover:border-red-900 dark:hover:bg-red-950/30" :aria-label="`Retirer ${line.name}`" @click="removeImagingItem(line)"><Icon name="trash" /></button>
+                                                <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><ScanLine class="h-4 w-4" /></span>
+                                                <span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-foreground">{{ line.name }}</span><span v-if="line.code" class="mt-0.5 block text-[11px] text-muted-foreground">{{ line.code }}</span></span>
+                                                <button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900 dark:hover:bg-red-950/30" :aria-label="`Retirer ${line.name}`" @click="removeImagingItem(line)"><Trash2 class="h-4 w-4" /></button>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-1000/20">
+                                <div class="rounded-lg border border-border bg-muted/35 p-4">
                                     <div class="flex items-start gap-2.5">
-                                        <Icon class="mt-0.5 shrink-0 text-base text-primary-600 dark:text-primary-300" name="file-text" />
+                                        <FileText class="h-4 w-4 mt-0.5 shrink-0  text-primary" />
                                         <div class="min-w-0 flex-1">
-                                            <label for="imaging_notes" class="block text-sm font-semibold text-slate-700 dark:text-white">Indication clinique</label>
-                                            <p class="mt-0.5 text-xs leading-5 text-slate-400">Précisez le motif, la région concernée et les éléments cliniques utiles à l’examen.</p>
+                                            <label for="imaging_notes" class="block text-sm font-semibold text-foreground">Indication clinique</label>
+                                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">Précisez le motif, la région concernée et les éléments cliniques utiles à l’examen.</p>
                                         </div>
                                     </div>
-                                    <textarea id="imaging_notes" v-model="imagingRequestForm.notes" rows="5" :class="[textareaClass, 'mt-3 bg-white dark:bg-gray-950']" placeholder="Motif de l’examen, symptômes, région à explorer…" />
+                                    <textarea id="imaging_notes" v-model="imagingRequestForm.notes" rows="5" :class="[textareaClass, 'mt-3 bg-card']" placeholder="Motif de l’examen, symptômes, région à explorer…" />
                                     <FormError :message="imagingRequestForm.errors.notes" />
                                 </div>
                             </div>
@@ -1995,24 +2499,26 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
 
                     <ConsultationStepBar
                         :orientation-uuid="orientation.uuid"
+                        :save-state="{ saving: draft.saving.value, savedAt: draft.savedAt.value }"
                         step-key="paraclinique"
                         :state="stepState('paraclinique')"
                         :previous="{ key: 'examen', label: 'Examen clinique' }"
                         :next="{ key: 'ordonnance', label: 'Prescription' }"
                         :can-edit="capabilities.can_resolve_step"
                         :local-blocker="hasPendingParaclinicalSelection ? 'Enregistrez les examens sélectionnés avant de valider cette étape.' : null"
+                        :allow-skip="false"
                     >
                         <template #note>
                             <p v-if="hasPendingParaclinicalSelection" class="text-center text-xs font-semibold text-amber-700 dark:text-amber-300">Enregistrez les examens sélectionnés avant de poursuivre.</p>
-                            <p v-else-if="hasExistingParaclinicalRequest" class="text-center text-xs text-slate-400">Les demandes enregistrées restent suivies dans le dossier du patient.</p>
-                            <p v-else class="text-center text-xs text-slate-400">Étape facultative · prescrivez un examen uniquement lorsqu’il est indiqué.</p>
+                            <p v-else-if="hasExistingParaclinicalRequest" class="text-center text-xs text-muted-foreground">Les demandes enregistrées restent suivies dans le dossier du patient.</p>
+                            <p v-else class="text-center text-xs text-muted-foreground">Étape facultative · prescrivez un examen uniquement lorsqu’il est indiqué.</p>
                         </template>
                         <template #actions>
                             <Button v-if="paracliniqueTab === 'lab' && labRequestForm.items.length" type="submit" form="lab-request-form" size="rg" :disabled="labRequestForm.processing || imagingRequestForm.processing">
-                                <Icon class="me-2 text-lg" name="activity" />{{ imagingRequestForm.items.length ? 'Envoyer puis finaliser l’imagerie' : 'Envoyer au Laboratoire' }}
+                                <Activity class="h-4 w-4 me-2" />{{ imagingRequestForm.items.length ? 'Envoyer puis finaliser l’imagerie' : 'Envoyer au Laboratoire' }}
                             </Button>
                             <Button v-else-if="paracliniqueTab === 'imaging' && imagingRequestForm.items.length" type="submit" form="imaging-request-form" size="rg" :disabled="imagingRequestForm.processing || labRequestForm.processing">
-                                <Icon class="me-2 text-lg" name="activity" />{{ labRequestForm.items.length ? 'Envoyer puis finaliser les analyses' : 'Envoyer la demande' }}
+                                <Activity class="h-4 w-4 me-2" />{{ labRequestForm.items.length ? 'Envoyer puis finaliser les analyses' : 'Envoyer la demande' }}
                             </Button>
                             <Button v-else-if="labRequestForm.items.length" type="button" size="rg" variant="white-outline" @click="paracliniqueTab = 'lab'">Finaliser les analyses ({{ labRequestForm.items.length }})</Button>
                             <Button v-else-if="imagingRequestForm.items.length" type="button" size="rg" variant="white-outline" @click="paracliniqueTab = 'imaging'">Finaliser l’imagerie ({{ imagingRequestForm.items.length }})</Button>
@@ -2027,10 +2533,10 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                 <Card v-if="cardIsOpen('ordonnance')" class="overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
                     <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
                         <div class="flex min-w-0 items-center gap-3">
-                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon name="share" /></span>
+                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Share2 class="h-4 w-4" /></span>
                             <div class="min-w-0">
-                                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Orientation actuelle</p>
-                                <p v-if="activeOrientation" class="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-700 dark:text-white">
+                                <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Orientation actuelle</p>
+                                <p v-if="activeOrientation" class="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
                                     {{ activeOrientation.type_label }}
                                     <span
                                         :class="[
@@ -2041,7 +2547,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         ]"
                                     >{{ activeOrientation.status_label }}</span>
                                 </p>
-                                <p v-else class="mt-0.5 text-sm text-slate-500 dark:text-slate-300">Pas encore déterminée — elle peut l’être ici ou après la prescription.</p>
+                                <p v-else class="mt-0.5 text-sm text-muted-foreground">Pas encore déterminée — elle peut l’être ici ou après la prescription.</p>
                             </div>
                         </div>
                         <Button
@@ -2051,119 +2557,119 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             size="sm"
                             variant="white-outline"
                         >
-                            <Icon class="me-1.5 text-sm" name="edit" />{{ activeOrientation ? 'Modifier' : 'Définir la suite de la prise en charge' }}
+                            <Pencil class="h-4 w-4 me-1.5" />{{ activeOrientation ? 'Modifier' : 'Définir la suite de la prise en charge' }}
                         </Button>
                     </div>
                 </Card>
 
-                <div v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders" class="grid grid-cols-2 gap-1 rounded-lg border border-gray-200 bg-gray-100 p-1 shadow-sm dark:border-gray-800 dark:bg-gray-900" role="tablist" aria-label="Type de prescription">
-                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'medicines'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'medicines' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="prescriptionTab = 'medicines'">
-                        <Icon class="text-base" name="capsule" />
+                <div v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders" class="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1 shadow-sm" role="tablist" aria-label="Type de prescription">
+                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'medicines'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'medicines' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="prescriptionTab = 'medicines'">
+                        <Pill class="h-4 w-4" />
                         <span>Médicaments</span>
-                        <span v-if="prescriptionForm.lines.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ prescriptionForm.lines.length }}</span>
+                        <span v-if="prescriptionForm.lines.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">{{ prescriptionForm.lines.length }}</span>
                     </button>
-                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'care'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'care' ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-950 dark:text-primary-300 dark:ring-gray-800' : 'text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-950/60 dark:hover:text-slate-200']" @click="prescriptionTab = 'care'">
-                        <Icon class="text-base" name="activity" />
+                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'care'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'care' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="prescriptionTab = 'care'">
+                        <Activity class="h-4 w-4" />
                         <span>Soins</span>
-                        <span v-if="careOrderForm.items.length" class="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">{{ careOrderForm.items.length }}</span>
+                        <span v-if="careOrderForm.items.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">{{ careOrderForm.items.length }}</span>
                     </button>
                 </div>
 
                 <Card v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders && prescriptionTab === 'care'" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="flex items-start justify-between gap-4 border-b border-gray-200 bg-gray-50/50 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/20">
+                    <div class="flex items-start justify-between gap-4 border-b border-border bg-muted/35 px-5 py-4">
                         <div class="flex min-w-0 items-start gap-3">
-                            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon class="text-lg" name="activity" /></span>
+                            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
                             <div>
-                                <h2 class="text-sm font-bold text-slate-700 dark:text-white">Prescription de soins</h2>
-                                <p class="mt-1 text-xs text-slate-400">Sélectionnez les actes à transmettre à l’équipe Soins pour ce passage.</p>
+                                <h2 class="text-sm font-bold text-foreground">Prescription de soins</h2>
+                                <p class="mt-1 text-xs text-muted-foreground">Sélectionnez les actes à transmettre à l’équipe Soins pour ce passage.</p>
                             </div>
                         </div>
-                        <span v-if="careOrderForm.items.length" class="shrink-0 rounded-full border border-primary-100 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:border-primary-900 dark:bg-gray-950 dark:text-primary-300">{{ careOrderForm.items.length }} acte(s)</span>
+                        <span v-if="careOrderForm.items.length" class="shrink-0 rounded-full border border-primary-100 bg-card px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary dark:border-primary-900">{{ careOrderForm.items.length }} acte(s)</span>
                     </div>
 
-                    <div v-if="consultation.care_orders?.length" class="space-y-2 border-b border-gray-200 p-5 dark:border-gray-900">
-                        <div v-for="order in consultation.care_orders" :key="order.uuid" class="rounded border border-gray-200 p-3 dark:border-gray-800">
+                    <div v-if="consultation.care_orders?.length" class="space-y-2 border-b border-border p-5">
+                        <div v-for="order in consultation.care_orders" :key="order.uuid" class="rounded border border-border p-3">
                             <div class="flex flex-wrap items-center justify-between gap-2">
-                                <p class="text-xs font-semibold text-slate-700 dark:text-white">{{ formatDateTime(order.ordered_at) }} — Dr {{ order.requested_by }}</p>
+                                <p class="text-xs font-semibold text-foreground">{{ formatDateTime(order.ordered_at) }} — Dr {{ order.requested_by }}</p>
                                 <span :class="careOrderStatusBadgeClass(order.status)">{{ careOrderStatusLabel(order.status) }}</span>
                             </div>
                             <ul class="mt-2 space-y-1.5">
                                 <li v-for="item in order.items" :key="item.uuid" class="flex items-center justify-between gap-3 text-xs">
-                                    <span class="font-semibold text-slate-700 dark:text-white">{{ item.name }}</span>
+                                    <span class="font-semibold text-foreground">{{ item.name }}</span>
                                     <span v-if="item.not_performed_at" class="font-semibold text-red-600 dark:text-red-300">Non réalisé</span>
-                                    <span v-else-if="Number(item.remaining_quantity) <= 0" class="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-300"><Icon name="check-circle" />Réalisé</span>
-                                    <span v-else class="text-slate-400">Demandé {{ item.quantity }} · Réalisé {{ item.realized_quantity }} · Reste {{ item.remaining_quantity }}</span>
+                                    <span v-else-if="Number(item.remaining_quantity) <= 0" class="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-300"><CircleCheck class="h-4 w-4" />Réalisé</span>
+                                    <span v-else class="text-muted-foreground">Demandé {{ item.quantity }} · Réalisé {{ item.realized_quantity }} · Reste {{ item.remaining_quantity }}</span>
                                 </li>
                             </ul>
-                            <p v-if="order.instructions" class="mt-1.5 text-[11px] text-slate-400">{{ order.instructions }}</p>
-                            <p class="mt-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-300">Retour Médecine : {{ order.requires_return_to_medicine ? 'Oui' : 'Non' }}</p>
+                            <p v-if="order.instructions" class="mt-1.5 text-[11px] text-muted-foreground">{{ order.instructions }}</p>
+                            <p class="mt-1.5 text-[11px] font-semibold text-muted-foreground">Retour Médecine : {{ order.requires_return_to_medicine ? 'Oui' : 'Non' }}</p>
                         </div>
                     </div>
 
                     <form v-if="capabilities.can_create_care_order" id="care-order-form" class="space-y-5 p-5" @submit.prevent="submitCareOrder">
                         <div>
-                            <label class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Ajouter un acte de soins</label>
-                            <IconInput v-model="careOrderSearch" icon="search" placeholder="Injection, perfusion, pansement…" />
-                            <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-2 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:divide-gray-900 dark:border-gray-800 dark:bg-gray-950">
-                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item) || isCareOrderItemPending(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-start transition-colors hover:bg-gray-50 disabled:cursor-default disabled:bg-gray-50/70 dark:hover:bg-gray-1000 dark:disabled:bg-gray-1000/60" @click="addCareOrderItem(item)">
+                            <label class="mb-1.5 block text-sm font-semibold text-foreground">Ajouter un acte de soins</label>
+                            <IconInput v-model="careOrderSearch" :icon="Search" placeholder="Injection, perfusion, pansement…" />
+                            <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-2 max-h-52 divide-y divide-border overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item) || isCareOrderItemPending(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-start transition-colors hover:bg-muted/35 disabled:cursor-default disabled:bg-muted/35" @click="addCareOrderItem(item)">
                                     <span class="min-w-0">
-                                        <span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ item.name }}</span>
-                                        <span v-if="item.code" class="mt-0.5 block font-mono text-[10px] text-slate-400">{{ item.code }}</span>
+                                        <span class="block truncate text-sm font-semibold text-foreground">{{ item.name }}</span>
+                                        <span v-if="item.code" class="mt-0.5 block font-mono text-[10px] text-muted-foreground">{{ item.code }}</span>
                                     </span>
-                                    <span v-if="isCareOrderItemPending(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><Icon name="clock" />Déjà en attente aux Soins</span>
-                                    <span v-else-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary-700 dark:text-primary-300"><Icon name="check" />Ajouté</span>
-                                    <span v-else class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-gray-200 text-primary-600 dark:border-gray-800 dark:text-primary-300"><Icon name="plus" /></span>
+                                    <span v-if="isCareOrderItemPending(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><Clock class="h-4 w-4" />Déjà en attente aux Soins</span>
+                                    <span v-else-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary"><Check class="h-4 w-4" />Ajouté</span>
+                                    <span v-else class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-primary"><Plus class="h-4 w-4" /></span>
                                 </button>
                             </div>
-                            <p v-else-if="careOrderSearch.trim()" class="mt-2 text-xs text-slate-400">Aucun acte prescriptible ne correspond.</p>
+                            <p v-else-if="careOrderSearch.trim()" class="mt-2 text-xs text-muted-foreground">Aucun acte prescriptible ne correspond.</p>
                             <FormError :message="careOrderForm.errors.items" />
                         </div>
-                        <div v-if="careOrderForm.items.length" class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
-                            <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-gray-800 dark:bg-gray-1000/30">
-                                <p class="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Actes demandés</p>
-                                <span class="text-xs text-slate-400">Quantité ajustable</span>
+                        <div v-if="careOrderForm.items.length" class="overflow-hidden rounded-md border border-border">
+                            <div class="flex items-center justify-between border-b border-border bg-muted/35 px-4 py-2.5">
+                                <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Actes demandés</p>
+                                <span class="text-xs text-muted-foreground">Quantité ajustable</span>
                             </div>
-                            <div v-for="(line, index) in careOrderForm.items" :key="line.catalog_item_uuid" class="grid grid-cols-[minmax(0,1fr)_6.5rem_2.25rem] items-end gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-900">
+                            <div v-for="(line, index) in careOrderForm.items" :key="line.catalog_item_uuid" class="grid grid-cols-[minmax(0,1fr)_6.5rem_2.25rem] items-end gap-3 border-b border-border px-4 py-3 last:border-b-0">
                                 <div class="flex min-w-0 items-center gap-3 self-center">
-                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Icon name="activity" /></span>
+                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
                                     <span class="min-w-0">
-                                        <span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ line.name }}</span>
-                                        <span v-if="line.code" class="mt-0.5 block truncate font-mono text-[10px] text-slate-400">{{ line.code }}</span>
+                                        <span class="block truncate text-sm font-semibold text-foreground">{{ line.name }}</span>
+                                        <span v-if="line.code" class="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">{{ line.code }}</span>
                                     </span>
                                 </div>
                                 <div>
-                                    <label :for="`care-order-quantity-${index}`" class="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">Quantité</label>
+                                    <label :for="`care-order-quantity-${index}`" class="mb-1 block text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Quantité</label>
                                     <Input :id="`care-order-quantity-${index}`" v-model="line.quantity" type="number" min="1" step="1" inputmode="numeric" aria-label="Quantité" />
                                     <FormError :message="careOrderForm.errors[`items.${index}.quantity`]" />
                                 </div>
-                                <Button type="button" size="rg" icon variant="danger-outline" title="Retirer cet acte" :aria-label="`Retirer ${line.name}`" @click="removeCareOrderItem(line)"><Icon name="trash" /></Button>
+                                <Button type="button" size="rg" icon variant="danger-outline" title="Retirer cet acte" :aria-label="`Retirer ${line.name}`" @click="removeCareOrderItem(line)"><Trash2 class="h-4 w-4" /></Button>
                             </div>
                         </div>
                         <div class="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]">
                             <div>
-                                <label for="care_order_instructions" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-white">Instructions pour l’équipe Soins</label>
+                                <label for="care_order_instructions" class="mb-1.5 block text-sm font-semibold text-foreground">Instructions pour l’équipe Soins</label>
                                 <textarea id="care_order_instructions" v-model="careOrderForm.instructions" rows="5" :class="textareaClass" placeholder="Précisez la voie, la fréquence, les précautions ou toute consigne utile…" />
                                 <FormError :message="careOrderForm.errors.instructions" />
                             </div>
                             <fieldset>
-                                <legend class="mb-1.5 text-sm font-semibold text-slate-700 dark:text-white">Parcours après réalisation</legend>
+                                <legend class="mb-1.5 text-sm font-semibold text-foreground">Parcours après réalisation</legend>
                                 <div class="grid gap-2">
-                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === true ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:bg-primary-950/15 dark:ring-primary-900' : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-gray-700']">
+                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === true ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:ring-primary-900' : 'border-border bg-card hover:border-border']">
                                         <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === true" @change="careOrderForm.requires_return_to_medicine = true">
-                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === true ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']"><Icon name="arrow-left" /></span>
-                                        <span><span class="block text-sm font-semibold text-slate-700 dark:text-white">Retour en Médecine</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">Le patient revient au médecin après les soins.</span></span>
+                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === true ? 'bg-primary-600 text-white' : 'bg-muted text-muted-foreground']"><ArrowLeft class="h-4 w-4" /></span>
+                                        <span><span class="block text-sm font-semibold text-foreground">Retour en Médecine</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Le patient revient au médecin après les soins.</span></span>
                                     </label>
-                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === false ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:bg-primary-950/15 dark:ring-primary-900' : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-950 dark:hover:border-gray-700']">
+                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === false ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:ring-primary-900' : 'border-border bg-card hover:border-border']">
                                         <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === false" @change="careOrderForm.requires_return_to_medicine = false">
-                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === false ? 'bg-primary-600 text-white' : 'bg-gray-100 text-slate-400 dark:bg-gray-900']"><Icon name="check-circle" /></span>
-                                        <span><span class="block text-sm font-semibold text-slate-700 dark:text-white">Fin du parcours prévue</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">Les Soins terminent le parcours clinique prévu.</span></span>
+                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === false ? 'bg-primary-600 text-white' : 'bg-muted text-muted-foreground']"><CircleCheck class="h-4 w-4" /></span>
+                                        <span><span class="block text-sm font-semibold text-foreground">Fin du parcours prévue</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Les Soins terminent le parcours clinique prévu.</span></span>
                                     </label>
                                 </div>
                                 <FormError :message="careOrderForm.errors.requires_return_to_medicine" />
                             </fieldset>
                         </div>
-                        <div class="flex items-center gap-2 border-t border-gray-200 pt-4 text-xs text-slate-400 dark:border-gray-900">
-                            <Icon class="text-base text-primary-600 dark:text-primary-300" name="info" />
+                        <div class="flex items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+                            <Info class="h-4 w-4 text-primary" />
                             <span>L’envoi crée l’orientation vers Soins et transmet les actes ainsi que vos instructions.</span>
                         </div>
                     </form>
@@ -2173,29 +2679,29 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     <!-- Repliée par défaut : ce qui est déjà prescrit se résume en
                          une ligne, et l'écran laisse la place à la nouvelle
                          ordonnance qui se prépare en dessous. -->
-                    <div :class="['flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between', prescriptionListOpen ? 'border-b border-gray-200 dark:border-gray-900' : '']">
+                    <div :class="['flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between', prescriptionListOpen ? 'border-b border-border' : '']">
                         <button
                             type="button"
                             class="flex min-w-0 items-center gap-2.5 text-start"
                             :aria-expanded="prescriptionListOpen"
                             @click="prescriptionListOpen = !prescriptionListOpen"
                         >
-                            <Icon class="shrink-0 text-sm text-slate-400" :name="prescriptionListOpen ? 'chevron-up' : 'chevron-down'" />
+                            <component :is="prescriptionListOpen ? ChevronUp : ChevronDown" class="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span class="min-w-0">
-                                <span class="block text-sm font-bold text-slate-700 dark:text-white">Prescription — Médicaments</span>
-                                <span class="mt-0.5 block truncate text-xs text-slate-400">
+                                <span class="block text-sm font-bold text-foreground">Prescription — Médicaments</span>
+                                <span class="mt-0.5 block truncate text-xs text-muted-foreground">
                                     <template v-if="prescribedLineCount">{{ prescribedLineCount }} médicament{{ prescribedLineCount > 1 ? 's' : '' }} prescrit{{ prescribedLineCount > 1 ? 's' : '' }} · </template>Le stock disponible exclut les lots périmés et les quantités déjà réservées.
                                 </span>
                             </span>
                         </button>
-                        <span v-if="capabilities.can_view_pharmacy_availability" class="inline-flex w-fit items-center gap-1.5 rounded border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-semibold text-slate-500 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-300">
+                        <span v-if="capabilities.can_view_pharmacy_availability" class="inline-flex w-fit items-center gap-1.5 rounded border border-border bg-muted/35 px-2.5 py-1.5 text-xs font-semibold text-muted-foreground">
                             <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />Stock Pharmacie en lecture seule
                         </span>
                     </div>
                     <div v-if="consultation.prescriptions.length && prescriptionListOpen" class="overflow-x-auto">
                         <table class="w-full min-w-[980px] text-sm">
-                            <thead class="border-b border-gray-200 bg-gray-50/70 dark:border-gray-900 dark:bg-gray-1000/40">
-                                <tr class="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                            <thead class="border-b border-border bg-muted/35">
+                                <tr class="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
                                     <th class="px-5 py-2.5 font-semibold">Médicament</th>
                                     <th class="px-4 py-2.5 font-semibold">Quantité</th>
                                     <th class="px-4 py-2.5 font-semibold">Dose</th>
@@ -2206,53 +2712,53 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     <th class="px-5 py-2.5 text-end font-semibold">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
+                            <tbody class="divide-y divide-border">
                                 <template v-for="prescription in consultation.prescriptions" :key="prescription.uuid">
-                                    <tr v-for="(line, lineIndex) in prescription.lines" :key="line.id" class="align-top hover:bg-gray-50/60 dark:hover:bg-gray-1000/30">
+                                    <tr v-for="(line, lineIndex) in prescription.lines" :key="line.id" class="align-top hover:bg-muted/35">
                                         <td class="px-5 py-3">
                                             <span class="flex flex-wrap items-center gap-1.5">
-                                                <span class="font-semibold text-slate-700 dark:text-white">{{ line.medication_name }}</span>
-                                                <span v-if="line.is_manual_entry && line.catalog_review_status === 'PENDING'" class="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><Icon class="text-xs" name="alert-circle" />Hors référentiel</span>
-                                                <span v-else-if="line.is_manual_entry" class="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"><Icon class="text-xs" name="check" />Traité par la Pharmacie</span>
+                                                <span class="font-semibold text-foreground">{{ line.medication_name }}</span>
+                                                <span v-if="line.is_manual_entry && line.catalog_review_status === 'PENDING'" class="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Hors référentiel</span>
+                                                <span v-else-if="line.is_manual_entry" class="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"><Check class="h-4 w-4" />Traité par la Pharmacie</span>
                                             </span>
-                                            <span v-if="line.instructions" class="mt-0.5 block text-xs text-slate-400">{{ line.instructions }}</span>
+                                            <span v-if="line.instructions" class="mt-0.5 block text-xs text-muted-foreground">{{ line.instructions }}</span>
                                         </td>
-                                        <td class="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{{ line.quantity }} {{ line.unit || 'unité(s)' }}</td>
-                                        <td class="px-4 py-3 text-slate-500">{{ line.dosage || '—' }}</td>
-                                        <td class="px-4 py-3 text-slate-500">
+                                        <td class="whitespace-nowrap px-4 py-3 text-muted-foreground">{{ line.quantity }} {{ line.unit || 'unité(s)' }}</td>
+                                        <td class="px-4 py-3 text-muted-foreground">{{ line.dosage || '—' }}</td>
+                                        <td class="px-4 py-3 text-muted-foreground">
                                             <span v-if="line.route_label">{{ line.route_label }}</span>
-                                            <span v-else class="text-slate-300 dark:text-slate-600" title="La voie n’a pas été précisée sur cette ligne">Non précisée</span>
+                                            <span v-else class="text-muted-foreground" title="La voie n’a pas été précisée sur cette ligne">Non précisée</span>
                                         </td>
-                                        <td class="px-4 py-3 text-slate-500">{{ line.frequency || '—' }}</td>
-                                        <td class="px-4 py-3 text-slate-500">{{ line.duration || '—' }}</td>
-                                        <td v-if="lineIndex === 0" :rowspan="prescription.lines.length" class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ formatDateTime(prescription.prescribed_at) }}</td>
+                                        <td class="px-4 py-3 text-muted-foreground">{{ line.frequency || '—' }}</td>
+                                        <td class="px-4 py-3 text-muted-foreground">{{ line.duration || '—' }}</td>
+                                        <td v-if="lineIndex === 0" :rowspan="prescription.lines.length" class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{{ formatDateTime(prescription.prescribed_at) }}</td>
                                         <td v-if="lineIndex === 0" :rowspan="prescription.lines.length" class="px-5 py-3">
                                             <div class="flex justify-end gap-1.5">
-                                                <Button :as="Link" :href="`/medicine/orientations/${orientation.uuid}/prescriptions/${prescription.uuid}/print`" target="_blank" size="sm" icon variant="white-outline" title="Imprimer l’ordonnance" aria-label="Imprimer l’ordonnance"><Icon class="text-base" name="printer" /></Button>
-                                                <Button v-if="prescription.can_edit" type="button" size="sm" icon variant="white-outline" title="Modifier l’ordonnance" aria-label="Modifier l’ordonnance" @click="startPrescriptionEdit(prescription)"><Icon class="text-base" name="edit" /></Button>
-                                                <Button v-if="prescription.can_remove" type="button" size="sm" icon variant="danger-outline" title="Retirer l’ordonnance" aria-label="Retirer l’ordonnance" @click="openPrescriptionRemoval(prescription)"><Icon class="text-base" name="trash" /></Button>
+                                                <Button :as="Link" :href="`/medicine/orientations/${orientation.uuid}/prescriptions/${prescription.uuid}/print`" target="_blank" size="sm" icon variant="white-outline" title="Imprimer l’ordonnance" aria-label="Imprimer l’ordonnance"><Printer class="h-4 w-4" /></Button>
+                                                <Button v-if="prescription.can_edit" type="button" size="sm" icon variant="white-outline" title="Modifier l’ordonnance" aria-label="Modifier l’ordonnance" @click="startPrescriptionEdit(prescription)"><Pencil class="h-4 w-4" /></Button>
+                                                <Button v-if="prescription.can_remove" type="button" size="sm" icon variant="danger-outline" title="Retirer l’ordonnance" aria-label="Retirer l’ordonnance" @click="openPrescriptionRemoval(prescription)"><Trash2 class="h-4 w-4" /></Button>
                                             </div>
                                         </td>
                                     </tr>
-                                    <tr v-if="editingPrescriptionUuid === prescription.uuid" class="bg-gray-50/80 dark:bg-gray-1000/40">
+                                    <tr v-if="editingPrescriptionUuid === prescription.uuid" class="bg-muted/35">
                                         <td colspan="7" class="px-5 py-4">
                                             <form class="space-y-3" @submit.prevent="updatePrescription(prescription.uuid)">
                                                 <div class="flex flex-wrap items-center justify-between gap-2">
-                                                    <div><p class="text-xs font-bold text-slate-700 dark:text-white">Modifier l’ordonnance</p><p class="mt-0.5 text-[11px] text-slate-400">Le médicament reste inchangé ; quantité et posologie peuvent être corrigées.</p></div>
-                                                    <button type="button" class="flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-gray-200 hover:text-slate-700 dark:hover:bg-gray-800 dark:hover:text-white" aria-label="Fermer la modification" @click="closePrescriptionEdit"><Icon class="text-lg" name="cross" /></button>
+                                                    <div><p class="text-xs font-bold text-foreground">Modifier l’ordonnance</p><p class="mt-0.5 text-[11px] text-muted-foreground">Le médicament reste inchangé ; quantité et posologie peuvent être corrigées.</p></div>
+                                                    <button type="button" class="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fermer la modification" @click="closePrescriptionEdit"><X class="h-4 w-4" /></button>
                                                 </div>
-                                                <div v-for="(editLine, editIndex) in prescriptionEditForm.lines" :key="editLine.id" class="grid gap-3 rounded border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950 md:grid-cols-12">
-                                                    <div v-if="editLine.is_manual_entry" class="md:col-span-3"><label :for="`edit-name-${editLine.id}`" class="mb-1 block text-xs font-medium text-slate-500">Médicament (hors référentiel)</label><Input :id="`edit-name-${editLine.id}`" v-model="editLine.medication_name" /></div>
-                                                    <div v-else class="md:col-span-3"><p class="text-xs font-semibold text-slate-700 dark:text-white">{{ editLine.medication_name }}</p><p class="mt-1 text-[11px] text-slate-400">Stock mobilisable : {{ editLine.available_quantity }} {{ editLine.unit || 'unité(s)' }}</p></div>
-                                                    <div class="md:col-span-2"><label :for="`edit-quantity-${editLine.id}`" class="mb-1 block text-xs font-medium text-slate-500">Quantité</label><Input :id="`edit-quantity-${editLine.id}`" v-model.number="editLine.quantity" type="number" min="1" :max="editLine.is_manual_entry ? undefined : editLine.available_quantity" :disabled="!editLine.stock_linked && !editLine.is_manual_entry" /></div>
-                                                    <div class="md:col-span-2"><label :for="`edit-dosage-${editLine.id}`" class="mb-1 block text-xs font-medium text-slate-500">Dose *</label><Input :id="`edit-dosage-${editLine.id}`" v-model="editLine.dosage" placeholder="Ex. 500 mg" /></div>
-                                                    <div class="md:col-span-2"><label :for="`edit-frequency-${editLine.id}`" class="mb-1 block text-xs font-medium text-slate-500">Fréquence *</label><Input :id="`edit-frequency-${editLine.id}`" v-model="editLine.frequency" placeholder="Ex. 3×/jour" /></div>
-                                                    <div class="md:col-span-3"><label :for="`edit-duration-${editLine.id}`" class="mb-1 block text-xs font-medium text-slate-500">Durée</label><Input :id="`edit-duration-${editLine.id}`" v-model="editLine.duration" /></div>
-                                                    <div class="md:col-span-12"><label :for="`edit-instructions-${editLine.id}`" class="mb-1 block text-xs font-medium text-slate-500">Instructions</label><Input :id="`edit-instructions-${editLine.id}`" v-model="editLine.instructions" placeholder="Voie, moment de prise ou précaution" /></div>
+                                                <div v-for="(editLine, editIndex) in prescriptionEditForm.lines" :key="editLine.id" class="grid gap-3 rounded border border-border bg-card p-3 md:grid-cols-12">
+                                                    <div v-if="editLine.is_manual_entry" class="md:col-span-3"><label :for="`edit-name-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Médicament (hors référentiel)</label><Input :id="`edit-name-${editLine.id}`" v-model="editLine.medication_name" /></div>
+                                                    <div v-else class="md:col-span-3"><p class="text-xs font-semibold text-foreground">{{ editLine.medication_name }}</p><p class="mt-1 text-[11px] text-muted-foreground">Stock mobilisable : {{ editLine.available_quantity }} {{ editLine.unit || 'unité(s)' }}</p></div>
+                                                    <div class="md:col-span-2"><label :for="`edit-quantity-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Quantité</label><Input :id="`edit-quantity-${editLine.id}`" v-model.number="editLine.quantity" type="number" min="1" :max="editLine.is_manual_entry ? undefined : editLine.available_quantity" :disabled="!editLine.stock_linked && !editLine.is_manual_entry" /></div>
+                                                    <div class="md:col-span-2"><label :for="`edit-dosage-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Dose *</label><Input :id="`edit-dosage-${editLine.id}`" v-model="editLine.dosage" placeholder="Ex. 500 mg" /></div>
+                                                    <div class="md:col-span-2"><label :for="`edit-frequency-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Fréquence *</label><Input :id="`edit-frequency-${editLine.id}`" v-model="editLine.frequency" placeholder="Ex. 3×/jour" /></div>
+                                                    <div class="md:col-span-3"><label :for="`edit-duration-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Durée</label><Input :id="`edit-duration-${editLine.id}`" v-model="editLine.duration" /></div>
+                                                    <div class="md:col-span-12"><label :for="`edit-instructions-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Instructions</label><Input :id="`edit-instructions-${editLine.id}`" v-model="editLine.instructions" placeholder="Voie, moment de prise ou précaution" /></div>
                                                     <FormError class="md:col-span-12" :message="prescriptionEditForm.errors[`lines.${editIndex}.quantity`] || prescriptionEditForm.errors[`lines.${editIndex}.dosage`] || prescriptionEditForm.errors[`lines.${editIndex}.frequency`]" />
                                                 </div>
                                                 <FormError :message="prescriptionEditForm.errors.lines || prescriptionEditForm.errors.prescription" />
-                                                <div class="flex justify-end gap-2"><Button type="button" size="rg" variant="white-outline" :disabled="prescriptionEditForm.processing" @click="closePrescriptionEdit"><Icon class="me-1.5 text-base" name="cross" />Fermer</Button><Button type="submit" size="rg" :disabled="prescriptionEditForm.processing || !prescriptionEditStockIsValid"><Icon class="me-1.5 text-base" name="save" />Enregistrer</Button></div>
+                                                <div class="flex justify-end gap-2"><Button type="button" size="rg" variant="white-outline" :disabled="prescriptionEditForm.processing" @click="closePrescriptionEdit"><X class="h-4 w-4 me-1.5" />Fermer</Button><Button type="submit" size="rg" :disabled="prescriptionEditForm.processing || !prescriptionEditStockIsValid"><Save class="h-4 w-4 me-1.5" />Enregistrer</Button></div>
                                             </form>
                                         </td>
                                     </tr>
@@ -2260,12 +2766,12 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </tbody>
                         </table>
                     </div>
-                    <p v-else-if="!consultation.prescriptions.length" class="px-5 py-6 text-sm text-slate-400">Aucune ordonnance active.</p>
+                    <p v-else-if="!consultation.prescriptions.length" class="px-5 py-6 text-sm text-muted-foreground">Aucune ordonnance active.</p>
 
-                    <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-gray-200 bg-gray-50/50 p-5 dark:border-gray-900 dark:bg-gray-1000/30" @submit.prevent="addPrescription">
+                    <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-border bg-muted/35 p-5" @submit.prevent="addPrescription">
                         <div class="mb-4">
-                            <h3 class="text-sm font-bold text-slate-700 dark:text-white">Nouvelle ordonnance</h3>
-                            <p class="mt-1 text-xs text-slate-400">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
+                            <h3 class="text-sm font-bold text-foreground">Nouvelle ordonnance</h3>
+                            <p class="mt-1 text-xs text-muted-foreground">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
                         </div>
 
                         <!-- La séparation se déplace selon le moment : large catalogue pour
@@ -2281,71 +2787,71 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             end-label="panneau Prescription en préparation"
                         >
                             <template #start>
-                            <section class="overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950" aria-labelledby="medicine-catalog-title">
-                                <div class="border-b border-gray-200 p-3 dark:border-gray-800">
+                            <section class="overflow-hidden rounded border border-border bg-card" aria-labelledby="medicine-catalog-title">
+                                <div class="border-b border-border p-3">
                                     <div class="mb-1.5 flex items-center justify-between gap-2">
-                                        <label id="medicine-catalog-title" for="medicine-search" class="block text-xs font-bold text-slate-600 dark:text-slate-300">Médicaments disponibles</label>
-                                        <button type="button" class="shrink-0 text-xs font-semibold text-primary-600 hover:underline dark:text-primary-400" @click="addManualPrescriptionLine"><Icon class="me-1 text-sm" name="plus" />Médicament introuvable ?</button>
+                                        <label id="medicine-catalog-title" for="medicine-search" class="block text-xs font-bold text-muted-foreground">Médicaments disponibles</label>
+                                        <button type="button" class="shrink-0 text-xs font-semibold text-primary hover:underline" @click="addManualPrescriptionLine"><Plus class="h-4 w-4 me-1" />Médicament introuvable ?</button>
                                     </div>
                                     <div class="relative">
-                                        <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-base text-slate-400" name="search" />
+                                        <Search class="h-4 w-4 pointer-events-none absolute inset-y-0 start-3 my-auto  text-muted-foreground" />
                                         <Input id="medicine-search" v-model="medicineSearch" class="ps-9" placeholder="Nom, DCI, dosage ou code…" autocomplete="off" />
                                     </div>
                                 </div>
 
-                                <div v-if="filteredMedicines.length" class="max-h-[430px] divide-y divide-gray-100 overflow-y-auto dark:divide-gray-900">
+                                <div v-if="filteredMedicines.length" class="max-h-[430px] divide-y divide-border overflow-y-auto">
                                     <button
                                         v-for="medicine in filteredMedicines"
                                         :key="medicine.uuid"
                                         type="button"
                                         :disabled="!medicine.available || selectedMedicineUuids.has(medicine.uuid)"
-                                        class="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-50/70 dark:hover:bg-gray-1000 dark:disabled:bg-gray-1000/40"
+                                        class="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-muted/35 disabled:cursor-not-allowed disabled:bg-muted/35"
                                         @click="addPrescriptionMedicine(medicine)"
                                     >
-                                        <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded border text-base', medicine.available ? 'border-gray-200 bg-white text-primary-600 dark:border-gray-800 dark:bg-gray-950' : 'border-red-100 bg-red-50 text-red-500 dark:border-red-950 dark:bg-red-950/20']"><Icon :name="medicine.available ? 'plus' : 'cross'" /></span>
+                                        <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded border text-base', medicine.available ? 'border-border bg-card text-primary' : 'border-red-100 bg-red-50 text-red-500 dark:border-red-950 dark:bg-red-950/20']"><component :is="medicine.available ? Plus : X" class="h-4 w-4" /></span>
                                         <span class="min-w-0 flex-1">
                                             <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                <strong class="truncate text-sm text-slate-700 dark:text-white">{{ medicine.name }}</strong>
-                                                <span v-if="medicine.strength" class="text-xs text-slate-400">{{ medicine.strength }}</span>
+                                                <strong class="truncate text-sm text-foreground">{{ medicine.name }}</strong>
+                                                <span v-if="medicine.strength" class="text-xs text-muted-foreground">{{ medicine.strength }}</span>
                                             </span>
-                                            <span class="mt-0.5 block truncate text-xs text-slate-400">{{ medicine.generic_name || medicine.form_label }} · {{ medicine.code }}</span>
+                                            <span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ medicine.generic_name || medicine.form_label }} · {{ medicine.code }}</span>
                                         </span>
                                         <span class="shrink-0 text-end">
-                                            <strong :class="['block text-sm', medicine.available ? 'text-slate-700 dark:text-white' : 'text-red-600 dark:text-red-300']">{{ medicine.available_quantity }} {{ medicine.unit }}</strong>
+                                            <strong :class="['block text-sm', medicine.available ? 'text-foreground' : 'text-red-600 dark:text-red-300']">{{ medicine.available_quantity }} {{ medicine.unit }}</strong>
                                             <span v-if="!medicine.available" class="text-[11px] font-semibold text-red-600 dark:text-red-300">Épuisé</span>
-                                            <span v-else-if="medicine.nearest_expiration" :class="['text-[11px]', medicine.expiring_soon ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-slate-400']">Péremption {{ formatDate(medicine.nearest_expiration) }}</span>
+                                            <span v-else-if="medicine.nearest_expiration" :class="['text-[11px]', medicine.expiring_soon ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-muted-foreground']">Péremption {{ formatDate(medicine.nearest_expiration) }}</span>
                                         </span>
                                     </button>
                                 </div>
                                 <div v-else class="px-4 py-8 text-center">
-                                    <Icon class="text-2xl text-slate-300" name="search" />
-                                    <p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Aucun médicament trouvé</p>
-                                    <p class="mt-1 text-xs text-slate-400">Vérifiez la recherche ou le stock Pharmacie.</p>
+                                    <Search class="mx-auto h-4 w-4 text-muted-foreground" />
+                                    <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucun médicament trouvé</p>
+                                    <p class="mt-1 text-xs text-muted-foreground">Vérifiez la recherche ou le stock Pharmacie.</p>
                                 </div>
                             </section>
                             </template>
                             <template #end>
-                            <section class="overflow-hidden rounded border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950" aria-labelledby="prescription-selection-title">
-                                <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                            <section class="overflow-hidden rounded border border-border bg-card" aria-labelledby="prescription-selection-title">
+                                <div class="flex items-center justify-between border-b border-border px-4 py-3">
                                     <div>
-                                        <h4 id="prescription-selection-title" class="text-xs font-bold text-slate-600 dark:text-slate-300">Prescription en préparation</h4>
-                                        <p class="mt-0.5 text-[11px] text-slate-400">{{ prescriptionForm.lines.length }} médicament(s)</p>
+                                        <h4 id="prescription-selection-title" class="text-xs font-bold text-muted-foreground">Prescription en préparation</h4>
+                                        <p class="mt-0.5 text-[11px] text-muted-foreground">{{ prescriptionForm.lines.length }} médicament(s)</p>
                                     </div>
-                                    <Icon class="text-xl text-slate-400" name="file-text" />
+                                    <FileText class="h-4 w-4 text-muted-foreground" />
                                 </div>
 
                                 <div v-if="prescriptionForm.lines.length" class="max-h-[560px] space-y-3 overflow-y-auto p-3">
-                                    <div v-for="(line, index) in prescriptionForm.lines" :key="line._key" class="rounded border border-gray-200 p-3 dark:border-gray-800">
+                                    <div v-for="(line, index) in prescriptionForm.lines" :key="line._key" class="rounded border border-border p-3">
                                         <div class="mb-3 flex items-start justify-between gap-3">
                                             <div v-if="line.manual" class="min-w-0 flex-1">
-                                                <label :for="`manual-name-${index}`" class="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><Icon class="text-xs" name="alert-circle" />Hors référentiel Pharmacie</label>
+                                                <label :for="`manual-name-${index}`" class="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Hors référentiel Pharmacie</label>
                                                 <Input :id="`manual-name-${index}`" v-model="line.medication_name" placeholder="Nom du médicament" />
                                             </div>
                                             <div v-else class="min-w-0">
-                                                <p class="truncate text-sm font-bold text-slate-700 dark:text-white">{{ medicineForLine(line)?.name }}</p>
-                                                <p class="mt-0.5 text-xs text-slate-400">{{ medicineForLine(line)?.form_label }}<template v-if="medicineForLine(line)?.strength"> · {{ medicineForLine(line)?.strength }}</template></p>
+                                                <p class="truncate text-sm font-bold text-foreground">{{ medicineForLine(line)?.name }}</p>
+                                                <p class="mt-0.5 text-xs text-muted-foreground">{{ medicineForLine(line)?.form_label }}<template v-if="medicineForLine(line)?.strength"> · {{ medicineForLine(line)?.strength }}</template></p>
                                             </div>
-                                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-red-100 text-red-600 hover:bg-red-50 dark:border-red-950 dark:text-red-300 dark:hover:bg-red-950/20" title="Retirer" @click="removePrescriptionLine(index)"><Icon name="trash" /></button>
+                                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-red-100 text-red-600 hover:bg-red-50 dark:border-red-950 dark:text-red-300 dark:hover:bg-red-950/20" title="Retirer" @click="removePrescriptionLine(index)"><Trash2 class="h-4 w-4" /></button>
                                         </div>
 
                                         <PrescriptionLineEditor
@@ -2355,24 +2861,24 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                             :error-for="(field) => prescriptionForm.errors[`lines.${index}.${field}`]"
                                             @update="updatePrescriptionLine(index, $event)"
                                         />
-                                        <p v-if="!line.manual" class="mt-1 text-[11px] text-slate-400">Disponible en Pharmacie : {{ medicineForLine(line)?.available_quantity }} {{ medicineForLine(line)?.unit }}</p>
-                                        <p v-else class="mt-1 text-[11px] text-slate-400">Sans lien de stock — non suivi par la Pharmacie.</p>
-                                        <p v-if="line.manual" class="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300"><Icon name="info" />Sera transmis pour validation avant d’entrer en stock Pharmacie. Aucun prix n’est demandé ici.</p>
-                                        <p v-else-if="Number(line.quantity) > medicineForLine(line)?.available_quantity" class="mt-2 flex items-center gap-1.5 text-xs font-semibold text-red-600 dark:text-red-300"><Icon name="info" />Quantité supérieure au stock disponible. L’ordonnance sera bloquée.</p>
+                                        <p v-if="!line.manual" class="mt-1 text-[11px] text-muted-foreground">Disponible en Pharmacie : {{ medicineForLine(line)?.available_quantity }} {{ medicineForLine(line)?.unit }}</p>
+                                        <p v-else class="mt-1 text-[11px] text-muted-foreground">Sans lien de stock — non suivi par la Pharmacie.</p>
+                                        <p v-if="line.manual" class="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300"><Info class="h-4 w-4" />Sera transmis pour validation avant d’entrer en stock Pharmacie. Aucun prix n’est demandé ici.</p>
+                                        <p v-else-if="Number(line.quantity) > medicineForLine(line)?.available_quantity" class="mt-2 flex items-center gap-1.5 text-xs font-semibold text-red-600 dark:text-red-300"><Info class="h-4 w-4" />Quantité supérieure au stock disponible. L’ordonnance sera bloquée.</p>
                                         <FormError :message="prescriptionForm.errors[`lines.${index}.medicine_uuid`] || prescriptionForm.errors[`lines.${index}.medication_name`] || prescriptionForm.errors[`lines.${index}.quantity`] || prescriptionForm.errors[`lines.${index}.dosage`] || prescriptionForm.errors[`lines.${index}.frequency`]" />
                                     </div>
                                 </div>
                                 <div v-else class="flex min-h-48 flex-col items-center justify-center px-6 py-8 text-center">
-                                    <Icon class="text-3xl text-slate-300" name="file-text" />
-                                    <p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Ordonnance vide</p>
-                                    <p class="mt-1 max-w-xs text-xs text-slate-400">Choisissez un médicament dans la liste. Les produits épuisés ne peuvent pas être ajoutés.</p>
+                                    <FileText class="mx-auto h-4 w-4 text-muted-foreground" />
+                                    <p class="mt-2 text-sm font-semibold text-muted-foreground">Ordonnance vide</p>
+                                    <p class="mt-1 max-w-xs text-xs text-muted-foreground">Choisissez un médicament dans la liste. Les produits épuisés ne peuvent pas être ajoutés.</p>
                                 </div>
                             </section>
                             </template>
                         </ResizableSplit>
 
-                        <div class="mt-4 flex items-start gap-2 border-t border-gray-200 pt-4 text-xs text-slate-400 dark:border-gray-900">
-                            <Icon class="mt-0.5 shrink-0 text-base text-primary-600" name="shield-check" />
+                        <div class="mt-4 flex items-start gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+                            <ShieldCheck class="h-4 w-4 mt-0.5 shrink-0  text-primary" />
                             <p>La validation contrôle à nouveau le stock et réserve les quantités disponibles. La délivrance reste à la Pharmacie.</p>
                         </div>
                         <FormError :message="prescriptionForm.errors.lines" />
@@ -2391,28 +2897,104 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                      l'écran précédent. Ce qu'elle montre, c'est ce qui reste
                      à faire — et comment y retourner. -->
                 <Card v-if="cardIsOpen('cloture')" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Décision & clôture</h2>
-                        <p class="mt-1 text-xs text-slate-400">La clôture ne réalise aucun encaissement et ne ferme pas le passage administratif.</p>
+                    <!-- Un fait dérivé, pas un statut inventé : la
+                         consultation reste ouverte tant qu'un résultat
+                         demandé n'est pas revenu, et le médecin le voit ici
+                         avant de conclure. -->
+                    <div v-if="awaitingResults.length" class="flex flex-wrap items-start gap-3 border-b border-amber-200 bg-amber-50/60 px-5 py-3 dark:border-amber-900/60 dark:bg-amber-950/20">
+                        <Clock class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-bold text-amber-800 dark:text-amber-200">
+                                En attente de {{ awaitingResults.length }} résultat{{ awaitingResults.length > 1 ? 's' : '' }}
+                            </p>
+                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                {{ awaitingResults.join(' · ') }} — la consultation reste ouverte ; vous la retrouverez depuis « Demandes d’examens » dès le résultat disponible.
+                            </p>
+                        </div>
+                        <Button :as="Link" href="/medicine/demandes-examens" size="sm" variant="white-outline">
+                            <FileSearch class="me-1.5 h-4 w-4" aria-hidden="true" />Suivre les demandes
+                        </Button>
+                    </div>
+                    <div class="border-b border-border px-5 py-4">
+                        <h2 class="text-sm font-bold text-foreground">Décision & clôture</h2>
+                        <p class="mt-1 text-xs text-muted-foreground">La clôture ne réalise aucun encaissement et ne ferme pas le passage administratif.</p>
                     </div>
 
                     <div class="p-5">
                         <!-- ADR-089 — un seul endroit pour conclure le passage :
-                             diagnostic, conduite à tenir et vérification, de haut
-                             en bas, sans jamais renvoyer le médecin ailleurs. -->
-                        <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+                             diagnostic, conduite à tenir et vérification. Les
+                             trois se parcourent un par un plutôt qu'empilés,
+                             mais restent atteignables d'un clic : revenir en
+                             arrière ne doit jamais coûter un défilement. -->
+                        <nav class="mb-4 flex flex-wrap items-center gap-1.5" aria-label="Étapes de la clôture">
+                            <button
+                                v-for="section in closureSections"
+                                :key="section.step"
+                                type="button"
+                                :aria-current="closureSubStep === section.step ? 'step' : undefined"
+                                :class="['inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                                    closureSubStep === section.step
+                                        ? 'border-primary/30 bg-primary/10 text-primary'
+                                        : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground']"
+                                @click="closureSubStep = section.step"
+                            >
+                                <CircleCheck v-if="section.done" class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                                <span v-else class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[9px] tabular-nums" aria-hidden="true">{{ section.step }}</span>
+                                {{ section.label }}
+                            </button>
+                        </nav>
+
+                        <section v-show="closureSubStep === 1" class="rounded-lg border border-border p-4">
                             <div class="flex flex-wrap items-center justify-between gap-2">
-                                <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">1 · Diagnostic</h3>
-                                <span v-if="activeDiagnoses.length" class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><Icon class="text-sm" name="check-circle" />{{ activeDiagnoses.length }} enregistré{{ activeDiagnoses.length > 1 ? 's' : '' }}</span>
+                                <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">1 · Diagnostic</h3>
+                                <span v-if="activeDiagnoses.length" class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><CircleCheck class="h-4 w-4" />{{ activeDiagnoses.length }} enregistré{{ activeDiagnoses.length > 1 ? 's' : '' }}</span>
                             </div>
                             <ul v-if="activeDiagnoses.length" class="mt-3 space-y-1.5">
-                                <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="rounded-md border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-950">
-                                    <span class="block truncate text-xs font-bold text-slate-700 dark:text-white">{{ diagnosis.description }}</span>
-                                    <span class="mt-0.5 block truncate text-[10px] text-slate-400">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</span>
+                                <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="rounded-md border border-border bg-card px-3 py-2">
+                                    <span class="block truncate text-xs font-bold text-foreground">{{ diagnosis.description }}</span>
+                                    <span class="mt-0.5 block truncate text-[10px] text-muted-foreground">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</span>
                                 </li>
                             </ul>
-                            <p v-else class="mt-1 text-[11px] leading-4 text-slate-400">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
-                            <div class="mt-3">
+                            <p v-else class="mt-1 text-[11px] leading-4 text-muted-foreground">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
+
+                            <!-- ADR-095 — la question est posée ici, la seule
+                                 étape que tout patient atteint : un passage
+                                 venu pour une écho n'a pas d'examen clinique
+                                 où elle aurait pu l'être (ADR-076).
+                                 « Pas maintenant » ne clôture rien : elle dit
+                                 pourquoi la consultation reste ouverte. -->
+                            <div class="mt-3 flex flex-wrap items-center gap-2.5 border-t border-border pt-3">
+                                <span class="text-xs font-semibold text-muted-foreground">Le diagnostic peut-il être posé maintenant ?</span>
+                                <span class="inline-flex rounded border border-border bg-card p-0.5" role="radiogroup" aria-label="Le diagnostic peut-il être posé maintenant ?">
+                                    <button
+                                        type="button"
+                                        role="radio"
+                                        :aria-checked="diagnosisReady === false"
+                                        :disabled="!capabilities.can_update_consultation || diagnosisTimingForm.processing"
+                                        :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', diagnosisReady === false ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/35']"
+                                        @click="decideDiagnosisTiming(false)"
+                                    >Pas maintenant</button>
+                                    <button
+                                        type="button"
+                                        role="radio"
+                                        :aria-checked="diagnosisReady === true"
+                                        :disabled="!capabilities.can_update_consultation || diagnosisTimingForm.processing"
+                                        :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', diagnosisReady === true ? 'bg-primary-600 text-white' : 'text-muted-foreground hover:bg-muted/35']"
+                                        @click="decideDiagnosisTiming(true)"
+                                    >Oui</button>
+                                </span>
+                            </div>
+
+                            <p v-if="diagnosisReady === false" class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                <Clock class="h-4 w-4 shrink-0" />Diagnostic différé : la consultation reste ouverte, vous pourrez le poser en revenant sur ce passage.
+                            </p>
+                            <FormError class="mt-1" :message="diagnosisTimingForm.errors.ready" />
+
+                            <!-- « Pas maintenant » veut dire pas maintenant :
+                                 laisser le champ ouvert contredirait la réponse
+                                 que le médecin vient de donner. Il reste à un
+                                 clic — « Oui » le rouvre. -->
+                            <div v-if="diagnosisReady !== false" class="mt-3">
                                 <ClinicalDiagnosisEntry
                                     :orientation-uuid="orientation.uuid"
                                     return-step="cloture"
@@ -2422,10 +3004,11 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </div>
                         </section>
 
-                        <section class="mt-4">
-                            <h3 class="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">2 · Conduite à tenir</h3>
+                        <section v-show="closureSubStep === 2">
+                            <h3 class="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">2 · Conduite à tenir</h3>
                             <ClinicalOrientationCard
                                 :orientation-uuid="orientation.uuid"
+                                :draft="draft"
                                 :state="consultation_orientation ?? {}"
                                 :types="options.orientation_types ?? []"
                                 :priorities="options.clinical_priorities ?? []"
@@ -2443,6 +3026,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         :diagnoses="activeDiagnoses"
                                         :prescription-lines="activePrescriptionLines"
                                         :site-options="otherSiteOptions"
+                                        :requires-diagnosis="requiresFinalDiagnosis"
                                         :disabled="!capabilities.can_discharge"
                                         :cancellable="false"
                                         @submit="submitDischarge"
@@ -2452,50 +3036,76 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </ClinicalOrientationCard>
                         </section>
 
-                        <h3 class="mb-2 mt-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">3 · Vérification</h3>
+                        <section v-show="closureSubStep === 3">
+                        <h3 class="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">3 · Vérification</h3>
                         <!-- Ce qui manque est dit ici, avec le chemin pour y
                              revenir — jamais un bouton grisé sans explication. -->
                         <div v-if="closureBlockers.length" class="mt-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/20">
                             <p class="mb-1.5 flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-200">
-                                <Icon class="text-sm" name="alert-circle" />À compléter avant la clôture
+                                <CircleAlert class="h-4 w-4" />À compléter avant la clôture
                             </p>
                             <ul class="space-y-1 ps-6 text-[11px] text-amber-800 dark:text-amber-200">
-                                <li v-for="(blocker, index) in closureBlockers" :key="index" class="list-disc">{{ blocker }}</li>
+                                <li v-for="(blocker, index) in closureBlockers" :key="index" class="list-disc">
+                                    {{ blocker.message }}
+                                    <!-- ADR-084 : « ce qui manque encore *et
+                                         le chemin pour y retourner* ». Sans
+                                         ce lien, l'écran énonçait l'obstacle
+                                         et laissait le médecin le chercher. -->
+                                    <Link
+                                        v-if="blocker.step"
+                                        :href="stepUrl(blocker.step)"
+                                        class="ms-1 font-bold underline underline-offset-2 hover:no-underline"
+                                    >Y aller</Link>
+                                </li>
                             </ul>
                         </div>
 
                         <p v-else class="mt-3 flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-300">
-                            <Icon class="text-sm" name="check-circle" />Tout est en place : la consultation peut être clôturée.
+                            <CircleCheck class="h-4 w-4" />Tout est en place : la consultation peut être clôturée.
                         </p>
+                        </section>
+
+                        <!-- Avancer n'est jamais refusé : c'est la clôture qui
+                             vérifie, à l'étape 3, en disant ce qui manque. -->
+                        <div class="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+                            <Button v-if="closureSubStep > 1" type="button" size="sm" variant="white-outline" @click="closureSubStep -= 1">
+                                <ArrowLeft class="h-4 w-4" />Précédent
+                            </Button>
+                            <span v-else aria-hidden="true"></span>
+
+                            <Button v-if="closureSubStep < 3" type="button" size="sm" @click="closureSubStep += 1">
+                                Suivant · {{ closureSections[closureSubStep].label }}<ArrowRight class="h-4 w-4" />
+                            </Button>
+                        </div>
                     </div>
 
                     <div v-if="medical_discharge" class="p-5">
-                        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/30">
+                        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-border bg-muted/35 px-4 py-3">
                             <div class="flex items-center gap-3">
-                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><Icon class="text-lg" name="check-circle" /></span>
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><CircleCheck class="h-4 w-4" /></span>
                                 <div>
                                     <span class="rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{{ medical_discharge.type_label }}</span>
-                                    <p class="mt-1.5 text-xs text-slate-400">Décidée le {{ formatDateTime(medical_discharge.discharged_at) }} par {{ medical_discharge.created_by }}</p>
+                                    <p class="mt-1.5 text-xs text-muted-foreground">Décidée le {{ formatDateTime(medical_discharge.discharged_at) }} par {{ medical_discharge.created_by }}</p>
                                 </div>
                             </div>
-                            <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"><Icon class="text-sm" name="alert-circle" />Passage administratif toujours ouvert</span>
+                            <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Passage administratif toujours ouvert</span>
                         </div>
 
-                        <div class="overflow-x-auto rounded border border-gray-200 dark:border-gray-800">
+                        <div class="overflow-x-auto rounded border border-border">
                             <table class="w-full min-w-[520px] border-collapse text-sm">
                                 <caption class="sr-only">Détails de la sortie médicale</caption>
-                                <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
+                                <tbody class="divide-y divide-border">
                                     <tr>
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Diagnostic final</th>
-                                        <td class="px-4 py-3 align-top font-semibold text-slate-700 dark:text-white">{{ medical_discharge.final_diagnosis }}</td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Diagnostic final</th>
+                                        <td class="px-4 py-3 align-top font-semibold text-foreground">{{ medical_discharge.final_diagnosis }}</td>
                                     </tr>
                                     <tr>
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">État à la sortie</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{{ medical_discharge.patient_condition }}</td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">État à la sortie</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ medical_discharge.patient_condition }}</td>
                                     </tr>
                                     <tr v-if="medical_discharge.discharge_prescription">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Traitement de sortie</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Traitement de sortie</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">
                                             <ul v-if="splitLines(medical_discharge.discharge_prescription).length > 1" class="list-disc space-y-1 ps-4">
                                                 <li v-for="(line, index) in splitLines(medical_discharge.discharge_prescription)" :key="index">{{ line }}</li>
                                             </ul>
@@ -2503,8 +3113,8 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         </td>
                                     </tr>
                                     <tr v-if="medical_discharge.recommendations">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Recommandations</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Recommandations</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">
                                             <ul v-if="splitLines(medical_discharge.recommendations).length > 1" class="list-disc space-y-1 ps-4">
                                                 <li v-for="(line, index) in splitLines(medical_discharge.recommendations)" :key="index">{{ line }}</li>
                                             </ul>
@@ -2512,47 +3122,48 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         </td>
                                     </tr>
                                     <tr v-if="medical_discharge.follow_up_at">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Rendez-vous</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{{ formatDateTime(medical_discharge.follow_up_at) }}</td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Rendez-vous</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ formatDateTime(medical_discharge.follow_up_at) }}</td>
                                     </tr>
                                     <tr v-if="medical_discharge.transfer_destination">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Destination</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{{ medical_discharge.transfer_destination }}</td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Destination</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ medical_discharge.transfer_destination }}</td>
                                     </tr>
                                     <tr v-if="medical_discharge.type === 'DECEASED'">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Décès</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{{ formatDateTime(medical_discharge.death_occurred_at) }}<template v-if="medical_discharge.death_place"> · {{ medical_discharge.death_place }}</template></td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Décès</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ formatDateTime(medical_discharge.death_occurred_at) }}<template v-if="medical_discharge.death_place"> · {{ medical_discharge.death_place }}</template></td>
                                     </tr>
                                     <tr v-if="medical_discharge.death_causes">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Causes constatées</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{{ medical_discharge.death_causes }}</td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Causes constatées</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ medical_discharge.death_causes }}</td>
                                     </tr>
                                     <tr v-if="medical_discharge.observations">
-                                        <th scope="row" class="w-48 shrink-0 bg-gray-50/70 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40 sm:w-56">Observations</th>
-                                        <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{{ medical_discharge.observations }}</td>
+                                        <th scope="row" class="w-48 shrink-0 bg-muted/35 px-4 py-3 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-56">Observations</th>
+                                        <td class="px-4 py-3 align-top text-muted-foreground">{{ medical_discharge.observations }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
 
                         <div v-if="consultation.prescriptions.length" class="mt-5">
-                            <h3 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-300">Ordonnances à remettre au patient</h3>
-                            <ul class="divide-y divide-gray-200 rounded border border-gray-200 dark:divide-gray-900 dark:border-gray-800">
+                            <h3 class="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Ordonnances à remettre au patient</h3>
+                            <ul class="divide-y divide-border rounded border border-border">
                                 <li v-for="prescription in consultation.prescriptions" :key="prescription.uuid" class="px-4 py-3">
-                                    <p class="truncate text-sm font-semibold text-slate-700 dark:text-white">{{ prescription.lines.map((line) => line.medication_name).join(', ') }}</p>
-                                    <p class="mt-0.5 text-xs text-slate-400">Patient {{ patient.patient_number }} · Passage {{ episode.episode_number }} · {{ formatDateTime(prescription.prescribed_at) }}</p>
+                                    <p class="truncate text-sm font-semibold text-foreground">{{ prescription.lines.map((line) => line.medication_name).join(', ') }}</p>
+                                    <p class="mt-0.5 text-xs text-muted-foreground">Patient {{ patient.patient_number }} · Passage {{ episode.episode_number }} · {{ formatDateTime(prescription.prescribed_at) }}</p>
                                 </li>
                             </ul>
-                            <p class="mt-2 text-xs text-slate-400">Utilisez « Imprimer l’ordonnance » en bas de page pour l’impression.</p>
+                            <p class="mt-2 text-xs text-muted-foreground">Utilisez « Imprimer l’ordonnance » en bas de page pour l’impression.</p>
                         </div>
                     </div>
 
                 </Card>
 
-                <Card v-if="current_step === 'ordonnance'" class="sticky bottom-3 z-20 overflow-hidden border-gray-300 shadow-lg dark:border-gray-800">
+                <Card v-if="current_step === 'ordonnance'" class="sticky bottom-3 z-20 overflow-hidden border-border shadow-lg">
                     <ConsultationStepBar
+                        :save-state="{ saving: draft.saving.value, savedAt: draft.savedAt.value }"
                         :floating="false"
-                        class="border-t-0 bg-white dark:bg-gray-950"
+                        class="border-t-0 bg-card"
                         :orientation-uuid="orientation.uuid"
                         :step-key="current_step"
                         :state="currentStepState"
@@ -2560,16 +3171,17 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         :next="nextStep ? { key: nextStep.key, label: nextStep.label } : null"
                         :can-edit="capabilities.can_resolve_step"
                         :local-blocker="pendingPrescriptionSelection"
+                        @blocked="toast.warning($event)"
                     >
+                        <!-- Aucune consigne inline : ce qui bloque se dit au
+                             moment où l'on clique, dans un toast. -->
                         <template v-if="current_step === 'ordonnance'" #note>
-                            <p v-if="prescriptionForm.lines.length" class="text-center text-xs font-semibold text-slate-500 dark:text-slate-300">{{ prescriptionForm.lines.length }} médicament(s) à valider avant de poursuivre</p>
-                            <p v-else-if="careOrderForm.items.length" class="text-center text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careOrderForm.items.length }} acte(s) à transmettre aux Soins</p>
-                            <p v-else class="text-center text-xs text-slate-400">Prescription selon indication médicale.</p>
+                            <p class="text-center text-xs text-muted-foreground">Prescription selon indication médicale.</p>
                         </template>
                         <template v-if="current_step === 'ordonnance'" #actions>
-                            <Button v-if="prescriptionTab === 'medicines' && prescriptionForm.lines.length" type="submit" form="medicine-prescription-form" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid"><Icon class="me-2 text-lg" name="file-text" />{{ prescriptionForm.processing ? 'Validation en cours…' : 'Valider et réserver' }}</Button>
+                            <Button v-if="prescriptionTab === 'medicines' && prescriptionForm.lines.length" type="submit" form="medicine-prescription-form" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid"><FileText class="mx-auto h-4 w-4 me-2" />{{ prescriptionForm.processing ? 'Validation en cours…' : 'Valider et réserver' }}</Button>
                             <Button v-else-if="prescriptionForm.lines.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'medicines'">Finaliser la prescription ({{ prescriptionForm.lines.length }})</Button>
-                            <Button v-else-if="prescriptionTab === 'care' && careOrderForm.items.length" type="submit" form="care-order-form" size="rg" :disabled="careOrderForm.processing"><Icon class="me-2 text-lg" name="activity" />{{ careOrderForm.processing ? 'Transmission en cours…' : 'Transmettre aux Soins' }}</Button>
+                            <Button v-else-if="prescriptionTab === 'care' && careOrderForm.items.length" type="submit" form="care-order-form" size="rg" :disabled="careOrderForm.processing"><Activity class="h-4 w-4 me-2" />{{ careOrderForm.processing ? 'Transmission en cours…' : 'Transmettre aux Soins' }}</Button>
                             <Button v-else-if="careOrderForm.items.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'care'">Finaliser la demande Soins ({{ careOrderForm.items.length }})</Button>
                         </template>
                     </ConsultationStepBar>
@@ -2579,24 +3191,45 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                      consultation en lecture seule (ADR-010) et exige que
                      chaque étape concernée soit résolue — validée ou
                      déclarée non nécessaire. -->
-                <Card v-else-if="current_step === 'cloture'" class="sticky bottom-3 z-20 overflow-hidden border-gray-300 shadow-lg dark:border-gray-800">
-                    <div class="flex flex-col gap-3 bg-white px-4 py-3 dark:bg-gray-950 sm:flex-row sm:items-center sm:justify-between">
-                        <Button v-if="previousStep" :as="Link" :href="stepUrl(previousStep.key)" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="arrow-left" />{{ previousStep.label }}</Button>
-                        <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="arrow-left" />Retour à la file</Button>
+                <Card v-else-if="current_step === 'cloture'" class="sticky bottom-3 z-20 overflow-hidden border-border shadow-lg">
+                    <div class="flex flex-col gap-3 bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <Button v-if="previousStep" :as="Link" :href="stepUrl(previousStep.key)" size="rg" variant="white-outline"><ArrowLeft class="h-4 w-4 me-2" />{{ previousStep.label }}</Button>
+                        <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><ArrowLeft class="h-4 w-4 me-2" />Retour à la file</Button>
 
                         <div class="min-w-0 flex-1 text-center">
                             <FormError :message="completeConsultationForm.errors.consultation" />
                             <p v-if="consultationIsClosed" class="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
-                                <Icon name="check-circle" class="text-sm" />Consultation clôturée<template v-if="consultation.completed_by"> par {{ consultation.completed_by }}</template>
+                                <CircleCheck class="mx-auto h-4 w-4" />Consultation clôturée<template v-if="consultation.completed_by"> par {{ consultation.completed_by }}</template>
                             </p>
-                            <ul v-else-if="closureBlockers.length" class="space-y-0.5 text-xs text-slate-400">
-                                <li v-for="blocker in closureBlockers" :key="blocker">{{ blocker }}</li>
+                            <ul v-else-if="closureBlockers.length" class="space-y-0.5 text-xs text-muted-foreground">
+                                <li v-for="(blocker, index) in closureBlockers" :key="index">
+                                    {{ blocker.message }}
+                                    <Link
+                                        v-if="blocker.step"
+                                        :href="stepUrl(blocker.step)"
+                                        class="ms-1 font-bold text-primary underline underline-offset-2 hover:no-underline"
+                                    >Y aller</Link>
+                                </li>
                             </ul>
-                            <p v-else class="text-xs text-slate-400">Toutes les étapes sont résolues : la consultation peut être clôturée.</p>
+                            <p v-else class="text-xs text-muted-foreground">Toutes les étapes sont résolues : la consultation peut être clôturée.</p>
                         </div>
 
                         <div class="flex flex-wrap items-center justify-end gap-2">
-                            <Button v-for="prescription in consultation.prescriptions" :key="prescription.uuid" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/prescriptions/${prescription.uuid}/print`" target="_blank" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="printer" />Imprimer l’ordonnance</Button>
+                            <Button v-for="prescription in consultation.prescriptions" :key="prescription.uuid" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/prescriptions/${prescription.uuid}/print`" target="_blank" size="rg" variant="white-outline"><Printer class="h-4 w-4 me-2" />Imprimer l’ordonnance</Button>
+
+                            <!-- ADR-096 — un résultat arrivé après la clôture
+                                 doit pouvoir être consigné. Rouvrir ne défait
+                                 que la clôture : aucune donnée clinique n'est
+                                 supprimée, et le motif part à l'audit. -->
+                            <Button
+                                v-if="capabilities.can_reopen_consultation"
+                                type="button"
+                                size="rg"
+                                variant="warning-outline"
+                                @click="reopenOpen = true"
+                            >
+                                <RotateCcw class="h-4 w-4 me-2" />Rouvrir la consultation
+                            </Button>
                             <Button
                                 v-if="capabilities.can_complete_consultation"
                                 type="button"
@@ -2605,9 +3238,9 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 :disabled="closureBlockers.length > 0 || completeConsultationForm.processing"
                                 @click="completeConsultation"
                             >
-                                <Icon class="me-2 text-lg" name="check-circle" />{{ completeConsultationForm.processing ? 'Clôture…' : 'Clôturer la consultation' }}
+                                <CircleCheck class="h-4 w-4 me-2" />{{ completeConsultationForm.processing ? 'Clôture…' : 'Clôturer la consultation' }}
                             </Button>
-                            <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><Icon class="me-2 text-lg" name="list" />Retour à la file</Button>
+                            <Button v-else :as="Link" href="/medicine" size="rg" variant="white-outline"><List class="h-4 w-4 me-2" />Retour à la file</Button>
                         </div>
                     </div>
                 </Card>
@@ -2616,219 +3249,419 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
         <!-- Les informations secondaires ne redimensionnent jamais la zone de
              consultation. Elles s'ouvrent dans une fenêtre dédiée et fermable
              au clavier, en conservant les vigilances dans l'en-tête principal. -->
-        <Dialog :open="showClinicalContext" as="div" class="relative z-[1300]" @close="showClinicalContext = false">
-            <div class="fixed inset-0 bg-slate-950/55 backdrop-blur-[1px]" aria-hidden="true"></div>
-            <div class="fixed inset-0 overflow-y-auto p-3 sm:p-5">
-                <div class="flex min-h-full items-center justify-center">
-                    <DialogPanel v-if="showClinicalContext" id="medicine-clinical-context" class="flex max-h-[calc(100vh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-gray-50 shadow-2xl dark:border-gray-800 dark:bg-gray-1000 sm:max-h-[calc(100vh-3rem)]">
-                        <header class="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-950">
-                            <div class="flex min-w-0 items-center gap-3">
-                                <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"><Icon class="text-base" name="file-docs" /></span>
-                                <div class="min-w-0">
-                                    <DialogTitle class="font-heading text-base font-bold text-slate-700 dark:text-white">Contexte clinique</DialogTitle>
-                                    <p class="mt-0.5 truncate text-xs text-slate-400">{{ patient.first_name }} {{ patient.last_name }} · {{ patient.patient_number }} · Passage {{ episode.episode_number }}</p>
-                                </div>
+        <ShadcnDialog
+            :open="showClinicalContext"
+            size="wide"
+            title="Contexte clinique"
+            :description="`${patient.first_name} ${patient.last_name} · ${patient.patient_number} · Passage ${episode.episode_number}`"
+            close-label="Fermer le contexte clinique"
+            body-class="max-h-[min(72vh,52rem)] overflow-y-auto bg-muted/20 p-4"
+            @update:open="value => { showClinicalContext = value; }"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true">
+                    <FileStack class="h-5 w-5" />
+                </span>
+            </template>
+
+            <div id="medicine-clinical-context" class="space-y-3" aria-label="Informations cliniques complémentaires">
+                <!-- La correction se trouve là où sont lues les
+                     constantes : à côté d'elles, pas dans un
+                     écran séparé qu'il faudrait aller chercher. -->
+                <ClinicalVitalsCorrection
+                    v-if="care_record?.can_correct_vitals"
+                    :care-record="care_record"
+                    :orientation-uuid="orientation.uuid"
+                />
+                <CareSummaryReadOnly v-if="care_record" :care-summary="care_record" default-open compact />
+                <section v-else class="rounded-lg border border-border bg-card">
+                    <div class="flex items-center gap-2 border-b border-border px-3 py-2.5"><Activity class="h-4 w-4" /><h2 class="text-xs font-bold text-foreground">Transmission des Soins</h2></div>
+                    <p class="px-3 py-3 text-xs leading-5 text-muted-foreground">{{ orientation.source_module === 'CARE' ? 'Le patient est passé par les Soins, mais aucune fiche n’a été enregistrée pour ce passage.' : 'Orientation directe : aucune transmission des Soins pour ce passage.' }}</p>
+                </section>
+
+                <!-- Le fil diagnostique complet, en lecture seule.
+                     Un diagnostic annulé reste visible avec son
+                     auteur et sa date : la trace n'est jamais un
+                     trou dans le dossier (ADR-035). -->
+                <section v-if="allDiagnoses.length" class="overflow-hidden rounded-lg border border-border bg-card">
+                    <div class="flex items-center justify-between border-b border-border px-3 py-2.5">
+                        <div class="flex items-center gap-2"><ClipboardCheck class="h-4 w-4" /><h2 class="text-xs font-bold text-foreground">Fil diagnostique</h2></div>
+                        <span class="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Cette consultation</span>
+                    </div>
+                    <ol class="divide-y divide-border">
+                        <li v-for="diagnosis in allDiagnoses" :key="`ctx-${diagnosis.id}`" class="px-3 py-2.5">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span :class="['rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', diagnosis.type === 'FINAL' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">{{ diagnosis.type === 'FINAL' ? 'Diagnostic final' : 'Hypothèse' }}</span>
+                                <span v-if="diagnosis.cancelled" class="rounded bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Annulé</span>
+                                <span v-if="diagnosis.code" class="font-mono text-[10px] text-muted-foreground">{{ diagnosis.code }}</span>
                             </div>
-                            <button type="button" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-700 dark:border-gray-800 dark:bg-gray-950 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer le contexte clinique" @click="showClinicalContext = false"><Icon class="text-xl" name="cross" /></button>
-                        </header>
+                            <p :class="['mt-1 text-xs leading-5', diagnosis.cancelled ? 'text-muted-foreground line-through' : 'font-semibold text-foreground']">{{ diagnosis.description }}</p>
+                            <p class="mt-0.5 text-[10px] text-muted-foreground">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</p>
+                            <p v-if="diagnosis.cancelled" class="mt-0.5 text-[10px] text-muted-foreground">Annulé par {{ diagnosis.cancelled_by }} · {{ formatDateTime(diagnosis.cancelled_at) }}</p>
+                        </li>
+                    </ol>
+                </section>
 
-                        <aside class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3" style="scrollbar-gutter: stable;" aria-label="Informations cliniques complémentaires">
-                            <CareSummaryReadOnly v-if="care_record" :care-summary="care_record" default-open compact />
-                            <section v-else class="rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                                <div class="flex items-center gap-2 border-b border-gray-200 px-3 py-2.5 dark:border-gray-900"><Icon name="activity" class="text-primary-600" /><h2 class="text-xs font-bold text-slate-700 dark:text-white">Transmission des Soins</h2></div>
-                                <p class="px-3 py-3 text-xs leading-5 text-slate-400">{{ orientation.source_module === 'CARE' ? 'Le patient est passé par les Soins, mais aucune fiche n’a été enregistrée pour ce passage.' : 'Orientation directe : aucune transmission des Soins pour ce passage.' }}</p>
-                            </section>
+                <!-- L'examen déjà consigné, relisible depuis n'importe
+                     quelle étape suivante sans rouvrir la grille. -->
+                <section v-if="current_step !== 'examen'" class="overflow-hidden rounded-lg border border-border bg-card">
+                    <div class="flex items-center justify-between border-b border-border px-3 py-2.5">
+                        <div class="flex items-center gap-2"><CirclePlus class="h-4 w-4" /><h2 class="text-xs font-bold text-foreground">Examen clinique du médecin</h2></div>
+                        <span class="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Cette consultation</span>
+                    </div>
+                    <div class="px-3 py-3">
+                        <ClinicalExaminationSummary :examination="consultation?.clinical_examination" show-unexamined />
+                        <ClinicalRichTextDisplay v-if="consultation?.clinical_exam" class="mt-3 border-t border-border pt-3" :html="consultation.clinical_exam" />
+                    </div>
+                </section>
 
-                            <!-- Le fil diagnostique complet, en lecture seule.
-                                 Un diagnostic annulé reste visible avec son
-                                 auteur et sa date : la trace n'est jamais un
-                                 trou dans le dossier (ADR-035). -->
-                            <section v-if="allDiagnoses.length" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                                <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-gray-900">
-                                    <div class="flex items-center gap-2"><Icon name="clipboad-check" class="text-primary-600" /><h2 class="text-xs font-bold text-slate-700 dark:text-white">Fil diagnostique</h2></div>
-                                    <span class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Cette consultation</span>
-                                </div>
-                                <ol class="divide-y divide-gray-100 dark:divide-gray-900">
-                                    <li v-for="diagnosis in allDiagnoses" :key="`ctx-${diagnosis.id}`" class="px-3 py-2.5">
-                                        <div class="flex flex-wrap items-center gap-1.5">
-                                            <span :class="['rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', diagnosis.type === 'FINAL' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">{{ diagnosis.type === 'FINAL' ? 'Diagnostic final' : 'Hypothèse' }}</span>
-                                            <span v-if="diagnosis.cancelled" class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-gray-900 dark:text-slate-400">Annulé</span>
-                                            <span v-if="diagnosis.code" class="font-mono text-[10px] text-slate-400">{{ diagnosis.code }}</span>
-                                        </div>
-                                        <p :class="['mt-1 text-xs leading-5', diagnosis.cancelled ? 'text-slate-400 line-through' : 'font-semibold text-slate-700 dark:text-white']">{{ diagnosis.description }}</p>
-                                        <p class="mt-0.5 text-[10px] text-slate-400">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</p>
-                                        <p v-if="diagnosis.cancelled" class="mt-0.5 text-[10px] text-slate-400">Annulé par {{ diagnosis.cancelled_by }} · {{ formatDateTime(diagnosis.cancelled_at) }}</p>
-                                    </li>
-                                </ol>
-                            </section>
-
-                            <!-- L'examen déjà consigné, relisible depuis n'importe
-                                 quelle étape suivante sans rouvrir la grille. -->
-                            <section v-if="current_step !== 'examen'" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                                <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-gray-900">
-                                    <div class="flex items-center gap-2"><Icon name="plus-medi" class="text-primary-600" /><h2 class="text-xs font-bold text-slate-700 dark:text-white">Examen clinique du médecin</h2></div>
-                                    <span class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Cette consultation</span>
-                                </div>
-                                <div class="px-3 py-3">
-                                    <ClinicalExaminationSummary :examination="consultation?.clinical_examination" show-unexamined />
-                                    <ClinicalRichTextDisplay v-if="consultation?.clinical_exam" class="mt-3 border-t border-gray-100 pt-3 dark:border-gray-900" :html="consultation.clinical_exam" />
-                                </div>
-                            </section>
-
-                            <div class="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
-                                <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                                    <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-gray-900">
-                                        <div class="flex items-center gap-2"><Icon name="user" class="text-slate-400" /><h2 class="text-xs font-bold text-slate-700 dark:text-white">Profil médical permanent</h2></div>
-                                        <span class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Dossier patient</span>
-                                    </div>
-                                    <dl class="divide-y divide-gray-100 dark:divide-gray-900">
-                                        <div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
-                                            <dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Allergies</dt>
-                                            <dd><div v-if="allergies.length" class="flex flex-wrap gap-1.5"><span v-for="allergy in allergies" :key="allergy.uuid" class="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 dark:border-red-950 dark:bg-red-950/20 dark:text-red-300">{{ allergy.substance }}<template v-if="allergy.reaction"> · {{ allergy.reaction }}</template></span></div><span v-else class="text-xs text-slate-400">Aucune allergie enregistrée</span></dd>
-                                        </div>
-                                        <div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
-                                            <dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Antécédents personnels</dt>
-                                            <dd><ul v-if="personalAntecedents.length" class="space-y-1"><li v-for="antecedent in personalAntecedents" :key="antecedent.uuid" class="text-xs leading-5 text-slate-600 dark:text-slate-300">{{ antecedent.description }}</li></ul><span v-else class="text-xs text-slate-400">Aucun enregistré</span></dd>
-                                        </div>
-                                        <div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
-                                            <dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Antécédents familiaux</dt>
-                                            <dd><ul v-if="familial_antecedents?.length" class="space-y-1"><li v-for="antecedent in familial_antecedents" :key="antecedent.uuid" class="text-xs leading-5 text-slate-600 dark:text-slate-300">{{ antecedent.description }}</li></ul><span v-else class="text-xs text-slate-400">Aucun enregistré</span></dd>
-                                        </div>
-                                        <div v-if="hasEmergencyContact" class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
-                                            <dt class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Contact du passage</dt>
-                                            <dd class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300"><strong class="text-slate-700 dark:text-white">{{ episode.emergency_contact.name || 'Nom non renseigné' }}</strong><span v-if="episode.emergency_contact.relationship" class="text-slate-400">{{ episode.emergency_contact.relationship }}</span><a v-if="episode.emergency_contact.phone" :href="`tel:${episode.emergency_contact.phone}`" class="text-primary-600 hover:underline dark:text-primary-300">{{ episode.emergency_contact.phone }}</a><span v-if="episode.emergency_contact.email">{{ episode.emergency_contact.email }}</span></dd>
-                                        </div>
-                                    </dl>
-                                    <details v-if="capabilities.can_manage_medical_history" class="group border-t border-gray-200 dark:border-gray-900">
-                                        <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-primary-700 hover:bg-gray-50 dark:text-primary-300 dark:hover:bg-gray-1000/40"><span class="flex items-center gap-1.5"><Icon name="plus" />Ajouter un antécédent</span><Icon name="chevron-down" class="transition-transform group-open:rotate-180" /></summary>
-                                        <form class="grid gap-2 border-t border-gray-100 bg-gray-50/50 p-3 dark:border-gray-900 dark:bg-gray-1000/20" @submit.prevent="submitAntecedent">
-                                            <textarea v-model="antecedentForm.description" rows="2" placeholder="Description clinique…" :class="textareaClass" />
-                                            <FormError :message="antecedentForm.errors.description || antecedentForm.errors.type" />
-                                            <div class="flex flex-wrap items-center justify-between gap-2"><span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950"><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', antecedentForm.type === 'PERSONAL' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="antecedentForm.type = 'PERSONAL'">Personnel</button><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', antecedentForm.type === 'FAMILIAL' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="antecedentForm.type = 'FAMILIAL'">Familial</button></span><Button type="submit" size="sm" :disabled="antecedentForm.processing || !antecedentForm.description.trim()">Ajouter</Button></div>
-                                        </form>
-                                    </details>
-                                </section>
-
-                                <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                                    <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-gray-900"><div class="flex items-center gap-2"><Icon name="history" class="text-slate-400" /><h2 class="text-xs font-bold text-slate-700 dark:text-white">Consultations précédentes</h2></div><span class="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900">{{ previous_consultations?.length ?? 0 }}</span></div>
-                                    <ul v-if="previous_consultations?.length" class="max-h-64 divide-y divide-gray-100 overflow-y-auto dark:divide-gray-900">
-                                        <li v-for="previous in previous_consultations" :key="previous.id" class="px-3 py-2.5">
-                                            <p class="text-[11px] font-semibold text-slate-700 dark:text-white">{{ formatDateTime(previous.consulted_at) }} · Dr {{ previous.doctor }}</p>
-                                            <ClinicalRichTextDisplay class="mt-1 line-clamp-2 text-xs leading-4 text-slate-500 dark:text-slate-300" :html="previous.reason" />
-                                            <p v-if="previous.decision_label" class="mt-1 text-[10px] text-slate-400">{{ previous.decision_label }}</p>
-                                        </li>
-                                    </ul>
-                                    <p v-else class="px-3 py-4 text-center text-xs text-slate-400">Aucune consultation antérieure.</p>
-                                </section>
-                            </div>
-                        </aside>
-                        <footer class="flex shrink-0 justify-end border-t border-gray-200 bg-white px-4 py-2.5 dark:border-gray-800 dark:bg-gray-950">
-                            <Button type="button" size="sm" variant="white-outline" @click="showClinicalContext = false"><Icon class="me-1.5 text-sm" name="cross" />Fermer</Button>
-                        </footer>
-                    </DialogPanel>
-                </div>
-            </div>
-        </Dialog>
-
-        <Dialog :open="showEmergencyConfirm" as="div" class="relative z-[1300]" @close="closeEmergencyConfirm">
-            <div class="fixed inset-0 bg-slate-950/55 backdrop-blur-[1px]" aria-hidden="true"></div>
-            <div class="fixed inset-0 overflow-y-auto p-4">
-                <div class="flex min-h-full items-center justify-center">
-                    <DialogPanel v-if="showEmergencyConfirm" class="w-full max-w-md overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
-                        <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                            <div class="flex min-w-0 items-start gap-3">
-                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"><Icon class="text-xl" name="activity" /></span>
-                                <div class="min-w-0">
-                                    <DialogTitle class="font-heading text-base font-bold text-slate-700 dark:text-white">Classer ce passage en urgence ?</DialogTitle>
-                                    <p class="mt-1 text-xs leading-5 text-slate-400">Episode {{ episode.episode_number }}</p>
-                                </div>
-                            </div>
-                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer la confirmation" :disabled="emergencyForm.processing" @click="closeEmergencyConfirm"><Icon class="text-xl" name="cross" /></button>
-                        </header>
-                        <div class="px-5 py-4">
-                            <FormError :message="emergencyForm.errors.episode" />
+                <div class="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+                    <section class="overflow-hidden rounded-lg border border-border bg-card">
+                        <div class="flex items-center justify-between border-b border-border px-3 py-2.5">
+                            <div class="flex items-center gap-2"><User class="h-4 w-4" /><h2 class="text-xs font-bold text-foreground">Profil médical permanent</h2></div>
+                            <span class="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Dossier patient</span>
                         </div>
-                        <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/30 sm:flex-row sm:justify-end">
-                            <Button type="button" size="rg" variant="white-outline" :disabled="emergencyForm.processing" @click="closeEmergencyConfirm">Annuler</Button>
-                            <Button type="button" size="rg" variant="danger" :disabled="emergencyForm.processing" @click="confirmMarkEmergency"><Icon class="me-2 text-base" name="activity" />{{ emergencyForm.processing ? 'Classement…' : 'Confirmer l’urgence' }}</Button>
-                        </footer>
-                    </DialogPanel>
+                        <dl class="divide-y divide-border">
+                            <div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
+                                <dt class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Allergies</dt>
+                                <dd><div v-if="allergies.length" class="flex flex-wrap gap-1.5"><span v-for="allergy in allergies" :key="allergy.uuid" class="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 dark:border-red-950 dark:bg-red-950/20 dark:text-red-300">{{ allergy.substance }}<template v-if="allergy.reaction"> · {{ allergy.reaction }}</template></span></div><span v-else class="text-xs text-muted-foreground">Aucune allergie enregistrée</span></dd>
+                            </div>
+                            <div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
+                                <dt class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Antécédents personnels</dt>
+                                <dd><ul v-if="personalAntecedents.length" class="space-y-1"><li v-for="antecedent in personalAntecedents" :key="antecedent.uuid" class="text-xs leading-5 text-muted-foreground">{{ antecedent.description }}</li></ul><span v-else class="text-xs text-muted-foreground">Aucun enregistré</span></dd>
+                            </div>
+                            <div class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
+                                <dt class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Antécédents familiaux</dt>
+                                <dd><ul v-if="familial_antecedents?.length" class="space-y-1"><li v-for="antecedent in familial_antecedents" :key="antecedent.uuid" class="text-xs leading-5 text-muted-foreground">{{ antecedent.description }}</li></ul><span v-else class="text-xs text-muted-foreground">Aucun enregistré</span></dd>
+                            </div>
+                            <div v-if="hasEmergencyContact" class="grid gap-2 px-3 py-2.5 sm:grid-cols-[9rem_1fr]">
+                                <dt class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Contact du passage</dt>
+                                <dd class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><strong class="text-foreground">{{ episode.emergency_contact.name || 'Nom non renseigné' }}</strong><span v-if="episode.emergency_contact.relationship" class="text-muted-foreground">{{ episode.emergency_contact.relationship }}</span><a v-if="episode.emergency_contact.phone" :href="`tel:${episode.emergency_contact.phone}`" class="text-primary hover:underline">{{ episode.emergency_contact.phone }}</a><span v-if="episode.emergency_contact.email">{{ episode.emergency_contact.email }}</span></dd>
+                            </div>
+                        </dl>
+                        <details v-if="capabilities.can_manage_medical_history" class="group border-t border-border">
+                            <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-primary hover:bg-muted/35"><span class="flex items-center gap-1.5"><Plus class="h-4 w-4" />Ajouter un antécédent</span><ChevronDown class="h-4 w-4" /></summary>
+                            <form class="grid gap-2 border-t border-border bg-muted/35 p-3" @submit.prevent="submitAntecedent">
+                                <textarea v-model="antecedentForm.description" rows="2" placeholder="Description clinique…" :class="textareaClass" />
+                                <FormError :message="antecedentForm.errors.description || antecedentForm.errors.type" />
+                                <div class="flex flex-wrap items-center justify-between gap-2"><span class="inline-flex rounded border border-border bg-card p-0.5"><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', antecedentForm.type === 'PERSONAL' ? 'bg-muted text-foreground' : 'text-muted-foreground']" @click="antecedentForm.type = 'PERSONAL'">Personnel</button><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', antecedentForm.type === 'FAMILIAL' ? 'bg-muted text-foreground' : 'text-muted-foreground']" @click="antecedentForm.type = 'FAMILIAL'">Familial</button></span><Button type="submit" size="sm" :disabled="antecedentForm.processing || !antecedentForm.description.trim()">Ajouter</Button></div>
+                            </form>
+                        </details>
+                    </section>
+
+                    <section class="overflow-hidden rounded-lg border border-border bg-card">
+                        <div class="flex items-center justify-between border-b border-border px-3 py-2.5"><div class="flex items-center gap-2"><History class="h-4 w-4" /><h2 class="text-xs font-bold text-foreground">Consultations précédentes</h2></div><span class="rounded bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">{{ previous_consultations?.length ?? 0 }}</span></div>
+                        <ul v-if="previous_consultations?.length" class="max-h-64 divide-y divide-border overflow-y-auto">
+                            <li v-for="previous in previous_consultations" :key="previous.id" class="px-3 py-2.5">
+                                <p class="text-[11px] font-semibold text-foreground">{{ formatDateTime(previous.consulted_at) }} · Dr {{ previous.doctor }}</p>
+                                <ClinicalRichTextDisplay class="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground" :html="previous.reason" />
+                                <p v-if="previous.decision_label" class="mt-1 text-[10px] text-muted-foreground">{{ previous.decision_label }}</p>
+                            </li>
+                        </ul>
+                        <p v-else class="px-3 py-4 text-center text-xs text-muted-foreground">Aucune consultation antérieure.</p>
+                    </section>
                 </div>
             </div>
-        </Dialog>
 
-        <Dialog :open="Boolean(diagnosisToCancel)" as="div" class="relative z-[1300]" @close="closeDiagnosisCancellation">
-            <div class="fixed inset-0 bg-slate-950/55 backdrop-blur-[1px]" aria-hidden="true"></div>
-            <div class="fixed inset-0 overflow-y-auto p-4">
-                <div class="flex min-h-full items-center justify-center">
-                    <DialogPanel v-if="diagnosisToCancel" class="w-full max-w-md overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
-                        <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                            <div class="flex min-w-0 items-start gap-3">
-                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"><Icon class="text-xl" name="trash" /></span>
-                                <div class="min-w-0">
-                                    <DialogTitle class="font-heading text-base font-bold text-slate-700 dark:text-white">Annuler ce diagnostic ?</DialogTitle>
-                                    <p class="mt-1 text-xs leading-5 text-slate-400">Cette action retire la version active sans supprimer son historique médical.</p>
-                                </div>
-                            </div>
-                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer la confirmation" :disabled="diagnosisCancellationForm.processing" @click="closeDiagnosisCancellation"><Icon class="text-xl" name="cross" /></button>
-                        </header>
+            <template #footer>
+                <Button type="button" size="rg" variant="white-outline" @click="showClinicalContext = false">Fermer</Button>
+            </template>
+        </ShadcnDialog>
 
-                        <form @submit.prevent="cancelDiagnosis">
-                            <div class="space-y-4 px-5 py-4">
-                                <div class="rounded border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/40">
-                                    <span class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ diagnosisToCancel.type_label }}</span>
-                                    <p class="mt-1 break-words text-sm font-semibold leading-6 text-slate-700 dark:text-white">{{ diagnosisToCancel.description }}</p>
-                                </div>
-                                <div class="flex items-start gap-2.5 text-xs leading-5 text-slate-500 dark:text-slate-300">
-                                    <Icon class="mt-0.5 shrink-0 text-base text-amber-500" name="info" />
-                                    <p>La saisie restera consultable dans l’historique des rectifications avec sa trace d’annulation.</p>
-                                </div>
-                                <FormError :message="diagnosisCancellationForm.errors.diagnosis_id" />
-                            </div>
-                            <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/30 sm:flex-row sm:justify-end">
-                                <Button type="button" size="rg" variant="white-outline" :disabled="diagnosisCancellationForm.processing" @click="closeDiagnosisCancellation">Conserver</Button>
-                                <Button type="submit" size="rg" variant="danger" :disabled="diagnosisCancellationForm.processing"><Icon class="me-2 text-base" name="trash" />{{ diagnosisCancellationForm.processing ? 'Annulation…' : 'Confirmer l’annulation' }}</Button>
-                            </footer>
-                        </form>
-                    </DialogPanel>
+        <ShadcnDialog
+            :open="showEmergencyConfirm"
+            title="Classer ce passage en urgence ?"
+            :description="`Passage ${episode.episode_number}`"
+            close-label="Fermer la confirmation"
+            @update:open="value => { if (!value) closeEmergencyConfirm(); }"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300" aria-hidden="true">
+                    <Activity class="h-5 w-5" />
+                </span>
+            </template>
+
+            <p class="text-sm leading-6 text-muted-foreground">
+                Le passage devient visible immédiatement aux Soins et en Médecine. Le patient et ses autres passages ne changent pas.
+            </p>
+            <FormError class="mt-3" :message="emergencyForm.errors.episode" />
+
+            <template #footer>
+                <Button type="button" size="rg" variant="white-outline" :disabled="emergencyForm.processing" @click="closeEmergencyConfirm">Annuler</Button>
+                <Button type="button" size="rg" variant="danger" :disabled="emergencyForm.processing" @click="confirmMarkEmergency">
+                    <Activity class="me-2 h-4 w-4" aria-hidden="true" />{{ emergencyForm.processing ? 'Classement…' : 'Confirmer l’urgence' }}
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <ShadcnDialog
+            :open="Boolean(diagnosisToCancel)"
+            title="Annuler ce diagnostic ?"
+            description="Cette action retire la version active sans supprimer son historique médical."
+            close-label="Fermer la confirmation"
+            @update:open="value => { if (!value) closeDiagnosisCancellation(); }"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300" aria-hidden="true">
+                    <Trash2 class="h-5 w-5" />
+                </span>
+            </template>
+
+            <!-- Les actions restent dans le <form> : les sortir dans le slot
+                 pied les couperait du `submit`, et le bouton ne validerait
+                 plus rien. -->
+            <form v-if="diagnosisToCancel" @submit.prevent="cancelDiagnosis">
+                <div class="space-y-4">
+                    <div class="rounded-lg border border-border bg-muted/35 px-4 py-3">
+                        <span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ diagnosisToCancel.type_label }}</span>
+                        <p class="mt-1 break-words text-sm font-semibold leading-6 text-foreground">{{ diagnosisToCancel.description }}</p>
+                    </div>
+                    <div class="flex items-start gap-2.5 text-xs leading-5 text-muted-foreground">
+                        <Info class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+                        <p>La saisie restera consultable dans l’historique des rectifications avec sa trace d’annulation.</p>
+                    </div>
+                    <FormError :message="diagnosisCancellationForm.errors.diagnosis_id" />
                 </div>
-            </div>
-        </Dialog>
-
-        <Dialog :open="Boolean(prescriptionToRemove)" as="div" class="relative z-[1300]" @close="closePrescriptionRemoval">
-            <div class="fixed inset-0 bg-slate-950/55 backdrop-blur-[1px]" aria-hidden="true"></div>
-            <div class="fixed inset-0 overflow-y-auto p-4">
-                <div class="flex min-h-full items-center justify-center">
-                    <DialogPanel v-if="prescriptionToRemove" class="w-full max-w-md overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
-                        <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                            <div class="flex min-w-0 items-start gap-3">
-                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"><Icon class="text-xl" name="trash" /></span>
-                                <div class="min-w-0">
-                                    <DialogTitle class="font-heading text-base font-bold text-slate-700 dark:text-white">Retirer cette ordonnance ?</DialogTitle>
-                                    <p class="mt-1 text-xs leading-5 text-slate-400">Elle disparaîtra de la liste active et les quantités réservées seront libérées.</p>
-                                </div>
-                            </div>
-                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-gray-900 dark:hover:text-white" aria-label="Fermer la confirmation" :disabled="prescriptionRemovalForm.processing" @click="closePrescriptionRemoval"><Icon class="text-xl" name="cross" /></button>
-                        </header>
-
-                        <form @submit.prevent="removePrescription">
-                            <div class="space-y-3 px-5 py-4">
-                                <div class="rounded border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/40">
-                                    <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Médicaments concernés</p>
-                                    <ul class="mt-2 space-y-1.5">
-                                        <li v-for="line in prescriptionToRemove.lines" :key="line.id" class="flex items-center justify-between gap-4 text-sm"><span class="font-semibold text-slate-700 dark:text-white">{{ line.medication_name }}</span><span class="shrink-0 text-xs text-slate-400">{{ line.quantity }} {{ line.unit || 'unité(s)' }}</span></li>
-                                    </ul>
-                                </div>
-                                <FormError :message="prescriptionRemovalForm.errors.reason" />
-                            </div>
-                            <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-800 dark:bg-gray-1000/30 sm:flex-row sm:justify-end">
-                                <Button type="button" size="rg" variant="white-outline" :disabled="prescriptionRemovalForm.processing" @click="closePrescriptionRemoval">Conserver</Button>
-                                <Button type="submit" size="rg" variant="danger" :disabled="prescriptionRemovalForm.processing"><Icon class="me-2 text-base" name="trash" />{{ prescriptionRemovalForm.processing ? 'Retrait…' : 'Retirer' }}</Button>
-                            </footer>
-                        </form>
-                    </DialogPanel>
+                <div class="-mx-6 -mb-5 mt-5 flex flex-col-reverse gap-2 border-t border-border bg-muted/35 px-6 py-4 sm:flex-row sm:justify-end">
+                    <Button type="button" size="rg" variant="white-outline" :disabled="diagnosisCancellationForm.processing" @click="closeDiagnosisCancellation">Conserver</Button>
+                    <Button type="submit" size="rg" variant="danger" :disabled="diagnosisCancellationForm.processing">
+                        <Trash2 class="me-2 h-4 w-4" aria-hidden="true" />{{ diagnosisCancellationForm.processing ? 'Annulation…' : 'Confirmer l’annulation' }}
+                    </Button>
                 </div>
+            </form>
+        </ShadcnDialog>
+
+        <ShadcnDialog
+            :open="Boolean(prescriptionToRemove)"
+            title="Retirer cette ordonnance ?"
+            description="Elle disparaîtra de la liste active et les quantités réservées seront libérées."
+            close-label="Fermer la confirmation"
+            @update:open="value => { if (!value) closePrescriptionRemoval(); }"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300" aria-hidden="true">
+                    <Trash2 class="h-5 w-5" />
+                </span>
+            </template>
+
+            <form v-if="prescriptionToRemove" @submit.prevent="removePrescription">
+                <div class="space-y-3">
+                    <div class="rounded-lg border border-border bg-muted/35 px-4 py-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Médicaments concernés</p>
+                        <ul class="mt-2 space-y-1.5">
+                            <li v-for="line in prescriptionToRemove.lines" :key="line.id" class="flex items-center justify-between gap-4 text-sm">
+                                <span class="font-semibold text-foreground">{{ line.medication_name }}</span>
+                                <span class="shrink-0 text-xs text-muted-foreground">{{ line.quantity }} {{ line.unit || 'unité(s)' }}</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <FormError :message="prescriptionRemovalForm.errors.reason" />
+                </div>
+                <div class="-mx-6 -mb-5 mt-5 flex flex-col-reverse gap-2 border-t border-border bg-muted/35 px-6 py-4 sm:flex-row sm:justify-end">
+                    <Button type="button" size="rg" variant="white-outline" :disabled="prescriptionRemovalForm.processing" @click="closePrescriptionRemoval">Conserver</Button>
+                    <Button type="submit" size="rg" variant="danger" :disabled="prescriptionRemovalForm.processing">
+                        <Trash2 class="me-2 h-4 w-4" aria-hidden="true" />{{ prescriptionRemovalForm.processing ? 'Retrait…' : 'Retirer' }}
+                    </Button>
+                </div>
+            </form>
+        </ShadcnDialog>
+
+        <ShadcnDialog
+            :open="Boolean(requestToWithdraw)"
+            title="Retirer cette demande ?"
+            description="Elle quitte la file du service mais reste consultable dans le dossier, avec sa trace de retrait."
+            close-label="Fermer la confirmation"
+            @update:open="value => { if (!value) closeWithdrawal(); }"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300" aria-hidden="true">
+                    <Trash2 class="h-5 w-5" />
+                </span>
+            </template>
+
+            <form v-if="requestToWithdraw" @submit.prevent="confirmWithdrawal">
+                <div class="space-y-3">
+                    <div class="rounded-lg border border-border bg-muted/35 px-4 py-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Examens concernés</p>
+                        <ul class="mt-2 space-y-1">
+                            <li v-for="item in requestToWithdraw.request.items" :key="item.uuid" class="text-sm font-semibold text-foreground">
+                                {{ item.name }}
+                            </li>
+                        </ul>
+                    </div>
+                    <div>
+                        <label for="withdraw-reason" class="mb-1 block text-sm font-medium text-muted-foreground">
+                            Motif <span class="font-normal">· facultatif</span>
+                        </label>
+                        <Input id="withdraw-reason" v-model="withdrawalForm.reason" maxlength="500" placeholder="Ex. finalement sans indication" />
+                        <FormError :message="withdrawalForm.errors.reason" />
+                    </div>
+                    <FormError :message="withdrawalForm.errors.request" />
+                </div>
+                <div class="-mx-6 -mb-5 mt-5 flex flex-col-reverse gap-2 border-t border-border bg-muted/35 px-6 py-4 sm:flex-row sm:justify-end">
+                    <Button type="button" size="rg" variant="white-outline" :disabled="withdrawalForm.processing" @click="closeWithdrawal">Conserver</Button>
+                    <Button type="submit" size="rg" variant="danger" :disabled="withdrawalForm.processing">
+                        <Trash2 class="me-2 h-4 w-4" aria-hidden="true" />{{ withdrawalForm.processing ? 'Retrait…' : 'Retirer la demande' }}
+                    </Button>
+                </div>
+            </form>
+        </ShadcnDialog>
+
+        <!-- Confirmation, pas blocage : le médecin peut avoir une raison
+             parfaitement valable de clôturer sur une constante basse. Ce
+             que le système refuse, c'est de le laisser passer sans l'avoir
+             nommé. -->
+        <ShadcnDialog
+            :open="showAwaitingResultConfirm"
+            title="Clôturer sans attendre le résultat ?"
+            description="Un examen demandé pour ce passage n’a pas encore rendu son résultat."
+            close-label="Fermer la confirmation"
+            @update:open="value => { showAwaitingResultConfirm = value; }"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300" aria-hidden="true">
+                    <Clock class="h-5 w-5" />
+                </span>
+            </template>
+
+            <ul class="space-y-2">
+                <li v-for="exam in awaitingResults" :key="exam" class="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm font-semibold text-foreground dark:border-amber-900/60 dark:bg-amber-950/20">
+                    {{ exam }}
+                </li>
+            </ul>
+            <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                Clôturer reste possible : vous avez peut-être conclu sans ce résultat. Sinon, laissez la consultation ouverte — elle vous attendra, et « Demandes d’examens » vous signalera le résultat dès qu’il arrive.
+            </p>
+
+            <template #footer>
+                <Button type="button" size="rg" variant="white-outline" @click="showAwaitingResultConfirm = false">
+                    Laisser ouverte
+                </Button>
+                <Button type="button" size="rg" variant="warning" :disabled="completeConsultationForm.processing" @click="submitCompleteConsultation">
+                    <CircleCheck class="me-2 h-4 w-4" aria-hidden="true" />Clôturer malgré tout
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <ShadcnDialog
+            v-model:open="showCriticalVitalConfirm"
+            title="Constante critique non résolue"
+            description="Cette consultation va être clôturée alors qu’une constante reste hors des bornes attendues."
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300">
+                    <CircleAlert class="h-5 w-5" />
+                </span>
+            </template>
+
+            <ul class="space-y-2">
+                <li v-for="alert in vitalAlerts.filter((a) => a.severity === 'danger')" :key="alert.label" class="rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-xs leading-5 dark:border-red-900 dark:bg-red-950/20">
+                    <span class="font-semibold text-foreground">{{ alert.label }}</span>
+                    <span class="mx-1.5 font-bold tabular-nums text-red-600 dark:text-red-300">{{ alert.reading }}</span>
+                    <span class="font-semibold text-muted-foreground">— {{ alert.title }}</span>
+                    <span class="block text-muted-foreground">{{ alert.message }}</span>
+                </li>
+            </ul>
+            <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                Clôturer reste possible : une valeur peut avoir déjà été prise en compte, ou provenir d’une erreur de saisie.
+                <template v-if="care_record?.can_correct_vitals">
+                    Si la mesure est fausse, corrigez-la depuis « Contexte clinique » avant de clôturer.
+                </template>
+            </p>
+
+            <template #footer>
+                <Button type="button" size="rg" variant="white-outline" @click="showCriticalVitalConfirm = false">
+                    Revenir au dossier
+                </Button>
+                <Button type="button" size="rg" variant="danger" :disabled="completeConsultationForm.processing" @click="submitCompleteConsultation">
+                    <CircleCheck class="me-2 h-4 w-4" />Clôturer malgré tout
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <!-- Le retrait des demandes déjà transmises. Elle nomme chaque
+             examen : une fenêtre qui annonce « (1) » sans dire lequel ne
+             permet pas de décider. -->
+        <ShadcnDialog
+            v-model:open="withdrawConfirmOpen"
+            size="lg"
+            title="Retirer les demandes déjà transmises ?"
+            description="Répondre « Aucun examen nécessaire » annule les demandes non réalisées."
+        >
+            <template #icon><CircleAlert class="h-5 w-5 text-amber-600 dark:text-amber-400" /></template>
+
+            <div class="space-y-4">
+                <ul class="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                    <li v-for="request in paraclinicalRequests" :key="request.uuid" class="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                        <span class="min-w-0">
+                            <span class="block text-xs font-medium text-muted-foreground">{{ request.label }}</span>
+                            <span class="block truncate text-sm font-bold text-foreground">{{ request.summary }}</span>
+                        </span>
+                        <span class="shrink-0 rounded-md border border-border bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">{{ request.status_label }}</span>
+                    </li>
+                </ul>
+
+                <p class="text-xs leading-5 text-muted-foreground">
+                    Les demandes retirées ne sont pas supprimées : elles gardent leur auteur et leur date, et restent lisibles dans le dossier.
+                    <strong class="font-semibold text-foreground">Une demande portant déjà un résultat n’est jamais retirée</strong> — le serveur refuse alors l’opération et vous le dit.
+                </p>
+
+                <FormError :message="complementaryExamsForm.errors.required" />
             </div>
-        </Dialog>
+
+            <template #footer>
+                <Button type="button" variant="white-outline" size="sm" @click="withdrawConfirmOpen = false">Annuler</Button>
+                <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    :disabled="complementaryExamsForm.processing"
+                    @click="confirmWithdrawAndDecide"
+                >
+                    <Trash2 class="h-4 w-4" />Retirer et continuer
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <!-- Rouvrir une consultation clôturée (ADR-096). Une fenêtre où l'on
+             écrit : un clic à côté ne doit pas la fermer. -->
+        <ShadcnDialog
+            v-model:open="reopenOpen"
+            title="Rouvrir la consultation ?"
+            description="La clôture est défaite ; aucune donnée déjà enregistrée n’est supprimée."
+            :dismissible="false"
+        >
+            <template #icon><RotateCcw class="h-5 w-5" /></template>
+
+            <form class="space-y-4" @submit.prevent="submitReopen">
+                <p class="text-sm text-foreground">
+                    Le passage revient en prise en charge et quitte la file « Sorties &amp; règlements » de la Réception. Les diagnostics, l’ordonnance et une sortie médicale déjà prononcée restent en place.
+                </p>
+
+                <div>
+                    <label for="reopen_reason" class="mb-1.5 block text-xs font-bold text-foreground">
+                        Motif <span class="text-destructive">*</span>
+                    </label>
+                    <Input
+                        id="reopen_reason"
+                        v-model="reopenForm.reason"
+                        placeholder="Ex. : résultat de l’ECG reçu après la clôture."
+                        autocomplete="off"
+                    />
+                    <FormError class="mt-1" :message="reopenForm.errors.reason" />
+                </div>
+
+                <p class="text-[11px] leading-4 text-muted-foreground">
+                    Ce motif est conservé dans l’audit du dossier, avec votre nom et la date.
+                </p>
+            </form>
+
+            <template #footer>
+                <Button type="button" variant="white-outline" size="sm" @click="reopenOpen = false">Annuler</Button>
+                <Button type="button" size="sm" :disabled="reopenForm.processing" @click="submitReopen">
+                    <RotateCcw class="h-4 w-4" />Rouvrir
+                </Button>
+            </template>
+        </ShadcnDialog>
     </div>
 </template>

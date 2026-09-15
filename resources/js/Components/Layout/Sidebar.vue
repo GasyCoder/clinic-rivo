@@ -4,7 +4,7 @@ import SimpleBar from 'simplebar-vue';
 import { useResizeObserver } from '@vueuse/core';
 import { Link, usePage } from '@inertiajs/vue3';
 import Menu from './Menu.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { ArrowLeft, Menu as MenuIcon } from 'lucide-vue-next';
 import { useThemeStore } from '@/stores/theme';
 
 const theme = useThemeStore();
@@ -44,26 +44,26 @@ onMounted(() => {
             dark: theme.sidebar === 'dark',
         }"
     >
-        <div class="relative flex h-16 min-w-full w-72 items-center overflow-hidden border-b border-e border-gray-200 bg-white px-6 py-3 dark:border-gray-900 dark:bg-gray-950">
+        <div class="relative flex h-16 min-w-full w-72 items-center overflow-hidden border-b border-e border-border bg-card px-6 py-3">
             <span v-if="site?.type === 'admin'" class="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary-500 via-cyan-400 to-amber-300" />
             <div class="-ms-1 me-4">
                 <div class="hidden xl:block">
                     <a
                         href="#sidebar"
-                        class="sidebar-compact-toggle *:pointer-events-none inline-flex items-center isolate relative h-9 w-9 px-1.5 before:content-[''] before:absolute before:-z-[1] before:h-5 before:w-5 hover:before:h-10 hover:before:w-10 before:rounded-full before:opacity-0 hover:before:opacity-100 before:transition-all before:duration-300 before:-translate-x-1/2 before:-translate-y-1/2 before:top-1/2 before:left-1/2 before:bg-gray-200 dark:before:bg-gray-900"
+                        class="sidebar-compact-toggle *:pointer-events-none inline-flex items-center isolate relative h-9 w-9 px-1.5 before:content-[''] before:absolute before:-z-[1] before:h-5 before:w-5 hover:before:h-10 hover:before:w-10 before:rounded-full before:opacity-0 hover:before:opacity-100 before:transition-all before:duration-300 before:-translate-x-1/2 before:-translate-y-1/2 before:top-1/2 before:left-1/2 before:bg-border "
                         @click.prevent="compact = !compact"
                     >
-                        <Icon class="text-2xl text-slate-600 dark:text-slate-300" name="menu" />
+                        <MenuIcon class="h-5 w-5 text-muted-foreground" />
                     </a>
                 </div>
 
                 <div class="xl:hidden">
                     <button
                         type="button"
-                        class="sidebar-toggle *:pointer-events-none inline-flex items-center isolate relative h-9 w-9 px-1.5 before:content-[''] before:absolute before:-z-[1] before:h-5 before:w-5 hover:before:h-10 hover:before:w-10 before:rounded-full before:opacity-0 hover:before:opacity-100 before:transition-all before:duration-300 before:-translate-x-1/2 before:-translate-y-1/2 before:top-1/2 before:left-1/2 before:bg-gray-200 dark:before:bg-gray-900 rtl:-scale-x-100"
+                        class="sidebar-toggle *:pointer-events-none inline-flex items-center isolate relative h-9 w-9 px-1.5 before:content-[''] before:absolute before:-z-[1] before:h-5 before:w-5 hover:before:h-10 hover:before:w-10 before:rounded-full before:opacity-0 hover:before:opacity-100 before:transition-all before:duration-300 before:-translate-x-1/2 before:-translate-y-1/2 before:top-1/2 before:left-1/2 before:bg-border rtl:-scale-x-100"
                         @click="visibility = !visibility"
                     >
-                        <Icon name="arrow-left" class="text-2xl text-slate-600 dark:text-slate-300" />
+                        <ArrowLeft class="h-5 w-5 text-muted-foreground" />
                     </button>
                 </div>
             </div>
@@ -73,20 +73,20 @@ onMounted(() => {
                     href="/"
                     class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
                 >
-                    <span class="font-heading text-sm font-bold leading-tight text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
-                    <span v-if="portalSubtitle" class="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{{ portalSubtitle }}</span>
+                    <span class="font-heading text-sm font-bold leading-tight text-foreground truncate">{{ site.brand }}</span>
+                    <span v-if="portalSubtitle" class="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{{ portalSubtitle }}</span>
                 </Link>
             </div>
         </div>
 
         <div
-            class="nk-sidebar-body max-h-full relative overflow-hidden w-full bg-white dark:bg-gray-950 border-e border-gray-200 dark:border-gray-900"
+            class="nk-sidebar-body max-h-full relative overflow-hidden w-full bg-card border-e border-border"
             @mouseenter="mouseEnter = true"
             @mouseleave="mouseEnter = false"
         >
             <div class="flex flex-col w-full h-[calc(100vh-theme(spacing.16))]">
                 <SimpleBar :class="['h-full pb-10', site?.type === 'admin' ? 'pt-3' : 'pt-4']">
-                    <Menu v-model:visibility="visibility" />
+                    <Menu v-model:visibility="visibility" :compact="compact && !mouseEnter" />
                 </SimpleBar>
             </div>
         </div>

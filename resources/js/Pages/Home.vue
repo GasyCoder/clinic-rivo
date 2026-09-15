@@ -2,9 +2,19 @@
 import { computed } from 'vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Icon from '@/Components/UI/Icon.vue';
 import ActivityTrendChart from '@/Components/Dashboard/ActivityTrendChart.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import {
+    ArrowRight,
+    Building2,
+    CalendarDays,
+    ChevronRight,
+    CircleAlert,
+    Clock,
+    Plus,
+    ShieldCheck,
+} from 'lucide-vue-next';
+import { lucideIcon } from '@/utilities/icons';
 import { CLINIC_WORKSPACES, ROLE_FOCUS, WORKSPACE_GROUPS } from '@/utilities/clinicWorkspaces';
 
 defineOptions({ layout: AppLayout });
@@ -76,11 +86,11 @@ const primaryAction = computed(() => {
     const own = focus.value.primary;
 
     if (own && can(own.permission)) return own;
-    if (can('episodes.create')) return { label: 'Nouvelle prise en charge', link: '/reception/patients', icon: 'plus' };
+    if (can('episodes.create')) return { label: 'Nouvelle prise en charge', link: '/reception/patients', icon: Plus };
 
     const workspace = workspaces.value[0];
 
-    return workspace ? { label: `Ouvrir ${workspace.title}`, link: workspace.link, icon: 'arrow-right' } : null;
+    return workspace ? { label: `Ouvrir ${workspace.title}`, link: workspace.link, icon: ArrowRight } : null;
 });
 
 /**
@@ -128,7 +138,7 @@ const pendingOrientation = computed(() => metrics.value.find((metric) => metric.
 const passagesToday = computed(() => metrics.value.find((metric) => metric.key === 'passages_today')?.value ?? null);
 
 const toneClasses = {
-    navy: { icon: 'bg-primary-50 text-primary-700 ring-primary-100 dark:bg-primary-950/50 dark:text-primary-300 dark:ring-primary-900', value: 'text-primary-800 dark:text-primary-200', bar: 'bg-primary-500' },
+    navy: { icon: 'bg-primary/10 text-primary ring-primary/20 ', value: 'text-primary ', bar: 'bg-primary' },
     ocean: { icon: 'bg-sky-50 text-sky-700 ring-sky-100 dark:bg-sky-950/50 dark:text-sky-300 dark:ring-sky-900', value: 'text-sky-800 dark:text-sky-200', bar: 'bg-sky-500' },
     cyan: { icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100 dark:bg-cyan-950/50 dark:text-cyan-300 dark:ring-cyan-900', value: 'text-cyan-800 dark:text-cyan-200', bar: 'bg-cyan-500' },
     green: { icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900', value: 'text-emerald-800 dark:text-emerald-200', bar: 'bg-emerald-500' },
@@ -142,25 +152,25 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-6">
         <!-- En-tête : qui, où, quand, et l'action du moment. -->
-        <header class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
+        <header class="relative overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div aria-hidden="true" class="pointer-events-none absolute inset-y-0 end-0 w-1/2 bg-gradient-to-l from-primary-50/80 to-transparent dark:from-primary-950/30" />
             <div class="relative flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between lg:p-7">
                 <div class="flex min-w-0 items-center gap-4">
-                    <span class="hidden h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary-700 font-heading text-lg font-bold text-white shadow-sm sm:flex dark:bg-primary-600">{{ userInitials }}</span>
+                    <span class="hidden h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary font-heading text-lg font-bold text-white shadow-sm sm:flex">{{ userInitials }}</span>
                     <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2 text-xs">
-                            <span class="inline-flex items-center gap-1.5 rounded-full bg-primary-50 px-2.5 py-1 font-semibold text-primary-700 ring-1 ring-inset ring-primary-100 dark:bg-primary-950/50 dark:text-primary-300 dark:ring-primary-900">
-                                <Icon name="building" />{{ page.props.site.name }} · {{ page.props.site.code }}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary ring-1 ring-inset ring-primary/20">
+                                <Building2 class="h-4 w-4" />{{ page.props.site.name }} · {{ page.props.site.code }}
                             </span>
-                            <span class="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400"><Icon name="calendar" />{{ generatedDate }}</span>
+                            <span class="inline-flex items-center gap-1.5 text-muted-foreground"><CalendarDays class="h-4 w-4" />{{ generatedDate }}</span>
                         </div>
-                        <h1 class="mt-2.5 truncate font-heading text-2xl font-bold tracking-tight text-slate-800 sm:text-[28px] dark:text-white">
+                        <h1 class="mt-2.5 truncate font-heading text-2xl font-bold tracking-tight text-foreground sm:text-[28px]">
                             {{ greeting }}, {{ user.name }}
                         </h1>
-                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            <span class="font-semibold text-slate-600 dark:text-slate-300">{{ roleName }}</span>
+                        <p class="mt-1 text-sm text-muted-foreground">
+                            <span class="font-semibold text-muted-foreground">{{ roleName }}</span>
                             <template v-if="focus.lead"> · {{ focus.lead }}</template>
-                            <template v-if="passagesToday !== null"> · <strong class="font-semibold text-slate-700 dark:text-slate-200">{{ passagesToday }}</strong> passage{{ passagesToday > 1 ? 's' : '' }} aujourd’hui</template>
+                            <template v-if="passagesToday !== null"> · <strong class="font-semibold text-foreground">{{ passagesToday }}</strong> passage{{ passagesToday > 1 ? 's' : '' }} aujourd’hui</template>
                         </p>
                     </div>
                 </div>
@@ -170,16 +180,16 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
                         v-for="link in quickLinks"
                         :key="link.link"
                         :href="link.link"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300 dark:hover:border-primary-800"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 "
                     >
-                        <Icon class="text-base" :name="link.icon" />{{ link.title }}
+                        <component :is="link.icon" class="h-4 w-4" />{{ link.title }}
                     </Link>
                     <Link
                         v-if="primaryAction"
                         :href="primaryAction.link"
-                        class="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-primary-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 dark:bg-primary-600 dark:hover:bg-primary-500"
+                        class="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 dark:"
                     >
-                        <Icon class="text-base" :name="primaryAction.icon" />{{ primaryAction.label }}
+                        <component :is="primaryAction.icon" class="h-4 w-4" />{{ primaryAction.label }}
                     </Link>
                 </div>
             </div>
@@ -193,27 +203,27 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
             class="group flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3.5 text-sm text-amber-900 transition hover:border-amber-300 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"
             role="status"
         >
-            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-base text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><Icon name="alert-circle" /></span>
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-base text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><CircleAlert class="h-4 w-4" /></span>
             <span class="min-w-0 flex-1">
                 <strong class="font-bold">{{ pendingOrientation.value }} passage{{ pendingOrientation.value > 1 ? 's' : '' }} en attente d’orientation</strong>
                 <span class="hidden text-amber-800/80 sm:inline dark:text-amber-200/70"> — {{ pendingOrientation.description }}</span>
             </span>
-            <Icon v-if="pendingOrientation.href" class="shrink-0 transition-transform group-hover:translate-x-0.5" name="arrow-right" />
+            <ArrowRight class="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" v-if="pendingOrientation.href" />
         </component>
 
         <!-- Indicateurs du jour. -->
         <section v-if="metrics.length" class="space-y-4" aria-labelledby="today-title">
             <div class="flex flex-wrap items-end justify-between gap-2">
                 <div>
-                    <h2 id="today-title" class="font-heading text-base font-bold text-slate-800 dark:text-white">Activité aujourd’hui</h2>
-                    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Calculée à partir des données autorisées pour votre compte.</p>
+                    <h2 id="today-title" class="font-heading text-base font-bold text-foreground">Activité aujourd’hui</h2>
+                    <p class="mt-0.5 text-xs text-muted-foreground">Calculée à partir des données autorisées pour votre compte.</p>
                 </div>
-                <span class="inline-flex items-center gap-1.5 text-xs text-slate-400"><Icon name="clock" />Mis à jour à {{ generatedTime }}</span>
+                <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Clock class="h-4 w-4" />Mis à jour à {{ generatedTime }}</span>
             </div>
 
             <template v-for="group in metricGroups" :key="group.key">
                 <div v-if="group.items.length">
-                    <h3 class="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{{ group.title }}</h3>
+                    <h3 class="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{{ group.title }}</h3>
                     <div :class="['grid gap-3', group.grid]">
                         <component
                             :is="metric.href ? Link : 'article'"
@@ -222,18 +232,18 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
                             :href="metric.href || undefined"
                             :title="metric.description"
                             :class="[
-                                'group relative flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition dark:border-gray-900 dark:bg-gray-950',
-                                metric.href ? 'hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:hover:border-primary-900' : '',
+                                'group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition ',
+                                metric.href ? 'hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ' : '',
                             ]"
                         >
                             <span :class="['absolute inset-x-0 top-0 h-0.5 opacity-0 transition-opacity group-hover:opacity-100', tone(metric.tone).bar]" aria-hidden="true" />
                             <div class="flex items-start justify-between gap-3">
-                                <span :class="['flex h-9 w-9 items-center justify-center rounded-lg text-lg ring-1 ring-inset', tone(metric.tone).icon]"><Icon :name="metric.icon" /></span>
-                                <Icon v-if="metric.href" class="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary-600 dark:text-slate-700" name="arrow-right" />
+                                <span :class="['flex h-9 w-9 items-center justify-center rounded-lg text-lg ring-1 ring-inset', tone(metric.tone).icon]"><component :is="lucideIcon(metric.icon)" class="h-4 w-4" /></span>
+                                <ArrowRight class="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary " v-if="metric.href" />
                             </div>
-                            <p :class="['mt-4 font-heading text-3xl font-bold leading-none tabular-nums', metric.value > 0 ? tone(metric.tone).value : 'text-slate-300 dark:text-slate-700']">{{ metric.value }}</p>
-                            <p class="mt-2 text-[13px] font-semibold leading-5 text-slate-700 dark:text-slate-200">{{ metric.label }}</p>
-                            <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400">{{ metric.description }}</p>
+                            <p :class="['mt-4 font-heading text-3xl font-bold leading-none tabular-nums', metric.value > 0 ? tone(metric.tone).value : 'text-muted-foreground']">{{ metric.value }}</p>
+                            <p class="mt-2 text-[13px] font-semibold leading-5 text-foreground">{{ metric.label }}</p>
+                            <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{{ metric.description }}</p>
                         </component>
                     </div>
                 </div>
@@ -244,41 +254,41 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
             <ActivityTrendChart :trend="overview.trend" />
 
             <!-- Accès directs : à côté du graphique plutôt qu'en bas de page. -->
-            <aside class="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950" aria-labelledby="workspaces-title">
-                <div class="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-900">
+            <aside class="rounded-xl border border-border bg-card shadow-sm " aria-labelledby="workspaces-title">
+                <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
                     <div>
-                        <h2 id="workspaces-title" class="font-heading text-base font-bold text-slate-800 dark:text-white">Vos espaces</h2>
-                        <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Modules attribués à votre compte</p>
+                        <h2 id="workspaces-title" class="font-heading text-base font-bold text-foreground">Vos espaces</h2>
+                        <p class="mt-0.5 text-xs text-muted-foreground">Modules attribués à votre compte</p>
                     </div>
-                    <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold tabular-nums text-slate-600 dark:bg-gray-900 dark:text-slate-300">{{ workspaces.length }}</span>
+                    <span class="rounded-full bg-muted px-2 py-0.5 text-xs font-bold tabular-nums text-foreground">{{ workspaces.length }}</span>
                 </div>
 
                 <nav v-if="workspaces.length" class="p-2">
-                    <div v-for="group in workspaceGroups" :key="group.key" class="[&+&]:mt-2 [&+&]:border-t [&+&]:border-gray-100 [&+&]:pt-2 dark:[&+&]:border-gray-900">
-                        <p v-if="workspaceGroups.length > 1" class="px-3 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{{ group.title }}</p>
+                    <div v-for="group in workspaceGroups" :key="group.key" class="[&+&]:mt-2 [&+&]:border-t [&+&]:border-border [&+&]:pt-2">
+                        <p v-if="workspaceGroups.length > 1" class="px-3 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{{ group.title }}</p>
                         <Link
                         v-for="workspace in group.items"
                         :key="workspace.title"
                         :href="workspace.link"
-                        class="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:hover:bg-gray-900"
+                        class="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 "
                     >
-                        <span :class="['flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base ring-1 ring-inset', tone(workspace.tone).icon]"><Icon :name="workspace.icon" /></span>
+                        <span :class="['flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base ring-1 ring-inset', tone(workspace.tone).icon]"><component :is="workspace.icon" class="h-4 w-4" /></span>
                         <span class="min-w-0 flex-1">
-                            <span class="block truncate text-sm font-semibold text-slate-700 group-hover:text-primary-700 dark:text-slate-200 dark:group-hover:text-primary-300">{{ workspace.title }}</span>
-                            <span class="block truncate text-xs text-slate-400">{{ workspace.description }}</span>
+                            <span class="block truncate text-sm font-semibold text-foreground group-hover:text-primary">{{ workspace.title }}</span>
+                            <span class="block truncate text-xs text-muted-foreground">{{ workspace.description }}</span>
                         </span>
-                        <Icon class="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary-600 dark:text-slate-700" name="chevron-right" />
+                        <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary " />
                     </Link>
                     </div>
                 </nav>
 
                 <div v-else class="px-6 py-10 text-center">
-                    <h3 class="text-sm font-bold text-slate-700 dark:text-white">Aucun espace métier attribué</h3>
-                    <p class="mx-auto mt-1 max-w-xs text-xs leading-5 text-slate-400">Votre compte est actif, mais aucune permission de module ne lui est accordée. Contactez l’administrateur local.</p>
+                    <h3 class="text-sm font-bold text-foreground">Aucun espace métier attribué</h3>
+                    <p class="mx-auto mt-1 max-w-xs text-xs leading-5 text-muted-foreground">Votre compte est actif, mais aucune permission de module ne lui est accordée. Contactez l’administrateur local.</p>
                 </div>
 
-                <p class="flex items-start gap-2 border-t border-gray-100 px-5 py-3.5 text-[11px] leading-4 text-slate-400 dark:border-gray-900">
-                    <Icon class="mt-px shrink-0 text-sm text-primary-600 dark:text-primary-300" name="shield-check" />
+                <p class="flex items-start gap-2 border-t border-border px-5 py-3.5 text-[11px] leading-4 text-muted-foreground">
+                    <ShieldCheck class="h-4 w-4 mt-px shrink-0 text-primary" />
                     Données et raccourcis filtrés selon vos permissions.
                 </p>
             </aside>

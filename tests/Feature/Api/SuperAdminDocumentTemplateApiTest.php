@@ -147,8 +147,13 @@ class SuperAdminDocumentTemplateApiTest extends TestCase
             ->getJson("/api/v1/super-admin/document-templates/{$v2->uuid}/history")
             ->assertOk();
         $this->assertCount(2, $history->json('data'));
+        // Version courante en tête : la relation déclare `latest()`, et
+        // l'écran affiche la liste telle quelle. L'ancienne attente
+        // (v1 puis v2) ne passait que parce que les deux versions
+        // partageaient la même seconde `created_at` et que la base les
+        // rendait alors dans un ordre non garanti.
         $this->assertSame(
-            [$v1->uuid => true, $v2->uuid => false],
+            [$v2->uuid => false, $v1->uuid => true],
             collect($history->json('data'))->pluck('archived', 'uuid')->all(),
         );
 
@@ -179,7 +184,7 @@ class SuperAdminDocumentTemplateApiTest extends TestCase
             ->assertOk();
         $this->assertCount(3, $finalHistory->json('data'));
         $this->assertSame(
-            [$v1->uuid => true, $v2->uuid => true, $v3Uuid => false],
+            [$v3Uuid => false, $v2->uuid => true, $v1->uuid => true],
             collect($finalHistory->json('data'))->pluck('archived', 'uuid')->all(),
         );
     }

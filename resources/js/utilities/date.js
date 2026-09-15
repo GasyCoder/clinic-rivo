@@ -6,6 +6,32 @@ export function formatDate(value) {
     return new Date(value).toLocaleDateString('fr-FR');
 }
 
+/** L'heure seule — un statut de sauvegarde n'a pas besoin de la date du jour. */
+export function formatTime(value) {
+    if (!value) {
+        return null;
+    }
+
+    return new Date(value).toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+/**
+ * « 15 sept. 2026 à 16:09 » — la forme lisible d'un en-tête clinique, où le
+ * mois abrégé lève l'ambiguïté jour/mois que `15/09` laisse planer.
+ */
+export function formatDayTime(value) {
+    if (!value) {
+        return null;
+    }
+
+    const date = new Date(value);
+
+    return `${date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 export function formatDateTime(value) {
     if (!value) {
         return null;

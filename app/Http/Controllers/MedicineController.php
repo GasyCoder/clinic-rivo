@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CancelDiagnosisAction;
+use App\Actions\Medicine\CancelParaclinicalRequestAction;
 use App\Actions\Medicine\CancelPrescriptionAction;
 use App\Actions\Medicine\CompleteConsultationAction;
+use App\Actions\Medicine\CorrectCareRecordVitalsAction;
 use App\Actions\Medicine\CorrectDiagnosisAction;
 use App\Actions\Medicine\CreateCareOrderAction;
 use App\Actions\Medicine\CreateHospitalizationRequestAction;
@@ -16,10 +18,12 @@ use App\Actions\Medicine\CreatePrescriptionAction;
 use App\Actions\Medicine\CreateServiceReferralAction;
 use App\Actions\Medicine\CreateSurgicalReferralAction;
 use App\Actions\Medicine\DecideComplementaryExamsAction;
+use App\Actions\Medicine\DecideDiagnosisTimingAction;
 use App\Actions\Medicine\RecordConsultationOrientationAction;
 use App\Actions\Medicine\RecordDiagnosisAction;
 use App\Actions\Medicine\RecordImagingResultAction;
 use App\Actions\Medicine\RecordMedicalDischargeAction;
+use App\Actions\Medicine\ReopenConsultationAction;
 use App\Actions\Medicine\ResolveConsultationStepAction;
 use App\Actions\Medicine\SaveConsultationAction;
 use App\Actions\Medicine\UpdatePrescriptionAction;
@@ -32,7 +36,11 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\PrescriptionStatus;
 use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
+use App\Http\Requests\Medicine\CancelParaclinicalRequestRequest;
+use App\Http\Requests\Medicine\CorrectCareRecordVitalsRequest;
 use App\Http\Requests\Medicine\DecideComplementaryExamsRequest;
+use App\Http\Requests\Medicine\DecideDiagnosisTimingRequest;
+use App\Http\Requests\Medicine\ReopenConsultationRequest;
 use App\Http\Requests\Medicine\ResolveConsultationStepRequest;
 use App\Http\Requests\Medicine\SaveConsultationDraftRequest;
 use App\Http\Requests\Medicine\SelectConsultationOrientationRequest;
@@ -56,6 +64,7 @@ use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
 use App\Models\HospitalizationRequest;
 use App\Models\ImagingRequestItem;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Models\MedicalReferral;
 use App\Models\Prescription;
 use App\Support\ConsultationWorkflow;
@@ -351,6 +360,23 @@ class MedicineController extends Controller
     }
 
     /**
+     * Corriger une constante relevée par les Soins (ADR-093).
+     *
+     * Les constantes seules : la FormRequest interdit nommément les actes,
+     * le matériel, les allergies et la transmission, et l'Action refuse de
+     * son côté. L'écrasement est réel et tracé par `Auditable`.
+     */
+    public function correctCareVitals(
+        CorrectCareRecordVitalsRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CorrectCareRecordVitalsAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->validated(), $request->user());
+
+        return back()->with('status', 'Constantes corrigées. La valeur précédente reste tracée à l’audit.');
+    }
+
+    /**
      * The examination now also carries the decision that used to cost a step
      * of its own: does this patient need complementary exams? Answering "non"
      * resolves the Paraclinique step as SKIPPED and sends the doctor straight
@@ -361,12 +387,8 @@ class MedicineController extends Controller
         UpdateMedicineClinicalExamRequest $request,
         EpisodeOrientation $episodeOrientation,
         SaveConsultationAction $action,
-        DecideComplementaryExamsAction $decision,
-        ResolveConsultationStepAction $steps,
-        ConsultationWorkflow $workflow,
     ): RedirectResponse {
         $complete = $request->boolean('complete', true);
-        $consultation = $episodeOrientation->consultation;
 
         $action->saveClinicalExam(
             $episodeOrientation,
@@ -378,24 +400,11 @@ class MedicineController extends Controller
             return back()->with('status', 'Examen clinique enregistré.');
         }
 
-        // The diagnosis is now concluded inside the examination when the
-        // doctor can already make it. Answering "pas maintenant" leaves the
-        // Diagnostic step open on purpose: a doctor waiting for results must
-        // never be pushed to conclude before reading them.
-        $ready = $request->has('diagnosis_ready') ? $request->boolean('diagnosis_ready') : null;
-        $consultation = $consultation->fresh();
-
-        if ($ready === true) {
-            if (! $workflow->hasActiveDiagnosisFor($consultation)) {
-                throw ValidationException::withMessages([
-                    'diagnosis_ready' => 'Enregistrez le diagnostic avant de poursuivre, ou répondez « Pas maintenant ».',
-                ]);
-            }
-
-            return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'ordonnance'])
-                ->with('status', 'Examen clinique et diagnostic validés.');
-        }
-
+        // ADR-095 — « Le diagnostic peut-il être posé maintenant ? » a rejoint
+        // « Décision & clôture », avec son propre endpoint. L'examen ne décide
+        // donc plus de la suite : il mène à la Paraclinique, l'étape suivante,
+        // qui pose elle-même sa propre question (ADR-079). Le raccourci qui
+        // sautait cette étape la contournait sans que personne y réponde.
         return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
             ->with('status', 'Examen clinique validé.');
     }
@@ -531,6 +540,28 @@ class MedicineController extends Controller
     }
 
     /**
+     * ADR-095 — « Le diagnostic peut-il être posé maintenant ? », désormais
+     * posée à « Décision & clôture ».
+     *
+     * Elle ne déplace personne : le médecin reste sur l'étape où il conclut.
+     * « Pas maintenant » n'autorise aucune clôture ; elle explique seulement
+     * pourquoi la consultation reste ouverte.
+     */
+    public function decideDiagnosisTiming(
+        DecideDiagnosisTimingRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        DecideDiagnosisTimingAction $decision,
+    ): RedirectResponse {
+        $ready = $request->boolean('ready');
+
+        $decision->execute($episodeOrientation->consultation()->firstOrFail(), $ready, $request->user());
+
+        return back()->with('status', $ready
+            ? 'Diagnostic validé pour ce passage.'
+            : 'Diagnostic différé : la consultation reste ouverte.');
+    }
+
+    /**
      * A diagnosis is recorded from the clinical examination or from
      * « Décision & clôture » (ADR-089): the doctor stays on the screen they
      * were on. Without a valid step, the examination remains the default.
@@ -599,18 +630,26 @@ class MedicineController extends Controller
         StoreMedicinePrescriptionRequest $request,
         EpisodeOrientation $episodeOrientation,
         CreatePrescriptionAction $action,
+        ResolveConsultationStepAction $steps,
     ): RedirectResponse {
-        $action->execute(
-            $episodeOrientation->consultation()->firstOrFail(),
-            $request->validated('lines'),
-            $request->user(),
-        );
+        $consultation = $episodeOrientation->consultation()->firstOrFail();
 
-        $nextStep = $request->boolean('continue_to_decision') ? 'decision' : 'ordonnance';
+        $action->execute($consultation, $request->validated('lines'), $request->user());
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $nextStep])
-            ->with('status', $nextStep === 'decision'
-                ? 'Ordonnance enregistrée et stock réservé. Vous pouvez maintenant finaliser la décision médicale.'
+        $continue = $request->boolean('continue_to_decision');
+
+        // « Enregistrer et continuer » valide l'étape (ADR-076). Ce drapeau ne
+        // faisait que rediriger : le médecin cliquait « Valider et réserver »,
+        // atterrissait sur la Clôture, et y lisait « Prescription : à valider »
+        // — le parcours l'avait emmené *au-delà* de l'étape qu'il devait
+        // valider, sans jamais la valider.
+        if ($continue) {
+            $steps->complete($consultation->fresh(), ConsultationStep::Prescription, $request->user());
+        }
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $continue ? 'decision' : 'ordonnance'])
+            ->with('status', $continue
+                ? 'Ordonnance enregistrée, stock réservé et étape validée. Vous pouvez maintenant conclure le passage.'
                 : 'Ordonnance enregistrée.');
     }
 
@@ -687,6 +726,93 @@ class MedicineController extends Controller
                     'duration' => $line->duration,
                     'instructions' => $line->instructions,
                 ])->values(),
+            ],
+        ]);
+    }
+
+    /**
+     * Rouvrir une consultation clôturée (ADR-096).
+     *
+     * Le médecin revient sur un dossier conclu — typiquement parce qu'un
+     * résultat d'examen est arrivé après la clôture. L'action ne défait que
+     * la clôture ; aucune donnée clinique n'est supprimée.
+     */
+    public function reopenConsultation(
+        ReopenConsultationRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        ReopenConsultationAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $episodeOrientation->consultation()->firstOrFail(),
+            $request->validated('reason'),
+            $request->user(),
+        );
+
+        return redirect()
+            ->route('medicine.orientations.step', [$episodeOrientation, 'cloture'])
+            ->with('status', 'Consultation rouverte. Complétez le dossier, puis clôturez de nouveau.');
+    }
+
+    /**
+     * Le compte rendu d'imagerie, imprimable.
+     *
+     * Impression navigateur, jamais un PDF produit côté serveur : c'est la
+     * limite déjà actée par l'ADR-070, et aucune dépendance serveur n'est
+     * ajoutée ici. L'en-tête de clinique vient de `page.props.site`, donc
+     * du site réellement déployé — Mampikony, Ambondromamy ou Boriziny
+     * impriment chacun le leur sans code conditionnel.
+     *
+     * Rien n'est composé ici : la page réimprime exactement ce que le
+     * médecin a enregistré. Un examen sans compte rendu n'a rien à
+     * imprimer et renvoie 404 plutôt qu'une feuille vide portant l'en-tête
+     * de la clinique.
+     */
+    public function printImagingReport(
+        ImagingRequestItem $imagingRequestItem,
+        ClinicalRichTextSanitizer $richText,
+    ): Response
+    {
+        abort_if($imagingRequestItem->resulted_at === null, 404);
+
+        $imagingRequestItem->load([
+            'resultedBy:id,name',
+            'imagingRequest.requestedBy:id,name',
+            'imagingRequest.episode.patient',
+        ]);
+
+        $request = $imagingRequestItem->imagingRequest;
+        $episode = $request?->episode;
+        $patient = $episode?->patient;
+
+        abort_if($patient === null, 404);
+
+        return Inertia::render('Medicine/ImagingReportPrint', [
+            'report' => [
+                'uuid' => $imagingRequestItem->uuid,
+                'exam' => $imagingRequestItem->catalog_item_name_snapshot,
+                'code' => $imagingRequestItem->catalog_item_code_snapshot,
+                'value' => $richText->toSafeHtml($imagingRequestItem->result_value),
+                'notes' => $richText->toSafeHtml($imagingRequestItem->result_notes),
+                'resulted_at' => $imagingRequestItem->resulted_at,
+                'resulted_by' => $imagingRequestItem->resultedBy?->name,
+                'requested_at' => $request->requested_at,
+                'requested_by' => $request->requestedBy?->name,
+                'indication' => $request->notes,
+            ],
+            'episode' => [
+                'episode_number' => $episode->episode_number,
+                'priority' => $episode->priority->value,
+            ],
+            'patient' => [
+                'uuid' => $patient->uuid,
+                'patient_number' => $patient->patient_number,
+                'first_name' => $patient->first_name,
+                'last_name' => $patient->last_name,
+                'sex' => $patient->sex->value,
+                'sex_label' => $patient->sex->value === 'F' ? 'Féminin' : 'Masculin',
+                'birth_date' => $patient->birth_date?->toDateString(),
+                'birth_date_is_approximate' => $patient->birth_date_is_approximate,
+                'age' => $patient->birth_date?->age ?? $patient->declared_age,
             ],
         ]);
     }
@@ -818,10 +944,40 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        $nextStep = $request->boolean('continue_to_diagnosis') ? 'examen' : 'paraclinique';
+        /*
+         * Jamais un retour vers l'Examen clinique.
+         *
+         * Ce renvoi datait de l'ADR-080, quand le diagnostic se saisissait
+         * dans l'examen : « continuer vers le diagnostic » voulait alors
+         * dire « remonter à l'examen ». Depuis l'ADR-089 la conclusion vit à
+         * l'étape « Décision & clôture », et demander une échographie ne
+         * signifie évidemment pas qu'il faut recommencer l'examen physique.
+         *
+         * Le médecin reste donc sur la Paraclinique — d'où il peut en
+         * demander une autre, en retirer une, ou saisir un résultat — ou
+         * avance vers la Prescription s'il a demandé à poursuivre.
+         */
+        $nextStep = $request->boolean('continue_to_diagnosis') ? 'ordonnance' : 'paraclinique';
 
         return redirect()->route('medicine.orientations.step', [$episodeOrientation, $nextStep])
             ->with('status', 'Demande d’analyses transmise au Laboratoire.');
+    }
+
+    /**
+     * Retirer une demande d'examen précise (ADR-079 pour la règle, appliquée
+     * ici à une demande unique plutôt qu'à toutes).
+     */
+    public function cancelParaclinicalRequest(
+        CancelParaclinicalRequestRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CancelParaclinicalRequestAction $action,
+    ): RedirectResponse {
+        $consultation = $episodeOrientation->consultation()->firstOrFail();
+        $target = $request->target($consultation);
+
+        $action->execute($consultation, $target, $request->input('reason'), $request->user());
+
+        return back()->with('status', 'Demande retirée. Elle reste consultable dans le dossier.');
     }
 
     public function storeImagingRequest(
@@ -836,7 +992,20 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        $nextStep = $request->boolean('continue_to_diagnosis') ? 'examen' : 'paraclinique';
+        /*
+         * Jamais un retour vers l'Examen clinique.
+         *
+         * Ce renvoi datait de l'ADR-080, quand le diagnostic se saisissait
+         * dans l'examen : « continuer vers le diagnostic » voulait alors
+         * dire « remonter à l'examen ». Depuis l'ADR-089 la conclusion vit à
+         * l'étape « Décision & clôture », et demander une échographie ne
+         * signifie évidemment pas qu'il faut recommencer l'examen physique.
+         *
+         * Le médecin reste donc sur la Paraclinique — d'où il peut en
+         * demander une autre, en retirer une, ou saisir un résultat — ou
+         * avance vers la Prescription s'il a demandé à poursuivre.
+         */
+        $nextStep = $request->boolean('continue_to_diagnosis') ? 'ordonnance' : 'paraclinique';
 
         return redirect()->route('medicine.orientations.step', [$episodeOrientation, $nextStep])
             ->with('status', 'Demande d’imagerie enregistrée.');
@@ -855,8 +1024,11 @@ class MedicineController extends Controller
             $request->user(),
         );
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'paraclinique'])
-            ->with('status', 'Compte rendu enregistré.');
+        // Retour là d'où on vient. Un résultat se saisit aussi depuis
+        // « Demandes d'examens », souvent après la clôture : y renvoyer le
+        // médecin dans la consultation le déposerait sur un dossier en
+        // lecture seule, sans rapport avec ce qu'il était en train de faire.
+        return back()->with('status', 'Compte rendu enregistré.');
     }
 
     public function storeSurgicalReferral(

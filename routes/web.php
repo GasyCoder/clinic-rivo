@@ -32,6 +32,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
+use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
@@ -41,6 +42,7 @@ use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
+use App\Http\Controllers\Reception\EpisodeSettlementController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
@@ -433,6 +435,16 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'store'])
         ->name('reception.passages.services.store')
         ->middleware('can:episodes.update');
+    // CDC §33.3 — sortie administrative. Réception's own decision on the
+    // passages Médecine has finished with: control the account (§33.2),
+    // then close the passage as paid / debt / escape. Never a clinical
+    // action, and never a payment: collecting stays at /cash (ADR-012).
+    Route::get('/reception/sorties', [EpisodeSettlementController::class, 'index'])
+        ->name('reception.settlements.index')
+        ->middleware('can:episodes.settlement.view');
+    Route::post('/reception/passages/{episode}/sortie-administrative', [EpisodeSettlementController::class, 'store'])
+        ->name('reception.passages.administrative-exit.store')
+        ->middleware('can:episodes.administrative_exit');
     Route::get('/reception/mutual-coverages/{coverage}/attachments/{attachment}', PatientMutualCoverageAttachmentController::class)
         ->name('reception.mutual-coverages.attachments.show')
         ->scopeBindings()
@@ -516,6 +528,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/maternity/orientations/{episodeOrientation}/complete', [MaternityController::class, 'complete'])->name('maternity.orientations.complete')->middleware('can:maternity.complete');
 
     Route::get('/medicine', [MedicineController::class, 'index'])->name('medicine.index')->middleware('can:consultations.view');
+    // Toutes les demandes d'examens du médecin, hors d'une consultation
+    // précise : `laboratory_orders.view` suffit à entrer, et chaque famille
+    // est ensuite filtrée par son propre droit dans le contrôleur.
+    Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:laboratory_orders.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
         // 'diagnostic' et 'decision' restent acceptées pour ne pas casser un
@@ -534,6 +550,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->middleware('can:episodes.mark_emergency');
     Route::put('/medicine/orientations/{episodeOrientation}/interrogatoire', [MedicineController::class, 'updateInterview'])->name('medicine.interview.update')->middleware('can:consultations.update');
     Route::put('/medicine/orientations/{episodeOrientation}/examen-clinique', [MedicineController::class, 'updateClinicalExam'])->name('medicine.clinical-exam.update')->middleware('can:consultations.update');
+    // Corriger une constante des Soins depuis la consultation (ADR-093).
+    // `vitals.update`, pas `consultations.update` : ce qui est écrit est la
+    // fiche Soins, et c'est ce droit-là qui la gouverne partout ailleurs.
+    Route::put('/medicine/orientations/{episodeOrientation}/constantes', [MedicineController::class, 'correctCareVitals'])->name('medicine.care-vitals.correct')->middleware('can:vitals.update');
     // La conduite à tenir est une donnée, pas une étape : elle se choisit
     // dès que le médecin en sait assez, et ouvre aussitôt sa demande.
     Route::post('/medicine/orientations/{episodeOrientation}/orientation', [MedicineController::class, 'selectOrientation'])->name('medicine.orientation.select')->middleware('can:consultations.update');
@@ -541,8 +561,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // déclarée non nécessaire pour ce patient. Jamais un effet de bord de
     // l'ouverture d'un écran.
     Route::post('/medicine/orientations/{episodeOrientation}/complementary-exams', [MedicineController::class, 'decideComplementaryExams'])->name('medicine.complementary-exams.decide')->middleware('can:consultations.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/diagnostic-timing', [MedicineController::class, 'decideDiagnosisTiming'])->name('medicine.diagnosis-timing.decide')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/steps', [MedicineController::class, 'resolveStep'])->name('medicine.steps.resolve')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/complete', [MedicineController::class, 'completeConsultation'])->name('medicine.consultations.complete')->middleware('can:consultations.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/reopen', [MedicineController::class, 'reopenConsultation'])->name('medicine.consultations.reopen')->middleware('can:consultations.reopen');
     Route::post('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'storeDiagnosis'])->name('medicine.diagnoses.store')->middleware('can:diagnoses.create');
     Route::get('/diagnostic-catalog/search', DiagnosticCatalogSearchController::class)->name('diagnostic-catalog.search')->middleware('can:diagnoses.create');
     Route::put('/medicine/orientations/{episodeOrientation}/diagnoses', [MedicineController::class, 'updateDiagnosis'])->name('medicine.diagnoses.update')->middleware('can:diagnoses.update');
@@ -554,7 +576,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/medicine/orientations/{episodeOrientation}/care-orders', [MedicineController::class, 'storeCareOrder'])->name('medicine.care-orders.store')->middleware('can:care_orders.create');
     Route::post('/medicine/orientations/{episodeOrientation}/lab-requests', [MedicineController::class, 'storeLabRequest'])->name('medicine.lab-requests.store')->middleware('can:laboratory_orders.create');
     Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests', [MedicineController::class, 'storeImagingRequest'])->name('medicine.imaging-requests.store')->middleware('can:imaging_orders.create');
+    // Retrait d'une demande d'examen précise. `consultations.update` et non
+    // un droit d'annulation propre : revenir sur une demande fait partie de
+    // l'écriture de la consultation (ADR-079).
+    Route::post('/medicine/orientations/{episodeOrientation}/paraclinical-requests/cancel', [MedicineController::class, 'cancelParaclinicalRequest'])->name('medicine.paraclinical-requests.cancel')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result', [MedicineController::class, 'recordImagingResult'])->name('medicine.imaging-requests.result')->middleware('can:imaging_results.create');
+    Route::get('/medicine/imaging-requests/{imagingRequestItem}/compte-rendu', [MedicineController::class, 'printImagingReport'])->name('medicine.imaging-reports.print')->middleware('can:imaging_orders.view');
     Route::post('/medicine/orientations/{episodeOrientation}/surgical-referrals', [MedicineController::class, 'storeSurgicalReferral'])->name('medicine.surgical-referrals.store')->middleware('can:surgery.request');
     Route::post('/medicine/orientations/{episodeOrientation}/referrals', [MedicineController::class, 'storeReferral'])->name('medicine.referrals.store');
     Route::post('/medicine/orientations/{episodeOrientation}/hospitalization-requests', [MedicineController::class, 'storeHospitalizationRequest'])->name('medicine.hospitalization-requests.store')->middleware('can:hospitalization.request');

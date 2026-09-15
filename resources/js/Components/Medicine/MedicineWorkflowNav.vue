@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import Icon from '@/Components/UI/Icon.vue';
+import { Check, Clock, SkipForward } from 'lucide-vue-next';
 
 /**
  * Renders exactly what the server says about each step — never a status
@@ -24,6 +24,16 @@ const activeStep = computed(() => props.steps[currentIndex.value] ?? props.steps
 /** Relevant steps only: an irrelevant step is never an omission to make up. */
 const relevantSteps = computed(() => props.steps.filter((step) => step.relevant !== false));
 const resolvedCount = computed(() => relevantSteps.value.filter((step) => step.resolved).length);
+/**
+ * Le rang de l'étape courante parmi celles qui concernent ce patient — une
+ * étape sans objet ne compte pas, sinon « étape 4 sur 6 » désignerait un
+ * écran que ce passage ne traverse jamais.
+ */
+const currentPosition = computed(() => {
+    const index = relevantSteps.value.findIndex((step) => step.key === props.currentKey);
+
+    return index === -1 ? 1 : index + 1;
+});
 const progress = computed(() => (relevantSteps.value.length === 0
     ? 0
     : Math.round((resolvedCount.value / relevantSteps.value.length) * 100)));
@@ -37,28 +47,30 @@ const stepHref = (step) => `/medicine/orientations/${props.orientationUuid}/${st
 
 const MARKERS = {
     COMPLETED: {
-        icon: 'check',
+        icon: Check,
         ring: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
         note: 'Validée',
         noteClass: 'text-emerald-600 dark:text-emerald-400',
     },
     SKIPPED: {
-        icon: 'forward-arrow',
-        ring: 'border-slate-300 bg-slate-100 text-slate-500 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-400',
+        icon: SkipForward,
+        ring: 'border-border bg-muted text-muted-foreground',
         note: 'Non nécessaire',
-        noteClass: 'text-slate-400',
+        noteClass: 'text-muted-foreground',
     },
     IN_PROGRESS: {
-        icon: 'clock',
+        icon: Clock,
         ring: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
         note: 'En cours',
         noteClass: 'text-amber-600 dark:text-amber-400',
     },
     NOT_STARTED: {
+        // Pas de pastille générique : une étape non commencée montre son
+        // propre geste clinique, ce qui rend le parcours lisible sans survol.
         icon: null,
-        ring: 'border-gray-300 bg-white text-slate-400 dark:border-gray-800 dark:bg-gray-1000 dark:text-slate-500',
+        ring: 'border-border bg-card text-muted-foreground',
         note: null,
-        noteClass: 'text-slate-400 dark:text-slate-500',
+        noteClass: 'text-muted-foreground',
     },
 };
 
@@ -77,20 +89,20 @@ const subtitle = (step) => {
     const isCurrent = step.key === props.currentKey;
 
     if (step.note) return { text: step.note, class: marker(step).noteClass, keep: true };
-    if (step.relevant === false) return { text: 'Sans objet', class: 'text-slate-400 dark:text-slate-500', keep: true };
+    if (step.relevant === false) return { text: 'Sans objet', class: 'text-muted-foreground', keep: true };
     if (marker(step).note) return { text: marker(step).note, class: marker(step).noteClass, keep: isCurrent };
 
-    return { text: step.hint ?? '', class: 'text-slate-400 dark:text-slate-500', keep: isCurrent };
+    return { text: step.hint ?? '', class: 'text-muted-foreground', keep: isCurrent };
 };
 
 /** The line leading into a step is coloured by the step it comes from. */
 const connectorClass = (index) => (props.steps[index - 1]?.resolved
     ? 'bg-emerald-300 dark:bg-emerald-800'
-    : 'bg-gray-200 dark:bg-gray-800');
+    : 'bg-muted');
 </script>
 
 <template>
-    <section class="workflow-bar overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950" aria-labelledby="medicine-workflow-title">
+    <section class="workflow-bar overflow-hidden rounded-lg border border-border bg-card shadow-sm" aria-labelledby="medicine-workflow-title">
         <div class="flex items-center gap-3 px-3 py-2.5 sm:px-4">
             <!-- The active step's name is already the heading of the card
                  directly below; repeating it here only stole the width that
@@ -124,7 +136,7 @@ const connectorClass = (index) => (props.steps[index - 1]?.resolved
                             'workflow-step-link group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors',
                             step.key === currentKey
                                 ? 'bg-primary-50 ring-1 ring-inset ring-primary-200 dark:bg-primary-950/30 dark:ring-primary-900'
-                                : 'hover:bg-gray-50 dark:hover:bg-gray-1000/60',
+                                : 'hover:bg-muted/40',
                         ]"
                     >
                         <span :class="[
@@ -133,7 +145,7 @@ const connectorClass = (index) => (props.steps[index - 1]?.resolved
                                 ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
                                 : marker(step).ring,
                         ]">
-                            <Icon class="text-base" :name="markerIcon(step)" />
+                            <component :is="markerIcon(step)" class="h-4 w-4" aria-hidden="true" />
                         </span>
 
                         <!-- Trop étroit pour six libellés : seule l'étape en
@@ -144,7 +156,7 @@ const connectorClass = (index) => (props.steps[index - 1]?.resolved
                         <span :class="['min-w-0', step.key === currentKey ? 'workflow-step-text--current' : 'workflow-step-text']">
                             <!-- Le libellé ne se tronque jamais : c'est le
                                  sous-titre qui cède la place en premier. -->
-                            <span :class="['block whitespace-nowrap text-sm font-bold leading-tight', step.key === currentKey ? 'text-primary-700 dark:text-primary-300' : 'text-slate-700 dark:text-slate-200']">{{ step.navLabel ?? step.label }}</span>
+                            <span :class="['block whitespace-nowrap text-sm font-bold leading-tight', step.key === currentKey ? 'text-primary-700 dark:text-primary-300' : 'text-foreground']">{{ step.navLabel ?? step.label }}</span>
                             <!-- La note du serveur prime : « Non nécessaire »
                                  ou « 2 examens demandés » disent plus que le
                                  statut seul. -->
@@ -161,14 +173,16 @@ const connectorClass = (index) => (props.steps[index - 1]?.resolved
                 </li>
             </ol>
 
-            <div class="hidden shrink-0 border-s border-gray-200 ps-3 text-end dark:border-gray-900 sm:block">
-                <p class="text-base font-extrabold leading-none text-slate-700 dark:text-white">{{ resolvedCount }}<span class="text-slate-400">/{{ relevantSteps.length }}</span></p>
-                <p class="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Validées</p>
+            <!-- « Où suis-je » énoncé en toutes lettres : une frise colorée
+                 dit l'état de chaque étape, pas la position dans le parcours. -->
+            <div class="hidden shrink-0 border-s border-border ps-3 text-end sm:block">
+                <p class="text-sm font-bold leading-none text-foreground">Étape {{ currentPosition }} sur {{ relevantSteps.length }}</p>
+                <p class="mt-1 text-xs font-medium text-muted-foreground">{{ resolvedCount }} validée{{ resolvedCount > 1 ? 's' : '' }}</p>
             </div>
         </div>
 
-        <div class="h-1 bg-gray-100 dark:bg-gray-900" aria-hidden="true">
-            <div class="h-full bg-primary-600 transition-all duration-300" :style="{ width: `${progress}%` }" />
+        <div class="h-1 bg-muted" aria-hidden="true">
+            <div class="h-full bg-primary transition-all duration-300" :style="{ width: `${progress}%` }" />
         </div>
     </section>
 </template>

@@ -6,6 +6,7 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Models\EpisodeOrientation;
+use App\Support\ConsultationWorkflow;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -29,6 +30,7 @@ class StoreMedicalDischargeRequest extends FormRequest
             'discharged_at', 'follow_up_at', 'transfer_destination',
             'death_occurred_at', 'death_place', 'death_causes',
             'discharge_prescription', 'recommendations', 'observations',
+            'final_diagnosis',
         ] as $field) {
             if ($this->input($field) === '') {
                 $this->merge([$field => null]);
@@ -40,7 +42,10 @@ class StoreMedicalDischargeRequest extends FormRequest
     {
         return [
             'type' => ['required', Rule::enum(MedicalDischargeType::class)],
-            'final_diagnosis' => ['required', 'string', 'max:5000'],
+            'final_diagnosis' => [
+                Rule::requiredIf(fn (): bool => $this->requiresFinalDiagnosis()),
+                'nullable', 'string', 'max:5000',
+            ],
             'patient_condition' => ['required', 'string', 'max:3000'],
             'discharge_prescription' => ['nullable', 'string', 'max:5000'],
             'recommendations' => ['nullable', 'string', 'max:5000'],
@@ -80,5 +85,25 @@ class StoreMedicalDischargeRequest extends FormRequest
             'follow_up_at.after_or_equal' => 'Le rendez-vous doit être postérieur à la sortie.',
             'death_occurred_at.before_or_equal' => 'L’heure du décès ne peut pas être postérieure à la décision de sortie.',
         ];
+    }
+
+    /**
+     * Le diagnostic final reste exigé pour toute vraie consultation
+     * (CDC §33.1). Il ne l'est pas pour un passage venu uniquement pour un
+     * ECG, une échographie ou une analyse : la conclusion de l'examen tient
+     * lieu de diagnostic, et le résultat n'est souvent pas encore revenu
+     * quand le médecin clôture (ADR-094).
+     *
+     * La règle n'est pas recopiée ici : `ConsultationWorkflow` la porte une
+     * seule fois, et la garde de clôture consulte exactement la même —
+     * sans quoi la sortie pourrait partir sur un dossier que la clôture
+     * refuserait ensuite.
+     */
+    private function requiresFinalDiagnosis(): bool
+    {
+        $consultation = $this->route('episodeOrientation')?->consultation()->with('episode.serviceRequests')->first();
+
+        return $consultation === null
+            || app(ConsultationWorkflow::class)->requiresFinalDiagnosis($consultation);
     }
 }

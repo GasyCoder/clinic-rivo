@@ -193,7 +193,7 @@ class ClinicOverviewService
                 description: 'Demandes de délivrance reçues aujourd’hui.',
                 icon: 'capsule',
                 tone: 'ocean',
-                href: '/pharmacy',
+                href: '/pharmacy/dispenses',
             );
             $trendSeries[] = $this->trendSeries(
                 key: 'pharmacy_requests',

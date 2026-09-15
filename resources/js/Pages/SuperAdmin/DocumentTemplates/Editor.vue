@@ -19,12 +19,12 @@ import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
 import { FontSize } from '@/tiptap/FontSize';
 import { BlockStyle, parseStyle, stringifyStyle } from '@/tiptap/BlockStyle';
-import { convertDocxToHtml, extractPdfPlainText } from '@/tiptap/documentImport';
+import { convertDocxToPages, extractPdfPages } from '@/tiptap/documentImport';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
-    site: { type: Object, required: true },
+    targetSite: { type: Object, required: true },
     template: { type: Object, default: null },
     dataContexts: { type: Array, default: () => [] },
 });
@@ -160,25 +160,42 @@ const handleImportFile = async (event) => {
     event.target.value = '';
     if (!file || !editor.value) return;
 
-    const currentContent = editor.value.getHTML();
-    if (currentContent && currentContent !== '<p></p>'
-        && !confirm('La page active contient déjà du texte. Remplacer son contenu par le fichier importé ?')) {
-        return;
-    }
-
     importWarning.value = '';
     const isPdf = file.name.toLowerCase().endsWith('.pdf');
 
+    let imported;
     try {
-        const html = isPdf ? await extractPdfPlainText(file) : (await convertDocxToHtml(file)).html;
-        editor.value.commands.setContent(html);
-        isDirty.value = true;
-        if (isPdf) {
-            importWarning.value = 'Import PDF : seul le texte a été récupéré, sans mise en forme — reformatez manuellement (gras, titres, tableaux…).';
-        }
+        imported = isPdf
+            ? { pages: await extractPdfPages(file), paginated: true }
+            : await convertDocxToPages(file);
     } catch (error) {
         alert(`Échec de l’import : ${error.message}`);
+        return;
     }
+
+    const count = imported.pages.length;
+    const currentContent = editor.value.getHTML();
+    if (currentContent && currentContent !== '<p></p>'
+        && !confirm(count > 1
+            ? `Le fichier contient ${count} pages. La page active sera remplacée par la page 1, et les ${count - 1} suivantes seront ajoutées juste après. Continuer ?`
+            : 'La page active contient déjà du texte. Remplacer son contenu par le fichier importé ?')) {
+        return;
+    }
+
+    // One canevas page per page of the file: the first replaces the active
+    // page, the others follow it in their original order.
+    commitActivePage();
+    const index = activePageIndex.value;
+    pages.value[index].content = imported.pages[0];
+    pages.value.splice(index + 1, 0, ...imported.pages.slice(1).map((content) => ({ id: newPageId(), content })));
+    editor.value.commands.setContent(imported.pages[0]);
+    isDirty.value = true;
+
+    const notes = [];
+    if (count > 1) notes.push(`${count} pages importées, une page du canevas par page du fichier.`);
+    if (!isPdf && !imported.paginated) notes.push('Aucune limite de page n’a été trouvée dans ce fichier Word : tout le contenu est sur une page. Enregistrez-le depuis Word puis réimportez-le, ou ajoutez des sauts de page.');
+    if (isPdf) notes.push('Import PDF : seul le texte a été récupéré, sans mise en forme — reformatez manuellement (gras, titres, tableaux…).');
+    importWarning.value = notes.join(' ');
 };
 
 const insertTable = () => {
@@ -278,7 +295,7 @@ const openHistory = async () => {
     historyLoading.value = true;
     historyError.value = '';
     try {
-        const response = await fetch(`/super-admin/workspaces/document-templates/${props.site.code}/${props.template.uuid}/history`, {
+        const response = await fetch(`/super-admin/workspaces/document-templates/${props.targetSite.code}/${props.template.uuid}/history`, {
             headers: { Accept: 'application/json' },
         });
         if (!response.ok) throw new Error('L’historique n’a pas pu être chargé.');
@@ -295,7 +312,7 @@ const cancelRevert = () => { revertTarget.value = null; };
 const confirmRevert = () => {
     reverting.value = true;
     router.post(
-        `/super-admin/workspaces/document-templates/${props.site.code}/${revertTarget.value.uuid}/revert`,
+        `/super-admin/workspaces/document-templates/${props.targetSite.code}/${revertTarget.value.uuid}/revert`,
         { reason: revertReason.value },
         { onFinish: () => { reverting.value = false; } },
     );
@@ -305,7 +322,7 @@ watch(() => [form.document_type, form.data_context, form.name, form.description,
     isDirty.value = true;
 });
 
-const backUrl = `/super-admin/workspaces/document-templates?site=${props.site.code}`;
+const backUrl = `/super-admin/workspaces/document-templates?site=${props.targetSite.code}`;
 const leaveEditor = () => {
     if (isDirty.value && !confirm('Des modifications ne sont pas enregistrées. Quitter sans enregistrer ?')) return;
     router.visit(backUrl);
@@ -319,7 +336,7 @@ const submit = () => {
         ...data,
         content: { pages: pages.value.map(({ id, content }) => ({ id, content })) },
         content_html: contentHtml,
-        ...(isEditing.value ? {} : { site_code: props.site.code }),
+        ...(isEditing.value ? {} : { site_code: props.targetSite.code }),
     }));
 
     const options = {
@@ -328,7 +345,7 @@ const submit = () => {
     };
 
     if (isEditing.value) {
-        form.put(`/super-admin/workspaces/document-templates/${props.site.code}/${props.template.uuid}`, options);
+        form.put(`/super-admin/workspaces/document-templates/${props.targetSite.code}/${props.template.uuid}`, options);
     } else {
         form.post('/super-admin/workspaces/document-templates', options);
     }
@@ -343,7 +360,7 @@ const submit = () => {
             <div>
                 <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-primary-600" @click="leaveEditor"><Icon name="arrow-left" />Canevas de documents</button>
                 <h1 class="mt-1 font-heading text-xl font-bold text-slate-700 dark:text-white">{{ isEditing ? `Modifier « ${template.name} »` : 'Nouveau canevas' }}</h1>
-                <p class="mt-1 text-xs text-slate-500">Site destinataire : <strong>{{ site.name }}</strong><span v-if="isEditing && template.generated_documents_count"> · {{ template.generated_documents_count }} document(s) déjà généré(s) — toute modification crée une nouvelle version, sans affecter ceux-là.</span></p>
+                <p class="mt-1 text-xs text-slate-500">Site destinataire : <strong>{{ targetSite.name }}</strong><span v-if="isEditing && template.generated_documents_count"> · {{ template.generated_documents_count }} document(s) déjà généré(s) — toute modification crée une nouvelle version, sans affecter ceux-là.</span></p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <span v-if="isDirty" class="text-xs font-bold text-amber-600">● Modifications non enregistrées</span>

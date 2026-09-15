@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
@@ -70,7 +69,6 @@ const restore = (item) => router.post(`/administration/settings/${item.uuid}/res
 <template>
     <Head title="Paramètres RH" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Référentiels et règles configurables" title="Paramètres RH" description="Gérez les départements, fonctions, contrats, congés et attestations. Les règles de congé sont appliquées par le serveur, sans calcul dupliqué dans les formulaires." icon="setting" tone="slate" />
 
         <div class="grid gap-5 xl:grid-cols-[270px_minmax(0,1fr)]">

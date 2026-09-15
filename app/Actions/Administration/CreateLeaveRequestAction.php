@@ -44,6 +44,22 @@ class CreateLeaveRequestAction
         try {
             return DB::transaction(function () use ($data, $actor, $justification, $storedPath): LeaveRequest {
                 $employee = Employee::query()->where('uuid', $data['employee_uuid'])->lockForUpdate()->firstOrFail();
+
+                // Two live requests for the same days would count the same days
+                // twice against the balance: the second one is refused.
+                $overlap = LeaveRequest::query()
+                    ->where('employee_id', $employee->getKey())
+                    ->whereIn('status', [LeaveRequestStatus::Pending->value, LeaveRequestStatus::Approved->value])
+                    ->whereDate('starts_on', '<=', $data['returns_on'])
+                    ->whereDate('returns_on', '>=', $data['starts_on'])
+                    ->first();
+
+                if ($overlap) {
+                    throw ValidationException::withMessages([
+                        'starts_on' => "Ces dates chevauchent une demande déjà {$overlap->status->label()} du {$overlap->starts_on->format('d/m/Y')} au {$overlap->returns_on->format('d/m/Y')} : modifiez les dates ou annulez l’autre demande.",
+                    ]);
+                }
+
                 $interim = ! empty($data['interim_employee_uuid'])
                     ? Employee::query()->where('uuid', $data['interim_employee_uuid'])->firstOrFail()
                     : null;

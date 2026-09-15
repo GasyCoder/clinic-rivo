@@ -1,0 +1,249 @@
+<?php
+
+namespace App\Http\Controllers\SuperAdmin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Controllers\SuperAdmin\Concerns\RespondsToSiteApi;
+use App\Services\SuperAdmin\PortalSiteApiClient;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
+
+/**
+ * ADR-098 — orders and supplier invoices of one site's supplier, written
+ * from the central portal through that site's API. The site applies its own
+ * rules and audits the Super Admin; the portal only forwards and shows back
+ * the result. Receiving goods stays at the site.
+ */
+class PharmacyProcurementController extends Controller
+{
+    use RespondsToSiteApi;
+
+    public function createOrder(Request $request, string $site, string $supplier, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'GET', 'order-form');
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/OrderCreate', [
+            'targetSite' => $result['site'],
+            'supplier' => data_get($result, 'data.supplier'),
+            'medicines' => data_get($result, 'data.medicines', []),
+            'error' => $result['ok'] ? null : $result['message'],
+        ]);
+    }
+
+    public function storeOrder(Request $request, string $site, string $supplier, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $request->validate(['lines' => ['required', 'array', 'min:1']]);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders', $request->only(['expected_delivery_at', 'notes', 'lines']));
+
+        if (! $result['ok']) {
+            return back()->withErrors($this->siteErrors($result))->withInput();
+        }
+
+        return to_route('super-admin.pharmacy-suppliers.orders.show', [mb_strtoupper($site), $supplier, data_get($result, 'data.uuid')])
+            ->with('status', $result['message'] ?: 'Commande créée en brouillon.');
+    }
+
+    public function showOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'GET', 'orders/'.rawurlencode($order));
+        $user = $request->user();
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/OrderShow', [
+            'targetSite' => $result['site'],
+            'supplier' => data_get($result, 'data.supplier'),
+            'order' => data_get($result, 'data.order'),
+            'error' => $result['ok'] ? null : $result['message'],
+            'can' => [
+                'update' => $user->can('purchase_orders.update'),
+                'submit' => $user->can('purchase_orders.submit'),
+                'cancel' => $user->can('purchase_orders.cancel'),
+                'create_invoice' => $user->can('supplier_invoices.create') && ! data_get($result, 'data.supplier.archived', false),
+            ],
+        ]);
+    }
+
+    /** A draft only: the site refuses any other status and the page says so. */
+    public function editOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $user = $request->user();
+        $detail = $client->pharmacyProcurement($site, $supplier, $user, 'GET', 'orders/'.rawurlencode($order));
+        $form = $detail['ok'] ? $client->pharmacyProcurement($site, $supplier, $user, 'GET', 'order-form') : $detail;
+        $status = data_get($detail, 'data.order.status');
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/OrderEdit', [
+            'targetSite' => $detail['site'],
+            'supplier' => data_get($detail, 'data.supplier'),
+            'order' => data_get($detail, 'data.order'),
+            'medicines' => data_get($form, 'data.medicines', []),
+            'error' => match (true) {
+                ! $detail['ok'] => $detail['message'],
+                ! $form['ok'] => $form['message'],
+                $status !== 'DRAFT' => 'Seule une commande en brouillon peut être modifiée. Une commande envoyée s’annule, elle ne se réécrit pas.',
+                default => null,
+            },
+        ]);
+    }
+
+    public function updateOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $request->validate(['lines' => ['required', 'array', 'min:1']]);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'PUT', 'orders/'.rawurlencode($order), $request->only(['expected_delivery_at', 'notes', 'lines']));
+
+        if (! $result['ok']) {
+            return back()->withErrors($this->siteErrors($result))->withInput();
+        }
+
+        return to_route('super-admin.pharmacy-suppliers.orders.show', [mb_strtoupper($site), $supplier, $order])
+            ->with('status', $result['message'] ?: 'Commande mise à jour.');
+    }
+
+    public function editInvoice(Request $request, string $site, string $supplier, string $invoice, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'GET', 'invoices/'.rawurlencode($invoice));
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/InvoiceEdit', [
+            'targetSite' => $result['site'],
+            'supplier' => data_get($result, 'data.supplier'),
+            'invoice' => data_get($result, 'data.invoice'),
+            'medicines' => data_get($result, 'data.medicines', []),
+            'orders' => data_get($result, 'data.orders', []),
+            'error' => match (true) {
+                ! $result['ok'] => $result['message'],
+                (bool) data_get($result, 'data.invoice.archived') => 'Restaurez la facture avant de la modifier.',
+                default => null,
+            },
+        ]);
+    }
+
+    public function updateInvoice(Request $request, string $site, string $supplier, string $invoice, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $request->validate([
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
+            'lines' => ['required', 'array', 'min:1'],
+        ]);
+        $attachment = $request->file('attachment');
+        $payload = collect($request->only(['invoice_number', 'invoice_date', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
+            ->filter(fn ($value) => filled($value))
+            ->all();
+        // A multipart body cannot nest arrays: the lines travel as JSON with the document.
+        $payload['lines'] = $attachment ? json_encode($request->input('lines')) : $request->input('lines');
+
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'invoices/'.rawurlencode($invoice).'/update', $payload, $attachment);
+
+        if (! $result['ok']) {
+            return back()->withErrors($this->siteErrors($result));
+        }
+
+        return to_route('super-admin.pharmacy-suppliers.invoices.show', [mb_strtoupper($site), $supplier, $invoice])
+            ->with('status', $result['message'] ?: 'Facture mise à jour.');
+    }
+
+    public function submitOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders/'.rawurlencode($order).'/submit'),
+            'Commande passée.',
+        );
+    }
+
+    public function cancelOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders/'.rawurlencode($order).'/cancel', $validated),
+            'Commande annulée.',
+        );
+    }
+
+    public function createInvoice(Request $request, string $site, string $supplier, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'GET', 'invoice-form');
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/InvoiceCreate', [
+            'targetSite' => $result['site'],
+            'supplier' => data_get($result, 'data.supplier'),
+            'medicines' => data_get($result, 'data.medicines', []),
+            'orders' => data_get($result, 'data.orders', []),
+            'initialOrderUuid' => $request->query('order'),
+            'error' => $result['ok'] ? null : $result['message'],
+        ]);
+    }
+
+    public function storeInvoice(Request $request, string $site, string $supplier, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $request->validate([
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
+            'lines' => ['required', 'array', 'min:1'],
+        ]);
+        $attachment = $request->file('attachment');
+        $payload = collect($request->only(['invoice_number', 'invoice_date', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
+            ->filter(fn ($value) => filled($value))
+            ->all();
+        // A multipart body cannot nest arrays: the lines travel as JSON with the document.
+        $payload['lines'] = $attachment ? json_encode($request->input('lines')) : $request->input('lines');
+
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'invoices', $payload, $attachment);
+
+        if (! $result['ok']) {
+            return back()->withErrors($this->siteErrors($result));
+        }
+
+        return to_route('super-admin.pharmacy-suppliers.invoices.show', [mb_strtoupper($site), $supplier, data_get($result, 'data.uuid')])
+            ->with('status', $result['message'] ?: 'Facture enregistrée.');
+    }
+
+    public function showInvoice(Request $request, string $site, string $supplier, string $invoice, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'GET', 'invoices/'.rawurlencode($invoice));
+        $user = $request->user();
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/InvoiceShow', [
+            'targetSite' => $result['site'],
+            'supplier' => data_get($result, 'data.supplier'),
+            'invoice' => data_get($result, 'data.invoice'),
+            'error' => $result['ok'] ? null : $result['message'],
+            'can' => [
+                'update' => $user->can('supplier_invoices.update'),
+                'delete' => $user->can('supplier_invoices.delete'),
+                'restore' => $user->can('supplier_invoices.restore'),
+            ],
+        ]);
+    }
+
+    public function archiveInvoice(Request $request, string $site, string $supplier, string $invoice, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'DELETE', 'invoices/'.rawurlencode($invoice), $validated),
+            'Facture archivée.',
+        );
+    }
+
+    public function restoreInvoice(Request $request, string $site, string $supplier, string $invoice, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'invoices/'.rawurlencode($invoice).'/restore'),
+            'Facture restaurée.',
+        );
+    }
+}

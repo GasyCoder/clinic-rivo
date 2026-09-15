@@ -37,6 +37,17 @@ class DevelopmentTestAccountSeeder extends Seeder
         'catalog.items.view', 'catalog.items.create', 'catalog.items.update',
         'catalog.tariffs.view', 'catalog.tariffs.create', 'catalog.tariffs.update',
         'analysis_catalog.view', 'analysis_catalog.create', 'analysis_catalog.update',
+        // ADR-098 — suppliers and procurement belong to no role, so the local
+        // test account receives them by name to walk the whole supply chain.
+        'medicine_suppliers.view', 'medicine_suppliers.create',
+        'supplier_catalogs.view', 'supplier_catalogs.create', 'supplier_catalogs.update',
+        'supplier_catalogs.delete', 'supplier_catalogs.restore',
+        'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'medicine_supplier_offers.update',
+        'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
+        'purchase_orders.submit', 'purchase_orders.cancel',
+        'goods_receipts.view', 'goods_receipts.create',
+        'supplier_invoices.view', 'supplier_invoices.create',
+        'supplier_invoices.update', 'supplier_invoices.delete', 'supplier_invoices.restore',
     ];
 
     public function run(): void

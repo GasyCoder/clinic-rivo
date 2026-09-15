@@ -191,13 +191,19 @@ class RolePermissionSeeder extends Seeder
             'pharmacy.counter_sales.create', 'pharmacy.return',
             'pharmacy.reports.view', 'pharmacy.reports.export',
             'prescriptions.view', 'medicines.view', 'medicine_categories.view',
-            'medicine_suppliers.view', 'stock.availability.view',
+            'stock.availability.view',
             'stock.view', 'stock.entry', 'stock.exit', 'stock.adjust',
             'stock.inventory', 'stock.validate', 'stock.transfer',
             'stock.approve', 'stock.import', 'stock.export',
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
             'stock.expiration.view', 'stock.alerts.view',
             'stock.cost.view', 'stock.cost.record',
+            // ADR-098 — suppliers and the whole procurement chain
+            // (medicine_suppliers.*, supplier_catalogs.*,
+            // medicine_supplier_offers.*, purchase_orders.*, goods_receipts.*,
+            // supplier_invoices.*) are granted to no role by default. The
+            // Super Admin grants them by name to the local accounts that
+            // actually do this work.
             // ADR-072 — records the stock exit of consumables already used
             // at Soins. Separate from pharmacy.dispense, which stays bound
             // to a settled invoice (ADR-049).

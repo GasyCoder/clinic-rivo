@@ -1,7 +1,11 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue';
+import Badge from '@/Components/UI/Badge.vue';
 import Button from '@/Components/UI/Button.vue';
+import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
+import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import { statusTone } from '@/utilities/pharmacyStatus';
 
 const props = defineProps({
     dispenses: { type: Array, default: () => [] },
@@ -51,12 +55,15 @@ const filteredDispenses = computed(() => {
     });
 });
 
-const statusPresentation = (status) => ({
-    AWAITING_INVOICE: { label: 'Facture à préparer', style: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300', dot: 'bg-sky-500' },
-    AWAITING_PAYMENT: { label: 'En attente de la Caisse', style: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300', dot: 'bg-amber-500' },
-    READY: { label: 'Payée · prête à délivrer', style: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300', dot: 'bg-emerald-500' },
-    PARTIALLY_DISPENSED: { label: 'Délivrance partielle', style: 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-300', dot: 'bg-primary-500' },
-}[status] ?? { label: status, style: 'border-gray-200 bg-gray-50 text-slate-600', dot: 'bg-slate-400' });
+const STATUS_LABELS = {
+    AWAITING_INVOICE: 'Ticket à préparer',
+    AWAITING_PAYMENT: 'En attente de la Caisse',
+    READY: 'Réglée · prête à délivrer',
+    PARTIALLY_DISPENSED: 'Délivrée en partie',
+};
+const statusLabel = (status) => STATUS_LABELS[status] ?? status;
+const TILE_TONES = { READY: 'emerald', PARTIALLY_DISPENSED: 'violet', AWAITING_PAYMENT: 'amber', AWAITING_INVOICE: 'sky' };
+const TILE_BADGES = { READY: 'À délivrer', PARTIALLY_DISPENSED: 'Partielle', AWAITING_PAYMENT: 'Caisse', AWAITING_INVOICE: 'À facturer' };
 
 const showDispense = (dispense) => {
     selectedDispense.value = dispense;
@@ -163,7 +170,36 @@ const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFracti
             </div>
         </div>
 
-        <div class="overflow-x-auto bg-white dark:bg-gray-950">
+        <ExplorerView
+            storage-key="pharmacy-dispenses"
+            :framed="false"
+            :count="filteredDispenses.length"
+            count-label="demande"
+            empty-icon="check-circle"
+            empty-title="Aucune demande pour ce filtre"
+            empty-description="Les patients internes et clients externes apparaissent ici selon leur étape."
+        >
+            <template #grid>
+                <ExplorerTile
+                    v-for="dispense in filteredDispenses"
+                    :key="dispense.uuid"
+                    :icon="dispense.type === 'EXTERNAL' ? 'cart' : 'file-docs'"
+                    :tone="TILE_TONES[dispense.status] ?? 'primary'"
+                    :badge="TILE_BADGES[dispense.status] ?? null"
+                    :title="dispense.customer_name"
+                    :subtitle="dispense.invoice?.number ?? 'Ticket à préparer'"
+                    :highlight="`${dispense.line_count} produit${dispense.line_count > 1 ? 's' : ''}`"
+                    :meta="dispense.invoice ? formatMoney(dispense.invoice.total_amount) : formatDate(dispense.requested_at)"
+                    @open="showDispense(dispense)"
+                >
+                    <template #actions>
+                        <Button size="sm" type="button" variant="white-outline" @click="showDispense(dispense)"><Icon name="eye" /></Button>
+                        <Button v-if="dispense.can_prepare_invoice && capabilities.can_prepare_invoice" size="sm" type="button" title="Préparer le ticket" @click="emit('prepare-invoice', dispense)"><Icon name="file-text" /></Button>
+                        <Button v-if="dispense.can_dispense && capabilities.can_dispense" size="sm" type="button" title="Délivrer" @click="emit('deliver', dispense)"><Icon name="package" /></Button>
+                    </template>
+                </ExplorerTile>
+            </template>
+            <template #list>
             <table class="w-full min-w-[980px] border-collapse">
                 <thead class="bg-gray-50/70 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:bg-gray-1000/40">
                     <tr>
@@ -194,8 +230,8 @@ const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFracti
                             <p class="mt-0.5 text-[11px] text-slate-400">{{ dispense.invoice ? formatMoney(dispense.invoice.total_amount) : formatDate(dispense.requested_at) }}</p>
                         </td>
                         <td class="px-4 py-3">
-                            <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-bold', statusPresentation(dispense.status).style]"><span :class="['h-1.5 w-1.5 rounded-full', statusPresentation(dispense.status).dot]" />{{ statusPresentation(dispense.status).label }}</span>
-                            <p :class="['mt-1 text-[10px] font-medium', dispense.can_dispense ? 'text-emerald-600' : 'text-slate-400']">{{ dispense.can_dispense ? 'Règlement confirmé' : (dispense.invoice ? 'Contrôle Caisse requis' : 'Ticket non créé') }}</p>
+                            <Badge :tone="statusTone(dispense.status)" dot>{{ statusLabel(dispense.status) }}</Badge>
+                            <p :class="['mt-1 text-xs', dispense.can_dispense ? 'text-emerald-600' : 'text-slate-400']">{{ dispense.can_dispense ? 'Règlement confirmé' : (dispense.invoice ? 'Contrôle Caisse requis' : 'Ticket non créé') }}</p>
                         </td>
                         <td class="px-5 py-3">
                             <div class="flex items-center justify-end gap-2">
@@ -205,16 +241,10 @@ const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFracti
                             </div>
                         </td>
                     </tr>
-                    <tr v-if="!filteredDispenses.length">
-                        <td colspan="5" class="px-5 py-12 text-center">
-                            <Icon class="text-2xl text-slate-300" name="check-circle" />
-                            <p class="mt-2 text-sm font-bold text-slate-600 dark:text-slate-300">Aucune demande pour ce filtre</p>
-                            <p class="mt-1 text-xs text-slate-400">Les patients internes et clients externes apparaissent ici selon leur étape.</p>
-                        </td>
-                    </tr>
                 </tbody>
             </table>
-        </div>
+            </template>
+        </ExplorerView>
 
         <div v-if="selectedDispense" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" @click.self="closeDispense">
             <section class="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="pharmacy-dispense-details-title">
@@ -233,7 +263,7 @@ const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFracti
                     <div class="px-4 py-3"><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Patient / client</p><p class="mt-1 truncate text-xs font-bold text-slate-700 dark:text-white">{{ selectedDispense.customer_number ?? selectedDispense.customer_phone ?? 'Client comptoir' }}</p></div>
                     <div class="px-4 py-3"><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Prescripteur</p><p class="mt-1 truncate text-xs font-bold text-slate-700 dark:text-white">{{ selectedDispense.prescriber ?? 'Non renseigné' }}</p></div>
                     <div class="px-4 py-3"><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Ticket</p><p class="mt-1 truncate font-mono text-xs font-bold text-slate-700 dark:text-white">{{ selectedDispense.invoice?.number ?? 'À préparer' }}</p></div>
-                    <div class="px-4 py-3"><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Statut</p><span :class="['mt-1 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-bold', statusPresentation(selectedDispense.status).style]"><span :class="['h-1.5 w-1.5 rounded-full', statusPresentation(selectedDispense.status).dot]" />{{ statusPresentation(selectedDispense.status).label }}</span></div>
+                    <div class="px-4 py-3"><p class="text-[9px] font-bold uppercase tracking-wide text-slate-400">Statut</p><Badge class="mt-1" :tone="statusTone(selectedDispense.status)" dot>{{ statusLabel(selectedDispense.status) }}</Badge></div>
                 </div>
 
                 <div class="min-h-0 flex-1 overflow-y-auto p-5">

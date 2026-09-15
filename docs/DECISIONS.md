@@ -2968,6 +2968,38 @@ activées. Leur assiette, arrondis, plafonds, période d'application, source
 légale et cas particuliers ne sont pas définis dans le CDC. Aucun salaire,
 retenue, net ou déclaration n'est donc calculé ni stocké par cette décision.
 
+## Révision de l'espace RH (2026-09-15)
+
+À la demande du propriétaire, l'espace RH est revu pour des utilisateurs peu
+à l'aise avec l'informatique, sans ajouter de règle de paie ni de temps de
+travail :
+
+```text
+Navigation      le menu latéral « Ressources humaines » devient un groupe
+                (Tableau de bord, Employés, Contrats, Documents, Présences,
+                Congés, Planning, Rapports, Crédit Bloc, Paramètres), chaque
+                entrée filtrée par sa permission ; la barre d'onglets HrNav,
+                qui doublait ce menu, est supprimée
+Tableau de bord le panneau « Ressources humaines — à traiter » apparaît sur la
+                Vue d'ensemble pour les comptes RH ; l'accueil RH ne liste plus
+                que des écrans RH (Caisses, Diagnostics, Analyses retirés)
+Chiffres        HrOverviewService::summary() alimente l'accueil RH et la Vue
+                d'ensemble : les deux écrans montrent les mêmes compteurs
+```
+
+Deux incohérences de données sont désormais refusées. Ce sont des gardes
+d'intégrité, pas des règles de temps de travail ou de droit à congé :
+
+```text
+Présences   une session ne peut chevaucher une autre session du même employé,
+            ni être créée tant qu'une de ses sessions reste ouverte
+Congés      une demande ne peut chevaucher une demande EN ATTENTE ou ACCEPTÉE
+            du même employé (sinon les mêmes jours seraient décomptés deux fois)
+```
+
+Le chevauchement de créneaux de planning reste autorisé, conformément au
+paragraphe ci-dessus.
+
 ---
 
 # ADR-067 — Profils paramédicaux et espace Maternité
@@ -4683,6 +4715,29 @@ s'exécutent entièrement dans le navigateur du Super Admin, chargées à la
 demande (import dynamique) uniquement lors d'un import réel : aucune nouvelle
 dépendance serveur n'est ajoutée, dans le même esprit que la limite déjà
 actée par ADR-070 (« pas de génération PDF serveur »).
+
+**Amendement du 2026-09-15 — une page du fichier = une page du canevas.**
+Constat du propriétaire : un fichier d'environ 16 pages arrivait entièrement
+dans « Page 1 ». La phrase « jamais de découpage automatique » ci-dessus est
+remplacée : le découpage suit désormais les **limites de page que le fichier
+porte lui-même**, jamais une structure devinée.
+
+```text
+PDF    une page du canevas par page du PDF (texte seul, lignes conservées)
+DOCX   coupure sur les sauts de page saisis, « saut de page avant » d'un
+       paragraphe, et les fins de page mémorisées par Word lors de son
+       dernier enregistrement (w:lastRenderedPageBreak)
+```
+
+La page 1 du fichier remplace la page active ; les suivantes sont insérées
+juste après elle, dans leur ordre. Une confirmation annonce le nombre de pages
+avant tout remplacement. Un `.docx` qui ne porte aucune de ces marques (par
+exemple généré par un outil qui ne mémorise pas la mise en page) reste sur une
+seule page, avec un message qui le dit : la pagination automatique de Word
+dépend des polices et marges et n'est pas reconstituée par estimation. Tout
+reste exécuté dans le navigateur (`jszip`, déjà présent via mammoth, devient
+une dépendance directe).
+
 ---
 
 # ADR-088 — « Demander un soin » ne termine plus la consultation
@@ -5448,3 +5503,474 @@ consultation. Depuis « Demandes d'examens » — où le résultat se saisit
 souvent après la clôture — cela déposait le médecin sur un dossier en lecture
 seule, sans rapport avec ce qu'il faisait. Il revient désormais là d'où il
 vient.
+
+---
+
+# ADR-097 — Module Approvisionnement : catalogues fournisseurs, prix d'achat versionné, commandes et réceptions
+
+**Status:** ACCEPTED (2026-09-14 — spécification fonctionnelle détaillée du
+propriétaire, § « Commandes, Fournisseurs, Catalogues et Stock Pharmacie »)
+
+Le propriétaire a fourni une spécification complète d'un flux d'achat
+Pharmacie manquant : dossier fournisseur façon Drive, catalogue proposé par
+chaque fournisseur distinct du catalogue réellement stocké par la clinique,
+prix d'achat versionné jamais écrasé, commandes, réceptions partielles et
+factures fournisseur. Une section isolée de cette spécification,
+« Informations famille », était ambiguë sans lien apparent avec le reste ;
+question posée directement au propriétaire, réponse explicite : il s'agit
+d'une famille de médicament (ex. « famille Amoxicilline »), donc bien dans
+le périmètre de ce module.
+
+## Ce qui existait déjà et n'est pas recréé
+
+Une part significative de l'architecture cible existait déjà avant cette
+décision : fournisseurs (`MedicineSupplier`, `medicine_suppliers.*`), lots
+FEFO (`MedicineLot`), mouvements de stock immuables portant déjà un prix
+d'achat par ligne (`PharmacyStockMovement`, écriture bloquée après création),
+entrée de stock (`RecordStockEntryAction`), catalogue clinique avec tarif de
+vente versionné (`CatalogItem`/`CatalogTariff`,
+`SetCatalogTariffAction`). La règle « ne jamais écraser un prix d'achat
+historique » (spec §14) n'exigeait donc aucun nouveau mécanisme : elle est
+déjà garantie structurellement par l'immutabilité de
+`PharmacyStockMovement` — `ReceiveGoodsAction` s'appuie dessus sans la
+réimplémenter.
+
+« Famille de médicament » réutilise `MedicineCategory`/`medicine_categories`
+tel quel, seul le libellé change dans l'interface (« Famille de
+médicament ») : un second modèle identique aurait été une pure duplication.
+
+## Un nouveau modèle de prix d'achat, distinct du pivot existant
+
+Le pivot `medicine_supplier` (association simple fournisseur ↔ médicament)
+possède une clé primaire composite `(medicine_id, medicine_supplier_id)` :
+il ne peut physiquement contenir qu'une seule ligne par paire, donc aucun
+historique de prix ne peut y être superposé. `medicine_supplier_offers` est
+donc un nouveau modèle dédié, qui reprend exactement le mécanisme
+fermeture/réouverture de `SetCatalogTariffAction`
+(`SetMedicineSupplierOfferAction`) : modifier un prix fournisseur ne mute
+jamais la ligne existante, il la ferme (`effective_until`, `active_key`
+vidé) et en ouvre une nouvelle (`active_key = 'CURRENT'`). L'unicité porte
+sur `(medicine_id, medicine_supplier_id, active_key)`, jamais sur
+`medicine_id` seul : plusieurs fournisseurs peuvent donc détenir
+simultanément une offre `CURRENT` pour le même médicament, à des prix
+différents (spec §5).
+
+Ce prix d'achat fournisseur (`MedicineSupplierOffer.quoted_price`) reste
+strictement séparé du prix de vente patient (`CatalogTariff`) : aucun des
+deux mécanismes ne lit ni n'écrit l'autre.
+
+## Catalogue fournisseur : proposé, jamais confondu avec le stock clinique
+
+Un fournisseur peut détenir plusieurs fichiers de catalogue
+(`supplier_catalogs`, Excel ou PDF), stockés sur le disque privé sous un
+chemin scopé par son UUID, avec historique complet et au plus un catalogue
+`active_key = 'ACTIVE'` à la fois par fournisseur. Importer un catalogue
+Excel (`SupplierCatalogImportService`, colonnes Référence/Médicament/
+Présentation/Prix fournisseur) crée des `supplier_catalog_items` — des
+lignes brutes, non liées à `Medicine`, exactement comme la spécification
+l'exige (spec §3, « ce n'est PAS le stock de la clinique ») : import
+atomique, toutes les lignes validées avant toute écriture, échec d'une seule
+ligne annule le fichier entier, suivant le patron déjà en place dans
+`MedicineCatalogImportService`/`ImportEmployeesAction`.
+
+Un catalogue PDF est stocké et consultable en ligne, jamais analysé :
+aucune bibliothèque de parsing PDF n'existe dans `composer.json`, et en
+ajouter une pour en extraire ne serait-ce que du texte brut inventerait une
+capacité hors du périmètre demandé. Une ligne de catalogue Excel ne rejoint
+le catalogue clinique que par un acte explicite de liaison
+(`LinkSupplierCatalogItemAction`, `linked_medicine_id`), qui crée alors la
+première `MedicineSupplierOffer` versionnée pour ce médicament et ce
+fournisseur (spec §5/§6).
+
+## Commande, réception distincte, jamais automatique
+
+`PurchaseOrder` suit `Draft → Ordered → PartiallyReceived/Received` ou
+`Cancelled`. Chaque ligne de commande fige son `unit_price` au moment de la
+commande (l'offre courante du fournisseur si elle existe, sinon un prix
+saisi) : une révision ultérieure du prix fournisseur ne recalcule jamais une
+commande déjà passée. Seule une commande `Draft` peut être modifiée ; une
+commande `Received` ou `Cancelled` ne peut plus être annulée.
+
+La réception (`ReceiveGoodsAction`) est un acte distinct et jamais
+automatique (spec §9) : une commande de 100 unités peut être réceptionnée en
+plusieurs fois (80 puis 20), chaque réception appelant directement
+`RecordStockEntryAction` — inchangée — pour chaque ligne reçue, ce qui crée
+le lot, le mouvement de stock immuable à son propre prix d'achat, et
+incrémente `quantity_received` sur la ligne de commande. Le statut de la
+commande est recalculé après chaque réception
+(`PartiallyReceived`/`Received`) sans jamais rétro-modifier une réception
+antérieure. Un prix d'achat saisi à la réception reste gouverné par la
+permission `stock.cost.record` déjà existante, exactement comme une entrée
+de stock manuelle.
+
+La facture fournisseur (`SupplierInvoice`) est une pure écriture comptable,
+optionnellement liée à une commande et/ou une réception : elle ne crée, ne
+modifie et ne consulte jamais un mouvement de stock, un lot ou une quantité
+— cet impact est déjà entièrement porté par la réception.
+
+## Permissions
+
+Nouvelles permissions, accordées par défaut uniquement au rôle `PHARMACY`
+(aucun rôle « Achats » séparé n'est justifié par l'architecture actuelle,
+qui rattache déjà `medicine_suppliers.*`/`stock.*` à ce rôle) :
+
+```text
+supplier_catalogs.view / create / update / delete / restore
+medicine_supplier_offers.view / create / update
+purchase_orders.view / create / update / submit / cancel
+goods_receipts.view / create
+supplier_invoices.view / create / delete / restore
+```
+
+Aucune de ces permissions ne touche `payments.*`, `cash.*` ou `receipts.*` :
+ce module ne crée et ne modifie aucun encaissement (ADR-013).
+
+---
+
+# ADR-098 — Refonte du module Pharmacie : navigation unique, fournisseurs restreints, redondances supprimées
+
+**Status:** ACCEPTED (2026-09-14 — exigence explicite du propriétaire, après
+analyse préalable du code et arbitrages posés directement au propriétaire)
+
+**Amende l'ADR-097** sur l'attribution des permissions d'approvisionnement.
+Confirme sans les modifier l'ADR-024 (référentiel réservé), l'ADR-027
+(séparation des identités centrales et opérationnelles) et l'ADR-049/072
+(circuits de délivrance et de consommables).
+
+Le propriétaire a demandé une refonte réfléchie du module Pharmacie, destinée
+à des utilisateurs peu à l'aise avec l'informatique, en exigeant d'analyser
+l'existant avant toute modification. Cette décision consigne ce que l'analyse
+a établi, les conflits signalés et les choix retenus.
+
+## Ce qui n'était pas une redondance
+
+`catalog_items` et `medicines` forment une spécialisation 1‑1 stricte : aucune
+colonne n'est recopiée, et il n'existe aucun concept « produit » ou
+« article » concurrent. `medicine_lots.quantity_on_hand` est l'unique source
+physique du stock ; `pharmacy_stock_movements.balance_after` est une trace
+d'audit, jamais relue pour calculer un solde. Les instantanés (libellés et
+prix figés sur une ligne de délivrance ou de commande) sont des gels
+d'historique voulus. Rien de tout cela n'est modifié.
+
+Les deux tables de réservation (`medicine_stock_reservations` pour une
+ordonnance, `pharmacy_dispense_lot_reservations` pour une délivrance) portent
+une notion proche mais deux origines réellement distinctes. Les fusionner
+toucherait un circuit FEFO testé pour un bénéfice faible : elles restent
+séparées, volontairement.
+
+## Ce qui était redondant, et comment c'est résolu
+
+```text
+Deux systèmes de navigation      page unique à faux onglets + pages réelles
+                                 → le menu latéral devient la seule navigation
+Disponibilité calculée 3 fois    MedicineStockService, Overview, AlertService
+                                 → MedicineLot::scopeWithReservedQuantity()
+Deux listes de fournisseurs      pivot medicine_supplier / offres versionnées
+                                 → l'offre fait foi, le pivot est tenu à jour
+Libellés de statut recopiés      tables de libellés dans plusieurs écrans
+                                 → libellés servis par le backend, Badge partagé
+```
+
+**Navigation.** `Pharmacy/Index.vue` regroupait quatre écrans derrière des
+onglets locaux qui ne changeaient pas l'adresse, tandis que l'approvisionnement
+utilisait de vraies routes ; le même composant de barre d'onglets se
+comportait différemment selon l'écran. La barre d'onglets et la barre
+d'approvisionnement sont supprimées. L'entrée « Pharmacie » du menu latéral
+devient un groupe dont chaque sous-entrée ouvre une vraie page, filtrée par la
+permission de l'écran qu'elle ouvre : Accueil, Vente comptoir, Ordonnances à
+délivrer, Consommables Soins, Stock, Médicaments, Commandes, Réceptions,
+Factures fournisseurs, Fournisseurs. Chaque page a une adresse propre et le
+bouton Précédent du navigateur fonctionne. `PharmacyController` est scindé par
+domaine sous `App\Http\Controllers\Pharmacy\`, avec les contrôleurs
+d'approvisionnement, et `PharmacyWorkspaceService` sert une méthode par écran
+au lieu de charger toutes les données à chaque visite.
+
+**Disponibilité.** La définition de « ce qu'un lot tient encore pour d'autres »
+vit désormais à un seul endroit, `MedicineLot::scopeWithReservedQuantity()` et
+`reservedQuantity()`. L'alerte de seuil applique la même règle par lot que les
+écrans de stock ; les deux formules ne diffèrent que dans un état impossible
+(réservé supérieur au physique), que les actions de stock refusent déjà.
+
+**Fournisseurs d'un médicament.** Le pivot `medicine_supplier` était écrit mais
+jamais lu pour affichage, en concurrence avec `medicine_supplier_offers`.
+L'offre versionnée fait foi ; `SetMedicineSupplierOfferAction` inscrit aussi le
+lien simple, pour que les deux ne puissent jamais diverger. Le pivot n'est pas
+supprimé : il reste le lien « peut fournir » posé à la création d'un
+médicament.
+
+## Conflit signalé : « seul le SuperAdmin voit les fournisseurs »
+
+La demande initiale était inapplicable telle quelle : un compte `SUPER_ADMIN`
+ne peut jamais ouvrir de session sur un site clinique
+(`DeploymentAccountPolicy`, ADR-027) et n'y reçoit aucune permission. Réservé
+au seul Super Admin sur le site, l'espace Fournisseurs n'aurait été visible de
+personne. Arbitrages retenus par le propriétaire :
+
+```text
+Fournisseurs et catalogues   gérés depuis le portail central, par API du site
+Commandes, réceptions,       restent au site clinique : la réception est un
+factures                     acte physique (lot et péremption lus sur la boîte)
+Explorateur de dossiers      gestion complète au portail ; consultation au site
+Droits correspondants        accordés à aucun rôle par défaut
+medicines.create             reste réservé (ADR-024 inchangée)
+```
+
+## Permissions : accordées à personne par défaut
+
+`medicine_suppliers.*`, `supplier_catalogs.*`, `medicine_supplier_offers.*`,
+`purchase_orders.*`, `goods_receipts.*` et `supplier_invoices.*` sont retirées
+du socle `PHARMACY`, où l'ADR-097 les avait placées la veille. Le Super Admin
+les accorde nominativement, depuis le portail, aux comptes locaux qui font
+réellement ce travail (éditeur de socle ADR-064, ou exception individuelle
+ADR-022/033). Le menu ne montre une entrée qu'avec sa permission, et chaque
+route la vérifie côté serveur.
+
+Retirer ces lignes du seeder ne suffit pas sur une base déjà initialisée : la
+migration `2026_09_14_140000_revoke_procurement_permissions_from_pharmacy_role`
+les retire du seul rôle `PHARMACY`, sans toucher aux exceptions individuelles.
+Conformément à l'ADR-064, `RolePermissionSeeder` ne doit toujours pas être
+rejoué sur un site en production. Le compte de test local (ADR-086) reçoit ces
+droits nominativement pour pouvoir parcourir toute la chaîne.
+
+Un prix fournisseur exige `.create` la première fois et `.update` ensuite, ce
+que tranche `SetMedicineSupplierOfferAction`. Une route ne pouvant exiger
+qu'une capacité, la capacité `set-medicine-supplier-offer` (l'une ou l'autre)
+protège désormais les deux routes qui en étaient dépourvues.
+
+## Espace Fournisseurs : dossiers, aperçu, ajout au catalogue clinique
+
+Les fournisseurs sont présentés comme des dossiers ; ouvrir un dossier montre
+ses sous-dossiers — Catalogues, Commandes, Factures, Produits et prix —, chacun
+visible seulement avec sa propre permission. Les catalogues sont listés comme
+des fichiers ; les anciens prix restent consultables.
+
+Un catalogue Excel n'est plus lu à l'aveugle. `SupplierCatalogImportService::preview()`
+applique exactement les contrôles de `import()` sans rien écrire : colonnes
+manquantes nommées, chaque ligne marquée correcte ou accompagnée de ses
+erreurs. L'import n'est proposé que si aucune ligne n'est incorrecte, et reste
+atomique.
+
+Depuis une ligne de catalogue fournisseur, un compte autorisé peut ajouter le
+médicament au catalogue clinique. Création du médicament et rattachement au
+prix du fournisseur forment une seule transaction : si le rattachement est
+refusé, aucun médicament à moitié créé ne subsiste. Ce bouton exige les mêmes
+droits que toute création de médicament (ADR-024).
+
+## Pilotage depuis le portail central
+
+Un Super Admin ne se connecte jamais à un site clinique (ADR-027). Les
+dossiers fournisseurs et leurs catalogues sont donc gérés depuis
+`admin.rivo.mg` › Fournisseurs pharmacie, site par site, uniquement par l'API
+du site (`/api/v1/super-admin/pharmacy/suppliers*`), selon le même principe que
+les adresses, les tarifs et les mutuelles (ADR-042/044/045). Le portail peut
+créer un fournisseur, ajouter un catalogue, voir l'aperçu d'import, importer,
+activer, archiver avec motif et restaurer. Commandes, réceptions et factures
+restent sur le site : ce sont des opérations physiques de la pharmacie.
+
+Aucune règle n'est réécrite pour le portail : l'API appelle les mêmes Actions
+que la clinique. Ces Actions reçoivent désormais un `CatalogActor`, compte
+local ou Super Admin distant ; le site revérifie la permission transmise et
+l'audit enregistre l'identité UUID/nom du Super Admin. Un catalogue ajouté
+depuis le portail n'a pas d'auteur local : `supplier_catalogs` conserve
+`external_created_by_uuid/name`, et `supplier_catalog_items.created_by` devient
+nullable.
+
+Le catalogue est le premier fichier transmis du portail vers un site. Il part
+en multipart, tel que le Super Admin l'a choisi, jamais converti : la pharmacie
+doit pouvoir rouvrir l'original. L'idempotence couvre ce corps comme un corps
+JSON. Au portail, le fichier lui-même ne s'ouvre pas : il réside sur le site.
+
+**Amendement du 2026-09-15 — commandes et factures depuis le portail.** Le
+propriétaire revient sur l'arbitrage « commandes, réceptions et factures restent
+au site » : le Super Admin peut désormais, depuis le dossier fournisseur d'un
+site, créer, envoyer et annuler une commande, et enregistrer (avec son
+document), archiver et restaurer une facture. **La réception reste au site**,
+choix explicite du propriétaire : c'est la personne qui a la marchandise sous
+les yeux qui lit les lots et les péremptions et fait entrer le stock. Le portail
+voit l'état des réceptions sans jamais en proposer une.
+
+Rien n'est réécrit pour le portail : l'API du site
+(`/pharmacy/suppliers/{uuid}/orders*`, `/invoices*`, `/order-form`,
+`/invoice-form`) appelle les mêmes Actions que la clinique, qui reçoivent
+désormais un `CatalogActor`. Une commande ou une facture écrite depuis le
+portail n'a pas d'auteur local : `purchase_orders` et `supplier_invoices`
+conservent `external_created_by/updated_by(/cancelled_by)_uuid/name`, et
+`created_by`/`updated_by` deviennent nullables. Le document d'une facture part
+en multipart, ses lignes en JSON dans le même envoi. Formulaires et détails de
+commande et de facture sont des composants partagés entre les deux espaces.
+
+Une règle d'intégrité est ajoutée au passage, pour la clinique comme pour le
+portail : une facture ne peut plus être rattachée à la commande ou à la
+réception d'un autre fournisseur.
+
+Le dossier d'un fournisseur se présente au portail comme à la clinique :
+coordonnées, puis les sous-dossiers Catalogues, Commandes, Factures, Produits
+et prix, chacun ouvert avec sa propre permission et lu par l'API du site
+(`/pharmacy/suppliers/{uuid}`, `/orders`, `/invoices`, `/products`). Les
+catalogues y restent gérables ; commandes et factures y sont en consultation,
+car elles se passent et se réceptionnent à la pharmacie du site. Le résumé d'une
+commande, d'une facture et les compteurs du dossier sont produits par
+`SupplierPresenter`, utilisé à la fois par la clinique et par l'API : les deux
+écrans ne peuvent pas décrire différemment les mêmes données.
+
+## Liste des fournisseurs : import, export, correction, archivage
+
+Le portail exporte en Excel les fournisseurs d'un site ou de tous les sites,
+archivés compris, et importe une liste en deux temps. Le portail ne lit que la
+forme du fichier ; le site décide de chaque règle, dans
+`MedicineSupplierImportService` :
+
+```text
+analyser   chaque ligne est classée à créer / à mettre à jour / inchangée /
+           à corriger, avec l'ancienne et la nouvelle valeur — rien n'est écrit
+confirmer  le site refait la même analyse sous verrou, puis écrit tout ou rien
+```
+
+Règles retenues :
+
+```text
+le code identifie le fournisseur   jamais modifiable : les imports de médicaments
+                                   et de fournisseurs le désignent par ce code
+une cellule vide garde la valeur   omettre une colonne n'efface pas un téléphone
+un fournisseur archivé             jamais recréé ni ranimé par un fichier :
+                                   il se restaure depuis son dossier
+un code en double dans le fichier  tout le fichier est refusé
+une ligne « Archivé »              ignorée : un export se réimporte sans erreur
+```
+
+L'aperçu est conservé dans la session du Super Admin et ne peut être confirmé
+qu'une fois ; une page actualisée ne rejoue jamais un import.
+
+Les permissions `medicine_suppliers.update`, `.delete` et `.restore`
+existaient sans aucun écran. Le dossier fournisseur du portail permet
+désormais de corriger les coordonnées, d'archiver avec motif et de restaurer.
+Un archivage est refusé tant qu'une commande est en brouillon ou attend une
+réception : sa réception enregistre une entrée de stock contre ce fournisseur,
+qu'un fournisseur archivé ne permettrait plus. Un dossier archivé reste
+consultable, en lecture seule.
+
+`medicine_suppliers.import` et `medicine_suppliers.export` sont ajoutées. Comme
+les droits d'approvisionnement, elles sont enregistrées par migration — et non
+seulement dans `PermissionSeeder` — afin qu'une base déjà initialisée les
+reçoive, et accordées au seul `SUPER_ADMIN` du portail (ADR-027).
+
+## Une seule page d'accueil
+
+L'ancienne page « Accueil » de la Pharmacie (`/pharmacy`) doublait la Vue
+d'ensemble : le pharmacien disposait de deux accueils, dont l'un presque vide.
+Les tâches du jour, « À surveiller » et « À recommander » s'affichent
+désormais sur la Vue d'ensemble de tout compte ayant `pharmacy.view`, et
+l'entrée « Accueil » quitte le menu. `/pharmacy` redirige vers la Vue
+d'ensemble, pour que les liens existants restent valides.
+
+## Entrée de stock : les médicaments du fournisseur choisi
+
+Le fournisseur se choisit en premier. « Tous les fournisseurs » affiche tout
+le catalogue et n'enregistre aucun fournisseur sur l'entrée ; un fournisseur
+choisi réduit la liste aux médicaments qu'il fournit — lien simple ou prix
+fournisseur en cours, l'un suffit puisque l'offre tient le lien à jour. Son
+prix actuel pré-remplit le prix d'achat, sans jamais remplacer un prix saisi
+par le pharmacien, et n'est exposé qu'avec `medicine_supplier_offers.view` et
+`stock.cost.record`. Ce filtre est une aide de saisie : le serveur n'invente
+aucune règle interdisant d'enregistrer un médicament hors de ce lien.
+
+## Simulation locale
+
+`DevelopmentProcurementSeeder` (ADR-086, local uniquement) simule la chaîne
+d'approvisionnement au-dessus du stock de démonstration : prix par
+fournisseur avec historique, catalogues (Excel actif, ancien tarif, PDF),
+commandes dans chaque état, réceptions partielles et complète, facture
+fournisseur. Tout passe par les vraies Actions et ne s'exécute qu'une fois.
+Les comptes Pharmacie de test reçoivent nommément les droits
+d'approvisionnement, sans jamais écraser une décision existante.
+
+## Fusions retenues après analyse (2026-09-15)
+
+Arbitrages posés au propriétaire après analyse des écrans Stock, Médicaments
+et Commandes :
+
+```text
+Stock + Médicaments      une page « Médicaments & stock » (/pharmacy/stock)
+                         /pharmacy/medicines redirige ; familles et import y sont
+Commandes, réceptions,   une page « Achats » à onglets (Commandes, À réceptionner,
+factures                 Réceptions, Factures) ; chaque onglet garde son adresse
+```
+
+Les deux listes présentaient le même médicament deux fois. La page fusionnée
+exige `stock.view` **ou** `medicines.view` (capacité `view-pharmacy-catalog`) ;
+un compte qui ne voit que le catalogue reçoit les quantités à `null`, jamais à
+zéro, pour ne pas lire « rupture » là où il n'a simplement pas le droit de voir.
+« À réceptionner » regroupe les commandes `ORDERED` et `PARTIALLY_RECEIVED` ;
+`/pharmacy/purchases` ouvre le premier onglet que le compte peut voir.
+
+**Entrée de stock par livraison.** La livraison (fournisseur, date, provenance,
+rangement, motif) est saisie une fois ; les médicaments s'ajoutent un par un
+dans une liste relue, modifiable et retirable, puis tout est enregistré en une
+seule transaction (`RecordStockEntriesAction`, qui réutilise
+`RecordStockEntryAction` ligne par ligne). Une ligne refusée annule toutes les
+autres et l'erreur est rattachée à sa ligne. Un même lot du même médicament
+deux fois dans la liste est refusé.
+
+**Inventaire par feuille de comptage.** Le pharmacien saisit ce qui est sur
+l'étagère ; seuls les lots dont le comptage diffère deviennent des ajustements
+`INVENTORY`, validés ensemble avec un motif commun (`RecordInventoryCountAction`,
+qui réutilise `AdjustMedicineStockAction`). Un lot conforme ne crée aucun
+mouvement. Un comptage inférieur aux quantités réservées reste refusé
+(ADR-049). La feuille s'imprime pour le comptage sur papier. Droit : `stock.adjust`.
+
+**Étiquettes QR.** Les médicaments se cochent (ou « Tout sélectionner » sur la
+liste filtrée) pour imprimer une planche d'étiquettes. Le QR porte le
+code-barres, sinon le code du médicament : la recherche de la vente comptoir
+retrouve les deux. L'impression est entièrement côté navigateur et n'écrit rien.
+
+**Colonne Actions.** Les tableaux Pharmacie et les dossiers fournisseurs du
+portail portent une colonne « Actions » explicite (Voir, Réceptionner, Lots,
+Voir le stock…). Chaque bouton reste soumis à la permission de l'écran qu'il
+ouvre ; le Super Admin du portail les voit toutes, sans contournement.
+
+## Consulter un dossier fournisseur (2026-09-15)
+
+Choix du propriétaire : `medicine_suppliers.view` suffit pour consulter tout
+le dossier d'un fournisseur en lecture seule — catalogues et leur contenu,
+commandes, factures, produits et prix. Chaque sous-dossier reste aussi ouvert
+par sa propre permission de consultation. Les listes globales Commandes et
+Factures (tous fournisseurs) exigent toujours leur permission ; avec le seul
+droit fournisseur, elles ne s'ouvrent que filtrées sur un fournisseur. Toute
+écriture (créer, modifier, envoyer, importer, archiver) garde sa permission.
+
+## Corriger ce qui a été enregistré (2026-09-15)
+
+À la demande du propriétaire, les tableaux Médicaments, Familles, Commandes,
+Factures fournisseurs et Catalogues proposent Modifier / Archiver / Restaurer,
+à la clinique comme au portail (toujours par l'API du site). Rien n'est
+supprimé physiquement (ADR-010) :
+
+```text
+Médicament        Modifier la fiche (le code ne change jamais)
+                  Nouveau prix : motif obligatoire, l'ancien prix reste (ADR-024)
+                  « Désactiver » au lieu d'archiver : ordonnances, lots et
+                  mouvements continuent de le désigner ; motif conservé
+                  Refusé tant que des unités sont réservées
+Famille           Renommer, archiver avec motif, restaurer
+                  Archivage refusé tant qu'un médicament actif y appartient
+Commande          Modifier tant qu'elle est en brouillon ; ensuite on l'annule
+Facture           Modifier (nouvelle permission supplier_invoices.update) ;
+                  le fournisseur ne change pas, le stock n'est jamais touché,
+                  un nouveau document remplace l'ancien seulement à l'enregistrement
+Catalogue         Modifier la date et la remarque ; le fichier ne se remplace
+                  jamais : un nouveau tarif est un nouveau catalogue
+Réceptions, lots, mouvements   jamais modifiables : correction de stock tracée
+```
+
+Un fournisseur qui a un prix en cours reste rattaché au médicament même s'il
+est décoché, pour que le lien et l'offre ne divergent pas. Les deux gardes
+(réservations en cours, médicaments actifs d'une famille) protègent
+l'intégrité des données existantes ; elles n'ajoutent aucune règle de
+délivrance.
+
+## Ce qui ne change pas
+
+Aucune règle de délivrance, de réservation FEFO, de facturation Caisse ou de
+consommables Soins n'est modifiée : les composants correspondants sont
+réorganisés et rendus plus lisibles, leurs données envoyées au serveur restent
+identiques. La Pharmacie n'encaisse toujours rien (ADR-013).

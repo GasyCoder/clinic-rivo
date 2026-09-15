@@ -35,6 +35,7 @@ class DevelopmentSeeder extends Seeder
             DevelopmentLegacyAnalysisCatalogSeeder::class, // 719 analyses historiques
             DevelopmentDiagnosticCatalogSeeder::class,    // diagnostics courants
             DevelopmentMedicineStockSeeder::class,        // médicaments, lots, fournisseurs, stock
+            DevelopmentProcurementSeeder::class,          // prix, catalogues, commandes, réceptions, facture
             DevelopmentCashRegisterSeeder::class,         // Caisse 1 / Caisse 2
         ]);
     }

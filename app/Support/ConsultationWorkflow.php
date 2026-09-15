@@ -146,7 +146,7 @@ class ConsultationWorkflow
         $orientation = $this->activeOrientation($consultation);
 
         if (! $orientation) {
-            // ADR-089 — decided in one place only, the last step.
+            // ADR-098 — decided in one place only, the last step.
             return 'Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).';
         }
 
@@ -225,7 +225,7 @@ class ConsultationWorkflow
         // still cannot close without a clinical conclusion. The requirement
         // moved support; it did not disappear.
         if ($this->requiresFinalDiagnosis($consultation) && ! $this->hasActiveDiagnosis($consultation)) {
-            // ADR-089 — every patient, with or without a clinical
+            // ADR-098 — every patient, with or without a clinical
             // examination, concludes on the same step.
             //
             // ADR-095 — a doctor who answered "pas maintenant" is waiting for

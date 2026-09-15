@@ -125,10 +125,7 @@ class PharmacyDispensingFlowTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Pharmacy/CounterSales/Create')
-                ->where('navigation.can_view_stock', true)
-                ->where('navigation.can_view_prescriptions', true)
-                ->where('navigation.can_print_ticket', true)
-                ->where('navigation.dispense_count', 0)
+                ->where('canPrintTicket', true)
                 ->has('medicines', 1)
                 ->where('medicines.0.uuid', $medicine->uuid)
                 ->where('medicines.0.available_quantity', 13)
@@ -157,7 +154,7 @@ class PharmacyDispensingFlowTest extends TestCase
         ]);
 
         $this->actingAs($this->pharmacist)
-            ->get('/pharmacy?tab=dispenses')
+            ->get('/pharmacy/dispenses')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->has('queue.dispenses', 2)
@@ -333,7 +330,7 @@ class PharmacyDispensingFlowTest extends TestCase
                 ->where('autoPrint', true)
                 ->where('closeAfterPrint', false));
 
-        $this->actingAs($this->pharmacist)->get('/pharmacy')->assertInertia(fn ($page) => $page
+        $this->actingAs($this->pharmacist)->get('/pharmacy/dispenses')->assertInertia(fn ($page) => $page
             ->where('queue.dispenses.0.type', 'EXTERNAL')
             ->where('queue.dispenses.0.customer_name', 'Client comptoir identifié')
             ->where('queue.dispenses.0.customer_phone', '034 00 000 00')

@@ -7,7 +7,6 @@ import Button from '@/Components/UI/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
-import HrNav from '../Partials/HrNav.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
@@ -35,7 +34,6 @@ const restoreDocument = (document) => router.post(`/administration/documents/${d
 <template>
     <Head :title="employee.name" />
     <div class="w-full space-y-5">
-        <HrNav />
 
         <section class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <div class="relative bg-slate-900 px-5 py-6 text-white sm:px-7">

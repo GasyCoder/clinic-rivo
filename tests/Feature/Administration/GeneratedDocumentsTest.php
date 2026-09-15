@@ -206,6 +206,36 @@ class GeneratedDocumentsTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_printing_a_contract_offers_the_contract_canevas_and_opens_generation_prefilled(): void
+    {
+        $employee = $this->employee();
+        $otherEmployee = $this->employee();
+        $contractType = HrReferenceValue::query()->where('type', HrReferenceType::ContractType->value)->where('label', 'CDI')->firstOrFail();
+        $contract = EmploymentContract::query()->create(['employee_id' => $employee->id, 'contract_type_id' => $contractType->id, 'starts_on' => '2026-01-01']);
+        $foreignContract = EmploymentContract::query()->create(['employee_id' => $otherEmployee->id, 'contract_type_id' => $contractType->id, 'starts_on' => '2026-01-01']);
+        $contractTemplate = $this->template(DocumentDataContext::EmployeeAndContract, '<p>Contrat.</p>');
+        $this->template(DocumentDataContext::EmployeeOnly, '<p>Attestation.</p>');
+
+        $this->actingAs($this->administration)->get("/administration/contracts/{$contract->uuid}/print")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Administration/Contracts/Print')
+                ->has('templates', 1)
+                ->where('templates.0.uuid', $contractTemplate->uuid));
+
+        $query = http_build_query(['template' => $contractTemplate->uuid, 'employee' => $employee->uuid, 'contract' => $contract->uuid]);
+        $this->actingAs($this->administration)->get("/administration/generated-documents/create?{$query}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('prefill.document_template_uuid', $contractTemplate->uuid)
+                ->where('prefill.employee_uuid', $employee->uuid)
+                ->where('prefill.employment_contract_uuid', $contract->uuid));
+
+        // A contract of another employee is never pre-selected.
+        $query = http_build_query(['template' => $contractTemplate->uuid, 'employee' => $employee->uuid, 'contract' => $foreignContract->uuid]);
+        $this->actingAs($this->administration)->get("/administration/generated-documents/create?{$query}")
+            ->assertInertia(fn (Assert $page) => $page->where('prefill.employment_contract_uuid', ''));
+    }
+
     private function template(DocumentDataContext $context, string $html): DocumentTemplate
     {
         return DocumentTemplate::query()->create([

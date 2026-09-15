@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'catalog_item_id', 'medicine_category_id', 'generic_name', 'form', 'strength',
@@ -66,12 +67,25 @@ class Medicine extends Model
         return $this->hasMany(PrescriptionLine::class);
     }
 
+    public function supplierOffers(): HasMany
+    {
+        return $this->hasMany(MedicineSupplierOffer::class);
+    }
+
+    public function currentOfferFor(MedicineSupplier $supplier): HasOne
+    {
+        return $this->hasOne(MedicineSupplierOffer::class)
+            ->where('medicine_supplier_id', $supplier->getKey())
+            ->where('active_key', 'CURRENT');
+    }
+
     public function isForceDeleteProtected(): bool
     {
         return $this->lots()->exists()
             || $this->dispenseLines()->exists()
             || $this->prescriptionLines()->exists()
-            || $this->stockAlerts()->exists();
+            || $this->stockAlerts()->exists()
+            || $this->supplierOffers()->exists();
     }
 
     public function creator(): BelongsTo

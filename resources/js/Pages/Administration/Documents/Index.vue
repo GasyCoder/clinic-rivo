@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import { usePermissions } from '@/composables/usePermissions';
@@ -25,7 +24,6 @@ const formatDate = (value) => value
 <template>
     <Head title="Documents générés" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Contrats, attestations, certificats, lettres…" title="Documents générés" description="Chaque document reste figé tel qu’il a été produit : modifier l’employé ou le canevas ensuite ne change jamais un document déjà généré." icon="copy" tone="primary">
             <template #actions><Button v-if="can('generated_documents.create')" :as="Link" href="/administration/generated-documents/create" size="rg"><Icon name="plus" /><span class="ms-2">Générer un document</span></Button></template>
         </HrPageHeader>

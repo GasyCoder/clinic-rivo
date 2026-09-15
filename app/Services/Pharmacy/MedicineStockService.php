@@ -39,14 +39,7 @@ class MedicineStockService
                 'catalogItem:id,uuid,code,name,unit',
                 'lots' => fn ($query) => $query
                     ->where('active', true)
-                    ->withSum([
-                        'reservations as prescription_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
-                            ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'remaining_quantity')
-                    ->withSum([
-                        'counterReservations as counter_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
-                            ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'remaining_quantity')
+                    ->withReservedQuantity()
                     ->orderBy('expires_at')
                     ->orderBy('id'),
             ])
@@ -57,10 +50,10 @@ class MedicineStockService
                 $usableLots = $medicine->lots
                     ->filter(fn (MedicineLot $lot) => $lot->expires_at->gte($today));
                 $availableQuantity = $usableLots->sum(
-                    fn (MedicineLot $lot) => max(0, $lot->quantity_on_hand - $this->reservedQuantity($lot)),
+                    fn (MedicineLot $lot) => max(0, $lot->quantity_on_hand - $lot->reservedQuantity()),
                 );
                 $nearestExpiration = $usableLots
-                    ->filter(fn (MedicineLot $lot) => $lot->quantity_on_hand > $this->reservedQuantity($lot))
+                    ->filter(fn (MedicineLot $lot) => $lot->quantity_on_hand > $lot->reservedQuantity())
                     ->min('expires_at');
 
                 return [
@@ -342,11 +335,5 @@ class MedicineStockService
                 ?->expires_at
                 ?->toDateString(),
         ];
-    }
-
-    private function reservedQuantity(MedicineLot $lot): int
-    {
-        return (int) ($lot->prescription_reserved_quantity ?? 0)
-            + (int) ($lot->counter_reserved_quantity ?? 0);
     }
 }

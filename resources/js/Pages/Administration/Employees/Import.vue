@@ -4,7 +4,6 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
@@ -56,7 +55,6 @@ const submit = () => form.post('/administration/employees/import', { forceFormDa
 <template>
     <Head title="Importer des employés" />
     <div class="w-full space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Import contrôlé · Création uniquement" title="Importer des employés" description="Préparez le fichier avec le modèle officiel, vérifiez les valeurs puis lancez une création atomique : si une ligne est invalide, aucune ligne n’est enregistrée." icon="upload-cloud" tone="sky">
             <template #actions>
                 <Button v-if="can('employees.export')" as="a" href="/administration/employees/export" size="rg" variant="white-outline"><Icon name="download" /><span class="ms-2">Exporter l’existant</span></Button>

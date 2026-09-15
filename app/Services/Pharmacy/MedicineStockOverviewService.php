@@ -2,7 +2,6 @@
 
 namespace App\Services\Pharmacy;
 
-use App\Enums\MedicineStockReservationStatus;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use Carbon\CarbonImmutable;
@@ -23,14 +22,7 @@ class MedicineStockOverviewService
                 'lots' => fn ($query) => $query
                     ->where('active', true)
                     ->with('supplier:id,uuid,code,name')
-                    ->withSum([
-                        'reservations as prescription_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
-                            ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'remaining_quantity')
-                    ->withSum([
-                        'counterReservations as counter_reserved_quantity' => fn ($reservationQuery) => $reservationQuery
-                            ->where('status', MedicineStockReservationStatus::Reserved->value),
-                    ], 'remaining_quantity')
+                    ->withReservedQuantity()
                     ->orderBy('expires_at')
                     ->orderBy('id'),
             ])
@@ -40,8 +32,7 @@ class MedicineStockOverviewService
             ->filter(fn (Medicine $medicine) => $medicine->catalogItem !== null)
             ->map(function (Medicine $medicine) use ($today, $expiryLimit): array {
                 $lots = $medicine->lots->map(function (MedicineLot $lot) use ($today, $expiryLimit): array {
-                    $reserved = (int) ($lot->prescription_reserved_quantity ?? 0)
-                        + (int) ($lot->counter_reserved_quantity ?? 0);
+                    $reserved = $lot->reservedQuantity();
                     $expired = $lot->expires_at->lt($today);
                     $available = $expired ? 0 : max(0, $lot->quantity_on_hand - $reserved);
                     $status = $expired

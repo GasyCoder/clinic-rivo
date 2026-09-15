@@ -1,0 +1,243 @@
+<?php
+
+namespace Tests\Feature\Pharmacy;
+
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
+use App\Enums\MedicineForm;
+use App\Enums\PharmacyStockMovementType;
+use App\Models\CatalogItem;
+use App\Models\Medicine;
+use App\Models\MedicineLot;
+use App\Models\MedicineSupplier;
+use App\Models\Permission;
+use App\Models\PharmacyStockMovement;
+use App\Models\PurchaseOrder;
+use App\Models\Role;
+use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * ADR-098 — a delivery of several medicines recorded at once, the counting
+ * sheet, « Médicaments & stock » as one page, and « Achats » tabs.
+ */
+class StockWorkflowTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private User $pharmacist;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['rivo.site.type' => 'clinic', 'rivo.site.code' => 'M', 'rivo.site.name' => 'Mampikony']);
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
+        $this->pharmacist = User::factory()->create(['role_id' => Role::query()->where('code', 'PHARMACY')->value('id')]);
+    }
+
+    private function medicine(string $name): Medicine
+    {
+        $item = CatalogItem::query()->create([
+            'code' => 'PH-'.str_pad((string) (CatalogItem::query()->count() + 1), 4, '0', STR_PAD_LEFT),
+            'name' => $name,
+            'type' => CatalogItemType::Medicine,
+            'module' => CatalogModule::Pharmacy,
+            'unit' => 'comprimé',
+            'billable' => false,
+            'stockable' => true,
+            'created_by' => $this->pharmacist->id,
+            'updated_by' => $this->pharmacist->id,
+        ]);
+
+        return Medicine::query()->create([
+            'catalog_item_id' => $item->id,
+            'generic_name' => $name,
+            'form' => MedicineForm::Tablet,
+            'strength' => '500 mg',
+            'active' => true,
+            'created_by' => $this->pharmacist->id,
+            'updated_by' => $this->pharmacist->id,
+        ]);
+    }
+
+    private function lot(Medicine $medicine, int $quantity, string $number): MedicineLot
+    {
+        return MedicineLot::query()->create([
+            'medicine_id' => $medicine->id,
+            'lot_number' => $number,
+            'received_at' => now()->toDateString(),
+            'expires_at' => now()->addYear()->toDateString(),
+            'quantity_on_hand' => $quantity,
+            'active' => true,
+            'created_by' => $this->pharmacist->id,
+            'updated_by' => $this->pharmacist->id,
+        ]);
+    }
+
+    public function test_the_medicine_stock_page_lists_its_movements(): void
+    {
+        $medicine = $this->medicine('Paracétamol');
+        $lot = $this->lot($medicine, 0, 'LOT-MV');
+        PharmacyStockMovement::query()->create([
+            'medicine_lot_id' => $lot->id,
+            'type' => PharmacyStockMovementType::Entry,
+            'quantity_delta' => 12,
+            'balance_after' => 12,
+            'source_key' => 'test-movement-1',
+            'reason' => 'Livraison',
+            'occurred_at' => now(),
+            'performed_by' => $this->pharmacist->id,
+        ]);
+
+        $response = $this->actingAs($this->pharmacist)->get("/pharmacy/stock/{$medicine->uuid}")->assertOk();
+        $movements = $response->viewData('page')['props']['movements'];
+
+        $this->assertCount(1, $movements);
+        $this->assertSame(12, $movements[0]['quantity_delta']);
+        $this->assertSame('LOT-MV', $movements[0]['lot_number']);
+    }
+
+    /** @param array<int, string> $permissions */
+    private function userWith(array $permissions, string $code): User
+    {
+        $role = Role::query()->create(['code' => $code, 'name' => $code]);
+        $role->permissions()->attach(Permission::query()->whereIn('name', $permissions)->pluck('id'));
+
+        return User::factory()->create(['role_id' => $role->id]);
+    }
+
+    private function delivery(array $entries): array
+    {
+        return [
+            'received_at' => now()->toDateString(),
+            'origin' => 'Bon de livraison BL-204',
+            'destination' => 'Stock Pharmacie — Mampikony',
+            'reason' => 'Livraison hebdomadaire',
+            'entries' => $entries,
+        ];
+    }
+
+    public function test_a_delivery_of_several_medicines_is_recorded_at_once_or_not_at_all(): void
+    {
+        $paracetamol = $this->medicine('Paracétamol');
+        $amoxicillin = $this->medicine('Amoxicilline');
+        $this->lot($amoxicillin, 5, 'AMX-01');
+
+        // The second line contradicts the expiry already known for its lot: nothing is recorded.
+        $this->actingAs($this->pharmacist)
+            ->post('/pharmacy/stock/entries/batch', $this->delivery([
+                ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYears(2)->toDateString(), 'quantity' => 10],
+                ['medicine_uuid' => $amoxicillin->uuid, 'operation' => 'ENTREE', 'lot_number' => 'AMX-01', 'expires_at' => now()->addYears(3)->toDateString(), 'quantity' => 4],
+            ]))
+            ->assertSessionHasErrors('entries.1.expires_at');
+        $this->assertFalse(MedicineLot::query()->where('lot_number', 'PARA-01')->exists());
+
+        $this->actingAs($this->pharmacist)
+            ->post('/pharmacy/stock/entries/batch', $this->delivery([
+                ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYears(2)->toDateString(), 'quantity' => 10],
+                ['medicine_uuid' => $amoxicillin->uuid, 'operation' => 'ENTREE', 'lot_number' => 'AMX-01', 'expires_at' => now()->addYear()->toDateString(), 'quantity' => 4],
+            ]))
+            ->assertRedirect('/pharmacy/stock')
+            ->assertSessionHas('status', '2 entrée(s) de stock enregistrée(s).');
+
+        $this->assertSame(10, MedicineLot::query()->where('lot_number', 'PARA-01')->value('quantity_on_hand'));
+        $this->assertSame(9, MedicineLot::query()->where('lot_number', 'AMX-01')->value('quantity_on_hand'));
+    }
+
+    public function test_the_same_lot_cannot_appear_twice_in_one_delivery(): void
+    {
+        $paracetamol = $this->medicine('Paracétamol');
+        $line = ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYear()->toDateString(), 'quantity' => 3];
+
+        $this->actingAs($this->pharmacist)
+            ->post('/pharmacy/stock/entries/batch', $this->delivery([$line, $line]))
+            ->assertSessionHasErrors('entries.1.lot_number');
+
+        $this->assertSame(0, PharmacyStockMovement::query()->count());
+    }
+
+    public function test_the_counting_sheet_adjusts_only_the_lots_whose_count_differs(): void
+    {
+        $paracetamol = $this->medicine('Paracétamol');
+        $counted = $this->lot($paracetamol, 15, 'PARA-01');
+        $matching = $this->lot($paracetamol, 8, 'PARA-02');
+
+        $this->actingAs($this->pharmacist)->get('/pharmacy/stock/inventory')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Pharmacy/Stock/Inventory')->has('lots', 2));
+
+        $this->actingAs($this->pharmacist)
+            ->post('/pharmacy/stock/inventory', [
+                'reason' => 'Inventaire de septembre',
+                'counts' => [
+                    ['lot_uuid' => $counted->uuid, 'counted_quantity' => 12],
+                    ['lot_uuid' => $matching->uuid, 'counted_quantity' => 8],
+                ],
+            ])
+            ->assertRedirect('/pharmacy/stock')
+            ->assertSessionHas('status', 'Inventaire validé : 1 lot(s) corrigé(s), 1 conforme(s).');
+
+        $this->assertSame(12, $counted->fresh()->quantity_on_hand);
+        $this->assertSame(8, $matching->fresh()->quantity_on_hand);
+        $this->assertSame(1, PharmacyStockMovement::query()->where('type', PharmacyStockMovementType::Adjustment->value)->count());
+
+        $laboratory = User::factory()->create(['role_id' => Role::query()->where('code', 'LABORATORY')->value('id')]);
+        $this->actingAs($laboratory)->get('/pharmacy/stock/inventory')->assertForbidden();
+    }
+
+    public function test_medicines_and_stock_are_one_page_even_for_a_catalog_only_account(): void
+    {
+        $paracetamol = $this->medicine('Paracétamol');
+        $this->lot($paracetamol, 20, 'PARA-01');
+
+        $this->actingAs($this->pharmacist)->get('/pharmacy/medicines')->assertRedirect('/pharmacy/stock');
+        $this->actingAs($this->pharmacist)->get('/pharmacy/stock')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Pharmacy/Stock/Index')
+                ->where('stock.medicines.0.available_quantity', 20)
+                ->has('categories'));
+
+        $catalogOnly = $this->userWith(['pharmacy.view', 'medicines.view'], 'CATALOG_ONLY');
+        $this->actingAs($catalogOnly)->get('/pharmacy/stock')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('stock.medicines.0.name', 'Paracétamol')
+                ->where('stock.medicines.0.available_quantity', null)
+                ->where('stock.medicines.0.lots', []));
+    }
+
+    public function test_purchases_open_on_an_allowed_tab_and_list_what_awaits_reception(): void
+    {
+        $invoicesOnly = $this->userWith(['pharmacy.view', 'supplier_invoices.view'], 'INVOICES_ONLY');
+        $this->actingAs($invoicesOnly)->get('/pharmacy/purchases')->assertRedirect('/pharmacy/supplier-invoices');
+        $this->actingAs($this->pharmacist)->get('/pharmacy/purchases')->assertForbidden();
+
+        $buyer = $this->userWith(['pharmacy.view', 'purchase_orders.view'], 'BUYER');
+        $supplier = MedicineSupplier::query()->create(['code' => 'DISTRIB', 'name' => 'Distrib']);
+        foreach (['DRAFT' => 'BC-1', 'ORDERED' => 'BC-2', 'PARTIALLY_RECEIVED' => 'BC-3'] as $status => $number) {
+            PurchaseOrder::query()->create([
+                'order_number' => $number,
+                'medicine_supplier_id' => $supplier->id,
+                'status' => $status,
+                'created_by' => $this->pharmacist->id,
+                'updated_by' => $this->pharmacist->id,
+            ]);
+        }
+
+        $this->actingAs($buyer)->get('/pharmacy/purchases')->assertRedirect('/pharmacy/purchase-orders');
+        $this->actingAs($buyer)->get('/pharmacy/purchase-orders?status=TO_RECEIVE')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('orders.data', 2)
+                ->where('purchases.counts.orders', 3)
+                ->where('purchases.counts.to_receive', 2)
+                ->where('purchases.counts.receipts', null)
+                ->where('purchases.can.invoices', false));
+    }
+}

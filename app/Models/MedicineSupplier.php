@@ -34,6 +34,21 @@ class MedicineSupplier extends Model
         return $this->hasMany(PharmacyStockMovement::class);
     }
 
+    public function catalogs(): HasMany
+    {
+        return $this->hasMany(SupplierCatalog::class);
+    }
+
+    public function offers(): HasMany
+    {
+        return $this->hasMany(MedicineSupplierOffer::class);
+    }
+
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -48,7 +63,10 @@ class MedicineSupplier extends Model
     {
         return $this->medicines()->exists()
             || $this->lots()->exists()
-            || $this->stockMovements()->exists();
+            || $this->stockMovements()->exists()
+            || $this->catalogs()->exists()
+            || $this->offers()->exists()
+            || $this->purchaseOrders()->exists();
     }
 
     protected function auditModule(): ?string

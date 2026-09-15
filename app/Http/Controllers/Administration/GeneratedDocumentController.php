@@ -53,10 +53,24 @@ class GeneratedDocumentController extends Controller
     {
         Gate::forUser($request->user())->authorize('create', GeneratedDocument::class);
 
+        $templates = $this->activeTemplates();
+        $employees = $this->employees();
+        $contracts = $this->contractsByEmployee();
+
+        // Opened from a contract ("Imprimer" → canevas): keep only references
+        // that exist in the lists the page can actually select.
+        $employee = (string) $request->query('employee', '');
+        $employee = collect($employees)->contains('uuid', $employee) ? $employee : '';
+        $template = (string) $request->query('template', '');
+        $template = collect($templates)->contains('uuid', $template) ? $template : '';
+        $contract = (string) $request->query('contract', '');
+        $contract = $employee !== '' && collect($contracts[$employee] ?? [])->contains('uuid', $contract) ? $contract : '';
+
         return Inertia::render('Administration/Documents/Create', [
-            'employees' => $this->employees(),
-            'templates' => $this->activeTemplates(),
-            'contractsByEmployee' => $this->contractsByEmployee(),
+            'prefill' => ['document_template_uuid' => $template, 'employee_uuid' => $employee, 'employment_contract_uuid' => $contract],
+            'employees' => $employees,
+            'templates' => $templates,
+            'contractsByEmployee' => $contracts,
             'leavesByEmployee' => $this->leavesByEmployee(),
             'formFieldsByContext' => collect(DocumentDataContext::cases())
                 ->mapWithKeys(fn (DocumentDataContext $context) => [$context->value => $catalog->fieldsForContext($context)])

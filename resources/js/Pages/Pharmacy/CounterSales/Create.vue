@@ -2,12 +2,11 @@
 import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import ExternalCounterSaleWorkspace from '@/Pages/Pharmacy/Partials/ExternalCounterSaleWorkspace.vue';
-import PharmacyWorkspaceNav from '@/Pages/Pharmacy/Partials/PharmacyWorkspaceNav.vue';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
-    navigation: { type: Object, required: true },
+    canPrintTicket: { type: Boolean, default: false },
     medicines: { type: Array, default: () => [] },
 });
 
@@ -23,7 +22,7 @@ const submit = () => {
     let printWindow = null;
     let printStarted = false;
 
-    if (props.navigation.can_print_ticket) {
+    if (props.canPrintTicket) {
         printWindow = window.open('', '_blank', 'popup=yes,width=480,height=720');
 
         if (!printWindow) {
@@ -35,7 +34,7 @@ const submit = () => {
         printWindow.document.body.textContent = 'Création et préparation de l’impression…';
     }
 
-    form.print_after_create = props.navigation.can_print_ticket;
+    form.print_after_create = props.canPrintTicket;
 
     form.post('/pharmacy/counter-sales', {
         preserveScroll: true,
@@ -63,21 +62,14 @@ const submit = () => {
 </script>
 
 <template>
-    <Head title="Nouvelle demande comptoir" />
+    <Head title="Vente comptoir" />
 
     <div class="w-full space-y-5">
-        <PharmacyWorkspaceNav
-            :capabilities="navigation"
-            :dispense-count="navigation.dispense_count ?? 0"
-            :care-consumable-count="navigation.care_consumable_count ?? 0"
-            link-mode
-        />
-
         <ExternalCounterSaleWorkspace
             :visible="true"
             :form="form"
             :medicines="medicines"
-            :can-print-ticket="navigation.can_print_ticket"
+            :can-print-ticket="canPrintTicket"
             @submit="submit"
         />
     </div>

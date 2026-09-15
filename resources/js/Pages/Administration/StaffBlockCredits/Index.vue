@@ -7,7 +7,6 @@ import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import { usePermissions } from '@/composables/usePermissions';
@@ -75,7 +74,6 @@ const movementTone = (type) => ({
 <template>
     <Head title="Crédit forfaitaire Bloc" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Administration · Registre du personnel" title="Crédit forfaitaire Bloc" description="Consultez le solde d’un employé, enregistrez une allocation manuelle autorisée et suivez chaque mouvement sans altérer l’historique." icon="wallet" tone="primary" />
 
         <aside class="grid gap-3 rounded-2xl border border-primary-200 bg-primary-50 p-4 text-sm text-primary-800 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-300 lg:grid-cols-3">

@@ -43,6 +43,18 @@ class FinancialNumberGenerator
         return $this->next('care_consumable_request', 'DC');
     }
 
+    /** ADR-097 — supplier purchase order (bon de commande). */
+    public function purchaseOrder(): string
+    {
+        return $this->next('purchase_order', 'BC');
+    }
+
+    /** ADR-097 — goods receipt against a purchase order (bon de réception). */
+    public function goodsReceipt(): string
+    {
+        return $this->next('goods_receipt', 'BR');
+    }
+
     private function next(string $code, string $marker): string
     {
         return DB::transaction(function () use ($code, $marker) {

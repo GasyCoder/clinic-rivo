@@ -1,0 +1,218 @@
+<?php
+
+namespace Tests\Feature\Pharmacy;
+
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
+use App\Enums\MedicineForm;
+use App\Models\CatalogItem;
+use App\Models\Medicine;
+use App\Models\MedicineSupplier;
+use App\Models\MedicineSupplierOffer;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * ADR-097 — spec §5/§6: a medicine can be quoted simultaneously by several
+ * suppliers at different prices, and a superseded offer must remain
+ * queryable forever rather than being overwritten (SetMedicineSupplierOfferAction
+ * copies SetCatalogTariffAction's close-old/open-new mechanism).
+ */
+class MedicineSupplierOfferTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function setupUser(array $permissions): User
+    {
+        (new PermissionSeeder)->run();
+
+        $role = Role::query()->create([
+            'code' => 'OFFER_TEST_'.Role::query()->count(),
+            'name' => 'Prix fournisseur (test)',
+        ]);
+        $role->permissions()->sync(Permission::query()->whereIn('name', $permissions)->pluck('id'));
+
+        return User::factory()->create(['role_id' => $role->id]);
+    }
+
+    private function supplier(string $code = 'FOUR-01', string $name = 'Fournisseur A'): MedicineSupplier
+    {
+        return MedicineSupplier::query()->create(['code' => $code, 'name' => $name]);
+    }
+
+    private function medicine(User $actor, string $name = 'Amoxicilline 500 mg'): Medicine
+    {
+        $item = CatalogItem::query()->create([
+            'code' => 'PH-'.str_pad((string) (CatalogItem::query()->count() + 1), 4, '0', STR_PAD_LEFT),
+            'name' => $name,
+            'type' => CatalogItemType::Medicine,
+            'module' => CatalogModule::Pharmacy,
+            'unit' => 'boîte',
+            'billable' => false,
+            'stockable' => true,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+
+        return Medicine::query()->create([
+            'catalog_item_id' => $item->id,
+            'generic_name' => 'Amoxicilline',
+            'form' => MedicineForm::Tablet,
+            'strength' => '500 mg',
+            'active' => true,
+            'created_by' => $actor->id,
+            'updated_by' => $actor->id,
+        ]);
+    }
+
+    public function test_creating_an_offer_requires_the_create_permission_and_updating_it_requires_update(): void
+    {
+        $supplier = $this->supplier();
+        $viewer = $this->setupUser(['medicine_supplier_offers.view']);
+        $medicine = $this->medicine($viewer);
+
+        $this->actingAs($viewer)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 100,
+            'change_reason' => 'Prix catalogue initial',
+        ])->assertForbidden();
+
+        $creator = $this->setupUser(['medicine_supplier_offers.view', 'medicine_supplier_offers.create']);
+
+        $this->actingAs($creator)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 100,
+            'change_reason' => 'Prix catalogue initial',
+        ])->assertRedirect();
+
+        // A second write on the same (medicine, supplier) pair now needs
+        // .update, not .create — the "create vs update" split in
+        // SetMedicineSupplierOfferAction is permission-gated, not just
+        // a data-shape difference.
+        $this->actingAs($creator)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 120,
+            'change_reason' => 'Hausse fournisseur',
+        ])->assertForbidden();
+
+        $updater = $this->setupUser(['medicine_supplier_offers.view', 'medicine_supplier_offers.update']);
+
+        $this->actingAs($updater)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 120,
+            'change_reason' => 'Hausse fournisseur',
+        ])->assertRedirect();
+    }
+
+    public function test_a_superseded_offer_is_closed_and_never_overwritten(): void
+    {
+        $supplier = $this->supplier();
+        $user = $this->setupUser(['medicine_supplier_offers.create', 'medicine_supplier_offers.update']);
+        $medicine = $this->medicine($user);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 100,
+            'change_reason' => 'Prix catalogue initial',
+        ]);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 120,
+            'change_reason' => 'Hausse fournisseur',
+        ]);
+
+        $offers = MedicineSupplierOffer::query()->orderBy('id')->get();
+        $this->assertCount(2, $offers);
+
+        [$old, $new] = $offers;
+        $this->assertSame('100.00', $old->quoted_price);
+        $this->assertFalse($old->isCurrent());
+        $this->assertNotNull($old->effective_until);
+        $this->assertNull($old->active_key);
+
+        $this->assertSame('120.00', $new->quoted_price);
+        $this->assertTrue($new->isCurrent());
+        $this->assertSame('CURRENT', $new->active_key);
+
+        // The old row must still be readable — spec §6's "l'ancien prix
+        // reste consultable pour toujours" is not just soft-delete-safe,
+        // it's never even touched again.
+        $this->assertDatabaseHas('medicine_supplier_offers', [
+            'id' => $old->id,
+            'quoted_price' => '100.00',
+        ]);
+    }
+
+    public function test_resubmitting_the_identical_price_is_rejected(): void
+    {
+        $supplier = $this->supplier();
+        $user = $this->setupUser(['medicine_supplier_offers.create', 'medicine_supplier_offers.update']);
+        $medicine = $this->medicine($user);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 100,
+            'change_reason' => 'Prix catalogue initial',
+        ]);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 100,
+            'change_reason' => 'Resaisie du même prix',
+        ])->assertSessionHasErrors('quoted_price');
+
+        $this->assertSame(1, MedicineSupplierOffer::query()->count());
+    }
+
+    public function test_two_suppliers_can_hold_simultaneous_current_offers_for_the_same_medicine_at_different_prices(): void
+    {
+        $supplierA = $this->supplier('FOUR-A', 'Fournisseur A');
+        $supplierB = $this->supplier('FOUR-B', 'Fournisseur B');
+        $user = $this->setupUser(['medicine_supplier_offers.create', 'medicine_supplier_offers.update']);
+        $medicine = $this->medicine($user);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplierA->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 100,
+            'change_reason' => 'Offre fournisseur A',
+        ])->assertRedirect();
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplierB->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 130,
+            'change_reason' => 'Offre fournisseur B',
+        ])->assertRedirect();
+
+        $current = MedicineSupplierOffer::query()->where('active_key', 'CURRENT')->get();
+        $this->assertCount(2, $current);
+        $this->assertEqualsCanonicalizing(
+            ['100.00', '130.00'],
+            $current->pluck('quoted_price')->all(),
+        );
+
+        $this->assertTrue($medicine->currentOfferFor($supplierA)->first()->isCurrent());
+        $this->assertTrue($medicine->currentOfferFor($supplierB)->first()->isCurrent());
+        $this->assertSame('100.00', $medicine->currentOfferFor($supplierA)->first()->quoted_price);
+        $this->assertSame('130.00', $medicine->currentOfferFor($supplierB)->first()->quoted_price);
+    }
+
+    public function test_zero_or_negative_price_is_rejected(): void
+    {
+        $supplier = $this->supplier();
+        $user = $this->setupUser(['medicine_supplier_offers.create']);
+        $medicine = $this->medicine($user);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/offers", [
+            'medicine_uuid' => $medicine->uuid,
+            'quoted_price' => 0,
+            'change_reason' => 'Prix invalide',
+        ])->assertSessionHasErrors('quoted_price');
+
+        $this->assertSame(0, MedicineSupplierOffer::query()->count());
+    }
+}

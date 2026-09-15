@@ -40,6 +40,7 @@ export function recommendedItems(roleFocus, can) {
             exact: workspace.exact,
             permission: workspace.permission,
             group: workspace.group,
+            children: workspace.children,
             originalIndex,
         }))
         .sort((left, right) => {
@@ -96,18 +97,33 @@ export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'V
 /**
  * Drops what this account may not open, and any heading left with nothing
  * under it. Visibility is decided here and nowhere else (ADR-007).
+ *
+ * A group (Pharmacie, Ressources humaines) keeps only the children this
+ * account may open, and disappears when none is left. `anyPermission` opens
+ * an entry shared by several screens (« Achats ») to an account allowed
+ * into one of them.
  */
 export function visibleMenu(rawMenu, can) {
     const visible = [];
     let pendingHeading = null;
 
-    for (const item of rawMenu) {
-        if (item.heading) {
-            pendingHeading = item;
+    for (const rawItem of rawMenu) {
+        if (rawItem.heading) {
+            pendingHeading = rawItem;
             continue;
         }
 
-        if (item.permission && !can(item.permission)) continue;
+        if (rawItem.permission && !can(rawItem.permission)) continue;
+
+        const item = rawItem.children
+            ? {
+                ...rawItem,
+                children: rawItem.children.filter((child) => (!child.permission || can(child.permission))
+                    && (!child.anyPermission || child.anyPermission.some((permission) => can(permission)))),
+            }
+            : rawItem;
+
+        if (item.children && !item.children.length) continue;
 
         if (pendingHeading) {
             visible.push(pendingHeading);

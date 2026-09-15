@@ -530,7 +530,7 @@ class ConsultationOrientationTest extends TestCase
     }
 
     /**
-     * ADR-089 — every patient concludes on the same step: the blockers never
+     * ADR-098 — every patient concludes on the same step: the blockers never
      * send the doctor back to the examination or the paraclinical screen.
      */
     public function test_the_closure_blockers_point_every_patient_to_the_decision_step(): void
@@ -562,7 +562,7 @@ class ConsultationOrientationTest extends TestCase
         );
     }
 
-    /** ADR-089 — a diagnosis recorded at « Décision & clôture » keeps the doctor there. */
+    /** ADR-098 — a diagnosis recorded at « Décision & clôture » keeps the doctor there. */
     public function test_a_diagnosis_recorded_from_the_decision_step_stays_on_that_step(): void
     {
         $doctor = $this->doctor();

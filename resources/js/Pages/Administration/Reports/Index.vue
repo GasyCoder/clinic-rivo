@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
 import { usePermissions } from '@/composables/usePermissions';
@@ -58,7 +57,6 @@ const periodMetrics = computed(() => [
 <template>
     <Head title="Rapports RH" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Pilotage administratif" title="Rapports RH" description="Analysez des indicateurs factuels sur les dossiers, contrats, présences, congés et plannings de la période." icon="reports" tone="emerald">
             <template #actions><Button v-if="can('hr_reports.print')" :as="Link" :href="`/administration/reports/print?${periodQuery}`" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Imprimer</span></Button><Button v-if="can('hr_reports.export')" as="a" :href="`/administration/reports/export?${periodQuery}`" size="rg"><Icon name="download" /><span class="ms-2">Exporter Excel</span></Button></template>
         </HrPageHeader>

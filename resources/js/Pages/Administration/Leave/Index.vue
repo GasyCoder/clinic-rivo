@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
@@ -30,7 +29,6 @@ const statusMeta = {
 <template>
     <Head title="Congés" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Demandes, soldes et décisions" title="Congés" description="Suivez les demandes calculées selon les règles configurées. Toute approbation recalcule le solde depuis l’historique puis enregistre une décision auditée." icon="calendar" tone="amber">
             <template #actions><Button v-if="can('leave.create')" :as="Link" href="/administration/leave/create" size="rg"><Icon name="plus" /><span class="ms-2">Nouvelle demande</span></Button></template>
         </HrPageHeader>

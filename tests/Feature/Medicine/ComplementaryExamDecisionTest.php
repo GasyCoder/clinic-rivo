@@ -197,7 +197,7 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->assertSame('CANCELLED', $fresh->displayStatus());
     }
 
-    /** Envoyer une demande ne renvoie plus à l'Examen clinique (ADR-089). */
+    /** Envoyer une demande ne renvoie plus à l'Examen clinique (ADR-098). */
     public function test_sending_a_request_never_sends_the_doctor_back_to_the_examination(): void
     {
         $doctor = $this->doctor();

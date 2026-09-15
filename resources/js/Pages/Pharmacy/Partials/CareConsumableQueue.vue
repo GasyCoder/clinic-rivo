@@ -1,25 +1,19 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { router } from '@inertiajs/vue3';
+import Badge from '@/Components/UI/Badge.vue';
 import Button from '@/Components/UI/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
+import { statusTone } from '@/utilities/pharmacyStatus';
 
 const props = defineProps({
     careConsumables: { type: Object, required: true },
     capabilities: { type: Object, required: true },
     search: { type: String, default: '' },
 });
-
-const STATUS_TONES = {
-    PENDING: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300',
-    PARTIALLY_SERVED: 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/30 dark:text-primary-300',
-    SERVED: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300',
-    CANCELLED: 'border-gray-200 bg-gray-50 text-slate-500 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-400',
-};
-const statusTone = (status) => STATUS_TONES[status] ?? STATUS_TONES.CANCELLED;
 
 const requests = computed(() => {
     const term = props.search.trim().toLowerCase();
@@ -138,7 +132,7 @@ const confirmServe = () => {
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="font-mono text-xs font-bold text-slate-700 dark:text-white">{{ request.request_number }}</span>
-                                <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', statusTone(request.status)]">{{ request.status_label }}</span>
+                                <Badge :tone="statusTone(request.status)" dot>{{ request.status_label }}</Badge>
                             </div>
                             <p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">
                                 {{ request.episode?.patient_name || 'Patient interne' }}
@@ -211,7 +205,7 @@ const confirmServe = () => {
                                 </ul>
                             </td>
                             <td class="px-4 py-3">
-                                <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', statusTone(request.status)]">{{ request.status_label }}</span>
+                                <Badge :tone="statusTone(request.status)">{{ request.status_label }}</Badge>
                                 <span v-if="request.cancellation_reason" class="mt-1 block max-w-xs text-[11px] text-slate-400">{{ request.cancellation_reason }}</span>
                             </td>
                             <td class="px-4 py-3 text-end text-xs text-slate-500 dark:text-slate-300">

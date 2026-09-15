@@ -6,7 +6,6 @@ import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import Input from '@/Components/UI/Input.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
@@ -33,7 +32,6 @@ const stats = [
 <template>
     <Head title="Contrats RH" />
     <div class="w-full space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Cycle contractuel" title="Contrats du personnel" description="Suivez les engagements, leurs modèles documentaires, leurs périodes et leurs archives, sans automatisation de paie." icon="file-docs" tone="sky">
             <template #actions><Button v-if="can('contracts.export')" as="a" href="/administration/contracts/export" size="rg" variant="white-outline"><Icon name="download" /><span class="ms-2">Exporter</span></Button><Button v-if="can('contracts.create')" :as="Link" href="/administration/contracts/create" size="rg"><Icon name="plus" /><span class="ms-2">Nouveau contrat</span></Button></template>
         </HrPageHeader>

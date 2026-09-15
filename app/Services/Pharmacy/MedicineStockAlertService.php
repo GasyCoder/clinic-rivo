@@ -2,41 +2,28 @@
 
 namespace App\Services\Pharmacy;
 
-use App\Enums\MedicineStockReservationStatus;
 use App\Enums\PharmacyStockAlertType;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
-use App\Models\MedicineStockReservation;
-use App\Models\PharmacyDispenseLotReservation;
 use App\Models\PharmacyStockAlert;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 class MedicineStockAlertService
 {
+    /**
+     * Same per-lot rule as every stock screen (ADR-098): what a usable lot
+     * holds beyond its reservations, never less than zero.
+     */
     public function availableQuantity(Medicine $medicine): int
     {
-        $lotIds = MedicineLot::query()
+        return (int) MedicineLot::query()
             ->where('medicine_id', $medicine->getKey())
             ->where('active', true)
             ->whereDate('expires_at', '>=', CarbonImmutable::today()->toDateString())
-            ->pluck('id');
-
-        if ($lotIds->isEmpty()) {
-            return 0;
-        }
-
-        $physical = (int) MedicineLot::query()->whereIn('id', $lotIds)->sum('quantity_on_hand');
-        $medicalReserved = (int) MedicineStockReservation::query()
-            ->whereIn('medicine_lot_id', $lotIds)
-            ->where('status', MedicineStockReservationStatus::Reserved->value)
-            ->sum('remaining_quantity');
-        $counterReserved = (int) PharmacyDispenseLotReservation::query()
-            ->whereIn('medicine_lot_id', $lotIds)
-            ->where('status', MedicineStockReservationStatus::Reserved->value)
-            ->sum('remaining_quantity');
-
-        return max(0, $physical - $medicalReserved - $counterReserved);
+            ->withReservedQuantity()
+            ->get()
+            ->sum(fn (MedicineLot $lot): int => max(0, $lot->quantity_on_hand - $lot->reservedQuantity()));
     }
 
     public function synchronize(Medicine $medicine): ?PharmacyStockAlert

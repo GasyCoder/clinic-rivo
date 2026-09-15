@@ -217,6 +217,8 @@ class PermissionSeeder extends Seeder
         'medicine_suppliers.update' => 'Modifier un fournisseur de médicaments',
         'medicine_suppliers.delete' => 'Archiver un fournisseur de médicaments',
         'medicine_suppliers.restore' => 'Restaurer un fournisseur de médicaments',
+        'medicine_suppliers.import' => 'Importer la liste des fournisseurs de médicaments',
+        'medicine_suppliers.export' => 'Exporter la liste des fournisseurs de médicaments',
         'stock.availability.view' => 'Consulter la disponibilité agrégée des médicaments',
         'stock.view' => 'Voir le stock de médicaments et consommables',
         'stock.entry' => 'Enregistrer une entrée en stock pharmacie',
@@ -235,6 +237,32 @@ class PermissionSeeder extends Seeder
         'stock.alerts.view' => 'Voir les alertes automatiques de stock',
         'stock.cost.view' => 'Voir les prix d’achat du stock',
         'stock.cost.record' => 'Enregistrer les prix d’achat du stock',
+
+        // ADR-097 — Approvisionnement : catalogues fournisseurs ("Drive
+        // style"), prix fournisseur versionné, commandes, réceptions et
+        // factures. Réutilise medicine_suppliers.*/stock.* existants sans
+        // les redéfinir — la réception passe par stock.entry/stock.cost.record
+        // via RecordStockEntryAction, inchangé.
+        'supplier_catalogs.view' => 'Voir les catalogues fournisseurs',
+        'supplier_catalogs.create' => 'Importer un catalogue fournisseur',
+        'supplier_catalogs.update' => 'Activer un catalogue fournisseur',
+        'supplier_catalogs.delete' => 'Archiver un catalogue fournisseur',
+        'supplier_catalogs.restore' => 'Restaurer un catalogue fournisseur',
+        'medicine_supplier_offers.view' => 'Voir les prix proposés par les fournisseurs',
+        'medicine_supplier_offers.create' => 'Enregistrer un premier prix fournisseur',
+        'medicine_supplier_offers.update' => 'Réviser un prix fournisseur',
+        'purchase_orders.view' => 'Voir les commandes fournisseurs',
+        'purchase_orders.create' => 'Créer une commande fournisseur',
+        'purchase_orders.update' => 'Modifier une commande fournisseur en brouillon',
+        'purchase_orders.submit' => 'Passer une commande fournisseur',
+        'purchase_orders.cancel' => 'Annuler une commande fournisseur',
+        'goods_receipts.view' => 'Voir les réceptions de commandes',
+        'goods_receipts.create' => 'Réceptionner une commande fournisseur',
+        'supplier_invoices.view' => 'Voir les factures fournisseurs',
+        'supplier_invoices.create' => 'Enregistrer une facture fournisseur',
+        'supplier_invoices.delete' => 'Archiver une facture fournisseur',
+        'supplier_invoices.update' => 'Modifier une facture fournisseur',
+        'supplier_invoices.restore' => 'Restaurer une facture fournisseur',
 
         'patients.view' => 'Voir les patients',
         'patients.create' => 'Créer un patient',

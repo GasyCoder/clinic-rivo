@@ -409,10 +409,10 @@ class CareConsumableFlowTest extends TestCase
             'consumables' => [['medicine_uuid' => $consumable->uuid, 'quantity' => 4]],
         ])->assertRedirect();
 
-        $this->actingAs($this->pharmacist())->get('/pharmacy')
+        $this->actingAs($this->pharmacist())->get('/pharmacy/care-consumables')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Pharmacy/Index')
+                ->component('Pharmacy/CareConsumables/Index')
                 ->where('capabilities.can_view_care_consumables', true)
                 ->where('capabilities.can_serve_care_consumables', true)
                 ->where('careConsumables.summary.pending', 1)
@@ -423,7 +423,7 @@ class CareConsumableFlowTest extends TestCase
 
         // Viewing is separate from serving.
         $observer = $this->userWithPermissions(['pharmacy.view', 'care_consumables.view'], 'PHARMACY_OBSERVER');
-        $this->actingAs($observer)->get('/pharmacy')
+        $this->actingAs($observer)->get('/pharmacy/care-consumables')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('capabilities.can_serve_care_consumables', false)
@@ -435,12 +435,14 @@ class CareConsumableFlowTest extends TestCase
     {
         $blind = $this->userWithPermissions(['pharmacy.view'], 'PHARMACY_BLIND');
 
-        $this->actingAs($blind)->get('/pharmacy')
+        $this->actingAs($blind)->get('/')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('capabilities.can_view_care_consumables', false)
-                ->has('careConsumables.requests', 0)
+                ->where('pharmacy.capabilities.can_view_care_consumables', false)
+                ->where('pharmacy.careConsumableCount', 0)
             );
+
+        $this->actingAs($blind)->get('/pharmacy/care-consumables')->assertForbidden();
     }
 
     public function test_a_declaration_cannot_target_another_visits_request_when_cancelling(): void

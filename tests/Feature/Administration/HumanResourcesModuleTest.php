@@ -461,6 +461,38 @@ class HumanResourcesModuleTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->component('Administration/Reports/Print'));
     }
 
+    public function test_an_employee_cannot_have_two_overlapping_or_open_attendance_sessions(): void
+    {
+        $user = $this->userWithRole('ADMINISTRATION');
+        $employee = $this->employee();
+
+        $this->actingAs($user)->post('/administration/attendance', ['employee_uuid' => $employee->uuid, 'started_at' => '2026-09-01 08:00'])->assertSessionHasNoErrors();
+        $this->post('/administration/attendance', ['employee_uuid' => $employee->uuid, 'started_at' => '2026-09-01 13:00', 'ended_at' => '2026-09-01 17:00'])->assertSessionHasErrors('started_at');
+
+        $open = AttendanceRecord::query()->where('employee_id', $employee->id)->firstOrFail();
+        $this->put("/administration/attendance/{$open->uuid}", ['employee_uuid' => $employee->uuid, 'started_at' => '2026-09-01 08:00', 'ended_at' => '2026-09-01 12:00'])->assertSessionHasNoErrors();
+        $this->post('/administration/attendance', ['employee_uuid' => $employee->uuid, 'started_at' => '2026-09-01 11:00', 'ended_at' => '2026-09-01 15:00'])->assertSessionHasErrors('started_at');
+        $this->post('/administration/attendance', ['employee_uuid' => $employee->uuid, 'started_at' => '2026-09-01 13:00', 'ended_at' => '2026-09-01 17:00'])->assertSessionHasNoErrors();
+        $this->assertSame(2, AttendanceRecord::query()->where('employee_id', $employee->id)->count());
+    }
+
+    public function test_a_leave_request_overlapping_a_live_one_is_refused(): void
+    {
+        $user = $this->userWithRole('ADMINISTRATION');
+        $employee = $this->employee();
+
+        $this->actingAs($user)->post('/administration/leave', $this->leavePayload($employee))->assertSessionHasNoErrors();
+        $this->post('/administration/leave', $this->leavePayload($employee))->assertSessionHasErrors('starts_on');
+        $this->assertSame(1, LeaveRequest::query()->where('employee_id', $employee->id)->count());
+    }
+
+    public function test_the_overview_shows_the_hr_tasks_to_hr_accounts(): void
+    {
+        $this->actingAs($this->userWithRole('ADMINISTRATION'))->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->has('hr.summary.pending_leave')->has('hr.summary.open_attendance'));
+    }
+
     private function userWithRole(string $roleCode): User
     {
         return User::factory()->create([

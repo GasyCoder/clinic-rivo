@@ -40,6 +40,9 @@ class StoreMedicineProductRequest extends FormRequest
             'sale_price' => ['required', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
             'tariff_reason' => ['required', 'string', 'min:3', 'max:1000'],
             'description' => ['nullable', 'string', 'max:2000'],
+            // ADR-098 — optional: the supplier catalog line this medicine is
+            // being added from, linked in the same transaction.
+            'supplier_catalog_item_uuid' => ['nullable', 'uuid', 'exists:supplier_catalog_items,uuid'],
         ];
     }
 }

@@ -77,7 +77,8 @@ class RoleAccessBoundaryTest extends TestCase
                 'denied' => ['/administration', '/logistics', '/reception/visitors', '/pharmacy', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
             'PHARMACY' => [
-                'allowed' => ['/pharmacy'],
+                // /pharmacy now redirects to the overview (ADR-098): assert a real Pharmacy screen.
+                'allowed' => ['/pharmacy/stock'],
                 'denied' => ['/administration', '/logistics', '/reception/visitors', '/administration/users', '/reception', '/cash', '/patients', '/surgery', '/anesthesia', '/administration/catalog'],
             ],
         ];

@@ -4,6 +4,7 @@ namespace App\Services\SuperAdmin;
 
 use App\Models\User;
 use Illuminate\Http\Client\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Throwable;
@@ -695,8 +696,159 @@ class PortalSiteApiClient
         );
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function pharmacySuppliersForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/pharmacy/suppliers', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-098 — an order or invoice command on one supplier folder of a site.
+     * An invoice document travels as the multipart field « attachment ».
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function pharmacyProcurement(
+        string $siteCode,
+        string $supplierUuid,
+        User $actor,
+        string $method,
+        string $path,
+        array $payload = [],
+        ?UploadedFile $attachment = null,
+    ): array {
+        return $this->request(
+            $this->site($siteCode),
+            $method,
+            'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/'.ltrim($path, '/'),
+            $payload,
+            $actor,
+            $attachment,
+            'attachment',
+        );
+    }
+
+    /** @param 'orders'|'invoices'|'products'|null $section null reads the folder itself */
+    public function pharmacySupplierFolder(string $siteCode, string $supplierUuid, User $actor, ?string $section = null): array
+    {
+        $path = 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).($section ? '/'.$section : '');
+
+        return $this->request($this->site($siteCode), 'GET', $path, [], $actor);
+    }
+
+    public function pharmacySuppliers(string $siteCode, User $actor, array $query = []): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/pharmacy/suppliers', $query, $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updatePharmacySupplier(string $siteCode, string $supplierUuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid), $data, $actor);
+    }
+
+    public function archivePharmacySupplier(string $siteCode, string $supplierUuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid), ['reason' => $reason], $actor);
+    }
+
+    public function restorePharmacySupplier(string $siteCode, string $supplierUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/restore', [], $actor);
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    public function previewPharmacySupplierImport(string $siteCode, array $rows, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers/import-preview', ['rows' => $rows], $actor);
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    public function importPharmacySuppliers(string $siteCode, array $rows, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers/import', ['rows' => $rows], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createPharmacySupplier(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/pharmacy/suppliers', $data, $actor);
+    }
+
+    public function pharmacySupplierCatalogs(string $siteCode, string $supplierUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid), [], $actor);
+    }
+
+    /**
+     * ADR-098 — a catalog is a file the pharmacy will open later, so it is
+     * forwarded as the binary the Super Admin chose, never re-encoded.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function uploadPharmacySupplierCatalog(string $siteCode, string $supplierUuid, UploadedFile $file, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid), $data, $actor, $file);
+    }
+
+    public function activatePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/activate', [], $actor);
+    }
+
+    public function pharmacySupplierCatalogItems(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/items', [], $actor);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updatePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PATCH', $this->supplierCatalogsPath($supplierUuid, $catalogUuid), $data, $actor);
+    }
+
+    /**
+     * ADR-098 — a command or read on one site's medicine records and families.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function pharmacyCatalog(string $siteCode, User $actor, string $method, string $path, array $payload = []): array
+    {
+        return $this->request($this->site($siteCode), $method, 'super-admin/pharmacy/'.ltrim($path, '/'), $payload, $actor);
+    }
+
+    public function archivePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', $this->supplierCatalogsPath($supplierUuid, $catalogUuid), ['reason' => $reason], $actor);
+    }
+
+    public function restorePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/restore', [], $actor);
+    }
+
+    public function previewPharmacySupplierCatalogImport(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/import-preview', [], $actor);
+    }
+
+    public function importPharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/import', [], $actor);
+    }
+
+    private function supplierCatalogsPath(string $supplierUuid, ?string $catalogUuid = null): string
+    {
+        $path = 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/catalogs';
+
+        return $catalogUuid === null ? $path : $path.'/'.rawurlencode($catalogUuid);
+    }
+
     /** @return array<string, mixed> */
-    private function request(array $site, string $method, string $path, array $payload, User $actor): array
+    private function request(array $site, string $method, string $path, array $payload, User $actor, ?UploadedFile $file = null, string $fileField = 'file'): array
     {
         $identity = ['code' => $site['code'], 'name' => $site['name']];
         $apiUrl = trim((string) ($site['api_url'] ?? ''));
@@ -732,9 +884,14 @@ class PortalSiteApiClient
             }
 
             $url = rtrim($apiUrl, '/').'/'.ltrim($path, '/');
-            $response = $method === 'GET'
-                ? $pending->get($url, $payload)
-                : $pending->send($method, $url, ['json' => $payload]);
+            $response = match (true) {
+                $method === 'GET' => $pending->get($url, $payload),
+                // Read into memory so a retry re-sends the whole file.
+                $file !== null => $pending
+                    ->attach($fileField, (string) file_get_contents($file->getRealPath()), $file->getClientOriginalName())
+                    ->post($url, $payload),
+                default => $pending->send($method, $url, ['json' => $payload]),
+            };
 
             return $this->normalizeResponse($identity, $response);
         } catch (Throwable $exception) {

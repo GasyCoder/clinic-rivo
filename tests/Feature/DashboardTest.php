@@ -6,6 +6,9 @@ use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -19,6 +22,26 @@ class DashboardTest extends TestCase
         $response = $this->get('/');
 
         $response->assertRedirect('/login');
+    }
+
+    public function test_the_pharmacy_tasks_are_on_the_overview_instead_of_a_second_home(): void
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
+        $pharmacist = User::factory()->create(['role_id' => Role::query()->where('code', 'PHARMACY')->value('id')]);
+        $receptionist = User::factory()->create(['role_id' => Role::query()->where('code', 'RECEPTION')->value('id')]);
+
+        $this->actingAs($pharmacist)->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Home')
+                ->where('pharmacy.capabilities.can_view_stock', true)
+                ->has('pharmacy.alerts'));
+
+        $this->actingAs($pharmacist)->get('/pharmacy')->assertRedirect('/');
+
+        $this->actingAs($receptionist)->get('/')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('pharmacy', null));
     }
 
     public function test_authenticated_users_can_visit_the_dashboard(): void

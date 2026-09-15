@@ -40,7 +40,7 @@ class DocumentTemplateController extends Controller
         $this->assertSiteReachable($site);
 
         return Inertia::render('SuperAdmin/DocumentTemplates/Editor', [
-            'site' => $this->siteMeta($site),
+            'targetSite' => $this->siteMeta($site),
             'template' => null,
             'dataContexts' => $this->dataContextOptions(),
         ]);
@@ -53,7 +53,7 @@ class DocumentTemplateController extends Controller
         abort_unless($detail['ok'], 503, $detail['message'] ?? 'Le site ne répond pas actuellement.');
 
         return Inertia::render('SuperAdmin/DocumentTemplates/Editor', [
-            'site' => $this->siteMeta($site),
+            'targetSite' => $this->siteMeta($site),
             'template' => $detail['data'],
             'dataContexts' => $this->dataContextOptions(),
         ]);

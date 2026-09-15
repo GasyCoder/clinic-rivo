@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
@@ -26,7 +25,6 @@ const duration = (minutes) => minutes === null ? 'Ouverte' : `${Math.floor(minut
 <template>
     <Head title="Présences" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Temps constaté" title="Présences" description="Consultez les sessions d’entrée et de sortie réellement enregistrées, sans calcul automatique de retard ni d’heures supplémentaires." icon="clock" tone="violet">
             <template #actions><Button v-if="can('attendance.print')" :as="Link" :href="`/administration/attendance/print?${queryString}`" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Imprimer</span></Button><Button v-if="can('attendance.export')" as="a" :href="`/administration/attendance/export?${queryString}`" size="rg" variant="white-outline"><Icon name="download" /><span class="ms-2">Exporter</span></Button><Button v-if="can('attendance.create')" :as="Link" href="/administration/attendance/create" size="rg"><Icon name="plus" /><span class="ms-2">Nouvelle présence</span></Button></template>
         </HrPageHeader>

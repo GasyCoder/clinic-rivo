@@ -1,111 +1,97 @@
 <script setup>
+import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
-import HrNav from './Partials/HrNav.vue';
-import HrStatCard from './Partials/HrStatCard.vue';
+import PageHeader from '@/Components/UI/PageHeader.vue';
+import HrFigures from '@/Components/Administration/HrFigures.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
 
-defineProps({
-    summary: Object,
+const props = defineProps({
+    summary: { type: Object, required: true },
     siteName: String,
 });
 
 const { can } = usePermissions();
-const areas = [
-    { title: 'Dossiers employés', description: 'Identité administrative, carrière, pièces privées et historique.', icon: 'users', permission: 'employees.view', link: '/administration/employees', tone: 'primary' },
-    { title: 'Contrats', description: 'CDI, CDD, consultants, stages, bénévolat et documents associés.', icon: 'file-docs', permission: 'contracts.view', link: '/administration/contracts', tone: 'sky' },
-    { title: 'Présences', description: 'Entrées, sorties, durée des sessions et corrections auditées.', icon: 'clock', permission: 'attendance.view', link: '/administration/attendance', tone: 'emerald' },
-    { title: 'Congés', description: 'Demandes, intérim, validation, refus, annulation et impression.', icon: 'calendar', permission: 'leave.view', link: '/administration/leave', tone: 'amber' },
-    { title: 'Planning', description: 'Organisation des équipes, services et créneaux de travail.', icon: 'calender-date', permission: 'planning.view', link: '/administration/planning', tone: 'violet' },
-    { title: 'Rapports RH', description: 'Indicateurs de période, exports Excel et rapports imprimables.', icon: 'reports', permission: 'hr_reports.view', link: '/administration/reports', tone: 'rose' },
-    { title: 'Paramètres RH', description: 'Départements, fonctions, types de contrat et attestations configurables.', icon: 'setting', permission: 'hr_settings.view', link: '/administration/settings', tone: 'slate' },
-    { title: 'Crédit Bloc personnel', description: 'Allocation et registre des mouvements du crédit forfaitaire du personnel.', icon: 'wallet', permission: 'staff_block_credits.view', link: '/administration/staff-block-credits', tone: 'primary' },
-    { title: 'Caisses', description: 'Configuration des postes de caisse nommés du site.', icon: 'wallet', permission: 'cash_registers.view', link: '/administration/cash-registers', tone: 'emerald' },
-    { title: 'Diagnostics', description: 'Référentiel clinique utilisé par la recherche rapide des médecins.', icon: 'clipboard', permission: 'diagnostic_catalog.view', link: '/administration/diagnostics', tone: 'amber' },
-    { title: 'Analyses laboratoire', description: 'Paramètres, unités et valeurs de référence du catalogue Laboratoire.', icon: 'activity', permission: 'analysis_catalog.view', link: '/administration/analyses', tone: 'sky' },
-];
 
-const toneClasses = {
-    primary: 'bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300',
-    sky: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
-    emerald: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
-    amber: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-    violet: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
-    rose: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
-    slate: 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300',
+// A figure the account may not open is hidden, exactly as on the portal.
+const visibleSummary = computed(() => ({
+    ...props.summary,
+    current_contracts: can('contracts.view') ? props.summary.current_contracts : null,
+    contracts_ending_soon: can('contracts.view') ? props.summary.contracts_ending_soon : null,
+    today_attendance: can('attendance.view') ? props.summary.today_attendance : null,
+    open_attendance: can('attendance.view') ? props.summary.open_attendance : null,
+    pending_leave: can('leave.view') ? props.summary.pending_leave : null,
+    upcoming_shifts: can('planning.view') ? props.summary.upcoming_shifts : null,
+}));
+
+// One tile per HR task, only those this account may open.
+const areas = computed(() => [
+    { href: '/administration/employees', icon: 'users', title: 'Employés', meta: 'Dossiers du personnel', permission: 'employees.view', tone: 'primary' },
+    { href: '/administration/contracts', icon: 'file-docs', title: 'Contrats', meta: 'CDI, CDD, stages…', permission: 'contracts.view', tone: 'sky' },
+    { href: '/administration/generated-documents', icon: 'copy', title: 'Documents', meta: 'Attestations et courriers', permission: 'generated_documents.view', tone: 'violet' },
+    { href: '/administration/attendance', icon: 'clock', title: 'Présences', meta: 'Entrées et sorties', permission: 'attendance.view', tone: 'emerald' },
+    { href: '/administration/leave', icon: 'calendar', title: 'Congés', meta: 'Demandes et décisions', permission: 'leave.view', tone: 'amber' },
+    { href: '/administration/planning', icon: 'calender-date', title: 'Planning', meta: 'Créneaux des équipes', permission: 'planning.view', tone: 'violet' },
+    { href: '/administration/reports', icon: 'reports', title: 'Rapports', meta: 'Chiffres et exports', permission: 'hr_reports.view', tone: 'rose' },
+    { href: '/administration/staff-block-credits', icon: 'wallet', title: 'Crédit Bloc', meta: 'Crédit du personnel', permission: 'staff_block_credits.view', tone: 'primary' },
+    { href: '/administration/settings', icon: 'setting', title: 'Paramètres', meta: 'Départements, fonctions, types', permission: 'hr_settings.view', tone: 'slate' },
+].filter((area) => can(area.permission)));
+
+const TONES = {
+    primary: 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300',
+    sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300',
+    emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300',
+    amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300',
+    violet: 'bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300',
+    rose: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
+    slate: 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400',
 };
 </script>
 
 <template>
-    <Head title="Ressources humaines" />
+    <Head title="Accueil RH" />
 
     <div class="w-full space-y-6">
-        <HrNav />
+        <PageHeader
+            eyebrow="Ressources humaines"
+            :title="`Accueil RH · ${siteName}`"
+            description="Le travail RH du site : ce qui attend une décision, l’effectif, puis chaque tâche en un clic."
+            icon="briefcase"
+            tone="primary"
+        >
+            <template #actions>
+                <Button v-if="can('leave.create')" :as="Link" href="/administration/leave/create" size="rg" variant="white-outline"><Icon name="calendar" /><span class="ms-2">Demande de congé</span></Button>
+                <Button v-if="can('employees.create')" :as="Link" href="/administration/employees/create" size="rg"><Icon name="user-add" /><span class="ms-2">Nouvel employé</span></Button>
+            </template>
+        </PageHeader>
 
-        <section class="relative overflow-hidden rounded-2xl bg-slate-900 px-6 py-7 text-white shadow-lg sm:px-8 lg:py-9">
-            <div class="absolute -end-16 -top-24 h-64 w-64 rounded-full bg-primary-500/20 blur-3xl" />
-            <div class="absolute -bottom-28 start-1/3 h-56 w-56 rounded-full bg-sky-500/10 blur-3xl" />
-            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                <div class="max-w-2xl">
-                    <p class="text-xs font-bold uppercase tracking-[0.18em] text-primary-300">Clinique Saint Georges · {{ siteName }}</p>
-                    <h1 class="mt-3 font-heading text-3xl font-bold tracking-tight sm:text-4xl">Espace Ressources humaines</h1>
-                    <p class="mt-3 max-w-xl text-sm leading-6 text-slate-300">Une vue claire du personnel, des contrats, des présences et de l’organisation quotidienne. Les informations restent locales au site et chaque changement sensible est audité.</p>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                    <Button v-if="can('employees.create')" :as="Link" href="/administration/employees/create" size="rg" variant="primary">
-                        <Icon class="text-lg" name="user-add" /><span class="ms-2">Nouvel employé</span>
-                    </Button>
-                    <Button v-if="can('leave.create')" :as="Link" href="/administration/leave/create" size="rg" variant="white-outline">
-                        <Icon class="text-lg" name="calendar" /><span class="ms-2">Demande de congé</span>
-                    </Button>
-                </div>
-            </div>
+        <section aria-labelledby="hr-figures-title">
+            <h2 id="hr-figures-title" class="mb-3 font-heading text-base font-bold text-slate-800 dark:text-white">Aujourd’hui</h2>
+            <HrFigures :summary="visibleSummary" linkable />
         </section>
 
-        <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <HrStatCard label="Employés actifs" :value="summary.active_employees" hint="Dossiers actifs" icon="users" tone="primary" />
-            <HrStatCard label="Contrats en cours" :value="summary.current_contracts" hint="Actifs aujourd’hui" icon="file-docs" tone="sky" />
-            <HrStatCard label="Employés pointés" :value="summary.today_attendance" hint="Au moins une session aujourd’hui" icon="clock" tone="emerald" />
-            <HrStatCard label="Congés à traiter" :value="summary.pending_leave" hint="Décision en attente" icon="alert-circle" tone="amber" />
-            <HrStatCard class="sm:col-span-2 xl:col-span-1" label="Créneaux · 7 jours" :value="summary.upcoming_shifts" hint="Planning à venir" icon="calender-date" tone="violet" />
-        </section>
-
-        <section class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,.55fr)]">
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <header class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><p class="text-[11px] font-bold uppercase tracking-wide text-amber-600">File de travail</p><h2 class="mt-1 text-lg font-bold text-slate-800 dark:text-white">À vérifier maintenant</h2><p class="mt-1 text-xs text-slate-500">Des faits à traiter, sans déduire automatiquement retard, absence ou droit à congé.</p></header>
-                <div class="grid sm:grid-cols-3">
-                    <Link v-if="can('attendance.view')" href="/administration/attendance" class="flex items-center gap-3 border-b border-gray-200 p-4 transition hover:bg-amber-50/50 dark:border-gray-900 dark:hover:bg-amber-950/10 sm:border-b-0 sm:border-e"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', summary.open_attendance ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><Icon name="clock" /></span><span><strong class="block text-lg text-slate-800 dark:text-white">{{ summary.open_attendance }}</strong><span class="text-xs text-slate-500">présence(s) sans sortie</span></span></Link>
-                    <Link v-if="can('leave.view')" href="/administration/leave?status=PENDING" class="flex items-center gap-3 border-b border-gray-200 p-4 transition hover:bg-amber-50/50 dark:border-gray-900 dark:hover:bg-amber-950/10 sm:border-b-0 sm:border-e"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', summary.pending_leave ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><Icon name="calendar" /></span><span><strong class="block text-lg text-slate-800 dark:text-white">{{ summary.pending_leave }}</strong><span class="text-xs text-slate-500">congé(s) à décider</span></span></Link>
-                    <Link v-if="can('contracts.view')" href="/administration/contracts" class="flex items-center gap-3 p-4 transition hover:bg-amber-50/50 dark:hover:bg-amber-950/10"><span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', summary.contracts_ending_soon ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><Icon name="file-docs" /></span><span><strong class="block text-lg text-slate-800 dark:text-white">{{ summary.contracts_ending_soon }}</strong><span class="text-xs text-slate-500">fin(s) sous 30 jours</span></span></Link>
-                </div>
-            </div>
-            <aside class="rounded-xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-900 dark:bg-primary-950/20"><div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-primary-600 shadow-sm dark:bg-gray-950"><Icon name="user-add" /></span><div><h2 class="text-sm font-bold text-primary-900 dark:text-primary-100">Parcours de recrutement</h2><p class="mt-1 text-xs leading-5 text-primary-800/80 dark:text-primary-200/80">Créez d’abord l’identité RH. Depuis sa fiche, le contrat, la présence, le congé et le planning reprennent automatiquement cet employé.</p><Link v-if="can('employees.create')" href="/administration/employees/create" class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-primary-700 hover:text-primary-800 dark:text-primary-300">Commencer un dossier <Icon name="arrow-right" /></Link></div></div></aside>
-        </section>
-
-        <section>
-            <div class="mb-4 flex items-end justify-between gap-4">
-                <div><h2 class="font-heading text-xl font-bold text-slate-800 dark:text-white">Gestion RH</h2><p class="mt-1 text-sm text-slate-500">Accédez directement à votre tâche.</p></div>
-                <Link v-if="can('hr_settings.view')" href="/administration/settings" class="text-xs font-bold text-primary-600 hover:text-primary-700">Configurer les référentiels →</Link>
-            </div>
-            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <Link v-for="area in areas.filter((entry) => can(entry.permission))" :key="area.link" :href="area.link" class="group rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-md dark:border-gray-900 dark:bg-gray-950 dark:hover:border-gray-700">
-                    <div class="flex items-start justify-between gap-4">
-                        <span :class="['flex h-11 w-11 items-center justify-center rounded-xl text-xl', toneClasses[area.tone]]"><Icon :name="area.icon" /></span>
-                        <Icon class="text-lg text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary-500" name="arrow-right" />
-                    </div>
-                    <h3 class="mt-5 text-base font-bold text-slate-800 dark:text-white">{{ area.title }}</h3>
-                    <p class="mt-1.5 text-sm leading-6 text-slate-500">{{ area.description }}</p>
+        <section aria-labelledby="hr-areas-title">
+            <h2 id="hr-areas-title" class="mb-3 font-heading text-base font-bold text-slate-800 dark:text-white">Que voulez-vous faire ?</h2>
+            <div class="grid grid-cols-2 gap-1 rounded-xl border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-900 dark:bg-gray-1000/40 sm:grid-cols-3 lg:grid-cols-5">
+                <Link
+                    v-for="area in areas"
+                    :key="area.href"
+                    :href="area.href"
+                    class="group flex flex-col items-center rounded-xl border border-transparent px-3 py-5 text-center transition hover:border-gray-200 hover:bg-white hover:shadow-sm dark:hover:border-gray-800 dark:hover:bg-gray-950"
+                >
+                    <span :class="['flex h-16 w-16 items-center justify-center rounded-2xl text-3xl transition group-hover:scale-105', TONES[area.tone]]"><Icon :name="area.icon" /></span>
+                    <span class="mt-3 text-sm font-semibold text-slate-800 dark:text-white">{{ area.title }}</span>
+                    <span class="mt-0.5 text-xs text-slate-400">{{ area.meta }}</span>
                 </Link>
             </div>
         </section>
 
-        <aside class="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-slate-500 dark:bg-gray-900"><Icon class="text-lg" name="shield-check" /></span>
-            <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Confidentialité et traçabilité</h2><p class="mt-1 text-xs leading-5 text-slate-500">Les dossiers RH sont séparés des comptes utilisateurs. Les documents sont stockés hors du répertoire public, les archives restent restaurables et aucune donnée de paie automatique n’est calculée avec une formule non validée.</p></div>
-        </aside>
+        <p class="flex items-start gap-2 px-1 text-xs text-slate-500">
+            <Icon name="shield-check" class="mt-0.5" />Les dossiers RH restent sur ce site. Le portail central ne voit que ces chiffres, jamais les dossiers. Chaque modification est tracée et aucune paie n’est calculée automatiquement.
+        </p>
     </div>
 </template>

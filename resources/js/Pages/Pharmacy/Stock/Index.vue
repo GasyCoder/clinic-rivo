@@ -1,0 +1,318 @@
+<script setup>
+import { computed, ref } from 'vue';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import AppLayout from '@/Layouts/AppLayout.vue';
+import Badge from '@/Components/UI/Badge.vue';
+import Button from '@/Components/UI/Button.vue';
+import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
+import ExplorerView from '@/Components/UI/ExplorerView.vue';
+import Icon from '@/Components/UI/Icon.vue';
+import PageHeader from '@/Components/UI/PageHeader.vue';
+import MedicineFamilies from '@/Components/Pharmacy/MedicineFamilies.vue';
+import { formatDate } from '@/utilities/date';
+import { printMedicineLabels } from '@/utilities/medicineLabels';
+import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
+
+defineOptions({ layout: AppLayout });
+
+/*
+ * ADR-098 — « Médicaments & stock »: the clinic's medicines once, with their
+ * family, price and delivery rule, and their stock when the account may see
+ * it. It replaces the former separate Stock and Médicaments lists.
+ */
+const props = defineProps({
+    capabilities: { type: Object, required: true },
+    stock: { type: Object, required: true },
+    alerts: { type: Array, default: () => [] },
+    categories: { type: Array, default: () => [] },
+});
+
+const page = usePage();
+const showStock = computed(() => props.capabilities.can_view_stock);
+const initialStatus = new URLSearchParams(page.url.split('?')[1] ?? '').get('status');
+const status = ref(initialStatus ?? 'ALL');
+const search = ref('');
+const family = ref('');
+
+const medicines = computed(() => props.stock.medicines ?? []);
+const activeCategories = computed(() => props.categories.filter((category) => !category.archived));
+
+const filters = computed(() => [
+    { value: 'ALL', label: 'Tous', count: medicines.value.length },
+    { value: 'AVAILABLE', label: 'Disponibles', count: medicines.value.filter((item) => item.status === 'AVAILABLE').length },
+    { value: 'OUT_OF_STOCK', label: 'En rupture', count: props.stock.summary?.out_of_stock ?? 0 },
+    ...(props.capabilities.can_view_expiration
+        ? [{ value: 'EXPIRING_SOON', label: 'Péremption proche', count: props.stock.summary?.expiring_soon ?? 0 }]
+        : []),
+    { value: 'INACTIVE', label: 'Inactifs', count: medicines.value.filter((item) => item.status === 'INACTIVE').length },
+]);
+
+const visible = computed(() => {
+    const needle = search.value.trim().toLocaleLowerCase();
+
+    return medicines.value.filter((medicine) => {
+        const matchesStatus = !showStock.value || status.value === 'ALL' || medicine.status === status.value;
+        const matchesFamily = !family.value || medicine.category?.name === family.value;
+        const matchesSearch = !needle || [medicine.name, medicine.generic_name, medicine.code, medicine.barcode, medicine.form_label]
+            .filter(Boolean)
+            .some((value) => value.toLocaleLowerCase().includes(needle));
+
+        return matchesStatus && matchesFamily && matchesSearch;
+    });
+});
+
+const selectStatus = (value) => {
+    status.value = value;
+    router.replace({ url: value === 'ALL' ? '/pharmacy/stock' : `/pharmacy/stock?status=${value}`, preserveState: true, preserveScroll: true });
+};
+
+const TILE = {
+    AVAILABLE: { tone: 'emerald', badge: 'Disponible' },
+    OUT_OF_STOCK: { tone: 'rose', badge: 'Rupture' },
+    EXPIRING_SOON: { tone: 'amber', badge: 'Péremption' },
+    INACTIVE: { tone: 'slate', badge: 'Inactif' },
+};
+const tile = (medicine) => (showStock.value ? TILE[medicine.status] : null) ?? { tone: medicine.active ? 'primary' : 'slate', badge: null };
+const tileHref = (medicine) => (showStock.value ? `/pharmacy/stock/${medicine.uuid}` : (props.capabilities.can_update_medicine ? `/pharmacy/medicines/${medicine.uuid}/edit` : null));
+
+// QR labels: tick medicines (or all the visible ones), then print one sheet.
+const selected = ref([]);
+const allVisibleSelected = computed(() => visible.value.length > 0 && visible.value.every((medicine) => selected.value.includes(medicine.uuid)));
+const toggle = (uuid) => {
+    selected.value = selected.value.includes(uuid) ? selected.value.filter((item) => item !== uuid) : [...selected.value, uuid];
+};
+const toggleAllVisible = () => {
+    const uuids = visible.value.map((medicine) => medicine.uuid);
+    selected.value = allVisibleSelected.value
+        ? selected.value.filter((uuid) => !uuids.includes(uuid))
+        : [...new Set([...selected.value, ...uuids])];
+};
+const popupBlocked = ref(false);
+const printLabels = async (list) => {
+    popupBlocked.value = !(await printMedicineLabels(list, page.props.site?.name));
+};
+const printSelection = () => printLabels(medicines.value.filter((medicine) => selected.value.includes(medicine.uuid)));
+
+const importForm = useForm({ file: null });
+const submitImport = () => importForm.post('/pharmacy/setup/medicines/import', {
+    preserveScroll: true,
+    forceFormData: true,
+    onSuccess: () => importForm.reset(),
+});
+
+const summaryCards = computed(() => (showStock.value ? [
+    { label: 'Médicaments', value: medicines.value.length, icon: 'capsule', tone: 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300', filter: 'ALL' },
+    { label: 'Disponibles', value: medicines.value.filter((item) => item.status === 'AVAILABLE').length, icon: 'check-circle', tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300', filter: 'AVAILABLE' },
+    { label: 'En rupture', value: props.stock.summary?.out_of_stock ?? 0, icon: 'alert', tone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300', filter: 'OUT_OF_STOCK' },
+    { label: 'Péremption proche', value: props.stock.summary?.expiring_soon ?? 0, icon: 'clock', tone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300', filter: 'EXPIRING_SOON' },
+] : []));
+</script>
+
+<template>
+    <Head title="Médicaments & stock" />
+
+    <div class="w-full space-y-5">
+        <PageHeader
+            eyebrow="Pharmacie"
+            title="Médicaments & stock"
+            description="Les médicaments de la clinique, leur prix de vente et ce qui est disponible aujourd’hui."
+            icon="capsule"
+            tone="emerald"
+        >
+            <template #actions>
+                <Button v-if="capabilities.can_adjust_stock && capabilities.can_view_lots" :as="Link" href="/pharmacy/stock/inventory" size="rg" variant="white-outline">
+                    <Icon name="list-check" /><span class="ms-2">Inventaire</span>
+                </Button>
+                <Button v-if="capabilities.can_adjust_stock" :as="Link" href="/pharmacy/stock/adjustments/create" size="rg" variant="white-outline">
+                    <Icon name="edit" /><span class="ms-2">Corriger</span>
+                </Button>
+                <Button v-if="capabilities.can_create_medicine" :as="Link" href="/pharmacy/medicines/create" size="rg" variant="white-outline">
+                    <Icon name="plus" /><span class="ms-2">Nouveau médicament</span>
+                </Button>
+                <Button v-if="capabilities.can_record_entry" :as="Link" href="/pharmacy/stock/entries/create" size="rg">
+                    <Icon name="package" /><span class="ms-2">Enregistrer une entrée</span>
+                </Button>
+            </template>
+        </PageHeader>
+
+        <div v-if="summaryCards.length" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <button
+                v-for="card in summaryCards"
+                :key="card.label"
+                type="button"
+                :class="['flex items-center gap-3 rounded-xl border bg-white p-4 text-start shadow-sm transition hover:shadow-md dark:bg-gray-950', status === card.filter ? 'border-primary-400 dark:border-primary-700' : 'border-gray-200 dark:border-gray-900']"
+                @click="selectStatus(card.filter)"
+            >
+                <span :class="['flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl', card.tone]"><Icon :name="card.icon" /></span>
+                <span><span class="block text-2xl font-bold tabular-nums text-slate-800 dark:text-white">{{ card.value }}</span><span class="text-xs text-slate-500">{{ card.label }}</span></span>
+            </button>
+        </div>
+
+        <section v-if="alerts.length && capabilities.can_view_alerts" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
+            <Icon name="alert" class="mt-0.5 text-lg text-amber-600" />
+            <p class="text-sm text-amber-900 dark:text-amber-100">
+                <strong>{{ alerts.length }} médicament{{ alerts.length > 1 ? 's' : '' }} à recommander :</strong>
+                {{ alerts.slice(0, 4).map((alert) => alert.medicine_name).join(', ') }}<span v-if="alerts.length > 4">…</span>
+            </p>
+        </section>
+
+        <ExplorerView
+            storage-key="pharmacy-medicines"
+            :count="visible.length"
+            count-label="médicament"
+            empty-icon="capsule"
+            empty-title="Aucun médicament trouvé"
+            empty-description="Modifiez la recherche, la famille ou le filtre choisi."
+        >
+            <template #toolbar>
+                <label class="relative block w-full sm:w-72">
+                    <span class="sr-only">Rechercher un médicament</span>
+                    <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" />
+                    <input v-model="search" type="search" class="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 ps-10 pe-3 text-sm outline-none focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-900 dark:text-white" placeholder="Nom, DCI, code ou code-barres…">
+                </label>
+                <select v-if="activeCategories.length" v-model="family" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white" aria-label="Filtrer par famille">
+                    <option value="">Toutes les familles</option>
+                    <option v-for="category in activeCategories" :key="category.uuid" :value="category.name">{{ category.name }}</option>
+                </select>
+            </template>
+
+            <template #above>
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-2.5 dark:border-gray-900 dark:bg-gray-950">
+                    <div v-if="showStock" class="flex max-w-full gap-1.5 overflow-x-auto" role="tablist" aria-label="Filtrer par état">
+                        <button
+                            v-for="filter in filters"
+                            :key="filter.value"
+                            type="button"
+                            role="tab"
+                            :aria-selected="status === filter.value"
+                            :class="['inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition', status === filter.value ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-800' : 'text-slate-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-gray-900']"
+                            @click="selectStatus(filter.value)"
+                        >
+                            {{ filter.label }} <span class="opacity-70">{{ filter.count }}</span>
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                        <label class="inline-flex cursor-pointer items-center gap-2 text-slate-600 dark:text-slate-300">
+                            <input type="checkbox" class="h-4 w-4 rounded border-gray-300" :checked="allVisibleSelected" :disabled="!visible.length" @change="toggleAllVisible">
+                            Tout sélectionner
+                        </label>
+                        <button v-if="selected.length" type="button" class="text-xs font-bold text-slate-500 hover:text-slate-700" @click="selected = []">Désélectionner ({{ selected.length }})</button>
+                        <Button size="sm" type="button" :disabled="!selected.length" @click="printSelection"><Icon name="qr" /><span class="ms-1.5">Étiquettes QR</span></Button>
+                    </div>
+                    <p v-if="popupBlocked" class="w-full text-xs text-red-600">Le navigateur a bloqué la fenêtre d’impression : autorisez les fenêtres pour ce site, puis réessayez.</p>
+                </div>
+            </template>
+
+            <template #grid>
+                <ExplorerTile
+                    v-for="medicine in visible"
+                    :key="medicine.uuid"
+                    :href="tileHref(medicine)"
+                    icon="capsule"
+                    :tone="tile(medicine).tone"
+                    :badge="tile(medicine).badge"
+                    :title="medicine.name"
+                    :subtitle="[medicine.strength, medicine.form_label].filter(Boolean).join(' · ')"
+                    :highlight="showStock ? `${formatNumber(medicine.available_quantity)} ${medicine.unit ?? ''}` : null"
+                    :meta="medicine.sale_price ? formatMoney(medicine.sale_price) : 'Prix non défini'"
+                    :muted="!medicine.active"
+                    selectable
+                    :selected="selected.includes(medicine.uuid)"
+                    @toggle="toggle(medicine.uuid)"
+                >
+                    <template #actions>
+                        <Button v-if="capabilities.can_record_entry && medicine.active" :as="Link" :href="`/pharmacy/stock/entries/create?medicine=${medicine.uuid}`" size="sm" variant="white-outline" :title="`Entrée de stock pour ${medicine.name}`"><Icon name="plus" /></Button>
+                        <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Icon name="edit" /></Button>
+                        <Button size="sm" variant="white-outline" type="button" :title="`Étiquette QR de ${medicine.name}`" @click="printLabels([medicine])"><Icon name="qr" /></Button>
+                    </template>
+                </ExplorerTile>
+            </template>
+
+            <template #list>
+                <table class="w-full min-w-[900px] text-sm">
+                    <thead class="bg-gray-50 text-xs font-semibold text-slate-500 dark:bg-gray-1000">
+                        <tr>
+                            <th class="w-10 px-4 py-3"><span class="sr-only">Sélection</span></th>
+                            <th class="px-4 py-3 text-start">Médicament</th>
+                            <th class="px-4 py-3 text-start">Famille</th>
+                            <th class="px-4 py-3 text-end">Prix de vente</th>
+                            <th v-if="showStock" class="px-4 py-3 text-end">Disponible</th>
+                            <th v-if="showStock" class="px-4 py-3 text-start">État</th>
+                            <th class="px-4 py-3 text-start">Délivrance</th>
+                            <th class="px-5 py-3 text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
+                        <tr v-for="medicine in visible" :key="medicine.uuid" :class="['transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/40', selected.includes(medicine.uuid) && 'bg-primary-50/40 dark:bg-primary-950/10']">
+                            <td class="px-4 py-3.5">
+                                <input type="checkbox" class="h-4 w-4 rounded border-gray-300" :checked="selected.includes(medicine.uuid)" :aria-label="`Sélectionner ${medicine.name}`" @change="toggle(medicine.uuid)">
+                            </td>
+                            <td class="px-4 py-3.5">
+                                <p class="font-semibold text-slate-800 dark:text-white">{{ medicine.name }}</p>
+                                <p class="mt-0.5 text-xs text-slate-400">{{ medicine.form_label }}<span v-if="medicine.strength"> · {{ medicine.strength }}</span><span v-if="medicine.generic_name"> · {{ medicine.generic_name }}</span> · <span class="font-mono">{{ medicine.code }}</span></p>
+                            </td>
+                            <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{ medicine.category?.name ?? '—' }}</td>
+                            <td class="px-4 py-3.5 text-end tabular-nums text-slate-700 dark:text-white">{{ medicine.sale_price ? formatMoney(medicine.sale_price) : '—' }}</td>
+                            <td v-if="showStock" class="px-4 py-3.5 text-end">
+                                <p class="text-base font-bold tabular-nums text-slate-800 dark:text-white">{{ formatNumber(medicine.available_quantity) }} <span class="text-xs font-normal text-slate-400">{{ medicine.unit }}</span></p>
+                                <p v-if="medicine.reserved_quantity" class="text-xs text-slate-400">+ {{ formatNumber(medicine.reserved_quantity) }} réservé{{ medicine.reserved_quantity > 1 ? 's' : '' }}</p>
+                            </td>
+                            <td v-if="showStock" class="px-4 py-3.5">
+                                <Badge :tone="statusTone(medicine.status)" dot>{{ medicine.status_label }}</Badge>
+                                <p v-if="capabilities.can_view_expiration && medicine.nearest_expiration" class="mt-1 text-xs text-slate-400">Péremption : {{ formatDate(medicine.nearest_expiration) }}</p>
+                            </td>
+                            <td class="px-4 py-3.5">
+                                <Badge v-if="!medicine.active" tone="neutral">Inactif</Badge>
+                                <Badge v-else-if="medicine.prescription_required" tone="warning">Sur ordonnance</Badge>
+                                <Badge v-else tone="success">Vente libre</Badge>
+                            </td>
+                            <td class="px-5 py-3.5">
+                                <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                                    <Button v-if="showStock" :as="Link" :href="`/pharmacy/stock/${medicine.uuid}`" size="sm" variant="white-outline">Lots</Button>
+                                    <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Icon name="edit" /></Button>
+                                    <Button v-if="capabilities.can_record_entry && medicine.active" :as="Link" :href="`/pharmacy/stock/entries/create?medicine=${medicine.uuid}`" size="sm" variant="white-outline" :title="`Entrée de stock pour ${medicine.name}`"><Icon name="plus" /></Button>
+                                    <Button size="sm" variant="white-outline" type="button" :title="`Étiquette QR de ${medicine.name}`" @click="printLabels([medicine])"><Icon name="qr" /></Button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </template>
+        </ExplorerView>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+            <section v-if="capabilities.can_view_categories" class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
+                <div class="mb-3 flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-lg text-amber-600 dark:bg-amber-950/40 dark:text-amber-300"><Icon name="folder" /></span>
+                    <div>
+                        <h2 class="font-heading text-base font-bold text-slate-800 dark:text-white">Familles de médicaments</h2>
+                        <p class="mt-0.5 text-sm text-slate-500">Cliquez sur une famille pour filtrer la liste.</p>
+                    </div>
+                </div>
+                <MedicineFamilies
+                    :categories="categories"
+                    :can="{ create: capabilities.can_create_category, update: capabilities.can_update_category, delete: capabilities.can_archive_category, restore: capabilities.can_restore_category }"
+                    base-url="/pharmacy/setup/categories"
+                    :selected-name="family"
+                    @select="family = $event"
+                />
+            </section>
+
+            <section v-if="capabilities.can_import_medicines" class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-lg text-sky-600 dark:bg-sky-950/40 dark:text-sky-300"><Icon name="upload" /></span>
+                    <div>
+                        <h2 class="font-heading text-base font-bold text-slate-800 dark:text-white">Ajouter plusieurs médicaments d’un coup</h2>
+                        <p class="mt-0.5 text-sm text-slate-500">Remplissez le modèle Excel, puis envoyez-le. Si une seule ligne est incorrecte, rien n’est ajouté.</p>
+                    </div>
+                </div>
+                <a href="/pharmacy/setup/medicines/import-template" class="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 hover:underline"><Icon name="download" />Télécharger le modèle</a>
+                <form class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center" @submit.prevent="submitImport">
+                    <input name="file" type="file" accept=".xlsx,.xls,.csv" class="block flex-1 text-sm text-slate-500 file:me-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-semibold dark:file:bg-gray-900" required @input="importForm.file = $event.target.files[0]">
+                    <Button size="rg" type="submit" :disabled="importForm.processing || !importForm.file"><Icon name="upload" /><span class="ms-2">Envoyer</span></Button>
+                </form>
+                <p v-if="importForm.errors.file" class="mt-2 text-xs text-red-600">{{ importForm.errors.file }}</p>
+            </section>
+        </div>
+    </div>
+</template>

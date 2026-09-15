@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Pharmacy;
 
+use App\Actions\Pharmacy\SetMedicineSupplierOfferAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
@@ -15,6 +16,7 @@ use App\Models\Episode;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MedicineStockReservation;
+use App\Models\MedicineSupplier;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\PharmacyStockMovement;
@@ -106,6 +108,35 @@ class PharmacyWorkspaceTest extends TestCase
         ], $overrides);
     }
 
+    public function test_the_stock_entry_form_knows_which_suppliers_provide_each_medicine(): void
+    {
+        $this->pharmacist->permissions()->attach(
+            Permission::query()->whereIn('name', [
+                'medicine_suppliers.view', 'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'stock.cost.record',
+            ])->pluck('id'),
+            ['effect' => 'allow'],
+        );
+        $pharmacist = $this->pharmacist->fresh();
+        $linked = $this->medicine('Paracétamol 500 mg');
+        $priced = $this->medicine('Amoxicilline 500 mg');
+        $unrelated = $this->medicine('Ibuprofène 400 mg');
+        $distrib = MedicineSupplier::query()->create(['code' => 'DISTRIB', 'name' => 'Distrib']);
+        $centrale = MedicineSupplier::query()->create(['code' => 'CENTRALE', 'name' => 'Centrale']);
+        $linked->suppliers()->attach($distrib->id);
+        app(SetMedicineSupplierOfferAction::class)
+            ->execute($priced, $centrale, '600', 'Tarif initial', $pharmacist);
+
+        $medicines = collect($this->actingAs($pharmacist)->get('/pharmacy/stock/entries/create')
+            ->assertOk()
+            ->viewData('page')['props']['medicines'])
+            ->keyBy('uuid');
+
+        $this->assertSame([$distrib->uuid], $medicines[$linked->uuid]['supplier_uuids']);
+        $this->assertSame([$centrale->uuid], $medicines[$priced->uuid]['supplier_uuids']);
+        $this->assertSame('600.00', ((array) $medicines[$priced->uuid]['supplier_prices'])[$centrale->uuid]);
+        $this->assertSame([], $medicines[$unrelated->uuid]['supplier_uuids']);
+    }
+
     public function test_pharmacy_workspace_requires_the_dynamic_pharmacy_view_permission(): void
     {
         $role = Role::query()->where('code', 'LABORATORY')->firstOrFail();
@@ -119,10 +150,10 @@ class PharmacyWorkspaceTest extends TestCase
         $medicine = $this->medicine();
         $this->lot($medicine, 15);
 
-        $this->actingAs($this->pharmacist)->get('/pharmacy')
+        $this->actingAs($this->pharmacist)->get('/pharmacy/stock')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Pharmacy/Index')
+                ->component('Pharmacy/Stock/Index')
                 ->where('capabilities.can_view_stock', true)
                 ->where('capabilities.can_view_lots', true)
                 ->where('capabilities.can_view_expiration', true)
@@ -146,7 +177,7 @@ class PharmacyWorkspaceTest extends TestCase
             );
         }
 
-        $this->actingAs($this->pharmacist)->get('/pharmacy')
+        $this->actingAs($this->pharmacist)->get('/pharmacy/stock')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('capabilities.can_view_lots', false)
@@ -311,9 +342,10 @@ class PharmacyWorkspaceTest extends TestCase
             'reserved_by' => $this->pharmacist->id,
         ]);
 
-        $this->actingAs($this->pharmacist)->get('/pharmacy')
+        $this->actingAs($this->pharmacist)->get('/pharmacy/dispenses')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
+                ->component('Pharmacy/Dispenses/Index')
                 ->where('queue.summary.prescriptions', 1)
                 ->where('queue.summary.reserved_quantity', 4)
                 ->where('queue.prescriptions.0.patient.name', 'Soa Rabe')

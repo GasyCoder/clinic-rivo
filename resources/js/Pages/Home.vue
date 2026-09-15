@@ -3,6 +3,8 @@ import { computed } from 'vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import ActivityTrendChart from '@/Components/Dashboard/ActivityTrendChart.vue';
+import PharmacyHomePanel from '@/Components/Pharmacy/PharmacyHomePanel.vue';
+import HrHomePanel from '@/Components/Administration/HrHomePanel.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import {
     ArrowRight,
@@ -24,6 +26,9 @@ const props = defineProps({
         type: Object,
         default: () => ({ generated_at: null, metrics: [], trend: { dates: [], series: [] } }),
     },
+    // Present only for an account allowed into the Pharmacy (ADR-098).
+    pharmacy: { type: Object, default: null },
+    hr: { type: Object, default: null },
 });
 
 const page = usePage();
@@ -210,6 +215,10 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
             </span>
             <ArrowRight class="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" v-if="pendingOrientation.href" />
         </component>
+
+        <PharmacyHomePanel v-if="pharmacy" v-bind="pharmacy" />
+
+        <HrHomePanel v-if="hr" v-bind="hr" />
 
         <!-- Indicateurs du jour. -->
         <section v-if="metrics.length" class="space-y-4" aria-labelledby="today-title">

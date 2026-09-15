@@ -6,6 +6,7 @@ use App\Enums\MedicineStockReservationStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -49,6 +50,27 @@ class MedicineLot extends Model
     {
         return $this->reservations()
             ->where('status', MedicineStockReservationStatus::Reserved->value);
+    }
+
+    /**
+     * ADR-098 — the single definition of what a lot still holds for others:
+     * quantities reserved for a prescription or for a pending dispense.
+     * Stock screens, the Medicine catalog and stock alerts all read it here
+     * instead of each summing reservations their own way.
+     */
+    public function scopeWithReservedQuantity(Builder $query): Builder
+    {
+        $stillReserved = fn ($reservations) => $reservations->where('status', MedicineStockReservationStatus::Reserved->value);
+
+        return $query
+            ->withSum(['reservations as prescription_reserved_quantity' => $stillReserved], 'remaining_quantity')
+            ->withSum(['counterReservations as counter_reserved_quantity' => $stillReserved], 'remaining_quantity');
+    }
+
+    /** Requires the lot to have been loaded through withReservedQuantity(). */
+    public function reservedQuantity(): int
+    {
+        return (int) ($this->prescription_reserved_quantity ?? 0) + (int) ($this->counter_reserved_quantity ?? 0);
     }
 
     public function stockMovements(): HasMany

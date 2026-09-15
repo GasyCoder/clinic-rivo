@@ -13,12 +13,15 @@ const props = defineProps({
     contractsByEmployee: { type: Object, default: () => ({}) },
     leavesByEmployee: { type: Object, default: () => ({}) },
     formFieldsByContext: { type: Object, default: () => ({}) },
+    prefill: { type: Object, default: () => ({}) },
 });
 
+// Initial values do not trigger the reset watchers below, so a page opened
+// from a contract keeps its canevas, employee and contract.
 const form = useForm({
-    document_template_uuid: '',
-    employee_uuid: '',
-    employment_contract_uuid: '',
+    document_template_uuid: props.prefill.document_template_uuid || '',
+    employee_uuid: props.prefill.employee_uuid || '',
+    employment_contract_uuid: props.prefill.employment_contract_uuid || '',
     leave_request_uuid: '',
     form_data: {},
 });

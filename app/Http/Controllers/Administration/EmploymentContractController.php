@@ -6,13 +6,16 @@ use App\Actions\Administration\ArchiveEmploymentContractAction;
 use App\Actions\Administration\CreateEmploymentContractAction;
 use App\Actions\Administration\RestoreEmploymentContractAction;
 use App\Actions\Administration\UpdateEmploymentContractAction;
+use App\Enums\DocumentDataContext;
 use App\Enums\HrReferenceType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\ArchiveContractRequest;
 use App\Http\Requests\Administration\StoreContractRequest;
 use App\Http\Requests\Administration\UpdateContractRequest;
+use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
+use App\Models\GeneratedDocument;
 use App\Models\HrReferenceValue;
 use App\Services\Administration\HrPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
@@ -126,8 +129,31 @@ class EmploymentContractController extends Controller
         Gate::forUser($request->user())->authorize('view', $contract);
         $contract->load(['employee.department', 'employee.jobTitle', 'employee.addressEntry', 'contractType']);
 
+        $user = $request->user();
+
         return Inertia::render('Administration/Contracts/Print', [
             'contract' => $this->presenter->contract($contract),
+            // ADR-070/087: the printable contract is the Super Admin canevas,
+            // filled for this contract. An archived contract only prints its sheet.
+            'templates' => $user->can('generated_documents.create') && ! $contract->trashed()
+                ? DocumentTemplate::query()->where('active', true)
+                    ->where('data_context', DocumentDataContext::EmployeeAndContract->value)
+                    ->orderBy('name')->get()
+                    ->map(fn (DocumentTemplate $template) => [
+                        'uuid' => $template->uuid,
+                        'name' => $template->name,
+                        'document_type' => $template->document_type,
+                    ])->all()
+                : [],
+            'documents' => $user->can('generated_documents.view')
+                ? GeneratedDocument::query()->where('employment_contract_id', $contract->getKey())
+                    ->latest('created_at')->get()
+                    ->map(fn (GeneratedDocument $document) => [
+                        'uuid' => $document->uuid,
+                        'template_name' => $document->template_name_snapshot,
+                        'created_at' => $document->created_at?->toIso8601String(),
+                    ])->all()
+                : [],
         ]);
     }
 

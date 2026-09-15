@@ -63,11 +63,11 @@ const customerReference = computed(() => props.invoice.patient?.patient_number
     ? `Patient ${props.invoice.patient.patient_number}`
     : (props.invoice.source_module === 'PHARMACY' ? 'Vente directe Pharmacie' : 'Client externe'));
 const returnHref = computed(() => {
-    if (props.returnToPharmacy) return '/pharmacy?tab=dispenses';
+    if (props.returnToPharmacy) return '/pharmacy/dispenses';
     return props.returnToCash || !props.invoice.patient ? '/cash' : `/patients/${props.invoice.patient.uuid}`;
 });
 const returnLabel = computed(() => {
-    if (props.returnToPharmacy) return 'Retour aux demandes';
+    if (props.returnToPharmacy) return 'Retour aux ordonnances';
     return props.returnToCash || !props.invoice.patient ? 'Retour à la caisse' : 'Retour au patient';
 });
 const isPharmacyInvoice = computed(() => props.invoice.source_module === 'PHARMACY');

@@ -117,6 +117,7 @@ const adminMenu = computed(() => [
     { icon: FileText, text: 'Canevas de documents', link: '/super-admin/workspaces/document-templates', permission: 'document_templates.view' },
     { icon: Activity, text: 'Catalogue des analyses', link: '/super-admin/analyses', permission: 'analysis_catalog.view' },
     { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
+    { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
     { heading: 'Organisation' },
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
@@ -162,8 +163,20 @@ const isActive = (item) => {
     return depth !== -1 && depth === deepestMatch.value;
 };
 
-const isChildActive = (child) => page.url === child.link
-    || (child.code === 'OVERVIEW' && page.url.split('?')[0] === child.link.split('?')[0]);
+const isChildActive = (child) => {
+    const path = page.url.split('?')[0];
+
+    if (child.activeLinks) {
+        return child.activeLinks.some((link) => path.startsWith(link));
+    }
+
+    if (child.exact) {
+        return path === child.link;
+    }
+
+    return page.url === child.link
+        || (child.code === 'OVERVIEW' && path === child.link.split('?')[0]);
+};
 
 const closeMobile = () => {
     visibility.value = false;
@@ -267,7 +280,7 @@ const closeMobile = () => {
                             {{ item.text }}
                         </span>
                         <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 ms-2 flex items-center gap-2">
-                            <span :class="['rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide', item.integrationStatus === 'CONFIGURED' ? 'border-emerald-500/30 text-emerald-500' : ' text-muted-foreground']">API</span>
+                            <span v-if="item.integrationStatus" :class="['rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide', item.integrationStatus === 'CONFIGURED' ? 'border-emerald-500/30 text-emerald-500' : ' text-muted-foreground']">API</span>
                             <ChevronRight class="h-3.5 w-3.5 text-muted-foreground transition-transform group-open/site:rotate-90" />
                         </span>
                     </summary>
@@ -275,10 +288,11 @@ const closeMobile = () => {
                         <li v-for="child in item.children" :key="child.code">
                             <Link
                                 :href="child.link"
-                                :class="['block rounded px-3 py-2 text-xs transition-colors', isChildActive(child) ? 'bg-primary/10 font-bold text-primary' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground']"
+                                :class="['flex items-center gap-2.5 rounded px-3 py-2 transition-colors', isAdminPortal ? 'text-xs' : 'text-[13px]', isChildActive(child) ? 'bg-primary/10 font-bold text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
                                 @click="closeMobile"
                             >
-                                {{ child.label }}
+                                <component :is="child.icon" v-if="child.icon && typeof child.icon !== 'string'" class="h-4 w-4 shrink-0" />
+                                <span class="min-w-0 truncate">{{ child.label }}</span>
                             </Link>
                         </li>
                     </ul>

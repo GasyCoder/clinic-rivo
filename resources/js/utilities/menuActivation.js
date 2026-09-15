@@ -22,9 +22,13 @@ export function pathCovers(path, link) {
  */
 export function menuMatchDepth(item, path) {
     if (item.activeLinks) {
+        // A group (Ressources humaines) claims its sub-pages through
+        // activeLinks and, when `exact`, its own home page as well.
+        const own = item.exact && item.link && path === item.link ? item.link.length : -1;
+
         return item.activeLinks.reduce(
             (best, link) => (pathCovers(path, link) ? Math.max(best, link.length) : best),
-            -1,
+            own,
         );
     }
 

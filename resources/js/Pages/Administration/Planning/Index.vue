@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import HrEmptyState from '../Partials/HrEmptyState.vue';
-import HrNav from '../Partials/HrNav.vue';
 import HrPageHeader from '../Partials/HrPageHeader.vue';
 import HrPagination from '../Partials/HrPagination.vue';
 import HrStatCard from '../Partials/HrStatCard.vue';
@@ -34,7 +33,6 @@ const groupedShifts = computed(() => {
 <template>
     <Head title="Planning RH" />
     <div class="space-y-5">
-        <HrNav />
         <HrPageHeader eyebrow="Organisation des équipes" title="Planning" description="Visualisez les créneaux par journée et leurs affectations. Les éventuels chevauchements restent visibles sans blocage automatique." icon="calender-date" tone="sky">
             <template #actions><Button v-if="can('planning.print')" :as="Link" :href="`/administration/planning/print?${periodQuery}`" size="rg" variant="white-outline"><Icon name="printer" /><span class="ms-2">Imprimer</span></Button><Button v-if="can('planning.export')" as="a" :href="`/administration/planning/export?${periodQuery}`" size="rg" variant="white-outline"><Icon name="download" /><span class="ms-2">Exporter</span></Button><Button v-if="can('planning.create')" :as="Link" href="/administration/planning/create" size="rg"><Icon name="plus" /><span class="ms-2">Nouveau créneau</span></Button></template>
         </HrPageHeader>

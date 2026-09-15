@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Administration\HrOverviewService;
+use App\Services\Catalog\CatalogActor;
 use App\Services\Dashboard\ClinicOverviewService;
+use App\Services\Pharmacy\PharmacyWorkspaceService;
 use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -74,6 +77,15 @@ class HomeController extends Controller
 
         return Inertia::render('Home', [
             'overview' => $clinicOverview->for($request->user()),
+            // ADR-098 — the Pharmacy's tasks live on the overview, not on a
+            // second home page.
+            // ADR-066 — the HR tasks of the day, for accounts working in HR.
+            'hr' => $request->user()->can('employees.view')
+                ? ['summary' => app(HrOverviewService::class)->overview(CatalogActor::fromUser($request->user()))['summary']]
+                : null,
+            'pharmacy' => $request->user()->can('pharmacy.view')
+                ? app(PharmacyWorkspaceService::class)->dashboard($request->user())
+                : null,
         ]);
     }
 }

@@ -9,6 +9,9 @@ use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PaymentMethodController;
+use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyCatalogController;
+use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyProcurementController;
+use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -22,6 +25,51 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
 
         Route::get('/pharmacy/stock', MedicineStockController::class)->name('pharmacy.stock');
         Route::post('/pharmacy/stock/import', [MedicineStockController::class, 'import'])->name('pharmacy.stock.import');
+        // ADR-098 — medicine records and families, corrected from the portal.
+        Route::get('/pharmacy/medicines/{medicineUuid}', [PharmacyCatalogController::class, 'showMedicine'])->name('pharmacy.medicines.show');
+        Route::put('/pharmacy/medicines/{medicineUuid}', [PharmacyCatalogController::class, 'updateMedicine'])->name('pharmacy.medicines.update');
+        Route::post('/pharmacy/medicines/{medicineUuid}/deactivate', [PharmacyCatalogController::class, 'deactivateMedicine'])->name('pharmacy.medicines.deactivate');
+        Route::post('/pharmacy/medicines/{medicineUuid}/reactivate', [PharmacyCatalogController::class, 'reactivateMedicine'])->name('pharmacy.medicines.reactivate');
+        Route::get('/pharmacy/categories', [PharmacyCatalogController::class, 'categories'])->name('pharmacy.categories.index');
+        Route::post('/pharmacy/categories', [PharmacyCatalogController::class, 'storeCategory'])->name('pharmacy.categories.store');
+        Route::put('/pharmacy/categories/{categoryUuid}', [PharmacyCatalogController::class, 'updateCategory'])->name('pharmacy.categories.update');
+        Route::delete('/pharmacy/categories/{categoryUuid}', [PharmacyCatalogController::class, 'archiveCategory'])->name('pharmacy.categories.archive');
+        Route::post('/pharmacy/categories/{categoryUuid}/restore', [PharmacyCatalogController::class, 'restoreCategory'])->name('pharmacy.categories.restore');
+
+        // ADR-098 — supplier folders and their catalogs, managed from the portal.
+        Route::get('/pharmacy/suppliers', [PharmacySupplierController::class, 'index'])->name('pharmacy.suppliers.index');
+        Route::post('/pharmacy/suppliers', [PharmacySupplierController::class, 'store'])->name('pharmacy.suppliers.store');
+        Route::post('/pharmacy/suppliers/import-preview', [PharmacySupplierController::class, 'previewSuppliersImport'])->name('pharmacy.suppliers.import.preview');
+        Route::post('/pharmacy/suppliers/import', [PharmacySupplierController::class, 'importSuppliers'])->name('pharmacy.suppliers.import');
+        Route::get('/pharmacy/suppliers/{supplierUuid}', [PharmacySupplierController::class, 'show'])->name('pharmacy.suppliers.show');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/orders', [PharmacySupplierController::class, 'orders'])->name('pharmacy.suppliers.orders');
+        // ADR-098 — orders and invoices from the portal; receiving stays at the site.
+        Route::get('/pharmacy/suppliers/{supplierUuid}/order-form', [PharmacyProcurementController::class, 'orderForm'])->name('pharmacy.suppliers.orders.form');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/orders', [PharmacyProcurementController::class, 'storeOrder'])->name('pharmacy.suppliers.orders.store');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}', [PharmacyProcurementController::class, 'showOrder'])->name('pharmacy.suppliers.orders.show');
+        Route::put('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}', [PharmacyProcurementController::class, 'updateOrder'])->name('pharmacy.suppliers.orders.update');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/submit', [PharmacyProcurementController::class, 'submitOrder'])->name('pharmacy.suppliers.orders.submit');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/cancel', [PharmacyProcurementController::class, 'cancelOrder'])->name('pharmacy.suppliers.orders.cancel');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/invoice-form', [PharmacyProcurementController::class, 'invoiceForm'])->name('pharmacy.suppliers.invoices.form');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/invoices', [PharmacyProcurementController::class, 'storeInvoice'])->name('pharmacy.suppliers.invoices.store');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/invoices/{invoiceUuid}', [PharmacyProcurementController::class, 'showInvoice'])->name('pharmacy.suppliers.invoices.show');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/invoices/{invoiceUuid}/update', [PharmacyProcurementController::class, 'updateInvoice'])->name('pharmacy.suppliers.invoices.update');
+        Route::delete('/pharmacy/suppliers/{supplierUuid}/invoices/{invoiceUuid}', [PharmacyProcurementController::class, 'archiveInvoice'])->name('pharmacy.suppliers.invoices.archive');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/invoices/{invoiceUuid}/restore', [PharmacyProcurementController::class, 'restoreInvoice'])->name('pharmacy.suppliers.invoices.restore');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/invoices', [PharmacySupplierController::class, 'invoices'])->name('pharmacy.suppliers.invoices');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/products', [PharmacySupplierController::class, 'products'])->name('pharmacy.suppliers.products');
+        Route::put('/pharmacy/suppliers/{supplierUuid}', [PharmacySupplierController::class, 'update'])->name('pharmacy.suppliers.update');
+        Route::delete('/pharmacy/suppliers/{supplierUuid}', [PharmacySupplierController::class, 'archive'])->name('pharmacy.suppliers.archive');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/restore', [PharmacySupplierController::class, 'restore'])->name('pharmacy.suppliers.restore');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs', [PharmacySupplierController::class, 'catalogs'])->name('pharmacy.suppliers.catalogs.index');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs', [PharmacySupplierController::class, 'uploadCatalog'])->name('pharmacy.suppliers.catalogs.store');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/activate', [PharmacySupplierController::class, 'activateCatalog'])->name('pharmacy.suppliers.catalogs.activate');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items', [PharmacySupplierController::class, 'catalogItems'])->name('pharmacy.suppliers.catalogs.items');
+        Route::patch('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}', [PharmacySupplierController::class, 'updateCatalog'])->name('pharmacy.suppliers.catalogs.update');
+        Route::delete('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}', [PharmacySupplierController::class, 'archiveCatalog'])->name('pharmacy.suppliers.catalogs.destroy');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/restore', [PharmacySupplierController::class, 'restoreCatalog'])->name('pharmacy.suppliers.catalogs.restore');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/import-preview', [PharmacySupplierController::class, 'previewImport'])->name('pharmacy.suppliers.catalogs.import.preview');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/import', [PharmacySupplierController::class, 'import'])->name('pharmacy.suppliers.catalogs.import');
 
         Route::get('/human-resources', HumanResourcesController::class)->name('human-resources.index');
 

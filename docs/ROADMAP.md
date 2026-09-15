@@ -205,6 +205,29 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] File Pharmacie des consommables Soins avec sortie de stock FEFO respectant les réservations
 - [x] Alertes automatiques de seuil minimal et rupture
 - [x] Alertes et visibilité des lots proches de la péremption
+- [x] Dossier fournisseur façon Drive : catalogues Excel/PDF multiples, historisés, un seul actif à la fois
+- [x] Catalogue fournisseur importé (Excel), distinct du catalogue réellement stocké par la clinique
+- [x] Liaison catalogue fournisseur ↔ catalogue clinique avec prix d'achat versionné, jamais écrasé, plusieurs fournisseurs simultanés par médicament
+- [x] Commandes fournisseur (brouillon, passée, annulée) avec prix figé à la commande
+- [x] Réceptions distinctes de la commande, partielles, alimentant les entrées de stock existantes sans jamais recalculer une réception antérieure
+- [x] Factures fournisseur liées à la commande/réception, sans impact sur le stock
+- [x] Menu latéral comme seule navigation Pharmacie : une vraie page par tâche, chaque entrée filtrée par permission (ADR-098)
+- [x] Espace Fournisseurs en dossiers (dossier, catalogues, commandes, factures, prix), consultation au site
+- [x] Aperçu d'un catalogue Excel avant import, sans écriture, avec erreurs par ligne
+- [x] Ajout au catalogue clinique depuis une ligne fournisseur, rattaché au prix du fournisseur en une transaction
+- [x] Fournisseurs et approvisionnement accordés à aucun rôle par défaut, octroi nominatif par le Super Admin
+- [x] Calcul unique de la disponibilité d'un lot, partagé par le stock, la Médecine et les alertes
+- [x] Tâches Pharmacie sur la Vue d'ensemble, plus de second accueil
+- [x] Entrée de stock filtrée par fournisseur, prix fournisseur actuel pré-rempli
+- [x] Simulation locale de l'approvisionnement (prix, catalogues, commandes, réceptions, facture)
+- [x] Page unique « Médicaments & stock » et page « Achats » à onglets (Commandes, À réceptionner, Réceptions, Factures)
+- [x] Entrée de stock par livraison : liste relue et modifiable, enregistrement atomique en une fois
+- [x] Inventaire par feuille de comptage imprimable, ajustements seulement sur les écarts
+- [x] Étiquettes QR imprimables par sélection de médicaments
+- [x] Colonne Actions sur les tableaux Pharmacie et icônes dans le menu
+- [x] Modifier un médicament (nouveau prix historisé), désactiver/réactiver avec motif, clinique et portail
+- [x] Familles : renommer, archiver (refusé si médicament actif), restaurer
+- [x] Modifier une commande brouillon, une facture fournisseur et la date/remarque d'un catalogue, clinique et portail
 - [ ] Transfert stock
 - [ ] Rapports
 
@@ -274,6 +297,8 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
 - [ ] Gardiennage
 - [x] Rapports RH
+- [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
+- [x] Présences et congés : chevauchements refusés pour un même employé
 
 ---
 
@@ -337,6 +362,11 @@ admin.rivo.mg
 - [x] Répartition financière brute / mutuelle / patient historisée sur les factures
 - [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
 - [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
+- [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
+- [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
+- [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
+- [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)
+- [x] Commandes (créer, envoyer, annuler) et factures (enregistrer avec document, archiver, restaurer) depuis le portail ; réception réservée au site
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

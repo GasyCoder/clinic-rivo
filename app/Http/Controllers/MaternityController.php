@@ -13,6 +13,7 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Http\Requests\UpdateMaternityRecordRequest;
 use App\Models\CatalogItem;
 use App\Models\EpisodeOrientation;
+use App\Services\Care\CareRecordReadModel;
 use App\Support\EpisodeQueuePresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -56,19 +57,53 @@ class MaternityController extends Controller
         return Inertia::render('Maternity/Index', compact('orientations', 'counts', 'filter', 'search'));
     }
 
-    public function show(Request $request, EpisodeOrientation $episodeOrientation, EpisodeQueuePresenter $presenter): Response
-    {
+    public function show(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+        EpisodeQueuePresenter $presenter,
+        CareRecordReadModel $careRecordReadModel,
+    ): Response {
         abort_unless($episodeOrientation->destination_module === CatalogModule::Maternity, 404);
         abort_unless($episodeOrientation->episode->patient, 404, 'Le dossier patient de ce passage est introuvable.');
         $episodeOrientation->load([
-            'episode.patient', 'episode.billableItems', 'episode.serviceRequests',
+            'episode.patient', 'episode.patient.allergies', 'episode.billableItems', 'episode.serviceRequests',
+            'episode.careRecord',
             'episode.maternityRecord.procedures.performer:id,name',
             'episode.maternityRecord.creator:id,name', 'episode.maternityRecord.updater:id,name',
             'acceptedBy:id,name',
         ]);
-        $record = $episodeOrientation->episode->maternityRecord;
+        $episode = $episodeOrientation->episode;
+        $record = $episode->maternityRecord;
+        $user = $request->user();
+
+        // L'orientation Soins du même passage : c'est elle qui porte la
+        // fiche, et son UUID est ce qui permet d'y renvoyer la sage-femme
+        // plutôt que d'en recopier une seconde version ici (ADR-093).
+        $careOrientation = $episode->orientations()
+            ->where('destination_module', CatalogModule::Care->value)
+            ->latest('id')
+            ->first();
 
         return Inertia::render('Maternity/Show', [
+            // Les constantes du passage sont relevées une seule fois, par les
+            // Soins, et lues partout ailleurs par cette même projection
+            // (ADR-054) : Maternité était le seul module clinique à ne pas la
+            // consommer, si bien qu'une sage-femme ne voyait ni la tension, ni
+            // la température, ni les allergies déjà consignées. Elle reste en
+            // lecture seule et filtrée côté serveur par `care.view` /
+            // `vitals.view` / `patients.medical_history.view`.
+            'careRecord' => $careRecordReadModel->present($episode->careRecord, $user),
+            'careRecordUrl' => $careOrientation !== null && $user->can('care.update')
+                ? "/care/orientations/{$careOrientation->uuid}"
+                : null,
+            'allergies' => $user->can('patients.medical_history.view')
+                ? $episode->patient->allergies->map(fn ($allergy) => [
+                    'uuid' => $allergy->uuid,
+                    'substance' => $allergy->substance,
+                    'reaction' => $allergy->reaction,
+                    'severity' => $allergy->severity?->value,
+                ])->values()
+                : [],
             'orientation' => $presenter->present($episodeOrientation),
             'record' => $record,
             'procedureCatalog' => CatalogItem::query()
@@ -78,13 +113,13 @@ class MaternityController extends Controller
                 ->orderBy('name')->get(['uuid', 'code', 'name', 'unit']),
             'capabilities' => [
                 'can_edit' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
-                    && $request->user()->can($record ? 'maternity.update' : 'maternity.create'),
-                'can_prenatal' => $request->user()->can('maternity.prenatal.manage'),
-                'can_labor' => $request->user()->can('maternity.labor.manage'),
-                'can_delivery' => $request->user()->can('maternity.delivery.manage'),
-                'can_newborn' => $request->user()->can('maternity.newborn.manage'),
-                'can_procedures' => $request->user()->can('maternity.procedures.manage'),
-                'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress && $request->user()->can('maternity.complete'),
+                    && $user->can($record ? 'maternity.update' : 'maternity.create'),
+                'can_prenatal' => $user->can('maternity.prenatal.manage'),
+                'can_labor' => $user->can('maternity.labor.manage'),
+                'can_delivery' => $user->can('maternity.delivery.manage'),
+                'can_newborn' => $user->can('maternity.newborn.manage'),
+                'can_procedures' => $user->can('maternity.procedures.manage'),
+                'can_complete' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress && $user->can('maternity.complete'),
             ],
         ]);
     }

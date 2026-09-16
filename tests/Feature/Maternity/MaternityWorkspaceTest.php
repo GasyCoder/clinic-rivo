@@ -17,6 +17,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\SurgicalRequestStatus;
+use App\Models\CareRecord;
 use App\Models\CareRecordProcedure;
 use App\Models\CatalogItem;
 use App\Models\Episode;
@@ -35,6 +36,7 @@ use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
 class MaternityWorkspaceTest extends TestCase
@@ -146,6 +148,89 @@ class MaternityWorkspaceTest extends TestCase
         $this->assertSame(39, $record->prenatal_data['gestational_age_weeks']);
         $this->assertSame($midwife->id, $performed->performed_by);
         $this->assertSame('MIDWIFE', $midwife->fresh()->professionalProfile->code);
+    }
+
+    /**
+     * Les blocs prénatal/travail/accouchement/nouveau-né sont `prohibited`
+     * sans leur permission, et « prohibited » refuse un tableau non vide.
+     * L'écran envoyait pourtant les cinq blocs avec leurs valeurs par
+     * défaut : un compte qui pouvait écrire le dossier sans ces droits ne
+     * pouvait donc rien enregistrer du tout. Ce test fixe les deux côtés du
+     * contrat que l'interface respecte désormais.
+     */
+    public function test_an_account_without_the_block_permissions_saves_only_what_it_may_write(): void
+    {
+        $midwife = $this->profileUser('MIDWIFE', applyRecommendations: false);
+        foreach (['maternity.view', 'maternity.create', 'maternity.update'] as $name) {
+            $midwife->permissions()->syncWithoutDetaching([
+                Permission::query()->firstOrCreate(['name' => $name])->id => ['effect' => 'allow'],
+            ]);
+        }
+        $midwife = $midwife->fresh(['role', 'professionalProfile']);
+        [$episode, $orientation] = $this->maternityOrientation($midwife);
+        $this->actingAs($midwife)->post("/maternity/orientations/{$orientation->uuid}/accept");
+
+        $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'obstetric_context' => 'Grossesse suivie.',
+            'pregnancy_data' => ['gravidity' => 2, 'parity' => 1],
+            'observations' => 'À réévaluer.',
+        ])->assertSessionHasNoErrors();
+
+        $record = MaternityRecord::query()->sole();
+        $this->assertSame($episode->id, $record->episode_id);
+        $this->assertSame(2, $record->pregnancy_data['gravidity']);
+
+        // Le serveur reste la protection : le bloc interdit est toujours refusé.
+        $this->actingAs($midwife)->put("/maternity/orientations/{$orientation->uuid}/record", [
+            'obstetric_context' => 'Grossesse suivie.',
+            'labor_data' => ['membranes_status' => 'INTACT'],
+        ])->assertSessionHasErrors('labor_data');
+    }
+
+    /**
+     * Les constantes du passage sont relevées une seule fois par les Soins et
+     * lues partout ailleurs par la même projection (ADR-054). Maternité était
+     * le seul module clinique à ne pas la consommer : la sage-femme ne voyait
+     * ni la tension, ni la température, ni les allergies déjà consignées.
+     */
+    public function test_the_maternity_file_shows_the_vitals_recorded_by_care(): void
+    {
+        $midwife = $this->profileUser('MIDWIFE');
+        [$episode, $orientation] = $this->maternityOrientation($midwife);
+        CareRecord::query()->create([
+            'episode_id' => $episode->id,
+            'blood_pressure_systolic' => 138, 'blood_pressure_diastolic' => 86,
+            'heart_rate' => 92, 'spo2' => 97, 'temperature_celsius' => 37.4,
+            'created_by' => $midwife->id, 'updated_by' => $midwife->id,
+        ]);
+
+        $this->actingAs($midwife)->get("/maternity/orientations/{$orientation->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('careRecord.read_only', true)
+                ->where('careRecord.can_view_vitals', true)
+                ->where('careRecord.blood_pressure_systolic', 138)
+                ->where('careRecord.temperature_celsius', '37.40')
+                // Le seuil vient du serveur, jamais recalculé dans Vue.
+                ->has('careRecord.blood_pressure_assessment'));
+    }
+
+    /** La projection reste filtrée côté serveur, comme au bloc (ADR-048/054). */
+    public function test_an_account_without_the_care_permissions_receives_no_vitals(): void
+    {
+        $midwife = $this->profileUser('MIDWIFE');
+        [$episode, $orientation] = $this->maternityOrientation($midwife);
+        CareRecord::query()->create([
+            'episode_id' => $episode->id, 'blood_pressure_systolic' => 138,
+            'blood_pressure_diastolic' => 86, 'created_by' => $midwife->id, 'updated_by' => $midwife->id,
+        ]);
+
+        $denied = Permission::query()->whereIn('name', ['care.view', 'vitals.view'])->pluck('id');
+        $midwife->permissions()->syncWithoutDetaching(
+            $denied->mapWithKeys(fn (int $id) => [$id => ['effect' => 'deny']])->all(),
+        );
+
+        $this->actingAs($midwife->fresh())->get("/maternity/orientations/{$orientation->uuid}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('careRecord', null));
     }
 
     public function test_cesarean_decision_creates_surgery_request_on_same_episode_without_intervention(): void

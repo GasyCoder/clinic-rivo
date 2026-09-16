@@ -761,6 +761,21 @@ n'est recalculé dans `MedicineDossierPresenter`. Voir cette projection exige
 les permissions en lecture seule `care.view`/`vitals.view`, accordées par
 défaut à `MEDICINE` sans aucun droit `care.update`/`vitals.update`.
 
+**Maternité lit la même projection** (2026-09-16). C'était le seul module
+clinique à ne pas la consommer : une sage-femme ouvrait le dossier sans
+voir la tension, la température ni les allergies déjà consignées au même
+passage, et n'avait aucun moyen de les retrouver sans quitter l'écran.
+`MaternityController::show()` sert donc `careRecord` (même
+`CareRecordReadModel`, mêmes gardes serveur `care.view`/`vitals.view`/
+`patients.medical_history.view`), `allergies` et `careRecordUrl` ; l'écran
+les affiche avec le `VitalSignsStrip` de la consultation. Rien n'est
+ressaisi ni recalculé : corriger une constante renvoie à la fiche Soins qui
+la porte (ADR-092, ADR-093). Le rôle `NURSE` — celui des sages-femmes
+(ADR-067) — détient déjà ces droits de lecture : aucune permission nouvelle.
+Un passage arrivé directement de la Réception en Maternité (ADR-068) n'a pas
+de fiche Soins : l'écran l'écrit, plutôt que d'afficher des tirets qui se
+liraient « normal ».
+
 La saisie en cours de la fiche de soins est conservée côté serveur
 (`care_record_drafts`), enregistrée automatiquement et restaurée après une
 actualisation. Elle est rattachée au passage **et** à son auteur : sur un

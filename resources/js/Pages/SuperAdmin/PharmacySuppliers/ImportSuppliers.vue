@@ -2,10 +2,10 @@
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Badge from '@/Components/UI/Badge.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import { Check, FileSpreadsheet, TriangleAlert } from 'lucide-vue-next';
 
 defineOptions({ layout: AppLayout });
 
@@ -54,10 +54,10 @@ const confirmError = computed(() => form.errors.rows ?? form.errors.site ?? form
         ]" />
 
         <div class="flex items-start gap-3">
-            <Icon name="file-xls" class="text-4xl leading-none text-emerald-500" />
+            <FileSpreadsheet class="text-emerald-500 h-9 w-9" />
             <div class="min-w-0">
-                <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Vérifier « {{ fileName }} »</h1>
-                <p class="mt-1 text-sm text-slate-500">Analyse faite par le site {{ targetSite.name }}. <strong>Rien n’est encore enregistré</strong> : contrôlez les lignes, puis confirmez.</p>
+                <h1 class="font-heading text-2xl font-bold text-foreground">Vérifier « {{ fileName }} »</h1>
+                <p class="mt-1 text-sm text-muted-foreground">Analyse faite par le site {{ targetSite.name }}. <strong>Rien n’est encore enregistré</strong> : contrôlez les lignes, puis confirmez.</p>
             </div>
         </div>
 
@@ -66,29 +66,29 @@ const confirmError = computed(() => form.errors.rows ?? form.errors.site ?? form
                 v-for="tile in tiles"
                 :key="tile.key"
                 type="button"
-                :class="['rounded-xl border bg-white p-4 text-start transition dark:bg-gray-950', filter === tile.key ? 'border-primary-500 ring-2 ring-primary-100' : 'border-gray-200 hover:border-slate-300 dark:border-gray-800']"
+                :class="['rounded-xl border bg-card p-4 text-start transition ', filter === tile.key ? 'border-primary ring-2 ring-ring/25' : 'border-border hover:border-primary/40 ']"
                 @click="filter = filter === tile.key ? 'ALL' : tile.key"
             >
-                <p :class="['text-3xl font-bold', tile.key === 'ERROR' && tile.value ? 'text-red-600' : 'text-slate-800 dark:text-white']">{{ tile.value }}</p>
-                <p class="text-sm text-slate-500">{{ tile.text }}</p>
+                <p :class="['text-3xl font-bold', tile.key === 'ERROR' && tile.value ? 'text-red-600' : 'text-foreground']">{{ tile.value }}</p>
+                <p class="text-sm text-muted-foreground">{{ tile.text }}</p>
             </button>
         </div>
 
-        <p v-if="skippedArchived" class="text-sm text-slate-500">{{ skippedArchived }} ligne(s) marquée(s) « Archivé » ignorée(s) : un fournisseur archivé se restaure depuis son dossier.</p>
+        <p v-if="skippedArchived" class="text-sm text-muted-foreground">{{ skippedArchived }} ligne(s) marquée(s) « Archivé » ignorée(s) : un fournisseur archivé se restaure depuis son dossier.</p>
 
         <section v-if="hasErrors" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-200">
-            <Icon name="alert" class="mt-0.5 text-lg" />
+            <TriangleAlert class="mt-0.5 h-4.5 w-4.5" />
             <p>Corrigez ces lignes dans votre fichier Excel, puis importez-le à nouveau. <strong>L’import est tout ou rien</strong> : tant qu’une ligne est incorrecte, aucun fournisseur n’est enregistré.</p>
         </section>
 
-        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
-            <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-                <h2 class="text-sm font-bold text-slate-700 dark:text-white">{{ filter === 'ALL' ? 'Toutes les lignes' : ACTIONS[filter].label }} · {{ shown.length }}</h2>
-                <button v-if="filter !== 'ALL'" type="button" class="text-xs font-bold text-primary-600" @click="filter = 'ALL'">Tout afficher</button>
+        <section class="overflow-hidden rounded-xl border border-border bg-card">
+            <div class="flex items-center justify-between border-b border-border px-4 py-3">
+                <h2 class="text-sm font-bold text-foreground">{{ filter === 'ALL' ? 'Toutes les lignes' : ACTIONS[filter].label }} · {{ shown.length }}</h2>
+                <button v-if="filter !== 'ALL'" type="button" class="text-xs font-bold text-primary" @click="filter = 'ALL'">Tout afficher</button>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[640px] text-sm">
-                    <thead class="bg-gray-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-gray-900">
+                    <thead class="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
                             <th class="px-4 py-2 text-start font-semibold">Ligne</th>
                             <th class="px-4 py-2 text-start font-semibold">Fournisseur</th>
@@ -96,27 +96,27 @@ const confirmError = computed(() => form.errors.rows ?? form.errors.site ?? form
                             <th class="px-4 py-2 text-start font-semibold">Détail</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
+                    <tbody class="divide-y divide-border">
                         <tr v-for="row in shown" :key="`${row.line}-${row.code}`" :class="row.action === 'ERROR' ? 'bg-red-50/50 dark:bg-red-950/10' : ''">
-                            <td class="px-4 py-3 align-top text-slate-500">{{ row.line }}</td>
+                            <td class="px-4 py-3 align-top text-muted-foreground">{{ row.line }}</td>
                             <td class="px-4 py-3 align-top">
-                                <p class="font-semibold text-slate-800 dark:text-white">{{ row.name || row.current_name || '—' }}</p>
-                                <p class="font-mono text-xs text-slate-500">{{ row.code || 'Code manquant' }}</p>
+                                <p class="font-semibold text-foreground">{{ row.name || row.current_name || '—' }}</p>
+                                <p class="font-mono text-xs text-muted-foreground">{{ row.code || 'Code manquant' }}</p>
                             </td>
                             <td class="px-4 py-3 align-top"><Badge :tone="ACTIONS[row.action].tone">{{ ACTIONS[row.action].label }}</Badge></td>
-                            <td class="px-4 py-3 align-top text-slate-600 dark:text-slate-300">
+                            <td class="px-4 py-3 align-top text-muted-foreground">
                                 <ul v-if="row.action === 'ERROR'" class="space-y-0.5 text-red-700 dark:text-red-300">
                                     <li v-for="error in row.errors" :key="error">{{ error }}</li>
                                 </ul>
                                 <ul v-else-if="row.action === 'UPDATE'" class="space-y-0.5">
                                     <li v-for="change in row.changes" :key="change.field">
                                         <span class="font-medium">{{ change.label }}</span> :
-                                        <span class="text-slate-400 line-through">{{ change.from || 'vide' }}</span>
-                                        → <span class="font-medium text-slate-800 dark:text-white">{{ change.to }}</span>
+                                        <span class="text-muted-foreground line-through">{{ change.from || 'vide' }}</span>
+                                        → <span class="font-medium text-foreground">{{ change.to }}</span>
                                     </li>
                                 </ul>
                                 <span v-else-if="row.action === 'CREATE'">{{ [row.contact_name, row.phone, row.email].filter(Boolean).join(' · ') || 'Nouveau dossier fournisseur' }}</span>
-                                <span v-else class="text-slate-400">Aucune différence</span>
+                                <span v-else class="text-muted-foreground">Aucune différence</span>
                             </td>
                         </tr>
                     </tbody>
@@ -128,8 +128,8 @@ const confirmError = computed(() => form.errors.rows ?? form.errors.site ?? form
             <p v-if="confirmError" class="text-sm text-red-600 sm:me-auto">{{ confirmError }}</p>
             <Button :as="Link" :href="listHref" size="rg" variant="white-outline">Annuler</Button>
             <Button size="rg" type="button" :disabled="hasErrors || toWrite === 0 || form.processing" @click="confirmImport">
-                <Icon name="check" />
-                <span class="ms-2">{{ form.processing ? 'Importation…' : (toWrite === 0 ? 'Rien à importer' : `Confirmer l’import (${toWrite})`) }}</span>
+                <Check class="h-4 w-4" />
+                {{ form.processing ? 'Importation…' : (toWrite === 0 ? 'Rien à importer' : `Confirmer l’import (${toWrite})`) }}
             </Button>
         </div>
     </div>

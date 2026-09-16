@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Reception;
 use App\Actions\Reception\RecordAdministrativeExitAction;
 use App\Enums\AdministrativeExitType;
 use App\Enums\EpisodeAdministrativeStatus;
+use App\Enums\InvoiceStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\RecordAdministrativeExitRequest;
 use App\Models\Episode;
+use App\Models\Invoice;
 use App\Services\Reception\EpisodeAccountControl;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -123,11 +125,7 @@ class EpisodeSettlementController extends Controller
                     'to' => $episodes->lastItem(),
                 ],
             ],
-            'counts' => [
-                'pending' => Episode::query()
-                    ->where('administrative_status', EpisodeAdministrativeStatus::PendingSettlement->value)
-                    ->count(),
-            ],
+            'counts' => $this->counts($canViewAccounts),
             'exitTypes' => array_map(fn (AdministrativeExitType $type) => [
                 'value' => $type->value,
                 'label' => $type->label(),
@@ -142,6 +140,51 @@ class EpisodeSettlementController extends Controller
                 'can_view_patients' => $user->can('patients.view'),
             ],
         ]);
+    }
+
+    /**
+     * Les chiffres de la file, comptés en base.
+     *
+     * Recalculés depuis la page affichée, ils mentiraient dès la deuxième —
+     * et c'est précisément quand la file est longue qu'on les regarde.
+     *
+     * « Reste à payer » est la somme des soldes de factures non annulées
+     * des passages encore à régler : la définition du §33.2, pas une
+     * approximation. Les prestations encore `PENDING` en sont exclues —
+     * elles ne sont portées sur aucune facture validée, donc le patient ne
+     * les doit pas encore (ADR-090) ; l'écran les signale séparément.
+     *
+     * Le total n'est servi qu'à qui peut voir les comptes : `billing.view`
+     * garde la donnée financière, ici comme dans le reste de l'écran.
+     *
+     * @return array<string, mixed>
+     */
+    private function counts(bool $canViewAccounts): array
+    {
+        $dischargedStatuses = [
+            EpisodeAdministrativeStatus::DischargedPaid->value,
+            EpisodeAdministrativeStatus::DischargedDebt->value,
+            EpisodeAdministrativeStatus::DischargedEscaped->value,
+            EpisodeAdministrativeStatus::Discharged->value,
+        ];
+
+        $pendingEpisodeIds = Episode::query()
+            ->where('administrative_status', EpisodeAdministrativeStatus::PendingSettlement->value)
+            ->select('id');
+
+        return [
+            'pending' => (clone $pendingEpisodeIds)->count(),
+            'discharged' => Episode::query()->whereIn('administrative_status', $dischargedStatuses)->count(),
+            'with_debt' => Episode::query()
+                ->where('administrative_status', EpisodeAdministrativeStatus::DischargedDebt->value)
+                ->count(),
+            'outstanding' => $canViewAccounts
+                ? (float) Invoice::query()
+                    ->whereIn('episode_id', $pendingEpisodeIds)
+                    ->where('status', '!=', InvoiceStatus::Cancelled->value)
+                    ->sum('balance_amount')
+                : null,
+        ];
     }
 
     public function store(

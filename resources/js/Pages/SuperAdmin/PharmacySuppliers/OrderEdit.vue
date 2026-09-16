@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { TriangleAlert } from 'lucide-vue-next';
 import PurchaseOrderForm from '@/Components/Pharmacy/PurchaseOrderForm.vue';
 
 defineOptions({ layout: AppLayout });
@@ -34,13 +34,13 @@ const orderHref = computed(() => `${folderHref.value}/orders/${props.order?.uuid
         ]" />
 
         <section v-if="error" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-            <Icon name="alert" class="mt-0.5 text-lg" /><p>{{ error }}</p>
+            <TriangleAlert class="mt-0.5 h-4.5 w-4.5" /><p>{{ error }}</p>
         </section>
 
         <template v-else-if="order">
             <div>
-                <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Modifier la commande {{ order.order_number }}</h1>
-                <p class="mt-1 text-sm text-slate-500">Brouillon de {{ targetSite.name }} chez {{ supplier?.name }}. Enregistré à votre nom ; une fois envoyée, la commande ne se modifie plus.</p>
+                <h1 class="font-heading text-2xl font-bold text-foreground">Modifier la commande {{ order.order_number }}</h1>
+                <p class="mt-1 text-sm text-muted-foreground">Brouillon de {{ targetSite.name }} chez {{ supplier?.name }}. Enregistré à votre nom ; une fois envoyée, la commande ne se modifie plus.</p>
             </div>
 
             <PurchaseOrderForm

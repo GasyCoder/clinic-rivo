@@ -1,7 +1,8 @@
 <script setup>
 import { ref } from 'vue';
+import { LayoutGrid, List } from 'lucide-vue-next';
 import EmptyState from '@/Components/UI/EmptyState.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { cn } from '@/lib/cn';
 
 /**
  * A list shown like a file explorer: tiles (« Grandes icônes ») or a table
@@ -25,6 +26,10 @@ const read = () => {
     try { return localStorage.getItem(key) ?? props.defaultView; } catch { return props.defaultView; }
 };
 const view = ref(read() === 'list' ? 'list' : 'grid');
+const OPTIONS = [
+    { value: 'grid', icon: LayoutGrid, label: 'Grandes icônes' },
+    { value: 'list', icon: List, label: 'Liste' },
+];
 const setView = (value) => {
     view.value = value;
     try { localStorage.setItem(key, value); } catch { /* private window */ }
@@ -32,22 +37,22 @@ const setView = (value) => {
 </script>
 
 <template>
-    <section :class="['overflow-hidden bg-gray-50/60 dark:bg-gray-1000/40', framed && 'rounded-xl border border-gray-200 shadow-sm dark:border-gray-900']">
-        <div class="flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-900 dark:bg-gray-950">
-            <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-800 dark:bg-gray-900" role="group" aria-label="Affichage">
+    <section :class="cn('overflow-hidden bg-muted/30', framed && 'rounded-xl border border-border shadow-sm')">
+        <div class="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-3">
+            <div class="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Affichage">
                 <button
-                    v-for="option in [{ value: 'grid', icon: 'grid-alt', label: 'Grandes icônes' }, { value: 'list', icon: 'list', label: 'Liste' }]"
+                    v-for="option in OPTIONS"
                     :key="option.value"
                     type="button"
                     :title="option.label"
                     :aria-pressed="view === option.value"
-                    :class="['inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-semibold transition', view === option.value ? 'bg-white text-slate-800 shadow-sm dark:bg-gray-950 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white']"
+                    :class="cn('inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-bold transition-colors', view === option.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')"
                     @click="setView(option.value)"
                 >
-                    <Icon :name="option.icon" /><span class="hidden sm:inline">{{ option.label }}</span>
+                    <component :is="option.icon" class="h-4 w-4" /><span class="hidden sm:inline">{{ option.label }}</span>
                 </button>
             </div>
-            <span class="text-sm text-slate-500">{{ count }} {{ countLabel }}{{ count > 1 ? 's' : '' }}</span>
+            <span class="text-sm tabular-nums text-muted-foreground">{{ count }} {{ countLabel }}{{ count > 1 ? 's' : '' }}</span>
             <div v-if="$slots.toolbar" class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2"><slot name="toolbar" /></div>
         </div>
         <slot name="above" />
@@ -56,11 +61,11 @@ const setView = (value) => {
             <div v-if="view === 'grid'" class="grid grid-cols-2 gap-1 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
                 <slot name="grid" />
             </div>
-            <div v-else class="overflow-x-auto bg-white dark:bg-gray-950">
+            <div v-else class="overflow-x-auto bg-card">
                 <slot name="list" />
             </div>
         </template>
-        <div v-else class="bg-white dark:bg-gray-950">
+        <div v-else class="bg-card">
             <EmptyState :icon="emptyIcon" :title="emptyTitle" :description="emptyDescription" />
         </div>
         <slot name="footer" />

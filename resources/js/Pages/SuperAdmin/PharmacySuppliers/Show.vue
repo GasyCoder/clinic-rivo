@@ -2,11 +2,12 @@
 import { computed, ref } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Badge from '@/Components/UI/Badge.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FolderCard from '@/Components/UI/FolderCard.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Archive, Check, Folder, Mail, MapPin, Pencil, Phone, RotateCcw, TriangleAlert, User } from 'lucide-vue-next';
+import { cn } from '@/lib/cn';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 
 defineOptions({ layout: AppLayout });
@@ -33,10 +34,10 @@ const folders = computed(() => [
 ].filter((folder) => folder.show));
 
 const details = computed(() => [
-    { label: 'Personne à contacter', value: props.supplier?.contact_name, icon: 'user' },
-    { label: 'Téléphone', value: props.supplier?.phone, icon: 'call', href: props.supplier?.phone ? `tel:${props.supplier.phone}` : null },
-    { label: 'E-mail', value: props.supplier?.email, icon: 'mail', href: props.supplier?.email ? `mailto:${props.supplier.email}` : null },
-    { label: 'Adresse', value: props.supplier?.address, icon: 'map-pin' },
+    { label: 'Personne à contacter', value: props.supplier?.contact_name, icon: User },
+    { label: 'Téléphone', value: props.supplier?.phone, icon: Phone, href: props.supplier?.phone ? `tel:${props.supplier.phone}` : null },
+    { label: 'E-mail', value: props.supplier?.email, icon: Mail, href: props.supplier?.email ? `mailto:${props.supplier.email}` : null },
+    { label: 'Adresse', value: props.supplier?.address, icon: MapPin },
 ]);
 
 const editing = ref(false);
@@ -66,8 +67,8 @@ const restore = () => {
     router.post(`${baseUrl.value}/restore`, {}, { preserveScroll: true });
 };
 
-const inputClass = 'h-11 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
-const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-white';
+const inputClass = 'h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 ';
+const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
 </script>
 
 <template>
@@ -81,36 +82,36 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
         ]" />
 
         <section v-if="error" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-            <Icon name="alert" class="mt-0.5 text-lg" />
+            <TriangleAlert class="mt-0.5 h-4.5 w-4.5" />
             <p>{{ error }}</p>
         </section>
 
         <template v-else-if="supplier">
-            <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
+            <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div class="flex min-w-0 items-center gap-4">
-                        <Icon name="folder-fill" :class="['text-5xl leading-none', supplier.archived ? 'text-slate-300' : 'text-amber-400']" />
+                        <Folder :class="cn('h-11 w-11 shrink-0', supplier.archived ? 'text-muted-foreground' : 'fill-amber-200 text-amber-500 dark:fill-amber-500/20')" />
                         <div class="min-w-0">
-                            <h1 class="flex flex-wrap items-center gap-2 font-heading text-2xl font-bold text-slate-800 dark:text-white">
+                            <h1 class="flex flex-wrap items-center gap-2 font-heading text-2xl font-bold text-foreground">
                                 {{ supplier.name }}
                                 <Badge v-if="supplier.archived" tone="neutral">Archivé</Badge>
                             </h1>
-                            <p class="font-mono text-xs text-slate-400">{{ supplier.code }} <span class="font-sans">· {{ targetSite.name }}</span></p>
+                            <p class="font-mono text-xs text-muted-foreground">{{ supplier.code }} <span class="font-sans">· {{ targetSite.name }}</span></p>
                         </div>
                     </div>
                     <div class="flex flex-wrap gap-2">
                         <template v-if="!supplier.archived">
-                            <Button v-if="can.update_supplier && !editing" size="rg" variant="white-outline" type="button" @click="startEdit"><Icon name="edit" /><span class="ms-2">Modifier</span></Button>
-                            <Button v-if="can.archive_supplier" size="rg" variant="white-outline" type="button" class="text-red-600" @click="archiving = true"><Icon name="archive" /><span class="ms-2">Archiver</span></Button>
+                            <Button v-if="can.update_supplier && !editing" size="rg" variant="white-outline" type="button" @click="startEdit"><Pencil class="h-4 w-4" />Modifier</Button>
+                            <Button v-if="can.archive_supplier" size="rg" variant="white-outline" type="button" class="text-red-600" @click="archiving = true"><Archive class="h-4 w-4" />Archiver</Button>
                         </template>
-                        <Button v-else-if="can.restore_supplier" size="rg" type="button" @click="restore"><Icon name="undo" /><span class="ms-2">Restaurer</span></Button>
+                        <Button v-else-if="can.restore_supplier" size="rg" type="button" @click="restore"><RotateCcw class="h-4 w-4" />Restaurer</Button>
                     </div>
                 </div>
 
-                <form v-if="editing" class="mt-5 space-y-4 border-t border-gray-100 pt-5 dark:border-gray-900" @submit.prevent="saveEdit">
+                <form v-if="editing" class="mt-5 space-y-4 border-t border-border pt-5" @submit.prevent="saveEdit">
                     <ValidationErrorSummary :errors="editForm.errors" />
                     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <label class="block"><span :class="labelClass">Code</span><input :value="supplier.code" :class="[inputClass, 'bg-gray-50 text-slate-500 dark:bg-gray-900']" disabled><span class="mt-1 block text-xs text-slate-400">Le code ne change pas : il identifie le fournisseur dans les imports.</span></label>
+                        <label class="block"><span :class="labelClass">Code</span><input :value="supplier.code" :class="[inputClass, 'bg-muted text-muted-foreground ']" disabled><span class="mt-1 block text-xs text-muted-foreground">Le code ne change pas : il identifie le fournisseur dans les imports.</span></label>
                         <label class="block"><span :class="labelClass">Nom <span class="text-red-500">*</span></span><input v-model="editForm.name" :class="inputClass" required></label>
                         <label class="block"><span :class="labelClass">Personne à contacter</span><input v-model="editForm.contact_name" :class="inputClass"></label>
                         <label class="block"><span :class="labelClass">Téléphone</span><input v-model="editForm.phone" type="tel" :class="inputClass"></label>
@@ -119,17 +120,17 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
                     </div>
                     <div class="flex justify-end gap-2">
                         <Button type="button" size="rg" variant="white-outline" @click="editing = false">Annuler</Button>
-                        <Button type="submit" size="rg" :disabled="editForm.processing || !editForm.isDirty"><Icon name="check" /><span class="ms-2">Enregistrer</span></Button>
+                        <Button type="submit" size="rg" :disabled="editForm.processing || !editForm.isDirty"><Check class="h-4 w-4" />Enregistrer</Button>
                     </div>
                 </form>
 
-                <dl v-else class="mt-5 grid gap-3 border-t border-gray-100 pt-5 dark:border-gray-900 sm:grid-cols-2 lg:grid-cols-4">
+                <dl v-else class="mt-5 grid gap-3 border-t border-border pt-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div v-for="detail in details" :key="detail.label" class="flex items-start gap-2.5">
-                        <Icon :name="detail.icon" class="mt-0.5 text-lg text-slate-400" />
+                        <component :is="detail.icon" class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                         <div class="min-w-0">
-                            <dt class="text-xs text-slate-500">{{ detail.label }}</dt>
-                            <dd class="mt-0.5 break-words text-sm font-medium text-slate-800 dark:text-white">
-                                <a v-if="detail.href" :href="detail.href" class="text-primary-600 hover:underline">{{ detail.value }}</a>
+                            <dt class="text-xs text-muted-foreground">{{ detail.label }}</dt>
+                            <dd class="mt-0.5 break-words text-sm font-medium text-foreground">
+                                <a v-if="detail.href" :href="detail.href" class="text-primary hover:underline">{{ detail.value }}</a>
                                 <span v-else>{{ detail.value || '—' }}</span>
                             </dd>
                         </div>
@@ -137,14 +138,14 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
                 </dl>
             </section>
 
-            <section v-if="supplier.archived" class="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-gray-800 dark:bg-gray-900 dark:text-slate-200">
-                <Icon name="archive" class="mt-0.5 text-lg" />
+            <section v-if="supplier.archived" class="flex items-start gap-3 rounded-xl border border-border bg-muted px-4 py-3 text-sm text-foreground">
+                <Archive class="mt-0.5 h-4.5 w-4.5" />
                 <p>Ce fournisseur est archivé<span v-if="supplier.delete_reason"> — motif : « {{ supplier.delete_reason }} »</span>. Il n’est plus proposé pour les commandes ni les entrées de stock ; son dossier reste consultable.</p>
             </section>
 
             <section>
-                <h2 class="mb-2 px-1 text-sm font-semibold text-slate-500">Contenu du dossier</h2>
-                <div class="rounded-xl border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-900 dark:bg-gray-1000/40">
+                <h2 class="mb-2 px-1 text-sm font-semibold text-muted-foreground">Contenu du dossier</h2>
+                <div class="rounded-xl border border-border bg-muted/60 p-3 /40">
                     <div v-if="folders.length" class="grid grid-cols-2 gap-1 sm:grid-cols-4">
                         <FolderCard
                             v-for="folder in folders"
@@ -156,24 +157,24 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
                             :tone="folder.tone"
                         />
                     </div>
-                    <p v-else class="px-3 py-8 text-center text-sm text-slate-500">Votre compte ne permet d’ouvrir aucun élément de ce dossier.</p>
+                    <p v-else class="px-3 py-8 text-center text-sm text-muted-foreground">Votre compte ne permet d’ouvrir aucun élément de ce dossier.</p>
                 </div>
-                <p class="mt-2 px-1 text-xs text-slate-500">Les commandes, réceptions et factures se gèrent à la pharmacie de {{ targetSite.name }} ; elles sont ici en consultation.</p>
+                <p class="mt-2 px-1 text-xs text-muted-foreground">Les commandes, réceptions et factures se gèrent à la pharmacie de {{ targetSite.name }} ; elles sont ici en consultation.</p>
             </section>
         </template>
 
         <div v-if="archiving" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" @click.self="archiving = false">
-            <form class="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="archive-supplier-title" @submit.prevent="confirmArchive">
-                <h2 id="archive-supplier-title" class="font-heading text-lg font-bold text-slate-800 dark:text-white">Archiver {{ supplier.name }}</h2>
-                <p class="text-sm text-slate-600 dark:text-slate-300">Il ne sera plus proposé pour les commandes ni les entrées de stock. Ses catalogues, prix, lots et factures sont conservés, et il pourra être restauré. Impossible tant qu’une commande est en brouillon ou attend une réception.</p>
+            <form class="w-full max-w-lg space-y-4 rounded-2xl bg-card p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="archive-supplier-title" @submit.prevent="confirmArchive">
+                <h2 id="archive-supplier-title" class="font-heading text-lg font-bold text-foreground">Archiver {{ supplier.name }}</h2>
+                <p class="text-sm text-muted-foreground">Il ne sera plus proposé pour les commandes ni les entrées de stock. Ses catalogues, prix, lots et factures sont conservés, et il pourra être restauré. Impossible tant qu’une commande est en brouillon ou attend une réception.</p>
                 <label class="block">
                     <span :class="labelClass">Motif <span class="text-red-500">*</span></span>
-                    <textarea v-model="archiveForm.reason" rows="3" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" placeholder="Ex. : fournisseur n’exerce plus" required></textarea>
+                    <textarea v-model="archiveForm.reason" rows="3" class="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25" placeholder="Ex. : fournisseur n’exerce plus" required></textarea>
                 </label>
                 <p v-if="archiveForm.errors.reason || archiveForm.errors.site" class="text-sm text-red-600">{{ archiveForm.errors.reason || archiveForm.errors.site }}</p>
                 <div class="flex justify-end gap-2">
                     <Button type="button" size="rg" variant="white-outline" @click="archiving = false">Retour</Button>
-                    <Button type="submit" size="rg" :disabled="archiveForm.processing || archiveForm.reason.trim().length < 3" class="bg-red-600 hover:bg-red-700"><Icon name="archive" /><span class="ms-2">Archiver</span></Button>
+                    <Button type="submit" size="rg" :disabled="archiveForm.processing || archiveForm.reason.trim().length < 3" class="bg-red-600 hover:bg-red-700"><Archive class="h-4 w-4" />Archiver</Button>
                 </div>
             </form>
         </div>

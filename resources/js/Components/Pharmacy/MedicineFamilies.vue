@@ -1,9 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
-import Badge from '@/Components/UI/Badge.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import { Plus } from 'lucide-vue-next';
 
 /**
  * ADR-098 — medicine families: create, rename, archive with a reason, restore.
@@ -49,13 +49,13 @@ const restore = (category) => router.post(`${props.baseUrl}/${category.uuid}/res
 const createForm = useForm({ code: '', name: '', description: '' });
 const submitCreate = () => createForm.post(props.baseUrl, { preserveScroll: true, onSuccess: () => createForm.reset() });
 
-const inputClass = 'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white';
+const inputClass = 'h-10 w-full rounded-lg border border-border bg-white px-3 text-sm ';
 </script>
 
 <template>
     <div>
-        <ul v-if="visible.length" class="divide-y divide-gray-100 rounded-lg border border-gray-100 dark:divide-gray-900 dark:border-gray-900">
-            <li v-for="category in visible" :key="category.uuid" :class="['px-3 py-2.5', category.archived && 'bg-gray-50/70 dark:bg-gray-1000/40']">
+        <ul v-if="visible.length" class="divide-y divide-border rounded-lg border border-border dark:divide-gray-900">
+            <li v-for="category in visible" :key="category.uuid" :class="['px-3 py-2.5', category.archived && 'bg-muted/70 /40']">
                 <form v-if="renaming === category.uuid" class="flex flex-col gap-2 sm:flex-row sm:items-center" @submit.prevent="saveRename(category)">
                     <input v-model="renameForm.name" :class="inputClass" maxlength="255" required aria-label="Nouveau nom de la famille">
                     <div class="flex shrink-0 gap-1.5">
@@ -67,13 +67,13 @@ const inputClass = 'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 
                 <div v-else class="flex flex-wrap items-center justify-between gap-2">
                     <button
                         type="button"
-                        :class="['flex min-w-0 items-center gap-2 text-start text-sm', selectedName === category.name ? 'font-bold text-primary-700 dark:text-primary-300' : 'text-slate-700 dark:text-slate-200', category.archived && 'cursor-default']"
+                        :class="['flex min-w-0 items-center gap-2 text-start text-sm', selectedName === category.name ? 'font-bold text-primary' : 'text-foreground ', category.archived && 'cursor-default']"
                         :disabled="category.archived"
                         @click="emit('select', selectedName === category.name ? '' : category.name)"
                     >
                         <span class="truncate font-semibold">{{ category.name }}</span>
-                        <span class="font-mono text-xs text-slate-400">{{ category.code }}</span>
-                        <span class="rounded-full bg-gray-100 px-1.5 text-xs text-slate-500 dark:bg-gray-900">{{ category.medicines_count }}</span>
+                        <span class="font-mono text-xs text-muted-foreground">{{ category.code }}</span>
+                        <span class="rounded-full bg-muted px-1.5 text-xs text-muted-foreground">{{ category.medicines_count }}</span>
                         <Badge v-if="category.archived" tone="neutral">Archivée</Badge>
                     </button>
                     <div class="flex shrink-0 gap-1.5">
@@ -92,31 +92,31 @@ const inputClass = 'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 
                         </template>
                         <Button v-else-if="can.restore" type="button" size="sm" variant="white-outline" @click="restore(category)">Restaurer</Button>
                     </div>
-                    <p v-if="category.archived && category.delete_reason" class="basis-full text-xs text-slate-400">Motif : {{ category.delete_reason }}</p>
+                    <p v-if="category.archived && category.delete_reason" class="basis-full text-xs text-muted-foreground">Motif : {{ category.delete_reason }}</p>
                 </div>
             </li>
         </ul>
-        <p v-else class="text-sm text-slate-400">Aucune famille pour l’instant.</p>
+        <p v-else class="text-sm text-muted-foreground">Aucune famille pour l’instant.</p>
 
-        <button v-if="archivedCount" type="button" class="mt-2 text-sm font-semibold text-primary-600 hover:underline" @click="showArchived = !showArchived">
+        <button v-if="archivedCount" type="button" class="mt-2 text-sm font-semibold text-primary hover:underline" @click="showArchived = !showArchived">
             {{ showArchived ? 'Masquer' : 'Afficher' }} {{ archivedCount }} famille{{ archivedCount > 1 ? 's' : '' }} archivée{{ archivedCount > 1 ? 's' : '' }}
         </button>
 
-        <form v-if="can.create" class="mt-4 grid gap-2 border-t border-gray-100 pt-4 dark:border-gray-900 sm:grid-cols-[120px_minmax(0,1fr)_auto]" @submit.prevent="submitCreate">
+        <form v-if="can.create" class="mt-4 grid gap-2 border-t border-border pt-4 sm:grid-cols-[120px_minmax(0,1fr)_auto]" @submit.prevent="submitCreate">
             <input v-model="createForm.code" maxlength="60" :class="[inputClass, 'uppercase']" placeholder="Code" required>
             <input v-model="createForm.name" maxlength="255" :class="inputClass" placeholder="Nom de la nouvelle famille" required>
-            <Button size="rg" type="submit" :disabled="createForm.processing"><Icon name="plus" /><span class="ms-1.5">Créer</span></Button>
+            <Button size="rg" type="submit" :disabled="createForm.processing"><Plus class="h-4 w-4" />Créer</Button>
             <p v-if="createForm.errors.code || createForm.errors.name || createForm.errors.site" class="text-xs text-red-600 sm:col-span-3">{{ createForm.errors.code || createForm.errors.name || createForm.errors.site }}</p>
         </form>
 
         <div v-if="archiving" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" @click.self="archiving = null">
-            <section class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="archive-family-title">
-                <h2 id="archive-family-title" class="font-heading text-lg font-bold text-slate-800 dark:text-white">Archiver la famille « {{ archiving.name }} »</h2>
-                <p class="mt-1 text-sm text-slate-500">Elle ne sera plus proposée pour classer un médicament. Elle pourra être restaurée.</p>
+            <section class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="archive-family-title">
+                <h2 id="archive-family-title" class="font-heading text-lg font-bold text-foreground">Archiver la famille « {{ archiving.name }} »</h2>
+                <p class="mt-1 text-sm text-muted-foreground">Elle ne sera plus proposée pour classer un médicament. Elle pourra être restaurée.</p>
                 <form class="mt-4 space-y-4" @submit.prevent="confirmArchive">
                     <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></span>
-                        <textarea v-model="archiveForm.reason" required rows="3" class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white" />
+                        <span class="mb-1.5 block text-sm font-medium text-foreground">Motif <span class="text-red-500">*</span></span>
+                        <textarea v-model="archiveForm.reason" required rows="3" class="block w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
                         <span v-if="archiveForm.errors.reason || archiveForm.errors.category || archiveForm.errors.site" class="mt-1 block text-xs text-red-600">{{ archiveForm.errors.reason || archiveForm.errors.category || archiveForm.errors.site }}</span>
                     </label>
                     <div class="flex justify-end gap-2">

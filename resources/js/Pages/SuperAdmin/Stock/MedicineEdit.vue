@@ -2,7 +2,7 @@
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { TriangleAlert } from 'lucide-vue-next';
 import MedicineForm from '@/Components/Pharmacy/MedicineForm.vue';
 import MedicineStatusPanel from '@/Components/Pharmacy/MedicineStatusPanel.vue';
 
@@ -28,13 +28,13 @@ const baseUrl = `/super-admin/stock/${props.targetSite.code}/medicines/${props.m
         <Breadcrumb :items="[{ label: 'Stock médicaments', href: '/super-admin/stock' }, { label: targetSite.name }, { label: medicine?.name ?? 'Médicament' }]" />
 
         <section v-if="error" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-            <Icon name="alert" class="mt-0.5 text-lg" /><p>{{ error }}</p>
+            <TriangleAlert class="mt-0.5 h-4.5 w-4.5" /><p>{{ error }}</p>
         </section>
 
         <template v-else-if="medicine">
             <div>
-                <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Modifier {{ medicine.name }}</h1>
-                <p class="mt-1 text-sm text-slate-500">Enregistré sur le site {{ targetSite.name }}, à votre nom. Les ordonnances, ventes et lots déjà enregistrés ne sont pas modifiés.</p>
+                <h1 class="font-heading text-2xl font-bold text-foreground">Modifier {{ medicine.name }}</h1>
+                <p class="mt-1 text-sm text-muted-foreground">Enregistré sur le site {{ targetSite.name }}, à votre nom. Les ordonnances, ventes et lots déjà enregistrés ne sont pas modifiés.</p>
             </div>
 
             <MedicineForm

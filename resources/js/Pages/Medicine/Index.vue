@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Avatar from '@/Components/UI/Avatar.vue';
-import Button from '@/Components/UI/Button.vue';
-import Card from '@/Components/UI/Card.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import Avatar from '@/Components/Shadcn/Avatar.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import { Activity, ArrowRight, CircleAlert, Clock, Eye, Folder, Info, List, Play, RefreshCw, Search, Siren, Users } from 'lucide-vue-next';
+import { cn } from '@/lib/cn';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
@@ -58,7 +60,7 @@ const waitTone = (orientation) => {
     if (minutes >= 60) return 'text-red-600 dark:text-red-300';
     if (minutes >= 30) return 'text-amber-600 dark:text-amber-300';
 
-    return 'text-slate-600 dark:text-slate-300';
+    return 'text-muted-foreground';
 };
 
 const isEmergency = (orientation) => orientation.episode.priority === 'EMERGENCY';
@@ -139,10 +141,10 @@ const designationSummary = (orientation) => {
 };
 
 const tabs = [
-    { value: 'all', label: 'Tous', icon: 'list' },
-    { value: 'waiting', label: 'À prendre en charge', icon: 'clock' },
-    { value: 'in_progress', label: 'En consultation', icon: 'activity' },
-    { value: 'emergency', label: 'Urgences', icon: 'alert-circle' },
+    { value: 'all', label: 'Toute la file', hint: 'Patients orientés vers Médecine', icon: List, tone: 'neutral' },
+    { value: 'waiting', label: 'À prendre en charge', hint: 'En attente d’un médecin', icon: Clock, tone: 'amber' },
+    { value: 'in_progress', label: 'En consultation', hint: 'Dossiers ouverts', icon: Activity, tone: 'primary' },
+    { value: 'emergency', label: 'Urgences', hint: 'Priorité du passage', icon: Siren, tone: 'red' },
 ];
 
 // Three distinct workflow states, each with its own wording and colour so
@@ -152,8 +154,8 @@ const statusMeta = (orientation) => {
     if (orientation.status === 'PENDING') {
         return {
             label: 'À prendre en charge',
-            classes: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
-            dot: 'bg-slate-400',
+            classes: 'border-border text-muted-foreground dark:text-muted-foreground',
+            dot: 'bg-muted-foreground',
         };
     }
     if (orientation.is_waiting_on_results) {
@@ -166,8 +168,8 @@ const statusMeta = (orientation) => {
 
     return {
         label: 'En consultation',
-        classes: 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900 dark:bg-primary-950/30 dark:text-primary-300',
-        dot: 'bg-primary-500',
+        classes: 'border-primary/30 bg-primary/10 text-primary ',
+        dot: 'bg-primary/100',
     };
 };
 
@@ -207,13 +209,13 @@ const EMPTY_STATES = {
     <div class="mx-auto w-full max-w-screen-2xl space-y-4">
         <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="flex items-start gap-3">
-                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-2xl" name="activity" /></span>
+                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><Activity class="h-6 w-6" /></span>
                 <div>
-                    <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Médecine</h1>
-                    <p class="mt-1 text-sm text-slate-400">File de consultation — par ordre d’arrivée, urgences non encore vues en tête.</p>
+                    <h1 class="font-heading text-2xl font-bold -tracking-snug text-foreground">Médecine</h1>
+                    <p class="mt-1 text-sm text-muted-foreground">File de consultation — par ordre d’arrivée, urgences non encore vues en tête.</p>
                 </div>
             </div>
-            <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="users" /><span class="ms-2">Dossiers patients</span></Button>
+            <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline"><Users class="h-4.5 w-4.5" />Dossiers patients</Button>
         </header>
 
         <div
@@ -224,7 +226,7 @@ const EMPTY_STATES = {
             role="status"
         >
             <p class="flex items-start gap-2 text-sm font-semibold">
-                <Icon name="alert-circle" class="mt-0.5 shrink-0 text-base" />
+                <CircleAlert class="mt-0.5 shrink-0 h-4 w-4" />
                 <span>
                     <template v-if="queuePulse.unattendedEmergencies">
                         {{ queuePulse.unattendedEmergencies }} urgence{{ queuePulse.unattendedEmergencies > 1 ? 's' : '' }} en attente de prise en charge.
@@ -244,84 +246,80 @@ const EMPTY_STATES = {
             </button>
         </div>
 
+        <!-- Les compteurs viennent du serveur : recalculés depuis la page
+             affichée, ils mentiraient dès la deuxième page. -->
+        <QueueCounters
+            :tiles="tabs.map((tab) => ({ ...tab, count: counts[tab.value], active: filter === tab.value }))"
+            @select="selectFilter"
+        />
+
         <Card class="overflow-hidden shadow-sm">
-            <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">
-                <div class="flex w-full overflow-x-auto rounded border border-gray-200 bg-gray-50 p-1 dark:border-gray-900 dark:bg-gray-1000 lg:w-fit">
-                    <button
-                        v-for="tab in tabs"
-                        :key="tab.value"
-                        type="button"
-                        :class="['inline-flex shrink-0 items-center gap-2 rounded px-3 py-1.5 text-sm font-semibold transition-colors', filter === tab.value ? 'bg-white shadow-sm dark:bg-gray-900' : 'text-slate-400 hover:text-slate-600', filter === tab.value ? (tab.value === 'emergency' ? 'text-red-700 dark:text-red-300' : 'text-slate-700 dark:text-white') : '']"
-                        :aria-pressed="filter === tab.value"
-                        @click="selectFilter(tab.value)"
-                    >
-                        <Icon class="text-base" :name="tab.icon" />
-                        <span>{{ tab.label }}</span>
-                        <span :class="['min-w-5 rounded px-1.5 py-0.5 text-center text-[10px] font-bold', tab.value === 'emergency' && counts[tab.value] > 0 ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' : 'bg-gray-100 text-slate-500 dark:bg-gray-800 dark:text-slate-300']">{{ counts[tab.value] }}</span>
-                    </button>
-                </div>
+            <div class="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
+                <p class="text-xs text-muted-foreground">
+                    <template v-if="filter === 'all'">Toute la file, par ordre d’arrivée.</template>
+                    <template v-else>Filtrée sur « {{ tabs.find((tab) => tab.value === filter)?.label }} » — <button type="button" class="font-bold text-primary hover:underline" @click="selectFilter('all')">tout afficher</button>.</template>
+                </p>
                 <div class="relative w-full lg:max-w-xs">
-                    <Input v-model="query" icon="start" type="search" placeholder="Patient ou n° passage" autocomplete="off" />
-                    <span class="pointer-events-none absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400"><Icon class="text-lg" name="search" /></span>
+                    <IconInput v-model="query" :icon="Search" type="search" placeholder="Patient ou n° passage" autocomplete="off" aria-label="Rechercher un patient" />
                 </div>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[1000px] border-collapse">
                     <caption class="sr-only">File des patients en Médecine</caption>
-                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40">
+                    <thead class="bg-muted/70 /40">
                         <tr>
-                            <th class="w-14 border-b border-gray-200 px-4 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">N°</th>
-                            <th class="border-b border-gray-200 px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Patient</th>
-                            <th class="border-b border-gray-200 px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Passage</th>
-                            <th class="border-b border-gray-200 px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Motif de venue</th>
-                            <th class="w-28 border-b border-gray-200 px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Attente</th>
-                            <th class="border-b border-gray-200 px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Statut</th>
-                            <th class="border-b border-gray-200 px-4 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-slate-400 dark:border-gray-900">Action</th>
+                            <th class="w-14 border-b border-border px-4 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">N°</th>
+                            <th class="border-b border-border px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Patient</th>
+                            <th class="border-b border-border px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Passage</th>
+                            <th class="border-b border-border px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Motif de venue</th>
+                            <th class="w-28 border-b border-border px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Attente</th>
+                            <th class="border-b border-border px-4 py-2.5 text-start text-xs font-medium uppercase tracking-wide text-muted-foreground">Statut</th>
+                            <th class="border-b border-border px-4 py-2.5 text-end text-xs font-medium uppercase tracking-wide text-muted-foreground">Action</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
+                    <tbody class="divide-y divide-border">
                         <tr
                             v-for="orientation in orientations.data"
                             :key="orientation.uuid"
                             :class="['transition-colors', isEmergency(orientation)
                                 ? 'bg-red-50/40 hover:bg-red-50/70 dark:bg-red-950/10 dark:hover:bg-red-950/20'
-                                : 'hover:bg-gray-50/70 dark:hover:bg-gray-1000/40']"
+                                : 'hover:bg-muted/70 ']"
                         >
                             <td :class="['border-s-2 px-4 py-3 text-center', isEmergency(orientation) ? 'border-s-red-500' : 'border-s-transparent']">
-                                <span v-if="orientation.queue_number" :class="['inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold', isEmergency(orientation) ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300' : 'bg-primary-100 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300']">{{ orientation.queue_number }}</span>
+                                <span v-if="orientation.queue_number" :class="['inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold', isEmergency(orientation) ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300' : 'bg-primary/15 text-primary /40 ']">{{ orientation.queue_number }}</span>
                                 <!-- Déjà pris en charge : la place dans l'attente est consommée,
                                      le numéro passe au patient suivant. -->
-                                <span v-else-if="orientation.status === 'IN_PROGRESS'" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900" title="Déjà pris en charge — ne compte plus dans l'attente" aria-label="Déjà pris en charge"><Icon name="activity" /></span>
-                                <span v-else class="text-slate-300 dark:text-slate-700">—</span>
+                                <span v-else-if="orientation.status === 'IN_PROGRESS'" class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-sm text-emerald-600 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900" title="Déjà pris en charge — ne compte plus dans l'attente" aria-label="Déjà pris en charge"><Activity class="h-4 w-4" /></span>
+                                <span v-else class="text-muted-foreground dark:text-foreground">—</span>
                             </td>
                             <td class="px-4 py-3">
                                 <div class="flex min-w-[220px] items-center gap-3">
-                                    <Avatar rounded size="sm" :variant="isEmergency(orientation) ? 'danger-pale' : 'slate-pale'" :text="formatPatientInitials(orientation.episode.patient)" aria-hidden="true" />
+                                    <Avatar size="sm" :variant="isEmergency(orientation) ? 'danger-pale' : 'slate-pale'" :text="formatPatientInitials(orientation.episode.patient)" aria-hidden="true" />
                                     <div class="min-w-0">
-                                        <Link v-if="can('patients.view')" :href="`/patients/${orientation.episode.patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">{{ formatPatientName(orientation.episode.patient) }}</Link>
-                                        <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(orientation.episode.patient) }}</span>
-                                        <span class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
-                                            <span class="inline-flex items-center gap-1 font-medium"><Icon class="text-sm" name="folder" />{{ orientation.episode.patient.patient_number }}</span>
+                                        <Link v-if="can('patients.view')" :href="`/patients/${orientation.episode.patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary dark:hover:text-primary">{{ formatPatientName(orientation.episode.patient) }}</Link>
+                                        <span v-else class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(orientation.episode.patient) }}</span>
+                                        <span class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                                            <span class="inline-flex items-center gap-1 font-medium"><Folder class="h-3.5 w-3.5" />{{ orientation.episode.patient.patient_number }}</span>
                                             <span>{{ patientProfile(orientation.episode.patient) }}</span>
                                         </span>
                                     </div>
                                 </div>
                             </td>
                             <td class="px-4 py-3">
-                                <span class="block font-mono text-xs font-semibold text-slate-600 dark:text-slate-300">{{ orientation.episode.episode_number }}</span>
-                                <span class="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
-                                    <Icon class="text-xs" name="arrow-right" />{{ orientation.source_label }} · {{ formatDateTime(orientation.oriented_at) }}
+                                <span class="block font-mono text-xs font-semibold text-muted-foreground">{{ orientation.episode.episode_number }}</span>
+                                <span class="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    <ArrowRight class="h-3 w-3" />{{ orientation.source_label }} · {{ formatDateTime(orientation.oriented_at) }}
                                 </span>
                             </td>
                             <td class="max-w-[300px] px-4 py-3">
-                                <span v-if="designationSummary(orientation)" class="block text-xs text-slate-600 dark:text-slate-300">{{ designationSummary(orientation) }}</span>
-                                <span v-else class="block text-xs italic text-slate-400">Motif à préciser en consultation</span>
-                                <span v-if="orientation.reason" class="mt-0.5 block truncate text-[11px] text-slate-400" :title="orientation.reason">{{ orientation.reason }}</span>
+                                <span v-if="designationSummary(orientation)" class="block text-xs text-muted-foreground">{{ designationSummary(orientation) }}</span>
+                                <span v-else class="block text-xs italic text-muted-foreground">Motif à préciser en consultation</span>
+                                <span v-if="orientation.reason" class="mt-0.5 block truncate text-[11px] text-muted-foreground" :title="orientation.reason">{{ orientation.reason }}</span>
                             </td>
                             <td class="px-4 py-3">
                                 <span :class="['inline-flex items-center gap-1.5 text-sm font-bold', waitTone(orientation)]">
-                                    <Icon class="text-sm" name="clock" />{{ waitedLabel(orientation) }}
+                                    <Clock class="h-3.5 w-3.5" />{{ waitedLabel(orientation) }}
                                 </span>
                             </td>
                             <td class="px-4 py-3">
@@ -330,23 +328,23 @@ const EMPTY_STATES = {
                                     {{ statusMeta(orientation).label }}
                                 </span>
                                 <span v-if="orientation.is_waiting_on_results" class="mt-1 block max-w-[220px] text-[11px] text-amber-600 dark:text-amber-400">{{ orientation.pending_reasons.join(' · ') }}</span>
-                                <span v-if="orientation.accepted_by" class="mt-1 block text-[11px] text-slate-400">Dr {{ orientation.accepted_by }}</span>
+                                <span v-if="orientation.accepted_by" class="mt-1 block text-[11px] text-muted-foreground">Dr {{ orientation.accepted_by }}</span>
                             </td>
                             <td class="px-4 py-3 text-end">
-                                <Button v-if="orientation.status === 'PENDING' && can('consultations.create')" size="sm" type="button" :variant="isEmergency(orientation) ? 'danger' : 'primary'" @click="requestAccept(orientation)"><Icon class="text-base" name="play" /><span class="ms-1.5">Prendre en charge</span></Button>
-                                <Button v-else-if="orientation.has_consultation" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/dossier`" size="sm" variant="white-outline"><Icon class="text-base" :name="orientation.is_waiting_on_results ? 'reload' : 'eye'" /><span class="ms-1.5">{{ orientation.is_waiting_on_results ? 'Reprendre' : 'Ouvrir' }}</span></Button>
+                                <Button v-if="orientation.status === 'PENDING' && can('consultations.create')" size="sm" type="button" :variant="isEmergency(orientation) ? 'danger' : 'primary'" @click="requestAccept(orientation)"><Play class="h-4 w-4" />Prendre en charge</Button>
+                                <Button v-else-if="orientation.has_consultation" :as="Link" :href="`/medicine/orientations/${orientation.uuid}/dossier`" size="sm" variant="white-outline"><component :is="orientation.is_waiting_on_results ? RefreshCw : Eye" class="h-4 w-4" />{{ orientation.is_waiting_on_results ? 'Reprendre' : 'Ouvrir' }}</Button>
                                 <Link v-else-if="can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
-                                    <Button size="sm" variant="white-outline"><Icon class="text-base" name="eye" /><span class="ms-1.5">Ouvrir</span></Button>
+                                    <Button size="sm" variant="white-outline"><Eye class="h-4 w-4" />Ouvrir</Button>
                                 </Link>
                             </td>
                         </tr>
                         <tr v-if="orientations.data.length === 0">
                             <td colspan="7" class="px-5 py-14 text-center">
-                                <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-slate-400 dark:bg-gray-900"><Icon class="text-xl" name="activity" /></span>
-                                <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun patient dans cette file</p>
-                                <p class="mt-1 text-xs text-slate-400">{{ EMPTY_STATES[filter] ?? EMPTY_STATES.all }}</p>
+                                <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-muted text-muted-foreground"><Activity class="h-5 w-5" /></span>
+                                <p class="mt-3 text-sm font-medium text-muted-foreground">Aucun patient dans cette file</p>
+                                <p class="mt-1 text-xs text-muted-foreground">{{ EMPTY_STATES[filter] ?? EMPTY_STATES.all }}</p>
                                 <Button v-if="filter !== 'all'" class="mt-4" size="sm" variant="white-outline" type="button" @click="selectFilter('all')">
-                                    <Icon class="text-base" name="list" /><span class="ms-1.5">Voir toute la file</span>
+                                    <List class="h-4 w-4" />Voir toute la file
                                 </Button>
                             </td>
                         </tr>
@@ -354,11 +352,11 @@ const EMPTY_STATES = {
                 </table>
             </div>
 
-            <div v-if="orientations.last_page > 1" class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 p-4 text-xs text-slate-400 dark:border-gray-900">
+            <div v-if="orientations.last_page > 1" class="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4 text-xs text-muted-foreground">
                 <span>{{ orientations.from }}–{{ orientations.to }} sur {{ orientations.total }} · page {{ orientations.current_page }} sur {{ orientations.last_page }}</span>
                 <div class="flex gap-2">
-                    <Link v-if="orientations.prev_page_url" :href="orientations.prev_page_url" preserve-state class="rounded border border-gray-200 px-3 py-1.5 font-semibold text-slate-500 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">Précédent</Link>
-                    <Link v-if="orientations.next_page_url" :href="orientations.next_page_url" preserve-state class="rounded border border-gray-200 px-3 py-1.5 font-semibold text-slate-500 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">Suivant</Link>
+                    <Link v-if="orientations.prev_page_url" :href="orientations.prev_page_url" preserve-state class="rounded border border-border px-3 py-1.5 font-semibold text-muted-foreground transition-colors hover:bg-muted dark:hover:bg-muted">Précédent</Link>
+                    <Link v-if="orientations.next_page_url" :href="orientations.next_page_url" preserve-state class="rounded border border-border px-3 py-1.5 font-semibold text-muted-foreground transition-colors hover:bg-muted dark:hover:bg-muted">Suivant</Link>
                 </div>
             </div>
         </Card>
@@ -367,16 +365,16 @@ const EMPTY_STATES = {
     <!-- Confirmation, jamais blocage : le médecin garde la décision, on lui
          rappelle seulement qui attend devant. -->
     <div v-if="skipConfirm" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="skipConfirm = null">
-        <section class="w-full max-w-lg overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="skip-queue-title">
-            <header class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
+        <section class="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card shadow-xl" role="dialog" aria-modal="true" aria-labelledby="skip-queue-title">
+            <header class="flex items-start gap-3 border-b border-border px-5 py-4">
                 <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-full', skippedEmergencies.length ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">
-                    <Icon class="text-xl" name="alert-circle" />
+                    <CircleAlert class="h-5 w-5" />
                 </span>
                 <div class="min-w-0">
-                    <h2 id="skip-queue-title" class="font-heading text-base font-bold text-slate-700 dark:text-white">
+                    <h2 id="skip-queue-title" class="font-heading text-base font-bold text-foreground">
                         {{ skippedEmergencies.length ? 'Une urgence attend avant ce patient' : 'Un patient attend avant celui-ci' }}
                     </h2>
-                    <p class="mt-0.5 text-xs text-slate-400">
+                    <p class="mt-0.5 text-xs text-muted-foreground">
                         Vous allez prendre en charge {{ formatPatientName(skipConfirm.orientation.episode.patient) }}.
                     </p>
                 </div>
@@ -387,31 +385,31 @@ const EMPTY_STATES = {
                     <li
                         v-for="row in skipConfirm.ahead.slice(0, 4)"
                         :key="row.uuid"
-                        :class="['flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm', isEmergency(row) ? 'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20' : 'border-gray-200 dark:border-gray-800']"
+                        :class="['flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm', isEmergency(row) ? 'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20' : 'border-border']"
                     >
                         <span class="min-w-0">
-                            <span class="block truncate font-semibold text-slate-700 dark:text-white">{{ formatPatientName(row.episode.patient) }}</span>
-                            <span class="text-xs text-slate-400">{{ row.episode.episode_number }}<template v-if="isEmergency(row)"> · Urgence</template></span>
+                            <span class="block truncate font-semibold text-foreground">{{ formatPatientName(row.episode.patient) }}</span>
+                            <span class="text-xs text-muted-foreground">{{ row.episode.episode_number }}<template v-if="isEmergency(row)"> · Urgence</template></span>
                         </span>
                         <span :class="['shrink-0 text-sm font-bold', waitTone(row)]">{{ waitedLabel(row) }}</span>
                     </li>
                 </ul>
-                <p v-if="skipConfirm.ahead.length > 4" class="text-xs text-slate-400">
+                <p v-if="skipConfirm.ahead.length > 4" class="text-xs text-muted-foreground">
                     … et {{ skipConfirm.ahead.length - 4 }} autre{{ skipConfirm.ahead.length - 4 > 1 ? 's' : '' }} patient{{ skipConfirm.ahead.length - 4 > 1 ? 's' : '' }} avant celui-ci.
                 </p>
                 <p v-if="skipConfirm.earlierPages" class="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                    <Icon class="mt-px shrink-0" name="info" />Les pages précédentes de la file contiennent d’autres patients arrivés avant, non affichés ici.
+                    <Info class="mt-px shrink-0 h-4 w-4" />Les pages précédentes de la file contiennent d’autres patients arrivés avant, non affichés ici.
                 </p>
-                <p class="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                <p class="text-xs leading-5 text-muted-foreground">
                     Prendre ce patient d’abord reste possible — dossier incomplet, patient absent, priorité clinique.
                     Ce rappel n’empêche rien.
                 </p>
             </div>
 
-            <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30 sm:flex-row sm:justify-end">
+            <footer class="flex flex-col-reverse gap-2 border-t border-border bg-muted/60 px-5 py-4 /30 sm:flex-row sm:justify-end">
                 <Button size="rg" type="button" variant="white-outline" @click="skipConfirm = null">Annuler</Button>
                 <Button size="rg" type="button" :variant="skippedEmergencies.length ? 'danger' : 'primary'" @click="confirmSkip">
-                    <Icon class="me-1.5 text-base" name="play" />Prendre celui-ci quand même
+                    <Play class="me-1.5 h-4 w-4" />Prendre celui-ci quand même
                 </Button>
             </footer>
         </section>

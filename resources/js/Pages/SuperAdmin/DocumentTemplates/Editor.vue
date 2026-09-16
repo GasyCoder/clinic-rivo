@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, Eye, History, Image, LoaderCircle, Plus, Redo2, RotateCcw, Save, Trash2, Upload, X } from 'lucide-vue-next';
 import { Editor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -358,53 +358,53 @@ const submit = () => {
     <div class="w-full space-y-4">
         <header class="flex flex-wrap items-center justify-between gap-3">
             <div>
-                <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-primary-600" @click="leaveEditor"><Icon name="arrow-left" />Canevas de documents</button>
-                <h1 class="mt-1 font-heading text-xl font-bold text-slate-700 dark:text-white">{{ isEditing ? `Modifier « ${template.name} »` : 'Nouveau canevas' }}</h1>
-                <p class="mt-1 text-xs text-slate-500">Site destinataire : <strong>{{ targetSite.name }}</strong><span v-if="isEditing && template.generated_documents_count"> · {{ template.generated_documents_count }} document(s) déjà généré(s) — toute modification crée une nouvelle version, sans affecter ceux-là.</span></p>
+                <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-primary" @click="leaveEditor"><ArrowLeft class="h-4 w-4" />Canevas de documents</button>
+                <h1 class="mt-1 font-heading text-xl font-bold text-foreground">{{ isEditing ? `Modifier « ${template.name} »` : 'Nouveau canevas' }}</h1>
+                <p class="mt-1 text-xs text-muted-foreground">Site destinataire : <strong>{{ targetSite.name }}</strong><span v-if="isEditing && template.generated_documents_count"> · {{ template.generated_documents_count }} document(s) déjà généré(s) — toute modification crée une nouvelle version, sans affecter ceux-là.</span></p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <span v-if="isDirty" class="text-xs font-bold text-amber-600">● Modifications non enregistrées</span>
-                <Button v-if="isEditing" size="rg" variant="white-outline" type="button" @click="openHistory"><Icon name="history" /><span class="ms-2">Historique</span></Button>
-                <Button size="rg" variant="white-outline" type="button" @click="showPreview = true"><Icon name="eye" /><span class="ms-2">Aperçu de la structure</span></Button>
-                <Button v-if="!isArchivedTemplate" size="rg" variant="white-outline" type="button" title="Importer un fichier Word (.docx) ou PDF dans la page active" @click="triggerImport"><Icon name="upload" /><span class="ms-2">Importer un fichier</span></Button>
+                <Button v-if="isEditing" size="rg" variant="white-outline" type="button" @click="openHistory"><History class="h-4 w-4" />Historique</Button>
+                <Button size="rg" variant="white-outline" type="button" @click="showPreview = true"><Eye class="h-4 w-4" />Aperçu de la structure</Button>
+                <Button v-if="!isArchivedTemplate" size="rg" variant="white-outline" type="button" title="Importer un fichier Word (.docx) ou PDF dans la page active" @click="triggerImport"><Upload class="h-4 w-4" />Importer un fichier</Button>
                 <input ref="importInput" type="file" accept=".docx,.pdf" class="hidden" @change="handleImportFile">
                 <Button size="rg" variant="white-outline" type="button" @click="leaveEditor">Annuler</Button>
                 <Button v-if="!isArchivedTemplate" size="rg" :disabled="form.processing" @click="submit">
-                    <Icon class="text-lg" name="save" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer' }}</span>
+                    <Save class="h-4.5 w-4.5" />{{ form.processing ? 'Enregistrement…' : 'Enregistrer' }}
                 </Button>
             </div>
         </header>
 
         <p v-if="isArchivedTemplate" class="rounded border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">Ce canevas est archivé et affiché en lecture seule. Restaurez-le depuis la liste pour le modifier.</p>
 
-        <section class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-900 dark:bg-gray-950">
+        <section class="rounded-lg border border-border bg-card p-4">
             <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div class="lg:col-span-2">
-                    <label class="mb-1.5 block text-xs font-bold uppercase text-slate-400">Nom du canevas <span class="text-red-500">*</span></label>
-                    <input v-model="form.name" type="text" required :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm dark:border-gray-800 dark:bg-gray-950">
+                    <label class="mb-1.5 block text-xs font-bold uppercase text-muted-foreground">Nom du canevas <span class="text-red-500">*</span></label>
+                    <input v-model="form.name" type="text" required :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-border bg-card px-3 text-sm">
                     <p v-if="form.errors.name" class="mt-1 text-xs text-red-600">{{ form.errors.name }}</p>
                 </div>
                 <div>
-                    <label class="mb-1.5 block text-xs font-bold uppercase text-slate-400">Type de document <span class="text-red-500">*</span></label>
-                    <input v-model="form.document_type" type="text" required list="document-type-suggestions" placeholder="CONTRAT, ATTESTATION…" :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm uppercase dark:border-gray-800 dark:bg-gray-950">
+                    <label class="mb-1.5 block text-xs font-bold uppercase text-muted-foreground">Type de document <span class="text-red-500">*</span></label>
+                    <input v-model="form.document_type" type="text" required list="document-type-suggestions" placeholder="CONTRAT, ATTESTATION…" :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-border bg-card px-3 text-sm uppercase">
                     <datalist id="document-type-suggestions">
                         <option value="CONTRAT" /><option value="CONGE" /><option value="ATTESTATION" /><option value="CERTIFICAT" /><option value="LETTRE" /><option value="DECISION" /><option value="AUTRE" />
                     </datalist>
                     <p v-if="form.errors.document_type" class="mt-1 text-xs text-red-600">{{ form.errors.document_type }}</p>
                 </div>
                 <div>
-                    <label class="mb-1.5 block text-xs font-bold uppercase text-slate-400">Contexte de données <span class="text-red-500">*</span></label>
-                    <select v-model="form.data_context" required :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-gray-200 bg-white px-2 text-sm dark:border-gray-800 dark:bg-gray-950">
+                    <label class="mb-1.5 block text-xs font-bold uppercase text-muted-foreground">Contexte de données <span class="text-red-500">*</span></label>
+                    <select v-model="form.data_context" required :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-border bg-card px-2 text-sm">
                         <option v-for="context in dataContexts" :key="context.value" :value="context.value">{{ context.label }}</option>
                     </select>
                     <p v-if="form.errors.data_context" class="mt-1 text-xs text-red-600">{{ form.errors.data_context }}</p>
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3">
-                    <label class="mb-1.5 block text-xs font-bold uppercase text-slate-400">Description <span class="text-slate-300">(facultatif)</span></label>
-                    <input v-model="form.description" type="text" :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-gray-200 bg-white px-3 text-sm dark:border-gray-800 dark:bg-gray-950">
+                    <label class="mb-1.5 block text-xs font-bold uppercase text-muted-foreground">Description <span class="text-muted-foreground">(facultatif)</span></label>
+                    <input v-model="form.description" type="text" :disabled="isArchivedTemplate" class="h-10 w-full rounded border border-border bg-card px-3 text-sm">
                 </div>
-                <label class="inline-flex items-center gap-2 self-end text-sm text-slate-700 dark:text-white">
-                    <input v-model="form.active" type="checkbox" :disabled="isArchivedTemplate" class="h-4 w-4 rounded border-gray-300">
+                <label class="inline-flex items-center gap-2 self-end text-sm text-foreground">
+                    <input v-model="form.active" type="checkbox" :disabled="isArchivedTemplate" class="h-4 w-4 rounded border-input">
                     Actif (proposé au RH)
                 </label>
             </div>
@@ -412,35 +412,35 @@ const submit = () => {
 
         <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
             <aside class="space-y-2">
-                <h2 class="px-1 text-xs font-bold uppercase tracking-wide text-slate-400">Pages ({{ pages.length }})</h2>
+                <h2 class="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Pages ({{ pages.length }})</h2>
                 <div
                     v-for="(page, index) in pages" :key="page.id"
-                    :class="['rounded-lg border p-2.5', page.id === activePageId ? 'border-primary-400 bg-primary-50/60 dark:bg-primary-950/20' : 'border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950']"
+                    :class="['rounded-lg border p-2.5', page.id === activePageId ? 'border-primary bg-primary/5' : 'border-border bg-card']"
                 >
                     <button type="button" class="block w-full text-start" @click="selectPage(page.id)">
-                        <p class="text-xs font-bold text-slate-700 dark:text-white">Page {{ index + 1 }}</p>
+                        <p class="text-xs font-bold text-foreground">Page {{ index + 1 }}</p>
                     </button>
                     <div v-if="!isArchivedTemplate" class="mt-2 flex items-center justify-between gap-1">
                         <div class="flex gap-0.5">
-                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-primary-600" title="Monter" :disabled="index === 0" @click="movePage(page.id, -1)"><Icon name="chevron-up" /></button>
-                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-primary-600" title="Descendre" :disabled="index === pages.length - 1" @click="movePage(page.id, 1)"><Icon name="chevron-down" /></button>
+                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-primary" title="Monter" :disabled="index === 0" @click="movePage(page.id, -1)"><ChevronUp class="h-4 w-4" /></button>
+                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-primary" title="Descendre" :disabled="index === pages.length - 1" @click="movePage(page.id, 1)"><ChevronDown class="h-4 w-4" /></button>
                         </div>
                         <div class="flex gap-0.5">
-                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-primary-600" title="Dupliquer" @click="duplicatePage(page.id)"><Icon name="copy" /></button>
-                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-red-600" title="Supprimer" :disabled="pages.length <= 1" @click="deletePage(page.id)"><Icon name="trash" /></button>
+                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-primary" title="Dupliquer" @click="duplicatePage(page.id)"><Copy class="h-4 w-4" /></button>
+                            <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-red-600" title="Supprimer" :disabled="pages.length <= 1" @click="deletePage(page.id)"><Trash2 class="h-4 w-4" /></button>
                         </div>
                     </div>
                 </div>
-                <button v-if="!isArchivedTemplate" type="button" class="w-full rounded-lg border border-dashed border-gray-300 py-2 text-xs font-bold text-slate-500 hover:border-primary-400 hover:text-primary-600 dark:border-gray-800" @click="addPage">
-                    <Icon name="plus" /> Ajouter une page
+                <button v-if="!isArchivedTemplate" type="button" class="w-full rounded-lg border border-dashed border-input py-2 text-xs font-bold text-muted-foreground hover:border-primary hover:text-primary" @click="addPage">
+                    <Plus class="h-4 w-4" /> Ajouter une page
                 </button>
             </aside>
 
-            <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
-                <div class="flex items-center justify-between border-b border-gray-200 px-3 py-1.5 text-[11px] font-bold text-slate-400 dark:border-gray-900">
+            <section class="overflow-hidden rounded-lg border border-border bg-card">
+                <div class="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] font-bold text-muted-foreground">
                     <span>Page {{ activePageIndex + 1 }} / {{ pages.length }}</span>
                 </div>
-                <div v-if="editor" class="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50/70 p-2 dark:border-gray-900 dark:bg-gray-1000/40">
+                <div v-if="editor" class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/70 p-2 /40">
                     <select :disabled="isArchivedTemplate" class="toolbar-select" @change="$event.target.value ? editor.chain().focus().setFontFamily($event.target.value).run() : editor.chain().focus().unsetFontFamily().run()">
                         <option value="">Police</option>
                         <option v-for="font in fontFamilies" :key="font" :value="font">{{ font }}</option>
@@ -492,28 +492,28 @@ const submit = () => {
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Fusionner les cellules" @click="editor.chain().focus().mergeCells().run()">Fusionner</button>
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Scinder la cellule" @click="editor.chain().focus().splitCell().run()">Scinder</button>
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Ligne de séparation" @click="editor.chain().focus().setHorizontalRule().run()">―</button>
-                    <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Insérer une image" @click="insertImage"><Icon name="img" /></button>
+                    <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Insérer une image" @click="insertImage"><Image class="h-4 w-4" /></button>
                     <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Bloc signature" @click="insertSignatureBlock">Signatures</button>
                     <span class="toolbar-sep" />
-                    <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Annuler" @click="editor.chain().focus().undo().run()"><Icon name="undo" /></button>
-                    <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Rétablir" @click="editor.chain().focus().redo().run()"><Icon name="redo" /></button>
+                    <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Annuler" @click="editor.chain().focus().undo().run()"><RotateCcw class="h-4 w-4" /></button>
+                    <button type="button" :disabled="isArchivedTemplate" class="toolbar-btn" title="Rétablir" @click="editor.chain().focus().redo().run()"><Redo2 class="h-4 w-4" /></button>
                 </div>
                 <div v-if="importWarning" class="flex items-start justify-between gap-3 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
                     <span>{{ importWarning }}</span>
-                    <button type="button" class="shrink-0 text-amber-600 hover:text-amber-800" @click="importWarning = ''"><Icon name="cross" /></button>
+                    <button type="button" class="shrink-0 text-amber-600 hover:text-amber-800" @click="importWarning = ''"><X class="h-4 w-4" /></button>
                 </div>
                 <EditorContent :editor="editor" class="canevas-editor-content" />
             </section>
         </div>
 
-        <div v-if="showPreview" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" @click.self="showPreview = false">
-            <div class="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl dark:bg-gray-950">
-                <header class="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+        <div v-if="showPreview" class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-4" @click.self="showPreview = false">
+            <div class="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg bg-card shadow-xl">
+                <header class="flex items-center justify-between border-b border-border px-5 py-3">
                     <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Aperçu de la structure ({{ pages.length }} page(s))</h2>
-                        <p class="mt-0.5 text-[11px] text-slate-400">Aperçu du canevas seul — la page 1 (informations du RH) est ajoutée automatiquement à la génération. Pour un aperçu avec les vraies informations d’une personne, utilisez « Générer un document » côté Administration/RH.</p>
+                        <h2 class="text-sm font-bold text-foreground">Aperçu de la structure ({{ pages.length }} page(s))</h2>
+                        <p class="mt-0.5 text-[11px] text-muted-foreground">Aperçu du canevas seul — la page 1 (informations du RH) est ajoutée automatiquement à la génération. Pour un aperçu avec les vraies informations d’une personne, utilisez « Générer un document » côté Administration/RH.</p>
                     </div>
-                    <button type="button" class="text-slate-400 hover:text-slate-700" @click="showPreview = false"><Icon class="text-xl" name="cross" /></button>
+                    <button type="button" class="text-muted-foreground hover:text-foreground" @click="showPreview = false"><X class="h-5 w-5" /></button>
                 </header>
                 <div class="overflow-y-auto p-6">
                     <div class="canevas-document" v-html="previewHtml" />
@@ -521,27 +521,27 @@ const submit = () => {
             </div>
         </div>
 
-        <div v-if="showHistory" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" @click.self="showHistory = false">
-            <div class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-lg bg-white shadow-xl dark:bg-gray-950">
-                <header class="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-900">
+        <div v-if="showHistory" class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-4" @click.self="showHistory = false">
+            <div class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-lg bg-card shadow-xl">
+                <header class="flex items-center justify-between border-b border-border px-5 py-3">
                     <div>
-                        <h2 class="text-sm font-bold text-slate-700 dark:text-white">Historique des versions</h2>
-                        <p class="mt-0.5 text-xs text-slate-500">Chaque enregistrement qui remplace un canevas déjà utilisé crée une nouvelle version — les documents déjà générés continuent de pointer vers celle qui les a produits.</p>
+                        <h2 class="text-sm font-bold text-foreground">Historique des versions</h2>
+                        <p class="mt-0.5 text-xs text-muted-foreground">Chaque enregistrement qui remplace un canevas déjà utilisé crée une nouvelle version — les documents déjà générés continuent de pointer vers celle qui les a produits.</p>
                     </div>
-                    <button type="button" class="text-slate-400 hover:text-slate-700" @click="showHistory = false"><Icon class="text-xl" name="cross" /></button>
+                    <button type="button" class="text-muted-foreground hover:text-foreground" @click="showHistory = false"><X class="h-5 w-5" /></button>
                 </header>
                 <div class="overflow-y-auto p-5">
-                    <div v-if="historyLoading" class="flex items-center gap-2 py-8 text-sm text-slate-400"><Icon class="animate-spin" name="loader" />Chargement…</div>
+                    <div v-if="historyLoading" class="flex items-center gap-2 py-8 text-sm text-muted-foreground"><LoaderCircle class="animate-spin h-4 w-4" />Chargement…</div>
                     <p v-else-if="historyError" class="py-8 text-center text-sm text-red-600">{{ historyError }}</p>
                     <ul v-else class="space-y-2">
-                        <li v-for="version in historyVersions" :key="version.uuid" class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+                        <li v-for="version in historyVersions" :key="version.uuid" class="rounded-lg border border-border p-3">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <div>
-                                    <span :class="['rounded px-2 py-0.5 text-[10px] font-bold uppercase', !version.archived ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-gray-100 text-slate-500 dark:bg-gray-900']">{{ !version.archived ? 'Version actuelle' : 'Archivée' }}</span>
-                                    <p class="mt-1 text-sm font-bold text-slate-700 dark:text-white">{{ version.name }}</p>
-                                    <p class="mt-0.5 text-xs text-slate-400">{{ version.creator || 'Auteur inconnu' }} · {{ version.created_at ? new Date(version.created_at).toLocaleString('fr-FR') : '' }}</p>
-                                    <p v-if="version.archive_reason" class="mt-1 text-xs text-slate-500">{{ version.archive_reason }}</p>
-                                    <p v-if="version.generated_documents_count" class="mt-1 text-xs text-slate-400">{{ version.generated_documents_count }} document(s) généré(s) depuis cette version</p>
+                                    <span :class="['rounded px-2 py-0.5 text-[10px] font-bold uppercase', !version.archived ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-muted text-muted-foreground ']">{{ !version.archived ? 'Version actuelle' : 'Archivée' }}</span>
+                                    <p class="mt-1 text-sm font-bold text-foreground">{{ version.name }}</p>
+                                    <p class="mt-0.5 text-xs text-muted-foreground">{{ version.creator || 'Auteur inconnu' }} · {{ version.created_at ? new Date(version.created_at).toLocaleString('fr-FR') : '' }}</p>
+                                    <p v-if="version.archive_reason" class="mt-1 text-xs text-muted-foreground">{{ version.archive_reason }}</p>
+                                    <p v-if="version.generated_documents_count" class="mt-1 text-xs text-muted-foreground">{{ version.generated_documents_count }} document(s) généré(s) depuis cette version</p>
                                 </div>
                                 <Button v-if="version.archived" size="sm" variant="white-outline" type="button" @click="requestRevert(version)">Revenir à cette version</Button>
                             </div>
@@ -551,14 +551,14 @@ const submit = () => {
             </div>
         </div>
 
-        <div v-if="revertTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" @click.self="cancelRevert">
-            <div class="w-full max-w-md rounded-lg bg-white shadow-xl dark:bg-gray-950">
-                <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
-                    <div><h2 class="text-lg font-bold text-slate-700 dark:text-white">Revenir à cette version</h2><p class="mt-1 text-xs text-slate-500">« {{ revertTarget.name }} » du {{ new Date(revertTarget.created_at).toLocaleString('fr-FR') }} redevient la version active. La version actuelle est archivée, jamais supprimée.</p></div>
-                    <button type="button" class="text-slate-400 hover:text-slate-700" @click="cancelRevert"><Icon class="text-xl" name="cross" /></button>
+        <div v-if="revertTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/60 p-4" @click.self="cancelRevert">
+            <div class="w-full max-w-md rounded-lg bg-card shadow-xl">
+                <header class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+                    <div><h2 class="text-lg font-bold text-foreground">Revenir à cette version</h2><p class="mt-1 text-xs text-muted-foreground">« {{ revertTarget.name }} » du {{ new Date(revertTarget.created_at).toLocaleString('fr-FR') }} redevient la version active. La version actuelle est archivée, jamais supprimée.</p></div>
+                    <button type="button" class="text-muted-foreground hover:text-foreground" @click="cancelRevert"><X class="h-5 w-5" /></button>
                 </header>
                 <form class="space-y-4 p-5" @submit.prevent="confirmRevert">
-                    <div><label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Motif <span class="text-red-500">*</span></label><textarea v-model="revertReason" required rows="3" class="block w-full rounded border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950" /></div>
+                    <div><label class="mb-1.5 block text-sm font-medium text-foreground">Motif <span class="text-red-500">*</span></label><textarea v-model="revertReason" required rows="3" class="block w-full rounded border border-border bg-card px-3 py-2 text-sm" /></div>
                     <div class="flex justify-end gap-2"><Button type="button" variant="white-outline" @click="cancelRevert">Annuler</Button><Button type="submit" :disabled="reverting">{{ reverting ? 'Retour en cours…' : 'Confirmer' }}</Button></div>
                 </form>
             </div>

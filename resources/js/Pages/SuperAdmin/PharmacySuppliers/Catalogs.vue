@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Info, TriangleAlert } from 'lucide-vue-next';
 import SupplierCatalogFiles from '@/Components/Pharmacy/SupplierCatalogFiles.vue';
 
 defineOptions({ layout: AppLayout });
@@ -36,13 +36,13 @@ const catalogCan = computed(() => (props.supplier?.archived
         ]" />
 
         <section v-if="error" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-            <Icon name="alert" class="mt-0.5 text-lg" />
+            <TriangleAlert class="mt-0.5 h-4.5 w-4.5" />
             <p>{{ error }}</p>
         </section>
 
         <template v-else-if="supplier">
             <p class="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
-                <Icon name="info" class="mt-0.5 text-lg" />
+                <Info class="mt-0.5 h-4.5 w-4.5" />
                 Les catalogues ajoutés ici sont enregistrés sur le site {{ targetSite.name }}. La pharmacie les consulte dans son dossier fournisseur ; cliquez sur un fichier Excel lu pour voir son contenu ligne par ligne.
             </p>
 

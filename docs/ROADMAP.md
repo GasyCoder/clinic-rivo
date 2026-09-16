@@ -81,6 +81,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Paiements partiels
 - [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
 - [x] Créance immuable créée par une sortie non soldée, jamais effacée par une évasion
+- [x] Cartes compteur sur « Sorties & règlements » : passages à régler, sorties prononcées, sorties avec dette et reste à payer — ce dernier réservé à `billing.view`
 - [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
 - [ ] Remboursements autorisés
 - [ ] Remises autorisées
@@ -151,6 +152,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Changement d'orientation traçable : annulation propre tant que la destination n'a pas pris la demande, refus explicite ensuite
 - [x] Clôture seule responsable de terminer l'orientation Médecine et de porter la sortie sur l'épisode
 - [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
+- [x] Cartes compteur partagées sur les files cliniques (Médecine, Soins, Laboratoire, Demandes d'examens) : la carte est le filtre, et le compte vient du serveur — jamais de la page affichée
 - [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)
 
 ---
@@ -158,6 +160,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 # Phase 3 — Laboratoire
 
 - [x] Catalogue analyses structuré, références par profil et import/export Excel
+- [x] File de paillasse filtrable (à analyser / rendues / toutes) avec cartes compteur ; une demande annulée par le médecin (ADR-079) quitte la file au lieu d'y rester à faire
 - [ ] Demande analyse
 - [ ] Analyse interne
 - [ ] Analyse externe
@@ -368,6 +371,8 @@ admin.rivo.mg
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
 - [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)
 - [x] Commandes (créer, envoyer, annuler) et factures (enregistrer avec document, archiver, restaurer) depuis le portail ; réception réservée au site
+- [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
+- [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste
 - [ ] Action « appliquer aux deux sites »
 - [ ] Résultat et reprise séparés en cas d’échec partiel

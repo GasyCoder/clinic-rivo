@@ -61,7 +61,7 @@ test('l’onglet dit « rendu », jamais « validé »', () => {
     const filters = page.slice(page.indexOf('const FILTERS = ['));
     const block = filters.slice(0, filters.indexOf('];'));
 
-    assert.match(block, /Rendu récemment/);
+    assert.match(block, /Rendues? récemment/);
     assert.doesNotMatch(block, /Validé/);
 });
 

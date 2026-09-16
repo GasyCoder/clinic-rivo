@@ -1,9 +1,9 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormSection from '@/Components/UI/FormSection.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { CloudUpload, Copy, FileCheck, Info, Plus, Save, Trash2 } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
@@ -70,8 +70,8 @@ const lineTotal = (line) => (Number(line.quantity) || 0) * (Number(line.unit_pri
 const total = computed(() => form.lines.reduce((sum, line) => sum + lineTotal(line), 0));
 const readyLines = computed(() => form.lines.filter((line) => line.medicine_uuid && line.description && Number(line.unit_price) > 0).length);
 
-const inputClass = 'h-11 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 disabled:text-slate-400 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-900';
-const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-white';
+const inputClass = 'h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 disabled:bg-muted disabled:text-muted-foreground ';
+const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
 
 const submit = () => {
     if (!supplierUuid.value) return;
@@ -107,13 +107,13 @@ const submit = () => {
                     </label>
                 </div>
 
-                <label class="mt-4 flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed border-gray-200 px-4 py-4 transition hover:border-primary-300 dark:border-gray-800">
-                    <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-xl text-slate-500 dark:bg-gray-900"><Icon :name="form.attachment ? 'file-check' : 'upload-cloud'" /></span>
+                <label class="mt-4 flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed border-border px-4 py-4 transition hover:border-primary/40">
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><component :is="form.attachment ? FileCheck : CloudUpload" class="h-5 w-5" /></span>
                     <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-semibold text-slate-700 dark:text-white">{{ form.attachment ? form.attachment.name : (invoice?.has_attachment ? 'Remplacer le document (facultatif)' : 'Joindre la facture (facultatif)') }}</span>
-                        <span class="block text-xs text-slate-400">PDF, photo ou Excel — 10 Mo au maximum</span>
+                        <span class="block truncate text-sm font-semibold text-foreground">{{ form.attachment ? form.attachment.name : (invoice?.has_attachment ? 'Remplacer le document (facultatif)' : 'Joindre la facture (facultatif)') }}</span>
+                        <span class="block text-xs text-muted-foreground">PDF, photo ou Excel — 10 Mo au maximum</span>
                     </span>
-                    <span class="text-sm font-semibold text-primary-600">Choisir</span>
+                    <span class="text-sm font-semibold text-primary">Choisir</span>
                     <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx" class="sr-only" @change="form.attachment = $event.target.files[0] ?? null">
                 </label>
             </FormSection>
@@ -135,18 +135,18 @@ const submit = () => {
                         </select>
                     </label>
                 </div>
-                <Button v-if="selectedOrder?.lines.length" type="button" size="rg" variant="white-outline" class="mt-4" @click="copyOrderLines"><Icon name="copy" /><span class="ms-2">Reprendre les lignes de {{ selectedOrder.order_number }}</span></Button>
+                <Button v-if="selectedOrder?.lines.length" type="button" size="rg" variant="white-outline" class="mt-4" @click="copyOrderLines"><Copy class="h-4 w-4" />Reprendre les lignes de {{ selectedOrder.order_number }}</Button>
             </FormSection>
 
             <FormSection icon="list" title="Lignes de la facture" description="Une ligne par produit facturé ; le libellé est celui écrit sur la facture.">
                 <template #actions>
-                    <Button type="button" size="rg" variant="white-outline" @click="addLine"><Icon name="plus" /><span class="ms-2">Ajouter une ligne</span></Button>
+                    <Button type="button" size="rg" variant="white-outline" @click="addLine"><Plus class="h-4 w-4" />Ajouter une ligne</Button>
                 </template>
 
                 <div class="space-y-3">
-                    <div v-for="(line, index) in form.lines" :key="index" class="rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900/30">
+                    <div v-for="(line, index) in form.lines" :key="index" class="rounded-xl border border-border bg-muted/50 p-4 /30">
                         <div class="grid items-end gap-3 lg:grid-cols-[32px_minmax(0,1fr)_minmax(0,1fr)_90px_140px_120px_40px]">
-                            <span class="hidden h-11 items-center justify-center text-sm font-bold text-slate-400 lg:flex">{{ index + 1 }}</span>
+                            <span class="hidden h-11 items-center justify-center text-sm font-bold text-muted-foreground lg:flex">{{ index + 1 }}</span>
                             <label class="block">
                                 <span :class="labelClass">Médicament</span>
                                 <select v-model="line.medicine_uuid" :class="inputClass" required @change="onMedicineChange(line)">
@@ -166,46 +166,46 @@ const submit = () => {
                                 <span :class="labelClass">Prix unitaire</span>
                                 <span class="relative block">
                                     <input v-model="line.unit_price" type="number" min="0.01" step="0.01" :class="[inputClass, 'pe-14 text-end']" required>
-                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-slate-400">MGA</span>
+                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
                                 </span>
                             </label>
                             <div class="text-end">
                                 <span :class="labelClass">Sous-total</span>
-                                <p class="flex h-11 items-center justify-end font-bold tabular-nums text-slate-800 dark:text-white">{{ formatMoney(lineTotal(line)) }}</p>
+                                <p class="flex h-11 items-center justify-end font-bold tabular-nums text-foreground">{{ formatMoney(lineTotal(line)) }}</p>
                             </div>
-                            <button type="button" class="flex h-11 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30" :disabled="form.lines.length <= 1" :aria-label="`Retirer la ligne ${index + 1}`" @click="removeLine(index)"><Icon name="trash" /></button>
+                            <button type="button" class="flex h-11 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30" :disabled="form.lines.length <= 1" :aria-label="`Retirer la ligne ${index + 1}`" @click="removeLine(index)"><Trash2 class="h-4 w-4" /></button>
                         </div>
                     </div>
                 </div>
 
-                <button type="button" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-3 text-sm font-semibold text-slate-500 transition hover:border-primary-300 hover:text-primary-600 dark:border-gray-800" @click="addLine">
-                    <Icon name="plus" />Ajouter une ligne
+                <button type="button" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-primary" @click="addLine">
+                    <Plus class="h-4 w-4" />Ajouter une ligne
                 </button>
             </FormSection>
         </div>
 
         <aside class="space-y-3 xl:sticky xl:top-20">
-            <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <h2 class="font-heading text-base font-bold text-slate-800 dark:text-white">Récapitulatif</h2>
+            <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 class="font-heading text-base font-bold text-foreground">Récapitulatif</h2>
                 <dl class="mt-4 space-y-3 text-sm">
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Fournisseur</dt><dd class="truncate text-end font-semibold text-slate-800 dark:text-white">{{ supplierLabel || '—' }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Facture</dt><dd class="truncate text-end font-mono font-semibold text-slate-800 dark:text-white">{{ form.invoice_number || '—' }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Commande</dt><dd class="font-semibold text-slate-800 dark:text-white">{{ selectedOrder?.order_number || (form.purchase_order_uuid ? 'Liée' : 'Aucune') }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Lignes complètes</dt><dd class="font-semibold tabular-nums text-slate-800 dark:text-white">{{ readyLines }} / {{ form.lines.length }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Document</dt><dd :class="['font-semibold', form.attachment || invoice?.has_attachment ? 'text-emerald-600' : 'text-slate-400']">{{ form.attachment ? 'À joindre' : (invoice?.has_attachment ? 'Déjà joint' : 'Aucun') }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Fournisseur</dt><dd class="truncate text-end font-semibold text-foreground">{{ supplierLabel || '—' }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Facture</dt><dd class="truncate text-end font-mono font-semibold text-foreground">{{ form.invoice_number || '—' }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Commande</dt><dd class="font-semibold text-foreground">{{ selectedOrder?.order_number || (form.purchase_order_uuid ? 'Liée' : 'Aucune') }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Lignes complètes</dt><dd class="font-semibold tabular-nums text-foreground">{{ readyLines }} / {{ form.lines.length }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Document</dt><dd :class="['font-semibold', form.attachment || invoice?.has_attachment ? 'text-emerald-600' : 'text-muted-foreground']">{{ form.attachment ? 'À joindre' : (invoice?.has_attachment ? 'Déjà joint' : 'Aucun') }}</dd></div>
                 </dl>
-                <div class="mt-4 rounded-lg bg-primary-50 px-4 py-3 dark:bg-primary-950/30">
-                    <p class="text-xs font-semibold text-primary-700 dark:text-primary-300">Total de la facture</p>
-                    <p class="mt-0.5 text-2xl font-bold tabular-nums text-primary-800 dark:text-white">{{ formatMoney(total) }}</p>
+                <div class="mt-4 rounded-lg bg-primary/10 px-4 py-3">
+                    <p class="text-xs font-semibold text-primary">Total de la facture</p>
+                    <p class="mt-0.5 text-2xl font-bold tabular-nums text-primary">{{ formatMoney(total) }}</p>
                 </div>
                 <div class="mt-4 flex flex-col gap-2">
                     <Button type="submit" size="lg" class="w-full justify-center" :disabled="form.processing || !supplierUuid || !form.invoice_number || !readyLines">
-                        <Icon name="save" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : (invoice ? 'Enregistrer les modifications' : 'Enregistrer la facture') }}</span>
+                        <Save class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : (invoice ? 'Enregistrer les modifications' : 'Enregistrer la facture') }}
                     </Button>
                     <Button :as="Link" :href="cancelHref" size="lg" variant="white-outline" class="w-full justify-center">Annuler</Button>
                 </div>
             </section>
-            <p class="flex items-start gap-2 px-1 text-xs text-slate-500"><Icon name="info" class="mt-0.5" />Une facture est une pièce comptable : elle ne modifie jamais le stock. C’est la réception qui fait entrer la marchandise.</p>
+            <p class="flex items-start gap-2 px-1 text-xs text-muted-foreground"><Info class="mt-0.5 h-4 w-4" />Une facture est une pièce comptable : elle ne modifie jamais le stock. C’est la réception qui fait entrer la marchandise.</p>
         </aside>
     </form>
 </template>

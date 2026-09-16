@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { TriangleAlert } from 'lucide-vue-next';
 import SupplierInvoiceDetail from '@/Components/Pharmacy/SupplierInvoiceDetail.vue';
 
 defineOptions({ layout: AppLayout });
@@ -40,7 +40,7 @@ const links = computed(() => ({
         ]" />
 
         <section v-if="error" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-            <Icon name="alert" class="mt-0.5 text-lg" /><p>{{ error }}</p>
+            <TriangleAlert class="mt-0.5 h-4.5 w-4.5" /><p>{{ error }}</p>
         </section>
 
         <SupplierInvoiceDetail

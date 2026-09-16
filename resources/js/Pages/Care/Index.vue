@@ -2,18 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import {
-    Activity,
-    CircleAlert,
-    Eye,
-    FolderOpen,
-    List,
-    Pencil,
-    Play,
-    Search,
-    UserRoundCheck,
-    UsersRound,
-} from 'lucide-vue-next';
+import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import { Activity, ArrowRight, CircleAlert, Clock, Eye, FolderOpen, List, Pencil, Play, Search, Siren, UserRoundCheck, UsersRound } from 'lucide-vue-next';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
@@ -149,6 +139,32 @@ const latestOrientation = (group) => group.orientations.reduce((latest, orientat
 ), null);
 
 const openGroup = ref(null);
+
+/**
+ * Les deux questions qu'on se pose devant la file : combien de patients
+ * attendent, et y a-t-il une urgence. Elles croisent deux filtres
+ * indépendants — la file et la priorité — d'où l'`active` porté par chaque
+ * carte plutôt qu'un seul état partagé.
+ */
+const counterTiles = computed(() => [
+    { value: 'filter:active', label: 'File active', hint: 'Patients aux Soins', icon: Activity, tone: 'primary', count: props.counts.active, active: props.filter === 'active' },
+    { value: 'filter:oriented', label: 'Orientés', hint: 'Transmis à un autre service', icon: ArrowRight, tone: 'neutral', count: props.counts.oriented, active: props.filter === 'oriented' },
+    { value: 'priority:emergency', label: 'Urgences', hint: 'Priorité du passage', icon: Siren, tone: 'red', count: props.priorityCounts.emergency, active: props.priority === 'emergency' },
+    { value: 'priority:normal', label: 'Priorité normale', hint: 'Par ordre d’arrivée', icon: Clock, tone: 'amber', count: props.priorityCounts.normal, active: props.priority === 'normal' },
+]);
+
+/** Une carte déjà active se relâche : on n'a pas à chercher « Tous ». */
+const selectCounter = (value) => {
+    const [kind, target] = value.split(':');
+
+    if (kind === 'filter') {
+        selectFilter(props.filter === target ? 'active' : target);
+
+        return;
+    }
+
+    selectPriority(props.priority === target ? '' : target);
+};
 </script>
 
 <template>
@@ -167,43 +183,17 @@ const openGroup = ref(null);
             </div>
             <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline">
                 <UsersRound class="h-5 w-5" />
-                <span class="ms-2">Dossiers patients</span>
+                Dossiers patients
             </Button>
         </header>
 
+        <QueueCounters :tiles="counterTiles" @select="selectCounter" />
+
         <Card class="overflow-hidden shadow-sm">
             <div class="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
-                <div class="inline-flex w-fit rounded border border-border bg-muted/35 p-1">
-                    <button
-                        type="button"
-                        :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', filter === 'active' ? 'bg-card text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']"
-                        @click="selectFilter('active')"
-                    >
-                        File active <span class="ms-1 text-xs text-muted-foreground">{{ counts.active }}</span>
-                    </button>
-                    <button
-                        type="button"
-                        :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', filter === 'oriented' ? 'bg-card text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']"
-                        @click="selectFilter('oriented')"
-                    >
-                        Orientés <span class="ms-1 text-xs text-muted-foreground">{{ counts.oriented }}</span>
-                    </button>
-                </div>
-
                 <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <div class="relative w-full sm:max-w-xs sm:flex-1">
                         <IconInput v-model="query" :icon="Search" type="search" placeholder="Patient ou n° passage" autocomplete="off" />
-                    </div>
-                    <div class="inline-flex w-fit rounded border border-border bg-muted/35 p-1">
-                        <button type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', !priority ? 'bg-card text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="selectPriority('')">
-                            Tous <span class="ms-1 text-xs text-muted-foreground">{{ priorityCounts.all }}</span>
-                        </button>
-                        <button type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', priority === 'emergency' ? 'bg-card text-red-600 shadow-sm dark:text-red-300' : 'text-muted-foreground hover:text-foreground']" @click="selectPriority('emergency')">
-                            Urgence <span class="ms-1 text-xs text-muted-foreground">{{ priorityCounts.emergency }}</span>
-                        </button>
-                        <button type="button" :class="['rounded px-3 py-1.5 text-sm font-semibold transition-colors', priority === 'normal' ? 'bg-card text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="selectPriority('normal')">
-                            Normale <span class="ms-1 text-xs text-muted-foreground">{{ priorityCounts.normal }}</span>
-                        </button>
                     </div>
                 </div>
             </div>
@@ -273,9 +263,9 @@ const openGroup = ref(null);
                                 </td>
                                 <td class="px-5 py-3 text-end">
                                     <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll>
-                                        <Button size="sm" variant="primary"><Play class="h-4 w-4" /><span class="ms-1.5">Prendre en charge</span></Button>
+                                        <Button size="sm" variant="primary"><Play class="h-4 w-4" />Prendre en charge</Button>
                                     </Link>
-                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" size="sm" variant="white-outline"><component :is="isEditableByMe(group.orientations[0]) ? Pencil : Eye" class="h-4 w-4" /><span class="ms-1.5">{{ isEditableByMe(group.orientations[0]) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</span></Button>
+                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" size="sm" variant="white-outline"><component :is="isEditableByMe(group.orientations[0]) ? Pencil : Eye" class="h-4 w-4" />{{ isEditableByMe(group.orientations[0]) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</Button>
                                 </td>
                             </template>
 
@@ -296,7 +286,7 @@ const openGroup = ref(null);
                                     </div>
                                 </td>
                                 <td class="px-5 py-3 text-end">
-                                    <Button size="sm" variant="white-outline" type="button" @click="openGroup = group"><List class="h-4 w-4" /><span class="ms-1.5">Voir les {{ group.orientations.length }} passages</span></Button>
+                                    <Button size="sm" variant="white-outline" type="button" @click="openGroup = group"><List class="h-4 w-4" />Voir les {{ group.orientations.length }} passages</Button>
                                 </td>
                             </template>
                         </tr>
@@ -332,14 +322,14 @@ const openGroup = ref(null);
                                 <p class="mt-3 text-sm text-muted-foreground">{{ designationSummary(group.orientations[0]) }}</p>
                                 <span v-if="group.orientations[0].episode.care_requires_allergy_check" class="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Vérifier les allergies</span>
                                 <div class="mt-4">
-                                    <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="primary"><Play class="h-4 w-4" /><span class="ms-1.5">Prendre en charge</span></Button></Link>
-                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" block size="sm" variant="white-outline"><component :is="isEditableByMe(group.orientations[0]) ? Pencil : Eye" class="h-4 w-4" /><span class="ms-1.5">{{ isEditableByMe(group.orientations[0]) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</span></Button>
+                                    <Link v-if="group.orientations[0].status === 'PENDING' && can('care.update')" :href="`/care/orientations/${group.orientations[0].uuid}/accept`" method="post" as="button" preserve-scroll><Button block size="sm" variant="primary"><Play class="h-4 w-4" />Prendre en charge</Button></Link>
+                                    <Button v-else :as="Link" :href="`/care/orientations/${group.orientations[0].uuid}`" block size="sm" variant="white-outline"><component :is="isEditableByMe(group.orientations[0]) ? Pencil : Eye" class="h-4 w-4" />{{ isEditableByMe(group.orientations[0]) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</Button>
                                 </div>
                             </template>
                             <template v-else>
                                 <p class="mt-0.5 text-xs text-muted-foreground">{{ group.orientations.length }} passages</p>
                                 <div class="mt-4">
-                                    <Button block size="sm" variant="white-outline" type="button" @click="openGroup = group"><List class="h-4 w-4" /><span class="ms-1.5">Voir les {{ group.orientations.length }} passages</span></Button>
+                                    <Button block size="sm" variant="white-outline" type="button" @click="openGroup = group"><List class="h-4 w-4" />Voir les {{ group.orientations.length }} passages</Button>
                                 </div>
                             </template>
                         </div>
@@ -382,9 +372,9 @@ const openGroup = ref(null);
             </div>
             <div class="shrink-0">
                 <Link v-if="orientation.status === 'PENDING' && can('care.update')" :href="`/care/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
-                    <Button size="sm" variant="primary"><Play class="h-4 w-4" /><span class="ms-1.5">Prendre en charge</span></Button>
+                    <Button size="sm" variant="primary"><Play class="h-4 w-4" />Prendre en charge</Button>
                 </Link>
-                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><component :is="isEditableByMe(orientation) ? Pencil : Eye" class="h-4 w-4" /><span class="ms-1.5">{{ isEditableByMe(orientation) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</span></Button>
+                <Button v-else :as="Link" :href="`/care/orientations/${orientation.uuid}`" size="sm" variant="white-outline"><component :is="isEditableByMe(orientation) ? Pencil : Eye" class="h-4 w-4" />{{ isEditableByMe(orientation) ? 'Ouvrir la fiche' : 'Voir la fiche' }}</Button>
             </div>
         </div>
     </Dialog>

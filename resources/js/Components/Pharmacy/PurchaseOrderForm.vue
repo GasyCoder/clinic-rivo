@@ -1,9 +1,9 @@
 <script setup>
 import { computed } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormSection from '@/Components/UI/FormSection.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Info, Plus, Save, Trash2 } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
@@ -54,8 +54,8 @@ const total = computed(() => form.lines.reduce((sum, line) => sum + lineTotal(li
 const units = computed(() => form.lines.reduce((sum, line) => sum + (Number(line.quantity_ordered) || 0), 0));
 const readyLines = computed(() => form.lines.filter((line) => line.medicine_uuid && Number(line.unit_price) > 0).length);
 
-const inputClass = 'h-11 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
-const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-white';
+const inputClass = 'h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 ';
+const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
 
 const submit = () => {
     if (!form.supplier_uuid) return;
@@ -96,13 +96,13 @@ const submit = () => {
                     <template v-else>Choisissez le médicament, la quantité et le prix unitaire.</template>
                 </template>
                 <template #actions>
-                    <Button type="button" size="rg" variant="white-outline" @click="addLine"><Icon name="plus" /><span class="ms-2">Ajouter un médicament</span></Button>
+                    <Button type="button" size="rg" variant="white-outline" @click="addLine"><Plus class="h-4 w-4" />Ajouter un médicament</Button>
                 </template>
 
                 <div class="space-y-3">
-                    <div v-for="(line, index) in form.lines" :key="index" class="rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900/30">
+                    <div v-for="(line, index) in form.lines" :key="index" class="rounded-xl border border-border bg-muted/50 p-4 /30">
                         <div class="grid items-end gap-3 lg:grid-cols-[32px_minmax(0,1fr)_150px_160px_130px_40px]">
-                            <span class="hidden h-11 items-center justify-center rounded-full text-sm font-bold text-slate-400 lg:flex">{{ index + 1 }}</span>
+                            <span class="hidden h-11 items-center justify-center rounded-full text-sm font-bold text-muted-foreground lg:flex">{{ index + 1 }}</span>
                             <label class="block">
                                 <span :class="labelClass">Médicament</span>
                                 <select v-model="line.medicine_uuid" :class="inputClass" required @change="onMedicineChange(line)">
@@ -112,24 +112,24 @@ const submit = () => {
                             </label>
                             <div>
                                 <span :class="labelClass">Quantité</span>
-                                <div class="flex h-11 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
-                                    <button type="button" class="w-10 text-lg text-slate-500 hover:bg-gray-100 dark:hover:bg-gray-900" :aria-label="`Diminuer la ligne ${index + 1}`" @click="step(line, -1)">−</button>
-                                    <input v-model.number="line.quantity_ordered" type="number" min="1" class="w-full min-w-0 border-0 bg-transparent text-center text-sm font-semibold text-slate-700 outline-none dark:text-white" required>
-                                    <button type="button" class="w-10 text-lg text-slate-500 hover:bg-gray-100 dark:hover:bg-gray-900" :aria-label="`Augmenter la ligne ${index + 1}`" @click="step(line, 1)">+</button>
+                                <div class="flex h-11 overflow-hidden rounded-lg border border-border bg-card">
+                                    <button type="button" class="w-10 text-lg text-muted-foreground hover:bg-muted" :aria-label="`Diminuer la ligne ${index + 1}`" @click="step(line, -1)">−</button>
+                                    <input v-model.number="line.quantity_ordered" type="number" min="1" class="w-full min-w-0 border-0 bg-transparent text-center text-sm font-semibold text-foreground outline-none" required>
+                                    <button type="button" class="w-10 text-lg text-muted-foreground hover:bg-muted" :aria-label="`Augmenter la ligne ${index + 1}`" @click="step(line, 1)">+</button>
                                 </div>
                             </div>
                             <label class="block">
                                 <span :class="labelClass">Prix unitaire</span>
                                 <span class="relative block">
                                     <input v-model="line.unit_price" type="number" min="0.01" step="0.01" :class="[inputClass, 'pe-14 text-end']" required>
-                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-slate-400">MGA</span>
+                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
                                 </span>
                             </label>
                             <div class="text-end">
                                 <span :class="labelClass">Sous-total</span>
-                                <p class="flex h-11 items-center justify-end font-bold tabular-nums text-slate-800 dark:text-white">{{ formatMoney(lineTotal(line)) }}</p>
+                                <p class="flex h-11 items-center justify-end font-bold tabular-nums text-foreground">{{ formatMoney(lineTotal(line)) }}</p>
                             </div>
-                            <button type="button" class="flex h-11 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30" :disabled="form.lines.length <= 1" :aria-label="`Retirer la ligne ${index + 1}`" @click="removeLine(index)"><Icon name="trash" /></button>
+                            <button type="button" class="flex h-11 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-30 dark:hover:bg-red-950/30" :disabled="form.lines.length <= 1" :aria-label="`Retirer la ligne ${index + 1}`" @click="removeLine(index)"><Trash2 class="h-4 w-4" /></button>
                         </div>
                         <p v-if="medicineByUuid[line.medicine_uuid]?.quoted_price && String(line.unit_price) !== String(medicineByUuid[line.medicine_uuid].quoted_price)" class="mt-2 text-xs text-amber-600">
                             Le prix du fournisseur est {{ formatMoney(medicineByUuid[line.medicine_uuid].quoted_price) }}.
@@ -137,32 +137,32 @@ const submit = () => {
                     </div>
                 </div>
 
-                <button type="button" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-3 text-sm font-semibold text-slate-500 transition hover:border-primary-300 hover:text-primary-600 dark:border-gray-800" @click="addLine">
-                    <Icon name="plus" />Ajouter une ligne
+                <button type="button" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-primary" @click="addLine">
+                    <Plus class="h-4 w-4" />Ajouter une ligne
                 </button>
             </FormSection>
         </div>
 
         <aside class="space-y-3 xl:sticky xl:top-20">
-            <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
-                <h2 class="font-heading text-base font-bold text-slate-800 dark:text-white">Récapitulatif</h2>
+            <section class="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 class="font-heading text-base font-bold text-foreground">Récapitulatif</h2>
                 <dl class="mt-4 space-y-3 text-sm">
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Fournisseur</dt><dd class="truncate text-end font-semibold text-slate-800 dark:text-white">{{ supplierLabel || '—' }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Lignes complètes</dt><dd class="font-semibold tabular-nums text-slate-800 dark:text-white">{{ readyLines }} / {{ form.lines.length }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500">Unités</dt><dd class="font-semibold tabular-nums text-slate-800 dark:text-white">{{ units }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Fournisseur</dt><dd class="truncate text-end font-semibold text-foreground">{{ supplierLabel || '—' }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Lignes complètes</dt><dd class="font-semibold tabular-nums text-foreground">{{ readyLines }} / {{ form.lines.length }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Unités</dt><dd class="font-semibold tabular-nums text-foreground">{{ units }}</dd></div>
                 </dl>
-                <div class="mt-4 rounded-lg bg-primary-50 px-4 py-3 dark:bg-primary-950/30">
-                    <p class="text-xs font-semibold text-primary-700 dark:text-primary-300">Total estimé</p>
-                    <p class="mt-0.5 text-2xl font-bold tabular-nums text-primary-800 dark:text-white">{{ formatMoney(total) }}</p>
+                <div class="mt-4 rounded-lg bg-primary/10 px-4 py-3">
+                    <p class="text-xs font-semibold text-primary">Total estimé</p>
+                    <p class="mt-0.5 text-2xl font-bold tabular-nums text-primary">{{ formatMoney(total) }}</p>
                 </div>
                 <div class="mt-4 flex flex-col gap-2">
                     <Button type="submit" size="lg" class="w-full justify-center" :disabled="form.processing || !form.supplier_uuid || !readyLines">
-                        <Icon name="save" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : (order ? 'Enregistrer les modifications' : 'Enregistrer le brouillon') }}</span>
+                        <Save class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : (order ? 'Enregistrer les modifications' : 'Enregistrer le brouillon') }}
                     </Button>
                     <Button :as="Link" :href="cancelHref" size="lg" variant="white-outline" class="w-full justify-center">Annuler</Button>
                 </div>
             </section>
-            <p class="flex items-start gap-2 px-1 text-xs text-slate-500"><Icon name="info" class="mt-0.5" />Le brouillon n’engage rien : vous l’enverrez au fournisseur après vérification. Une commande ne modifie jamais le stock.</p>
+            <p class="flex items-start gap-2 px-1 text-xs text-muted-foreground"><Info class="mt-0.5 h-4 w-4" />Le brouillon n’engage rien : vous l’enverrez au fournisseur après vérification. Une commande ne modifie jamais le stock.</p>
         </aside>
     </form>
 </template>

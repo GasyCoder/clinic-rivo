@@ -1,9 +1,9 @@
 <script setup>
 import { computed } from 'vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-vue-next';
+import Input from '@/Components/Shadcn/Input.vue';
 // Self-referencing: a sub-analysis can itself be a group, which then needs
 // this exact same list rendered again for its own sub-analyses — capped at
 // `maxDepth` so a request never has to validate an unbounded structure.
@@ -60,31 +60,31 @@ const typeLabel = (value) => ({ NUMERIC: 'Numérique', TEXT: 'Texte', CHOICE: 'C
 </script>
 
 <template>
-    <div class="rounded-lg border border-primary-200 bg-primary-50/30 p-4 dark:border-primary-900 dark:bg-primary-950/10">
+    <div class="rounded-lg border border-primary/30 bg-primary/5 p-4">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-2">
-                <h3 class="text-sm font-bold text-slate-700 dark:text-white">{{ sectionLabel }}</h3>
-                <span class="rounded bg-white px-2 py-0.5 text-xs font-bold text-primary-700 dark:bg-gray-950 dark:text-primary-300">{{ children.length }}</span>
+                <h3 class="text-sm font-bold text-foreground">{{ sectionLabel }}</h3>
+                <span class="rounded bg-card px-2 py-0.5 text-xs font-bold text-primary">{{ children.length }}</span>
             </div>
-            <Button type="button" size="sm" variant="white-outline" @click="addChild"><Icon name="plus" /><span class="ms-1.5">Ajouter</span></Button>
+            <Button type="button" size="sm" variant="white-outline" @click="addChild"><Plus class="h-4 w-4" />Ajouter</Button>
         </div>
-        <p class="mt-1 text-[11px] text-slate-500">Un élément retiré d’ici est désactivé à l’enregistrement, jamais supprimé.<span v-if="!canNest"> Pour un niveau supplémentaire, enregistrez d’abord ce groupe puis rattachez la suite via « Groupe parent ».</span></p>
+        <p class="mt-1 text-[11px] text-muted-foreground">Un élément retiré d’ici est désactivé à l’enregistrement, jamais supprimé.<span v-if="!canNest"> Pour un niveau supplémentaire, enregistrez d’abord ce groupe puis rattachez la suite via « Groupe parent ».</span></p>
 
         <div v-if="children.length" class="mt-3 space-y-3">
-            <div v-for="(child, index) in children" :key="child.uuid ?? `new-${depth}-${index}`" class="rounded border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950">
+            <div v-for="(child, index) in children" :key="child.uuid ?? `new-${depth}-${index}`" class="rounded border border-border bg-card p-3">
                 <div class="flex items-center justify-between gap-2">
-                    <span class="text-[11px] font-bold uppercase tracking-wide text-slate-400">{{ itemLabel }} #{{ index + 1 }}</span>
+                    <span class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ itemLabel }} #{{ index + 1 }}</span>
                     <div class="flex items-center gap-1">
-                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-gray-900" :disabled="index === 0" aria-label="Monter" @click="moveChild(index, -1)"><Icon class="text-sm" name="chevron-up" /></button>
-                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-gray-900" :disabled="index === children.length - 1" aria-label="Descendre" @click="moveChild(index, 1)"><Icon class="text-sm" name="chevron-down" /></button>
-                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20" aria-label="Retirer" @click="removeChild(index)"><Icon class="text-sm" name="trash" /></button>
+                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30 dark:hover:bg-muted" :disabled="index === 0" aria-label="Monter" @click="moveChild(index, -1)"><ChevronUp class="h-3.5 w-3.5" /></button>
+                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30 dark:hover:bg-muted" :disabled="index === children.length - 1" aria-label="Descendre" @click="moveChild(index, 1)"><ChevronDown class="h-3.5 w-3.5" /></button>
+                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20" aria-label="Retirer" @click="removeChild(index)"><Trash2 class="h-3.5 w-3.5" /></button>
                     </div>
                 </div>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                     <Input v-model="child.code" size="sm" placeholder="Code *" />
                     <Input v-model="child.designation" size="sm" placeholder="Désignation *" :class="canNest ? '' : 'xl:col-span-2'" />
-                    <select v-if="canNest" v-model="child.level" class="block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-xs text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="CHILD">Sous-analyse</option><option value="PARENT">Groupe</option></select>
-                    <select v-model="child.result_type" class="block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-xs text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option v-for="type in resultTypes" :key="type" :value="type">{{ typeLabel(type) }}</option></select>
+                    <select v-if="canNest" v-model="child.level" class="block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-xs text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><option value="CHILD">Sous-analyse</option><option value="PARENT">Groupe</option></select>
+                    <select v-model="child.result_type" class="block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-xs text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/25"><option v-for="type in resultTypes" :key="type" :value="type">{{ typeLabel(type) }}</option></select>
                 </div>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                     <Input v-model="child.reference_general" size="sm" placeholder="Référence générale" />
@@ -96,7 +96,7 @@ const typeLabel = (value) => ({ NUMERIC: 'Numérique', TEXT: 'Texte', CHOICE: 'C
                 <div class="mt-2 grid items-center gap-2 sm:grid-cols-[1fr_1fr_auto]">
                     <Input v-model="child.unit" size="sm" placeholder="Unité" />
                     <Input v-model="child.exam_category" size="sm" list="exam-category-options" placeholder="Examen" />
-                    <label class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-slate-600 dark:text-slate-300"><input v-model="child.is_bold" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />Gras</label>
+                    <label class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-muted-foreground"><input v-model="child.is_bold" type="checkbox" class="rounded border-input text-primary focus:ring-ring" />Gras</label>
                 </div>
                 <FormError class="mt-1" :message="errorFor(index)" />
 
@@ -113,6 +113,6 @@ const typeLabel = (value) => ({ NUMERIC: 'Numérique', TEXT: 'Texte', CHOICE: 'C
                 />
             </div>
         </div>
-        <p v-else class="mt-3 rounded border border-dashed border-gray-300 px-3 py-4 text-center text-xs text-slate-400 dark:border-gray-700">Aucun élément pour l’instant.</p>
+        <p v-else class="mt-3 rounded border border-dashed border-input px-3 py-4 text-center text-xs text-muted-foreground dark:border-border">Aucun élément pour l’instant.</p>
     </div>
 </template>

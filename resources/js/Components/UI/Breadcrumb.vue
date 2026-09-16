@@ -1,6 +1,6 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
-import Icon from '@/Components/UI/Icon.vue';
+import { ChevronRight } from 'lucide-vue-next';
 
 defineProps({
     // [{ label, href? }] — the last item is the current page.
@@ -11,15 +11,15 @@ defineProps({
 <template>
     <nav aria-label="Fil d’Ariane" class="flex flex-wrap items-center gap-1.5 text-sm">
         <template v-for="(item, index) in items" :key="index">
-            <Icon v-if="index > 0" name="chevron-right" class="text-xs text-slate-300 dark:text-slate-600" />
+            <ChevronRight v-if="index > 0" class="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
             <Link
                 v-if="item.href && index < items.length - 1"
                 :href="item.href"
-                class="font-medium text-slate-500 transition-colors hover:text-primary-600 dark:text-slate-400"
+                class="font-medium text-muted-foreground transition-colors hover:text-primary"
             >
                 {{ item.label }}
             </Link>
-            <span v-else class="font-semibold text-slate-700 dark:text-white" aria-current="page">{{ item.label }}</span>
+            <span v-else class="font-semibold text-foreground" aria-current="page">{{ item.label }}</span>
         </template>
     </nav>
 </template>

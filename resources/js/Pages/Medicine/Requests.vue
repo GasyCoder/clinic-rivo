@@ -2,20 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import {
-    CircleCheck,
-    CircleSlash,
-    Clock,
-    Eye,
-    FileSearch,
-    FlaskConical,
-    LoaderCircle,
-    PenLine,
-    Printer,
-    ScanLine,
-    Search,
-    Trash2,
-} from 'lucide-vue-next';
+import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import { Archive, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, LoaderCircle, PenLine, Printer, ScanLine, Search, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -58,9 +46,9 @@ const props = defineProps({
  * contrôle que personne n'a fait.
  */
 const FILTERS = [
-    { key: 'active', label: 'Active', hint: 'En attente d’un résultat' },
-    { key: 'recent', label: 'Rendu récemment', hint: 'Résultat des 7 derniers jours' },
-    { key: 'archived', label: 'Archivées', hint: 'Plus anciennes et demandes retirées' },
+    { key: 'active', label: 'Actives', hint: 'En attente d’un résultat', icon: Clock, tone: 'amber' },
+    { key: 'recent', label: 'Rendues récemment', hint: 'Résultat des 7 derniers jours', icon: CircleCheck, tone: 'emerald' },
+    { key: 'archived', label: 'Archivées', hint: 'Plus anciennes et demandes retirées', icon: Archive, tone: 'neutral' },
 ];
 
 const STATUS = {
@@ -230,24 +218,13 @@ const submitWithdraw = () => {
             />
         </header>
 
-        <!-- Les compteurs viennent du serveur, comptés en base. -->
-        <div class="flex flex-wrap gap-1.5" role="tablist" aria-label="Filtrer par statut">
-            <button
-                v-for="filter in FILTERS"
-                :key="filter.key"
-                type="button"
-                role="tab"
-                :aria-selected="activeFilter === filter.key"
-                :class="cn('inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-                    activeFilter === filter.key
-                        ? 'border-primary/30 bg-primary/10 text-primary'
-                        : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground')"
-                @click="selectFilter(filter.key)"
-            >
-                <span :title="filter.hint">{{ filter.label }}</span>
-                <span class="rounded-full bg-background/70 px-1.5 py-0.5 text-xs font-bold tabular-nums">{{ counts[filter.key] ?? 0 }}</span>
-            </button>
-        </div>
+        <!-- Les compteurs viennent du serveur, comptés en base : recalculés
+             depuis la page affichée, ils mentiraient dès la deuxième. -->
+        <QueueCounters
+            class="lg:grid-cols-3"
+            :tiles="FILTERS.map((filter) => ({ ...filter, value: filter.key, count: counts[filter.key] ?? 0, active: activeFilter === filter.key }))"
+            @select="selectFilter"
+        />
 
         <!-- Un tableau : mêmes colonnes pour toutes les lignes, une colonne
              d'actions, et un défilement horizontal plutôt qu'une mise en page

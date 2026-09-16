@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import Icon from '@/Components/UI/Icon.vue';
+import { ChevronRight } from 'lucide-vue-next';
+import { lucideIcon } from '@/lib/icons';
 import Card from '@/Components/Shadcn/Card.vue';
 
 /**
@@ -22,7 +23,7 @@ const TONES = {
     amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300',
     sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300',
     rose: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
-    primary: 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300',
+    primary: 'bg-primary/10 text-primary dark:bg-primary-950/40 dark:text-primary-300',
     emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300',
     violet: 'bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300',
 };
@@ -50,12 +51,12 @@ const headcount = computed(() => [
                 :class="[summary[item.key] ? 'border-amber-200 dark:border-amber-900' : '', linkable && 'transition hover:border-primary/30 hover:shadow-md']"
             >
                 <component :is="linkable ? Link : 'div'" :href="linkable ? item.href : undefined" class="flex items-center gap-4 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                    <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TONES[item.tone]]"><Icon :name="item.icon" /></span>
+                    <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TONES[item.tone]]"><component :is="lucideIcon(item.icon)" class="h-5 w-5" /></span>
                     <span class="min-w-0">
                         <span :class="['block text-3xl font-bold tabular-nums', summary[item.key] ? 'text-foreground' : 'text-muted-foreground/40']">{{ summary[item.key] }}</span>
                         <span class="block text-sm text-muted-foreground">{{ item.label }}</span>
                     </span>
-                    <Icon v-if="linkable" name="chevron-right" class="ms-auto text-xl text-muted-foreground" />
+                    <ChevronRight class="ms-auto text-muted-foreground h-5 w-5" v-if="linkable" />
                 </component>
             </Card>
         </div>
@@ -67,7 +68,7 @@ const headcount = computed(() => [
                 :class="[linkable && 'transition hover:border-primary/30 hover:shadow-md']"
             >
                 <component :is="linkable ? Link : 'div'" :href="linkable ? item.href : undefined" class="flex items-center gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                    <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl', TONES[item.tone]]"><Icon :name="item.icon" /></span>
+                    <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl', TONES[item.tone]]"><component :is="lucideIcon(item.icon)" class="h-5 w-5" /></span>
                     <span class="min-w-0">
                         <span class="block text-2xl font-bold tabular-nums text-foreground">{{ summary[item.key] }}</span>
                         <span class="block text-xs text-muted-foreground">{{ item.label }}</span>

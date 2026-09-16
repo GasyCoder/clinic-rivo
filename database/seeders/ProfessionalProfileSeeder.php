@@ -162,7 +162,13 @@ class ProfessionalProfileSeeder extends Seeder
         $legacyRole->permissions()->detach();
 
         if (! $legacyRole->users()->exists()) {
-            $legacyRole->delete();
+            // `Role` est devenu Soft Delete pour l'archivage administratif
+            // (ADR-100). Ce rôle-ci n'est pas archivé par quelqu'un : il est
+            // obsolète par décision (ADR-033). Le laisser en corbeille
+            // occuperait son code et proposerait de le restaurer, alors
+            // qu'il ne doit jamais revenir — d'où le retrait physique,
+            // exactement le comportement d'avant.
+            $legacyRole->forceDelete();
         }
     }
 }

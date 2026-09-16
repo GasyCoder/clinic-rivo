@@ -20,9 +20,11 @@ import PermissionCategoryNav from '@/Components/Rbac/PermissionCategoryNav.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { PERMISSION_DOMAINS, permissionCategoryDomain, permissionCategoryLabel } from '@/utilities/permissionCategories';
 import {
+    comparePermissions,
     diffPermissionSelection,
     isSensitivePermission,
     permissionActionGroup,
+    permissionLabel,
     permissionMatchesSearch,
 } from '@/utilities/permissionWorkspace';
 import { cn } from '@/lib/cn';
@@ -223,7 +225,7 @@ const visibleSections = computed(() => visibleCategories.value.map((category) =>
         shown: permissions,
         groups: Array.from(groups.entries()).map(([label, items]) => ({
             label,
-            permissions: items.sort((left, right) => left.label.localeCompare(right.label, 'fr')),
+            permissions: items.sort(comparePermissions),
         })),
     };
 }));
@@ -423,12 +425,12 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                                     <Checkbox
                                         class="mt-0.5"
                                         :model-value="granted(permission)"
-                                        :aria-label="permission.label"
+                                        :aria-label="permissionLabel(permission)"
                                         @update:model-value="toggle(permission)"
                                     />
                                     <span class="min-w-0 flex-1">
                                         <span class="flex flex-wrap items-center gap-1">
-                                            <span class="text-xs font-semibold text-foreground">{{ permission.label }}</span>
+                                            <span class="text-xs font-semibold text-foreground">{{ permissionLabel(permission) }}</span>
                                             <TriangleAlert v-if="isSensitivePermission(permission)" class="h-3 w-3 shrink-0 text-amber-500" aria-label="Permission sensible" />
                                         </span>
                                         <span class="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground" :title="permission.name">{{ permission.name }}</span>

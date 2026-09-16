@@ -2,15 +2,15 @@
 import { computed, onMounted, ref } from 'vue';
 import SimpleBar from 'simplebar-vue';
 import { useResizeObserver } from '@vueuse/core';
-import { Link, usePage } from '@inertiajs/vue3';
+import { usePage } from '@inertiajs/vue3';
 import Menu from './Menu.vue';
 import { ArrowLeft, Menu as MenuIcon } from 'lucide-vue-next';
 import { useThemeStore } from '@/stores/theme';
+import BrandLockup from './BrandLockup.vue';
 
 const theme = useThemeStore();
 const page = usePage();
 const site = computed(() => page.props.site);
-const portalSubtitle = computed(() => site.value?.type === 'admin' ? 'Super Administration' : site.value?.name);
 
 const visibility = defineModel('visibility');
 const compact = defineModel('compact');
@@ -44,9 +44,9 @@ onMounted(() => {
             dark: theme.sidebar === 'dark',
         }"
     >
-        <div class="relative flex h-16 min-w-full w-72 items-center overflow-hidden border-b border-e border-border bg-card px-6 py-3">
+        <div class="relative flex h-16 min-w-full w-72 items-center overflow-hidden border-b border-e border-border bg-card px-4 py-3">
             <span v-if="site?.type === 'admin'" class="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary-500 via-cyan-400 to-amber-300" />
-            <div class="-ms-1 me-4">
+            <div class="-ms-1 me-3">
                 <div class="hidden xl:block">
                     <a
                         href="#sidebar"
@@ -68,14 +68,8 @@ onMounted(() => {
                 </div>
             </div>
 
-            <div class="relative flex flex-shrink-0 min-w-0">
-                <Link
-                    href="/"
-                    class="relative inline-flex flex-col leading-tight transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0"
-                >
-                    <span class="font-heading text-sm font-bold leading-tight text-foreground truncate">{{ site.brand }}</span>
-                    <span v-if="portalSubtitle" class="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{{ portalSubtitle }}</span>
-                </Link>
+            <div class="relative flex min-w-0 flex-1">
+                <BrandLockup class="transition-opacity duration-300 group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0" />
             </div>
         </div>
 

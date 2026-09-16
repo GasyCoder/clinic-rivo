@@ -73,6 +73,7 @@ use App\Http\Controllers\SuperAdmin\PharmacyCatalogController as SuperAdminPharm
 use App\Http\Controllers\SuperAdmin\PharmacyProcurementController as SuperAdminPharmacyProcurementController;
 use App\Http\Controllers\SuperAdmin\PharmacySupplierController as SuperAdminPharmacySupplierController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
+use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SurgeryController;
@@ -257,22 +258,41 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/workspaces/document-templates/{site}/{documentTemplate}/activate', [SuperAdminDocumentTemplateController::class, 'activate'])->name('document-templates.activate')->middleware('can:document_templates.update');
         Route::post('/workspaces/document-templates/{site}/{documentTemplate}/deactivate', [SuperAdminDocumentTemplateController::class, 'deactivate'])->name('document-templates.deactivate')->middleware('can:document_templates.update');
 
-        // Utilisateurs, rôles et permissions par compte, propres à chaque
-        // site — jamais géré directement en base, toujours via son API
-        // (ADR-025/027). Une caisse SUPER_ADMIN reste exclue par la même
-        // API distante (UserAdministrationGuard côté site).
-        Route::get('/workspaces/roles', [SuperAdminUserController::class, 'index'])->name('workspaces.roles')->middleware(['can:roles.view', 'can:permissions.view']);
-        Route::post('/workspaces/roles', [SuperAdminUserController::class, 'store'])->name('workspaces.roles.store')->middleware(['can:users.create', 'can:roles.assign']);
-        Route::post('/workspaces/roles/bulk/deactivate', [SuperAdminUserController::class, 'bulkDeactivate'])->name('workspaces.roles.bulk.deactivate')->middleware('can:users.deactivate');
-        Route::post('/workspaces/roles/bulk/force-delete', [SuperAdminUserController::class, 'bulkForceDelete'])->name('workspaces.roles.bulk.force_delete')->middleware('can:users.force_delete');
-        Route::put('/workspaces/roles/{site}/{user}', [SuperAdminUserController::class, 'update'])->name('workspaces.roles.update')->middleware(['can:users.update', 'can:roles.assign']);
-        Route::post('/workspaces/roles/{site}/{user}/activate', [SuperAdminUserController::class, 'activate'])->name('workspaces.roles.activate')->middleware('can:users.activate');
-        Route::post('/workspaces/roles/{site}/{user}/deactivate', [SuperAdminUserController::class, 'deactivate'])->name('workspaces.roles.deactivate')->middleware('can:users.deactivate');
-        Route::delete('/workspaces/roles/{site}/{user}', [SuperAdminUserController::class, 'forceDelete'])->name('workspaces.roles.force_delete')->middleware('can:users.force_delete');
-        // Baseline permissions of a ROLE itself — every account of that
-        // role, additive to and never touching the per-account overrides
-        // routed above (ADR-064).
-        Route::put('/workspaces/roles/{site}/permissions/{role}', [SuperAdminUserController::class, 'updateRolePermissions'])->name('workspaces.roles.permissions.update')->middleware('can:users.manage');
+        // Comptes utilisateurs, propres à chaque site — jamais gérés
+        // directement en base, toujours via son API (ADR-025/027). Un compte
+        // SUPER_ADMIN reste exclu par la même API distante
+        // (UserAdministrationGuard côté site).
+        //
+        // Écran distinct de « Rôles & permissions » (ADR-100) : créer un
+        // compte touche une personne, modifier un socle touche tous ceux qui
+        // exercent le métier. L'ancienne URL /workspaces/roles servait les
+        // deux ; elle reste valide et mène désormais aux rôles.
+        Route::get('/workspaces/users', [SuperAdminUserController::class, 'index'])->name('workspaces.users')->middleware(['can:users.view', 'can:roles.view']);
+        Route::post('/workspaces/users', [SuperAdminUserController::class, 'store'])->name('workspaces.users.store')->middleware(['can:users.create', 'can:roles.assign']);
+        Route::post('/workspaces/users/bulk/deactivate', [SuperAdminUserController::class, 'bulkDeactivate'])->name('workspaces.users.bulk.deactivate')->middleware('can:users.deactivate');
+        Route::post('/workspaces/users/bulk/force-delete', [SuperAdminUserController::class, 'bulkForceDelete'])->name('workspaces.users.bulk.force_delete')->middleware('can:users.force_delete');
+        Route::put('/workspaces/users/{site}/{user}', [SuperAdminUserController::class, 'update'])->name('workspaces.users.update')->middleware(['can:users.update', 'can:roles.assign']);
+        Route::post('/workspaces/users/{site}/{user}/activate', [SuperAdminUserController::class, 'activate'])->name('workspaces.users.activate')->middleware('can:users.activate');
+        Route::post('/workspaces/users/{site}/{user}/deactivate', [SuperAdminUserController::class, 'deactivate'])->name('workspaces.users.deactivate')->middleware('can:users.deactivate');
+        Route::delete('/workspaces/users/{site}/{user}', [SuperAdminUserController::class, 'forceDelete'])->name('workspaces.users.force_delete')->middleware('can:users.force_delete');
+
+        // Le référentiel des rôles, leur socle, et les exceptions accordées
+        // compte par compte (ADR-064, ADR-100).
+        Route::get('/workspaces/roles', [SuperAdminRoleController::class, 'index'])->name('workspaces.roles')->middleware(['can:roles.view', 'can:permissions.view']);
+        Route::post('/workspaces/roles', [SuperAdminRoleController::class, 'store'])->name('workspaces.roles.store')->middleware('can:roles.create');
+        Route::put('/workspaces/roles/{site}/{role}', [SuperAdminRoleController::class, 'update'])->name('workspaces.roles.update')->middleware('can:roles.update');
+        Route::delete('/workspaces/roles/{site}/{role}', [SuperAdminRoleController::class, 'archive'])->name('workspaces.roles.archive')->middleware('can:roles.archive');
+        Route::post('/workspaces/roles/{site}/{role}/restore', [SuperAdminRoleController::class, 'restore'])->name('workspaces.roles.restore')->middleware('can:roles.restore');
+        // Socle d'un RÔLE — tous ses comptes à la fois, additif aux
+        // exceptions individuelles ci-dessous, qu'il ne touche jamais (ADR-064).
+        Route::put('/workspaces/roles/{site}/permissions/{role}', [SuperAdminRoleController::class, 'updatePermissions'])->name('workspaces.roles.permissions.update')->middleware('can:users.manage');
+        // Exceptions individuelles d'un compte : DENY prioritaire, puis
+        // ALLOW, puis le socle du rôle (ADR-022, ADR-033).
+        Route::put('/workspaces/roles/{site}/accounts/{user}/permissions', [SuperAdminRoleController::class, 'updateAccountPermissions'])->name('workspaces.roles.accounts.permissions.update')->middleware('can:permissions.assign');
+        // Le catalogue des permissions du site (ADR-101).
+        Route::post('/workspaces/roles/permissions', [SuperAdminRoleController::class, 'storePermission'])->name('workspaces.permissions.store')->middleware('can:permissions.create');
+        Route::put('/workspaces/roles/{site}/catalog/{permission}', [SuperAdminRoleController::class, 'updatePermission'])->name('workspaces.permissions.update')->middleware('can:permissions.update');
+        Route::delete('/workspaces/roles/{site}/catalog/{permission}', [SuperAdminRoleController::class, 'destroyPermission'])->name('workspaces.permissions.destroy')->middleware('can:permissions.delete');
 
         Route::get('/workspaces/hr', SuperAdminHumanResourcesController::class)->name('workspaces.hr')->middleware('can:employees.view');
 
@@ -730,7 +750,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // Toutes les demandes d'examens du médecin, hors d'une consultation
     // précise : `laboratory_orders.view` suffit à entrer, et chaque famille
     // est ensuite filtrée par son propre droit dans le contrôleur.
-    Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:laboratory_orders.view');
+    Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:paraclinical_requests.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
         // 'diagnostic' et 'decision' restent acceptées pour ne pas casser un

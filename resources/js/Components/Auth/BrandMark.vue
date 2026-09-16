@@ -1,17 +1,15 @@
 <script setup>
 import { computed } from 'vue';
 import { usePage } from '@inertiajs/vue3';
+import { monogramOf } from '@/lib/brand';
 
 const page = usePage();
 const site = computed(() => page.props.site);
 const logoUrl = computed(() => site.value.documents?.logo_url || null);
 
-const monogram = computed(() => site.value.brand
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase());
+// Les mêmes initiales que la barre latérale : deux repli différents pour la
+// même enseigne se liraient comme deux applications.
+const monogram = computed(() => monogramOf(site.value.brand));
 </script>
 
 <template>

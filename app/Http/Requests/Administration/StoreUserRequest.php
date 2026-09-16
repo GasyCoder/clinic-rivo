@@ -29,7 +29,10 @@ class StoreUserRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'confirmed', SecurePassword::rule()],
-            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            // Un rôle archivé (ADR-100) reste une ligne : `exists` le trouverait
+            // et le compte se retrouverait sans socle, `User::role()` ne
+            // renvoyant plus un rôle archivé.
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')->whereNull('deleted_at')],
             'professional_profile_id' => [
                 Rule::requiredIf(fn () => ProfessionalProfile::query()
                     ->active()

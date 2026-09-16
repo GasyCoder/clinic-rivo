@@ -52,7 +52,7 @@ export const CLINIC_WORKSPACES = [
     { key: 'medicine', group: 'clinical', text: 'Médecine', description: 'File d’attente et consultations', icon: Stethoscope, link: '/medicine', permission: 'consultations.view', tone: 'ocean' },
     // Les demandes d'examens du médecin, toutes consultations confondues :
     // suivre un résultat ne devait plus obliger à rouvrir le passage de tête.
-    { key: 'paraclinical-requests', group: 'clinical', text: 'Demandes d’examens', description: 'Analyses et imagerie demandées, et leurs résultats', icon: FileSearch, link: '/medicine/demandes-examens', permission: 'laboratory_orders.view', tone: 'ocean' },
+    { key: 'paraclinical-requests', group: 'clinical', text: 'Demandes d’examens', description: 'Analyses et imagerie demandées, et leurs résultats', icon: FileSearch, link: '/medicine/demandes-examens', permission: 'paraclinical_requests.view', tone: 'ocean' },
     { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on

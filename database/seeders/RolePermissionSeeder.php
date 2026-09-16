@@ -146,6 +146,7 @@ class RolePermissionSeeder extends Seeder
             // Paraclinique/orientation requests only — never the receiving
             // module's own create/manage permission (surgery.create stays
             // reserved to SURGERY; laboratory_results.create to LABORATORY).
+            'paraclinical_requests.view',
             'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create',
             'surgery.request', 'hospitalization.request', 'maternity.request',
@@ -212,6 +213,7 @@ class RolePermissionSeeder extends Seeder
         // Minimal follow-through only (request tracking + result entry) —
         // sample/analysis workflow itself remains unbuilt.
         'LABORATORY' => [
+            'paraclinical_requests.view',
             'laboratory_orders.view', 'laboratory_results.view', 'laboratory_results.create',
         ],
     ];

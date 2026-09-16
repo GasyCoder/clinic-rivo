@@ -50,6 +50,7 @@ export const PERMISSION_CATEGORIES = {
     maternity: { label: 'Maternité', domain: 'clinical' },
     surgery: { label: 'Chirurgie (Bloc opératoire)', domain: 'clinical' },
     anesthesia: { label: 'Anesthésie', domain: 'clinical' },
+    paraclinical_requests: { label: 'Espace Demandes d’examens', domain: 'clinical' },
     laboratory_orders: { label: 'Demandes d’analyses', domain: 'clinical' },
     laboratory_results: { label: 'Résultats d’analyses', domain: 'clinical' },
     analysis_catalog: { label: 'Catalogue des analyses', domain: 'clinical' },

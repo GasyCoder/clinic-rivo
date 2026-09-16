@@ -32,8 +32,20 @@ class PermissionSeeder extends Seeder
 
         'roles.view' => 'Voir les rôles',
         'roles.assign' => 'Attribuer un rôle',
+        // Le référentiel des rôles lui-même (ADR-100) : créer « Kinésithérapeute »
+        // ne doit pas exiger un déploiement. Réservé au portail central.
+        'roles.create' => 'Créer un rôle',
+        'roles.update' => 'Renommer un rôle',
+        'roles.archive' => 'Archiver un rôle',
+        'roles.restore' => 'Restaurer un rôle archivé',
         'permissions.view' => 'Voir les permissions',
         'permissions.assign' => 'Attribuer des permissions individuelles',
+        // Le catalogue lui-même (ADR-101). Une permission créée ici est
+        // attribuable tout de suite, mais n'ouvre rien tant qu'aucune route,
+        // Policy ou écran ne la vérifie — l'écran le dit.
+        'permissions.create' => 'Créer une permission au catalogue',
+        'permissions.update' => 'Corriger le libellé d’une permission',
+        'permissions.delete' => 'Retirer une permission jamais utilisée',
 
         // ADR-025 — portail central. Ces droits n'accordent aucun accès
         // direct aux bases locales : chaque lecture/écriture distante reste
@@ -401,6 +413,13 @@ class PermissionSeeder extends Seeder
         // volontairement distincte de surgery.create (jamais accordée à
         // MEDICINE) : demander une intervention n'est pas piloter le
         // dossier chirurgical.
+        // La porte de l'espace « Demandes d'examens » (/medicine/demandes-
+        // examens), qui réunit analyses et imagerie. Distincte des deux
+        // permissions ci-dessous, qui gouvernent ce qu'on y voit : sans
+        // celle-ci la route refusait un compte n'ayant que l'imagerie, alors
+        // que l'écran savait lui servir ses lignes.
+        'paraclinical_requests.view' => 'Ouvrir l’espace Demandes d’examens',
+
         'laboratory_orders.create' => 'Demander des analyses depuis une consultation',
         'laboratory_orders.view' => 'Voir les demandes d’analyses',
         'laboratory_results.view' => 'Voir les résultats d’analyses',

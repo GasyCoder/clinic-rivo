@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyProcurementController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
+use App\Http\Controllers\Api\V1\SuperAdmin\PermissionController as SuperAdminPermissionController;
+use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -126,7 +128,21 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/users/{userUuid}/activate', [UserController::class, 'activate'])->name('users.activate');
         Route::post('/users/{userUuid}/deactivate', [UserController::class, 'deactivate'])->name('users.deactivate');
         Route::delete('/users/{userUuid}', [UserController::class, 'forceDelete'])->name('users.force_delete');
-        Route::put('/roles/{roleCode}/permissions', [UserController::class, 'updateRolePermissions'])->name('roles.permissions.update');
+        // Le référentiel des rôles, distinct de la gestion des comptes
+        // (ADR-100) : deux métiers, deux écrans, deux contrôleurs.
+        Route::get('/roles', [SuperAdminRoleController::class, 'index'])->name('roles.index');
+        Route::post('/roles', [SuperAdminRoleController::class, 'store'])->name('roles.store');
+        Route::put('/roles/{roleCode}', [SuperAdminRoleController::class, 'update'])->name('roles.update');
+        Route::delete('/roles/{roleCode}', [SuperAdminRoleController::class, 'archive'])->name('roles.archive');
+        Route::post('/roles/{roleCode}/restore', [SuperAdminRoleController::class, 'restore'])->name('roles.restore');
+        Route::put('/roles/{roleCode}/permissions', [SuperAdminRoleController::class, 'updatePermissions'])->name('roles.permissions.update');
+        Route::put('/roles/accounts/{userUuid}/permissions', [SuperAdminRoleController::class, 'updateUserPermissions'])->name('roles.accounts.permissions.update');
+
+        // Le catalogue des permissions lui-même (ADR-101).
+        Route::get('/permissions', [SuperAdminPermissionController::class, 'index'])->name('permissions.index');
+        Route::post('/permissions', [SuperAdminPermissionController::class, 'store'])->name('permissions.store');
+        Route::put('/permissions/{permissionId}', [SuperAdminPermissionController::class, 'update'])->name('permissions.update');
+        Route::delete('/permissions/{permissionId}', [SuperAdminPermissionController::class, 'destroy'])->name('permissions.destroy');
 
         Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog.index');
         Route::post('/catalog', [CatalogController::class, 'store'])->name('catalog.store');

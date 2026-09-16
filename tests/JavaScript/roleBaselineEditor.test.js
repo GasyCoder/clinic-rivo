@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import { diffPermissionSelection, permissionActionGroup } from '../../resources/js/utilities/permissionWorkspace.js';
 
 const editor = fs.readFileSync('resources/js/Components/Rbac/RoleBaselineEditor.vue', 'utf8');
-const page = fs.readFileSync('resources/js/Pages/SuperAdmin/Users/Index.vue', 'utf8');
+// L'atelier des permissions a quitté le formulaire utilisateur : il vit
+// désormais dans « Rôles & permissions » (ADR-100). `page` désigne donc
+// l'écran qui le porte, pas celui qui crée les comptes.
+const page = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
+const rolesPage = fs.readFileSync('resources/js/Pages/SuperAdmin/Roles/Index.vue', 'utf8');
 const row = fs.readFileSync('resources/js/Components/Rbac/PermissionAccessRow.vue', 'utf8');
 
 const catalog = [
@@ -75,7 +79,7 @@ test('la barre d’enregistrement reste visible', () => {
 test('changer de rôle avec un brouillon demande confirmation', () => {
     assert.match(editor, /if \(dirty\.value\) \{ pendingRoleCode\.value = code; return; \}/);
     assert.match(editor, /title="Changer de rôle sans enregistrer \?"/);
-    assert.match(page, /title="Quitter le socle sans enregistrer \?"/);
+    assert.match(page, /title="`Quitter \$\{selectedUser\?\.name \?\? ''\} \?`"/);
 });
 
 /**
@@ -113,10 +117,12 @@ test('les confirmations utilisent le Dialog partagé', () => {
     for (const title of [
         'Autoriser cette permission sensible ?',
         'Confirmer l’action groupée ?',
-        'Quitter sans enregistrer ?',
     ]) {
         assert.ok(page.includes(`title="${title}"`), `${title} doit être un Dialog`);
     }
+
+    const users = fs.readFileSync('resources/js/Pages/SuperAdmin/Users/Index.vue', 'utf8');
+    assert.ok(users.includes('title="Quitter sans enregistrer ?"'));
 });
 
 /**
@@ -174,8 +180,13 @@ test('la catégorie ouverte porte un rail, pas seulement une couleur', () => {
 
 /** Un compteur figé pendant la frappe ne dirait pas où chercher. */
 test('la recherche filtre le rail et recompte', () => {
-    assert.match(page, /count: permissionSearch\.value \? category\.visible : category\.total/);
-    assert.match(page, /hidden: Boolean\(permissionSearch\.value\) && category\.visible === 0/);
+    // Les deux ateliers cadrent la vue de la même façon : tant qu'une
+    // recherche ou un filtre est actif, la catégorie ouverte ne borne plus
+    // rien — c'est précisément quand on ne sait pas où vit un droit qu'on
+    // le tape.
+    for (const source of [page, editor]) {
+        assert.match(source, /const scopedToCategory = computed\(\(\) => search\.value\.trim\(\) === '' && filter\.value === 'all'\)/);
+    }
     assert.match(nav, /\.filter\(\(category\) => ! category\.hidden\)/);
 });
 

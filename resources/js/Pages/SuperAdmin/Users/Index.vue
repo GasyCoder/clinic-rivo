@@ -1,14 +1,12 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft,
     ArrowRight,
     Briefcase,
     Check,
-    ChevronDown,
     CircleCheck,
-    CircleX,
     Eye,
     EyeOff,
     LayoutGrid,
@@ -17,11 +15,9 @@ import {
     LockOpen,
     Mail,
     Pencil,
-    RotateCcw,
     Search,
     Server,
     ShieldCheck,
-    ShieldOff,
     Trash2,
     TriangleAlert,
     UserPlus,
@@ -39,22 +35,7 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import PermissionAccessRow from '@/Components/Rbac/PermissionAccessRow.vue';
-import PermissionCategoryNav from '@/Components/Rbac/PermissionCategoryNav.vue';
-import RoleBaselineEditor from '@/Components/Rbac/RoleBaselineEditor.vue';
-import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
-import { PERMISSION_DOMAINS, permissionCategoryDomain, permissionCategoryLabel } from '@/utilities/permissionCategories';
 import { usePermissions } from '@/composables/usePermissions';
-import {
-    isPermissionEffectivelyGranted,
-    isSensitivePermission,
-    permissionActionGroup,
-    permissionEffect as resolvePermissionEffect,
-    permissionMatchesFilter as matchesPermissionFilter,
-    permissionMatchesSearch,
-    roleGrantsPermission,
-    summarizePermissionWorkspace,
-} from '@/utilities/permissionWorkspace';
 import { cn } from '@/lib/cn';
 
 defineOptions({ layout: AppLayout });
@@ -74,9 +55,6 @@ const view = ref('list');
 const listMode = ref('list');
 const step = ref(1);
 const maxStepReached = ref(1);
-const permissionEffects = reactive({});
-const permissionProvenance = reactive({});
-const originalProfileOverrides = ref([]);
 const deactivateTargets = ref([]);
 const selectedUuids = ref(new Set());
 const showPassword = ref(false);
@@ -85,7 +63,6 @@ const showPasswordConfirmation = ref(false);
 const steps = [
     { n: 1, label: 'Informations', icon: UserPlus },
     { n: 2, label: 'Rôle', icon: Briefcase },
-    { n: 3, label: 'Permissions', icon: ShieldCheck },
 ];
 
 const form = useForm({
@@ -96,8 +73,6 @@ const form = useForm({
     professional_profile_id: '',
     password: '',
     password_confirmation: '',
-    permission_overrides: [],
-    sync_profile_permissions: false,
 });
 const deactivationForm = useForm({ reason: '' });
 const forceDeleteTargets = ref([]);
@@ -112,7 +87,6 @@ const isEditing = computed(() => editingUser.value !== null);
 const selectedSite = computed(() => props.sites.find((site) => site.site.code === selectedSiteCode.value));
 const users = computed(() => selectedSite.value?.data?.users ?? []);
 const roles = computed(() => selectedSite.value?.data?.roles ?? []);
-const permissionCatalog = computed(() => selectedSite.value?.data?.permission_catalog ?? []);
 
 // Selection is scoped to the visible, active users of the current site —
 // switching site, or a manageable user disappearing after a page refresh
@@ -137,223 +111,11 @@ const selectedRoleProfiles = computed(() => selectedRole.value?.profiles ?? []);
 const selectedProfile = computed(() => selectedRoleProfiles.value.find(
     (profile) => Number(profile.id) === Number(form.professional_profile_id),
 ) ?? null);
-const selectedRolePermissions = computed(() => new Set(selectedRole.value?.permissions ?? []));
 const profileChanged = computed(() => isEditing.value
     && Number(editingUser.value?.professional_profile?.id ?? 0) !== Number(form.professional_profile_id ?? 0));
 const oldProfileName = computed(() => editingUser.value?.professional_profile?.name ?? 'Aucun profil');
 const newProfileName = computed(() => selectedProfile.value?.name ?? 'Aucun profil');
 
-const permissionSearch = ref('');
-const permissionFilter = ref('all');
-const permissionMode = ref('simple');
-const permissionSort = ref('label');
-const selectedPermissionCategory = ref('');
-const showAccessPreview = ref(false);
-const pendingPermissionChange = ref(null);
-const pendingBulkAction = ref(null);
-const initialPermissionState = ref([]);
-
-const permissionEffect = (permission) => resolvePermissionEffect(permission, permissionEffects);
-const roleGrants = (permission) => roleGrantsPermission(permission, selectedRolePermissions.value);
-const effectivelyGranted = (permission) => isPermissionEffectivelyGranted(permission, permissionEffects, selectedRolePermissions.value);
-
-// This is display metadata only. Authorization remains exclusively enforced
-// by Laravel. The warning list deliberately errs on the cautious side for
-// destructive, identity, security and platform-wide capabilities.
-const permissionSourceLabel = (permission) => {
-    const provenance = permissionProvenance[permission.id];
-    if (!provenance) return '';
-    if (provenance.source === 'PROFILE') {
-        return `Profil : ${provenance.source_profile_name ?? selectedProfile.value?.name ?? 'professionnel'}`;
-    }
-    return 'Décision manuelle';
-};
-
-const permissionSummary = computed(() => summarizePermissionWorkspace(
-    permissionCatalog.value,
-    permissionEffects,
-    permissionProvenance,
-    selectedRolePermissions.value,
-));
-
-const searchMatches = (permission) => permissionMatchesSearch(
-    permission,
-    permissionSearch.value,
-    permissionCategoryLabel(permission.module),
-);
-
-const permissionCategories = computed(() => {
-    const grouped = new Map();
-    for (const permission of permissionCatalog.value) {
-        if (!grouped.has(permission.module)) grouped.set(permission.module, []);
-        grouped.get(permission.module).push(permission);
-    }
-
-    return Array.from(grouped.entries()).map(([key, permissions]) => ({
-        key,
-        label: permissionCategoryLabel(key),
-        domain: permissionCategoryDomain(key),
-        total: permissions.length,
-        visible: permissions.filter(searchMatches).length,
-        exceptions: permissions.filter((permission) => permissionEffect(permission) !== '').length,
-        sensitive: permissions.filter(isSensitivePermission).length,
-    })).sort((left, right) => {
-        const domainOrder = domainIndex(left.domain) - domainIndex(right.domain);
-        if (domainOrder !== 0) return domainOrder;
-        return left.label.localeCompare(right.label, 'fr');
-    });
-});
-
-const domainIndex = (key) => {
-    const index = PERMISSION_DOMAINS.findIndex((domain) => domain.key === key);
-    return index === -1 ? PERMISSION_DOMAINS.length : index;
-};
-
-/** The category list reads by area of work — Clinique, Pharmacie, Caisse… — not by code. */
-const permissionCategoryGroups = computed(() => PERMISSION_DOMAINS
-    .map((domain) => ({ ...domain, categories: permissionCategories.value.filter((category) => category.domain === domain.key) }))
-    .filter((group) => group.categories.length));
-
-/**
- * Ce que le rail affiche : pendant une recherche, le compteur devient le
- * nombre de droits qui correspondent — un « 9 » immuable pendant qu'on tape
- * ne dirait pas où chercher — et une catégorie sans correspondance sort de
- * la liste au lieu d'y rester à zéro.
- */
-const permissionNavGroups = computed(() => permissionCategoryGroups.value.map((group) => ({
-    key: group.key,
-    label: group.label,
-    categories: group.categories.map((category) => ({
-        key: category.key,
-        label: category.label,
-        title: `${category.label} · code ${category.key}`,
-        count: permissionSearch.value ? category.visible : category.total,
-        marked: category.exceptions > 0,
-        hidden: Boolean(permissionSearch.value) && category.visible === 0,
-    })),
-})));
-
-const sensitivePermissionCount = computed(() => permissionCatalog.value.filter(isSensitivePermission).length);
-
-watch(permissionCategories, (categories) => {
-    if (selectedPermissionCategory.value === '__sensitive__') return;
-    if (!categories.some((category) => category.key === selectedPermissionCategory.value)) {
-        selectedPermissionCategory.value = categories[0]?.key ?? '';
-    }
-}, { immediate: true });
-
-const currentCategoryLabel = computed(() => selectedPermissionCategory.value === '__sensitive__'
-    ? 'Permissions sensibles'
-    : permissionCategories.value.find((category) => category.key === selectedPermissionCategory.value)?.label ?? 'Permissions');
-
-const permissionMatchesFilter = (permission) => matchesPermissionFilter(
-    permission,
-    permissionFilter.value,
-    permissionEffects,
-    selectedRolePermissions.value,
-);
-
-const currentPermissions = computed(() => permissionCatalog.value.filter((permission) => {
-    const inCategory = selectedPermissionCategory.value === '__sensitive__'
-        ? isSensitivePermission(permission)
-        : permission.module === selectedPermissionCategory.value;
-    return inCategory && searchMatches(permission) && permissionMatchesFilter(permission);
-}).sort((left, right) => {
-    if (permissionSort.value === 'state') {
-        const stateOrder = { deny: 0, allow: 1, '': 2 };
-        const difference = stateOrder[permissionEffect(left)] - stateOrder[permissionEffect(right)];
-        if (difference !== 0) return difference;
-    }
-    if (permissionSort.value === 'category') {
-        const difference = permissionCategoryLabel(left.module).localeCompare(permissionCategoryLabel(right.module), 'fr');
-        if (difference !== 0) return difference;
-    }
-    return left.label.localeCompare(right.label);
-}));
-
-const functionalPermissionGroups = computed(() => {
-    const groups = new Map();
-    for (const permission of currentPermissions.value) {
-        const label = permissionActionGroup(permission);
-        if (!groups.has(label)) groups.set(label, []);
-        groups.get(label).push(permission);
-    }
-    return Array.from(groups.entries()).map(([label, permissions]) => ({ label, permissions }));
-});
-
-const snapshotPermissionState = () => permissionCatalog.value.map((permission) => ({
-    id: permission.id,
-    effect: permissionEffect(permission),
-    provenance: permissionProvenance[permission.id] ? { ...permissionProvenance[permission.id] } : null,
-}));
-
-const capturePermissionState = () => { initialPermissionState.value = snapshotPermissionState(); };
-const permissionChangesCount = computed(() => {
-    const initial = new Map(initialPermissionState.value.map((entry) => [String(entry.id), entry]));
-    return permissionCatalog.value.filter((permission) => {
-        const before = initial.get(String(permission.id));
-        const provenance = permissionProvenance[permission.id];
-        return (before?.effect ?? '') !== permissionEffect(permission)
-            || (before?.provenance?.source ?? '') !== (provenance?.source ?? '');
-    }).length;
-});
-const permissionsDirty = computed(() => permissionChangesCount.value > 0);
-
-const applyPermissionChange = (permission, effect) => {
-    permissionEffects[permission.id] = effect;
-    if (effect === 'allow' || effect === 'deny') {
-        permissionProvenance[permission.id] = { source: 'MANUAL', source_profile_id: null, source_profile_name: null };
-    } else {
-        delete permissionProvenance[permission.id];
-    }
-};
-
-const requestPermissionChange = (permission, effect) => {
-    if (permissionEffect(permission) === effect) return;
-    if (effect === 'allow' && isSensitivePermission(permission)) {
-        pendingPermissionChange.value = { permission, effect };
-        return;
-    }
-    applyPermissionChange(permission, effect);
-};
-
-const confirmPermissionChange = () => {
-    if (!pendingPermissionChange.value) return;
-    applyPermissionChange(pendingPermissionChange.value.permission, pendingPermissionChange.value.effect);
-    pendingPermissionChange.value = null;
-};
-
-const openBulkAction = (effect, permissions = currentPermissions.value, scope = currentCategoryLabel.value) => {
-    if (!permissions.length) return;
-    pendingBulkAction.value = { effect, permissions: [...permissions], scope };
-};
-
-const bulkActionHasSensitive = computed(() => Boolean(pendingBulkAction.value?.permissions.some(isSensitivePermission)));
-
-const confirmBulkAction = () => {
-    if (!pendingBulkAction.value) return;
-    for (const permission of pendingBulkAction.value.permissions) {
-        applyPermissionChange(permission, pendingBulkAction.value.effect);
-    }
-    pendingBulkAction.value = null;
-};
-
-const restoreUnsavedPermissions = () => {
-    for (const entry of initialPermissionState.value) {
-        permissionEffects[entry.id] = entry.effect;
-        if (entry.provenance) permissionProvenance[entry.id] = { ...entry.provenance };
-        else delete permissionProvenance[entry.id];
-    }
-};
-
-const effectivePermissionGroups = computed(() => permissionCategories.value.map((category) => {
-    const permissions = permissionCatalog.value.filter((permission) => permission.module === category.key);
-    return {
-        ...category,
-        allowed: permissions.filter(effectivelyGranted),
-        denied: permissions.filter((permission) => !effectivelyGranted(permission)),
-    };
-}));
 
 const initials = (name) => {
     const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean);
@@ -381,43 +143,13 @@ const statusFilterOptions = [
     { value: 'inactive', label: 'Désactivés' },
     { value: 'all', label: 'Tous' },
 ];
-const permissionFilterOptions = [
-    { value: 'all', label: 'Toutes' },
-    { value: 'exceptions', label: 'Exceptions uniquement' },
-    { value: 'inherited', label: 'Héritées' },
-    { value: 'allowed', label: 'Autorisées effectives' },
-    { value: 'denied', label: 'Interdites effectives' },
-    { value: 'sensitive', label: 'Sensibles' },
-];
-const permissionSortOptions = [
-    { value: 'label', label: 'Tri : libellé' },
-    { value: 'state', label: 'Tri : état' },
-    { value: 'category', label: 'Tri : catégorie' },
-];
-
 const submitFilters = () => {
     clearSelection();
-    router.get('/super-admin/workspaces/roles', {
+    router.get('/super-admin/workspaces/users', {
         search: query.value || undefined,
         status: statusFilter.value,
         role: roleFilter.value || undefined,
     }, { preserveState: true, preserveScroll: true, replace: true });
-};
-
-const resetPermissionEffects = (overrides = []) => {
-    for (const key of Object.keys(permissionEffects)) delete permissionEffects[key];
-    for (const key of Object.keys(permissionProvenance)) delete permissionProvenance[key];
-    // Every permission receives the explicit neutral state used by the
-    // segmented control: no user override means inheritance from the role.
-    for (const permission of permissionCatalog.value) permissionEffects[permission.id] = '';
-    for (const override of overrides) {
-        permissionEffects[override.permission_id] = override.effect;
-        permissionProvenance[override.permission_id] = {
-            source: override.source ?? 'MANUAL',
-            source_profile_id: override.source_profile_id ?? null,
-            source_profile_name: override.source_profile_name ?? null,
-        };
-    }
 };
 
 const step1Valid = computed(() => {
@@ -437,17 +169,8 @@ const openCreate = () => {
     form.site_code = selectedSiteCode.value;
     form.role_id = roles.value.find((role) => role.code !== 'SUPER_ADMIN')?.id ?? roles.value[0]?.id ?? '';
     form.professional_profile_id = '';
-    resetPermissionEffects();
-    originalProfileOverrides.value = [];
-    form.sync_profile_permissions = false;
     showPassword.value = false;
     showPasswordConfirmation.value = false;
-    permissionSearch.value = '';
-    permissionFilter.value = 'all';
-    permissionMode.value = 'simple';
-    permissionSort.value = 'label';
-    selectedPermissionCategory.value = permissionCategories.value[0]?.key ?? '';
-    capturePermissionState();
     step.value = 1;
     maxStepReached.value = 1;
     view.value = 'form';
@@ -463,21 +186,10 @@ const openEdit = (user) => {
     form.professional_profile_id = user.professional_profile?.id ?? '';
     form.password = '';
     form.password_confirmation = '';
-    resetPermissionEffects(user.permission_overrides);
-    originalProfileOverrides.value = (user.permission_overrides ?? []).filter((override) => override.source === 'PROFILE');
-    form.sync_profile_permissions = false;
     showPassword.value = false;
     showPasswordConfirmation.value = false;
-    permissionSearch.value = '';
-    permissionFilter.value = 'all';
-    permissionMode.value = 'simple';
-    permissionSort.value = 'label';
-    selectedPermissionCategory.value = permissionCategories.value.find((category) => category.exceptions)?.key
-        ?? permissionCategories.value[0]?.key
-        ?? '';
-    capturePermissionState();
     step.value = 1;
-    maxStepReached.value = 3;
+    maxStepReached.value = 2;
     view.value = 'form';
 };
 
@@ -493,7 +205,7 @@ const confirmingDiscard = ref(false);
 
 const closeForm = () => {
     if (form.processing) return;
-    if (permissionsDirty.value) {
+    if (form.isDirty) {
         confirmingDiscard.value = true;
         return;
     }
@@ -507,9 +219,7 @@ const confirmDiscard = () => {
 
 /** A reload or a closed tab would lose the same draft: the browser asks first. */
 const warnBeforeUnload = (event) => {
-    if (view.value === 'list') return;
-    if (view.value === 'form' && !permissionsDirty.value) return;
-    if (view.value === 'roles' && !roleBaselineDirty.value) return;
+    if (view.value === 'list' || ! form.isDirty) return;
     event.preventDefault();
     event.returnValue = '';
 };
@@ -521,12 +231,6 @@ const discardForm = () => {
     editingUser.value = null;
     form.reset();
     form.clearErrors();
-    resetPermissionEffects();
-    originalProfileOverrides.value = [];
-    initialPermissionState.value = [];
-    showAccessPreview.value = false;
-    pendingPermissionChange.value = null;
-    pendingBulkAction.value = null;
 };
 
 // Inertia fires onSuccess before onFinish, so form.processing is still true
@@ -543,108 +247,46 @@ const nextStep = () => {
     if (step.value === 1 && !step1Valid.value) return;
     if (step.value === 2 && !step2Valid.value) return;
 
-    step.value = Math.min(3, step.value + 1);
+    step.value = Math.min(2, step.value + 1);
     maxStepReached.value = Math.max(maxStepReached.value, step.value);
-
-    // A new account lands on the access its role gives it, not on a wall of
-    // 300 rows: the role's grants first, in the first category that has one.
-    if (step.value === 3 && !editingUser.value) {
-        permissionFilter.value = 'allowed';
-        selectedPermissionCategory.value = permissionCategories.value
-            .find((category) => permissionCatalog.value.some((permission) => permission.module === category.key && effectivelyGranted(permission)))
-            ?.key ?? selectedPermissionCategory.value;
-    }
 };
 
 const prevStep = () => { step.value = Math.max(1, step.value - 1); };
 
-const serializeOverrides = () => Object.entries(permissionEffects)
-    .filter(([permissionId, effect]) => (effect === 'allow' || effect === 'deny')
-        && permissionProvenance[permissionId]?.source !== 'PROFILE')
-    .map(([permissionId, effect]) => ({ permission_id: Number(permissionId), effect }));
-
-const removeProfilePreview = () => {
-    for (const [permissionId, provenance] of Object.entries(permissionProvenance)) {
-        if (provenance?.source !== 'PROFILE') continue;
-        permissionEffects[permissionId] = '';
-        delete permissionProvenance[permissionId];
-    }
-};
-
-const onProfileChange = () => {
-    removeProfilePreview();
-    form.sync_profile_permissions = false;
-
-    if (Number(form.professional_profile_id) !== Number(editingUser.value?.professional_profile?.id ?? 0)) {
-        // Choosing a different profile used to clear the rights and stage
-        // nothing, so the remote site received sync_profile_permissions=false
-        // and saved an account carrying its new job title with none of its
-        // access. Staged straight away instead — still explicit, still
-        // adjustable, and MANUAL decisions are never overwritten.
-        applyProfileRecommendations();
-
-        return;
-    }
-
-    for (const override of originalProfileOverrides.value) {
-        if (permissionProvenance[override.permission_id]?.source === 'MANUAL') continue;
-        permissionEffects[override.permission_id] = override.effect;
-        permissionProvenance[override.permission_id] = {
-            source: 'PROFILE',
-            source_profile_id: override.source_profile_id,
-            source_profile_name: override.source_profile_name,
-        };
-    }
-};
-
+/**
+ * Changer de rôle repart sans profil : un profil n'appartient qu'à son rôle.
+ *
+ * Les permissions recommandées du nouveau profil ne sont plus « préparées »
+ * ici — elles le sont côté serveur au moment de l'enregistrement, parce que
+ * cet écran ne porte plus les exceptions individuelles. `UpdateUserAction`
+ * applique les recommandations dès que le profil change, sans jamais
+ * écraser une décision individuelle déjà prise (ADR-033).
+ */
 const selectRole = (roleId) => {
     form.role_id = roleId;
     form.professional_profile_id = '';
-    onProfileChange();
 };
 
 const selectProfile = (profileId) => {
     form.professional_profile_id = profileId;
-    onProfileChange();
-};
-
-const applyProfileRecommendations = () => {
-    if (!canAssignPermissions.value || !selectedProfile.value) return;
-
-    removeProfilePreview();
-    for (const permission of selectedProfile.value.recommended_permissions ?? []) {
-        if (permissionProvenance[permission.id]?.source === 'MANUAL') continue;
-        permissionEffects[permission.id] = 'allow';
-        permissionProvenance[permission.id] = {
-            source: 'PROFILE',
-            source_profile_id: selectedProfile.value.id,
-            source_profile_name: selectedProfile.value.name,
-        };
-    }
-    form.sync_profile_permissions = true;
 };
 
 const roleRequiresProfile = (roleId) => Boolean(roles.value.find((item) => Number(item.id) === Number(roleId))?.profiles?.length);
 
+/**
+ * Le payload ne porte plus `permission_overrides` : omise, la clé laisse les
+ * exceptions du compte intactes côté serveur (`UpdateUserAction`). Les
+ * modifier est le geste de l'écran « Rôles & permissions ».
+ */
 const submitUser = () => {
-    form.permission_overrides = serializeOverrides();
-    form.transform((data) => {
-        const payload = { ...data };
-        if (!canAssignPermissions.value) {
-            delete payload.permission_overrides;
-            delete payload.sync_profile_permissions;
-        }
-        return payload;
-    });
-
     const options = { preserveScroll: true, onSuccess: dismissForm };
 
     if (editingUser.value) {
-        form.put(`/super-admin/workspaces/roles/${selectedSiteCode.value}/${editingUser.value.uuid}`, options);
+        form.put(`/super-admin/workspaces/users/${selectedSiteCode.value}/${editingUser.value.uuid}`, options);
         return;
     }
 
-    form.post('/super-admin/workspaces/roles', options);
+    form.post('/super-admin/workspaces/users', options);
 };
 
 // A single row action and the bulk-selection action share one dialog and
@@ -685,12 +327,12 @@ const confirmDeactivate = () => deactivationForm.transform((data) => ({
     site_code: selectedSiteCode.value,
     uuids: deactivateTargets.value.map((user) => user.uuid),
 })).post(
-    '/super-admin/workspaces/roles/bulk/deactivate',
+    '/super-admin/workspaces/users/bulk/deactivate',
     { preserveScroll: true, onSuccess: dismissDeactivate },
 );
 
 const activate = (user) => router.post(
-    `/super-admin/workspaces/roles/${selectedSiteCode.value}/${user.uuid}/activate`,
+    `/super-admin/workspaces/users/${selectedSiteCode.value}/${user.uuid}/activate`,
     {},
     { preserveScroll: true },
 );
@@ -754,52 +396,11 @@ const confirmForceDelete = () => {
         site_code: selectedSiteCode.value,
         uuids: forceDeleteTargets.value.map((user) => user.uuid),
     })).post(
-        '/super-admin/workspaces/roles/bulk/force-delete',
+        '/super-admin/workspaces/users/bulk/force-delete',
         { preserveScroll: true, onSuccess: dismissForceDelete },
     );
 };
 
-// Role-baseline editor — a SEPARATE capability from the wizard above: this
-// edits what a ROLE grants every account by default (previously only
-// possible by editing RolePermissionSeeder::GRANTS and redeploying), never
-// the per-account allow/deny overrides, which keep applying on top exactly
-// as before. SUPER_ADMIN never appears in `roles` (excluded server-side).
-//
-// The whole draft lives in RoleBaselineEditor: this page only knows whether
-// it has unsaved work — so the browser can warn — and how to send it.
-const roleForm = useForm({ permission_ids: [] });
-const roleBaselineDirty = ref(false);
-const confirmingRoleDiscard = ref(false);
-
-const openRoleBaselines = () => {
-    roleForm.clearErrors();
-    roleBaselineDirty.value = false;
-    view.value = 'roles';
-};
-
-const closeRoleBaselines = () => {
-    if (roleForm.processing) return;
-    if (roleBaselineDirty.value) {
-        confirmingRoleDiscard.value = true;
-        return;
-    }
-    view.value = 'list';
-};
-
-const confirmRoleDiscard = () => {
-    confirmingRoleDiscard.value = false;
-    roleBaselineDirty.value = false;
-    view.value = 'list';
-};
-
-const saveRoleBaseline = ({ role, permissionIds }) => {
-    if (!role) return;
-
-    roleForm.transform(() => ({ permission_ids: permissionIds })).put(
-        `/super-admin/workspaces/roles/${selectedSiteCode.value}/permissions/${role.code}`,
-        { preserveScroll: true },
-    );
-};
 
 const pageTitle = computed(() => {
     if (view.value === 'list') return 'Rôles & permissions';
@@ -816,12 +417,12 @@ const pageTitle = computed(() => {
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Super Administration</p>
-                    <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">Rôles &amp; permissions</h1>
-                    <p class="mt-1 max-w-2xl text-sm text-muted-foreground">Chaque compte appartient à un site précis. Le rôle donne le socle commun ; les exceptions individuelles (autoriser/refuser) restent propres au compte, jamais au rôle entier.</p>
+                    <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">Utilisateurs</h1>
+                    <p class="mt-1 max-w-2xl text-sm text-muted-foreground">Chaque compte appartient à un site précis et porte exactement un rôle, qui lui donne son socle de droits. Le socle lui-même et les exceptions individuelles se règlent dans <a class="font-semibold text-primary hover:underline" href="/super-admin/workspaces/roles">Rôles &amp; permissions</a>.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <Button v-if="canManageRoleBaselines && selectedSite?.ok" type="button" variant="outline" @click="openRoleBaselines">
-                        <ShieldCheck class="h-4 w-4" />Socle des rôles
+                    <Button v-if="canManageRoleBaselines" :as="Link" href="/super-admin/workspaces/roles" variant="outline">
+                        <ShieldCheck class="h-4 w-4" />Rôles &amp; permissions
                     </Button>
                     <Button v-if="canCreate && selectedSite?.ok" type="button" variant="primary" @click="openCreate">
                         <UserPlus class="h-4 w-4" />Nouvel utilisateur
@@ -999,32 +600,6 @@ const pageTitle = computed(() => {
             </Card>
         </template>
 
-        <template v-else-if="view === 'roles'">
-            <div class="flex items-center gap-3">
-                <Button type="button" size="icon" variant="outline" class="h-10 w-10" aria-label="Retour à la liste" @click="closeRoleBaselines"><ArrowLeft class="h-4.5 w-4.5" /></Button>
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ selectedSite?.site.name }}</p>
-                    <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">Socle des rôles</h1>
-                    <p class="mt-1 max-w-3xl text-sm text-muted-foreground">Ces droits s'appliquent à tous les comptes du rôle sur ce site. Les exceptions individuelles de chaque compte restent inchangées et s'appliquent toujours par-dessus.</p>
-                </div>
-            </div>
-
-            <RoleBaselineEditor
-                v-if="roles.length"
-                :roles="roles"
-                :permission-catalog="permissionCatalog"
-                :site-name="selectedSite?.site.name ?? ''"
-                :processing="roleForm.processing"
-                :errors="roleForm.errors"
-                @save="saveRoleBaseline"
-                @close="closeRoleBaselines"
-                @update:dirty="roleBaselineDirty = $event"
-            />
-            <Card v-else class="px-5 py-12 text-center">
-                <p class="text-sm font-medium text-foreground">Aucun rôle disponible sur ce site.</p>
-            </Card>
-        </template>
-
         <template v-else-if="view === 'form'">
             <div class="flex items-center gap-3">
                 <Button type="button" size="icon" variant="outline" class="h-10 w-10" aria-label="Retour à la liste" @click="closeForm"><ArrowLeft class="h-4.5 w-4.5" /></Button>
@@ -1035,7 +610,7 @@ const pageTitle = computed(() => {
             </div>
 
             <nav class="overflow-hidden rounded-xl border border-border bg-card shadow-sm" aria-label="Étapes">
-                <ol class="grid grid-cols-3">
+                <ol class="grid grid-cols-2">
                     <li v-for="(s, index) in steps" :key="s.n">
                         <button
                             type="button"
@@ -1173,304 +748,38 @@ const pageTitle = computed(() => {
                                 <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ selectedProfile.description }}</p>
                                 <p class="mt-1 text-[11px] text-muted-foreground">Le profil classe le métier ; il ne donne aucun droit automatiquement.</p>
                             </div>
-                            <Button v-if="canAssignPermissions && selectedProfile.recommended_permissions?.length" type="button" size="sm" variant="outline" class="shrink-0" @click="applyProfileRecommendations">
-                                <ShieldCheck class="h-4 w-4" />Appliquer les permissions du profil
-                            </Button>
                         </div>
-                        <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-muted-foreground">{{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }}, enregistré{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} à l'étape Permissions après application.</p>
+                        <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-muted-foreground">{{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} par ce profil, ajouté{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} à l’enregistrement lorsque le profil change. Ils restent ensuite ajustables dans « Rôles &amp; permissions ».</p>
                         <p v-else class="mt-2 text-[11px] text-muted-foreground">Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</p>
                         <div v-if="profileChanged" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
                             <p class="font-bold">Le profil professionnel a changé.</p>
                             <p>{{ oldProfileName }} → {{ newProfileName }}</p>
-                            <p class="mt-1">Les permissions provenant de l’ancien profil seront retirées à l’enregistrement. Si vous appliquez le nouveau profil, ses recommandations seront ajoutées ; les permissions attribuées manuellement seront conservées.</p>
+                            <p class="mt-1">À l’enregistrement, les permissions venues de l’ancien profil seront retirées et les recommandations du nouveau ajoutées. Une permission attribuée individuellement n’est jamais écrasée.</p>
                         </div>
                     </div>
 
                     <div v-if="selectedRole" class="mt-5 border-t border-border pt-4">
                         <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Socle du rôle « {{ selectedRole.name }} »</p>
-                        <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }} accordée{{ selectedRole.permissions.length > 1 ? 's' : '' }} par défaut à ce rôle. Le détail est visible et ajustable à l'étape suivante.</p>
+                        <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }} accordée{{ selectedRole.permissions.length > 1 ? 's' : '' }} par défaut à ce rôle, sur tous ses comptes. Le socle lui-même et les exceptions de ce compte se règlent dans « Rôles &amp; permissions ».</p>
                     </div>
                 </Card>
-
-                <Card v-else class="overflow-hidden">
-                    <header class="border-b border-border px-4 py-4 sm:px-5">
-                        <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                            <div class="flex min-w-0 items-center gap-3">
-                                <Avatar :text="initials(form.name)" variant="primary-pale" />
-                                <div class="min-w-0">
-                                    <p class="truncate text-sm font-bold text-foreground">{{ form.name || 'Nouvel utilisateur' }}</p>
-                                    <p class="mt-0.5 text-xs text-muted-foreground">Rôle principal : <strong>{{ selectedRole?.name ?? 'Non défini' }}</strong><span v-if="selectedProfile"> · {{ selectedProfile.name }}</span></p>
-                                </div>
-                            </div>
-                            <div class="flex flex-wrap gap-2">
-                                <Button type="button" size="sm" variant="outline" @click="goToStep(2)"><Briefcase class="h-4 w-4" />Changer le rôle</Button>
-                                <Button type="button" size="sm" variant="outline" @click="showAccessPreview = true"><Eye class="h-4 w-4" />Prévisualiser les accès</Button>
-                                <Button v-if="permissionSummary.exceptions" type="button" size="sm" variant="outline" @click="openBulkAction('', permissionCatalog, 'toutes les exceptions individuelles')"><RotateCcw class="h-4 w-4" />Réinitialiser les exceptions</Button>
-                            </div>
-                        </div>
-
-                        <!-- Quatre chiffres, pas sept : ce qui décide ici est
-                             l'accès effectif et le nombre d'exceptions, pas la
-                             ventilation manuelle/profil que la ligne rappelle déjà. -->
-                        <div class="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                            <div class="rounded-lg border border-emerald-200 bg-emerald-50/40 px-3 py-2 dark:border-emerald-900 dark:bg-emerald-950/15"><p class="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Accès effectifs</p><p class="mt-0.5 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{{ permissionSummary.effectiveAllowed }}</p></div>
-                            <div class="rounded-lg border border-red-200 bg-red-50/30 px-3 py-2 dark:border-red-900 dark:bg-red-950/15"><p class="text-[10px] font-bold uppercase text-destructive">Interdits effectifs</p><p class="mt-0.5 text-lg font-bold tabular-nums text-destructive">{{ permissionSummary.effectiveDenied }}</p></div>
-                            <div class="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2"><p class="text-[10px] font-bold uppercase text-primary">Exceptions du compte</p><p class="mt-0.5 text-lg font-bold tabular-nums text-primary">{{ permissionSummary.exceptions }}</p></div>
-                            <div class="rounded-lg border border-border px-3 py-2"><p class="text-[10px] font-bold uppercase text-muted-foreground">Catalogue</p><p class="mt-0.5 text-lg font-bold tabular-nums text-foreground">{{ permissionSummary.total }}</p></div>
-                        </div>
-                    </header>
-
-                    <!-- Ce que le rôle choisi accorde déjà, sans rien cocher : le socle
-                         s'applique automatiquement et suit ses mises à jour futures
-                         (ADR-064). Les exceptions ne servent qu'à s'en écarter. -->
-                    <div v-if="selectedRole" class="flex items-start gap-2.5 border-b border-emerald-200 bg-emerald-50/60 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/15" role="status">
-                        <ShieldCheck class="mt-0.5 h-4.5 w-4.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
-                        <p class="text-xs leading-5 text-emerald-900 dark:text-emerald-100">
-                            <strong>Le rôle « {{ selectedRole.name }} » accorde automatiquement {{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }} cohérente{{ selectedRole.permissions.length > 1 ? 's' : '' }} avec ce métier</strong>
-                            — affichées « Inclus dans le rôle ». Rien à cocher : elles restent à jour si le socle du rôle évolue.
-                            <template v-if="selectedProfile"> Le profil « {{ selectedProfile.name }} » y ajoute ses permissions recommandées.</template>
-                            Utilisez « Autoriser » ou « Interdire » seulement pour une exception propre à ce compte.
-                        </p>
-                    </div>
-
-                    <FormError v-if="form.errors.permission_overrides" class="mx-4 mt-4">{{ form.errors.permission_overrides }}</FormError>
-                    <p v-if="!canAssignPermissions" class="m-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">Vous n'avez pas la permission <code>permissions.assign</code> : le compte utilisera uniquement le socle de son rôle.</p>
-
-                    <div v-if="canAssignPermissions && permissionsDirty" class="flex flex-col gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/25 sm:flex-row sm:items-center sm:justify-between" role="status" aria-live="polite">
-                        <div class="flex items-start gap-2.5">
-                            <TriangleAlert class="mt-0.5 h-4.5 w-4.5 shrink-0 text-amber-600 dark:text-amber-300" />
-                            <div>
-                                <p class="text-sm font-bold text-amber-900 dark:text-amber-100">Brouillon uniquement — les accès réels n’ont pas encore changé</p>
-                                <p class="mt-0.5 text-xs leading-5 text-amber-800 dark:text-amber-200">{{ permissionChangesCount }} modification{{ permissionChangesCount > 1 ? 's' : '' }} préparée{{ permissionChangesCount > 1 ? 's' : '' }}. Enregistrez pour appliquer les interdictions sur {{ selectedSite?.site.name }}.</p>
-                            </div>
-                        </div>
-                        <Button type="submit" variant="primary" size="sm" class="shrink-0" :disabled="form.processing">
-                            <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : `Enregistrer maintenant (${permissionChangesCount})` }}
-                        </Button>
-                    </div>
-
-                    <!-- Largeur de la colonne « Rechercher / Catégories » ajustable :
-                         glisser la barre, flèches du clavier, double-clic pour revenir.
-                         Choix propre au poste ; empilé sur écran étroit. -->
-                    <ResizableSplit
-                        v-if="canAssignPermissions"
-                        class="min-h-[34rem]"
-                        storage-key="rivo:super-admin:permission-split"
-                        :default-ratio="0.24"
-                        :min-ratio="0.16"
-                        :max-ratio="0.45"
-                        start-label="panneau des catégories"
-                        end-label="panneau des permissions"
-                    >
-                        <template #start>
-                            <aside class="h-full border-b border-border bg-muted/30 p-4" aria-label="Navigation des catégories de permissions">
-                                <FormField as="div" label="Rechercher">
-                                    <IconInput v-model="permissionSearch" :icon="Search" type="search" placeholder="Libellé, code, catégorie…" autocomplete="off" />
-                                </FormField>
-
-                                <div class="mt-4">
-                                    <p class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Catégories</p>
-                                    <PermissionCategoryNav
-                                        v-model="selectedPermissionCategory"
-                                        :groups="permissionNavGroups"
-                                        marked-title="Catégorie personnalisée"
-                                    >
-                                        <template #footer>
-                                            <button
-                                                type="button"
-                                                :class="cn(
-                                                    'flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-start text-xs font-bold transition-colors',
-                                                    selectedPermissionCategory === '__sensitive__'
-                                                        ? 'border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-200'
-                                                        : 'border-amber-200 bg-card text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/30',
-                                                )"
-                                                @click="selectedPermissionCategory = '__sensitive__'; permissionFilter = 'all'"
-                                            >
-                                                <TriangleAlert class="h-4 w-4 shrink-0" /><span class="flex-1">Permissions sensibles</span><span class="tabular-nums">{{ sensitivePermissionCount }}</span>
-                                            </button>
-                                        </template>
-                                    </PermissionCategoryNav>
-                                </div>
-
-                                <div class="mt-4 border-t border-border pt-4">
-                                    <FormField as="div" label="Afficher">
-                                        <Select v-model="permissionFilter" class="h-9 w-full" :options="permissionFilterOptions" />
-                                    </FormField>
-                                </div>
-                            </aside>
-                        </template>
-                        <template #end>
-                            <div class="min-w-0">
-                                <div class="border-b border-border px-4 py-4">
-                                    <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                                        <div>
-                                            <div class="flex items-center gap-2">
-                                                <h3 class="text-base font-bold text-foreground">{{ currentCategoryLabel }}</h3>
-                                                <Badge variant="outline" class="px-2 py-0 text-[10px] tabular-nums">{{ currentPermissions.length }}</Badge>
-                                            </div>
-                                            <p class="mt-1 text-xs text-muted-foreground">Le rôle définit le socle. Seules les exceptions modifient l’accès de ce compte.</p>
-                                        </div>
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <div class="inline-flex rounded-lg bg-muted p-1" aria-label="Mode d’affichage">
-                                                <button type="button" :class="cn('rounded-md px-3 py-1.5 text-xs font-bold transition-colors', permissionMode === 'simple' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')" :aria-pressed="permissionMode === 'simple'" @click="permissionMode = 'simple'">Simple</button>
-                                                <button type="button" :class="cn('rounded-md px-3 py-1.5 text-xs font-bold transition-colors', permissionMode === 'advanced' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')" :aria-pressed="permissionMode === 'advanced'" @click="permissionMode = 'advanced'">Avancé</button>
-                                            </div>
-                                            <Select v-model="permissionSort" class="h-9 w-40" :options="permissionSortOptions" aria-label="Trier les permissions" />
-                                        </div>
-                                    </div>
-
-                                    <div class="mt-3 flex flex-wrap items-center gap-2">
-                                        <span class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Action sur la vue :</span>
-                                        <Button type="button" size="sm" variant="outline" class="h-7 px-2.5 text-[11px]" :disabled="!currentPermissions.length" @click="openBulkAction('')">Tout hériter</Button>
-                                        <Button type="button" size="sm" variant="outline" class="h-7 border-emerald-200 px-2.5 text-[11px] text-emerald-700 dark:border-emerald-900 dark:text-emerald-300" :disabled="!currentPermissions.length" @click="openBulkAction('allow')">Tout autoriser</Button>
-                                        <Button type="button" size="sm" variant="danger-outline" class="h-7 px-2.5 text-[11px]" :disabled="!currentPermissions.length" @click="openBulkAction('deny')">Tout interdire</Button>
-                                        <span class="text-[11px] text-muted-foreground">{{ currentPermissions.length }} permission{{ currentPermissions.length > 1 ? 's' : '' }} filtrée{{ currentPermissions.length > 1 ? 's' : '' }}</span>
-                                    </div>
-                                </div>
-
-                                <div v-if="currentPermissions.length === 0" class="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
-                                    <span class="grid h-11 w-11 place-items-center rounded-full bg-muted text-muted-foreground"><Search class="h-5 w-5" /></span>
-                                    <p class="mt-3 text-sm font-bold text-foreground">Aucune permission dans cette vue</p>
-                                    <p class="mt-1 text-xs text-muted-foreground">Modifiez la recherche, le filtre ou choisissez une autre catégorie.</p>
-                                </div>
-
-                                <div v-else-if="permissionMode === 'simple'" class="p-3 sm:p-4">
-                                    <details v-for="group in functionalPermissionGroups" :key="group.label" class="group mb-2 overflow-hidden rounded-lg border border-border last:mb-0" open>
-                                        <summary class="flex cursor-pointer list-none items-center gap-2 bg-muted/50 px-4 py-2.5 text-xs font-bold text-foreground marker:hidden">
-                                            <ShieldCheck class="h-4 w-4 text-primary" /><span class="flex-1">{{ group.label }}</span><span class="font-normal text-muted-foreground">{{ group.permissions.length }} droit{{ group.permissions.length > 1 ? 's' : '' }}</span><ChevronDown class="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
-                                        </summary>
-                                        <PermissionAccessRow
-                                            v-for="permission in group.permissions"
-                                            :key="permission.id"
-                                            :permission="permission"
-                                            :state="permissionEffect(permission)"
-                                            :role-granted="roleGrants(permission)"
-                                            :effective-granted="effectivelyGranted(permission)"
-                                            :sensitive="isSensitivePermission(permission)"
-                                            :source-label="permissionSourceLabel(permission)"
-                                            @change="requestPermissionChange(permission, $event)"
-                                        />
-                                    </details>
-                                </div>
-
-                                <div v-else class="p-3 sm:p-4">
-                                    <div class="overflow-hidden rounded-lg border border-border">
-                                        <PermissionAccessRow
-                                            v-for="permission in currentPermissions"
-                                            :key="permission.id"
-                                            :permission="permission"
-                                            :state="permissionEffect(permission)"
-                                            :role-granted="roleGrants(permission)"
-                                            :effective-granted="effectivelyGranted(permission)"
-                                            :sensitive="isSensitivePermission(permission)"
-                                            :source-label="permissionSourceLabel(permission)"
-                                            advanced
-                                            @change="requestPermissionChange(permission, $event)"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </ResizableSplit>
-                </Card>
-
                 <footer class="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div class="flex flex-wrap items-center gap-3">
                         <Button type="button" variant="outline" :disabled="form.processing" @click="closeForm">Annuler</Button>
-                        <Button v-if="step === 3 && permissionsDirty" type="button" variant="link" size="sm" @click="restoreUnsavedPermissions">Annuler les changements de permissions</Button>
                     </div>
-                    <p v-if="step === 3 && permissionsDirty" class="flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-300" role="status"><TriangleAlert class="h-3.5 w-3.5" />{{ permissionChangesCount }} modification{{ permissionChangesCount > 1 ? 's' : '' }} non enregistrée{{ permissionChangesCount > 1 ? 's' : '' }}</p>
                     <div class="flex flex-col-reverse gap-3 sm:flex-row">
                         <Button v-if="step > 1" type="button" variant="outline" :disabled="form.processing" @click="prevStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
                         <Button v-if="isEditing && step === 1" type="button" variant="outline" :disabled="!step1Valid || form.processing" @click="submitUser">
                             <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : 'Mettre à jour les informations' }}
                         </Button>
-                        <Button v-if="step < 3" type="button" variant="primary" :disabled="(step === 1 && !step1Valid) || (step === 2 && !step2Valid)" @click="nextStep">{{ step === 1 && isEditing ? 'Continuer vers le rôle' : 'Suivant' }}<ArrowRight class="h-4 w-4" /></Button>
-                        <Button v-else type="submit" variant="primary" :disabled="form.processing">
-                            <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : (isEditing ? (permissionChangesCount ? `Enregistrer (${permissionChangesCount})` : 'Enregistrer') : 'Créer le compte') }}
+                        <Button v-if="step < 2" type="button" variant="primary" :disabled="!step1Valid" @click="nextStep">{{ isEditing ? 'Continuer vers le rôle' : 'Suivant' }}<ArrowRight class="h-4 w-4" /></Button>
+                        <Button v-else type="submit" variant="primary" :disabled="form.processing || !step2Valid">
+                            <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : (isEditing ? 'Enregistrer' : 'Créer le compte') }}
                         </Button>
                     </div>
                 </footer>
             </form>
         </template>
-
-        <Dialog
-            :open="showAccessPreview"
-            size="xl"
-            :title="`Accès effectifs de ${form.name}`"
-            :description="`Aperçu calculé : interdiction individuelle, puis autorisation individuelle, puis socle du rôle ${selectedRole?.name ?? ''}.`"
-            body-class="max-h-[60vh] overflow-y-auto"
-            @update:open="showAccessPreview = $event"
-        >
-            <template #icon>
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><ShieldCheck class="h-5 w-5" /></span>
-            </template>
-
-            <div class="mb-4 grid grid-cols-3 gap-2">
-                <div class="rounded-lg border border-border px-3 py-2"><p class="text-[10px] font-bold uppercase text-muted-foreground">Rôle</p><p class="mt-0.5 text-sm font-bold text-foreground">{{ selectedRole?.name }}</p></div>
-                <div class="rounded-lg border border-border px-3 py-2"><p class="text-[10px] font-bold uppercase text-muted-foreground">Autorisées</p><p class="mt-0.5 text-sm font-bold text-emerald-600">{{ permissionSummary.effectiveAllowed }} / {{ permissionSummary.total }}</p></div>
-                <div class="rounded-lg border border-border px-3 py-2"><p class="text-[10px] font-bold uppercase text-muted-foreground">Exceptions</p><p class="mt-0.5 text-sm font-bold text-primary">{{ permissionSummary.exceptions }}</p></div>
-            </div>
-
-            <div class="grid gap-3 md:grid-cols-2">
-                <article v-for="group in effectivePermissionGroups" :key="group.key" class="overflow-hidden rounded-lg border border-border">
-                    <header class="flex items-center justify-between bg-muted/50 px-3 py-2"><h3 class="text-xs font-bold text-foreground">{{ group.label }}</h3><span class="text-[10px] tabular-nums text-muted-foreground">{{ group.allowed.length }} / {{ group.total }}</span></header>
-                    <ul class="divide-y divide-border/60">
-                        <li v-for="permission in group.allowed" :key="`allowed-${permission.id}`" class="flex items-center gap-2 px-3 py-1.5 text-xs text-foreground"><CircleCheck class="h-3.5 w-3.5 shrink-0 text-emerald-500" /><span class="min-w-0 flex-1 truncate">{{ permission.label }}</span></li>
-                        <li v-for="permission in group.denied" :key="`denied-${permission.id}`" class="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground"><CircleX class="h-3.5 w-3.5 shrink-0 text-red-400" /><span class="min-w-0 flex-1 truncate">{{ permission.label }}</span></li>
-                    </ul>
-                </article>
-            </div>
-
-            <template #footer>
-                <Button type="button" variant="primary" @click="showAccessPreview = false">Fermer</Button>
-            </template>
-        </Dialog>
-
-        <Dialog
-            :open="pendingPermissionChange !== null"
-            title="Autoriser cette permission sensible ?"
-            @update:open="pendingPermissionChange = $event ? pendingPermissionChange : null"
-        >
-            <template #icon>
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/35 dark:text-amber-300"><TriangleAlert class="h-5 w-5" /></span>
-            </template>
-            <p class="text-sm leading-5 text-muted-foreground"><strong class="text-foreground">{{ pendingPermissionChange?.permission.label }}</strong> permet une opération critique. Cette exception sera appliquée uniquement à ce compte et auditée lors de l’enregistrement.</p>
-            <code class="mt-2 block rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{{ pendingPermissionChange?.permission.name }}</code>
-            <template #footer>
-                <Button type="button" variant="outline" @click="pendingPermissionChange = null">Annuler</Button>
-                <Button type="button" variant="primary" @click="confirmPermissionChange">Autoriser la permission</Button>
-            </template>
-        </Dialog>
-
-        <Dialog
-            :open="pendingBulkAction !== null"
-            title="Confirmer l’action groupée ?"
-            @update:open="pendingBulkAction = $event ? pendingBulkAction : null"
-        >
-            <template #icon>
-                <span :class="cn(
-                    'grid h-10 w-10 shrink-0 place-items-center rounded-full',
-                    pendingBulkAction?.effect === 'deny' ? 'bg-red-50 text-destructive dark:bg-red-950/35'
-                        : pendingBulkAction?.effect === 'allow' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/35'
-                            : 'bg-muted text-muted-foreground',
-                )">
-                    <component :is="pendingBulkAction?.effect === 'deny' ? ShieldOff : pendingBulkAction?.effect === 'allow' ? ShieldCheck : RotateCcw" class="h-5 w-5" />
-                </span>
-            </template>
-            <p class="text-sm leading-5 text-muted-foreground">
-                <strong class="text-foreground">{{ pendingBulkAction?.permissions.length }} permission{{ pendingBulkAction?.permissions.length > 1 ? 's' : '' }}</strong>
-                de « {{ pendingBulkAction?.scope }} » passeront à l’état
-                <strong class="text-foreground">{{ pendingBulkAction?.effect === 'allow' ? 'Autoriser' : pendingBulkAction?.effect === 'deny' ? 'Interdire' : 'Selon le rôle' }}</strong>.
-            </p>
-            <p v-if="pendingBulkAction?.effect === 'allow' && bulkActionHasSensitive" class="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
-                <TriangleAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />Cette sélection contient des permissions sensibles. Vérifiez l’aperçu des accès avant l’enregistrement.
-            </p>
-            <template #footer>
-                <Button type="button" variant="outline" @click="pendingBulkAction = null">Annuler</Button>
-                <Button type="button" :variant="pendingBulkAction?.effect === 'deny' ? 'destructive' : 'primary'" @click="confirmBulkAction">Appliquer au brouillon</Button>
-            </template>
-        </Dialog>
 
         <Dialog
             :open="confirmingDiscard"
@@ -1480,25 +789,10 @@ const pageTitle = computed(() => {
             <template #icon>
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/35 dark:text-amber-300"><TriangleAlert class="h-5 w-5" /></span>
             </template>
-            <p class="text-sm leading-5 text-muted-foreground"><strong class="text-foreground">{{ permissionChangesCount }} modification{{ permissionChangesCount > 1 ? 's' : '' }} de permission{{ permissionChangesCount > 1 ? 's' : '' }}</strong> n’{{ permissionChangesCount > 1 ? 'ont' : 'a' }} pas été envoyée{{ permissionChangesCount > 1 ? 's' : '' }} au site. Si vous quittez, le compte garde exactement ses accès actuels.</p>
+            <p class="text-sm leading-5 text-muted-foreground">Les informations saisies n’ont pas été envoyées au site. Si vous quittez, le compte reste exactement tel qu’il est aujourd’hui.</p>
             <template #footer>
                 <Button type="button" variant="outline" @click="confirmDiscard">Quitter sans enregistrer</Button>
                 <Button type="button" variant="primary" @click="confirmingDiscard = false">Continuer la modification</Button>
-            </template>
-        </Dialog>
-
-        <Dialog
-            :open="confirmingRoleDiscard"
-            title="Quitter le socle sans enregistrer ?"
-            description="Les modifications préparées n’ont pas été envoyées au site. Le socle du rôle reste alors exactement tel qu’il est aujourd’hui."
-            @update:open="confirmingRoleDiscard = $event"
-        >
-            <template #icon>
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/35 dark:text-amber-300"><TriangleAlert class="h-5 w-5" /></span>
-            </template>
-            <template #footer>
-                <Button type="button" variant="outline" @click="confirmRoleDiscard">Quitter sans enregistrer</Button>
-                <Button type="button" variant="primary" @click="confirmingRoleDiscard = false">Continuer la modification</Button>
             </template>
         </Dialog>
 

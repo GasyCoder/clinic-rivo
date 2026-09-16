@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { TriangleAlert } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
+import { permissionLabel } from '@/utilities/permissionWorkspace';
 import { cn } from '@/lib/cn';
 
 /**
@@ -59,7 +60,7 @@ const choiceClass = (value) => {
     <div :class="rowClass">
         <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-1.5">
-                <p class="text-sm font-semibold text-foreground">{{ permission.label }}</p>
+                <p class="text-sm font-semibold text-foreground">{{ permissionLabel(permission) }}</p>
                 <Badge v-if="sensitive" variant="warning" class="px-1.5 py-0 text-[10px] uppercase tracking-wide">
                     <TriangleAlert class="h-3 w-3" />Sensible
                 </Badge>
@@ -77,8 +78,8 @@ const choiceClass = (value) => {
         </div>
 
         <fieldset class="min-w-0" :disabled="disabled">
-            <legend class="sr-only">Accès pour {{ permission.label }}</legend>
-            <div class="inline-flex w-full rounded-lg border border-border bg-muted p-0.5 sm:w-auto" role="radiogroup" :aria-label="`Accès pour ${permission.label}`">
+            <legend class="sr-only">Accès pour {{ permissionLabel(permission) }}</legend>
+            <div class="inline-flex w-full rounded-lg border border-border bg-muted p-0.5 sm:w-auto" role="radiogroup" :aria-label="`Accès pour ${permissionLabel(permission)}`">
                 <button
                     v-for="choice in choices"
                     :key="choice.value || 'inherit'"

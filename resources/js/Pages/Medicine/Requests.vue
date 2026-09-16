@@ -32,7 +32,18 @@ const props = defineProps({
     requests: { type: Array, default: () => [] },
     counts: { type: Object, default: () => ({}) },
     filters: { type: Object, default: () => ({}) },
+    /** Ce que le compte a le droit de voir ici : `{ lab, imaging }`. */
+    can: { type: Object, default: () => ({ lab: true, imaging: true }) },
 });
+
+/**
+ * Ouvrir l'écran et voir son contenu sont deux droits distincts : la porte
+ * est `paraclinical_requests.view`, les sections restent gouvernées par les
+ * demandes d'analyses et d'imagerie. Sans aucune des deux, la liste est vide
+ * — et un vide muet se lit « aucune demande », c'est-à-dire du travail
+ * terminé, alors que c'est un droit qui manque.
+ */
+const nothingVisible = computed(() => ! props.can.lab && ! props.can.imaging);
 
 /**
  * Trois vues, pas un onglet par statut.
@@ -374,10 +385,19 @@ const submitWithdraw = () => {
 
         <Card v-else class="px-4 py-12 text-center">
             <FileSearch class="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
-            <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucune demande pour ce filtre</p>
-            <p class="mt-1 text-xs text-muted-foreground">
-                Les analyses et examens d’imagerie demandés en consultation apparaissent ici.
-            </p>
+            <template v-if="nothingVisible">
+                <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucune section visible avec vos droits</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                    Cet écran réunit les analyses et l’imagerie. Il vous manque
+                    « Voir les demandes d’analyses » ou « Voir les demandes d’imagerie ».
+                </p>
+            </template>
+            <template v-else>
+                <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucune demande pour ce filtre</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                    Les analyses et examens d’imagerie demandés en consultation apparaissent ici.
+                </p>
+            </template>
         </Card>
 
         <!-- La feuille de compte rendu. Elle ne réécrit jamais : le serveur

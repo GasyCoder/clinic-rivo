@@ -233,6 +233,41 @@ métier principal sans donner directement de permission. Les recommandations du
 profil sont copiées explicitement comme permissions individuelles, modifiables
 compte par compte. Voir ADR-033.
 
+Le référentiel des rôles d'un site est administrable depuis le portail
+(ADR-100) : `roles.create`, `roles.update`, `roles.archive` et
+`roles.restore`, réservées au `SUPER_ADMIN` central, passent par l'API du
+site qui revérifie la permission et audite l'acteur distant. Le `code` d'un
+rôle est son identité et ne change jamais — `RolePermissionSeeder::GRANTS`,
+les affectations et l'audit le désignent par ce code. `roles` est Soft Delete
+(`deleted_at`/`deleted_by`/`delete_reason`) : un rôle encore porté par un
+compte ne s'archive pas — `User::role()` ne renvoie plus un rôle archivé, et
+ses titulaires perdraient tout leur socle — et un code pris par un rôle
+archivé se restaure au lieu d'être recréé. **Aucune permission ne se crée
+depuis un écran** : elle n'a d'effet que si le code la vérifie, et une
+permission inventée ne serait qu'un interrupteur qui ne commande rien.
+
+Le **catalogue des permissions** d'un site est lui aussi administrable
+depuis le portail (ADR-101) : `permissions.create`, `permissions.update` et
+`permissions.delete`, réservées au `SUPER_ADMIN` central. Le `name` d'une
+permission ne change jamais — le code l'écrit en clair (`can:patients.view`)
+— et son retrait est physique, refusé dès qu'un rôle l'accorde, qu'un compte
+porte une exception dessus, ou que le code la vérifie quelque part : la
+supprimer ne retirerait pas le contrôle, elle le rendrait impossible à
+satisfaire. `PermissionUsageScanner` calcule cet usage **depuis les sources**
+(routes `can:`, appels serveur, `can()` et `permission:` des écrans ; jamais
+`database/`, qui cite tous les noms) et l'écran affiche « vérifiée par
+l'application » ou « pas encore vérifiée » : créer une permission crée le
+mot, pas le contrôle.
+
+Le portail présente deux écrans distincts : `/super-admin/workspaces/users`
+(comptes : identité, rôle, profil, activation) et
+`/super-admin/workspaces/roles` (socle des rôles, exceptions individuelles,
+référentiel des rôles). Les exceptions d'un compte ont leur propre chemin
+d'écriture (`UpdateUserPermissionOverridesAction`) : le formulaire de compte
+n'envoie plus `permission_overrides`, et la clé omise laisse les exceptions
+intactes plutôt que de les effacer à chaque correction d'un nom. La
+résolution reste `DENY individuel > ALLOW individuel > socle du rôle`.
+
 Les utilisateurs sont locaux à chaque base/site. Un compte actif doit posséder
 un rôle valide. Les comptes ne sont jamais supprimés physiquement : ils sont
 désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
@@ -672,6 +707,15 @@ diagnostics restent append-only. Refusé dès que `Episode.status` est `CLOSED`
 nulle part ce qu'elles deviendraient. Permission dédiée
 `consultations.reopen`, accordée à `MEDICINE` — écrire dans une consultation
 ouverte et revenir sur une consultation conclue ne sont pas la même autorité.
+
+L'espace **« Demandes d'examens »** (`/medicine/demandes-examens`) a sa
+propre permission d'accès, `paraclinical_requests.view` (ADR-100) : il réunit
+analyses et imagerie, et sa route n'exigeait que `laboratory_orders.view` —
+un compte n'ayant que l'imagerie recevait un 403 devant un écran que le
+contrôleur savait lui servir. `laboratory_orders.view` et
+`imaging_orders.view` continuent de gouverner ce qui s'y affiche, section par
+section ; sans aucune des deux, l'écran le dit au lieu de présenter une liste
+vide qui se lirait « aucune demande ».
 
 Le compte rendu d'un examen d'imagerie se saisit depuis **« Demandes
 d'examens »** (`/medicine/demandes-examens`), en éditeur riche assaini par

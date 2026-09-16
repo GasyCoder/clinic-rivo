@@ -221,6 +221,72 @@ class ParaclinicalRequestDirectoryTest extends TestCase
         )->fresh('items');
     }
 
+    /**
+     * Ouvrir l'écran et voir son contenu sont deux droits distincts.
+     *
+     * La route n'exigeait que « Voir les demandes d'analyses » : un compte
+     * n'ayant que l'imagerie recevait un 403 devant un écran que le
+     * contrôleur savait pourtant lui servir. La porte est désormais
+     * `paraclinical_requests.view`; les deux permissions existantes
+     * continuent de décider, section par section, de ce qui s'affiche.
+     */
+    public function test_the_screen_opens_without_the_laboratory_permission(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $this->labRequest($orientation, $doctor, 'NFS');
+
+        $radiologist = $this->accountWith([
+            'paraclinical_requests.view', 'imaging_orders.view',
+        ]);
+
+        $this->actingAs($radiologist)
+            ->get('/medicine/demandes-examens')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('can.lab', false)
+                ->where('can.imaging', true)
+                // L'analyse existe, mais ce compte n'a pas le droit de la voir.
+                ->has('requests', 0));
+    }
+
+    /** Sans la porte, l'écran reste fermé — la liste n'est pas seulement vide. */
+    public function test_the_screen_is_refused_without_its_own_permission(): void
+    {
+        $this->actingAs($this->accountWith(['laboratory_orders.view', 'imaging_orders.view']))
+            ->get('/medicine/demandes-examens')
+            ->assertForbidden();
+    }
+
+    /**
+     * Un vide muet se lit « aucune demande », c'est-à-dire du travail
+     * terminé. L'écran doit pouvoir dire que c'est un droit qui manque.
+     */
+    public function test_the_screen_says_when_no_section_is_visible(): void
+    {
+        $this->actingAs($this->accountWith(['paraclinical_requests.view']))
+            ->get('/medicine/demandes-examens')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('can.lab', false)
+                ->where('can.imaging', false));
+    }
+
+    /** @param array<int, string> $permissions */
+    private function accountWith(array $permissions): User
+    {
+        $role = Role::query()->create([
+            'code' => 'TEST_'.fake()->unique()->numerify('####'),
+            'name' => 'Rôle de test',
+        ]);
+
+        foreach ($permissions as $name) {
+            $role->permissions()->syncWithoutDetaching([Permission::query()->firstOrCreate(['name' => $name])->id]);
+        }
+
+        return User::factory()->create(['role_id' => $role->id]);
+    }
+
     private function doctor(): User
     {
         $role = Role::query()->firstOrCreate(['code' => 'MEDICINE'], ['name' => 'Médecine']);
@@ -228,6 +294,7 @@ class ParaclinicalRequestDirectoryTest extends TestCase
         foreach ([
             'medical_record.view', 'consultations.view', 'consultations.create', 'consultations.update',
             'patients.view', 'care.view', 'vitals.view',
+            'paraclinical_requests.view',
             'laboratory_orders.create', 'laboratory_orders.view',
             'imaging_orders.create', 'imaging_orders.view',
             'diagnoses.view', 'prescriptions.view',

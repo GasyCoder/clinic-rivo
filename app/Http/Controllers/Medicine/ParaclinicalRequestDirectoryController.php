@@ -98,6 +98,11 @@ class ParaclinicalRequestDirectoryController extends Controller
             'requests' => $visible,
             'counts' => $counts,
             'filters' => ['filter' => $filter, 'q' => $search],
+            // `paraclinical_requests.view` ouvre l'écran ; ces deux-là
+            // décident de ce qu'on y voit. Sans elles la liste est vide, et
+            // un vide muet se lit « aucune demande » — l'écran doit dire que
+            // c'est un droit qui manque, pas du travail terminé.
+            'can' => ['lab' => $canViewLab, 'imaging' => $canViewImaging],
         ]);
     }
 

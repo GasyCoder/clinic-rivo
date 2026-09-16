@@ -6029,3 +6029,323 @@ validées après une version du CDC.
 
 Aucune permission, route, validation ou règle métier n'est touchée par cette
 décision.
+
+---
+
+# ADR-100 — Référentiel des rôles administrable, écrans Comptes et Rôles séparés
+
+**Status:** ACCEPTED (2026-09-16 — exigences explicites du propriétaire)
+
+**Complète l'ADR-064** (le socle d'un rôle éditable depuis le portail) et
+**amende l'ADR-033** sur le seul point du lieu où se règlent les exceptions
+individuelles. Aucune règle de résolution des droits n'est modifiée :
+
+```text
+DENY individuel  >  ALLOW individuel  >  socle du rôle
+```
+
+## Le constat
+
+Trois choses ont été signalées le même jour.
+
+**Un écran n'avait aucune permission à lui.** `/medicine/demandes-examens`
+réunit les demandes d'analyses **et** d'imagerie, mais sa route n'exigeait
+que `laboratory_orders.view`. Un compte n'ayant que l'imagerie recevait un
+403 devant un écran que le contrôleur savait pourtant lui servir — il y
+filtre déjà chaque section par sa permission.
+
+**Un seul écran portait deux métiers.** `/super-admin/workspaces/roles`
+rendait `SuperAdmin/Users/Index.vue` : création de comptes, socle des rôles
+et exceptions individuelles au même endroit. Deux gestes de portée très
+différente s'y croisaient — créer un compte touche une personne, modifier un
+socle touche tous ceux qui exercent le métier.
+
+**Le référentiel des rôles restait figé dans le code.** L'ADR-064 avait sorti
+le *socle* d'un rôle de `RolePermissionSeeder`, mais le rôle lui-même vivait
+dans `RoleSeeder` : ajouter « Kinésithérapeute » exigeait un déploiement.
+
+## Une permission par écran quand l'écran a deux sources
+
+`paraclinical_requests.view` ouvre l'espace « Demandes d'examens ». Les deux
+permissions existantes continuent de gouverner ce qu'on y voit, section par
+section :
+
+```text
+paraclinical_requests.view   ouvrir l'écran
+laboratory_orders.view       y voir les analyses
+imaging_orders.view          y voir l'imagerie
+```
+
+Une route ne peut exiger qu'une capacité — même raison qui avait produit
+`view-pharmacy-catalog` pour la page Médicaments & stock (ADR-098). Sans
+aucune des deux permissions de contenu, l'écran s'ouvre et **dit** qu'il
+manque un droit : un vide muet se lit « aucune demande », c'est-à-dire du
+travail terminé.
+
+L'attribution reproduit l'accès qui existait déjà, jamais plus large : la
+migration accorde la nouvelle permission à tout rôle qui possédait l'une des
+deux, et à tout compte dont l'accès venait d'un `ALLOW` nominatif. Un `DENY`
+n'est pas recopié — retirer les analyses à quelqu'un n'a jamais voulu dire
+lui fermer l'écran. Enregistrée par migration et non seulement dans
+`PermissionSeeder`, puisqu'un site en production ne rejoue plus ce seeder
+(ADR-064).
+
+## Deux écrans, une seule logique
+
+```text
+/super-admin/workspaces/users    comptes : identité, rôle, profil, activation
+/super-admin/workspaces/roles    socle des rôles, exceptions par compte,
+                                 référentiel des rôles
+```
+
+Les exceptions individuelles rejoignent les rôles — choix explicite du
+propriétaire : tout ce qui est *droit* se règle au même endroit, et la fiche
+d'un compte ne porte plus que son identité et son rôle.
+
+Conséquence côté serveur : le formulaire de compte **n'envoie plus**
+`permission_overrides`. La clé omise laisse les exceptions intactes
+(`UpdateUserAction` teste sa présence, jamais sa valeur) ; envoyée vide, elle
+les aurait toutes effacées à chaque correction d'un nom ou d'un e-mail. Les
+exceptions ont donc leur propre chemin d'écriture,
+`UpdateUserPermissionOverridesAction` et
+`PUT /api/v1/super-admin/roles/accounts/{userUuid}/permissions` : l'écran qui
+les règle ne modifie ni l'identité ni le rôle, il ne doit pas avoir à les
+réexpédier. Le contrat de l'ADR-033 est inchangé — seules les lignes `MANUAL`
+sont remplacées, les lignes `PROFILE` ne sont pas touchées par ce chemin.
+
+L'application des permissions recommandées d'un profil n'est plus « préparée »
+dans le navigateur : elle reste celle du serveur, qui les applique dès que le
+profil change sans jamais écraser une décision individuelle (ADR-033).
+
+L'ancienne URL `/workspaces/roles` reste valide et mène aux rôles.
+
+## Créer un rôle, jamais une permission
+
+Un rôle créé fonctionne immédiatement : on lui coche un socle et on y affecte
+des comptes. Une permission, elle, n'a d'effet que si le code la vérifie
+quelque part — une permission inventée depuis un écran ne serait qu'un
+interrupteur qui ne commande rien, affiché comme s'il protégeait quelque
+chose. Le catalogue des permissions reste donc le vocabulaire du code, étendu
+par migration quand une fonctionnalité en a besoin.
+
+```text
+roles.create    créer un rôle et son socle de départ
+roles.update    corriger son libellé
+roles.archive   le retirer des affectations possibles
+roles.restore   le ramener tel qu'il était
+```
+
+Accordées par défaut au seul `SUPER_ADMIN` du portail central. Comme tout le
+domaine catalogue, l'écriture passe par l'API du site
+(`/api/v1/super-admin/roles*`), qui revérifie la permission et conserve
+l'identité UUID/nom de l'acteur distant dans son audit (ADR-042, ADR-098) —
+jamais un accès SQL depuis `admin.rivo.mg` (ADR-004, ADR-027).
+
+Le socle d'un rôle créé est **celui réellement transmis**. L'écran peut
+proposer « reprendre le socle de MEDICINE », mais ce qui arrive au serveur
+est la liste cochée : aucun rôle n'est silencieusement lié à un autre.
+
+## Le code est l'identité d'un rôle
+
+`code` ne change jamais après la création. `RolePermissionSeeder::GRANTS`,
+les affectations et l'audit désignent un rôle par ce code, et MEDICINE
+désigne le même métier sur les trois sites — un UUID local n'aurait ici
+aucun sens inter-site (ADR-005). Le libellé, lui, se corrige librement.
+
+Le format est contraint (`^[A-Z][A-Z0-9_]{1,39}$`, normalisé en majuscules) :
+un code avec accent ou espace serait irrattrapable une fois écrit dans un
+seeder ou une trace d'audit.
+
+## Archiver, jamais supprimer
+
+`roles` reçoit `deleted_at`, `deleted_by` et `delete_reason` (ADR-009). Un
+rôle a porté les droits de tout compte qui l'a exercé : sa suppression
+physique effacerait le sens de cet historique.
+
+Deux refus explicites :
+
+```text
+rôle encore porté par un compte  → archivage refusé, le nombre est nommé
+code déjà pris par un archivé    → création refusée, il faut le restaurer
+```
+
+Le premier n'est pas une précaution d'interface. `User::role()` ne renvoie
+plus un rôle archivé : l'archiver sous les pieds de ses titulaires les
+priverait de tout leur socle d'un coup, sans que rien ne le dise. Les comptes
+désactivés comptent aussi — ils peuvent être réactivés. Pour la même raison,
+`Rule::exists('roles', 'id')` devient `->whereNull('deleted_at')` partout où
+un compte reçoit un rôle.
+
+Un rôle archivé conserve son socle : c'est ce qui rend la restauration
+utilisable sans tout reconfigurer.
+
+**Conséquence de déploiement, constatée le jour même.** Rendre `Role` Soft
+Delete ajoute `roles.deleted_at is null` à *toutes* les lectures du modèle,
+à commencer par `$user->role` dans `HandleInertiaRequests` — c'est-à-dire à
+chaque page, pour chaque compte. Une base dont la migration n'est pas jouée
+ne rend donc pas un écran cassé : elle rend l'application entière
+inaccessible. La migration doit précéder le déploiement du code sur chaque
+base, portail compris et, en local, sur les bases SQLite du banc de l'ADR-043
+que `composer local:apis` migre au démarrage.
+
+Le rôle `SUPER_ADMIN` n'est ni créé, ni renommé, ni archivé, ni réglé depuis
+cet écran : il reçoit automatiquement toutes les permissions sur le portail
+et aucune sur un site clinique (ADR-025, ADR-027).
+
+Ces rôles ne rejoignent pas la Corbeille multi-sites de l'ADR-061, dont les
+catégories restent celles qu'elle énumère ; ils se restaurent depuis l'écran
+des rôles.
+
+Le rôle obsolète `GUARD` (ADR-033) reste, lui, **physiquement retiré** par
+`ProfessionalProfileSeeder` : il n'est pas archivé par quelqu'un, il est
+obsolète par décision, et le laisser en corbeille occuperait son code en
+proposant de le restaurer.
+
+## Audit
+
+`role.create`, `role.update`, `role.archive`, `role.restore`, avec l'ancienne
+et la nouvelle valeur, et l'identité de l'acteur — locale ou distante, selon
+le mécanisme déjà utilisé pour la gestion des comptes.
+
+---
+
+# ADR-101 — Catalogue des permissions administrable, et usage réel affiché
+
+**Status:** ACCEPTED (2026-09-16 — exigence explicite du propriétaire, qui
+revient sur l'arbitrage « rôles oui, permissions non » de l'ADR-100)
+
+**Complète l'ADR-100** et **l'ADR-007** (permissions dynamiques, convention
+`resource.action`). Aucune règle de résolution des droits n'est modifiée.
+
+## Le conflit, et pourquoi il se résout ainsi
+
+L'ADR-100 refusait la création de permissions : une permission n'a d'effet
+que si le code la vérifie, et une permission inventée depuis un écran n'est
+qu'un interrupteur qui ne commande rien — affiché comme s'il protégeait
+quelque chose. Le propriétaire a maintenu sa demande.
+
+Le fait technique, lui, ne change pas. La réponse retenue n'est donc pas de
+le masquer, mais de le **dire** : le catalogue devient administrable, et
+chaque ligne annonce si l'application la vérifie réellement quelque part.
+
+```text
+Vérifiée par l'application   une route, une règle serveur ou un écran l'interroge
+Pas encore vérifiée          le mot existe, le contrôle n'existe pas encore
+```
+
+Créer une permission reste utile et légitime : préparer un droit avant sa
+fonctionnalité, nommer un besoin métier, réserver un nom pour un module à
+construire. Elle est attribuable immédiatement — elle n'ouvrira simplement
+rien d'ici là, et l'écran le répète dans la fenêtre de création.
+
+## L'état est calculé depuis le code, jamais déclaré
+
+`PermissionUsageScanner` répond « ce nom est-il vérifié ? » à partir des
+sources elles-mêmes. Une liste tenue à la main aurait divergé au premier
+oubli, et un écran qui se trompe sur ce point est pire que pas d'écran du
+tout : il affirme qu'un droit protège quelque chose.
+
+Trois sources, parce qu'une permission peut protéger trois choses :
+
+```text
+la route      ->middleware('can:patients.view'), lue sur la table des routes
+le serveur    $actor->cannot('roles.create'), une Policy, une Action
+l'interface   can('stock.view'), le permission: d'une entrée de menu
+```
+
+Le balayage ne lit pas la même chose des deux côtés, et c'est délibéré. En
+PHP, toute chaîne citée ayant la forme d'un nom compte : `app/` et `routes/`
+ne contiennent pas de texte d'exemple. Côté interface, seuls les endroits qui
+**interrogent** un droit comptent — `can('…')` et les `permission:` du menu
+et des espaces de travail. Sans cette distinction, l'exemple affiché dans le
+champ « Nom » de cet écran suffisait à faire passer une permission pour
+vérifiée, et à en bloquer le retrait ; le cas a été constaté en test avant
+d'être corrigé.
+
+`database/` est hors périmètre, et c'est ce qui rend le balayage utile :
+`PermissionSeeder` cite tous les noms du catalogue, et `RolePermissionSeeder`
+tous ceux des socles — les inclure aurait répondu « vérifiée » pour tout.
+
+Le résultat est mis en cache cinq minutes, et invalidé à la création comme au
+retrait d'une permission.
+
+## Ce que le catalogue permet, et ce qu'il refuse
+
+```text
+permissions.create   ajouter un nom au catalogue du site
+permissions.update   reformuler son libellé
+permissions.delete   retirer un nom que rien ne vérifie et que personne ne détient
+```
+
+Accordées par défaut au seul `SUPER_ADMIN` du portail central, et exécutées
+par l'API du site comme le reste du domaine catalogue (ADR-004, ADR-027).
+
+**Le nom ne change jamais.** Il est ce que le code écrit en clair
+(`can:patients.view`). Le corriger ferait pointer une route, une Policy ou un
+écran vers un nom disparu, et le contrôle passerait silencieusement à
+« personne n'a ce droit ». Sa forme est contrainte à la convention de
+l'ADR-007 et normalisée en minuscules. Seul le libellé — la phrase que lit la
+personne qui coche la case — se reformule.
+
+**Le retrait est physique, et étroitement borné.** Le Soft Delete n'a pas été
+retenu ici, contrairement aux rôles de l'ADR-100 : une permission archivée
+resterait citée par `role_permissions` et `user_permissions` sans apparaître
+nulle part, et le socle d'un rôle deviendrait illisible. L'exception suit
+donc l'esprit de l'ADR-062 pour un compte jamais utilisé :
+
+```text
+accordée à un rôle        -> refus, un socle la désigne
+exception sur un compte   -> refus, une décision la désigne
+vérifiée par le code      -> refus
+```
+
+Le dernier refus est le plus important, et le moins intuitif : supprimer une
+permission que `can:` vérifie ne retire pas le contrôle — elle le rend
+impossible à satisfaire, et l'écran concerné devient inaccessible à tout le
+monde, sans message. L'interface nomme le motif du blocage **avant** le clic
+plutôt qu'après l'envoi.
+
+## Un libellé manquant ne fait tomber aucun écran
+
+Constaté le jour même sur `consultations.reopen` : la ligne existait en base
+avec son seul nom. Le catalogue triait dessus, `null.localeCompare` levait
+une exception au milieu du rendu, et Vue ne s'en relevait pas — la page
+entière devenait blanche, pas seulement la ligne fautive.
+
+Trois protections, parce qu'une seule aurait laissé le prochain cas passer :
+
+```text
+la donnée    une migration rend leur libellé aux permissions qui n'en ont pas,
+             depuis PermissionSeeder::PERMISSIONS, sans rien réécrire d'autre
+le transport RbacPresenter ne met jamais un libellé vide sur le fil : à défaut,
+             il envoie le nom — c'est ce que le code écrit, et c'est lisible
+l'affichage  `permissionLabel()` et `comparePermissions()` sont partagés par
+             les quatre écrans ; aucun tri de permission ne lit `.label` nu
+la garde     `ErrorBoundary` isole la section affichée : une exception y est
+             capturée et affichée, au lieu de figer l'écran entier
+```
+
+Cette quatrième protection répond à un défaut distinct de la donnée elle-même.
+Vue ne remonte pas d'un rendu interrompu : l'enfant reste à moitié monté, et
+chaque changement d'onglet échoue ensuite à le démonter (`vnode is null`,
+`subTree of null`). La zone de contenu restait alors vide **sans un mot**, et
+l'écran paraissait figé — c'est ce que le propriétaire a constaté. Un défaut
+isolé doit se voir et rester isolé ; l'`ErrorBoundary` n'excuse pas le défaut,
+il l'empêche de se propager.
+
+## Navigation
+
+L'écran « Rôles & permissions » porte désormais quatre gestes, présentés du
+plus large au plus étroit, chacun avec son compte et une phrase qui dit qui
+est touché :
+
+```text
+Socle des rôles         tous les comptes du rôle, y compris ceux créés plus tard
+Exceptions par compte   une seule personne ; DENY individuel > ALLOW > socle
+Rôles du site           créer, renommer, archiver un métier
+Catalogue des droits    les mots que l'application sait vérifier
+```
+
+Une barre de pastilles ne disait ni ce qu'on allait toucher, ni combien. Sur
+un écran où un clic peut modifier l'accès de tout un service, la portée
+appartient à la navigation, pas à la documentation.

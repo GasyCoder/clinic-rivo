@@ -3,6 +3,25 @@ export const normalizePermissionText = (value) => String(value ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '');
 
+/**
+ * Le libellé d'une permission, ou son nom à défaut.
+ *
+ * Une permission peut entrer en base sans libellé — un seeder partiel, une
+ * migration qui n'a posé que le nom. Trié tel quel, ce vide faisait tomber
+ * l'écran entier : `null.localeCompare` interrompt le rendu d'un composant,
+ * et Vue ne s'en relève pas (constaté sur `consultations.reopen`). Le nom
+ * est un repli honnête — c'est ce que le code écrit, et c'est lisible.
+ */
+export const permissionLabel = (permission) => {
+    const label = String(permission?.label ?? '').trim();
+
+    return label !== '' ? label : String(permission?.name ?? '');
+};
+
+/** Comparateur par libellé — jamais de tri qui puisse lever une exception. */
+export const comparePermissions = (left, right) => permissionLabel(left)
+    .localeCompare(permissionLabel(right), 'fr');
+
 export const permissionEffect = (permission, effects) => effects[permission.id] || '';
 
 export const roleGrantsPermission = (permission, rolePermissionNames) => rolePermissionNames.has(permission.name);
@@ -26,7 +45,7 @@ export const permissionMatchesSearch = (permission, search, categoryLabel) => {
     const term = normalizePermissionText(search.trim());
     if (!term) return true;
 
-    return normalizePermissionText(permission.label).includes(term)
+    return normalizePermissionText(permissionLabel(permission)).includes(term)
         || normalizePermissionText(permission.name).includes(term)
         || normalizePermissionText(categoryLabel).includes(term);
 };

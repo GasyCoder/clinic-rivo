@@ -14,6 +14,7 @@ use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Authorization\RbacPresenter;
 use App\Services\Catalog\CatalogActor;
 use App\Support\SecurePassword;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -26,6 +27,8 @@ use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
+    public function __construct(private readonly RbacPresenter $presenter) {}
+
     public function index(Request $request): JsonResponse
     {
         $this->authorizeActor($request, 'users.view');
@@ -72,12 +75,7 @@ class UserController extends Controller
             ->get()
             ->map(fn (Role $role) => $this->serializeRole($role));
 
-        $permissions = Permission::query()->orderBy('name')->get()->map(fn (Permission $permission) => [
-            'id' => $permission->id,
-            'name' => $permission->name,
-            'label' => $permission->label,
-            'module' => str($permission->name)->before('.')->toString(),
-        ]);
+        $permissions = $this->presenter->permissionCatalog();
 
         return response()->json([
             'data' => [
@@ -252,7 +250,10 @@ class UserController extends Controller
                 Rule::unique('users', 'email')->ignore($ignoreUserId),
             ],
             'password' => ['nullable', 'confirmed', SecurePassword::rule()],
-            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            // Un rôle archivé (ADR-100) reste une ligne : `exists` le trouverait
+            // et le compte se retrouverait sans socle, `User::role()` ne
+            // renvoyant plus un rôle archivé.
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')->whereNull('deleted_at')],
             'professional_profile_id' => [
                 Rule::requiredIf(fn () => ProfessionalProfile::query()
                     ->active()
@@ -273,68 +274,27 @@ class UserController extends Controller
         ]);
     }
 
-    /** @return array<string, mixed> */
-    /** @param Collection<int, int>|null $auditedUserIds */
+    /**
+     * Sérialisation partagée avec l'endpoint Rôles (RbacPresenter) : deux
+     * écrans décrivent les mêmes comptes, ils ne doivent pas les décrire
+     * différemment.
+     *
+     * @param  Collection<int, int>|null  $auditedUserIds
+     * @param  Collection<int, string>|null  $sourceProfileNames
+     * @return array<string, mixed>
+     */
     private function serializeUser(
         User $user,
         ?Collection $auditedUserIds = null,
         ?Collection $sourceProfileNames = null,
     ): array {
-        $sourceProfileNames ??= ProfessionalProfile::query()
-            ->whereIn('id', $user->permissions->pluck('pivot.source_profile_id')->filter())
-            ->pluck('name', 'id');
-
-        return [
-            'uuid' => $user->uuid,
-            'name' => $user->name,
-            'email' => $user->email,
-            'role' => $user->role ? [
-                'id' => $user->role->id,
-                'code' => $user->role->code,
-                'name' => $user->role->name,
-            ] : null,
-            'professional_profile' => $user->professionalProfile ? [
-                'id' => $user->professionalProfile->id,
-                'code' => $user->professionalProfile->code,
-                'name' => $user->professionalProfile->name,
-            ] : null,
-            'active' => $user->isActive(),
-            'last_login_at' => $user->last_login_at?->toIso8601String(),
-            'deactivated_at' => $user->deactivated_at?->toIso8601String(),
-            'deactivation_reason' => $user->deactivation_reason,
-            // ADR-062: a UI hint only — ForceDeleteUserAction re-verifies
-            // this authoritatively regardless of what the client sends back.
-            'deletable' => $user->last_login_at === null
-                && ! ($auditedUserIds?->contains($user->id) ?? AuditLog::query()->where('user_id', $user->id)->exists()),
-            'permission_overrides' => $user->permissions->map(fn (Permission $permission) => [
-                'permission_id' => $permission->id,
-                'name' => $permission->name,
-                'effect' => $permission->pivot->effect,
-                'source' => $permission->pivot->source,
-                'source_profile_id' => $permission->pivot->source_profile_id,
-                'source_profile_name' => $sourceProfileNames->get($permission->pivot->source_profile_id),
-            ])->values(),
-        ];
+        return $this->presenter->user($user, $auditedUserIds, $sourceProfileNames);
     }
 
     /** @return array<string, mixed> */
     private function serializeRole(Role $role): array
     {
-        return [
-            'id' => $role->id,
-            'code' => $role->code,
-            'name' => $role->name,
-            'permissions' => $role->permissions->pluck('name')->sort()->values(),
-            'profiles' => $role->professionalProfiles->map(fn (ProfessionalProfile $profile) => [
-                'id' => $profile->id,
-                'code' => $profile->code,
-                'name' => $profile->name,
-                'description' => $profile->description,
-                'recommended_permissions' => $profile->recommendedPermissions
-                    ->map(fn (Permission $permission) => ['id' => $permission->id, 'name' => $permission->name])
-                    ->values(),
-            ])->values(),
-        ];
+        return $this->presenter->role($role);
     }
 
     private function authorizeActor(Request $request, string $permission): CatalogActor

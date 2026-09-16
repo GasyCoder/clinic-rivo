@@ -7,6 +7,7 @@ import Avatar from '@/Components/UI/Avatar.vue';
 import { useThemeStore } from '@/stores/theme';
 import HeaderSearch from '@/Components/Layout/HeaderSearch.vue';
 import HeaderAttention from '@/Components/Layout/HeaderAttention.vue';
+import BrandLockup from '@/Components/Layout/BrandLockup.vue';
 
 const theme = useThemeStore();
 const page = usePage();
@@ -14,7 +15,6 @@ const page = usePage();
 const visibility = defineModel('visibility');
 
 const user = computed(() => page.props.auth.user);
-const site = computed(() => page.props.site);
 
 const initials = computed(() => {
     if (!user.value) {
@@ -52,8 +52,8 @@ const logout = () => {
                     <!-- La marque n'apparaît qu'ici en mobile : sur grand
                          écran le bandeau latéral la porte déjà, et la répéter
                          volait la place à la recherche. -->
-                    <div class="px-1 py-3.5 flex min-w-0 xl:hidden">
-                        <span class="font-heading text-base font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
+                    <div class="flex min-w-0 px-1 py-3 xl:hidden">
+                        <BrandLockup />
                     </div>
 
                     <div class="hidden min-w-0 flex-1 px-1 py-2 xl:flex">

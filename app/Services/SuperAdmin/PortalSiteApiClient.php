@@ -249,6 +249,81 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'PUT', 'super-admin/users/'.$uuid, $data, $actor);
     }
 
+    /**
+     * Le référentiel des rôles d'un site (ADR-100) — jamais une lecture SQL
+     * directe : le portail passe par l'API du site comme pour le reste du
+     * domaine catalogue (ADR-004, ADR-027).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function rolesForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/roles', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createRole(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/roles', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateRole(string $siteCode, string $roleCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/roles/'.$roleCode, $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function archiveRole(string $siteCode, string $roleCode, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/roles/'.$roleCode, ['reason' => $reason], $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function restoreRole(string $siteCode, string $roleCode, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/roles/'.$roleCode.'/restore', [], $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createPermission(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/permissions', $data, $actor);
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updatePermission(string $siteCode, int $permissionId, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/permissions/'.$permissionId, $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function deletePermission(string $siteCode, int $permissionId, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/permissions/'.$permissionId, [], $actor);
+    }
+
+    /**
+     * Les exceptions individuelles d'un compte, sans toucher à son identité.
+     *
+     * @param  array<int, array{permission_id: int, effect: string}>  $overrides
+     * @return array<string, mixed>
+     */
+    public function updateUserPermissionOverrides(string $siteCode, string $userUuid, array $overrides, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'PUT', 'super-admin/roles/accounts/'.$userUuid.'/permissions',
+            ['permission_overrides' => $overrides], $actor,
+        );
+    }
+
     /** @param array<int, int> $permissionIds
      * @return array<string, mixed> */
     public function updateRolePermissions(string $siteCode, string $roleCode, array $permissionIds, User $actor): array

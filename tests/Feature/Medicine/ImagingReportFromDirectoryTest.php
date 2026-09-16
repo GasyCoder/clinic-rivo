@@ -273,6 +273,7 @@ class ImagingReportFromDirectoryTest extends TestCase
         foreach ([
             'medical_record.view', 'consultations.view', 'consultations.create', 'consultations.update',
             'patients.view', 'care.view', 'vitals.view',
+            'paraclinical_requests.view',
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create',
             'laboratory_orders.view', 'diagnoses.view', 'prescriptions.view',
         ] as $name) {

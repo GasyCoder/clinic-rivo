@@ -21,6 +21,7 @@ import {
     ShieldCheck,
     Trash2,
     TrendingUp,
+    Users,
     Wallet,
 } from 'lucide-vue-next';
 import { usePermissions } from '@/composables/usePermissions';
@@ -124,6 +125,7 @@ const adminMenu = computed(() => [
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
     { heading: 'Sécurité & système' },
+    { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
     { icon: ShieldCheck, text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: Trash2, text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
     { icon: Settings, text: 'Paramètres', link: '/super-admin/workspaces/settings', permission: 'settings.view' },

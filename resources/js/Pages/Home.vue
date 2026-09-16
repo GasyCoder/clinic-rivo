@@ -131,13 +131,18 @@ const focusMetrics = computed(() => focus.value.metrics
     .filter(Boolean));
 const otherMetrics = computed(() => metrics.value.filter((metric) => !focus.value.metrics.includes(metric.key)));
 
+/*
+ * The card reads sideways — icon, then figure and label — so it stays short.
+ * Two of them side by side on a phone would clip the label instead; the
+ * second column only appears once there is room for it.
+ */
 const gridFor = (count) => ({
     1: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4',
-    2: 'grid-cols-2',
-    3: 'grid-cols-2 sm:grid-cols-3',
-    4: 'grid-cols-2 xl:grid-cols-4',
-    5: 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-5',
-}[count] ?? 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6');
+    2: 'grid-cols-1 sm:grid-cols-2',
+    3: 'grid-cols-1 sm:grid-cols-3',
+    4: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4',
+    5: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5',
+}[count] ?? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6');
 
 const metricGroups = computed(() => [
     { key: 'focus', title: 'Votre activité', items: focusMetrics.value },
@@ -265,16 +270,16 @@ const tone = (name) => toneClasses[name] ?? toneClasses.navy;
                                 :is="metric.href ? Link : 'div'"
                                 :href="metric.href || undefined"
                                 :title="metric.description"
-                                class="relative flex h-full min-h-40 flex-col p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                                class="relative flex h-full items-start gap-3 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                             >
                                 <span :class="['absolute inset-x-0 top-0 h-0.5 opacity-0 transition-opacity group-hover:opacity-100', tone(metric.tone).bar]" aria-hidden="true" />
-                                <div class="flex items-start justify-between gap-3">
-                                    <span :class="['flex h-9 w-9 items-center justify-center rounded-lg ring-1 ring-inset', tone(metric.tone).icon]"><component :is="lucideIcon(metric.icon)" class="h-4 w-4" /></span>
-                                    <ArrowRight v-if="metric.href" class="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
-                                </div>
-                                <p :class="['mt-4 font-heading text-3xl font-bold leading-none tabular-nums', metric.value > 0 ? tone(metric.tone).value : 'text-muted-foreground']">{{ metric.value }}</p>
-                                <p class="mt-2 text-[13px] font-semibold leading-5 text-foreground">{{ metric.label }}</p>
-                                <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{{ metric.description }}</p>
+                                <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-lg ring-1 ring-inset', tone(metric.tone).icon]"><component :is="lucideIcon(metric.icon)" class="h-5 w-5" /></span>
+                                <span class="min-w-0 flex-1">
+                                    <span :class="['block text-2xl font-bold leading-none tabular-nums', metric.value > 0 ? tone(metric.tone).value : 'text-muted-foreground']">{{ metric.value }}</span>
+                                    <span class="mt-1 block truncate text-xs font-semibold text-foreground">{{ metric.label }}</span>
+                                    <span class="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{{ metric.description }}</span>
+                                </span>
+                                <ArrowRight v-if="metric.href" class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
                             </component>
                         </Card>
                     </div>

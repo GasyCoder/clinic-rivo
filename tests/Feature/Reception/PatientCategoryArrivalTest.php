@@ -57,6 +57,65 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertSame("{$patient->patient_number}-01", $episode->episode_number);
     }
 
+    /**
+     * Une adresse absente du référentiel ne doit pas bloquer une arrivée :
+     * la Réception la saisit à la main et l'entrée est créée puis rattachée.
+     * Le référentiel reste sans doublon — un libellé déjà connu est réutilisé.
+     */
+    public function test_a_manually_typed_address_reuses_an_existing_entry_instead_of_duplicating_it(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'address_entries.view', 'address_entries.create',
+        ]);
+        $existing = AddressEntry::query()->create(['label' => 'Quartier Anosibe', 'active' => true]);
+
+        $this->actingAs($actor)->post('/reception/patients', [
+            ...$this->standardPatient(),
+            'new_address_label' => '  quartier  anosibe  ',
+        ]);
+
+        $patient = Patient::query()->sole();
+
+        $this->assertSame(1, AddressEntry::query()->count());
+        $this->assertSame($existing->id, $patient->address_entry_id);
+    }
+
+    /** Les deux champs sont exclusifs : en recevoir deux serait ambigu. */
+    public function test_an_arrival_cannot_send_both_an_existing_and_a_new_address(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'address_entries.view', 'address_entries.create',
+        ]);
+        $existing = AddressEntry::query()->create(['label' => 'Ambondromamy Centre', 'active' => true]);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            ...$this->standardPatient(),
+            'address_entry_uuid' => $existing->uuid,
+            'new_address_label' => 'Quartier Anosibe',
+        ]);
+
+        $response->assertSessionHasErrors('new_address_label');
+        $this->assertSame(0, Patient::query()->count());
+        $this->assertSame(1, AddressEntry::query()->count());
+    }
+
+    /** Enrichir le référentiel reste soumis à `address_entries.create`. */
+    public function test_a_manual_address_is_refused_without_the_permission_to_create_one(): void
+    {
+        $actor = $this->receptionist([
+            'patients.create', 'episodes.create', 'address_entries.view',
+        ]);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            ...$this->standardPatient(),
+            'new_address_label' => 'Quartier Anosibe',
+        ]);
+
+        $response->assertForbidden();
+        $this->assertSame(0, Patient::query()->count());
+        $this->assertSame(0, AddressEntry::query()->count());
+    }
+
     public function test_mutual_arrival_creates_the_coverage_and_at_most_five_private_files(): void
     {
         Storage::fake('local');

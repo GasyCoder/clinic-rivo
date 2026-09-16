@@ -24,6 +24,7 @@ import {
     LoaderCircle,
     Lock,
     Mail,
+    MapPin,
     Pencil,
     Phone,
     Plus,
@@ -49,6 +50,7 @@ import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import CardBody from '@/Components/UI/CardBody.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import { financialModeLabel } from '@/utilities/financialMode';
 import { formatMoney } from '@/utilities/money';
@@ -102,6 +104,7 @@ const arrivalMessage = ref('');
 const episode = ref(props.resumeEpisode ?? null);
 
 const birthMode = ref('date');
+const addressMode = ref('existing');
 const patientForm = reactive({
     civility: '', first_name: '', last_name: '', birth_date: '', age: '', sex: 'M',
     identity_document_type: '', identity_document_number: '',
@@ -513,6 +516,17 @@ const setBirthMode = (mode) => {
     if (mode === 'date') patientForm.age = '';
     else patientForm.birth_date = '';
 };
+/**
+ * Une adresse absente du référentiel ne doit pas empêcher une arrivée : la
+ * saisie manuelle crée l'entrée côté serveur (`RegisterArrivalAction`). Les
+ * deux champs sont exclusifs — `StoreArrivalRequest` refuse de recevoir les
+ * deux —, d'où le nettoyage de l'autre à chaque bascule.
+ */
+const setAddressMode = (mode) => {
+    addressMode.value = mode;
+    if (mode === 'new') patientForm.address_entry_uuid = '';
+    else patientForm.new_address_label = '';
+};
 const arrivalPayload = (confirmDuplicate = false) => {
     const contact = {
         emergency_contact_name: patientForm.emergency_contact_name || null,
@@ -546,8 +560,8 @@ const arrivalPayload = (confirmDuplicate = false) => {
         phone: patientForm.phone || null,
         email: patientForm.email || null,
         profession: patientForm.profession || null,
-        address_entry_uuid: patientForm.address_entry_uuid || null,
-        new_address_label: patientForm.new_address_label || null,
+        address_entry_uuid: addressMode.value === 'new' ? null : (patientForm.address_entry_uuid || null),
+        new_address_label: addressMode.value === 'new' ? (patientForm.new_address_label || null) : null,
         confirm_duplicate: confirmDuplicate,
         ...contact,
         ...journey,
@@ -909,38 +923,91 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                         <p class="mt-1 text-xs text-muted-foreground">Les informations ci-dessous seront conservées dans le dossier administratif.</p>
                     </div>
                     <div class="space-y-5 p-5">
-                        <div class="grid gap-4 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)]">
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Civilité</span><Select class="h-11 w-full" :model-value="patientForm.civility" :options="civilitySelectOptions" placeholder="Choisir" @update:model-value="chooseCivility" /></label>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Nom *</span><IconInput v-model="patientForm.last_name" size="lg" :icon="UserRound" autocomplete="family-name" placeholder="Nom de famille" :aria-invalid="Boolean(firstError(arrivalErrors, 'last_name'))" /><FormError v-if="firstError(arrivalErrors, 'last_name')" class="mt-1">{{ firstError(arrivalErrors, 'last_name') }}</FormError></label>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Prénom(s)</span><IconInput v-model="patientForm.first_name" size="lg" :icon="UserRound" autocomplete="given-name" placeholder="Prénom(s)" :aria-invalid="Boolean(firstError(arrivalErrors, 'first_name'))" /><FormError v-if="firstError(arrivalErrors, 'first_name')" class="mt-1">{{ firstError(arrivalErrors, 'first_name') }}</FormError></label>
+                        <div class="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]">
+                            <FormField label="Civilité">
+                                <!-- `min-w-0` : le Select impose 176 px par
+                                     défaut, ce qui le faisait déborder de sa
+                                     colonne et chevaucher le champ voisin. -->
+                                <Select class="h-11 w-full min-w-0" :model-value="patientForm.civility" :options="civilitySelectOptions" placeholder="Choisir" @update:model-value="chooseCivility" />
+                            </FormField>
+                            <FormField label="Nom" required :error="firstError(arrivalErrors, 'last_name')">
+                                <IconInput v-model="patientForm.last_name" size="lg" :icon="UserRound" autocomplete="family-name" placeholder="Nom de famille" :aria-invalid="Boolean(firstError(arrivalErrors, 'last_name'))" />
+                            </FormField>
+                            <FormField label="Prénom(s)" :error="firstError(arrivalErrors, 'first_name')">
+                                <IconInput v-model="patientForm.first_name" size="lg" :icon="UserRound" autocomplete="given-name" placeholder="Prénom(s)" :aria-invalid="Boolean(firstError(arrivalErrors, 'first_name'))" />
+                            </FormField>
                         </div>
+
                         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            <div>
-                                <div class="mb-1.5 flex items-center justify-between gap-3"><span class="text-sm font-medium text-foreground">Naissance ou âge *</span><span class="inline-flex rounded border border-border bg-card p-0.5"><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', birthMode === 'date' ? 'bg-muted text-foreground ' : 'text-muted-foreground']" @click="setBirthMode('date')">Date</button><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', birthMode === 'age' ? 'bg-muted text-foreground ' : 'text-muted-foreground']" @click="setBirthMode('age')">Âge</button></span></div>
+                            <!-- Le sélecteur Date/Âge vit dans la ligne de
+                                 libellé, à hauteur fixe : c'est lui qui
+                                 décalait tout le reste de la rangée. -->
+                            <FormField
+                                label="Naissance ou âge"
+                                required
+                                :error="firstError(arrivalErrors, 'birth_date') || firstError(arrivalErrors, 'age')"
+                            >
+                                <template #action>
+                                    <span class="inline-flex shrink-0 rounded border border-border bg-card p-0.5">
+                                        <button type="button" :class="['rounded px-2 py-0.5 text-[10px] font-semibold transition-colors', birthMode === 'date' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground']" @click="setBirthMode('date')">Date</button>
+                                        <button type="button" :class="['rounded px-2 py-0.5 text-[10px] font-semibold transition-colors', birthMode === 'age' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground']" @click="setBirthMode('age')">Âge</button>
+                                    </span>
+                                </template>
                                 <Input v-if="birthMode === 'date'" v-model="patientForm.birth_date" size="lg" type="date" :aria-invalid="Boolean(firstError(arrivalErrors, 'birth_date'))" />
                                 <Input v-else v-model="patientForm.age" size="lg" type="number" min="0" max="130" placeholder="Âge déclaré" :aria-invalid="Boolean(firstError(arrivalErrors, 'age'))" />
-                                <FormError v-if="firstError(arrivalErrors, 'birth_date') || firstError(arrivalErrors, 'age')" class="mt-1">{{ firstError(arrivalErrors, 'birth_date') || firstError(arrivalErrors, 'age') }}</FormError>
-                            </div>
-                            <div>
-                                <span class="mb-1.5 block text-sm font-medium text-foreground">Sexe *</span>
-                                <div class="flex h-11 items-center gap-5 rounded-md border border-border bg-card px-4"><label class="inline-flex items-center gap-2 text-sm"><input v-model="patientForm.sex" type="radio" value="M" class="text-primary" />Masculin</label><label class="inline-flex items-center gap-2 text-sm"><input v-model="patientForm.sex" type="radio" value="F" class="text-primary" />Féminin</label></div>
-                                <FormError v-if="firstError(arrivalErrors, 'sex')" class="mt-1">{{ firstError(arrivalErrors, 'sex') }}</FormError>
-                            </div>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Téléphone</span><IconInput v-model="patientForm.phone" size="lg" :icon="Phone" type="tel" autocomplete="tel" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'phone'))" /><FormError v-if="firstError(arrivalErrors, 'phone')" class="mt-1">{{ firstError(arrivalErrors, 'phone') }}</FormError></label>
+                            </FormField>
+
+                            <!-- `as="div"` : un <label> enveloppant deux radios
+                                 cocherait le premier au moindre clic. -->
+                            <FormField as="div" label="Sexe" required :error="firstError(arrivalErrors, 'sex')">
+                                <div class="flex h-11 items-center gap-5 rounded-lg border border-input bg-card px-4 shadow-sm" role="radiogroup" aria-label="Sexe">
+                                    <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-foreground"><input v-model="patientForm.sex" type="radio" value="M" class="text-primary focus-visible:ring-2 focus-visible:ring-ring/25" />Masculin</label>
+                                    <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-foreground"><input v-model="patientForm.sex" type="radio" value="F" class="text-primary focus-visible:ring-2 focus-visible:ring-ring/25" />Féminin</label>
+                                </div>
+                            </FormField>
+
+                            <FormField label="Téléphone" :error="firstError(arrivalErrors, 'phone')">
+                                <IconInput v-model="patientForm.phone" size="lg" :icon="Phone" type="tel" autocomplete="tel" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'phone'))" />
+                            </FormField>
                         </div>
+
                         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Email</span><IconInput v-model="patientForm.email" size="lg" :icon="Mail" type="email" autocomplete="email" placeholder="patient@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'email'))" /><FormError v-if="firstError(arrivalErrors, 'email')" class="mt-1">{{ firstError(arrivalErrors, 'email') }}</FormError></label>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Profession</span><IconInput v-model="patientForm.profession" size="lg" :icon="Briefcase" autocomplete="organization-title" placeholder="Profession" :aria-invalid="Boolean(firstError(arrivalErrors, 'profession'))" /><FormError v-if="firstError(arrivalErrors, 'profession')" class="mt-1">{{ firstError(arrivalErrors, 'profession') }}</FormError></label>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Adresse</span><Select v-model="patientForm.address_entry_uuid" class="h-11 w-full" :options="addressSelectOptions" placeholder="Non renseignée" :aria-invalid="Boolean(firstError(arrivalErrors, 'address_entry_uuid'))" /><FormError v-if="firstError(arrivalErrors, 'address_entry_uuid')" class="mt-1">{{ firstError(arrivalErrors, 'address_entry_uuid') }}</FormError></label>
+                            <FormField label="Email" :error="firstError(arrivalErrors, 'email')">
+                                <IconInput v-model="patientForm.email" size="lg" :icon="Mail" type="email" autocomplete="email" placeholder="patient@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'email'))" />
+                            </FormField>
+                            <FormField label="Profession" :error="firstError(arrivalErrors, 'profession')">
+                                <IconInput v-model="patientForm.profession" size="lg" :icon="Briefcase" autocomplete="organization-title" placeholder="Profession" :aria-invalid="Boolean(firstError(arrivalErrors, 'profession'))" />
+                            </FormField>
+                            <FormField label="Adresse" :error="firstError(arrivalErrors, 'address_entry_uuid') || firstError(arrivalErrors, 'new_address_label')">
+                                <template v-if="capabilities.can_create_address" #action>
+                                    <span class="inline-flex shrink-0 rounded border border-border bg-card p-0.5">
+                                        <button type="button" :class="['rounded px-2 py-0.5 text-[10px] font-semibold transition-colors', addressMode === 'existing' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground']" @click="setAddressMode('existing')">Liste</button>
+                                        <button type="button" :class="['rounded px-2 py-0.5 text-[10px] font-semibold transition-colors', addressMode === 'new' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground']" @click="setAddressMode('new')">Nouvelle</button>
+                                    </span>
+                                </template>
+                                <Select v-if="addressMode === 'existing'" v-model="patientForm.address_entry_uuid" class="h-11 w-full" :options="addressSelectOptions" placeholder="Non renseignée" :aria-invalid="Boolean(firstError(arrivalErrors, 'address_entry_uuid'))" />
+                                <IconInput v-else v-model="patientForm.new_address_label" size="lg" :icon="MapPin" placeholder="Saisissez la nouvelle adresse" :aria-invalid="Boolean(firstError(arrivalErrors, 'new_address_label'))" />
+                            </FormField>
                         </div>
+
                         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            <div>
-                                <span class="mb-1.5 block text-sm font-medium text-foreground">Pièce d’identité <span class="font-normal text-muted-foreground">(facultatif)</span></span>
-                                <div class="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]"><Select v-model="patientForm.identity_document_type" class="h-11 w-full" :options="identityDocumentOptions" placeholder="Type" /><IconInput v-model="patientForm.identity_document_number" size="lg" :icon="IdCard" :disabled="!patientForm.identity_document_type" placeholder="Numéro du document" /></div>
-                                <FormError v-if="firstError(arrivalErrors, 'identity_document_type') || firstError(arrivalErrors, 'identity_document_number')" class="mt-1">{{ firstError(arrivalErrors, 'identity_document_type') || firstError(arrivalErrors, 'identity_document_number') }}</FormError>
-                            </div>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Situation maritale</span><Select v-model="patientForm.marital_status" class="h-11 w-full" :options="maritalSelectOptions" placeholder="Non renseignée" /><FormError v-if="firstError(arrivalErrors, 'marital_status')" class="mt-1">{{ firstError(arrivalErrors, 'marital_status') }}</FormError></label>
-                            <label><span class="mb-1.5 block text-sm font-medium text-foreground">Nombre d’enfants</span><Input v-model="patientForm.children_count" size="lg" type="number" min="0" max="30" /><FormError v-if="firstError(arrivalErrors, 'children_count')" class="mt-1">{{ firstError(arrivalErrors, 'children_count') }}</FormError></label>
+                            <FormField
+                                as="div"
+                                label="Pièce d’identité"
+                                hint="(facultatif)"
+                                :error="firstError(arrivalErrors, 'identity_document_type') || firstError(arrivalErrors, 'identity_document_number')"
+                            >
+                                <div class="grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
+                                    <Select v-model="patientForm.identity_document_type" class="h-11 w-full min-w-0" :options="identityDocumentOptions" placeholder="Type" />
+                                    <IconInput v-model="patientForm.identity_document_number" size="lg" :icon="IdCard" :disabled="!patientForm.identity_document_type" placeholder="Numéro du document" />
+                                </div>
+                            </FormField>
+                            <FormField label="Situation maritale" :error="firstError(arrivalErrors, 'marital_status')">
+                                <Select v-model="patientForm.marital_status" class="h-11 w-full" :options="maritalSelectOptions" placeholder="Non renseignée" />
+                            </FormField>
+                            <FormField label="Nombre d’enfants" :error="firstError(arrivalErrors, 'children_count')">
+                                <Input v-model="patientForm.children_count" size="lg" type="number" min="0" max="30" />
+                            </FormField>
                         </div>
                     </div>
                 </section>
@@ -951,10 +1018,18 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                         <div><h3 class="text-sm font-bold text-foreground">Personne à contacter pour ce passage <span class="font-normal text-muted-foreground">(facultatif)</span></h3><p class="mt-1 text-xs text-muted-foreground">Ces coordonnées appartiennent uniquement au nouvel Episode et peuvent changer à chaque passage.</p></div>
                     </div>
                     <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Nom du contact</span><IconInput v-model="patientForm.emergency_contact_name" size="lg" :icon="UserRound" autocomplete="off" placeholder="Nom complet" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_name'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_name')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_name') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Téléphone du contact</span><IconInput v-model="patientForm.emergency_contact_phone" size="lg" :icon="Phone" type="tel" autocomplete="off" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_phone'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_phone')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_phone') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Lien avec le patient</span><IconInput v-model="patientForm.emergency_contact_relationship" size="lg" :icon="UsersRound" autocomplete="off" placeholder="Ex. Conjoint, parent, enfant…" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_relationship'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_relationship')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_relationship') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Email du contact</span><IconInput v-model="patientForm.emergency_contact_email" size="lg" :icon="Mail" type="email" autocomplete="off" placeholder="contact@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_email'))" /><FormError v-if="firstError(arrivalErrors, 'emergency_contact_email')" class="mt-1">{{ firstError(arrivalErrors, 'emergency_contact_email') }}</FormError></label>
+                        <FormField label="Nom du contact" :error="firstError(arrivalErrors, 'emergency_contact_name')">
+                            <IconInput v-model="patientForm.emergency_contact_name" size="lg" :icon="UserRound" autocomplete="off" placeholder="Nom complet" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_name'))" />
+                        </FormField>
+                        <FormField label="Téléphone du contact" :error="firstError(arrivalErrors, 'emergency_contact_phone')">
+                            <IconInput v-model="patientForm.emergency_contact_phone" size="lg" :icon="Phone" type="tel" autocomplete="off" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_phone'))" />
+                        </FormField>
+                        <FormField label="Lien avec le patient" :error="firstError(arrivalErrors, 'emergency_contact_relationship')">
+                            <IconInput v-model="patientForm.emergency_contact_relationship" size="lg" :icon="UsersRound" autocomplete="off" placeholder="Ex. Conjoint, parent, enfant…" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_relationship'))" />
+                        </FormField>
+                        <FormField label="Email du contact" :error="firstError(arrivalErrors, 'emergency_contact_email')">
+                            <IconInput v-model="patientForm.emergency_contact_email" size="lg" :icon="Mail" type="email" autocomplete="off" placeholder="contact@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_email'))" />
+                        </FormField>
                     </div>
                 </section>
 
@@ -993,10 +1068,18 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                         <span v-if="selectedOrganization" class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"><CircleCheck class="h-4 w-4" />{{ Number(selectedOrganization.coverage_rate).toLocaleString('fr-FR') }} % de couverture</span>
                     </div>
                     <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Organisme *</span><Select v-model="mutualForm.mutual_organization_uuid" class="h-11 w-full" :options="mutualSelectOptions" placeholder="Choisir un organisme" :aria-invalid="Boolean(firstError(financialErrors, 'mutual_organization_uuid'))" /><FormError v-if="firstError(financialErrors, 'mutual_organization_uuid')" class="mt-1">{{ firstError(financialErrors, 'mutual_organization_uuid') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Entreprise *</span><IconInput v-model="mutualForm.employer_name" size="lg" :icon="Building2" placeholder="Nom de l’entreprise" :aria-invalid="Boolean(firstError(financialErrors, 'employer_name'))" /><FormError v-if="firstError(financialErrors, 'employer_name')" class="mt-1">{{ firstError(financialErrors, 'employer_name') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Qualité du bénéficiaire *</span><Select v-model="mutualForm.beneficiary_type" class="h-11 w-full" :options="beneficiaryTypeOptions" :aria-invalid="Boolean(firstError(financialErrors, 'beneficiary_type'))" /><FormError v-if="firstError(financialErrors, 'beneficiary_type')" class="mt-1">{{ firstError(financialErrors, 'beneficiary_type') }}</FormError></label>
-                        <label><span class="mb-1.5 block text-sm font-medium text-foreground">Matricule d’adhésion</span><IconInput v-model="mutualForm.membership_number" size="lg" :icon="IdCard" placeholder="Numéro de matricule (si connu)" :aria-invalid="Boolean(firstError(financialErrors, 'membership_number'))" /><FormError v-if="firstError(financialErrors, 'membership_number')" class="mt-1">{{ firstError(financialErrors, 'membership_number') }}</FormError></label>
+                        <FormField label="Organisme" required :error="firstError(financialErrors, 'mutual_organization_uuid')">
+                            <Select v-model="mutualForm.mutual_organization_uuid" class="h-11 w-full" :options="mutualSelectOptions" placeholder="Choisir un organisme" :aria-invalid="Boolean(firstError(financialErrors, 'mutual_organization_uuid'))" />
+                        </FormField>
+                        <FormField label="Entreprise" required :error="firstError(financialErrors, 'employer_name')">
+                            <IconInput v-model="mutualForm.employer_name" size="lg" :icon="Building2" placeholder="Nom de l’entreprise" :aria-invalid="Boolean(firstError(financialErrors, 'employer_name'))" />
+                        </FormField>
+                        <FormField label="Qualité du bénéficiaire" required :error="firstError(financialErrors, 'beneficiary_type')">
+                            <Select v-model="mutualForm.beneficiary_type" class="h-11 w-full" :options="beneficiaryTypeOptions" :aria-invalid="Boolean(firstError(financialErrors, 'beneficiary_type'))" />
+                        </FormField>
+                        <FormField label="Matricule d’adhésion" :error="firstError(financialErrors, 'membership_number')">
+                            <IconInput v-model="mutualForm.membership_number" size="lg" :icon="IdCard" placeholder="Numéro de matricule (si connu)" :aria-invalid="Boolean(firstError(financialErrors, 'membership_number'))" />
+                        </FormField>
                     </div>
                 </section>
 
@@ -1004,7 +1087,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><Briefcase class="h-4 w-4" /></span><div><h3 class="text-sm font-bold text-foreground">Identifier l’Employé RH</h3><p class="mt-1 text-xs text-muted-foreground">Recherchez le dossier Employé existant puis confirmez la personne liée à ce Patient.</p></div></div>
                     <div class="p-5">
                         <div class="min-w-0">
-                            <label class="mb-1.5 block text-sm font-medium text-foreground">Employé de la clinique *</label>
+                            <span class="mb-1.5 flex h-6 items-center text-sm font-medium text-foreground">Employé de la clinique <span class="text-destructive">&nbsp;*</span></span>
                             <form class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" @submit.prevent="searchEmployees">
                                 <IconInput v-model="employeeQuery" size="lg" :icon="Search" placeholder="Matricule, nom, prénom, téléphone ou pièce d’identité…" autocomplete="off" @update:model-value="employeeSearchPerformed = false" />
                                 <Button size="lg" type="submit" class="justify-center" :disabled="employeeQuery.trim().length < 2 || employeeSearchLoading"><component :is="employeeSearchLoading ? LoaderCircle : Search" class="h-4 w-4" />{{ employeeSearchLoading ? 'Recherche…' : 'Rechercher' }}</Button>
@@ -1030,7 +1113,9 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                 <section v-if="financialMode === 'PARTNER'" class="mt-5 w-full overflow-hidden rounded-md border border-border">
                     <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><Link2 class="h-4 w-4" /></span><div><h3 class="text-sm font-bold text-foreground">Partenaire de cet Episode</h3><p class="mt-1 text-xs text-muted-foreground">Sélectionnez un organisme partenaire existant pour ce passage.</p></div></div>
                     <div class="grid gap-4 p-5 md:grid-cols-2">
-                        <label class="md:col-span-2"><span class="mb-1.5 block text-sm font-medium text-foreground">Organisme partenaire *</span><Select v-model="partnerForm.partner_organization_uuid" class="h-11 w-full" :options="partnerSelectOptions" placeholder="Choisir un partenaire" :aria-invalid="Boolean(firstError(financialErrors, 'partner_organization_uuid'))" /><FormError v-if="firstError(financialErrors, 'partner_organization_uuid')" class="mt-1">{{ firstError(financialErrors, 'partner_organization_uuid') }}</FormError></label>
+                        <FormField class="md:col-span-2" label="Organisme partenaire" required :error="firstError(financialErrors, 'partner_organization_uuid')">
+                            <Select v-model="partnerForm.partner_organization_uuid" class="h-11 w-full" :options="partnerSelectOptions" placeholder="Choisir un partenaire" :aria-invalid="Boolean(firstError(financialErrors, 'partner_organization_uuid'))" />
+                        </FormField>
                     </div>
                 </section>
 

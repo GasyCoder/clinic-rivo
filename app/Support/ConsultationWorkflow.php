@@ -359,14 +359,11 @@ class ConsultationWorkflow
     }
 
     /**
-     * What the stepper says under "Paraclinique": how many exams are pending,
-     * or that none was needed. "Non nécessaire" is a decision the doctor took
-     * — never the same thing as "not started", "absent" or "normal".
-     */
-    /**
-     * What the stepper says under "Diagnostic". A doctor who answered "pas
-     * maintenant" is waiting for something — usually results — and the
-     * stepper says so rather than showing an unexplained pending step.
+     * Ce que le stepper affiche sous **Décision & clôture** au sujet du
+     * diagnostic — et non sous « Diagnostic », qui n'est plus une étape
+     * (ADR-081). Un médecin ayant répondu « pas maintenant » attend quelque
+     * chose, le plus souvent un résultat : le dire vaut mieux qu'une étape
+     * en suspens sans explication (ADR-095).
      */
     public function diagnosisNote(Consultation $consultation): ?string
     {
@@ -393,6 +390,12 @@ class ConsultationWorkflow
         return $examination?->diagnosis_ready === false;
     }
 
+    /**
+     * Ce que le stepper affiche sous « Paraclinique » : combien d'examens
+     * sont en attente, ou qu'aucun n'était nécessaire. « Non nécessaire »
+     * est une décision que le médecin a prise — jamais la même chose que
+     * « non commencé », « absent » ou « normal ».
+     */
     public function paraclinicalNote(Consultation $consultation): ?string
     {
         $examination = $consultation->relationLoaded('clinicalExamination')

@@ -198,7 +198,10 @@ class MedicineWorkflowTest extends TestCase
                     'instructions' => 'Après le repas',
                 ],
             ],
-        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/decision");
+            // `decision` n'est plus une destination : « Enregistrer et
+            // continuer » mène directement à la Clôture, sans payer la
+            // redirection de l'URL héritée.
+        ])->assertRedirect("/medicine/orientations/{$orientation->uuid}/cloture");
 
         $consultation = $orientation->consultation()->firstOrFail();
         $this->assertSame('Douleur abdominale aiguë', $consultation->reason);

@@ -2259,8 +2259,12 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === true" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === true ? 'bg-primary-600 text-white' : 'text-muted-foreground hover:bg-muted/35']" @click="decideComplementaryExams(true)">Oui</button>
                             </span>
                         </div>
+                        <!-- La suite est nommée par le serveur (`nextStep`),
+                             jamais écrite en dur : ce texte annonçait encore
+                             « passe au diagnostic », une étape qui n'existe
+                             plus depuis l'ADR-081. -->
                         <p v-if="complementaryExamsForm.required === null" class="mt-2 text-[11px] leading-4 text-muted-foreground">
-                            Répondez pour poursuivre : « Non » déclare l’étape non nécessaire et passe au diagnostic.
+                            Répondez pour poursuivre : « Non » déclare l’étape non nécessaire<template v-if="nextStep"> et passe à {{ nextStep.label.toLocaleLowerCase('fr') }}</template>.
                         </p>
                         <FormError class="mt-1" :message="complementaryExamsForm.errors.required" />
                     </div>

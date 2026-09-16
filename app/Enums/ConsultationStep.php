@@ -10,7 +10,16 @@ namespace App\Enums;
  *
  * Two cases are no longer stops in the pathway but are kept so that rows
  * recorded before they left still read back: `Diagnosis` (ADR-081) and
- * `Decision` (ADR-084).
+ * `Decision` (ADR-084). Leurs URLs restent acceptées et redirigent vers
+ * l'écran qui porte désormais la fonction ; aucun code nouveau ne doit les
+ * viser comme destination.
+ *
+ * Où se fait quoi, une fois pour toutes :
+ *
+ *   Examen clinique       constatations et observations cliniques
+ *   (hypothèses)          raisonnement provisoire, possible pendant l'évaluation
+ *   Décision & clôture    conclusion du passage : diagnostic retenu,
+ *                         conduite à tenir, puis clôture éventuelle
  */
 enum ConsultationStep: string
 {
@@ -40,12 +49,11 @@ enum ConsultationStep: string
     /**
      * Whether the step is still a stop in the wizard.
      *
-     * Diagnosis is not: it is concluded inside the clinical examination
-     * (ADR-081). Decision is not either: the conduite à tenir is now a
-     * business datum settled wherever the doctor is when it becomes clear,
-     * and the last step only verifies and closes (ADR-084). Both cases are
-     * kept — `consultation_steps` rows recorded before those changes must
-     * still read back — they simply no longer appear in the pathway.
+     * Ni `Diagnosis` ni `Decision` n'en sont : le diagnostic retenu et la
+     * conduite à tenir se concluent tous deux à « Décision & clôture »
+     * (ADR-081, ADR-084, ADR-089). Les deux cas sont conservés — des lignes
+     * `consultation_steps` enregistrées avant ces changements doivent
+     * continuer à se lire — ils ne figurent simplement plus au parcours.
      */
     public function isWizardStep(): bool
     {

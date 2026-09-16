@@ -582,6 +582,45 @@ class ConsultationOrientationTest extends TestCase
     }
 
     /** An old bookmark must land on the screen that carries the function. */
+    /**
+     * `/diagnostic` n'est plus un écran depuis l'ADR-081 : l'URL reste
+     * acceptée pour un signet ou un lien ancien, et mène à l'Examen
+     * clinique, qui porte désormais la saisie du diagnostic. Jamais une
+     * page disparue.
+     */
+    public function test_the_old_diagnostic_url_redirects_to_the_clinical_exam(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/diagnostic")
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+    }
+
+    /**
+     * Les deux cas restent lisibles dans l'enum pour les lignes
+     * `consultation_steps` déjà enregistrées, mais ne sont plus des étapes
+     * du parcours : le stepper ne doit jamais les proposer.
+     */
+    public function test_neither_legacy_step_appears_in_the_pathway(): void
+    {
+        $wizard = array_map(
+            fn (\App\Enums\ConsultationStep $step): string => $step->value,
+            \App\Enums\ConsultationStep::wizardCases(),
+        );
+
+        $this->assertSame(
+            ['dossier', 'consultation', 'examen', 'paraclinique', 'ordonnance', 'cloture'],
+            $wizard,
+        );
+
+        // Mais les valeurs restent lisibles : une ligne ancienne ne doit pas
+        // devenir illisible parce que l'étape a quitté le parcours.
+        $this->assertNotNull(\App\Enums\ConsultationStep::tryFrom('diagnostic'));
+        $this->assertNotNull(\App\Enums\ConsultationStep::tryFrom('decision'));
+    }
+
     public function test_the_old_decision_url_redirects_to_the_closure_step(): void
     {
         $doctor = $this->doctor();

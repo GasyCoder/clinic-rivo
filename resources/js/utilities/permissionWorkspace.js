@@ -60,3 +60,43 @@ export const summarizePermissionWorkspace = (catalog, effects, provenance, roleP
         manualDenied,
     };
 };
+
+/**
+ * Les permissions d'une catégorie regroupées par nature d'action.
+ *
+ * Une catégorie de vingt droits se lit mal à plat : « Consulter »,
+ * « Créer », « Supprimer » ne portent pas le même risque, et c'est cette
+ * distinction — pas l'ordre alphabétique — qui guide la décision.
+ */
+export const permissionActionGroup = (permission) => {
+    const action = String(permission.name).split('.').at(-1);
+
+    if (['view', 'view_deleted', 'print', 'export'].includes(action)) return 'Consulter et exporter';
+    if (['create', 'import'].includes(action)) return 'Créer et importer';
+    if (['delete', 'force_delete', 'restore', 'archive', 'unarchive'].includes(action)) return 'Suppression et restauration';
+    if (['validate', 'approve', 'reject', 'cancel', 'close', 'open'].includes(action)) return 'Validation et opérations';
+
+    return 'Gérer et mettre à jour';
+};
+
+/**
+ * Ce qui a été coché et décoché depuis l'état enregistré.
+ *
+ * Un compteur seul — « 3 modifications » — ne dit pas *lesquelles* : sur un
+ * socle de rôle qui s'applique à tous les comptes d'un service, on doit
+ * pouvoir relire l'écart avant de l'envoyer au site.
+ */
+export const diffPermissionSelection = (catalog, baselineIds, draftIds) => {
+    const added = [];
+    const removed = [];
+
+    for (const permission of catalog) {
+        const before = baselineIds.has(permission.id);
+        const after = draftIds.has(permission.id);
+
+        if (before === after) continue;
+        (after ? added : removed).push(permission);
+    }
+
+    return { added, removed, total: added.length + removed.length };
+};

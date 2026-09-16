@@ -362,6 +362,7 @@ admin.rivo.mg
 - [x] Répartition financière brute / mutuelle / patient historisée sur les factures
 - [x] Sélection multiple par site : export ciblé Stock/Adresses et archivage/restauration atomiques des référentiels
 - [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
+- [x] Socle des rôles refondu (shadcn, ADR-099) : rail des rôles et des catégories sans pagination, recherche sur tout le catalogue, écart « accordées / retirées » relisible avant envoi, barre d'enregistrement collante et garde-fou sur le brouillon
 - [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail

@@ -246,6 +246,7 @@ class ReceptionController extends Controller
             'capabilities' => [
                 'can_create_patient' => $request->user()->can('patients.create'),
                 'can_update_patient' => $request->user()->can('patients.update'),
+                'can_create_address' => $request->user()->can('address_entries.create'),
                 'can_use_mutual' => $request->user()->can('mutual_organizations.view'),
                 'can_use_partner' => $request->user()->can('partner_organizations.view'),
                 'can_create_partner' => $request->user()->can('partner_organizations.create'),

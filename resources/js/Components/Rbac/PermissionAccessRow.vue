@@ -1,7 +1,19 @@
 <script setup>
-import Icon from '@/Components/UI/Icon.vue';
+import { computed } from 'vue';
+import { TriangleAlert } from 'lucide-vue-next';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import { cn } from '@/lib/cn';
 
-defineProps({
+/**
+ * Une permission et l'exception que ce compte porte dessus.
+ *
+ * Trois états, jamais deux : « Selon le rôle » n'est pas une absence de
+ * décision, c'est le socle du rôle qui s'applique — vert quand ce socle
+ * accorde le droit, gris quand il ne l'accorde pas. Les deux autres sont
+ * des exceptions propres au compte, et une interdiction l'emporte toujours
+ * (ADR-022, ADR-033).
+ */
+const props = defineProps({
     permission: { type: Object, required: true },
     state: { type: String, default: '' },
     roleGranted: { type: Boolean, default: false },
@@ -15,43 +27,58 @@ defineProps({
 defineEmits(['change']);
 
 const choices = [
-    // "Selon le rôle", not "Hériter": the neutral state is not an absence of
-    // decision, it is the role's own grant — green when the role allows it.
     { value: '', label: 'Selon le rôle' },
     { value: 'allow', label: 'Autoriser' },
     { value: 'deny', label: 'Interdire' },
 ];
+
+const rowClass = computed(() => cn(
+    'grid gap-3 border-b border-border/60 px-4 py-3 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center',
+    props.state === 'allow' ? 'bg-emerald-50/40 dark:bg-emerald-950/15'
+        : props.state === 'deny' ? 'bg-red-50/40 dark:bg-red-950/15'
+            : props.roleGranted ? 'bg-emerald-50/20 dark:bg-emerald-950/5' : '',
+));
+
+const choiceClass = (value) => {
+    const selected = props.state === value;
+
+    if (! selected) {
+        return 'text-muted-foreground hover:bg-card hover:text-foreground';
+    }
+
+    if (value === 'allow') return 'bg-emerald-600 text-white shadow-sm';
+    if (value === 'deny') return 'bg-destructive text-destructive-foreground shadow-sm';
+
+    return props.roleGranted
+        ? 'bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900'
+        : 'bg-card text-foreground shadow-sm';
+};
 </script>
 
 <template>
-    <div
-        :class="[
-            'grid gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-900 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center',
-            state === 'allow' ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : state === 'deny' ? 'bg-red-50/30 dark:bg-red-950/10' : roleGranted ? 'bg-emerald-50/15 dark:bg-emerald-950/5' : '',
-        ]"
-    >
+    <div :class="rowClass">
         <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-1.5">
-                <p class="text-sm font-semibold text-slate-700 dark:text-white">{{ permission.label }}</p>
-                <span v-if="sensitive" class="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900">
-                    <Icon class="text-xs" name="alert-circle" />Sensible
-                </span>
-                <span v-if="state === '' && roleGranted" class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900">Inclus dans le rôle</span>
-                <span v-else-if="state === ''" class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-gray-900">Non inclus dans le rôle</span>
-                <span v-else-if="state === 'allow'" class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">Exception · Autorisé</span>
-                <span v-else class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950 dark:text-red-300">Exception · Interdit</span>
+                <p class="text-sm font-semibold text-foreground">{{ permission.label }}</p>
+                <Badge v-if="sensitive" variant="warning" class="px-1.5 py-0 text-[10px] uppercase tracking-wide">
+                    <TriangleAlert class="h-3 w-3" />Sensible
+                </Badge>
+                <Badge v-if="state === '' && roleGranted" variant="success" class="px-1.5 py-0 text-[10px]">Inclus dans le rôle</Badge>
+                <Badge v-else-if="state === ''" variant="outline" class="px-1.5 py-0 text-[10px]">Non inclus dans le rôle</Badge>
+                <Badge v-else-if="state === 'allow'" variant="success" class="px-1.5 py-0 text-[10px]">Exception · Autorisé</Badge>
+                <Badge v-else variant="destructive" class="px-1.5 py-0 text-[10px]">Exception · Interdit</Badge>
             </div>
-            <p v-if="advanced" class="mt-1 truncate font-mono text-[11px] text-slate-400" :title="permission.name">{{ permission.name }}</p>
-            <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                <span class="text-slate-400">Rôle : <strong :class="roleGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'">{{ roleGranted ? 'autorisé' : 'interdit' }}</strong></span>
-                <span class="text-slate-400">Effectif : <strong :class="effectiveGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">{{ effectiveGranted ? 'autorisé' : 'interdit' }}</strong></span>
-                <span v-if="sourceLabel" class="text-primary-600 dark:text-primary-300">{{ sourceLabel }}</span>
+            <p v-if="advanced" class="mt-1 truncate font-mono text-[11px] text-muted-foreground" :title="permission.name">{{ permission.name }}</p>
+            <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <span>Rôle : <strong :class="roleGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'">{{ roleGranted ? 'autorisé' : 'interdit' }}</strong></span>
+                <span>Effectif : <strong :class="effectiveGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'">{{ effectiveGranted ? 'autorisé' : 'interdit' }}</strong></span>
+                <span v-if="sourceLabel" class="text-primary">{{ sourceLabel }}</span>
             </div>
         </div>
 
         <fieldset class="min-w-0" :disabled="disabled">
             <legend class="sr-only">Accès pour {{ permission.label }}</legend>
-            <div class="inline-flex w-full rounded border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-800 dark:bg-gray-900 sm:w-auto" role="radiogroup" :aria-label="`Accès pour ${permission.label}`">
+            <div class="inline-flex w-full rounded-lg border border-border bg-muted p-0.5 sm:w-auto" role="radiogroup" :aria-label="`Accès pour ${permission.label}`">
                 <button
                     v-for="choice in choices"
                     :key="choice.value || 'inherit'"
@@ -59,18 +86,10 @@ const choices = [
                     role="radio"
                     :aria-checked="state === choice.value"
                     :disabled="disabled"
-                    :class="[
-                        'min-h-8 flex-1 rounded px-2.5 py-1 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 sm:flex-none',
-                        state === choice.value
-                            ? choice.value === 'allow'
-                                ? 'bg-emerald-600 text-white shadow-sm'
-                                : choice.value === 'deny'
-                                    ? 'bg-red-600 text-white shadow-sm'
-                                    : roleGranted
-                                        ? 'bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900'
-                                        : 'bg-white text-slate-700 shadow-sm dark:bg-gray-950 dark:text-white'
-                            : 'text-slate-500 hover:bg-white hover:text-slate-700 dark:hover:bg-gray-950 dark:hover:text-white',
-                    ]"
+                    :class="cn(
+                        'min-h-8 flex-1 rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none',
+                        choiceClass(choice.value),
+                    )"
                     @click="$emit('change', choice.value)"
                 >
                     {{ choice.label }}

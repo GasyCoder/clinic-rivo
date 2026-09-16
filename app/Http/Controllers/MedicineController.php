@@ -314,15 +314,20 @@ class MedicineController extends Controller
 
     /**
      * Answers "are complementary exams needed?" at the head of the step it
-     * governs. "Non" resolves the step as SKIPPED — declared unnecessary, not
-     * forgotten — and sends the doctor to the Diagnostic instead of through an
-     * empty screen.
+     * governs. "Non" resolves the step as SKIPPED — declared unnecessary,
+     * never forgotten — then continues the pathway.
+     *
+     * La suite est demandée à `ConsultationWorkflow::nextStepAfter()`, pas
+     * codée en dur : le serveur reste la source de vérité de l'avancement
+     * (ADR-076), et une étape devenue sans objet pour ce patient est ainsi
+     * franchie sans que ce contrôleur ait à la connaître.
      */
     public function decideComplementaryExams(
         DecideComplementaryExamsRequest $request,
         EpisodeOrientation $episodeOrientation,
         DecideComplementaryExamsAction $decision,
         ResolveConsultationStepAction $steps,
+        ConsultationWorkflow $workflow,
     ): RedirectResponse {
         $consultation = $episodeOrientation->consultation;
         $required = $request->boolean('required');
@@ -350,7 +355,15 @@ class MedicineController extends Controller
                 $request->user(),
             );
 
-            return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'examen'])
+            // Le médecin vient de terminer l'Examen clinique : l'y renvoyer
+            // le faisait repartir en arrière. On avance vers l'étape
+            // suivante réellement pertinente — la Prescription en pratique,
+            // la Clôture si elle ne concerne pas ce patient.
+            $consultation = $consultation->fresh();
+            $next = $workflow->nextStepAfter($consultation, ConsultationStep::Paraclinical)
+                ?? ConsultationStep::Closure;
+
+            return redirect()->route('medicine.orientations.step', [$episodeOrientation, $next->value])
                 ->with('status', $withdrawn === []
                     ? 'Aucun examen complémentaire nécessaire.'
                     : sprintf('Aucun examen complémentaire nécessaire. %d demande(s) annulée(s).', count($withdrawn)));
@@ -631,6 +644,7 @@ class MedicineController extends Controller
         EpisodeOrientation $episodeOrientation,
         CreatePrescriptionAction $action,
         ResolveConsultationStepAction $steps,
+        ConsultationWorkflow $workflow,
     ): RedirectResponse {
         $consultation = $episodeOrientation->consultation()->firstOrFail();
 
@@ -647,7 +661,16 @@ class MedicineController extends Controller
             $steps->complete($consultation->fresh(), ConsultationStep::Prescription, $request->user());
         }
 
-        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $continue ? 'decision' : 'ordonnance'])
+        // `decision` n'est plus une destination : elle ne survit que comme
+        // URL héritée, qui redirige vers la Clôture. Y envoyer un nouveau
+        // parcours ferait payer une redirection pour arriver au même écran.
+        // La suite est demandée au workflow, pas codée en dur.
+        $next = $continue
+            ? ($workflow->nextStepAfter($consultation->fresh(), ConsultationStep::Prescription)
+                ?? ConsultationStep::Closure)
+            : ConsultationStep::Prescription;
+
+        return redirect()->route('medicine.orientations.step', [$episodeOrientation, $next->value])
             ->with('status', $continue
                 ? 'Ordonnance enregistrée, stock réservé et étape validée. Vous pouvez maintenant conclure le passage.'
                 : 'Ordonnance enregistrée.');

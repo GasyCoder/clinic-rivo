@@ -55,14 +55,22 @@ class ComplementaryExamDecisionTest extends TestCase
         );
     }
 
-    public function test_answering_no_skips_the_paraclinical_step_and_goes_to_the_diagnosis(): void
+    /**
+     * « Non » déclare l'étape non nécessaire, puis **avance**.
+     *
+     * Elle renvoyait à l'Examen clinique, que le médecin venait justement de
+     * terminer : répondre à la question le faisait repartir en arrière. La
+     * suite vient désormais de `ConsultationWorkflow::nextStepAfter()`, pas
+     * d'une route codée en dur.
+     */
+    public function test_answering_no_skips_the_paraclinical_step_and_continues_the_pathway(): void
     {
         $doctor = $this->doctor();
         [, $orientation] = $this->medicineConsultation($doctor);
 
         $this->actingAs($doctor)
             ->post($this->decisionUrl($orientation), ['required' => false])
-            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
 
         $consultation = $orientation->consultation()->firstOrFail();
         $step = $consultation->steps()->where('step', ConsultationStep::Paraclinical->value)->sole();
@@ -245,7 +253,7 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->actingAs($doctor)->post($this->decisionUrl($orientation), ['required' => false]);
 
         $this->actingAs($doctor)
-            ->get("/medicine/orientations/{$orientation->uuid}/examen")
+            ->get("/medicine/orientations/{$orientation->uuid}/ordonnance")
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('consultation.steps.paraclinique.status', ConsultationStepStatus::Skipped->value)
@@ -317,7 +325,7 @@ class ComplementaryExamDecisionTest extends TestCase
 
         $this->actingAs($doctor)
             ->post($this->decisionUrl($orientation), ['required' => false, 'withdraw_confirmed' => true])
-            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/examen");
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
 
         $request->refresh();
 
@@ -327,6 +335,86 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->assertSame($doctor->id, $request->cancelled_by);
         $this->assertNotNull($request->cancel_reason);
         $this->assertSame('CANCELLED', $request->displayStatus());
+    }
+
+    /**
+     * Un examen déjà rendu peut être redemandé : c'est un nouvel examen
+     * médical, pas un doublon. `ParaclinicalRequestGuard` ne bloque que les
+     * demandes **actives** — ni annulées, ni résultées.
+     */
+    public function test_a_resulted_exam_can_be_requested_again_as_a_new_one(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $first = $this->labRequest($orientation, $doctor);
+        $catalogUuid = $first->items->first()->catalogItem->uuid;
+
+        $first->items()->update(['result_value' => '12', 'resulted_at' => now()]);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+                'items' => [['catalog_item_uuid' => $catalogUuid]],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            2,
+            $orientation->consultation()->firstOrFail()->labRequests()->count(),
+            'le second examen est une demande neuve, la première reste intacte',
+        );
+
+        // La première n'est ni annulée ni réécrite : elle porte un acte réel.
+        $this->assertNull($first->fresh()->cancelled_at);
+    }
+
+    /**
+     * Après un envoi, le médecin reste sur la Paraclinique — d'où il peut en
+     * demander une autre, en retirer une ou saisir un résultat. Le renvoyer
+     * à l'Examen clinique le ferait repartir en arrière.
+     */
+    public function test_sending_a_request_never_returns_to_the_clinical_exam(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+
+        $item = \App\Models\CatalogItem::query()->create([
+            'code' => 'LAB-'.uniqid(),
+            'name' => 'Ionogramme',
+            'type' => \App\Enums\CatalogItemType::Service,
+            'module' => \App\Enums\CatalogModule::Laboratory,
+            'unit' => 'analyse',
+            'billable' => false,
+            'stockable' => false,
+            'created_by' => $doctor->id,
+            'updated_by' => $doctor->id,
+        ]);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+                'items' => [['catalog_item_uuid' => $item->uuid]],
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/paraclinique");
+
+        // Et quand il demande explicitement de poursuivre, il avance —
+        // jamais vers l'examen qu'il vient de quitter.
+        $other = \App\Models\CatalogItem::query()->create([
+            'code' => 'LAB-'.uniqid(),
+            'name' => 'CRP',
+            'type' => \App\Enums\CatalogItemType::Service,
+            'module' => \App\Enums\CatalogModule::Laboratory,
+            'unit' => 'analyse',
+            'billable' => false,
+            'stockable' => false,
+            'created_by' => $doctor->id,
+            'updated_by' => $doctor->id,
+        ]);
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+                'items' => [['catalog_item_uuid' => $other->uuid]],
+                'continue_to_diagnosis' => true,
+            ])
+            ->assertRedirect("/medicine/orientations/{$orientation->uuid}/ordonnance");
     }
 
     /** A request that produced a result is part of the record, full stop. */

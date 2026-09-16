@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Check, ChevronRight, RotateCcw, Search, ShieldCheck, TriangleAlert, UserCog } from 'lucide-vue-next';
+import { ArrowLeftRight, Check, ChevronRight, RotateCcw, Search, ShieldCheck, TriangleAlert, UserCog } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
@@ -9,6 +9,7 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import PermissionAccessRow from '@/Components/Rbac/PermissionAccessRow.vue';
 import PermissionCategoryNav from '@/Components/Rbac/PermissionCategoryNav.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import { PERMISSION_DOMAINS, permissionCategoryDomain, permissionCategoryLabel } from '@/utilities/permissionCategories';
 import {
     comparePermissions,
@@ -364,6 +365,25 @@ const openCategory = (key) => {
 
 const resetDraft = () => { draft.value = { ...savedEffects.value }; };
 
+/**
+ * Le compte se choisit dans une fenêtre, comme le rôle sur l'écran voisin.
+ *
+ * La liste des comptes empilée au-dessus des quarante catégories repoussait
+ * le travail réel hors de l'écran, pour un choix qu'on ne fait qu'une fois
+ * par réglage. La colonne revient aux catégories.
+ */
+const switching = ref(false);
+
+const openSwitcher = () => {
+    userSearch.value = '';
+    switching.value = true;
+};
+
+const chooseUser = (uuid) => {
+    switching.value = false;
+    requestUserSwitch(uuid);
+};
+
 const requestUserSwitch = (uuid) => {
     if (uuid === selectedUuid.value) return;
     if (dirty.value) { pendingUuid.value = uuid; return; }
@@ -411,48 +431,44 @@ const save = () => emit('save', {
             <p class="mt-1 text-xs text-muted-foreground">Les exceptions se règlent sur un compte existant, depuis « Utilisateurs ».</p>
         </div>
 
-        <div v-else class="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)]">
-            <div class="space-y-4">
+        <!-- Deux panneaux séparés par une barre que l'on glisse : la largeur
+             du rail n'est pas la même selon qu'on relit des catégories ou
+             qu'on lit des libellés longs à droite. Le choix appartient au
+             poste de travail, et il y reste (localStorage). -->
+        <ResizableSplit
+            v-else
+            storage-key="rivo:super-admin:overrides-split"
+            :default-ratio="0.26"
+            :min-ratio="0.18"
+            :max-ratio="0.45"
+            start-label="panneau du compte et des catégories"
+            end-label="panneau des exceptions"
+        >
+            <template #start>
+            <div class="space-y-4 pe-1 sticky top-4">
                 <Card class="overflow-hidden">
-                    <div class="border-b border-border p-3">
-                        <p class="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Comptes du site</p>
-                        <IconInput
-                            v-model="userSearch"
-                            :icon="Search"
-                            type="search"
-                            class="h-9"
-                            placeholder="Nom, e-mail, rôle…"
-                            autocomplete="off"
-                            aria-label="Rechercher un compte"
-                        />
-                    </div>
-                    <div class="max-h-72 overflow-y-auto p-1.5 xl:max-h-[28rem]">
-                        <button
-                            v-for="user in visibleUsers"
-                            :key="user.uuid"
-                            type="button"
-                            :class="cn(
-                                'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start transition-colors',
-                                user.uuid === selectedUuid ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent',
-                            )"
-                            :aria-current="user.uuid === selectedUuid ? 'true' : undefined"
-                            @click="requestUserSwitch(user.uuid)"
-                        >
+                    <p class="border-b border-border px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Compte réglé</p>
+                    <div class="p-3">
+                        <div class="flex items-start gap-2.5">
+                            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                                <UserCog class="h-4.5 w-4.5" />
+                            </span>
                             <span class="min-w-0 flex-1">
                                 <span class="flex items-center gap-1.5">
-                                    <span class="truncate text-sm font-semibold">{{ user.name }}</span>
-                                    <Badge v-if="! user.active" variant="outline" class="shrink-0 px-1.5 py-0 text-[10px]">Désactivé</Badge>
+                                    <span class="truncate text-sm font-bold text-foreground">{{ selectedUser?.name ?? 'Aucun compte' }}</span>
+                                    <Badge v-if="selectedUser && ! selectedUser.active" variant="outline" class="shrink-0 px-1.5 py-0 text-[10px]">Désactivé</Badge>
+                                    <span v-if="dirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="Modifications non enregistrées" />
                                 </span>
-                                <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                                    {{ user.role?.name ?? 'Sans rôle' }}
-                                    <template v-if="user.permission_overrides.length"> · {{ user.permission_overrides.length }} exception{{ user.permission_overrides.length > 1 ? 's' : '' }}</template>
+                                <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">{{ selectedUser?.email }}</span>
+                                <span class="mt-0.5 block text-[11px] text-muted-foreground">
+                                    {{ selectedUser?.role?.name ?? 'Sans rôle' }} · {{ summary.exceptions }} exception{{ summary.exceptions > 1 ? 's' : '' }}
                                 </span>
                             </span>
-                            <span v-if="user.uuid === selectedUuid && dirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="Modifications non enregistrées" />
-                            <ChevronRight v-else class="h-4 w-4 shrink-0 text-muted-foreground" />
-                        </button>
-
-                        <p v-if="! visibleUsers.length" class="px-3 py-6 text-center text-xs text-muted-foreground">Aucun compte ne correspond.</p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" class="mt-3 w-full" @click="openSwitcher">
+                            <ArrowLeftRight class="h-4 w-4" />Changer de compte
+                            <span class="ms-auto text-[11px] font-normal text-muted-foreground">{{ users.length }}</span>
+                        </Button>
                     </div>
                 </Card>
 
@@ -466,8 +482,10 @@ const save = () => emit('save', {
                     />
                 </div>
             </div>
+            </template>
 
-            <Card class="flex min-h-[32rem] flex-col overflow-hidden">
+            <template #end>
+            <Card class="flex min-h-[32rem] flex-col overflow-hidden ms-1">
                 <header class="space-y-3 border-b border-border p-4">
                     <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div class="min-w-0">
@@ -579,7 +597,8 @@ const save = () => emit('save', {
                     </section>
                 </div>
             </Card>
-        </div>
+            </template>
+        </ResizableSplit>
 
         <div v-if="users.length" class="sticky bottom-0 z-20 -mx-1 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -665,6 +684,58 @@ const save = () => emit('save', {
             <template #footer>
                 <Button type="button" variant="outline" @click="pendingBulk = null">Annuler</Button>
                 <Button type="button" :variant="pendingBulk?.effect === 'deny' ? 'destructive' : 'primary'" @click="confirmBulk">Appliquer au brouillon</Button>
+            </template>
+        </Dialog>
+
+        <Dialog
+            :open="switching"
+            size="lg"
+            title="Choisir un compte"
+            description="Les exceptions que vous réglerez ensuite ne concernent que ce compte."
+            @update:open="switching = $event"
+        >
+            <IconInput
+                v-model="userSearch"
+                :icon="Search"
+                type="search"
+                placeholder="Nom, e-mail, rôle…"
+                autocomplete="off"
+                aria-label="Rechercher un compte"
+            />
+
+            <div class="mt-3 max-h-80 space-y-1 overflow-y-auto">
+                <button
+                    v-for="user in visibleUsers"
+                    :key="user.uuid"
+                    type="button"
+                    :class="cn(
+                        'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-start transition-colors',
+                        user.uuid === selectedUuid ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent',
+                    )"
+                    :aria-current="user.uuid === selectedUuid ? 'true' : undefined"
+                    @click="chooseUser(user.uuid)"
+                >
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center gap-1.5">
+                            <span class="truncate text-sm font-semibold text-foreground">{{ user.name }}</span>
+                            <Badge v-if="user.uuid === selectedUuid" variant="default" class="px-1.5 py-0 text-[10px]">En cours</Badge>
+                            <Badge v-if="! user.active" variant="outline" class="px-1.5 py-0 text-[10px]">Désactivé</Badge>
+                        </span>
+                        <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                            {{ user.email }} · {{ user.role?.name ?? 'Sans rôle' }}
+                            <template v-if="user.permission_overrides.length"> · {{ user.permission_overrides.length }} exception{{ user.permission_overrides.length > 1 ? 's' : '' }}</template>
+                        </span>
+                    </span>
+                    <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+
+                <p v-if="! visibleUsers.length" class="px-3 py-8 text-center text-xs text-muted-foreground">
+                    Aucun compte ne correspond à « {{ userSearch }} ».
+                </p>
+            </div>
+
+            <template #footer>
+                <Button type="button" variant="outline" @click="switching = false">Fermer</Button>
             </template>
         </Dialog>
 

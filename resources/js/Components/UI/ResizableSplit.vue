@@ -282,7 +282,13 @@ const percent = computed(() => Math.round(ratio.value * 100));
     --rs-gutter: 1.25rem;
 }
 
-/* Le trait : discret au repos, bleu au survol, franc pendant le drag. */
+/* Le trait : discret au repos, à la couleur de l'application au survol,
+   franc pendant le drag.
+
+   Les couleurs passent par les tokens sémantiques (ADR-099) plutôt que par
+   un bleu codé en dur : la poignée suivait sa propre palette, et il fallait
+   deux blocs de surcharge pour rattraper le mode sombre — qui manquaient dès
+   qu'un thème changeait. */
 .rs-grip {
     position: relative;
     display: block;
@@ -290,14 +296,14 @@ const percent = computed(() => Math.round(ratio.value * 100));
     height: 100%;
     min-height: 2.5rem;
     border-radius: 9999px;
-    background-color: rgb(226 232 240);
+    background-color: hsl(var(--border));
     transition: background-color 120ms ease;
 }
 
 .rs-handle:hover .rs-grip,
 .rs-handle:focus-visible .rs-grip,
 .rs-dragging .rs-grip {
-    background-color: rgb(59 130 246);
+    background-color: hsl(var(--primary));
 }
 
 /* Les trois points au centre : seule marque qui dit « ça se glisse ».
@@ -316,9 +322,9 @@ const percent = computed(() => Math.round(ratio.value * 100));
     width: 11px;
     height: 28px;
     transform: translate(-50%, -50%);
-    border: 1px solid rgb(226 232 240);
+    border: 1px solid hsl(var(--border));
     border-radius: 9999px;
-    background-color: #fff;
+    background-color: hsl(var(--card));
     transition: border-color 120ms ease;
 }
 
@@ -326,25 +332,25 @@ const percent = computed(() => Math.round(ratio.value * 100));
     width: 2px;
     height: 2px;
     border-radius: 9999px;
-    background-color: rgb(148 163 184);
+    background-color: hsl(var(--muted-foreground));
     transition: background-color 120ms ease;
 }
 
 .rs-handle:hover .rs-pad,
 .rs-handle:focus-visible .rs-pad,
 .rs-dragging .rs-pad {
-    border-color: rgb(147 197 253);
+    border-color: hsl(var(--primary) / 0.5);
 }
 
 .rs-handle:hover .rs-pad i,
 .rs-handle:focus-visible .rs-pad i,
 .rs-dragging .rs-pad i {
-    background-color: rgb(59 130 246);
+    background-color: hsl(var(--primary));
 }
 
 .rs-handle:focus-visible {
     border-radius: 0.375rem;
-    box-shadow: 0 0 0 2px rgb(191 219 254);
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.45);
 }
 
 /* Pendant le drag : pas de sélection accidentelle, et le curseur reste
@@ -356,26 +362,6 @@ const percent = computed(() => Math.round(ratio.value * 100));
 
 .rs-dragging .rs-pane {
     pointer-events: none;
-}
-
-@media (prefers-color-scheme: dark) {
-    .rs-grip {
-        background-color: rgb(30 41 59);
-    }
-
-    .rs-pad {
-        border-color: rgb(30 41 59);
-        background-color: rgb(3 7 18);
-    }
-}
-
-:global(html[data-theme='dark']) .rs-grip {
-    background-color: rgb(30 41 59);
-}
-
-:global(html[data-theme='dark']) .rs-pad {
-    border-color: rgb(30 41 59);
-    background-color: rgb(3 7 18);
 }
 
 @media (prefers-reduced-motion: reduce) {

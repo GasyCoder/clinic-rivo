@@ -199,3 +199,69 @@ test('le rail du socle affiche l’état de chaque catégorie', () => {
 test('ouvrir une catégorie quitte la recherche en cours', () => {
     assert.match(editor, /const openCategory = \(key\) => \{\s*search\.value = '';\s*filter\.value = 'all';\s*selectedCategory\.value = key;/);
 });
+
+/**
+ * Onze rôles empilés au-dessus de quarante catégories : plus de 900 px à
+ * parcourir avant d'atteindre le travail réel, pour un choix qu'on ne fait
+ * qu'une fois — et sans aucune recherche.
+ */
+test('le rôle et le compte se choisissent dans une fenêtre cherchable', () => {
+    const overrides = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
+
+    for (const [name, source, title] of [
+        ['le socle', editor, 'Choisir un rôle'],
+        ['les exceptions', overrides, 'Choisir un compte'],
+    ]) {
+        assert.match(source, new RegExp(`title="${title}"`), `${name} : pas de fenêtre de choix`);
+        assert.match(source, /const switching = ref\(false\)/, `${name} : pas d’état de fenêtre`);
+        assert.match(source, /aria-label="Rechercher un (rôle|compte)"/, `${name} : pas de recherche`);
+        // La colonne suit le défilement : les catégories restent atteignables.
+        assert.match(source, /space-y-4 pe-1 sticky top-4/, `${name} : rail non collant`);
+    }
+
+    // Plus de liste complète empilée dans la colonne.
+    assert.doesNotMatch(editor, /<p class="border-b border-border px-4 py-2\.5[^"]*">Rôles du site<\/p>/);
+});
+
+/** Quarante catégories sans filtre, c'était une recherche à l'œil. */
+test('le rail des catégories se filtre', () => {
+    assert.match(nav, /placeholder="Filtrer les catégories…"/);
+    assert.match(nav, /aria-label="Filtrer les catégories"/);
+    // Le code d'une catégorie compte autant que son libellé : on connaît
+    // parfois l'un sans l'autre.
+    assert.match(nav, /normalizePermissionText\(`\$\{category\.label\} \$\{category\.key\}`\)/);
+    assert.match(nav, /Effacer le filtre/);
+});
+
+/**
+ * La largeur utile du rail dépend du travail en cours : parcourir des
+ * catégories n'a pas les mêmes besoins que relire des libellés longs à
+ * droite. Une grille figée imposait le même arbitrage à tout le monde.
+ */
+test('les deux panneaux se redimensionnent à la barre', () => {
+    const overrides = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
+    const split = fs.readFileSync('resources/js/Components/UI/ResizableSplit.vue', 'utf8');
+
+    for (const [name, source, key] of [
+        ['le socle', editor, 'rivo:super-admin:baseline-split'],
+        ['les exceptions', overrides, 'rivo:super-admin:overrides-split'],
+    ]) {
+        assert.match(source, /<ResizableSplit/, `${name} : pas de panneaux redimensionnables`);
+        assert.ok(source.includes(`storage-key="${key}"`), `${name} : le choix ne serait pas conservé`);
+        assert.match(source, /<template #start>/, `${name} : panneau de gauche absent`);
+        assert.match(source, /<template #end>/, `${name} : panneau de droite absent`);
+
+        // Une grille figée ne laissait aucun arbitrage au poste de travail.
+        assert.doesNotMatch(source, /xl:grid-cols-\[19rem_minmax\(0,1fr\)\]/, `${name} : grille figée restante`);
+    }
+
+    // La barre reste utilisable sans souris, et se remet d'un double-clic.
+    assert.match(split, /role="separator"/);
+    assert.match(split, /aria-orientation="vertical"/);
+    assert.match(split, /tabindex="0"/);
+    assert.match(split, /event\.key === 'ArrowLeft'/);
+
+    // Elle suit le thème de l'application (ADR-099), plus un bleu codé en dur.
+    assert.match(split, /background-color: hsl\(var\(--primary\)\)/);
+    assert.doesNotMatch(split, /rgb\(59 130 246\)/);
+});

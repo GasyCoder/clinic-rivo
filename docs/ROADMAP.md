@@ -369,6 +369,8 @@ admin.rivo.mg
 - [x] Éditeur de canevas de documents (TipTap) : création, modification versionnée, duplication, activation, archivage/restauration par site
 - [x] Catalogue des permissions administrable depuis le portail (ADR-101) : créer un droit, reformuler son libellé, retirer un nom que rien ne vérifie — le nom lui-même ne change jamais
 - [x] Usage réel de chaque permission calculé depuis le code (`PermissionUsageScanner`) : « vérifiée par l'application » ou « pas encore vérifiée », jamais une liste tenue à la main
+- [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte
+- [x] Choix du rôle et du compte en fenêtre cherchable, colonne de gauche rendue aux catégories et filtre propre au rail (ADR-101)
 - [x] Écran « Rôles & permissions » à quatre sections annoncées par portée (socle du rôle / exception d'un compte / rôles du site / catalogue), avec compteurs et phrase de portée avant le clic
 - [x] Référentiel des rôles administrable depuis le portail (ADR-100) : créer, renommer, archiver avec motif (refusé si des comptes le portent) et restaurer, par site via l'API — le code d'un rôle reste son identité et ne change jamais
 - [x] Écrans « Utilisateurs » et « Rôles & permissions » séparés (ADR-100) : les comptes d'un côté, le socle des rôles et les exceptions individuelles de l'autre, sans changer la résolution DENY > ALLOW > socle

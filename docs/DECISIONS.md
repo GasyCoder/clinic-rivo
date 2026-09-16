@@ -6349,3 +6349,22 @@ Catalogue des droits    les mots que l'application sait vérifier
 Une barre de pastilles ne disait ni ce qu'on allait toucher, ni combien. Sur
 un écran où un clic peut modifier l'accès de tout un service, la portée
 appartient à la navigation, pas à la documentation.
+
+**La colonne de gauche appartient aux catégories.** Elle empilait d'abord la
+liste complète des rôles — ou des comptes — puis les quarante catégories :
+plus de 900 px à parcourir avant d'atteindre le travail réel, pour un choix
+qu'on ne fait qu'une fois par réglage, et sans aucune recherche. Le rôle et
+le compte se choisissent désormais dans une fenêtre cherchable, qui montre au
+passage ce que chacun porte (droits, profils, comptes titulaires) ; la
+colonne ne garde qu'une carte de ce qui est réglé et suit le défilement. Le
+rail des catégories reçoit son propre filtre, sur le libellé **et** sur le
+code — on connaît parfois l'un sans l'autre.
+
+Les deux panneaux sont enfin séparés par une **barre que l'on glisse**
+(`ResizableSplit`, déjà en place sur l'examen clinique) : la largeur utile du
+rail dépend du travail en cours, et une grille figée imposait le même
+arbitrage à tout le monde. La barre se manie aussi au clavier (flèches,
+Home/End), se remet d'un double-clic, et la largeur choisie reste sur le
+poste. Elle suit désormais les tokens de l'application plutôt qu'un bleu codé
+en dur, ce qui supprime au passage les deux blocs de surcharge du mode
+sombre.

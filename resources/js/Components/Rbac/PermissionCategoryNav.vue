@@ -1,5 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import { Search } from 'lucide-vue-next';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import { normalizePermissionText } from '@/utilities/permissionWorkspace';
 import { cn } from '@/lib/cn';
 
 /**
@@ -28,13 +31,54 @@ const props = defineProps({
 
 defineEmits(['update:modelValue']);
 
+/**
+ * Quarante catégories dans une colonne : sans filtre, on les parcourait à
+ * l'œil jusqu'à trouver la bonne. Le champ ne cherche que dans ce rail — le
+ * code d'une catégorie compte autant que son libellé, parce qu'on connaît
+ * parfois l'un sans l'autre.
+ */
+const filter = ref('');
+
+const matches = (category) => {
+    const term = normalizePermissionText(filter.value).trim();
+
+    if (term === '') return true;
+
+    return normalizePermissionText(`${category.label} ${category.key}`).includes(term);
+};
+
 const visibleGroups = computed(() => props.groups
-    .map((group) => ({ ...group, categories: group.categories.filter((category) => ! category.hidden) }))
+    .map((group) => ({
+        ...group,
+        categories: group.categories.filter((category) => ! category.hidden && matches(category)),
+    }))
     .filter((group) => group.categories.length));
+
+const total = computed(() => props.groups.reduce(
+    (count, group) => count + group.categories.filter((category) => ! category.hidden).length,
+    0,
+));
+
+const shown = computed(() => visibleGroups.value.reduce((count, group) => count + group.categories.length, 0));
 </script>
 
 <template>
     <div :class="cn('overflow-hidden rounded-lg border border-border bg-card', props.class)">
+        <div class="border-b border-border p-2">
+            <IconInput
+                v-model="filter"
+                :icon="Search"
+                type="search"
+                class="h-8 text-xs"
+                placeholder="Filtrer les catégories…"
+                autocomplete="off"
+                aria-label="Filtrer les catégories"
+            />
+            <p v-if="filter.trim()" class="mt-1 px-1 text-[10px] tabular-nums text-muted-foreground">
+                {{ shown }} sur {{ total }}
+            </p>
+        </div>
+
         <div class="max-h-[22rem] overflow-y-auto lg:max-h-[26rem]">
             <template v-for="group in visibleGroups" :key="group.key">
                 <p class="sticky top-0 z-10 border-b border-t border-border bg-muted px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground first:border-t-0">
@@ -69,6 +113,9 @@ const visibleGroups = computed(() => props.groups
 
             <p v-if="visibleGroups.length === 0" class="px-3 py-6 text-center text-xs text-muted-foreground">
                 Aucune catégorie ne correspond.
+                <button v-if="filter.trim()" type="button" class="mt-1 block w-full font-semibold text-primary hover:underline" @click="filter = ''">
+                    Effacer le filtre
+                </button>
             </p>
         </div>
 

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import {
+    ArrowLeftRight,
     Check,
     ChevronRight,
     Minus,
@@ -18,6 +19,7 @@ import Dialog from '@/Components/Shadcn/Dialog.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import PermissionCategoryNav from '@/Components/Rbac/PermissionCategoryNav.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import { PERMISSION_DOMAINS, permissionCategoryDomain, permissionCategoryLabel } from '@/utilities/permissionCategories';
 import {
     comparePermissions,
@@ -276,6 +278,37 @@ const openCategory = (key) => {
 
 const resetDraft = () => { draftIds.value = new Set(baselineIds.value); };
 
+/**
+ * Le rôle se choisit dans une fenêtre, plus dans une liste empilée au-dessus
+ * des catégories.
+ *
+ * Onze rôles puis quarante catégories dans la même colonne, cela faisait
+ * plus de 900 px à parcourir pour atteindre le travail réel — et la liste
+ * des rôles occupait cette place en permanence alors qu'on n'en change
+ * qu'une fois. La fenêtre rend la colonne aux catégories et apporte ce qui
+ * manquait vraiment : une recherche.
+ */
+const switching = ref(false);
+const roleSearch = ref('');
+
+const visibleRoles = computed(() => {
+    const term = roleSearch.value.trim().toLowerCase();
+
+    if (! term) return props.roles;
+
+    return props.roles.filter((role) => `${role.name} ${role.code}`.toLowerCase().includes(term));
+});
+
+const openSwitcher = () => {
+    roleSearch.value = '';
+    switching.value = true;
+};
+
+const chooseRole = (code) => {
+    switching.value = false;
+    requestRoleSwitch(code);
+};
+
 const requestRoleSwitch = (code) => {
     if (code === selectedRoleCode.value) return;
     if (dirty.value) { pendingRoleCode.value = code; return; }
@@ -297,32 +330,47 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
         <FormError v-if="errors.role">{{ errors.role }}</FormError>
         <FormError v-if="errors.permission_ids">{{ errors.permission_ids }}</FormError>
 
-        <div class="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)]">
-            <!-- Rail : les rôles restent atteignables sans quitter l'écran,
-                 et les catégories sans pagination — c'est ce double
-                 aller-retour qui rendait le socle pénible à régler. -->
-            <div class="space-y-4">
+        <!-- Deux panneaux séparés par une barre que l'on glisse. La largeur
+             utile du rail dépend de ce qu'on fait : parcourir des catégories
+             n'a pas les mêmes besoins que relire des libellés longs à
+             droite. Le choix appartient au poste, et il y reste. -->
+        <ResizableSplit
+            storage-key="rivo:super-admin:baseline-split"
+            :default-ratio="0.26"
+            :min-ratio="0.18"
+            :max-ratio="0.45"
+            start-label="panneau du rôle et des catégories"
+            end-label="panneau du socle"
+        >
+            <template #start>
+            <div class="space-y-4 pe-1 sticky top-4">
+                <!-- Le rôle réglé, en clair, et une seule commande pour en
+                     changer : la liste complète ne monopolise plus la
+                     colonne pour un choix qu'on ne fait qu'une fois. -->
                 <Card class="overflow-hidden">
-                    <p class="border-b border-border px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rôles du site</p>
-                    <div class="max-h-64 overflow-y-auto p-1.5 xl:max-h-none">
-                        <button
-                            v-for="role in roles"
-                            :key="role.code"
-                            type="button"
-                            :class="cn(
-                                'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start transition-colors',
-                                role.code === selectedRoleCode ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent',
-                            )"
-                            :aria-current="role.code === selectedRoleCode ? 'true' : undefined"
-                            @click="requestRoleSwitch(role.code)"
-                        >
-                            <span class="min-w-0 flex-1">
-                                <span class="block truncate text-sm font-semibold">{{ role.name }}</span>
-                                <span class="mt-0.5 block text-[11px] text-muted-foreground">{{ role.permissions.length }} droit{{ role.permissions.length > 1 ? 's' : '' }} · {{ role.profiles.length }} profil{{ role.profiles.length > 1 ? 's' : '' }}</span>
+                    <p class="border-b border-border px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rôle réglé</p>
+                    <div class="p-3">
+                        <div class="flex items-start gap-2.5">
+                            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                                <ShieldCheck class="h-4.5 w-4.5" />
                             </span>
-                            <span v-if="role.code === selectedRoleCode && dirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="Modifications non enregistrées" />
-                            <ChevronRight v-else class="h-4 w-4 shrink-0 text-muted-foreground" />
-                        </button>
+                            <span class="min-w-0 flex-1">
+                                <span class="flex items-center gap-1.5">
+                                    <span class="truncate text-sm font-bold text-foreground">{{ selectedRole?.name ?? 'Aucun rôle' }}</span>
+                                    <span v-if="dirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="Modifications non enregistrées" />
+                                </span>
+                                <span class="mt-0.5 block font-mono text-[10px] text-muted-foreground">{{ selectedRole?.code }}</span>
+                                <span class="mt-0.5 block text-[11px] text-muted-foreground">
+                                    {{ draftIds.size }} droit{{ draftIds.size > 1 ? 's' : '' }}
+                                    <template v-if="selectedRole?.profiles?.length"> · {{ selectedRole.profiles.length }} profil{{ selectedRole.profiles.length > 1 ? 's' : '' }}</template>
+                                    <template v-if="selectedRole?.users_count"> · {{ selectedRole.users_count }} compte{{ selectedRole.users_count > 1 ? 's' : '' }}</template>
+                                </span>
+                            </span>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" class="mt-3 w-full" @click="openSwitcher">
+                            <ArrowLeftRight class="h-4 w-4" />Changer de rôle
+                            <span class="ms-auto text-[11px] font-normal text-muted-foreground">{{ roles.length }}</span>
+                        </Button>
                     </div>
                 </Card>
 
@@ -336,8 +384,10 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                     />
                 </div>
             </div>
+            </template>
 
-            <Card class="flex min-h-[32rem] flex-col overflow-hidden">
+            <template #end>
+            <Card class="flex min-h-[32rem] flex-col overflow-hidden ms-1">
                 <header class="space-y-3 border-b border-border p-4">
                     <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div class="min-w-0">
@@ -441,7 +491,8 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                     </section>
                 </div>
             </Card>
-        </div>
+            </template>
+        </ResizableSplit>
 
         <!-- Barre collante : l'écart est lisible et annulable là où l'on
              enregistre, jamais au prix d'un retour en haut de page. -->
@@ -506,6 +557,63 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
             <template #footer>
                 <Button type="button" variant="outline" @click="showDiff = false">Continuer la modification</Button>
                 <Button type="button" variant="primary" :disabled="processing" @click="showDiff = false; save()"><Check class="h-4 w-4" />Enregistrer le socle</Button>
+            </template>
+        </Dialog>
+
+        <!-- Choisir un rôle : une recherche, et ce que chaque rôle porte
+             réellement — c'est ce qui manquait à la liste empilée. -->
+        <Dialog
+            :open="switching"
+            size="lg"
+            title="Choisir un rôle"
+            description="Le socle que vous réglerez ensuite s’applique à tous les comptes de ce rôle."
+            @update:open="switching = $event"
+        >
+            <IconInput
+                v-model="roleSearch"
+                :icon="Search"
+                type="search"
+                placeholder="Nom ou code du rôle…"
+                autocomplete="off"
+                aria-label="Rechercher un rôle"
+            />
+
+            <div class="mt-3 max-h-80 space-y-1 overflow-y-auto">
+                <button
+                    v-for="role in visibleRoles"
+                    :key="role.code"
+                    type="button"
+                    :class="cn(
+                        'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-start transition-colors',
+                        role.code === selectedRoleCode
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:bg-accent',
+                    )"
+                    :aria-current="role.code === selectedRoleCode ? 'true' : undefined"
+                    @click="chooseRole(role.code)"
+                >
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center gap-1.5">
+                            <span class="truncate text-sm font-semibold text-foreground">{{ role.name }}</span>
+                            <Badge v-if="role.code === selectedRoleCode" variant="default" class="px-1.5 py-0 text-[10px]">En cours</Badge>
+                        </span>
+                        <span class="mt-0.5 block text-[11px] text-muted-foreground">
+                            <span class="font-mono">{{ role.code }}</span>
+                            · {{ role.permissions.length }} droit{{ role.permissions.length > 1 ? 's' : '' }}
+                            · {{ role.profiles.length }} profil{{ role.profiles.length > 1 ? 's' : '' }}
+                            <template v-if="role.users_count !== undefined"> · {{ role.users_count }} compte{{ role.users_count > 1 ? 's' : '' }}</template>
+                        </span>
+                    </span>
+                    <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+
+                <p v-if="! visibleRoles.length" class="px-3 py-8 text-center text-xs text-muted-foreground">
+                    Aucun rôle ne correspond à « {{ roleSearch }} ».
+                </p>
+            </div>
+
+            <template #footer>
+                <Button type="button" variant="outline" @click="switching = false">Fermer</Button>
             </template>
         </Dialog>
 

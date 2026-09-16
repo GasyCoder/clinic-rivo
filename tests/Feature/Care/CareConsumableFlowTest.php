@@ -431,6 +431,110 @@ class CareConsumableFlowTest extends TestCase
             );
     }
 
+    /**
+     * Le propriétaire a signalé le 2026-09-16 que l'écran laissait croire
+     * que ce matériel était gratuit. Il ne l'est pas — il est facturé
+     * ligne par ligne et encaissé à la Caisse — mais l'écran n'en disait
+     * rien. Ce test fixe ce que la Pharmacie doit pouvoir lire.
+     */
+    public function test_the_pharmacy_queue_shows_what_the_patient_owes_for_the_consumables(): void
+    {
+        $nurse = $this->nurse();
+        $orientation = $this->activeCareOrientation($nurse);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        $consumable = $this->consumable($nurse, [
+            ['lot' => 'A', 'quantity' => 20, 'expires_at' => now()->addYear()->toDateString()],
+        ]);
+        $this->giveActiveTariff($consumable->catalogItem, $nurse, 3000);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'consumables' => [['medicine_uuid' => $consumable->uuid, 'quantity' => 3]],
+        ])->assertRedirect();
+
+        $this->actingAs($this->pharmacist())->get('/pharmacy/care-consumables')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('careConsumables.summary.unbilled_lines', 0)
+                ->where('careConsumables.requests.0.billing.total_amount', 9000)
+                ->where('careConsumables.requests.0.billing.unbilled_lines', 0)
+                ->where('careConsumables.requests.0.lines.0.billing.state', 'PENDING')
+                ->where('careConsumables.requests.0.lines.0.billing.amount', 9000)
+                ->where('careConsumables.requests.0.lines.0.billing.needs_attention', false)
+            );
+    }
+
+    /**
+     * Le seul chemin par lequel un consommable finit réellement gratuit.
+     *
+     * La facturation est volontairement non bloquante (ADR-072) : une
+     * compresse déjà posée sur une plaie ne s'annule pas parce qu'un tarif
+     * manque. Mais l'échec était silencieux — plus rien ne le signalait
+     * ensuite. Il doit désormais se compter et se nommer.
+     */
+    public function test_a_consumable_that_could_not_be_priced_is_reported_as_unbilled(): void
+    {
+        $nurse = $this->nurse();
+        $orientation = $this->activeCareOrientation($nurse);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        // Aucun appel à giveActiveTariff() : le prix de vente n'est pas
+        // configuré, exactement le cas que la facturation avale en silence.
+        $consumable = $this->consumable($nurse, [
+            ['lot' => 'A', 'quantity' => 20, 'expires_at' => now()->addYear()->toDateString()],
+        ]);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'consumables' => [['medicine_uuid' => $consumable->uuid, 'quantity' => 2]],
+        ])->assertRedirect();
+
+        // La déclaration et la notification Pharmacie survivent : le geste
+        // clinique n'est jamais annulé par un défaut de paramétrage.
+        $request = CareConsumableRequest::query()->with('lines')->sole();
+        $this->assertNull($request->lines->sole()->billable_item_id);
+
+        $this->actingAs($this->pharmacist())->get('/pharmacy/care-consumables')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('careConsumables.summary.unbilled_lines', 1)
+                ->where('careConsumables.requests.0.billing.unbilled_lines', 1)
+                ->where('careConsumables.requests.0.billing.total_amount', 0)
+                ->where('careConsumables.requests.0.lines.0.billing.state', 'NOT_BILLED')
+                ->where('careConsumables.requests.0.lines.0.billing.needs_attention', true)
+                ->where(
+                    'careConsumables.requests.0.lines.0.billing.reason',
+                    fn (string $reason) => str_contains($reason, 'Réception'),
+                )
+            );
+    }
+
+    /**
+     * ADR-036 — un soignant ne voit et ne saisit jamais un montant. Rendre
+     * la facturation visible côté Pharmacie ne doit pas la faire fuiter au
+     * poste de soins, et la garantie tient au défaut de `present()`, pas à
+     * la vigilance de chaque appelant.
+     */
+    public function test_the_soins_worksheet_never_carries_a_price(): void
+    {
+        $nurse = $this->nurse();
+        $orientation = $this->activeCareOrientation($nurse);
+        $this->markEpisodeSelfFunded($orientation->episode_id, $nurse);
+        $consumable = $this->consumable($nurse, [
+            ['lot' => 'A', 'quantity' => 20, 'expires_at' => now()->addYear()->toDateString()],
+        ]);
+        $this->giveActiveTariff($consumable->catalogItem, $nurse, 3000);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'consumables' => [['medicine_uuid' => $consumable->uuid, 'quantity' => 3]],
+        ])->assertRedirect();
+
+        $projection = app(\App\Services\Care\CareConsumableDirectory::class)
+            ->forOrientation($orientation->id)
+            ->first();
+
+        $this->assertNull($projection['billing']);
+        $this->assertNull($projection['lines'][0]['billing']);
+        $this->assertStringNotContainsString('3000', json_encode($projection));
+    }
+
     public function test_the_pharmacy_queue_is_hidden_without_the_view_permission(): void
     {
         $blind = $this->userWithPermissions(['pharmacy.view'], 'PHARMACY_BLIND');

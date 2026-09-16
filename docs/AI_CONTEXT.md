@@ -177,6 +177,18 @@ immuable, transactionnel, idempotent et audité avec l'identité de l'acteur
 central. Aucun ajustement, sortie ou délivrance n'est créé par cet import. Voir
 ADR-042.
 
+Le tableau de bord central est alimenté par le rapport que chaque site sert
+sur `/api/v1/super-admin/reports/overview` (ADR-102) : activité, finance,
+files cliniques, pharmacie et personnel, chacun gardé par la permission qui
+possède la donnée. `SiteReportService` s'exécute dans la base du site ; le
+portail additionne les trois réponses et n'ouvre jamais de connexion SQL.
+**Une donnée absente n'est jamais un zéro** : une section refusée revient
+`available: false` avec son motif, un site injoignable `ok: false`, et
+l'écran écrit « — » en nommant la cause — afficher `0` ferait décider sur un
+chiffre faux (ADR-048). Aucun montant n'est extrapolé : le reste dû se lit
+sur `invoices.balance_amount` et jamais sur facturé − encaissé, qu'une prise
+en charge à 100 % rendrait faux (ADR-047).
+
 Le portail Super Administration possède une navigation distincte des sites
 opérationnels. Il présente le tableau de bord consolidé, chaque site et ses
 modules, les rapports financiers, les espaces Administration, utilisateurs,
@@ -479,6 +491,26 @@ consommables, que l'infirmier confirme, corrige ou retire. C'est une
 suggestion de saisie, jamais une règle — rien n'est déduit du nom ou du code
 d'un acte, et une quantité corrigée par le soignant n'est jamais réécrite.
 Voir ADR-072.
+
+**Ce matériel est facturé, et l'écran doit le dire** (ADR-103). Il l'était
+depuis l'origine — un `BillableItem` par ligne, au tarif serveur, sur la
+facture du passage — mais `/pharmacy/care-consumables` n'affichait ni
+montant, ni facture, ni statut : le pharmacien voyait son stock partir sans
+contrepartie et en concluait que la clinique donnait ce matériel. La file
+expose désormais, en lecture seule, ce que le passage doit et la facture qui
+le porte. Surtout, elle nomme le **seul cas où un consommable finit
+réellement gratuit** : la facturation est volontairement non bloquante
+(ADR-072 — une compresse déjà posée ne s'annule pas parce qu'un tarif
+manque), mais l'échec était avalé en silence et aucun écran ne le signalait
+ensuite. `lineBilling()` distingue cinq états — `INVOICED`, `PENDING`,
+`CANCELLED`, `NOT_BILLABLE` (décision de paramétrage) et `NOT_BILLED`
+(anomalie) — et `summary.unbilled_lines` leur donne un compteur et une
+section qui nomme la ligne, la raison et qui doit la régulariser. Le prix
+reste invisible au poste de soins : `present()` prend `$withBilling = false`
+par défaut et la fiche Soins ne le passe jamais, si bien que l'ADR-036 tient
+à la valeur par défaut d'un paramètre, non à la vigilance de chaque
+appelant. La Pharmacie lit, n'encaisse rien et ne propose aucun paiement
+(ADR-012, ADR-013) ; aucune permission nouvelle.
 
 Une ordonnance Médecine sélectionne un médicament actif du référentiel
 Pharmacie. La disponibilité est calculée sur les lots actifs non périmés, moins

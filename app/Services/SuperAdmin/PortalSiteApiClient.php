@@ -250,6 +250,21 @@ class PortalSiteApiClient
     }
 
     /**
+     * Le rapport consolidé de chaque site, pour le tableau de bord central
+     * (ADR-102). Un site injoignable ne fait pas tomber les autres : son
+     * enveloppe porte `ok: false` et son message, comme partout ailleurs.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function reportsForAllSites(User $actor, int $days): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/reports/overview', ['days' => $days], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
      * Le référentiel des rôles d'un site (ADR-100) — jamais une lecture SQL
      * directe : le portail passe par l'API du site comme pour le reste du
      * domaine catalogue (ADR-004, ADR-027).

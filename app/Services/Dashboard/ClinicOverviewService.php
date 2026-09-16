@@ -276,7 +276,14 @@ class ClinicOverviewService
      *     children: array{total: int, boys: int, girls: int}
      * }
      */
-    private function patientDemographics(): array
+    /**
+     * Publique parce que le rapport consolidé du portail (SiteReportService)
+     * la consomme telle quelle : deux façons de compter les mêmes patients
+     * finiraient par donner deux chiffres différents sur deux écrans.
+     *
+     * @return array<string, mixed>
+     */
+    public function patientDemographics(): array
     {
         $adultCutoff = now()->subYears(18)->toDateString();
         $adultFilter = static fn (Builder $query) => $query->where(function (Builder $age) use ($adultCutoff): void {

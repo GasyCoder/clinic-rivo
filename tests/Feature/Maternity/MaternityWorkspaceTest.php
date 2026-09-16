@@ -69,6 +69,16 @@ class MaternityWorkspaceTest extends TestCase
         $this->assertTrue($midwife->hasPermissionTo('maternity.view'));
         $this->actingAs($midwife)->get('/maternity')->assertOk();
 
+        // La file elle-même : compteurs servis par le serveur, filtre par
+        // défaut sur le travail en cours, jamais sur l'historique.
+        $this->actingAs($midwife)->get('/maternity')
+            ->assertInertia(fn ($page) => $page
+                ->component('Maternity/Index')
+                ->where('filter', 'active')
+                ->has('counts.active')
+                ->has('counts.completed')
+                ->has('orientations.data'));
+
         $this->assertTrue($anesthetist->hasPermissionTo('care.update'));
         $this->assertTrue($anesthetist->hasPermissionTo('anesthesia.view'));
         $this->assertFalse($anesthetist->hasPermissionTo('surgery.view'));

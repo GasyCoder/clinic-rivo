@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyProcurementController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PermissionController as SuperAdminPermissionController;
+use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -139,6 +140,10 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/roles/accounts/{userUuid}/permissions', [SuperAdminRoleController::class, 'updateUserPermissions'])->name('roles.accounts.permissions.update');
 
         // Le catalogue des permissions lui-même (ADR-101).
+        // Le rapport consolidé du site, lu par le tableau de bord central
+        // (ADR-102). Lecture seule, gardée section par section.
+        Route::get('/reports/overview', [SuperAdminReportController::class, 'overview'])->name('reports.overview');
+
         Route::get('/permissions', [SuperAdminPermissionController::class, 'index'])->name('permissions.index');
         Route::post('/permissions', [SuperAdminPermissionController::class, 'store'])->name('permissions.store');
         Route::put('/permissions/{permissionId}', [SuperAdminPermissionController::class, 'update'])->name('permissions.update');

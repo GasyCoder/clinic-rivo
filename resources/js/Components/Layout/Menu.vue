@@ -274,11 +274,18 @@ const closeMobile = () => {
                 </div>
 
                 <details v-else-if="item.children" :open="isActive(item)" class="group/site">
-                    <summary :class="['nk-menu-link flex cursor-pointer list-none items-center font-heading font-bold tracking-snug transition-colors', isAdminPortal ? 'rounded-md px-3 py-2.5 hover:bg-accent ' : 'py-2.5 ps-6 pe-5', isAdminPortal && isActive(item) ? 'bg-primary/15 ring-1 ring-inset ring-primary/25' : '']">
-                        <span :class="['shrink-0 text-muted-foreground group-[.active]/item:text-primary', isAdminPortal ? 'flex h-8 w-8 items-center justify-center' : 'flex h-8 w-8 items-center justify-center rounded-md']">
+                    <!-- La géométrie est celle d'un `Link` du même rail, au
+                         pixel près : padding, boîte d'icône et marge. Un
+                         groupe posé en `ps-6` alors que ses voisins sont en
+                         `px-2.5` décalait « Pharmacie » de 14 px vers la
+                         droite et son libellé de 10 px de plus — une seule
+                         ligne du menu ne tombait pas sur la même colonne que
+                         les autres. -->
+                    <summary :class="['nk-menu-link flex cursor-pointer list-none items-center font-heading font-bold tracking-snug transition-colors', isAdminPortal ? 'rounded-md px-3 py-2.5 hover:bg-accent ' : 'rounded-lg px-2.5 py-2', isAdminPortal && isActive(item) ? 'bg-primary/15 ring-1 ring-inset ring-primary/25' : '', !isAdminPortal && !isActive(item) ? 'hover:bg-accent/60' : '']">
+                        <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground group-[.active]/item:text-primary', isAdminPortal ? '' : 'me-1']">
                             <component :is="item.icon" :class="isAdminPortal ? 'h-4 w-4' : 'h-[18px] w-[18px]'" />
                         </span>
-                        <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-1 truncate text-muted-foreground group-[.active]/item:text-primary">
+                        <span :class="['group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 min-w-0 flex-1 truncate text-muted-foreground group-[.active]/item:text-primary', isAdminPortal ? '' : 'text-[13px]']">
                             {{ item.text }}
                         </span>
                         <span class="group-[&.is-compact:not(.has-hover)]/sidebar:opacity-0 ms-2 flex items-center gap-2">
@@ -286,7 +293,11 @@ const closeMobile = () => {
                             <ChevronRight class="h-3.5 w-3.5 text-muted-foreground transition-transform group-open/site:rotate-90" />
                         </span>
                     </summary>
-                    <ul :class="['group-[&.is-compact:not(.has-hover)]/sidebar:hidden pb-2', isAdminPortal ? 'ms-8 border-s border-border ps-3 pe-1' : 'ps-[60px] pe-4']">
+                    <!-- Le trait tombe au centre de l'icône du parent
+                         (10 px de padding + la moitié d'une boîte de 32),
+                         et le libellé d'un enfant reprend la colonne du
+                         libellé parent. -->
+                    <ul :class="['group-[&.is-compact:not(.has-hover)]/sidebar:hidden pb-1', isAdminPortal ? 'ms-8 border-s border-border ps-3 pe-1' : 'ms-[26px] border-s border-border ps-2 pe-1']">
                         <li v-for="child in item.children" :key="child.code">
                             <Link
                                 :href="child.link"

@@ -154,6 +154,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Clôture seule responsable de terminer l'orientation Médecine et de porter la sortie sur l'épisode
 - [x] Permission propre à l'espace « Demandes d'examens » (`paraclinical_requests.view`, ADR-100) : l'écran s'ouvrait uniquement avec le droit sur les analyses, refusant un compte qui n'avait que l'imagerie
 - [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
+- [x] File Maternité passée à shadcn (ADR-099) : cartes, pastilles d'état et pagination par les primitives partagées ; la prise en charge devient un POST au lieu d'un bouton imbriqué dans un lien-bouton
 - [x] Cartes compteur partagées sur les files cliniques (Médecine, Soins, Laboratoire, Demandes d'examens) : la carte est le filtre, et le compte vient du serveur — jamais de la page affichée
 - [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)
 
@@ -208,6 +209,9 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Déstockage uniquement lors de la délivrance autorisée
 - [ ] Retours
 - [x] File Pharmacie des consommables Soins avec sortie de stock FEFO respectant les réservations
+- [x] File « Consommables Soins » en shadcn (ADR-099) : compteurs partagés, fenêtre de sortie de stock par la primitive `Dialog`, tokens sémantiques
+- [x] Ce que le patient doit pour ce matériel affiché sur la file Pharmacie — montant, facture et statut, en lecture seule (ADR-103)
+- [x] Ligne jamais facturée comptée et nommée (`unbilled_lines`) : l'échec de facturation, volontairement non bloquant, n'est plus silencieux (ADR-103)
 - [x] Alertes automatiques de seuil minimal et rupture
 - [x] Alertes et visibilité des lots proches de la péremption
 - [x] Dossier fournisseur façon Drive : catalogues Excel/PDF multiples, historisés, un seul actif à la fois
@@ -352,7 +356,10 @@ admin.rivo.mg
 - [ ] Vue Mampikony
 - [ ] Vue Ambondromamy
 - [ ] Vue Boriziny
-- [ ] Vue consolidée
+- [x] Vue consolidée : tableau de bord central alimenté par le rapport de chaque site (ADR-102) — activité, finance, files, pharmacie, personnel, avec courbe, histogramme et diagrammes
+- [x] Courbe lisible sur 30 et 90 jours : un libellé de date sur N, compté depuis la fin, et format jj/mm au-delà de la semaine
+- [x] Répartitions (encaissements par mode, patients, comptes patients) en colonne à droite de la courbe
+- [x] Une donnée absente affichée « — » avec son motif (site injoignable, permission manquante), jamais zéro
 - [ ] Patients
 - [ ] Activités
 - [ ] Caisse

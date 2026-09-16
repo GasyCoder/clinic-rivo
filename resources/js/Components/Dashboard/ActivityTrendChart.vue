@@ -9,6 +9,11 @@ const props = defineProps({
         type: Object,
         default: () => ({ dates: [], series: [] }),
     },
+    // Le portail affiche la même courbe sur trente jours et pour plusieurs
+    // sites : le titre appartient donc à l'appelant, pas au graphique.
+    title: { type: String, default: 'Activité des 7 derniers jours' },
+    description: { type: String, default: 'Patients et activités visibles selon vos permissions.' },
+    compact: { type: Boolean, default: false },
 });
 
 const chart = {
@@ -47,8 +52,33 @@ const plotWidth = chart.width - chart.left - chart.right;
 const plotHeight = chart.height - chart.top - chart.bottom;
 const bucketWidth = computed(() => plotWidth / Math.max(dates.value.length, 1));
 
+/**
+ * Un libellé sur N, jamais tous.
+ *
+ * Le graphique a été dessiné pour sept jours. Le portail lui en envoie
+ * trente ou quatre-vingt-dix (ADR-102), et les trente dates se sont
+ * superposées en une bouillie illisible — « Mar 1Mer 19Jeu 20 ». On en garde
+ * une douzaine au plus, en comptant **depuis la fin** pour que le dernier
+ * jour, celui qu'on regarde en premier, soit toujours écrit.
+ */
+const MAX_LABELS = 12;
+
+const labelStride = computed(() => Math.max(1, Math.ceil(dates.value.length / MAX_LABELS)));
+
+const isLabelVisible = (index) => index === dates.value.length - 1
+    || (dates.value.length - 1 - index) % labelStride.value === 0;
+
+/**
+ * « Mer 16 » sur une semaine, « 16/09 » au-delà : sur trois mois, le jour de
+ * la semaine ne situe plus rien, et le mois devient l'information utile.
+ */
 const dateLabels = computed(() => dates.value.map((date) => {
     const parsed = new Date(`${date}T12:00:00`);
+
+    if (labelStride.value > 1) {
+        return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit' }).format(parsed);
+    }
+
     const weekday = new Intl.DateTimeFormat('fr-FR', { weekday: 'short' })
         .format(parsed)
         .replace('.', '');
@@ -127,8 +157,8 @@ const color = (tone) => colors[tone] ?? colors.navy;
         <header class="border-b border-border px-5 py-4">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h2 class="font-heading text-base font-bold text-foreground">Activité des 7 derniers jours</h2>
-                    <p class="mt-0.5 text-xs text-muted-foreground">Patients et activités visibles selon vos permissions.</p>
+                    <h2 class="font-heading text-base font-bold text-foreground">{{ title }}</h2>
+                    <p class="mt-0.5 text-xs text-muted-foreground">{{ description }}</p>
                 </div>
                 <div v-if="hasActivity" class="inline-flex items-center rounded-lg bg-muted p-1" role="group" aria-label="Type de graphique">
                     <Button
@@ -182,12 +212,12 @@ const color = (tone) => colors[tone] ?? colors.navy;
         <div v-if="hasActivity && dates.length" class="px-3 pb-3 pt-4 sm:px-5">
             <div class="overflow-x-auto">
                 <svg
-                    class="min-w-[620px] w-full"
+                    :class="['min-w-[620px] w-full', compact ? 'h-[300px]' : '']"
                     :viewBox="`0 0 ${chart.width} ${chart.height}`"
                     role="img"
                     aria-labelledby="activity-chart-title activity-chart-description"
                 >
-                    <title id="activity-chart-title">{{ viewMode === 'bars' ? 'Histogramme' : 'Courbes' }} de l’activité sur sept jours</title>
+                    <title id="activity-chart-title">{{ viewMode === 'bars' ? 'Histogramme' : 'Courbes' }} de l’activité : {{ title }}</title>
                     <desc id="activity-chart-description">Chaque série présente le nombre quotidien de patients ou d’enregistrements autorisés.</desc>
 
                     <g v-for="tick in yTicks" :key="`tick-${tick}`">
@@ -210,6 +240,7 @@ const color = (tone) => colors[tone] ?? colors.navy;
 
                     <g v-for="(label, index) in dateLabels" :key="dates[index]">
                         <text
+                            v-if="isLabelVisible(index)"
                             :x="viewMode === 'bars' ? histogramLabelX(index) : xPosition(index)"
                             :y="chart.height - 9"
                             text-anchor="middle"

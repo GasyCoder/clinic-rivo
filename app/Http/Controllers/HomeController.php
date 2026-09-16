@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Services\Administration\HrOverviewService;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Dashboard\ClinicOverviewService;
+use App\Services\Dashboard\SiteReportService;
 use App\Services\Pharmacy\PharmacyWorkspaceService;
 use App\Services\SuperAdmin\PortalDirectory;
+use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -28,6 +30,7 @@ class HomeController extends Controller
         Request $request,
         PortalDirectory $directory,
         ClinicOverviewService $clinicOverview,
+        PortalSiteApiClient $client,
     ): Response|RedirectResponse {
         $deploymentType = config('rivo.site.type');
 
@@ -69,9 +72,23 @@ class HomeController extends Controller
                 403,
             );
 
+            // ADR-102 — le tableau de bord central lit chaque site par son
+            // API, jamais sa base. Une fenêtre trop large rend la courbe
+            // illisible : le service borne lui-même la valeur reçue.
+            // La valeur est bornée **avant** l'appel, pas seulement à
+            // l'affichage : envoyée telle quelle, une fenêtre hors bornes
+            // était refusée par chaque site, et les trois rapports
+            // revenaient « injoignable » pour une faute de saisie.
+            $days = max(
+                SiteReportService::MIN_DAYS,
+                min(SiteReportService::MAX_DAYS, (int) $request->integer('days', SiteReportService::DEFAULT_DAYS)),
+            );
+
             return Inertia::render('SuperAdmin/Dashboard', [
                 'sites' => $directory->sites(),
                 'modules' => $directory->modules(),
+                'reports' => $client->reportsForAllSites($request->user(), $days),
+                'days' => $days,
             ]);
         }
 

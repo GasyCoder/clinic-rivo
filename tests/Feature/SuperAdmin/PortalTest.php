@@ -9,6 +9,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class PortalTest extends TestCase
@@ -23,6 +24,14 @@ class PortalTest extends TestCase
             'rivo.site.type' => 'admin',
             'rivo.site.code' => 'ADMIN',
             'rivo.site.name' => 'Super Administration',
+            // Des URL d'API explicites : sans elles, les trois sites sont
+            // « à configurer » et aucune requête n'est émise — ce qui rendrait
+            // le test du tableau de bord (ADR-102) muet.
+            'rivo.clinics' => [
+                ['code' => 'M', 'name' => 'Mampikony', 'api_url' => 'https://m.test/api/v1', 'api_token' => 'm-token'],
+                ['code' => 'A', 'name' => 'Ambondromamy', 'api_url' => 'https://a.test/api/v1', 'api_token' => 'a-token'],
+                ['code' => 'B', 'name' => 'Boriziny', 'api_url' => 'https://b.test/api/v1', 'api_token' => 'b-token'],
+            ],
         ]);
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class]);
     }
@@ -70,6 +79,73 @@ class PortalTest extends TestCase
                     ->where('selectedModule.areas.1', 'Lots et péremptions')
                     ->where('selectedModule.areas.3', 'Inventaires'));
         }
+    }
+
+    /**
+     * Le tableau de bord central (ADR-102) : il lit chaque site par son API,
+     * et un site injoignable n'empêche ni la page de s'afficher, ni les
+     * autres d'être comptés.
+     */
+    public function test_the_dashboard_reads_each_site_and_survives_one_being_down(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/reports/overview*' => Http::response([
+                'data' => [
+                    'generated_at' => now()->toIso8601String(),
+                    'range' => ['days' => 30, 'from' => '2026-08-18', 'to' => '2026-09-16'],
+                    'sections' => [
+                        'activity' => [
+                            'available' => true,
+                            'today' => ['episodes' => 4, 'emergencies' => 1, 'new_patients' => 2],
+                            'open_episodes' => 6,
+                            'total_patients' => 120,
+                            'trend' => ['dates' => ['2026-09-15', '2026-09-16'], 'series' => [
+                                ['key' => 'episodes', 'label' => 'Passages', 'tone' => 'navy', 'total' => 7, 'values' => [3, 4]],
+                            ]],
+                            'demographics' => null,
+                        ],
+                        'finance' => ['available' => false, 'reason' => 'Il manque la permission « Voir la facturation ».'],
+                        'clinical' => ['available' => true, 'destinations' => []],
+                        'pharmacy' => ['available' => true, 'medicines' => 12, 'lots' => 20, 'expiring_soon' => 2, 'expired' => 0],
+                        'people' => ['available' => true, 'employees' => 8, 'pending_leaves' => 1, 'accounts' => 5],
+                    ],
+                ],
+                'meta' => ['site' => ['code' => 'M', 'name' => 'Mampikony']],
+            ], 200),
+            'https://a.test/api/v1/super-admin/reports/overview*' => Http::response(['message' => 'Site indisponible.'], 503),
+            '*' => Http::response(['message' => 'Site indisponible.'], 503),
+        ]);
+
+        $this->actingAs($this->user('SUPER_ADMIN'))
+            ->get('/?days=30')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('SuperAdmin/Dashboard')
+                ->where('days', 30)
+                ->has('reports', 3)
+                ->where('reports.0.ok', true)
+                ->where('reports.0.data.sections.activity.today.episodes', 4)
+                // Une section refusée revient indisponible, jamais à zéro.
+                ->where('reports.0.data.sections.finance.available', false)
+                ->where('reports.1.ok', false));
+    }
+
+    /**
+     * Une fenêtre hors bornes est ramenée **avant** l'appel : envoyée telle
+     * quelle, elle était refusée par chaque site et les trois rapports
+     * revenaient « injoignable » pour une faute de saisie.
+     */
+    public function test_an_out_of_range_window_is_clamped_before_the_call(): void
+    {
+        Http::fake(['*' => Http::response(['message' => 'Site indisponible.'], 503)]);
+
+        $this->actingAs($this->user('SUPER_ADMIN'))
+            ->get('/?days=5000')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('days', 90));
+
+        Http::assertSent(fn ($request) => ! str_contains($request->url(), 'days=5000')
+            && (! str_contains($request->url(), 'reports/overview') || str_contains($request->url(), 'days=90')));
     }
 
     public function test_super_admin_can_open_every_central_workspace(): void

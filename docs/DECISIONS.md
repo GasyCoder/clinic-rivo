@@ -6368,3 +6368,201 @@ Home/End), se remet d'un double-clic, et la largeur choisie reste sur le
 poste. Elle suit désormais les tokens de l'application plutôt qu'un bleu codé
 en dur, ce qui supprime au passage les deux blocs de surcharge du mode
 sombre.
+
+---
+
+# ADR-102 — Tableau de bord central alimenté par les rapports de site
+
+**Status:** ACCEPTED (2026-09-16 — exigence explicite du propriétaire)
+
+**Complète l'ADR-025** (le portail et ses espaces) et **applique l'ADR-048**
+au tableau de bord : aucune valeur n'est fabriquée, et ce qu'on ne peut pas
+lire s'écrit comme tel.
+
+## Le constat
+
+`admin.rivo.mg` affichait « Patients aujourd'hui — », « Passages ouverts — »,
+« Recettes du jour — ». Ce n'était pas une mise en forme en attente : aucun
+endpoint ne comptait quoi que ce soit. Le portail listait des sites et des
+modules, sans un chiffre.
+
+## Un rapport par site, lu par l'API
+
+`SiteReportService` s'exécute **dans** la base du site et renvoie cinq
+sections : activité, finance, files cliniques, pharmacie, personnel.
+`GET /api/v1/super-admin/reports/overview?days=N` l'expose ; le portail
+appelle les trois sites et additionne. Aucune connexion SQL n'est ouverte
+depuis le portail (ADR-004, ADR-027), et une panne d'un site n'empêche ni la
+page de s'afficher, ni les autres d'être comptés (ADR-017).
+
+La fenêtre est bornée à 7–90 jours, **avant l'appel**. Envoyée telle quelle,
+une valeur hors bornes était refusée par chaque site et les trois rapports
+revenaient « injoignable » pour une simple faute de saisie — constaté puis
+corrigé.
+
+## Une donnée absente n'est pas un zéro
+
+C'est la règle qui gouverne l'écran, et la raison d'être de la forme du
+payload :
+
+```text
+available: false + reason   permission manquante, ou module inexistant
+ok: false + message         site injoignable
+```
+
+L'écran écrit alors « — » et nomme le motif. Afficher `0` ferait lire
+« aucune recette aujourd'hui » là où il faut lire « je n'ai pas pu compter » :
+c'est exactement ce que l'ADR-048 refuse déjà pour le rapport Chirurgie, et
+un tableau de bord sert à décider. Les sites hors ligne sont annoncés **en
+tête**, pas en note de bas de page : sinon un total partiel se lit comme un
+total.
+
+Chaque section est gardée par la permission qui possède réellement la
+donnée — `episodes.view`, `billing.view`, `payments.view`, `debts.view`,
+`stock.view`, `employees.view`, `patients.view` — en plus de
+`super_admin.portal.view` qui ouvre la porte. Aucune permission nouvelle.
+
+## Ce que chaque chiffre compte exactement
+
+Rien n'est extrapolé ni projeté ; chaque valeur sort d'une colonne écrite par
+un circuit existant :
+
+```text
+facturé      invoices.total_amount, statut ≠ CANCELLED
+encaissé     payments.amount, statut = COMPLETED
+reste dû     invoices.balance_amount — jamais facturé − encaissé, qu'une
+             prise en charge à 100 % rendrait faux (ADR-047)
+créances     patient_debts, distinctes d'une facture impayée (ADR-090)
+files        episode_orientations hors CANCELLED : une orientation retirée
+             a quitté la file et ne représente plus de travail (ADR-079)
+péremptions  medicine_lots encore en quantité — un lot périmé n'est jamais
+             compté comme disponible (ADR-036)
+```
+
+La démographie patient réutilise `ClinicOverviewService::patientDemographics()`
+au lieu d'en écrire une seconde : deux façons de compter les mêmes patients
+finiraient par afficher deux chiffres sur deux écrans.
+
+## Graphiques sans dépendance
+
+Courbe et histogramme réutilisent `ActivityTrendChart`, déjà en place sur la
+Vue d'ensemble clinique — son titre devient un `prop`, le portail affichant
+trente jours et plusieurs sites. `DonutChart` et `BarChart` sont ajoutés en
+SVG, une centaine de lignes chacun.
+
+Aucune bibliothèque de graphiques n'est introduite : elle amènerait sa propre
+palette là où les tokens RIVO doivent décider (ADR-099), et son poids pour
+trois formes simples. Le tracé porte `aria-hidden` et **la légende porte les
+chiffres** : un graphique dont les valeurs n'existent que dans le dessin est
+illisible au lecteur d'écran, et impossible à relire quand on cherche un
+montant précis.
+
+## Hors périmètre
+
+Aucun rapport financier détaillé par acte, aucun export, aucune comparaison
+entre périodes, aucune projection. Le tableau `Prévu / Réel / Écart / Dette NP`
+de l'ADR-048 reste non alimenté : il exige des prestations facturables
+Chirurgie qui n'existent pas encore, et l'inventer serait précisément la
+faute que cette décision évite.
+
+---
+
+# ADR-103 — Un échec de facturation d'un consommable Soins ne peut plus être silencieux
+
+**Status:** ACCEPTED (2026-09-16 — signalement explicite du propriétaire,
+qui constate que l'écran Pharmacie laisse croire que ce matériel est gratuit)
+
+**Complète l'ADR-072** sans en modifier une seule règle métier. Le
+consommable était déjà facturé et déjà encaissé exclusivement par la
+Réception / Caisse — c'est l'écran qui n'en disait rien.
+
+## Ce qui était vrai, et invisible
+
+`RequestCareConsumablesAction::billLineIfPossible()` crée un `BillableItem`
+par ligne, au tarif résolu côté serveur, et le rattache à la facture du
+passage tant qu'elle n'a reçu aucun encaissement — exactement la règle de
+l'ADR-054, et le §34.1 règle 4 du CDC (« chaque prestation/produit délivré
+alimente le compte du patient »).
+
+Rien de tout cela n'apparaissait sur `/pharmacy/care-consumables` : ni
+montant, ni numéro de facture, ni statut. Le pharmacien voyait son stock
+partir sans aucune contrepartie affichée, et en concluait — légitimement —
+que la clinique donnait ce matériel.
+
+## Le vrai défaut : un échec avalé
+
+La facturation est volontairement **non bloquante** (ADR-072) :
+
+```php
+} catch (ValidationException) {
+    // tarif de vente absent, contexte financier du passage en attente,
+    // politique Personnel UNCLASSIFIED…
+    return;
+}
+```
+
+C'est la bonne règle — une compresse déjà posée sur une plaie ne s'annule
+pas parce qu'un tarif manque. Mais le `return` était la fin de l'histoire :
+la ligne restait sans `billable_item_id`, aucun écran ne le signalait, et le
+patient repartait sans que la clinique ait compté ce qu'elle avait consommé.
+La file « Sorties & règlements » de l'ADR-090 ne pouvait rien y faire non
+plus : elle liste les `BillableItem` encore `PENDING`, et il n'y en avait
+aucun à lister.
+
+C'était donc le **seul chemin** par lequel un consommable finissait
+réellement gratuit — et il était invisible.
+
+## Cinq états, parce que quatre ne suffisent pas
+
+`CareConsumableDirectory::lineBilling()` distingue :
+
+```text
+INVOICED      portée sur une facture du passage
+PENDING       chiffrée, en attente d'une facture à encaisser
+CANCELLED     la prestation a été annulée après coup
+NOT_BILLABLE  le catalogue dit que ce produit n'est pas facturé
+NOT_BILLED    personne n'a réussi à la chiffrer — anomalie
+```
+
+`NOT_BILLABLE` est une décision de paramétrage ; `NOT_BILLED` est un oubli à
+réparer. Les confondre reviendrait à masquer le second derrière le premier —
+la même raison qui impose trois états à un appareil examiné (ADR-077) et
+`null` à une question non posée (ADR-079, ADR-095).
+
+`summary.unbilled_lines` compte ces lignes sur **l'ensemble** des demandes
+projetées, servies comprises : une fois le produit sorti du stock, l'oubli
+ne se répare plus tout seul. L'écran leur consacre un compteur et une
+section qui nomme la ligne, la raison et qui doit la régulariser.
+
+## Le prix reste invisible au poste de soins
+
+`present()` prend `$withBilling = false` par défaut. `forOrientation()` — la
+fiche Soins — ne le passe jamais, si bien que l'ADR-036 (« un soignant ne
+voit et ne saisit jamais un montant ») tient à la **valeur par défaut d'un
+paramètre**, non à la vigilance de chaque appelant. Un test le vérifie en
+sérialisant la projection Soins et en y cherchant le montant.
+
+Côté Pharmacie, le montant est lu et jamais saisi : aucun champ, aucun lien
+vers la Caisse, aucune permission `payments.*` ou `cash.*` — l'ADR-013 est
+intacte. C'est la même lecture read-only du statut financier que la file de
+délivrance expose déjà (ADR-014, ADR-050), et elle n'exige aucune permission
+nouvelle.
+
+## Au passage
+
+`InvoiceStatus::label()` et `::isSettled()` : quatre écrans gardaient chacun
+leur copie du libellé français d'un statut de facture. Le cinquième le lit
+désormais du serveur. Les quatre existants ne sont pas migrés ici — hors
+périmètre — mais n'ont plus de raison d'être recopiés.
+
+## Ce qui n'est pas décidé ici
+
+L'ordre reste celui de l'ADR-072 : la sortie de stock n'attend pas le
+règlement. Faire attendre le consommable Soins comme une délivrance
+d'ordonnance (ADR-049) contredirait la justification explicite du
+propriétaire du 2026-09-10 — « conserver en stock une compresse posée sur
+une plaie rendrait l'inventaire sciemment faux » — et relève d'une décision
+distincte, à prendre en connaissance de cet arbitrage.
+
+Aucune permission, route, validation ou règle métier n'est modifiée par
+cette décision.

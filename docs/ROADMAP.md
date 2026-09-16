@@ -231,6 +231,9 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Étiquettes QR imprimables par sélection de médicaments
 - [x] Colonne Actions sur les tableaux Pharmacie et icônes dans le menu
 - [x] Modifier un médicament (nouveau prix historisé), désactiver/réactiver avec motif, clinique et portail
+- [x] Écran « Stock médicaments » du portail passé à shadcn (ADR-099) : recherche, filtre d'état, cases de sélection, import Excel et pastilles d'état par les primitives partagées, plus de contrôles natifs habillés à la main
+- [x] Familles de médicaments passées à shadcn : fenêtre d'archivage par le `Dialog` partagé, champs par `Input`/`Textarea`
+- [x] Fiche médicament passée à shadcn (ADR-099) : `MedicineForm` et `MedicineStatusPanel`, partagés par la clinique et le portail, quittent les champs habillés à la main et la fenêtre modale maison
 - [x] Familles : renommer, archiver (refusé si médicament actif), restaurer
 - [x] Modifier une commande brouillon, une facture fournisseur et la date/remarque d'un catalogue, clinique et portail
 - [ ] Transfert stock

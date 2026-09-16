@@ -34,6 +34,8 @@ use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
+use App\Http\Controllers\AttentionDigestController;
+use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
 use App\Http\Controllers\PaymentController;
@@ -648,6 +650,11 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     // Référentiel patients: administrative management, but no creation here.
     // Deletion is always audited Soft Delete through Patient::SoftDeletable.
+    // L'en-tête : recherche rapide et points d'attention. Toutes deux
+    // n'exposent que ce que le compte a déjà le droit de voir.
+    Route::get('/recherche', GlobalSearchController::class)->name('search.global')->middleware('can:patients.view');
+    Route::get('/points-attention', AttentionDigestController::class)->name('attention.digest');
+
     Route::get('/patients', [PatientController::class, 'index'])->name('patients.index')->middleware('can:patients.view');
     Route::post('/patients/bulk-delete', [PatientController::class, 'bulkDestroy'])->name('patients.bulk-destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}/edit', [PatientController::class, 'edit'])->name('patients.edit')->middleware('can:patients.update');

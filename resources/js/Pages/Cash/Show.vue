@@ -1,15 +1,30 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import {
+    ArrowLeft,
+    CircleDollarSign,
+    Coins,
+    FileText,
+    LockKeyhole,
+    ReceiptText,
+    ShieldCheck,
+    ShoppingBag,
+    UsersRound,
+    WalletCards,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Avatar from '@/Components/UI/Avatar.vue';
-import Button from '@/Components/UI/Button.vue';
+import Avatar from '@/Components/Shadcn/Avatar.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormGroup from '@/Components/UI/FormGroup.vue';
 import FormLabel from '@/Components/UI/FormLabel.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
-import Input from '@/Components/UI/Input.vue';
 import CashOriginFilter from '@/Pages/Cash/Partials/CashOriginFilter.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
@@ -402,6 +417,9 @@ const openPaymentDialog = (invoice) => {
 const closePaymentDialog = () => {
     if (!paymentForm.processing) paymentTarget.value = null;
 };
+const handlePaymentDialogOpen = (open) => {
+    if (!open) closePaymentDialog();
+};
 
 const stopQrScanner = () => {
     scannerActive.value = false;
@@ -524,32 +542,37 @@ onBeforeUnmount(() => {
     <Head :title="cashRegister ? `Caisse — ${cashRegister.name}` : 'Caisse'" />
 
     <div class="mx-auto w-full max-w-[1500px] space-y-4">
-        <header class="border-b border-gray-200 pb-4 dark:border-gray-900">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div class="min-w-0">
-                    <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">Réception · Encaissement</p>
-                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                        <h1 class="font-heading text-2xl font-bold text-slate-700 dark:text-white">{{ cashRegister ? cashRegister.name : 'Caisse' }}</h1>
-                        <span :class="['inline-flex items-center gap-1.5 border-s-2 ps-2 text-xs font-bold', sessionLocked ? 'border-amber-500 text-amber-700 dark:text-amber-300' : cashSession ? 'border-emerald-500 text-emerald-700 dark:text-emerald-300' : 'border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400']">
-                            <Icon :name="cashSession && !sessionLocked ? 'unlock' : 'lock'" />{{ sessionLocked ? 'Session verrouillée' : cashSession ? 'Session ouverte' : 'Session fermée' }}
-                        </span>
+        <header class="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div class="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+                <div class="flex min-w-0 items-center gap-3.5">
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15"><WalletCards class="h-5 w-5" /></span>
+                    <div class="min-w-0">
+                        <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Réception · Encaissement</p>
+                        <div class="mt-1 flex min-w-0 items-center gap-2.5">
+                            <h1 class="truncate font-heading text-2xl font-bold tracking-tight text-foreground">{{ cashRegister ? cashRegister.name : 'Caisse' }}</h1>
+                            <Badge class="shrink-0" :variant="sessionLocked ? 'warning' : cashSession ? 'success' : 'outline'"><LockKeyhole class="h-3.5 w-3.5" />{{ sessionLocked ? 'Session verrouillée' : cashSession ? 'Session ouverte' : 'Session fermée' }}</Badge>
+                        </div>
+                        <p class="mt-1 truncate text-sm text-muted-foreground">Factures validées, tickets Pharmacie et reçus de ce poste. Chaque caisse tient sa propre session.</p>
                     </div>
-                    <p class="mt-1 text-sm text-slate-400">Factures validées, tickets Pharmacie et reçus de ce poste. Chaque caisse nommée tient sa propre session.</p>
-                    <p v-if="paymentMethods?.length" class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                        <span class="text-slate-400">Modes acceptés ici :</span>
-                        <span v-for="method in paymentMethods" :key="method.id" class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 font-medium text-slate-600 dark:bg-gray-900 dark:text-slate-300"><Icon :name="method.category_icon" />{{ method.name }}</span>
-                    </p>
                 </div>
 
-                <nav class="flex flex-wrap items-center gap-2" aria-label="Raccourcis de la caisse">
-                    <Button v-if="cashRegister" :as="Link" href="/cash" size="rg" variant="white-outline"><Icon class="text-lg" name="wallet" /><span class="ms-2">Postes de caisse</span></Button>
-                    <Button :as="Link" href="/reception" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Accueil réception</span></Button>
-                    <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline"><Icon class="text-lg" name="users" /><span class="ms-2">Patients</span></Button>
+                <nav class="flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1 xl:overflow-visible xl:pb-0" aria-label="Raccourcis de la caisse">
+                    <Button v-if="cashRegister" :as="Link" href="/cash" size="sm" variant="outline"><WalletCards class="h-4 w-4" />Postes de caisse</Button>
+                    <Button :as="Link" href="/reception" size="sm" variant="outline"><ArrowLeft class="h-4 w-4" />Accueil réception</Button>
+                    <Button v-if="can('patients.view')" :as="Link" href="/patients" size="sm" variant="outline"><UsersRound class="h-4 w-4" />Patients</Button>
                 </nav>
+            </div>
+
+            <div v-if="paymentMethods?.length" class="flex min-w-0 items-center gap-2 border-t border-border bg-muted/25 px-5 py-2.5">
+                <span class="shrink-0 text-[11px] font-semibold text-muted-foreground">Modes acceptés</span>
+                <span class="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+                <div class="flex min-w-0 flex-1 flex-nowrap gap-1.5 overflow-x-auto py-0.5">
+                    <Badge v-for="method in paymentMethods" :key="method.id" class="shrink-0" variant="secondary"><Icon :name="method.category_icon" />{{ method.name }}</Badge>
+                </div>
             </div>
         </header>
 
-        <section v-if="blockingSession" class="overflow-hidden rounded-lg border border-amber-200 bg-amber-50 shadow-sm dark:border-amber-900 dark:bg-amber-950/20">
+        <Card v-if="blockingSession" class="overflow-hidden border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20">
             <div class="flex items-start gap-3 px-4 py-4">
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-300"><Icon class="text-lg" name="lock" /></span>
                 <div class="min-w-0">
@@ -558,16 +581,19 @@ onBeforeUnmount(() => {
                     <Button :as="Link" href="/cash" size="sm" variant="white-outline" class="mt-3"><Icon class="text-sm" name="wallet" /><span class="ms-1.5">Choisir une autre caisse</span></Button>
                 </div>
             </div>
-        </section>
+        </Card>
 
-        <section v-else-if="cashSession" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <div class="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-900 lg:flex-row lg:items-center lg:justify-between">
-                <div :class="['min-w-0 border-s-2 ps-3', sessionLocked ? 'border-amber-500' : 'border-emerald-500']">
+        <Card v-else-if="cashSession" class="overflow-hidden">
+            <div class="flex flex-col gap-3 border-b border-border px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex min-w-0 items-center gap-3">
+                    <span :class="['grid h-9 w-9 shrink-0 place-items-center rounded-lg', sessionLocked ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300']"><ShieldCheck class="h-4 w-4" /></span>
+                    <div class="min-w-0">
                     <p :class="['text-[10px] font-bold uppercase tracking-[0.14em]', sessionLocked ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300']">{{ sessionLocked ? 'Session suspendue' : 'Session active' }}</p>
                     <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                         <h2 class="text-sm font-bold text-slate-700 dark:text-white">{{ cashSession.session_number }}</h2>
                         <span v-if="cashSession.opener" class="text-xs text-slate-400">ouverte par {{ cashSession.opener.name }} · {{ formatDateTime(cashSession.opened_at) }}</span>
                         <span v-else class="text-xs font-bold text-primary-600 dark:text-primary-300">sans titulaire depuis {{ formatDateTime(cashSession.opened_at) }} — la première action vous l’attribue</span>
+                    </div>
                     </div>
                 </div>
                 <Button v-if="can('cash.close') && !sessionLocked" size="sm" :variant="showCloseForm ? 'danger-outline' : 'warning'" type="button" @click="toggleCloseForm"><Icon class="text-base" :name="showCloseForm ? 'cross' : 'lock'" /><span class="ms-1.5">{{ showCloseForm ? 'Annuler' : 'Clôturer la caisse' }}</span></Button>
@@ -582,10 +608,10 @@ onBeforeUnmount(() => {
                  counted against the drawer at closing time. The rest explains
                  how it was reached, and separates what is physically in the
                  till from what landed on an operator or bank account. -->
-            <div class="grid gap-px bg-gray-200 dark:bg-gray-900 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-                <div class="bg-emerald-50/70 px-5 py-4 dark:bg-emerald-950/20">
-                    <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">Espèces attendues en tiroir</p>
-                    <p class="mt-1 font-heading text-3xl font-bold text-emerald-800 dark:text-emerald-200">{{ formatMoney(summary.expected_cash) }}</p>
+            <div class="grid gap-px bg-border lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                <div class="bg-emerald-50/70 px-5 py-5 dark:bg-emerald-950/20">
+                    <p class="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300"><Coins class="h-3.5 w-3.5" />Espèces attendues en tiroir</p>
+                    <p class="mt-1 font-heading text-3xl font-bold tabular-nums text-emerald-800 dark:text-emerald-200">{{ formatMoney(summary.expected_cash) }}</p>
                     <p class="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">Fond initial {{ formatMoney(cashSession.opening_amount) }} + espèces encaissées {{ formatMoney(summary.cash_collected) }}</p>
                 </div>
                 <dl class="bg-white text-sm dark:bg-gray-950">
@@ -646,10 +672,10 @@ onBeforeUnmount(() => {
                     <Button size="rg" variant="warning" type="submit" :disabled="closeForm.processing"><Icon class="text-lg" name="lock" /><span class="ms-2">{{ closeForm.processing ? 'Clôture…' : 'Confirmer la clôture' }}</span></Button>
                 </div>
             </form>
-        </section>
+        </Card>
 
-        <section v-else class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <div class="border-b border-gray-200 px-4 py-3 dark:border-gray-900">
+        <Card v-else class="overflow-hidden">
+            <div class="border-b border-border px-5 py-4">
                 <h2 class="text-sm font-bold text-slate-700 dark:text-white">Ouvrir une session</h2>
                 <p class="mt-0.5 text-xs leading-5 text-slate-400">Une session ouverte est obligatoire avant tout encaissement et toute émission de reçu.</p>
             </div>
@@ -660,11 +686,11 @@ onBeforeUnmount(() => {
                 <FormError v-if="openForm.errors.cash_register_uuid" class="w-full">{{ openForm.errors.cash_register_uuid }}</FormError>
                 <FormError v-if="openForm.errors.cash_session" class="w-full">{{ openForm.errors.cash_session }}</FormError>
             </form>
-        </section>
+        </Card>
 
-        <section class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <div class="border-b border-gray-200 px-4 dark:border-gray-900">
-                <div class="grid grid-cols-3 items-stretch gap-1 sm:flex sm:items-center sm:gap-6" role="tablist" aria-label="Opérations de la caisse">
+        <Card class="overflow-hidden">
+            <div class="border-b border-border p-2">
+                <div class="grid grid-cols-3 items-stretch gap-1" role="tablist" aria-label="Opérations de la caisse">
                     <button
                         v-if="can('billing.view')"
                         id="cash-invoices-tab"
@@ -672,12 +698,12 @@ onBeforeUnmount(() => {
                         role="tab"
                         :aria-selected="activeLedgerTab === 'invoices'"
                         aria-controls="cash-invoices-panel"
-                        :class="['-mb-px flex h-12 min-w-0 items-center justify-center gap-1.5 border-b-2 px-1 text-xs font-bold transition-colors sm:justify-start sm:gap-2 sm:px-0', activeLedgerTab === 'invoices' ? 'border-primary-600 text-slate-800 dark:border-primary-400 dark:text-white' : 'border-transparent text-slate-500 hover:border-gray-300 hover:text-slate-700 dark:text-slate-400 dark:hover:border-gray-700 dark:hover:text-white']"
+                        :class="['flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeLedgerTab === 'invoices' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
                         @click="activeLedgerTab = 'invoices'"
                     >
-                        <Icon class="text-base" name="file-text" />
+                        <ReceiptText class="h-4 w-4" />
                         <span class="truncate">À encaisser</span>
-                        <span class="border-s border-gray-200 ps-2 tabular-nums text-slate-400 dark:border-gray-800">{{ outstandingSummary?.count ?? 0 }}</span>
+                        <span class="rounded-full bg-background px-1.5 py-0.5 tabular-nums text-muted-foreground ring-1 ring-border">{{ outstandingSummary?.count ?? 0 }}</span>
                     </button>
                     <button
                         v-if="can('billing.view')"
@@ -686,12 +712,12 @@ onBeforeUnmount(() => {
                         role="tab"
                         :aria-selected="activeLedgerTab === 'pharmacy'"
                         aria-controls="cash-pharmacy-ticket-panel"
-                        :class="['-mb-px flex h-12 min-w-0 items-center justify-center gap-1.5 border-b-2 px-1 text-xs font-bold transition-colors sm:justify-start sm:gap-2 sm:px-0', activeLedgerTab === 'pharmacy' ? 'border-primary-600 text-slate-800 dark:border-primary-400 dark:text-white' : 'border-transparent text-slate-500 hover:border-gray-300 hover:text-slate-700 dark:text-slate-400 dark:hover:border-gray-700 dark:hover:text-white']"
+                        :class="['flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeLedgerTab === 'pharmacy' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
                         @click="activeLedgerTab = 'pharmacy'"
                     >
-                        <Icon class="text-base" name="scan" />
+                        <ShoppingBag class="h-4 w-4" />
                         <span class="truncate">Tickets Pharmacie</span>
-                        <span class="border-s border-gray-200 ps-2 tabular-nums text-slate-400 dark:border-gray-800">{{ pharmacyLookup?.matches?.length ?? 0 }}</span>
+                        <span class="rounded-full bg-background px-1.5 py-0.5 tabular-nums text-muted-foreground ring-1 ring-border">{{ pharmacyLookup?.matches?.length ?? 0 }}</span>
                     </button>
                     <button
                         v-if="can('payments.view')"
@@ -700,10 +726,10 @@ onBeforeUnmount(() => {
                         role="tab"
                         :aria-selected="activeLedgerTab === 'payments'"
                         aria-controls="cash-payments-panel"
-                        :class="['-mb-px flex h-12 min-w-0 items-center justify-center gap-1.5 border-b-2 px-1 text-xs font-bold transition-colors sm:justify-start sm:gap-2 sm:px-0', activeLedgerTab === 'payments' ? 'border-primary-600 text-slate-800 dark:border-primary-400 dark:text-white' : 'border-transparent text-slate-500 hover:border-gray-300 hover:text-slate-700 dark:text-slate-400 dark:hover:border-gray-700 dark:hover:text-white']"
+                        :class="['flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', activeLedgerTab === 'payments' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
                         @click="activeLedgerTab = 'payments'"
                     >
-                        <Icon class="text-base" name="money" />
+                        <CircleDollarSign class="h-4 w-4" />
                         <span class="truncate">Paiements</span>
                         <span class="border-s border-gray-200 ps-2 tabular-nums text-slate-400 dark:border-gray-800">{{ recentPayments.length }}</span>
                     </button>
@@ -888,7 +914,7 @@ onBeforeUnmount(() => {
                     </table>
                 </div>
             </div>
-        </section>
+        </Card>
 
         <details class="group overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden">
@@ -903,10 +929,17 @@ onBeforeUnmount(() => {
             </div>
         </details>
 
-        <div v-if="paymentTarget" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="closePaymentDialog">
-            <section class="w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950" role="dialog" aria-modal="true" aria-labelledby="cash-payment-dialog-title">
-                <header class="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-900"><div class="flex min-w-0 items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-xl" name="money" /></span><div class="min-w-0"><h2 id="cash-payment-dialog-title" class="font-heading text-lg font-bold text-slate-700 dark:text-white">Encaisser la facture</h2><p class="mt-0.5 truncate text-sm text-slate-400">{{ paymentTarget.invoice_number }} · {{ invoiceCustomerName(paymentTarget) }}</p></div></div><button type="button" class="text-slate-400 hover:text-slate-600" aria-label="Fermer" @click="closePaymentDialog"><Icon class="text-xl" name="cross" /></button></header>
-                <div class="flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 bg-gray-50/60 px-5 py-4 dark:border-gray-900 dark:bg-gray-1000/30">
+        <Dialog
+            :open="Boolean(paymentTarget)"
+            title="Encaisser la facture"
+            :description="paymentTarget ? `${paymentTarget.invoice_number} · ${invoiceCustomerName(paymentTarget)}` : ''"
+            size="lg"
+            body-class="max-h-[calc(90vh-100px)] overflow-y-auto"
+            @update:open="handlePaymentDialogOpen"
+        >
+            <template #icon><span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><CircleDollarSign class="h-5 w-5" /></span></template>
+            <template v-if="paymentTarget">
+                <div class="mb-5 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-border bg-muted/35 px-5 py-4">
                     <div>
                         <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Reste à payer</p>
                         <p class="mt-0.5 font-heading text-3xl font-bold text-slate-800 dark:text-white">{{ formatMoney(paymentTarget.balance_amount) }}</p>
@@ -917,7 +950,7 @@ onBeforeUnmount(() => {
                     </dl>
                 </div>
 
-                <form class="space-y-4 p-5" @submit.prevent="recordPayment">
+                <form class="space-y-4" @submit.prevent="recordPayment">
                     <div>
                         <p class="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Mode de paiement <span class="text-red-500">*</span></p>
                         <div class="grid gap-2 sm:grid-cols-3">
@@ -984,15 +1017,15 @@ onBeforeUnmount(() => {
                     <FormGroup class="!mb-0"><FormLabel class="mb-1.5" for="cash_payment_notes">Note</FormLabel><Input id="cash_payment_notes" v-model="paymentForm.notes" placeholder="Observation facultative" /><FormError v-if="paymentForm.errors.notes">{{ paymentForm.errors.notes }}</FormError></FormGroup>
                     <FormError v-if="paymentForm.errors.reference && ! selectedPaymentMethod?.requires_reference">{{ paymentForm.errors.reference }}</FormError>
                     <FormError v-if="paymentForm.errors.cash_session">{{ paymentForm.errors.cash_session }}</FormError><FormError v-if="paymentForm.errors.invoice_uuid">{{ paymentForm.errors.invoice_uuid }}</FormError>
-                    <div class="flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 dark:border-gray-900 sm:flex-row sm:items-center sm:justify-between">
-                        <Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${paymentTarget.uuid}?from=cash`" size="rg" variant="white-outline"><Icon class="text-lg" name="file-text" /><span class="ms-2">Voir la facture</span></Button>
+                    <div class="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                        <Button v-if="can('billing.print')" :as="Link" :href="`/invoices/${paymentTarget.uuid}?from=cash`" variant="outline"><FileText class="h-4 w-4" />Voir la facture</Button>
                         <div class="flex justify-end gap-2">
-                            <Button size="rg" variant="white-outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button>
-                            <Button size="rg" variant="success" type="submit" :disabled="paymentForm.processing || tenderedIsShort" :title="tenderedIsShort ? 'Le montant remis par le patient est inférieur au montant à encaisser' : undefined"><Icon class="text-lg" name="check" /><span class="ms-2">{{ paymentForm.processing ? 'Encaissement…' : `Encaisser ${formatMoney(paymentForm.amount || 0)}` }}</span></Button>
+                            <Button variant="outline" type="button" :disabled="paymentForm.processing" @click="closePaymentDialog">Annuler</Button>
+                            <Button variant="success" type="submit" :disabled="paymentForm.processing || tenderedIsShort" :title="tenderedIsShort ? 'Le montant remis par le patient est inférieur au montant à encaisser' : undefined"><CircleDollarSign class="h-4 w-4" />{{ paymentForm.processing ? 'Encaissement…' : `Encaisser ${formatMoney(paymentForm.amount || 0)}` }}</Button>
                         </div>
                     </div>
                 </form>
-            </section>
-        </div>
+            </template>
+        </Dialog>
     </div>
 </template>

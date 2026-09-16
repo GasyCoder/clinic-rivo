@@ -18,7 +18,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Inertia.js
 - [x] Configuration frontend
 - [x] Configuration base locale
-- [ ] DashWind
+- [x] shadcn-vue comme design system par défaut (ADR-099) ; DashWind conservé en reliquat le temps des migrations
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
 - [x] Permissions et exceptions individuelles auditées

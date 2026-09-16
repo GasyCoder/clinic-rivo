@@ -5,6 +5,8 @@ import { router, usePage } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
 import { useThemeStore } from '@/stores/theme';
+import HeaderSearch from '@/Components/Layout/HeaderSearch.vue';
+import HeaderAttention from '@/Components/Layout/HeaderAttention.vue';
 
 const theme = useThemeStore();
 const page = usePage();
@@ -47,18 +49,27 @@ const logout = () => {
                         </button>
                     </div>
 
-                    <div class="px-1 py-3.5 flex xl:hidden">
+                    <!-- La marque n'apparaît qu'ici en mobile : sur grand
+                         écran le bandeau latéral la porte déjà, et la répéter
+                         volait la place à la recherche. -->
+                    <div class="px-1 py-3.5 flex min-w-0 xl:hidden">
                         <span class="font-heading text-base font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
                     </div>
 
-                    <div class="px-1 py-2 hidden xl:flex flex-col justify-center min-w-0">
-                        <span class="text-sm font-bold text-slate-700 dark:text-white truncate">{{ site.brand }}</span>
-                        <span v-if="site.name" class="text-xs text-slate-500 dark:text-slate-400 truncate uppercase tracking-wide">{{ site.name }}</span>
+                    <div class="hidden min-w-0 flex-1 px-1 py-2 xl:flex">
+                        <HeaderSearch />
                     </div>
 
-                    <div class="px-1 py-3.5 ms-auto">
-                        <ul class="flex item-center -mx-1.5 sm:-mx-2.5">
-                            <li class="px-1.5 sm:px-2.5 inline-flex">
+                    <div class="px-1 py-3.5 ms-auto flex items-center gap-2 sm:gap-3">
+                        <HeaderAttention />
+
+                        <!-- Un filet entre la cloche et le compte : deux
+                             commandes sans rapport, collées, se lisent comme
+                             un seul bloc et on clique l'une pour l'autre. -->
+                        <span class="hidden h-6 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+
+                        <ul class="flex item-center">
+                            <li class="inline-flex">
                                 <Menu as="div" class="dropdown relative">
                                     <MenuButton class="dropdown-toggle *:pointer-events-none peer inline-flex items-center group">
                                         <div class="flex items-center">

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
+import Card from '@/Components/Shadcn/Card.vue';
 
 /**
  * ADR-066 — the HR figures, identical wherever they appear: the site overview,
@@ -43,37 +44,37 @@ const headcount = computed(() => [
 <template>
     <div class="space-y-3">
         <div v-if="todo.length" class="grid gap-3 md:grid-cols-3">
-            <component
-                :is="linkable ? Link : 'div'"
+            <Card
                 v-for="item in todo"
                 :key="item.key"
-                :href="linkable ? item.href : undefined"
-                :class="['flex items-center gap-4 rounded-xl border bg-white p-4 shadow-sm dark:bg-gray-950', summary[item.key] ? 'border-amber-200 dark:border-amber-900' : 'border-gray-200 dark:border-gray-900', linkable && 'transition hover:shadow-md']"
+                :class="[summary[item.key] ? 'border-amber-200 dark:border-amber-900' : '', linkable && 'transition hover:border-primary/30 hover:shadow-md']"
             >
-                <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl', TONES[item.tone]]"><Icon :name="item.icon" /></span>
-                <span class="min-w-0">
-                    <span :class="['block text-3xl font-bold tabular-nums', summary[item.key] ? 'text-slate-800 dark:text-white' : 'text-slate-300 dark:text-slate-600']">{{ summary[item.key] }}</span>
-                    <span class="block text-sm text-slate-500">{{ item.label }}</span>
-                </span>
-                <Icon v-if="linkable" name="chevron-right" class="ms-auto text-xl text-slate-300" />
-            </component>
+                <component :is="linkable ? Link : 'div'" :href="linkable ? item.href : undefined" class="flex items-center gap-4 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                    <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TONES[item.tone]]"><Icon :name="item.icon" /></span>
+                    <span class="min-w-0">
+                        <span :class="['block text-3xl font-bold tabular-nums', summary[item.key] ? 'text-foreground' : 'text-muted-foreground/40']">{{ summary[item.key] }}</span>
+                        <span class="block text-sm text-muted-foreground">{{ item.label }}</span>
+                    </span>
+                    <Icon v-if="linkable" name="chevron-right" class="ms-auto text-xl text-muted-foreground" />
+                </component>
+            </Card>
         </div>
 
         <div v-if="show === 'all' && headcount.length" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <component
-                :is="linkable ? Link : 'div'"
+            <Card
                 v-for="item in headcount"
                 :key="item.key"
-                :href="linkable ? item.href : undefined"
-                :class="['flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-900 dark:bg-gray-950', linkable && 'transition hover:shadow-md']"
+                :class="[linkable && 'transition hover:border-primary/30 hover:shadow-md']"
             >
-                <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl', TONES[item.tone]]"><Icon :name="item.icon" /></span>
-                <span class="min-w-0">
-                    <span class="block text-2xl font-bold tabular-nums text-slate-800 dark:text-white">{{ summary[item.key] }}</span>
-                    <span class="block text-xs text-slate-500">{{ item.label }}</span>
-                    <span v-if="item.hint" class="block text-[11px] text-slate-400">{{ item.hint }}</span>
-                </span>
-            </component>
+                <component :is="linkable ? Link : 'div'" :href="linkable ? item.href : undefined" class="flex items-center gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                    <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl', TONES[item.tone]]"><Icon :name="item.icon" /></span>
+                    <span class="min-w-0">
+                        <span class="block text-2xl font-bold tabular-nums text-foreground">{{ summary[item.key] }}</span>
+                        <span class="block text-xs text-muted-foreground">{{ item.label }}</span>
+                        <span v-if="item.hint" class="block text-[11px] text-muted-foreground">{{ item.hint }}</span>
+                    </span>
+                </component>
+            </Card>
         </div>
     </div>
 </template>

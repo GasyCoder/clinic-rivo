@@ -993,10 +993,10 @@ aucune. Voir ADR-054.
 
 # UI
 
-Template :
+Design system :
 
 ```text
-DashWind
+shadcn-vue (reka-ui + Tailwind)
 ```
 
 Architecture :
@@ -1011,18 +1011,22 @@ Inertia
 Vue.js
    │
    ▼
-DashWind
+shadcn-vue
    │
    ▼
 Tailwind CSS
 ```
 
-DashWind constitue la base visuelle historique. Depuis l'ADR-091, shadcn-vue
-devient progressivement la couche de composants cible, sans remplacement
-brutal : les écrans migrent un par un et DashWind reste en place tant que ses
-usages n'ont pas été remplacés et vérifiés. Le premier pilote est le répertoire
-`/patients`; cette migration visuelle ne modifie aucune autorisation ni règle
-métier.
+shadcn-vue **est** le design system (ADR-099, remplace l'ADR-018 et achève
+l'ADR-091). Tout écran neuf ou retouché est écrit avec la couche
+`resources/js/Components/Shadcn`, les tokens sémantiques RIVO, les icônes
+`lucide-vue-next` et `cn()`. DashWind n'est plus la base : c'est un reliquat,
+conservé uniquement là où personne n'est encore repassé, et aucun nouveau
+composant DashWind (`Components/UI/Icon.vue`, classes `nk-*`, `ni ni-*`,
+Headless UI) ne doit être introduit. Le remplacement reste progressif, écran
+par écran, et une primitive est ajoutée à la demande — jamais par exécution
+de l'initialiseur, qui réécrirait Tailwind. Aucune autorisation ni règle
+métier n'est modifiée par cette migration.
 
 ---
 

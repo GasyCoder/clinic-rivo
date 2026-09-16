@@ -5974,3 +5974,58 @@ Aucune règle de délivrance, de réservation FEFO, de facturation Caisse ou de
 consommables Soins n'est modifiée : les composants correspondants sont
 réorganisés et rendus plus lisibles, leurs données envoyées au serveur restent
 identiques. La Pharmacie n'encaisse toujours rien (ADR-013).
+
+---
+
+# ADR-099 — shadcn-vue est le design system par défaut
+
+**Status:** ACCEPTED (2026-09-16 — exigence explicite du propriétaire)
+
+**Remplace l'ADR-018** sur le choix du design system, et **achève
+l'ADR-091**, qui n'avait fait de shadcn-vue qu'une cible de migration
+progressive tout en laissant DashWind comme base.
+
+## La règle
+
+Toute interface **nouvelle ou modifiée** est écrite avec la couche
+`resources/js/Components/Shadcn` et les tokens sémantiques RIVO
+(`background`, `card`, `muted`, `primary`, `destructive`, `border`, `ring`,
+`accent`, `popover`), les icônes `lucide-vue-next` et `cn()`.
+
+```text
+écran neuf              shadcn-vue, sans exception
+écran retouché          la partie touchée passe à shadcn-vue
+écran non touché        DashWind reste en place jusqu'à sa migration
+```
+
+DashWind n'est plus « la base visuelle » : c'est un **reliquat**, conservé
+uniquement là où personne n'est encore repassé. Aucun nouveau composant
+DashWind (`Components/UI/Icon.vue`, classes `nk-*`, `ni ni-*`, Headless UI)
+ne doit être introduit.
+
+## Ce que cela ne change pas
+
+Le remplacement reste progressif, écran par écran, comme l'ADR-091 l'a posé :
+aucune réécriture globale, aucune exécution de l'initialiseur shadcn qui
+réécrirait Tailwind. Une primitive est ajoutée **à la demande**, adaptée à
+l'identité de la clinique et relue comme tout autre code — c'est ainsi que
+`Popover` est arrivé pour l'en-tête.
+
+Chaque migration conserve avant tout ce que l'ADR-091 énumère déjà :
+permissions et protections Laravel, routes et contrats Inertia, validation et
+erreurs serveur, actions et règles métier, accessibilité clavier et focus,
+mode sombre et affichage responsive.
+
+## Conflit documentaire signalé
+
+Le CDC officiel et `CLAUDE.md` désignaient encore DashWind comme fondation
+(`# UI — Use DashWind as the main UI foundation`). Conformément à l'ADR-020,
+la divergence n'est pas masquée : la décision `ACCEPTED` la plus récente
+s'applique, et `CLAUDE.md`, `docs/AI_CONTEXT.md` et `docs/ROADMAP.md` sont
+mis à jour dans le même mouvement. Le choix d'un design system est une
+**décision technique** : son domicile est ce document, que
+`docs/CDC_REFERENCE.md` désigne explicitement comme la source des décisions
+validées après une version du CDC.
+
+Aucune permission, route, validation ou règle métier n'est touchée par cette
+décision.

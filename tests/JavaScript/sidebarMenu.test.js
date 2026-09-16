@@ -15,6 +15,11 @@ const activeTexts = (path) => activeMenuKeys(menu, path).map((index) => menu[ind
 test('une seule entrée est active, même quand plusieurs partagent un préfixe', () => {
     // Le défaut signalé : /reception/sorties allumait aussi « Réception ».
     assert.deepEqual(activeTexts('/reception/sorties'), ['Sorties & règlements']);
+    // Signalé le 2026-09-16 : « Patients » et « Sorties & règlements »
+    // paraissaient sélectionnés ensemble. Les deux n'ont aucun préfixe
+    // commun — la logique ne les a jamais allumés ensemble, c'était le
+    // survol qui ressemblait à la sélection (sidebarActiveStyle.test.js).
+    assert.deepEqual(activeTexts('/patients'), ['Patients']);
     assert.deepEqual(activeTexts('/reception/visitors'), ['Gardiennage']);
     assert.deepEqual(activeTexts('/reception'), ['Réception']);
     assert.deepEqual(activeTexts('/reception/patients'), ['Réception']);

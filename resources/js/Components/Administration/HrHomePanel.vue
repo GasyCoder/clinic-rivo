@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
-import Icon from '@/Components/UI/Icon.vue';
+import { ArrowRight, BriefcaseBusiness } from 'lucide-vue-next';
+import Button from '@/Components/Shadcn/Button.vue';
 import HrFigures from '@/Components/Administration/HrFigures.vue';
 
 /**
@@ -13,11 +14,14 @@ defineProps({ summary: { type: Object, required: true } });
 
 <template>
     <section class="space-y-3" aria-labelledby="hr-home-title">
-        <div class="flex flex-wrap items-end justify-between gap-2">
-            <h2 id="hr-home-title" class="flex items-center gap-2 font-heading text-base font-bold text-slate-800 dark:text-white">
-                <Icon name="briefcase" class="text-primary-600" />Ressources humaines — à traiter
-            </h2>
-            <Link href="/administration" class="inline-flex items-center gap-1 text-sm font-semibold text-primary-600 hover:underline">Ouvrir l’espace RH <Icon name="arrow-right" /></Link>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h2 id="hr-home-title" class="flex items-center gap-2 font-heading text-base font-bold text-foreground">
+                    <BriefcaseBusiness class="h-4 w-4 text-primary" />Ressources humaines — à traiter
+                </h2>
+                <p class="mt-0.5 text-xs text-muted-foreground">Les décisions qui demandent votre attention.</p>
+            </div>
+            <Button :as="Link" href="/administration" variant="outline" size="sm">Ouvrir l’espace RH <ArrowRight class="h-4 w-4" /></Button>
         </div>
         <HrFigures :summary="summary" linkable show="todo" />
     </section>

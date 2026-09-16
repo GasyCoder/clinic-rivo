@@ -263,9 +263,16 @@ audit
 
 # UI
 
-Use DashWind as the main UI foundation.
+Use shadcn-vue as the design system (ADR-099).
 
-Do not introduce another UI framework/design system without explicit approval.
+Every new or modified screen is written with `resources/js/Components/Shadcn`,
+the RIVO semantic tokens, `lucide-vue-next` icons and `cn()`.
+
+DashWind is a leftover, kept only where nobody has migrated yet. Never
+introduce new DashWind markup (`Components/UI/Icon.vue`, `nk-*` classes,
+`ni ni-*` icons, Headless UI).
+
+Do not introduce a third UI framework/design system without explicit approval.
 
 ---
 

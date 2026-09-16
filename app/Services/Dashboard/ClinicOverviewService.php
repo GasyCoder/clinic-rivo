@@ -4,6 +4,7 @@ namespace App\Services\Dashboard;
 
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeStatus;
+use App\Enums\PatientSex;
 use App\Enums\PaymentStatus;
 use App\Models\CareRecord;
 use App\Models\Consultation;
@@ -254,9 +255,75 @@ class ClinicOverviewService
         return [
             'generated_at' => now()->toIso8601String(),
             'metrics' => $metrics,
+            'patient_demographics' => $permissions->contains('patients.view')
+                ? $this->patientDemographics()
+                : null,
             'trend' => [
                 'dates' => $trendDates->values()->all(),
                 'series' => $trendSeries,
+            ],
+        ];
+    }
+
+    /**
+     * Returns mutually exclusive groups for the overview donut. A declared
+     * age is used only when the exact birth date is absent, matching the
+     * patient dossier's existing age fallback.
+     *
+     * @return array{
+     *     total: int,
+     *     segments: array<int, array{key: string, label: string, value: int}>,
+     *     children: array{total: int, boys: int, girls: int}
+     * }
+     */
+    private function patientDemographics(): array
+    {
+        $adultCutoff = now()->subYears(18)->toDateString();
+        $adultFilter = static fn (Builder $query) => $query->where(function (Builder $age) use ($adultCutoff): void {
+            $age->where('birth_date', '<=', $adultCutoff)
+                ->orWhere(function (Builder $declared): void {
+                    $declared->whereNull('birth_date')->where('declared_age', '>=', 18);
+                });
+        });
+        $childFilter = static fn (Builder $query) => $query->where(function (Builder $age) use ($adultCutoff): void {
+            $age->where('birth_date', '>', $adultCutoff)
+                ->orWhere(function (Builder $declared): void {
+                    $declared->whereNull('birth_date')->where('declared_age', '<', 18);
+                });
+        });
+
+        $men = Patient::query()
+            ->where('sex', PatientSex::Male->value)
+            ->where($adultFilter)
+            ->count();
+        $women = Patient::query()
+            ->where('sex', PatientSex::Female->value)
+            ->where($adultFilter)
+            ->count();
+        $boys = Patient::query()
+            ->where('sex', PatientSex::Male->value)
+            ->where($childFilter)
+            ->count();
+        $girls = Patient::query()
+            ->where('sex', PatientSex::Female->value)
+            ->where($childFilter)
+            ->count();
+        $children = $boys + $girls;
+        $total = Patient::query()->count();
+        $unclassified = max(0, $total - $men - $women - $children);
+
+        return [
+            'total' => $total,
+            'segments' => collect([
+                ['key' => 'men', 'label' => 'Hommes adultes', 'value' => $men],
+                ['key' => 'women', 'label' => 'Femmes adultes', 'value' => $women],
+                ['key' => 'children', 'label' => 'Enfants', 'value' => $children],
+                ['key' => 'unclassified', 'label' => 'Âge non renseigné', 'value' => $unclassified],
+            ])->filter(fn (array $segment) => $segment['value'] > 0)->values()->all(),
+            'children' => [
+                'total' => $children,
+                'boys' => $boys,
+                'girls' => $girls,
             ],
         ];
     }

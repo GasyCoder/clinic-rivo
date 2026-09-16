@@ -272,7 +272,7 @@ const closeMobile = () => {
                 </div>
 
                 <details v-else-if="item.children" :open="isActive(item)" class="group/site">
-                    <summary :class="['nk-menu-link flex cursor-pointer list-none items-center font-heading font-bold tracking-snug transition-colors', isAdminPortal ? 'rounded-md px-3 py-2.5 hover:bg-accent ' : 'py-2.5 ps-6 pe-5', isAdminPortal && isActive(item) ? 'bg-primary/10' : '']">
+                    <summary :class="['nk-menu-link flex cursor-pointer list-none items-center font-heading font-bold tracking-snug transition-colors', isAdminPortal ? 'rounded-md px-3 py-2.5 hover:bg-accent ' : 'py-2.5 ps-6 pe-5', isAdminPortal && isActive(item) ? 'bg-primary/15 ring-1 ring-inset ring-primary/25' : '']">
                         <span :class="['shrink-0 text-muted-foreground group-[.active]/item:text-primary', isAdminPortal ? 'flex h-8 w-8 items-center justify-center' : 'flex h-8 w-8 items-center justify-center rounded-md']">
                             <component :is="item.icon" :class="isAdminPortal ? 'h-4 w-4' : 'h-[18px] w-[18px]'" />
                         </span>
@@ -306,11 +306,22 @@ const closeMobile = () => {
                     :class="[
                         'nk-menu-link nk-route-toggle relative flex items-center align-middle font-heading font-bold tracking-snug transition-colors group',
                         isAdminPortal ? 'rounded-md px-3 py-2.5' : 'rounded-lg px-2.5 py-2',
-                        isActive(item) ? 'bg-primary/10 text-primary ring-1 ring-inset ring-primary/10' : '',
-                        !isActive(item) ? 'hover:bg-accent' : '',
+                        isActive(item) ? 'bg-primary/15 text-primary ring-1 ring-inset ring-primary/25' : '',
+                        !isActive(item) ? 'hover:bg-accent/60' : '',
                     ]"
                     @click="closeMobile"
                 >
+                    <!-- L'état actif se repère à sa **position**, pas à sa
+                         teinte. En thème sombre, le survol (`accent`, clarté
+                         19 %) sortait plus clair que la sélection
+                         (`primary/10`, ≈ 16 % sur ce fond) : deux taches
+                         sombres impossibles à départager, et la mauvaise
+                         l'emportait. Ce rail ne dépend d'aucune nuance. -->
+                    <span
+                        v-if="isActive(item)"
+                        class="absolute inset-y-1 start-0 w-1 rounded-e-full bg-primary"
+                        aria-hidden="true"
+                    />
                     <span :class="['inline-flex h-8 w-8 flex-grow-0 flex-shrink-0 items-center justify-center rounded-md font-normal tracking-normal text-muted-foreground transition-colors group-[.active]/item:bg-primary/100/10 group-[.active]/item:text-primary group-hover:text-primary', isAdminPortal ? '' : 'me-1']">
                         <component :is="item.icon" :class="isAdminPortal ? 'h-4 w-4' : 'h-[18px] w-[18px]'" />
                     </span>

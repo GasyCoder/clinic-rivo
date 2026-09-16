@@ -2,6 +2,8 @@
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import Icon from '@/Components/UI/Icon.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Card from '@/Components/Shadcn/Card.vue';
 import { formatNumber } from '@/utilities/pharmacyStatus';
 
 /**
@@ -92,70 +94,71 @@ const watchList = computed(() => props.stockSummary ? [
     <section id="pharmacie" class="space-y-4" aria-labelledby="pharmacy-home-title">
         <div class="flex flex-wrap items-end justify-between gap-2">
             <div>
-                <h2 id="pharmacy-home-title" class="flex items-center gap-2 font-heading text-base font-bold text-slate-800 dark:text-white">
+                <h2 id="pharmacy-home-title" class="flex items-center gap-2 font-heading text-base font-bold text-foreground">
                     <Icon name="capsule" class="text-emerald-600" />Pharmacie — que voulez-vous faire ?
                 </h2>
-                <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Choisissez une tâche. L’encaissement et les reçus restent toujours à la Caisse.</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Choisissez une tâche. L’encaissement et les reçus restent toujours à la Caisse.</p>
             </div>
         </div>
 
         <div v-if="actions.length" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <Link
+            <Card
                 v-for="action in actions"
                 :key="action.href"
-                :href="action.href"
-                class="group flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-primary-300 hover:shadow-md dark:border-gray-900 dark:bg-gray-950 dark:hover:border-primary-800"
+                class="group overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
             >
-                <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TILE_TONES[action.tone]]">
-                    <Icon :name="action.icon" />
-                </span>
-                <span class="min-w-0 flex-1">
-                    <span class="flex items-center gap-2">
-                        <span class="font-heading text-base font-bold text-slate-800 dark:text-white">{{ action.title }}</span>
-                        <span v-if="action.count" class="rounded-full bg-primary-600 px-2 py-0.5 text-xs font-bold text-white">{{ action.count }}</span>
+                <Link :href="action.href" class="flex h-full items-center gap-4 p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                    <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TILE_TONES[action.tone]]">
+                        <Icon :name="action.icon" />
                     </span>
-                    <span class="mt-0.5 block text-sm text-slate-500">{{ action.text }}</span>
-                </span>
-                <Icon name="chevron-right" class="text-lg text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-primary-500" />
-            </Link>
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center gap-2">
+                            <span class="font-heading text-base font-bold text-foreground">{{ action.title }}</span>
+                            <Badge v-if="action.count" class="px-2 py-0.5">{{ action.count }}</Badge>
+                        </span>
+                        <span class="mt-0.5 block text-sm text-muted-foreground">{{ action.text }}</span>
+                    </span>
+                    <Icon name="chevron-right" class="text-lg text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Link>
+            </Card>
         </div>
 
         <div v-if="watchList.length || capabilities.can_view_alerts" class="grid gap-4 lg:grid-cols-5">
-            <div v-if="watchList.length" class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950 lg:col-span-2">
-                <h3 class="font-heading text-base font-bold text-slate-800 dark:text-white">À surveiller</h3>
-                <ul class="mt-3 divide-y divide-gray-100 dark:divide-gray-900">
+            <Card v-if="watchList.length" class="p-5 lg:col-span-2">
+                <h3 class="font-heading text-base font-bold text-foreground">À surveiller</h3>
+                <ul class="mt-3 divide-y divide-border">
                     <li v-for="item in watchList" :key="item.label">
                         <Link :href="item.href" class="flex items-center justify-between gap-3 py-3 text-sm hover:text-primary-600">
-                            <span class="text-slate-600 dark:text-slate-300">{{ item.label }}</span>
-                            <strong :class="['text-xl tabular-nums', item.value ? item.alarm : 'text-slate-400']">{{ formatNumber(item.value) }}</strong>
+                            <span class="text-muted-foreground">{{ item.label }}</span>
+                            <strong :class="['text-xl tabular-nums', item.value ? item.alarm : 'text-muted-foreground']">{{ formatNumber(item.value) }}</strong>
                         </Link>
                     </li>
                 </ul>
-            </div>
+            </Card>
 
-            <div v-if="capabilities.can_view_alerts" :class="['rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950', watchList.length ? 'lg:col-span-3' : 'lg:col-span-5']">
+            <Card v-if="capabilities.can_view_alerts" :class="['p-5', watchList.length ? 'lg:col-span-3' : 'lg:col-span-5']">
                 <div class="flex items-center justify-between gap-3">
-                    <h3 class="font-heading text-base font-bold text-slate-800 dark:text-white">À recommander</h3>
-                    <span v-if="alerts.length" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-950 dark:text-amber-300">{{ alerts.length }}</span>
+                    <h3 class="font-heading text-base font-bold text-foreground">À recommander</h3>
+                    <Badge v-if="alerts.length" variant="warning">{{ alerts.length }}</Badge>
                 </div>
-                <ul v-if="alerts.length" class="mt-3 divide-y divide-gray-100 dark:divide-gray-900">
+                <ul v-if="alerts.length" class="mt-3 divide-y divide-border">
                     <li v-for="alert in alerts.slice(0, 6)" :key="alert.uuid">
                         <Link :href="`/pharmacy/stock/${alert.medicine_uuid}`" class="flex items-center justify-between gap-3 py-3 text-sm hover:text-primary-600">
                             <span class="min-w-0">
-                                <span class="block truncate font-semibold text-slate-700 dark:text-white">{{ alert.medicine_name }}</span>
-                                <span class="text-xs text-slate-400">{{ alert.type_label }}</span>
+                                <span class="block truncate font-semibold text-foreground">{{ alert.medicine_name }}</span>
+                                <span class="text-xs text-muted-foreground">{{ alert.type_label }}</span>
                             </span>
-                            <span class="shrink-0 text-end text-xs text-slate-500">
+                            <span class="shrink-0 text-end text-xs text-muted-foreground">
                                 <strong class="block text-base text-amber-600 tabular-nums">{{ alert.available_quantity }}</strong>
                                 seuil {{ alert.threshold }}
                             </span>
                         </Link>
                     </li>
                 </ul>
-                <p v-else class="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                <p v-else class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                     <Icon name="check-circle" class="text-lg text-emerald-500" />Aucun médicament sous son seuil minimal.
                 </p>
-            </div>
+            </Card>
         </div>
     </section>
 </template>

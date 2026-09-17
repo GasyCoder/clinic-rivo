@@ -41,7 +41,10 @@ class CashController extends Controller
                 return $this->renderWorkspace($request, null);
             }
 
-            return Inertia::render('Cash/Index', ['registers' => []]);
+            return Inertia::render('Cash/Index', [
+                'registers' => [],
+                'pharmacyReference' => $this->pharmacyReferenceQuery($request),
+            ]);
         }
 
         // Each register locks its own active_key slot (CashSession::activeKeyFor),
@@ -55,6 +58,11 @@ class CashController extends Controller
             ->keyBy('cash_register_id');
 
         return Inertia::render('Cash/Index', [
+            // ADR-104 — arrivée depuis la Réception avec un ticket
+            // Pharmacie : le choix du poste ne doit pas perdre la référence
+            // en route, sinon l'agent doit la ressaisir juste après l'avoir
+            // vue à l'écran précédent.
+            'pharmacyReference' => $this->pharmacyReferenceQuery($request),
             'registers' => $registers->map(function (CashRegister $register) use ($openSessions, $request) {
                 $session = $openSessions->get($register->id);
 
@@ -229,6 +237,14 @@ class CashController extends Controller
             'recentSessions' => $recentSessions,
             'pharmacyLookup' => $this->pharmacyLookup($request),
         ]);
+    }
+
+    /** La référence de ticket demandée par l'URL, bornée comme à la lecture. */
+    private function pharmacyReferenceQuery(Request $request): ?string
+    {
+        $reference = trim((string) $request->query('pharmacy_reference', ''));
+
+        return $reference !== '' && mb_strlen($reference) <= 100 ? $reference : null;
     }
 
     /** @return array{reference: string, found: bool, matches: mixed}|null */

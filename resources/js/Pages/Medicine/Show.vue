@@ -5,7 +5,6 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import {
     Activity,
     ArrowLeft,
-    ArrowRight,
     Check,
     ChevronDown,
     ChevronUp,
@@ -30,6 +29,7 @@ import {
     Printer,
     RotateCcw,
     Save,
+    HeartPulse,
     ScanLine,
     Search,
     Send,
@@ -57,6 +57,7 @@ import SortableSections from '@/Components/UI/SortableSections.vue';
 import ClinicalExaminationSummary from '@/Components/Clinical/ClinicalExaminationSummary.vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
 import ClinicalDiagnosisEntry from '@/Components/Clinical/ClinicalDiagnosisEntry.vue';
+import ClinicalDiagnosisList from '@/Components/Clinical/ClinicalDiagnosisList.vue';
 import PrescriptionLineEditor from '@/Components/Clinical/PrescriptionLineEditor.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import ClinicalVitalsCorrection from '@/Components/Clinical/ClinicalVitalsCorrection.vue';
@@ -404,10 +405,29 @@ const closureSections = computed(() => [
 ]);
 const diagnosisTimingForm = useForm({ ready: false });
 
+/**
+ * « Oui » cliqué alors qu'aucun diagnostic n'est enregistré n'est pas une
+ * réponse : c'est l'intention d'en poser un. Le serveur refuse cette réponse
+ * à juste titre (ADR-095 — une intention n'est pas un diagnostic), mais son
+ * message renvoie à « ci-dessous », or « Pas maintenant » garde justement la
+ * saisie repliée : le médecin lisait une consigne désignant un champ
+ * invisible. La saisie s'ouvre donc, au lieu d'envoyer une réponse dont on
+ * sait qu'elle sera rejetée.
+ */
+const diagnosisEntryOpen = ref(false);
+
 const decideDiagnosisTiming = (ready) => {
+    if (ready && ! activeDiagnoses.value.length) {
+        diagnosisTimingForm.clearErrors();
+        diagnosisEntryOpen.value = true;
+
+        return;
+    }
+
     diagnosisTimingForm.ready = ready;
     diagnosisTimingForm.post(`/medicine/orientations/${props.orientation.uuid}/diagnostic-timing`, {
         preserveScroll: true,
+        onSuccess: () => { diagnosisEntryOpen.value = ready; },
     });
 };
 
@@ -550,8 +570,8 @@ const nextStep = computed(() => {
     return null;
 });
 const stepUrl = (step) => `/medicine/orientations/${props.orientation.uuid}/${step}`;
-const selectClass = 'block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-sm text-foreground outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-muted/35';
-const textareaClass = 'block w-full resize-y rounded border border-border bg-card px-3 py-2 text-sm leading-5 text-foreground outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-muted/35';
+const selectClass = 'block h-9 w-full appearance-none rounded border border-border bg-card px-3 pe-9 text-sm text-foreground outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:bg-muted/35';
+const textareaClass = 'block w-full resize-y rounded border border-border bg-card px-3 py-2 text-sm leading-5 text-foreground outline-none focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:bg-muted/35';
 
 const toLocalDateTimeInput = (value = new Date()) => {
     const date = value instanceof Date ? value : new Date(value);
@@ -1011,6 +1031,34 @@ const removeLabItem = (line) => {
     const index = labRequestForm.items.indexOf(line);
     if (index >= 0) labRequestForm.items.splice(index, 1);
 };
+/**
+ * Transmettre une demande d'examen est un acte signé, pas un enregistrement :
+ * l'ordre part au service concerné et chaque examen rejoint le compte du
+ * patient (ADR-105), sans retour possible une fois un résultat saisi.
+ *
+ * La fenêtre **nomme les examens** plutôt que d'en donner le nombre :
+ * confirmer « 2 examens » sans les voir ne serait pas une signature
+ * consciente. Le propriétaire a demandé le 2026-09-17 de ne pas y énoncer
+ * les conséquences elles-mêmes — elles restent vraies, elles ne sont plus
+ * répétées à chaque envoi.
+ */
+const pendingRequestKind = ref(null);
+const openRequestConfirmation = (kind) => { pendingRequestKind.value = kind; };
+const closeRequestConfirmation = () => {
+    if (labRequestForm.processing || imagingRequestForm.processing) return;
+    pendingRequestKind.value = null;
+};
+const confirmedRequestItems = computed(() => (pendingRequestKind.value === 'imaging'
+    ? imagingRequestForm.items
+    : labRequestForm.items));
+const confirmRequest = () => {
+    const kind = pendingRequestKind.value;
+    pendingRequestKind.value = null;
+
+    if (kind === 'imaging') submitImagingRequest();
+    else if (kind === 'lab') submitLabRequest();
+};
+
 const submitLabRequest = () => {
     const imagingStillPending = imagingRequestForm.items.length > 0;
     labRequestForm.continue_to_diagnosis = !imagingStillPending;
@@ -1056,13 +1104,73 @@ const confirmWithdrawal = () => withdrawalForm.post(
     { preserveScroll: true, onSuccess: closeWithdrawal },
 );
 
+/**
+ * ADR-106 — l'onglet ouvert. `lab` d'un côté, une famille d'imagerie de
+ * l'autre : `CARDIOLOGY`, `ULTRASOUND`, ou `UNCLASSIFIED` pour les examens
+ * dont personne n'a encore réglé la famille au catalogue.
+ */
 const paracliniqueTab = ref('lab');
+const isImagingTab = computed(() => paracliniqueTab.value !== 'lab');
+
+/** Les examens du catalogue d'imagerie, rangés par famille. */
+const imagingByModality = (modality) => (props.options?.imaging_catalog ?? [])
+    .filter((item) => (item.modality ?? 'UNCLASSIFIED') === modality);
+
+const paraclinicalTabs = computed(() => {
+    const requested = props.consultation.imaging_requests ?? [];
+    // Une demande déjà transmise garde la famille de l'examen qu'elle porte :
+    // le compteur d'un onglet ne montre donc que ce qui le concerne.
+    const requestedIn = (modality) => requested.filter((request) => (request.items ?? [])
+        .some((item) => (imagingModalityOf(item.catalog_item_uuid) ?? 'UNCLASSIFIED') === modality)).length;
+
+    const tabs = [
+        {
+            value: 'lab',
+            label: 'Laboratoire',
+            icon: Activity,
+            count: (props.consultation.lab_requests ?? []).length,
+        },
+        {
+            value: 'CARDIOLOGY',
+            label: 'ECG',
+            icon: HeartPulse,
+            count: requestedIn('CARDIOLOGY'),
+        },
+        {
+            value: 'ULTRASOUND',
+            label: 'Échographie',
+            icon: ScanLine,
+            count: requestedIn('ULTRASOUND'),
+        },
+    ];
+
+    // N'apparaît que s'il existe réellement un examen non classé, au
+    // catalogue ou déjà demandé.
+    if (imagingByModality('UNCLASSIFIED').length || requestedIn('UNCLASSIFIED')) {
+        tabs.push({
+            value: 'UNCLASSIFIED',
+            label: 'Non classés',
+            icon: CircleAlert,
+            count: requestedIn('UNCLASSIFIED'),
+        });
+    }
+
+    return tabs;
+});
+
+const imagingModalityOf = (catalogItemUuid) => (props.options?.imaging_catalog ?? [])
+    .find((item) => item.uuid === catalogItemUuid)?.modality ?? null;
 const imagingCatalog = computed(() => props.options?.imaging_catalog ?? []);
 const imagingSearch = ref('');
 const filteredImagingCatalog = computed(() => {
     const query = imagingSearch.value.trim().toLocaleLowerCase('fr');
 
-    return imagingCatalog.value.filter((item) => `${item.name} ${item.code ?? ''}`.toLocaleLowerCase('fr').includes(query));
+    return imagingCatalog.value
+        // ADR-106 — l'onglet ouvert décide de la famille proposée : chercher
+        // « écho » dans l'onglet ECG ne doit rien remonter, sinon la
+        // séparation n'en serait plus une.
+        .filter((item) => (item.modality ?? 'UNCLASSIFIED') === paracliniqueTab.value)
+        .filter((item) => `${item.name} ${item.code ?? ''}`.toLocaleLowerCase('fr').includes(query));
 });
 /**
  * Les examens déjà demandés et toujours en attente d'un résultat.
@@ -1379,6 +1487,37 @@ const pendingPrescriptionSelection = computed(() => {
 
     return null;
 });
+/**
+ * Valider une ordonnance est un acte signé : la validation **réserve les
+ * lots en FEFO** (ADR-036) et verrouille la quantité pour ce patient.
+ *
+ * La fenêtre reprend le format retenu pour les demandes d'examen : elle
+ * nomme chaque ligne avec sa posologie composée — celle que la Pharmacie
+ * et le patient liront — et engage le médecin par son nom. Confirmer
+ * « 2 médicaments » sans relire les doses ne serait pas une signature.
+ */
+const showPrescriptionConfirmation = ref(false);
+const openPrescriptionConfirmation = () => {
+    if (!prescriptionForm.lines.length || !prescriptionStockIsValid.value) return;
+
+    showPrescriptionConfirmation.value = true;
+};
+const closePrescriptionConfirmation = () => {
+    if (prescriptionForm.processing) return;
+    showPrescriptionConfirmation.value = false;
+};
+const confirmPrescription = () => {
+    showPrescriptionConfirmation.value = false;
+    addPrescription();
+};
+/** La même composition que l'éditeur de ligne : une seule façon de la lire. */
+const prescriptionLinePosology = (line) => [
+    line.dosage,
+    (props.options?.administration_routes ?? []).find((route) => route.value === line.route)?.short_label,
+    line.frequency,
+    line.duration,
+].filter(Boolean).join(' · ');
+
 const addPrescription = () => prescriptionForm
     .transform((data) => ({
         continue_to_decision: data.continue_to_decision,
@@ -1827,7 +1966,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
 
         <main class="space-y-3">
 
-                <Card v-if="cardIsOpen('dossier')" class="overflow-clip border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('dossier')" class="overflow-clip border-s-4 border-s-primary shadow-sm">
                     <!-- Pas d'identité ici : elle est énoncée une seule
                          fois, par l'en-tête clinique de la page. La répéter
                          obligeait à lire deux fois le même nom sur le même
@@ -1852,7 +1991,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <p v-else class="text-sm text-muted-foreground">Motif à préciser pendant la consultation.</p>
                         </section>
 
-                        <section v-if="care_record?.transmission_reason || care_record?.diagnostic_note" class="rounded-md border border-primary-200 bg-primary-50/40 p-4 dark:border-primary-900">
+                        <section v-if="care_record?.transmission_reason || care_record?.diagnostic_note" class="rounded-md border border-primary/30 bg-primary/5 p-4">
                             <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                                 <Send class="h-4 w-4" />Transmission des Soins
                             </p>
@@ -2078,7 +2217,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                      rognent les angles arrondis, mais `hidden` crée un
                      conteneur de défilement qui rendrait inopérant le
                      `sticky` de la colonne de notes ci-dessous. -->
-                <Card v-if="cardIsOpen('examen')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('examen')" class="w-full overflow-clip border-s-4 border-s-primary shadow-sm">
                     <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div class="flex items-start gap-3">
                             <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><CirclePlus class="h-4 w-4" /></span>
@@ -2165,7 +2304,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                                     <!-- Corriger et annuler restent réservés à l'auteur de
                                                          la saisie : le serveur le revérifie (ADR-035), et
                                                          une annulation laisse une trace, jamais un trou. -->
-                                                    <button v-if="diagnosis.can_edit" type="button" class="flex size-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:border-primary-300 hover:text-primary" :title="`Modifier « ${diagnosis.description} »`" :aria-label="`Modifier le diagnostic ${diagnosis.description}`" @click="startDiagnosisEdit(diagnosis)"><Pencil class="h-4 w-4" /></button>
+                                                    <button v-if="diagnosis.can_edit" type="button" class="flex size-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary" :title="`Modifier « ${diagnosis.description} »`" :aria-label="`Modifier le diagnostic ${diagnosis.description}`" @click="startDiagnosisEdit(diagnosis)"><Pencil class="h-4 w-4" /></button>
                                                     <button v-if="diagnosis.can_cancel" type="button" class="flex size-7 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900 dark:hover:bg-red-950/30" :title="`Annuler « ${diagnosis.description} »`" :aria-label="`Annuler le diagnostic ${diagnosis.description}`" :disabled="diagnosisCancellationForm.processing" @click="openDiagnosisCancellation(diagnosis)"><Trash2 class="h-4 w-4" /></button>
                                                 </span>
                                             </li>
@@ -2235,7 +2374,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </form>
                 </Card>
 
-                <Card v-if="cardIsOpen('paraclinique')" class="w-full overflow-clip border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('paraclinique')" class="w-full overflow-clip border-s-4 border-s-primary shadow-sm">
                     <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div class="flex items-start gap-3">
                             <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
@@ -2256,7 +2395,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <span class="text-xs font-semibold text-muted-foreground">Des examens complémentaires sont-ils nécessaires ?</span>
                             <span class="inline-flex rounded border border-border bg-card p-0.5" role="radiogroup" aria-label="Des examens complémentaires sont-ils nécessaires ?">
                                 <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === false" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === false ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/35']" @click="decideComplementaryExams(false)">Non</button>
-                                <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === true" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === true ? 'bg-primary-600 text-white' : 'text-muted-foreground hover:bg-muted/35']" @click="decideComplementaryExams(true)">Oui</button>
+                                <button type="button" role="radio" :aria-checked="complementaryExamsForm.required === true" :disabled="!capabilities.can_update_consultation || complementaryExamsForm.processing" :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', complementaryExamsForm.required === true ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted/35']" @click="decideComplementaryExams(true)">Oui</button>
                             </span>
                         </div>
                         <!-- La suite est nommée par le serveur (`nextStep`),
@@ -2270,21 +2409,30 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </div>
 
                     <div v-if="complementaryExamsForm.required !== false" class="border-b border-border bg-muted/35 px-5 py-2.5">
-                        <div class="grid max-w-xl grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1" role="tablist" aria-label="Type d’examen paraclinique">
-                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'lab'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'lab' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="paracliniqueTab = 'lab'">
-                                <Activity class="h-4 w-4" />
-                                <span>Laboratoire</span>
+                        <!-- ADR-106 — ECG et Échographie sont deux familles
+                             distinctes, réglées au catalogue. Le groupe
+                             « Non classés » n'apparaît que s'il contient
+                             réellement un examen : ranger au hasard un
+                             examen dont personne n'a dit la famille le
+                             ferait disparaître d'un onglet sans le dire. -->
+                        <div :class="['grid max-w-2xl gap-1 rounded-lg border border-border bg-muted p-1', paraclinicalTabs.length > 3 ? 'grid-cols-4' : 'grid-cols-3']" role="tablist" aria-label="Type d’examen paraclinique">
+                            <button
+                                v-for="tab in paraclinicalTabs"
+                                :key="tab.value"
+                                type="button"
+                                role="tab"
+                                :aria-selected="paracliniqueTab === tab.value"
+                                :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === tab.value ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
+                                @click="paracliniqueTab = tab.value"
+                            >
+                                <component :is="tab.icon" class="h-4 w-4" />
+                                <span class="truncate">{{ tab.label }}</span>
                                 <!-- Les demandes réellement transmises, et elles
                                      seules. Additionner la sélection en cours
                                      annonçait « 2 examens » quand un seul était
                                      parti au service. Ce qui reste à envoyer se
                                      lit dans le bloc « Demande en préparation ». -->
-                                <span v-if="consultation.lab_requests?.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">{{ consultation.lab_requests.length }}</span>
-                            </button>
-                            <button type="button" role="tab" :aria-selected="paracliniqueTab === 'imaging'" :class="['flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-all', paracliniqueTab === 'imaging' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="paracliniqueTab = 'imaging'">
-                                <ScanLine class="h-4 w-4" />
-                                <span>ECG / Échographie</span>
-                                <span v-if="consultation.imaging_requests?.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">{{ consultation.imaging_requests.length }}</span>
+                                <span v-if="tab.count" class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">{{ tab.count }}</span>
                             </button>
                         </div>
                     </div>
@@ -2326,7 +2474,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 <p v-if="request.notes" class="mt-1.5 text-[11px] text-muted-foreground">{{ request.notes }}</p>
                             </div>
                         </div>
-                        <form v-if="capabilities.can_create_lab_request" id="lab-request-form" class="p-5" @submit.prevent="submitLabRequest">
+                        <form v-if="capabilities.can_create_lab_request" id="lab-request-form" class="p-5" @submit.prevent="openRequestConfirmation('lab')">
                             <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
                                 <div class="min-w-0 space-y-4">
                                     <div>
@@ -2422,26 +2570,50 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                             <span v-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">Compte rendu disponible</span>
                                             <span v-else class="text-muted-foreground">En attente</span>
                                         </div>
-                                        <p v-if="item.resulted_at" class="mt-0.5 text-[11px] text-muted-foreground">{{ item.result_value }}<template v-if="item.result_notes"> — {{ item.result_notes }}</template></p>
+                                        <!-- Le compte rendu est du texte enrichi, assaini
+                                             côté serveur (`ClinicalRichTextSanitizer`).
+                                             Interpolé par `{{ }}`, il s'affichait balises
+                                             comprises : « UTERUS<p>Orientation… ». Même
+                                             rendu que l'aperçu d'un motif de consultation
+                                             plus bas dans cet écran, tronqué pour qu'un
+                                             compte rendu long ne déroule pas la liste. -->
+                                        <ClinicalRichTextDisplay
+                                            v-if="item.resulted_at"
+                                            class="mt-0.5 line-clamp-3 text-[11px] leading-4 text-muted-foreground"
+                                            :html="item.result_value"
+                                        />
+                                        <p v-if="item.resulted_at && item.result_notes" class="mt-0.5 text-[11px] italic text-muted-foreground">{{ item.result_notes }}</p>
                                         <form v-else-if="capabilities.can_record_imaging_result" class="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-muted/35 p-3" @submit.prevent="submitImagingResult(item)">
-                                            <textarea v-model="imagingResultForm(item.uuid).result_value" rows="2" :class="textareaClass" placeholder="Compte rendu (résultat)" />
+                                            <!-- Le même champ que « Demandes d'examens »,
+                                                 donc le même éditeur : une saisie en texte
+                                                 brut ici et en texte enrichi là-bas remplit
+                                                 une seule colonne avec deux formats. -->
+                                            <ClinicalRichTextEditor
+                                                v-model="imagingResultForm(item.uuid).result_value"
+                                                min-height-class="min-h-32"
+                                                placeholder="Compte rendu (résultat)"
+                                            />
                                             <FormError :message="imagingResultForm(item.uuid).errors.result_value" />
-                                            <div class="flex justify-end"><Button type="submit" size="sm" :disabled="imagingResultForm(item.uuid).processing || !imagingResultForm(item.uuid).result_value.trim()">Enregistrer le compte rendu</Button></div>
+                                            <div class="flex justify-end"><!-- Pas de test de vacuité ici : un éditeur riche vide vaut
+                                                     `<p></p>`, que `.trim()` juge rempli. C'est le
+                                                     serveur qui tranche, après assainissement, et son
+                                                     message nomme ce qui manque. -->
+                                                <Button type="submit" size="sm" :disabled="imagingResultForm(item.uuid).processing">Enregistrer le compte rendu</Button></div>
                                         </form>
                                     </li>
                                 </ul>
                                 <p v-if="request.notes" class="mt-1.5 text-[11px] text-muted-foreground">{{ request.notes }}</p>
                             </div>
                         </div>
-                        <form v-if="capabilities.can_create_imaging_request" id="imaging-request-form" class="p-5" @submit.prevent="submitImagingRequest">
+                        <form v-if="capabilities.can_create_imaging_request" id="imaging-request-form" class="p-5" @submit.prevent="openRequestConfirmation('imaging')">
                             <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
                                 <div class="min-w-0 space-y-4">
                                     <div>
                                         <div class="mb-1.5 flex items-center justify-between gap-3">
-                                            <label class="block text-sm font-semibold text-foreground">Ajouter un examen</label>
+                                            <label class="block text-sm font-semibold text-foreground">Ajouter {{ paracliniqueTab === 'CARDIOLOGY' ? 'un examen cardiologique' : paracliniqueTab === 'ULTRASOUND' ? 'une échographie' : 'un examen' }}</label>
                                             <span v-if="imagingRequestForm.items.length" class="text-xs font-semibold text-primary">{{ imagingRequestForm.items.length }} sélectionné(s)</span>
                                         </div>
-                                        <IconInput v-model="imagingSearch" :icon="Search" placeholder="ECG, échographie abdominale…" />
+                                        <IconInput v-model="imagingSearch" :icon="Search" :placeholder="paracliniqueTab === 'CARDIOLOGY' ? 'ECG, ECG d’effort, Holter…' : paracliniqueTab === 'ULTRASOUND' ? 'Échographie abdominale, Doppler…' : 'Rechercher un examen…'" />
                                         <div v-if="imagingSearch.trim() && filteredImagingCatalog.length" class="mt-2 max-h-52 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                                             <!-- Un examen déjà demandé et en attente n'est pas
                                                  proposable : le serveur le refuserait, et l'offrir
@@ -2518,10 +2690,10 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <p v-else class="text-center text-xs text-muted-foreground">Étape facultative · prescrivez un examen uniquement lorsqu’il est indiqué.</p>
                         </template>
                         <template #actions>
-                            <Button v-if="paracliniqueTab === 'lab' && labRequestForm.items.length" type="submit" form="lab-request-form" size="rg" :disabled="labRequestForm.processing || imagingRequestForm.processing">
+                            <Button v-if="paracliniqueTab === 'lab' && labRequestForm.items.length" type="button" size="rg" :disabled="labRequestForm.processing || imagingRequestForm.processing" @click="openRequestConfirmation('lab')">
                                 <Activity class="h-4 w-4 me-2" />{{ imagingRequestForm.items.length ? 'Envoyer puis finaliser l’imagerie' : 'Envoyer au Laboratoire' }}
                             </Button>
-                            <Button v-else-if="paracliniqueTab === 'imaging' && imagingRequestForm.items.length" type="submit" form="imaging-request-form" size="rg" :disabled="imagingRequestForm.processing || labRequestForm.processing">
+                            <Button v-else-if="isImagingTab && imagingRequestForm.items.length" type="button" size="rg" :disabled="imagingRequestForm.processing || labRequestForm.processing" @click="openRequestConfirmation('imaging')">
                                 <Activity class="h-4 w-4 me-2" />{{ labRequestForm.items.length ? 'Envoyer puis finaliser les analyses' : 'Envoyer la demande' }}
                             </Button>
                             <Button v-else-if="labRequestForm.items.length" type="button" size="rg" variant="white-outline" @click="paracliniqueTab = 'lab'">Finaliser les analyses ({{ labRequestForm.items.length }})</Button>
@@ -2530,56 +2702,20 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </ConsultationStepBar>
                 </Card>
 
-                <!-- §24 — la prescription ne décide plus de la suite : si une
-                     orientation existe déjà, elle est rappelée ici ; sinon un
-                     simple bouton mène à la carte qui la porte. Les six
-                     grosses cartes ont quitté cette étape. -->
-                <Card v-if="cardIsOpen('ordonnance')" class="overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
-                    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
-                        <div class="flex min-w-0 items-center gap-3">
-                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Share2 class="h-4 w-4" /></span>
-                            <div class="min-w-0">
-                                <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Orientation actuelle</p>
-                                <p v-if="activeOrientation" class="mt-0.5 flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
-                                    {{ activeOrientation.type_label }}
-                                    <span
-                                        :class="[
-                                            'rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
-                                            activeOrientation.status === 'SUBMITTED'
-                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200'
-                                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
-                                        ]"
-                                    >{{ activeOrientation.status_label }}</span>
-                                </p>
-                                <p v-else class="mt-0.5 text-sm text-muted-foreground">Pas encore déterminée — elle peut l’être ici ou après la prescription.</p>
-                            </div>
-                        </div>
-                        <Button
-                            :as="Link"
-                            :href="`/medicine/orientations/${orientation.uuid}/examen`"
-                            type="button"
-                            size="sm"
-                            variant="white-outline"
-                        >
-                            <Pencil class="h-4 w-4 me-1.5" />{{ activeOrientation ? 'Modifier' : 'Définir la suite de la prise en charge' }}
-                        </Button>
-                    </div>
-                </Card>
-
                 <div v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders" class="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1 shadow-sm" role="tablist" aria-label="Type de prescription">
-                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'medicines'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'medicines' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="prescriptionTab = 'medicines'">
+                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'medicines'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'medicines' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-accent hover:text-foreground']" @click="prescriptionTab = 'medicines'">
                         <Pill class="h-4 w-4" />
                         <span>Médicaments</span>
                         <span v-if="prescriptionForm.lines.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">{{ prescriptionForm.lines.length }}</span>
                     </button>
-                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'care'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'care' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-white/70 hover:text-foreground']" @click="prescriptionTab = 'care'">
+                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'care'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'care' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-accent hover:text-foreground']" @click="prescriptionTab = 'care'">
                         <Activity class="h-4 w-4" />
                         <span>Soins</span>
                         <span v-if="careOrderForm.items.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">{{ careOrderForm.items.length }}</span>
                     </button>
                 </div>
 
-                <Card v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders && prescriptionTab === 'care'" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders && prescriptionTab === 'care'" class="w-full overflow-hidden border-s-4 border-s-primary shadow-sm">
                     <div class="flex items-start justify-between gap-4 border-b border-border bg-muted/35 px-5 py-4">
                         <div class="flex min-w-0 items-start gap-3">
                             <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
@@ -2588,7 +2724,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 <p class="mt-1 text-xs text-muted-foreground">Sélectionnez les actes à transmettre à l’équipe Soins pour ce passage.</p>
                             </div>
                         </div>
-                        <span v-if="careOrderForm.items.length" class="shrink-0 rounded-full border border-primary-100 bg-card px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary dark:border-primary-900">{{ careOrderForm.items.length }} acte(s)</span>
+                        <span v-if="careOrderForm.items.length" class="shrink-0 rounded-full border border-primary/20 bg-card px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary">{{ careOrderForm.items.length }} acte(s)</span>
                     </div>
 
                     <div v-if="consultation.care_orders?.length" class="space-y-2 border-b border-border p-5">
@@ -2658,14 +2794,14 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <fieldset>
                                 <legend class="mb-1.5 text-sm font-semibold text-foreground">Parcours après réalisation</legend>
                                 <div class="grid gap-2">
-                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === true ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:ring-primary-900' : 'border-border bg-card hover:border-border']">
+                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === true ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border bg-card hover:border-border']">
                                         <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === true" @change="careOrderForm.requires_return_to_medicine = true">
-                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === true ? 'bg-primary-600 text-white' : 'bg-muted text-muted-foreground']"><ArrowLeft class="h-4 w-4" /></span>
+                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === true ? 'bg-primary text-white' : 'bg-muted text-muted-foreground']"><ArrowLeft class="h-4 w-4" /></span>
                                         <span><span class="block text-sm font-semibold text-foreground">Retour en Médecine</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Le patient revient au médecin après les soins.</span></span>
                                     </label>
-                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === false ? 'border-primary-500 bg-primary-50/50 ring-1 ring-primary-100 dark:ring-primary-900' : 'border-border bg-card hover:border-border']">
+                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === false ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border bg-card hover:border-border']">
                                         <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === false" @change="careOrderForm.requires_return_to_medicine = false">
-                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === false ? 'bg-primary-600 text-white' : 'bg-muted text-muted-foreground']"><CircleCheck class="h-4 w-4" /></span>
+                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === false ? 'bg-primary text-white' : 'bg-muted text-muted-foreground']"><CircleCheck class="h-4 w-4" /></span>
                                         <span><span class="block text-sm font-semibold text-foreground">Fin du parcours prévue</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Les Soins terminent le parcours clinique prévu.</span></span>
                                     </label>
                                 </div>
@@ -2679,7 +2815,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </form>
                 </Card>
 
-                <Card v-if="cardIsOpen('ordonnance') && prescriptionTab === 'medicines'" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
+                <Card v-if="cardIsOpen('ordonnance') && prescriptionTab === 'medicines'" class="w-full overflow-hidden border-s-4 border-s-primary shadow-sm">
                     <!-- Repliée par défaut : ce qui est déjà prescrit se résume en
                          une ligne, et l'écran laisse la place à la nouvelle
                          ordonnance qui se prépare en dessous. -->
@@ -2772,7 +2908,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </div>
                     <p v-else-if="!consultation.prescriptions.length" class="px-5 py-6 text-sm text-muted-foreground">Aucune ordonnance active.</p>
 
-                    <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-border bg-muted/35 p-5" @submit.prevent="addPrescription">
+                    <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-border bg-muted/35 p-5" @submit.prevent="openPrescriptionConfirmation">
                         <div class="mb-4">
                             <h3 class="text-sm font-bold text-foreground">Nouvelle ordonnance</h3>
                             <p class="mt-1 text-xs text-muted-foreground">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
@@ -2900,19 +3036,23 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                      réafficher en toutes lettres ne ferait que recopier
                      l'écran précédent. Ce qu'elle montre, c'est ce qui reste
                      à faire — et comment y retourner. -->
-                <Card v-if="cardIsOpen('cloture')" class="w-full overflow-hidden border-s-4 border-s-primary-500 shadow-sm">
-                    <!-- Un fait dérivé, pas un statut inventé : la
-                         consultation reste ouverte tant qu'un résultat
-                         demandé n'est pas revenu, et le médecin le voit ici
-                         avant de conclure. -->
-                    <div v-if="awaitingResults.length" class="flex flex-wrap items-start gap-3 border-b border-amber-200 bg-amber-50/60 px-5 py-3 dark:border-amber-900/60 dark:bg-amber-950/20">
-                        <Clock class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                <Card v-if="cardIsOpen('cloture')" class="w-full overflow-hidden border-s-4 border-s-primary shadow-sm">
+                    <!-- Un fait dérivé, pas un statut inventé, et surtout
+                         **pas un blocage** : un résultat attendu n'empêche
+                         jamais de clôturer (ADR-105) — le médecin peut avoir
+                         conclu sans lui. En ambre, au-dessus de l'étape de
+                         clôture, ce bandeau se lisait pourtant « vous ne
+                         pouvez pas conclure » : c'est ce que le propriétaire
+                         a constaté le 2026-09-17. Il est donc neutre, et il
+                         dit ce qu'il est — une information. -->
+                    <div v-if="awaitingResults.length" class="flex flex-wrap items-start gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                        <Clock class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                         <div class="min-w-0 flex-1">
-                            <p class="text-sm font-bold text-amber-800 dark:text-amber-200">
-                                En attente de {{ awaitingResults.length }} résultat{{ awaitingResults.length > 1 ? 's' : '' }}
+                            <p class="text-sm font-semibold text-foreground">
+                                {{ awaitingResults.length }} résultat{{ awaitingResults.length > 1 ? 's' : '' }} encore attendu{{ awaitingResults.length > 1 ? 's' : '' }} — cela n’empêche pas de clôturer
                             </p>
                             <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
-                                {{ awaitingResults.join(' · ') }} — la consultation reste ouverte ; vous la retrouverez depuis « Demandes d’examens » dès le résultat disponible.
+                                {{ awaitingResults.join(' · ') }}. Vous pouvez conclure maintenant, ou attendre : la consultation se retrouve depuis « Demandes d’examens » dès qu’un résultat arrive.
                             </p>
                         </div>
                         <Button :as="Link" href="/medicine/demandes-examens" size="sm" variant="white-outline">
@@ -2953,12 +3093,18 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">1 · Diagnostic</h3>
                                 <span v-if="activeDiagnoses.length" class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"><CircleCheck class="h-4 w-4" />{{ activeDiagnoses.length }} enregistré{{ activeDiagnoses.length > 1 ? 's' : '' }}</span>
                             </div>
-                            <ul v-if="activeDiagnoses.length" class="mt-3 space-y-1.5">
-                                <li v-for="diagnosis in activeDiagnoses" :key="diagnosis.id" class="rounded-md border border-border bg-card px-3 py-2">
-                                    <span class="block truncate text-xs font-bold text-foreground">{{ diagnosis.description }}</span>
-                                    <span class="mt-0.5 block truncate text-[10px] text-muted-foreground">{{ diagnosis.recorded_by }} · {{ formatDateTime(diagnosis.recorded_at) }}</span>
-                                </li>
-                            </ul>
+                            <!-- ADR-081 — correction et retrait vivent dans la
+                                 carte Diagnostic, que l'ADR-089 a déplacée
+                                 ici. Les endpoints existaient, l'écran ne les
+                                 appelait plus : une faute de frappe restait
+                                 dans le dossier sans rien pour la rectifier. -->
+                            <ClinicalDiagnosisList
+                                v-if="activeDiagnoses.length"
+                                class="mt-3"
+                                :orientation-uuid="orientation.uuid"
+                                :diagnoses="activeDiagnoses"
+                                return-step="cloture"
+                            />
                             <p v-else class="mt-1 text-[11px] leading-4 text-muted-foreground">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
 
                             <!-- ADR-095 — la question est posée ici, la seule
@@ -2983,14 +3129,17 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         role="radio"
                                         :aria-checked="diagnosisReady === true"
                                         :disabled="!capabilities.can_update_consultation || diagnosisTimingForm.processing"
-                                        :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', diagnosisReady === true ? 'bg-primary-600 text-white' : 'text-muted-foreground hover:bg-muted/35']"
+                                        :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', diagnosisReady === true ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted/35']"
                                         @click="decideDiagnosisTiming(true)"
                                     >Oui</button>
                                 </span>
                             </div>
 
-                            <p v-if="diagnosisReady === false" class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <p v-if="diagnosisReady === false && ! diagnosisEntryOpen" class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                                 <Clock class="h-4 w-4 shrink-0" />Diagnostic différé : la consultation reste ouverte, vous pourrez le poser en revenant sur ce passage.
+                            </p>
+                            <p v-else-if="diagnosisEntryOpen && ! activeDiagnoses.length" class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                <CirclePlus class="h-4 w-4 shrink-0" />Enregistrez la conclusion ci-dessous : la réponse « Oui » sera prise en compte une fois le diagnostic consigné.
                             </p>
                             <FormError class="mt-1" :message="diagnosisTimingForm.errors.ready" />
 
@@ -2998,7 +3147,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                  laisser le champ ouvert contredirait la réponse
                                  que le médecin vient de donner. Il reste à un
                                  clic — « Oui » le rouvre. -->
-                            <div v-if="diagnosisReady !== false" class="mt-3">
+                            <div v-if="diagnosisReady !== false || diagnosisEntryOpen" class="mt-3">
                                 <ClinicalDiagnosisEntry
                                     :orientation-uuid="orientation.uuid"
                                     return-step="cloture"
@@ -3060,6 +3209,16 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         :href="stepUrl(blocker.step)"
                                         class="ms-1 font-bold underline underline-offset-2 hover:no-underline"
                                     >Y aller</Link>
+                                    <!-- « Déjà sur place » ne disait pas où :
+                                         le diagnostic est à la sous-étape 1, la
+                                         conduite à tenir à la 2, et on lit cette
+                                         liste depuis la 3. -->
+                                    <button
+                                        v-else-if="blocker.closure_section"
+                                        type="button"
+                                        class="ms-1 font-bold underline underline-offset-2 hover:no-underline"
+                                        @click="closureSubStep = blocker.closure_section"
+                                    >Y aller</button>
                                 </li>
                             </ul>
                         </div>
@@ -3069,18 +3228,6 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         </p>
                         </section>
 
-                        <!-- Avancer n'est jamais refusé : c'est la clôture qui
-                             vérifie, à l'étape 3, en disant ce qui manque. -->
-                        <div class="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
-                            <Button v-if="closureSubStep > 1" type="button" size="sm" variant="white-outline" @click="closureSubStep -= 1">
-                                <ArrowLeft class="h-4 w-4" />Précédent
-                            </Button>
-                            <span v-else aria-hidden="true"></span>
-
-                            <Button v-if="closureSubStep < 3" type="button" size="sm" @click="closureSubStep += 1">
-                                Suivant · {{ closureSections[closureSubStep].label }}<ArrowRight class="h-4 w-4" />
-                            </Button>
-                        </div>
                     </div>
 
                     <div v-if="medical_discharge" class="p-5">
@@ -3183,7 +3330,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <p class="text-center text-xs text-muted-foreground">Prescription selon indication médicale.</p>
                         </template>
                         <template v-if="current_step === 'ordonnance'" #actions>
-                            <Button v-if="prescriptionTab === 'medicines' && prescriptionForm.lines.length" type="submit" form="medicine-prescription-form" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid"><FileText class="mx-auto h-4 w-4 me-2" />{{ prescriptionForm.processing ? 'Validation en cours…' : 'Valider et réserver' }}</Button>
+                            <Button v-if="prescriptionTab === 'medicines' && prescriptionForm.lines.length" type="button" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid" @click="openPrescriptionConfirmation"><FileText class="mx-auto h-4 w-4 me-2" />{{ prescriptionForm.processing ? 'Validation en cours…' : 'Valider et réserver' }}</Button>
                             <Button v-else-if="prescriptionForm.lines.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'medicines'">Finaliser la prescription ({{ prescriptionForm.lines.length }})</Button>
                             <Button v-else-if="prescriptionTab === 'care' && careOrderForm.items.length" type="submit" form="care-order-form" size="rg" :disabled="careOrderForm.processing"><Activity class="h-4 w-4 me-2" />{{ careOrderForm.processing ? 'Transmission en cours…' : 'Transmettre aux Soins' }}</Button>
                             <Button v-else-if="careOrderForm.items.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'care'">Finaliser la demande Soins ({{ careOrderForm.items.length }})</Button>
@@ -3249,6 +3396,103 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </div>
                 </Card>
         </main>
+
+        <!-- Signer une ordonnance. Même format que la demande d'examen :
+             ce qui est signé, nommé, et par qui. -->
+        <ShadcnDialog
+            :open="showPrescriptionConfirmation"
+            title="Confirmer l’ordonnance"
+            :description="`${patient.first_name} ${patient.last_name} · ${patient.patient_number} · Passage ${episode.episode_number}`"
+            :dismissible="false"
+            close-label="Annuler l’ordonnance"
+            @update:open="closePrescriptionConfirmation"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                    <Pill class="h-5 w-5" />
+                </span>
+            </template>
+
+            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {{ prescriptionForm.lines.length }} médicament{{ prescriptionForm.lines.length > 1 ? 's' : '' }} à prescrire
+            </p>
+            <ul class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border">
+                <li v-for="line in prescriptionForm.lines" :key="line._key" class="px-3 py-2.5">
+                    <p class="text-sm font-semibold text-foreground">
+                        <!-- Une ligne catalogue ne porte que son UUID : le nom
+                             se relit dans la liste, par le même helper que
+                             l'éditeur — jamais recopié dans la ligne, où il
+                             finirait par diverger du référentiel. -->
+                        {{ line.manual ? (line.medication_name || 'Médicament sans nom') : medicineForLine(line)?.name }}
+                        <!-- Une ligne manuelle ne réserve aucun lot (ADR-037) :
+                             le dire ici évite de croire le stock engagé. -->
+                        <span v-if="line.manual" class="ms-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-200">Hors référentiel</span>
+                    </p>
+                    <p v-if="prescriptionLinePosology(line)" class="mt-0.5 text-xs text-muted-foreground">{{ prescriptionLinePosology(line) }}</p>
+                    <p v-if="line.quantity" class="mt-0.5 text-[11px] text-muted-foreground">Quantité : {{ line.quantity }}</p>
+                </li>
+            </ul>
+
+            <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                Vous prescrivez sous votre responsabilité, en tant que <strong class="font-semibold text-foreground">{{ $page.props.auth.user.name }}</strong>.
+                L’ordonnance reste annulable avec un motif tant qu’aucune délivrance n’a commencé.
+            </p>
+
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="prescriptionForm.processing" @click="closePrescriptionConfirmation">
+                    Revenir à l’ordonnance
+                </Button>
+                <Button type="button" :disabled="prescriptionForm.processing" @click="confirmPrescription">
+                    <FileText class="h-4 w-4" />Je confirme et valide
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <!-- Signer une demande d'examen. Non fermable au clic extérieur :
+             c'est un acte engageant, pas une fenêtre qu'on parcourt. La
+             liste nomme chaque examen — confirmer « 2 examens » sans les
+             voir ne serait pas une signature consciente. -->
+        <ShadcnDialog
+            :open="pendingRequestKind !== null"
+            :title="pendingRequestKind === 'imaging' ? 'Confirmer la demande d’imagerie' : 'Confirmer la demande d’analyses'"
+            :description="`${patient.first_name} ${patient.last_name} · ${patient.patient_number} · Passage ${episode.episode_number}`"
+            :dismissible="false"
+            close-label="Annuler la demande"
+            @update:open="closeRequestConfirmation"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                    <Activity class="h-5 w-5" />
+                </span>
+            </template>
+
+            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {{ confirmedRequestItems.length }} examen{{ confirmedRequestItems.length > 1 ? 's' : '' }} à transmettre
+            </p>
+            <ul class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border">
+                <li v-for="item in confirmedRequestItems" :key="item.catalog_item_uuid" class="flex items-start gap-2 px-3 py-2.5">
+                    <Activity class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span class="min-w-0">
+                        <span class="block text-sm font-semibold text-foreground">{{ item.name }}</span>
+                        <span v-if="item.code" class="font-mono text-[11px] text-muted-foreground">{{ item.code }}</span>
+                    </span>
+                </li>
+            </ul>
+
+            <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                Vous transmettez cette demande sous votre responsabilité, en tant que <strong class="font-semibold text-foreground">{{ $page.props.auth.user.name }}</strong>.
+                Un retrait reste possible tant qu’aucun résultat n’a été saisi.
+            </p>
+
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="labRequestForm.processing || imagingRequestForm.processing" @click="closeRequestConfirmation">
+                    Revenir à la sélection
+                </Button>
+                <Button type="button" :disabled="labRequestForm.processing || imagingRequestForm.processing" @click="confirmRequest">
+                    <Send class="h-4 w-4" />Je confirme et transmets
+                </Button>
+            </template>
+        </ShadcnDialog>
 
         <!-- Les informations secondaires ne redimensionnent jamais la zone de
              consultation. Elles s'ouvrent dans une fenêtre dédiée et fermable

@@ -5,6 +5,7 @@ namespace App\Actions\Medicine;
 use App\Enums\CatalogModule;
 use App\Enums\ConsultationOrientationType;
 use App\Enums\DiagnosisType;
+use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Models\Diagnosis;
@@ -71,10 +72,23 @@ class RecordMedicalDischargeAction
                 'consultation_id' => $locked->consultation->getKey(),
                 'type' => $type,
                 'final_diagnosis' => $finalDiagnosis !== '' ? $finalDiagnosis : null,
-                'patient_condition' => trim($data['patient_condition']),
-                'discharge_prescription' => $data['discharge_prescription'] ?? null,
-                'recommendations' => $data['recommendations'] ?? null,
-                'follow_up_at' => $data['follow_up_at'] ?? null,
+                // ADR-107 — pour un décès, l'état du patient n'est pas un
+                // choix : le type de sortie *est* la réponse. Le dériver
+                // ici n'invente rien, c'est la même information que porte
+                // déjà `MedicalDischargeType::episodeMedicalStatus()`.
+                'patient_condition' => $type === MedicalDischargeType::Deceased
+                    // « Décédé » décrit le patient ; « Décès » décrit le type
+                    // de sortie. C'est bien l'état du patient qu'on écrit
+                    // ici, et c'est le statut que le passage prendra.
+                    ? EpisodeMedicalStatus::Deceased->label()
+                    : trim((string) ($data['patient_condition'] ?? '')),
+                // Un traitement de sortie, des conseils de surveillance et
+                // un rendez-vous n'ont pas de destinataire. La FormRequest
+                // les refuse déjà ; l'Action est atteignable autrement
+                // qu'elle, et ne doit pas pouvoir les écrire non plus.
+                'discharge_prescription' => $type === MedicalDischargeType::Deceased ? null : ($data['discharge_prescription'] ?? null),
+                'recommendations' => $type === MedicalDischargeType::Deceased ? null : ($data['recommendations'] ?? null),
+                'follow_up_at' => $type === MedicalDischargeType::Deceased ? null : ($data['follow_up_at'] ?? null),
                 'observations' => $data['observations'] ?? null,
                 'transfer_destination' => $data['transfer_destination'] ?? null,
                 'death_occurred_at' => $data['death_occurred_at'] ?? null,

@@ -18,7 +18,13 @@ defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     registers: Array,
+    /** Ticket Pharmacie apporté depuis la Réception (ADR-104), à suivre jusqu'au poste choisi. */
+    pharmacyReference: { type: String, default: null },
 });
+
+const registerUrl = (register) => (props.pharmacyReference
+    ? `/cash/${register.uuid}?pharmacy_reference=${encodeURIComponent(props.pharmacyReference)}`
+    : `/cash/${register.uuid}`);
 
 const { can } = usePermissions();
 const toast = useToastStore();
@@ -52,7 +58,7 @@ const selectRegister = (register) => {
     }
 
     if (status === 'open') {
-        router.visit(`/cash/${register.uuid}`);
+        router.visit(registerUrl(register));
         return;
     }
 

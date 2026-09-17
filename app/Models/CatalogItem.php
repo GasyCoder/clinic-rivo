@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CatalogItemType;
+use App\Enums\ImagingModality;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\ReceptionRoutingMode;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'code', 'name', 'type', 'module', 'unit', 'billable', 'stockable',
-    'reception_selectable', 'reception_routing_mode', 'staff_coverage_policy', 'description',
+    'reception_selectable', 'reception_routing_mode', 'imaging_modality', 'staff_coverage_policy', 'description',
     'care_requires_allergy_check', 'care_recommends_vitals', 'clinician_orderable',
     'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
@@ -37,6 +38,7 @@ class CatalogItem extends Model
             'stockable' => 'boolean',
             'reception_selectable' => 'boolean',
             'reception_routing_mode' => ReceptionRoutingMode::class,
+            'imaging_modality' => ImagingModality::class,
             'staff_coverage_policy' => StaffCoveragePolicy::class,
             'care_requires_allergy_check' => 'boolean',
             'care_recommends_vitals' => 'boolean',

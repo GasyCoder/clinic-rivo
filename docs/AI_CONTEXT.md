@@ -627,6 +627,69 @@ imagerie, une prescription ou une hospitalisation. Après clôture, tous les
 chemins d'écriture ordinaires refusent (ADR-010). Aucune permission nouvelle :
 `consultations.update` couvre la validation comme la clôture. Voir ADR-076.
 
+**Un examen paraclinique demandé en consultation est facturé** (ADR-105).
+`CreateLabRequestAction` et `CreateImagingRequestAction` ne créaient aucun
+`BillableItem` : une NFS ou une échographie partait au service concerné et la
+clinique ne comptait jamais ce qu'elle avait fait — alors que le **même**
+examen sélectionné à la Réception est facturé depuis l'ADR-068. L'élément
+rejoint le compte du patient **à la demande**, chaque ligne portant ce qu'elle
+a produit (`billable_item_id`, nullable, jamais rétro-rempli), avec une clé
+d'idempotence dérivée de l'UUID de la ligne. Un tarif absent ou un contexte
+financier non résolu n'empêche jamais la demande de partir : la
+régularisation appartient à la Réception (ADR-054, ADR-072).
+`App\Services\Billing\ClinicalActBiller` porte cette règle une seule fois
+plutôt qu'une copie par appelant. Retirer une demande (ADR-079) annule ses
+`BillableItem` encore `PENDING` ; un élément déjà porté sur une facture n'est
+pas détricoté — seule la Réception/Caisse touche un montant facturé.
+
+**ECG et Échographie sont deux familles distinctes** (ADR-106).
+`catalog_items.imaging_modality` (`CARDIOLOGY` | `ULTRASOUND`, nullable) la
+porte, réglée au catalogue comme `reception_routing_mode` porte le parcours
+Réception — **jamais déduite d'un code** : `HOLTER-ECG` est cardiologique
+sans commencer par `ECG-`, et les deux `DOPPLER-*` sont des échographies,
+soit trois examens sur vingt mal classés par n'importe quel préfixe
+(ADR-052). Un examen non classé apparaît dans un onglet « Non classés »,
+visible seulement s'il en existe un ; le ranger d'office le ferait
+disparaître sans décision. La migration classe l'existant, le seeder classe
+ce qu'il crée — sans lui un site neuf repartirait non classé (ADR-064). La
+recherche est bornée à la famille ouverte.
+
+**Transmettre une demande d'examen est un acte signé** (ADR-106). Un clic
+envoyait l'ordre au service **et** facturait le patient (ADR-105) sans rien
+annoncer. La confirmation nomme chaque examen — confirmer « 2 examens » sans
+les voir n'est pas une signature consciente — et porte le nom du médecin. Elle
+garde ce qui **ne peut pas** être déduit d'ailleurs : les deux phrases de
+conséquence ont été retirées à la demande du propriétaire, elles restent
+vraies sans être répétées à chaque envoi. Elle n'est pas fermable au clic
+extérieur, et tous les chemins y passent, bouton comme touche Entrée. Elle
+rappelle qu'un retrait reste possible tant qu'aucun résultat n'est saisi
+(ADR-079).
+
+**Une demande transmise ne retient plus la clôture** (ADR-105, amende
+ADR-076). L'ADR-076 interdit de résoudre une étape « en effet de bord d'un
+enregistrement » : la règle vise une saisie en cours, pas un ordre déjà parti
+au Laboratoire. La création de la demande marque donc l'étape Paraclinique
+`COMPLETED` (`completeParaclinicalFromRequest()`, silencieuse si la
+consultation n'est plus éditable), et `blockersForClosure()` écarte cette
+étape dès qu'une demande active existe — les consultations antérieures
+portent des demandes sans étape résolue, et c'est le fait clinique qui
+décide, pas l'état d'un écran (ADR-081).
+
+**« Décision & clôture » ne dédouble plus sa navigation, et l'attente n'y
+ressemble plus à un verrou** (ADR-106). Les trois sous-étapes portaient une
+barre d'onglets `1 · 2 · 3` en tête **et** un pied « Précédent / Suivant » ;
+les onglets étant toujours visibles et atteignant n'importe quelle section
+d'un clic, le pied refaisait le même travail en suggérant un ordre imposé
+qui n'existe pas. Il est retiré ; les onglets restent l'unique pilote de la
+sous-étape et aucun n'est condamné par l'état du dossier — c'est l'étape 3
+qui refuse, en nommant ce qui manque. Le bandeau « N résultats encore
+attendus », lui, devient neutre : `awaitingResults` n'entre dans
+`closure_blockers` à aucun moment — il ouvre une simple confirmation — mais
+en ambre, juste au-dessus de l'étape de clôture, il se lisait « vous ne
+pouvez pas conclure ». Même règle que l'ADR-102 pour un chiffre manquant :
+un écran qui fabrique un obstacle là où il n'y en a pas coûte un passage
+abandonné.
+
 La décision « des examens complémentaires sont-ils nécessaires ? » est posée en
 tête de l'étape Paraclinique qu'elle gouverne (ADR-079), par son endpoint dédié
 `POST /medicine/orientations/{orientation}/complementary-exams` :
@@ -739,6 +802,30 @@ diagnostics restent append-only. Refusé dès que `Episode.status` est `CLOSED`
 nulle part ce qu'elles deviendraient. Permission dédiée
 `consultations.reopen`, accordée à `MEDICINE` — écrire dans une consultation
 ouverte et revenir sur une consultation conclue ne sont pas la même autorité.
+
+**Un décès prononcé a son registre** (ADR-107, complète ADR-035). Il ne
+réapparaissait nulle part : la file Médecine ne montre que les prises en
+charge en cours, et le passage rejoignait « Sorties & règlements » comme un
+autre. `/deces` (`death_records.view`) liste les passages dont la sortie
+médicale porte le type `DECEASED` et fait établir l'acte de constatation
+(`death_records.create` — voir et signer sont séparés, comme l'ADR-090
+sépare voir la file des sorties et prononcer la sortie). **La décision et
+l'acte sont deux faits** : `MedicalDischarge` prononce, `DeathRecord`
+constate, avec son propre auteur et sa propre date — celle du serveur.
+Les trois valeurs cliniques sont préremplies depuis la sortie puis
+corrigeables : le médecin qui constate signe ce qu'il écrit. Un seul acte par
+passage, jamais avant le décès prononcé. **Le volet état civil — numéro
+d'acte, déclarant, officier — n'existe pas** : le CDC n'en dit rien, et il
+n'est pas inventé. Prononcer un décès conduit au registre plutôt qu'à
+l'étape de clôture, sans rien changer à ce que la sortie fait (ADR-084,
+ADR-096). Le registre n'encaisse rien et ne prononce aucun décès.
+
+**Transmettre une demande de conduite à tenir est un acte signé** (ADR-106) :
+l'ordre part au service destinataire **et** l'orientation passe à
+`SUBMITTED`, ce qui débloque la clôture (ADR-084). Les quatre destinations
+passent par la même confirmation que la demande d'examen et l'ordonnance —
+destination nommée, contenu relu, responsabilité nominative, fenêtre non
+fermable au clic extérieur.
 
 L'espace **« Demandes d'examens »** (`/medicine/demandes-examens`) a sa
 propre permission d'accès, `paraclinical_requests.view` (ADR-100) : il réunit
@@ -1027,9 +1114,45 @@ Depuis ADR-053, le parcours normal de Réception commence par le besoin et non
 par le financement : besoin, estimation temporaire, recherche/création du
 Patient, création d'un Episode unique, choix `SELF`/`MUTUAL`/`STAFF`,
 confirmation puis routage. Le catalogue initial exige aussi un routage
-Réception configuré. La branche « Achat de médicaments uniquement » renvoie à
-la Vente comptoir Pharmacie existante et ne duplique ni médicaments ni panier
-dans Réception. Aucune analyse Laboratoire n'est activée par cette évolution.
+Réception configuré.
+
+**Le panier d'arrivée porte deux rayons** (ADR-104, amende ADR-053, ADR-028
+et ADR-049/050) : les désignations/consultations avec leur tarif, et la
+Pharmacie avec son prix de vente et son stock disponible. `ReceptionCartKind`
+(`SERVICE` | `MEDICINE`) voyage sur chaque ligne ; une ligne sans `kind` est
+une prestation, comme l'étaient tous les brouillons antérieurs. Les deux
+rayons ne suivent pas le même circuit : une prestation ouvre une file
+clinique et rejoint la facture du passage, un médicament réserve du stock en
+FEFO et part sur un **ticket Pharmacie distinct** — une facture mixte
+partiellement payée rendrait indécidable ce que la Pharmacie peut délivrer
+(ADR-049). L'estimation affiche donc deux sous-totaux.
+
+Un passage venu **uniquement pour des médicaments** n'ouvre aucune
+orientation : il passe directement en `PENDING_SETTLEMENT` (sinon il
+resterait `PENDING_ORIENTATION` indéfiniment, le trou qu'a bouché l'ADR-090)
+et l'écran bascule vers `/cash` avec la référence du ticket, qui traverse le
+choix du poste de caisse. L'étape « Prise en charge » lui propose alors les
+deux seules suites qui ont un sens — « Ajouter une prestation » ou
+« Terminer — envoyer à la Caisse » — au lieu d'un choix de couverture qui ne
+s'applique pas et qui refusait de calculer sur zéro prestation.
+`financial_mode` est résolu à `SELF` s'il est encore `null` : le ticket est
+au tarif Sans mutuelle, donc à la charge du patient, et `null` afficherait à
+tort « contexte financier à régulariser » (ADR-051). Un mode explicitement
+choisi n'est jamais réécrit. La **Caisse** encaisse, la **Pharmacie** délivre :
+l'ADR-012 et l'ADR-013 sont intactes.
+
+La **vente comptoir anonyme est retirée** : toute vente de médicament passe
+par la Réception, sur un dossier patient et un passage.
+`CreateExternalDispenseAction` reste l'unique chemin qui crée une vente, et
+`pharmacy_dispenses.patient_id`/`episode_id`, déjà nullable, la rattachent au
+passage sans migration. `GET /pharmacy/counter-sales/create` redirige vers
+`/reception/patients` ; les ventes déjà enregistrées restent lisibles
+(ADR-010). Côté droits, `pharmacy.counter_sales.create` quitte `PHARMACY` et
+rejoint `RECEPTION`, avec `medicines.view` et `stock.availability.view` — la
+paire de lecture que l'ADR-036 accorde déjà à `MEDICINE`, sans aucun droit de
+mutation `stock.*`.
+
+Aucune analyse Laboratoire n'est activée par cette évolution.
 Après création, l’URL de prise en charge contient l’UUID de l’Episode et un
 brouillon serveur temporaire restaure la sélection après actualisation. Ce
 brouillon est supprimé dès la confirmation et ne constitue aucune demande ou
@@ -1109,7 +1232,11 @@ Tailwind CSS
 ```
 
 shadcn-vue **est** le design system (ADR-099, remplace l'ADR-018 et achève
-l'ADR-091). Tout écran neuf ou retouché est écrit avec la couche
+l'ADR-091). Le **parcours Médecine** est migré dans son entier (2026-09-17) :
+les six étapes de l'assistant, le stepper et les vingt-deux composants
+cliniques. Seul le **corps des documents imprimés** conserve ses couleurs
+codées en dur — il décrit du papier, où `bg-white` est la vérité et non un
+défaut de thème ; seule leur barre d'écran a migré. Tout écran neuf ou retouché est écrit avec la couche
 `resources/js/Components/Shadcn`, les tokens sémantiques RIVO, les icônes
 `lucide-vue-next` et `cn()`. DashWind n'est plus la base : c'est un reliquat,
 conservé uniquement là où personne n'est encore repassé, et aucun nouveau

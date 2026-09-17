@@ -64,7 +64,11 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Estimation read-only au tarif Standard avant Patient/Episode
 - [x] Expérience progressive Besoin → Estimation → Patient → Episode → mode financier → confirmation → routage
 - [x] Prévisualisation financière SELF/MUTUAL/STAFF sans débit anticipé du crédit Bloc
-- [x] Branche Réception vers la Vente comptoir Pharmacie sans panier médicament dupliqué
+- [x] ~~Branche Réception vers la Vente comptoir Pharmacie sans panier médicament dupliqué~~ — remplacé (ADR-104)
+- [x] Panier d'arrivée à deux rayons : désignations/consultations et Pharmacie, une seule sélection (ADR-104)
+- [x] Estimation chiffrant les deux rayons avec leurs sous-totaux séparés, sans rien créer
+- [x] Passage « médicaments seuls » : aucune file clinique, `PENDING_SETTLEMENT` et bascule directe à la Caisse avec son ticket
+- [x] Vente comptoir anonyme retirée : toute vente de médicament passe par la Réception sur un dossier patient ; `pharmacy.counter_sales.create` déplacée de PHARMACY vers RECEPTION
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
@@ -134,12 +138,26 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Interrogatoire semi-structuré : motif principal exploitable séparé du récit, début/durée, évolution et notes complémentaires (ADR-078)
 - [x] Traitements habituels du dossier patient (`patient_treatments`) affichés sans ressaisie, avec question de changement déclaré
 - [x] Allergies, antécédents et traitements signalés pendant l'entretien conservés sur la consultation ; promotion au dossier permanent explicite et soumise à `patients.medical_history.manage`
+- [x] Examens paracliniques (analyses, ECG, échographie) facturés dès la demande du médecin, comme à la Réception (ADR-105)
+- [x] ECG et Échographie séparés en deux onglets, sur une famille réglée au catalogue (`imaging_modality`) — jamais déduite d'un code (ADR-106)
+- [x] Onglet « Non classés » visible uniquement s'il contient un examen : un examen sans famille n'est jamais rangé au hasard
+- [x] Transmission d'une demande d'examen confirmée comme une signature : examens nommés un par un et responsabilité nominative (ADR-106)
+- [x] Validation d'une ordonnance confirmée comme une signature : chaque ligne relue avec sa posologie composée, mention « Hors référentiel » pour une ligne manuelle (ADR-106)
+- [x] Bandeau « Orientation actuelle » retiré de la Prescription : redondant depuis l'ADR-089, et son bouton menait à un écran où la carte n'existe plus
+- [x] Pied « Précédent / Suivant » retiré de « Décision & clôture » : les onglets 1 · 2 · 3 sont la seule navigation, et aucun n'est condamné par l'état du dossier (ADR-106)
+- [x] Corriger et retirer un diagnostic depuis « Décision & clôture » : les endpoints existaient depuis l'ADR-081, aucun écran ne les appelait plus (ADR-106)
+- [x] Obstacle de clôture menant à sa sous-étape (`closure_section`) : « déjà sur place » ne disait pas où agir sur un écran à trois sections
+- [x] Bandeau des résultats attendus rendu neutre : l'ambre le faisait lire comme un verrou alors qu'un résultat manquant n'a jamais bloqué la clôture (ADR-105, ADR-106)
+- [x] Demande transmise ne retenant plus la clôture : l'étape se résout à l'envoi, et le fait clinique prime sur l'état de l'écran (ADR-105)
+- [x] Retrait d'une demande annulant ce qu'elle avait porté au compte du patient, sans toucher un montant déjà facturé
+- [x] Règle « facturer sans jamais bloquer l'acte » écrite une seule fois (`ClinicalActBiller`) au lieu d'une copie par appelant
 - [x] Décision paraclinique explicite en tête de l'étape Paraclinique : « Non » la déclare non nécessaire et mène au Diagnostic, « Oui » ouvre la sélection (ADR-079)
 - [x] Diagnostic conclu dans l'Examen clinique quand il peut l'être ; « Pas maintenant » diffère sans rien bloquer (ADR-080)
 - [x] Étape Diagnostic retirée de l'assistant (six étapes) : correction et annulation dans l'examen, historique complet — annulés compris — dans « Contexte clinique » (ADR-081)
 - [x] Clôture vérifiant directement l'existence d'un diagnostic actif, au lieu de l'état d'un écran
 - [x] Diagnostic final facultatif pour un passage venu seulement pour un examen (ECG, écho, analyse) : la conclusion de l'examen en tient lieu, et le résultat n'est souvent pas revenu à la clôture (ADR-094)
 - [x] « Le diagnostic peut-il être posé maintenant ? » posée à Décision & clôture, seule étape que tout patient atteint ; un report est nommé comme tel dans les blocages au lieu de passer pour un oubli (ADR-095)
+- [x] « Oui » sans diagnostic ouvre la saisie au lieu d'échouer : le refus serveur renvoyait à un champ que « Pas maintenant » gardait replié (ADR-095)
 - [x] Saisie de diagnostic sans distinction hypothèse / final ; les hypothèses déjà enregistrées gardent leur type et restent signalées (ADR-082)
 - [x] Voie d'administration sur les lignes d'ordonnance, facultative et jamais rétro-remplie (ADR-083)
 - [x] Posologie composée avec ses unités à la saisie ; plus de « Dose 500 / Fréquence 3 » sans contexte
@@ -157,6 +175,18 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] File Maternité passée à shadcn (ADR-099) : cartes, pastilles d'état et pagination par les primitives partagées ; la prise en charge devient un POST au lieu d'un bouton imbriqué dans un lien-bouton
 - [x] Cartes compteur partagées sur les files cliniques (Médecine, Soins, Laboratoire, Demandes d'examens) : la carte est le filtre, et le compte vient du serveur — jamais de la page affichée
 - [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)
+- [x] Registre des décès (`/deces`) : un décès prononcé ne réapparaissait nulle part, la file Médecine ne montrant que les prises en charge en cours (ADR-107)
+- [x] Acte de constatation de décès : distinct de la sortie qui prononce le décès, un seul par passage, jamais avant lui, imprimable (ADR-107)
+- [x] Sortie pour décès ne proposant plus état du patient, traitement de sortie, conseils ni contrôle : des instructions sans destinataire, refusées aussi côté serveur (ADR-107)
+- [x] État du patient d'un décès posé par le serveur (« Décédé ») : aucune des cinq options ne convenait, et l'absence aurait été lue comme un oubli
+- [x] Sortie médicale confirmée comme une signature, dans ses propres termes pour un décès (ADR-106, ADR-107)
+- [ ] Volet état civil de l'acte (numéro, déclarant, officier) — absent du CDC, non inventé (ADR-107)
+- [x] Transmission d'une demande de conduite à tenir confirmée comme une signature : destination nommée, contenu relu, responsabilité nominative (ADR-106)
+- [x] Derniers contrôles natifs des formulaires cliniques passés à `Select` et `Textarea` (ADR-099) : deux listes et dix-sept zones de texte habillées à la main, aux classes déjà divergentes
+- [x] Compte rendu d'imagerie converti en texte dans le préremplissage d'une demande : le HTML de l'éditeur partait tel quel au service d'accueil et à l'impression (ADR-107)
+- [x] Libellés des demandes portés par `FormField` (libellé, astérisque, précision, erreur), et résumé clinique à dix rangées au lieu de quatre (ADR-099)
+- [x] Parcours Médecine entièrement migré à shadcn (ADR-099) : les 6 étapes de l'assistant, le stepper et les 22 composants cliniques quittent la police d'icônes et les nuances codées en dur, sans changer aucun contrat de props ni aucune règle métier
+- [x] Barre d'écran des documents imprimés migrée ; le corps du document garde ses couleurs — il décrit du papier, pas une interface
 
 ---
 

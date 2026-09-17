@@ -2,7 +2,9 @@
 import { ref } from 'vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Input from '@/Components/UI/Input.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import { cn } from '@/lib/cn';
 
 /**
  * "État général" — the doctor's overall impression, in three clicks.
@@ -107,18 +109,25 @@ const setAssessed = (value) => {
 </script>
 
 <template>
-    <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900 sm:p-5">
-        <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">État général</h3>
+    <section class="rounded-lg border border-border p-4 sm:p-5">
+        <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">État général</h3>
 
         <div class="mt-2 flex flex-wrap items-center gap-2.5">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">État général évalué ?</span>
-            <span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950" role="radiogroup" aria-label="L’état général a-t-il été évalué ?">
+            <span class="text-xs font-semibold text-foreground">État général évalué ?</span>
+            <span class="inline-flex rounded-md border border-border bg-card p-0.5" role="radiogroup" aria-label="L’état général a-t-il été évalué ?">
+                <!-- « Oui » porte la teinte de l'application, « Non » reste
+                     neutre : répondre non n'est pas un constat clinique, et
+                     lui donner la même présence qu'une réponse positive le
+                     ferait lire comme tel. -->
                 <button
                     type="button"
                     role="radio"
                     :aria-checked="assessed"
                     :disabled="disabled"
-                    :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', assessed ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']"
+                    :class="cn(
+                        'rounded px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                        assessed ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )"
                     @click="setAssessed(true)"
                 >Oui</button>
                 <button
@@ -126,7 +135,10 @@ const setAssessed = (value) => {
                     role="radio"
                     :aria-checked="!assessed"
                     :disabled="disabled"
-                    :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', !assessed ? 'bg-gray-200 text-slate-700 dark:bg-gray-800 dark:text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']"
+                    :class="cn(
+                        'rounded px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                        !assessed ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )"
                     @click="setAssessed(false)"
                 >Non</button>
             </span>
@@ -135,7 +147,7 @@ const setAssessed = (value) => {
         <!-- Dit explicitement pour que « Non » ne se lise jamais « état
              général normal » : une absence d'évaluation n'est pas un
              constat. -->
-        <p v-if="!assessed" class="mt-2.5 text-[11px] leading-4 text-slate-400">
+        <p v-if="!assessed" class="mt-2.5 text-[11px] leading-4 text-muted-foreground">
             État général non évalué pour cette consultation. Rien ne sera enregistré — ce n’est pas un état général normal.
         </p>
 
@@ -163,8 +175,8 @@ const setAssessed = (value) => {
                     @update:model-value="setConsciousness"
                 />
                 <div v-if="consciousnessStatus === 'OTHER'" class="mt-2">
-                    <label for="consciousness_details" class="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                        Précisez <span class="text-red-500">*</span>
+                    <label for="consciousness_details" class="mb-1 block text-[11px] font-semibold text-foreground">
+                        Précisez <span class="text-destructive">*</span>
                     </label>
                     <Input
                         id="consciousness_details"
@@ -180,18 +192,17 @@ const setAssessed = (value) => {
         </div>
 
         <div v-if="assessed" class="mt-4">
-            <label for="general_observation" class="mb-1 block text-xs font-bold text-slate-700 dark:text-white">
-                Observation générale <span class="font-normal text-slate-400">· facultatif</span>
+            <label for="general_observation" class="mb-1 block text-xs font-bold text-foreground">
+                Observation générale <span class="font-normal text-muted-foreground">· facultatif</span>
             </label>
-            <textarea
+            <Textarea
                 id="general_observation"
-                :value="generalObservation"
+                :model-value="generalObservation"
                 :disabled="disabled"
                 rows="2"
                 maxlength="2000"
-                class="block w-full resize-y rounded border border-gray-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white dark:disabled:bg-gray-1000"
                 placeholder="Impression générale, attitude, état nutritionnel…"
-                @input="emit('update:generalObservation', $event.target.value)"
+                @update:model-value="emit('update:generalObservation', $event)"
             />
             <FormError :message="errors.general_observation" />
         </div>

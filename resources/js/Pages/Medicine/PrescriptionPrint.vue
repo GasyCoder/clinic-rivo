@@ -2,8 +2,8 @@
 import { computed } from 'vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import { ArrowLeft, Printer } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatPatientName } from '@/utilities/patient';
 
@@ -45,13 +45,13 @@ const printDocument = () => window.print();
 
     <div class="rx-page mx-auto w-full max-w-3xl space-y-3">
         <div class="rx-actions flex flex-wrap items-center justify-between gap-3">
-            <Button :as="Link" :href="`/medicine/orientations/${orientation.uuid}/ordonnance`" size="rg" variant="white-outline">
-                <Icon class="text-lg" name="arrow-left" />
-                <span class="ms-2">Retour à l’ordonnance</span>
+            <Button :as="Link" :href="`/medicine/orientations/${orientation.uuid}/ordonnance`" size="rg" variant="outline">
+                <ArrowLeft class="h-4 w-4" />
+                <span>Retour à l’ordonnance</span>
             </Button>
             <Button size="rg" variant="primary" type="button" @click="printDocument">
-                <Icon class="text-lg" name="printer" />
-                <span class="ms-2">Imprimer</span>
+                <Printer class="h-4 w-4" />
+                <span>Imprimer</span>
             </Button>
         </div>
 

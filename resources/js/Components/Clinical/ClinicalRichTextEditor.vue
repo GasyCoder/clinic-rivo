@@ -73,7 +73,7 @@ onMounted(syncEditor);
 </script>
 
 <template>
-    <div :class="['overflow-hidden rounded border bg-card transition-shadow', disabled ? 'border-border bg-muted/35' : 'border-border focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-100']">
+    <div :class="['overflow-hidden rounded border bg-card transition-shadow', disabled ? 'border-border bg-muted/35' : 'border-border focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/25']">
         <div class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" aria-label="Mise en forme de l’interrogatoire">
             <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Bold class="h-4 w-4" aria-hidden="true" /></button>
             <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Italic class="h-4 w-4" aria-hidden="true" /></button>

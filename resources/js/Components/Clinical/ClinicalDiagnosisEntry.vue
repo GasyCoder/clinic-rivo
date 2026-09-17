@@ -1,11 +1,11 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import IconInput from '@/Components/UI/IconInput.vue';
-import Input from '@/Components/UI/Input.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import { Pencil, Plus, Search } from 'lucide-vue-next';
 
 /**
  * Recording a diagnosis: catalogue search, or manual entry when the
@@ -111,22 +111,22 @@ const submit = (catalogUuid = null) => {
                 <IconInput
                     id="clinical_diagnosis_search"
                     v-model="search"
-                    icon="search"
+                    :icon="Search"
                     autocomplete="off"
                     :disabled="disabled"
                     placeholder="Rechercher par diagnostic ou code…"
                 />
-                <p v-if="search.trim().length === 1" class="mt-1.5 text-[11px] text-slate-400">Saisissez au moins 2 caractères.</p>
-                <p v-if="loading" class="mt-1.5 text-[11px] text-slate-400">Recherche en cours…</p>
-                <p v-if="searchError" class="mt-1.5 text-[11px] text-red-500">{{ searchError }}</p>
+                <p v-if="search.trim().length === 1" class="mt-1.5 text-[11px] text-muted-foreground">Saisissez au moins 2 caractères.</p>
+                <p v-if="loading" class="mt-1.5 text-[11px] text-muted-foreground">Recherche en cours…</p>
+                <p v-if="searchError" class="mt-1.5 text-[11px] text-destructive">{{ searchError }}</p>
             </div>
 
-            <div v-if="results.length" class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+            <div v-if="results.length" class="overflow-hidden rounded-md border border-border">
                 <button
                     v-for="diagnostic in results"
                     :key="diagnostic.uuid"
                     type="button"
-                    class="flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-900"
+                    class="flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left transition-colors last:border-0 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="form.processing || disabled"
                     @click="submit(diagnostic.uuid)"
                 >
@@ -134,33 +134,33 @@ const submit = (catalogUuid = null) => {
                         <!-- The search endpoint returns the catalogue's own `name`
                              (DiagnosticCatalogSearchController): reading a `label`
                              that does not exist left every result blank. -->
-                        <span class="block truncate text-xs font-semibold text-slate-700 dark:text-white">{{ diagnostic.name }}</span>
-                        <span v-if="diagnostic.code || diagnostic.category" class="mt-0.5 block text-[10px] text-slate-400">
+                        <span class="block truncate text-xs font-semibold text-foreground">{{ diagnostic.name }}</span>
+                        <span v-if="diagnostic.code || diagnostic.category" class="mt-0.5 block text-[10px] text-muted-foreground">
                             <span v-if="diagnostic.code" class="font-mono">{{ diagnostic.code }}</span><template v-if="diagnostic.code && diagnostic.category"> · </template>{{ diagnostic.category }}
                         </span>
                     </span>
-                    <Icon name="plus" class="shrink-0 text-slate-400" />
+                    <Plus class="h-4 w-4 shrink-0 text-muted-foreground" />
                 </button>
             </div>
             <p
                 v-else-if="search.trim().length >= 2 && !loading && !searchError"
-                class="rounded-md border border-dashed border-gray-300 px-3 py-4 text-center text-[11px] text-slate-400 dark:border-gray-800"
+                class="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted-foreground"
             >Aucun diagnostic actif ne correspond à cette recherche.</p>
 
-            <Button type="button" size="sm" variant="white-outline" :disabled="disabled" @click="manualMode = true">
-                <Icon class="me-1.5 text-sm" name="edit" />Saisie manuelle
+            <Button type="button" size="sm" variant="outline" :disabled="disabled" @click="manualMode = true">
+                <Pencil class="h-4 w-4" />Saisie manuelle
             </Button>
         </template>
 
         <!-- Saisie libre : reste dans ce dossier et n'alimente jamais
              automatiquement le catalogue partagé. -->
-        <form v-else class="rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950" @submit.prevent="submit(null)">
+        <form v-else class="rounded-md border border-border bg-card p-3" @submit.prevent="submit(null)">
             <div class="mb-3 flex items-start justify-between gap-3">
                 <div>
-                    <p class="text-xs font-bold text-slate-700 dark:text-white">Diagnostic manuel</p>
-                    <p class="mt-0.5 text-[11px] text-slate-400">Cette saisie reste dans ce dossier et n’alimente pas le catalogue.</p>
+                    <p class="text-xs font-bold text-foreground">Diagnostic manuel</p>
+                    <p class="mt-0.5 text-[11px] text-muted-foreground">Cette saisie reste dans ce dossier et n’alimente pas le catalogue.</p>
                 </div>
-                <button type="button" class="shrink-0 text-[11px] font-semibold text-slate-500 hover:text-slate-700" @click="manualMode = false; form.clearErrors()">Revenir au catalogue</button>
+                <button type="button" class="shrink-0 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground" @click="manualMode = false; form.clearErrors()">Revenir au catalogue</button>
             </div>
             <div class="space-y-2">
                 <div>
@@ -172,7 +172,7 @@ const submit = (catalogUuid = null) => {
             </div>
             <div class="mt-3 flex justify-end">
                 <Button type="submit" size="sm" :disabled="form.processing || disabled">
-                    <Icon class="me-1.5 text-sm" name="plus" />Enregistrer le diagnostic
+                    <Plus class="h-4 w-4" />Enregistrer le diagnostic
                 </Button>
             </div>
         </form>

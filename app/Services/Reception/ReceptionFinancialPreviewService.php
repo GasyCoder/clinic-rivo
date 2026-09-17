@@ -4,6 +4,7 @@ namespace App\Services\Reception;
 
 use App\Enums\CatalogItemType;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\ReceptionCartKind;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
 use App\Models\Episode;
@@ -42,6 +43,17 @@ class ReceptionFinancialPreviewService
                 'financial_mode' => 'Choisissez le mode de prise en charge de ce passage.',
             ]);
         }
+
+        // ADR-104 — la couverture Mutuelle/Personnel porte sur les
+        // prestations du passage. Un médicament part sur un ticket
+        // Pharmacie réglé au tarif Sans mutuelle : lui appliquer un taux de
+        // couverture inventerait une convention que personne n'a validée
+        // (ADR-045, ADR-047). Le filtre est ici, pas seulement dans Vue —
+        // un payload forgé ne doit pas pouvoir contourner la règle.
+        $lines = array_values(array_filter(
+            $lines,
+            fn (array $line) => ReceptionCartKind::fromLine($line) === ReceptionCartKind::Service,
+        ));
 
         $normalized = $this->normalizeLines($lines);
         $episode->loadMissing(['mutualCoverage', 'staffCoverage.employee']);

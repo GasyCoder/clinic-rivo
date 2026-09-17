@@ -44,6 +44,44 @@ class ResolveConsultationStepAction
         });
     }
 
+    /**
+     * ADR-105 — une demande d'examen transmise résout l'étape Paraclinique.
+     *
+     * L'ADR-076 interdit de résoudre une étape « en effet de bord d'un
+     * enregistrement » : la règle vise une **saisie en cours**, qu'ouvrir un
+     * écran ne doit pas faire passer pour un travail fait. Un ordre parti au
+     * Laboratoire ou à l'Imagerie n'est pas une saisie en cours — c'est un
+     * acte terminé, dont le médecin ne peut plus rien faire sur cette étape.
+     * Lui demander de la « valider » ensuite bloquait la clôture sur un clic
+     * sans objet.
+     *
+     * Silencieuse par construction : une consultation qui n'est plus
+     * éditable, ou une étape déjà résolue, laisse l'état tel quel. Ce
+     * chemin complète un dossier, il ne doit jamais faire échouer la
+     * demande clinique qui vient d'aboutir.
+     */
+    public function completeParaclinicalFromRequest(Consultation $consultation, User $actor): void
+    {
+        if (! $consultation->isEditable()) {
+            return;
+        }
+
+        $current = $consultation->steps()
+            ->where('step', StepKey::Paraclinical->value)
+            ->first();
+
+        if ($current?->status === ConsultationStepStatus::Completed) {
+            return;
+        }
+
+        $this->write($consultation, StepKey::Paraclinical, [
+            'status' => ConsultationStepStatus::Completed,
+            'completed_at' => now(),
+            'completed_by' => $actor->getKey(),
+            'skip_reason' => null,
+        ]);
+    }
+
     public function skip(Consultation $consultation, StepKey $step, ?string $reason, User $actor): ConsultationStep
     {
         return DB::transaction(function () use ($consultation, $step, $reason, $actor): ConsultationStep {

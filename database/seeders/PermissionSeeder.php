@@ -378,6 +378,8 @@ class PermissionSeeder extends Seeder
         'prescriptions.update' => 'Modifier une prescription',
         'prescriptions.cancel' => 'Annuler une prescription',
         'medical_discharge.create' => 'Prononcer une sortie médicale',
+        'death_records.view' => 'Consulter le registre des décès',
+        'death_records.create' => 'Établir un acte de constatation de décès',
 
         // CDC §15 "Soins" — seedées ici en avance du module Soins/Vitals
         // (pas encore construit) car explicitement demandées pour le rôle

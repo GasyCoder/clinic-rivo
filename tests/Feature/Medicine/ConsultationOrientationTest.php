@@ -562,6 +562,25 @@ class ConsultationOrientationTest extends TestCase
         );
     }
 
+    /**
+     * « Déjà sur place » ne suffit pas : le diagnostic se pose à la première
+     * sous-étape de la Clôture, la conduite à tenir à la deuxième, et cette
+     * liste se lit depuis la troisième. Sans cette indication, l'écran
+     * énonçait de nouveau l'obstacle sans dire où agir (ADR-084).
+     */
+    public function test_each_closure_blocker_names_the_sub_step_that_resolves_it(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $blockers = collect($this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
+            ->viewData('page')['props']['consultation']['closure_blockers']);
+
+        $this->assertSame(1, $blockers->firstWhere('message', 'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.')['closure_section']);
+        $this->assertSame(2, $blockers->firstWhere('message', 'Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).')['closure_section']);
+    }
+
     /** ADR-098 — a diagnosis recorded at « Décision & clôture » keeps the doctor there. */
     public function test_a_diagnosis_recorded_from_the_decision_step_stays_on_that_step(): void
     {

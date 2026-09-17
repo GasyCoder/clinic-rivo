@@ -157,6 +157,9 @@ const toneClasses = {
     cyan: { icon: 'bg-cyan-50 text-cyan-700 ring-cyan-100 dark:bg-cyan-950/50 dark:text-cyan-300 dark:ring-cyan-900', value: 'text-cyan-800 dark:text-cyan-200', bar: 'bg-cyan-500' },
     green: { icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900', value: 'text-emerald-800 dark:text-emerald-200', bar: 'bg-emerald-500' },
     yellow: { icon: 'bg-amber-50 text-amber-700 ring-amber-100 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900', value: 'text-amber-800 dark:text-amber-200', bar: 'bg-amber-500' },
+    // Neutre, volontairement : le registre des décès (ADR-107) ne porte
+    // ni la couleur d'accent ni celle d'une alerte à traiter.
+    slate: { icon: 'bg-muted text-muted-foreground ring-border', value: 'text-foreground', bar: 'bg-muted-foreground' },
 };
 const tone = (name) => toneClasses[name] ?? toneClasses.navy;
 </script>

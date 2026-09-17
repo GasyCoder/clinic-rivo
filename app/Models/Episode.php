@@ -155,6 +155,12 @@ class Episode extends Model
         return $this->hasOne(MedicalDischarge::class);
     }
 
+    /** L'acte de constatation, distinct de la sortie qui prononce le décès (ADR-107). */
+    public function deathRecord(): HasOne
+    {
+        return $this->hasOne(DeathRecord::class);
+    }
+
     public function surgicalRequests(): HasMany
     {
         return $this->hasMany(SurgicalRequest::class);

@@ -3,6 +3,7 @@
 namespace App\Actions\Medicine;
 
 use App\Actions\Episode\CreateEpisodeOrientationAction;
+use App\Actions\Medicine\ResolveConsultationStepAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ConsultationDecision;
@@ -12,6 +13,7 @@ use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
 use App\Models\LabRequest;
 use App\Models\User;
+use App\Services\Billing\ClinicalActBiller;
 use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,6 +29,8 @@ class CreateLabRequestAction
 {
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
+        private readonly ClinicalActBiller $biller,
+        private readonly ResolveConsultationStepAction $resolveStep,
     ) {}
 
     /**
@@ -98,14 +102,38 @@ class CreateLabRequestAction
             foreach ($items as $item) {
                 $catalogItem = $catalogItems->get($item['catalog_item_uuid']);
 
-                $labRequest->items()->create([
+                $line = $labRequest->items()->create([
                     'catalog_item_id' => $catalogItem->getKey(),
                     'catalog_item_code_snapshot' => $catalogItem->code,
                     'catalog_item_name_snapshot' => $catalogItem->name,
                 ]);
+
+                // ADR-105 — l'analyse rejoint le compte du patient dès sa
+                // demande, comme lorsque la Réception la sélectionne à
+                // l'arrivée (ADR-068). Un échec de facturation ne bloque
+                // jamais la demande : elle est déjà partie au Laboratoire.
+                $billable = $this->biller->bill(
+                    $episode,
+                    $catalogItem,
+                    'lab_request_item:'.$line->uuid,
+                    $actor,
+                    $line,
+                );
+
+                if ($billable) {
+                    $line->update(['billable_item_id' => $billable->getKey()]);
+                }
             }
 
             $lockedConsultation->update(['decision' => ConsultationDecision::LaboratoryTests]);
+
+            // ADR-105 — la demande transmise EST la résolution de l'étape :
+            // le médecin n'a plus rien à y faire, et lui demander de la
+            // « valider » ensuite bloquait la clôture sur un clic sans
+            // objet. Amende la règle « jamais en effet de bord » de
+            // l'ADR-076, qui visait une saisie en cours, pas un ordre déjà
+            // parti à un autre service.
+            $this->resolveStep->completeParaclinicalFromRequest($lockedConsultation, $actor);
 
             return $labRequest->fresh(['items']);
         });

@@ -203,6 +203,16 @@ class ConsultationWorkflow
             // resolving that step, and listing it here would ask the doctor
             // to validate the very action they are performing.
             ->reject(fn (array $entry): bool => $entry['step'] === ConsultationStep::Closure)
+            // ADR-105 — un examen déjà transmis au Laboratoire ou à
+            // l'Imagerie ne bloque pas la clôture. La demande est partie,
+            // le service concerné l'a ; exiger en plus un clic de
+            // validation retenait le passage sur une formalité. La
+            // création résout désormais l'étape, mais les consultations
+            // antérieures à cette décision portent des demandes sans
+            // étape résolue : c'est le fait clinique qui décide, pas
+            // l'état d'un écran (même principe qu'ADR-081).
+            ->reject(fn (array $entry): bool => $entry['step'] === ConsultationStep::Paraclinical
+                && $this->hasParaclinicalRequest($consultation))
             ->filter(fn (array $entry): bool => $entry['relevant'] && ! $entry['status']->isResolved())
             ->map(fn (array $entry): array => [
                 'message' => sprintf(
@@ -217,6 +227,9 @@ class ConsultationWorkflow
                 // l'écran énonçait l'obstacle et laissait le médecin le
                 // chercher.
                 'step' => $entry['step']->value,
+                // Une autre étape du parcours : rien à pointer dans la
+                // Clôture elle-même.
+                'closure_section' => null,
             ])
             ->values()
             ->all();
@@ -239,14 +252,18 @@ class ConsultationWorkflow
                     : 'Diagnostic : aucun diagnostic enregistré — posez-le à l’étape Décision & clôture.',
                 // Déjà sur place : le diagnostic se pose à la Clôture.
                 'step' => null,
+                // ... mais dans sa première sous-étape, et la Vérification est
+                // la troisième : « déjà sur place » ne suffisait pas à dire
+                // où agir, et l'écran laissait de nouveau chercher.
+                'closure_section' => 1,
             ];
         }
 
         // Same for the conduite à tenir: the "Décision" step is gone, the
         // obligation to say where the patient goes is not (ADR-084).
         if ($blocker = $this->closureBlocker($consultation)) {
-            // Également sur place : la conduite à tenir se choisit ici.
-            $blockers[] = ['message' => $blocker, 'step' => null];
+            // Également sur place, deuxième sous-étape.
+            $blockers[] = ['message' => $blocker, 'step' => null, 'closure_section' => 2];
         }
 
         return $blockers;

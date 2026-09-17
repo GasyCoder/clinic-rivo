@@ -135,14 +135,14 @@ const connectorClass = (index) => (props.steps[index - 1]?.resolved
                         :class="[
                             'workflow-step-link group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors',
                             step.key === currentKey
-                                ? 'bg-primary-50 ring-1 ring-inset ring-primary-200 dark:bg-primary-950/30 dark:ring-primary-900'
+                                ? 'bg-primary/10 ring-1 ring-inset ring-primary/25'
                                 : 'hover:bg-muted/40',
                         ]"
                     >
                         <span :class="[
                             'workflow-marker flex h-9 w-9 shrink-0 items-center justify-center rounded-full border',
                             step.key === currentKey
-                                ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                                ? 'border-primary bg-primary text-white shadow-sm'
                                 : marker(step).ring,
                         ]">
                             <component :is="markerIcon(step)" class="h-4 w-4" aria-hidden="true" />
@@ -156,7 +156,7 @@ const connectorClass = (index) => (props.steps[index - 1]?.resolved
                         <span :class="['min-w-0', step.key === currentKey ? 'workflow-step-text--current' : 'workflow-step-text']">
                             <!-- Le libellé ne se tronque jamais : c'est le
                                  sous-titre qui cède la place en premier. -->
-                            <span :class="['block whitespace-nowrap text-sm font-bold leading-tight', step.key === currentKey ? 'text-primary-700 dark:text-primary-300' : 'text-foreground']">{{ step.navLabel ?? step.label }}</span>
+                            <span :class="['block whitespace-nowrap text-sm font-bold leading-tight', step.key === currentKey ? 'text-primary' : 'text-foreground']">{{ step.navLabel ?? step.label }}</span>
                             <!-- La note du serveur prime : « Non nécessaire »
                                  ou « 2 examens demandés » disent plus que le
                                  statut seul. -->

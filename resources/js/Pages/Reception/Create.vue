@@ -25,14 +25,17 @@ import {
     Lock,
     Mail,
     MapPin,
+    Minus,
     Pencil,
     Phone,
+    Pill,
     Plus,
     ScanLine,
     Search,
     Settings,
     ShieldCheck,
     ShoppingCart,
+    Trash2,
     Siren,
     UserRound,
     UserRoundPlus,
@@ -68,6 +71,8 @@ const props = defineProps({
     partnerOrganizations: { type: Array, default: () => [] },
     capabilities: { type: Object, default: () => ({}) },
     resumeEpisode: { type: Object, default: null },
+    /** ADR-104 — le second rayon du panier : les médicaments vendables. */
+    pharmacyCatalog: { type: Array, default: () => [] },
     receptionDraft: { type: Object, default: null },
     financialPreview: { type: Object, default: null },
 });
@@ -212,7 +217,15 @@ const requestJson = async (url, options = {}) => {
     return data;
 };
 
-const catalogMap = computed(() => new Map(props.estimateCatalog.map((item) => [item.catalog_item_uuid, item])));
+// Un seul index pour les deux rayons : le panier ne désigne ses lignes que
+// par l'UUID du `catalog_item`, et n'a donc jamais à savoir de quel rayon
+// vient celle qu'il affiche.
+const catalogMap = computed(() => new Map(
+    [...props.estimateCatalog, ...props.pharmacyCatalog].map((item) => [item.catalog_item_uuid, item]),
+));
+/** `services` | `pharmacy` — quel rayon est ouvert à l'étape Besoin. */
+const aisle = ref('services');
+const pharmacyQuery = ref('');
 const receptionCatalogModules = [
     { value: 'MEDICINE', label: 'Médecine' },
     { value: 'IMAGING', label: 'Imagerie' },
@@ -316,11 +329,67 @@ const previewLines = computed(() => preview.value?.lines ?? []);
 const addService = (item) => {
     if (!item.reception_ready) return;
 
-    cart.value.push({ catalog_item_uuid: item.catalog_item_uuid, quantity: 1 });
+    // `kind` voyage avec la ligne jusqu'au serveur : c'est lui qui décide
+    // si elle ouvre une file clinique ou réserve un lot de stock (ADR-104).
+    cart.value.push({
+        kind: item.kind ?? 'SERVICE',
+        catalog_item_uuid: item.catalog_item_uuid,
+        quantity: 1,
+    });
     estimate.value = null;
     estimateError.value = '';
     designationDeferred.value = false;
 };
+const filteredPharmacyCatalog = computed(() => {
+    const needle = pharmacyQuery.value.trim().toLocaleLowerCase('fr');
+
+    return props.pharmacyCatalog
+        .filter((item) => !cartIds.value.has(item.catalog_item_uuid))
+        .filter((item) => !needle || `${item.name} ${item.code} ${item.generic_name ?? ''} ${item.category ?? ''}`
+            .toLocaleLowerCase('fr')
+            .includes(needle))
+        .sort((left, right) => left.name.localeCompare(right.name, 'fr'));
+});
+const serviceCartLines = computed(() => cartLines.value.filter((entry) => entry.line.kind !== 'MEDICINE'));
+const medicineCartLines = computed(() => cartLines.value.filter((entry) => entry.line.kind === 'MEDICINE'));
+
+/**
+ * Les deux rayons du panier, chacun avec sa teinte : bleu pour les
+ * prestations, vert pour la Pharmacie. Les couleurs viennent des tokens de
+ * l'application (`primary`, `emerald`) et portent leurs deux thèmes — un
+ * `bg-blue-50` en dur resterait clair sur fond sombre (ADR-099).
+ *
+ * L'état sélectionné ne se lit pas qu'à la teinte : il ajoute un fond, un
+ * anneau et une ombre. Deux boutons colorés dont un seul est actif doivent
+ * rester distinguables par autre chose que la couleur.
+ */
+const aisleTabs = computed(() => [
+    {
+        value: 'services',
+        label: 'Désignations & consultations',
+        icon: ClipboardList,
+        count: serviceCartLines.value.length,
+        activeClass: 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/30',
+        idleIconClass: 'text-primary/70',
+        badgeVariant: 'default',
+    },
+    {
+        value: 'pharmacy',
+        label: 'Pharmacie',
+        icon: Pill,
+        count: medicineCartLines.value.length,
+        activeClass: 'bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800',
+        idleIconClass: 'text-emerald-600/80 dark:text-emerald-400/80',
+        badgeVariant: 'success',
+    },
+]);
+/**
+ * Le patient n'est venu que pour des médicaments : aucune file clinique ne
+ * s'ouvrira, et la confirmation l'enverra directement à la Caisse avec son
+ * ticket. L'écran doit le dire avant, pas le faire découvrir après.
+ */
+const pharmacyOnlyCart = computed(() => cart.value.length > 0
+    && medicineCartLines.value.length === cart.value.length);
 const resetCatalogFilters = () => {
     catalogQuery.value = '';
     moduleFilter.value = '';
@@ -330,6 +399,22 @@ const removeService = async (index) => {
     estimate.value = null;
     if (currentStep.value === 2 && cart.value.length) await recalculateEstimate();
     if (!cart.value.length) currentStep.value = 1;
+};
+/**
+ * Vider le panier en un geste. Rien n'est encore enregistré à ce stade —
+ * ni Patient, ni Episode, ni facture (ADR-051) — donc il n'y a rien à
+ * annuler côté serveur : seule la sélection à l'écran disparaît.
+ *
+ * Pas de fenêtre de confirmation : le bouton ne s'affiche qu'à partir de
+ * deux lignes (en dessous, la croix de la ligne fait le même travail) et
+ * reste volontairement discret, à l'écart de l'action principale.
+ */
+const clearCart = () => {
+    cart.value = [];
+    estimate.value = null;
+    estimateError.value = '';
+    designationDeferred.value = false;
+    currentStep.value = 1;
 };
 const stepQuantity = async (entry, delta) => {
     const current = Number(entry.line.quantity) || 1;
@@ -341,6 +426,7 @@ const stepQuantity = async (entry, delta) => {
     if (currentStep.value === 2) await recalculateEstimate();
 };
 const cartPayload = () => cart.value.map((line) => ({
+    kind: line.kind ?? 'SERVICE',
     catalog_item_uuid: line.catalog_item_uuid,
     quantity: Number(line.quantity),
 }));
@@ -626,7 +712,13 @@ const chooseAnotherEmployee = () => {
     financialErrors.value = {};
 };
 const financialPayload = () => {
-    const payload = { financial_mode: financialMode.value, lines: cartPayload() };
+    // Seules les prestations : la couverture Mutuelle/Personnel porte sur le
+    // passage, pas sur le ticket Pharmacie réglé au tarif Sans mutuelle
+    // (ADR-104). Le serveur refiltre de toute façon.
+    const payload = {
+        financial_mode: financialMode.value,
+        lines: cartPayload().filter((line) => line.kind !== 'MEDICINE'),
+    };
     if (financialMode.value === 'MUTUAL') Object.assign(payload, mutualForm);
     if (financialMode.value === 'STAFF') payload.employee_uuid = selectedEmployee.value?.uuid;
     if (financialMode.value === 'PARTNER') Object.assign(payload, partnerForm);
@@ -668,6 +760,21 @@ const confirmMarkEmergency = () => {
     });
 };
 
+/**
+ * Le patient n'est venu que pour des médicaments : il ne verra ni médecin ni
+ * infirmier, et aucune couverture ne s'applique à son ticket (ADR-104). Lui
+ * faire traverser « Prise en charge », « Confirmation » et « Routage » lui
+ * ferait répondre trois fois à des questions sans objet pour son passage.
+ *
+ * Le serveur reste le seul à décider : il refera la même lecture du panier
+ * et n'ouvrira aucune file clinique parce qu'il n'y a aucune prestation.
+ */
+const finishToPharmacy = () => {
+    finalForm.defer_designation = false;
+    finalForm.catalog_lines = cartPayload();
+    finalForm.payment_choice = 'LATER';
+    finalForm.post(`/reception/passages/${episode.value.uuid}/prestations`, { preserveScroll: true });
+};
 const confirmCare = () => {
     finalForm.defer_designation = designationDeferred.value;
     finalForm.catalog_lines = cartPayload();
@@ -709,13 +816,31 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
             </nav>
 
             <CardBody v-if="currentStep === 1" class="!p-5 lg:!p-7">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div><div class="flex items-center gap-2"><Badge variant="secondary">Étape 1 sur 7</Badge><span class="text-xs font-medium text-muted-foreground">Besoin</span></div><h2 class="mt-3 font-heading text-2xl font-bold tracking-tight text-foreground">Quel est votre besoin aujourd’hui ?</h2><p class="mt-1 text-sm text-muted-foreground">Choisissez les prestations configurées pour la Réception. Aucun dossier patient n’est créé à cette étape.</p></div>
-                    <Button v-if="capabilities.can_open_pharmacy_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" variant="outline"><ShoppingCart class="h-4 w-4" />Vente comptoir Pharmacie</Button>
+                <div><div class="flex items-center gap-2"><Badge variant="secondary">Étape 1 sur 7</Badge><span class="text-xs font-medium text-muted-foreground">Besoin</span></div><h2 class="mt-3 font-heading text-2xl font-bold tracking-tight text-foreground">Quel est votre besoin aujourd’hui ?</h2><p class="mt-1 text-sm text-muted-foreground">Ajoutez au panier tout ce dont le patient a besoin. Aucun dossier patient n’est créé à cette étape.</p></div>
+
+                <!-- ADR-104 — deux rayons, un seul panier. Le basculement
+                     n'efface jamais la sélection de l'autre rayon : c'est le
+                     même besoin, pris en une fois. -->
+                <div v-if="capabilities.can_sell_medicines" class="mt-5 inline-flex rounded-lg border border-border bg-muted/35 p-1" role="tablist" aria-label="Rayon du panier">
+                    <button
+                        v-for="tab in aisleTabs"
+                        :key="tab.value"
+                        type="button"
+                        role="tab"
+                        :aria-selected="aisle === tab.value"
+                        :class="['inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors', aisle === tab.value ? tab.activeClass : 'text-muted-foreground hover:text-foreground']"
+                        @click="aisle = tab.value"
+                    >
+                        <!-- La couleur reste portée par l'icône même au repos :
+                             les deux rayons se distinguent d'un coup d'œil,
+                             sans attendre d'avoir cliqué. -->
+                        <component :is="tab.icon" :class="['h-4 w-4', aisle === tab.value ? '' : tab.idleIconClass]" />{{ tab.label }}
+                        <Badge v-if="tab.count" :variant="tab.badgeVariant">{{ tab.count }}</Badge>
+                    </button>
                 </div>
 
                 <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-                    <section>
+                    <section v-show="aisle === 'services'">
                         <div v-if="estimateCatalog.length" class="rounded-xl border border-border bg-muted/25 p-4">
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                                 <div>
@@ -773,11 +898,95 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                         </div>
                     </section>
 
+                    <!-- Rayon Pharmacie. La Réception lit le prix et la
+                         disponibilité, elle ne sort jamais un lot : la
+                         réservation FEFO n'a lieu qu'à la confirmation, et
+                         la délivrance qu'après encaissement (ADR-049). -->
+                    <section v-show="aisle === 'pharmacy'">
+                        <div v-if="pharmacyCatalog.length" class="rounded-xl border border-border bg-muted/25 p-4">
+                            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Médicaments disponibles</p>
+                                    <p class="mt-0.5 text-xs text-muted-foreground">Prix de vente et stock relus côté serveur · seuls les produits réellement en stock sont proposés.</p>
+                                </div>
+                                <Badge variant="success">{{ pharmacyCatalog.length }} en stock</Badge>
+                            </div>
+                            <div class="relative">
+                                <Search class="pointer-events-none absolute start-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input v-model="pharmacyQuery" class="ps-9" placeholder="Rechercher un médicament, une DCI ou une famille…" autocomplete="off" />
+                            </div>
+                        </div>
+                        <div v-if="filteredPharmacyCatalog.length" class="mt-3 max-h-[480px] overflow-y-auto rounded-md border border-border">
+                            <button v-for="item in filteredPharmacyCatalog" :key="item.catalog_item_uuid" type="button" class="grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 text-start transition last:border-0 hover:bg-accent" @click="addService(item)">
+                                <span class="flex h-9 w-9 items-center justify-center rounded border border-border text-primary"><Plus class="h-4 w-4" /></span>
+                                <span class="min-w-0">
+                                    <span class="block truncate text-sm font-bold text-foreground">{{ item.name }}</span>
+                                    <span class="mt-0.5 block truncate text-xs text-muted-foreground">
+                                        {{ item.code }}<template v-if="item.form_label"> · {{ item.form_label }}</template><template v-if="item.strength"> {{ item.strength }}</template>
+                                        · {{ item.available_quantity }} {{ item.unit }} en stock
+                                    </span>
+                                </span>
+                                <span class="text-end">
+                                    <span class="block text-sm font-bold text-foreground">{{ formatMoney(item.unit_price) }}</span>
+                                    <!-- Un produit sous ordonnance reste vendable ici : la
+                                         Réception n'a pas à juger d'une prescription, mais
+                                         elle doit savoir ce qu'elle vend. -->
+                                    <span v-if="item.prescription_required" class="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Sur ordonnance</span>
+                                    <span v-else class="text-[11px] text-muted-foreground">{{ item.unit }}</span>
+                                </span>
+                            </button>
+                        </div>
+                        <div v-else class="mt-3 rounded-md border border-dashed border-border px-5 py-8 text-center">
+                            <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground"><Pill class="h-4 w-4" /></span>
+                            <p class="mt-3 text-sm font-semibold text-foreground">{{ pharmacyCatalog.length ? 'Aucun médicament ne correspond' : 'Aucun médicament disponible à la vente' }}</p>
+                            <p class="mt-1 text-xs text-muted-foreground">{{ pharmacyCatalog.length ? 'Modifiez la recherche. Les médicaments déjà au panier sont masqués.' : 'Un produit doit être actif, facturable, avoir un prix de vente configuré et rester en stock pour être proposé ici.' }}</p>
+                        </div>
+                    </section>
+
                     <aside class="space-y-3 self-start xl:sticky xl:top-20">
                         <div class="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                            <div class="flex items-center justify-between border-b border-border bg-muted/35 px-4 py-3"><span class="flex items-center gap-2 text-sm font-bold text-foreground"><ShoppingCart class="h-4 w-4 text-primary" />Sélection</span><Badge variant="secondary">{{ cart.length }}</Badge></div>
-                            <div v-if="cartLines.length" class="divide-y divide-border"><div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="flex items-center gap-3 px-4 py-3"><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-foreground">{{ entry.catalog.name }}</span><span class="text-xs text-muted-foreground">{{ entry.catalog.module_label }}</span></span><Button icon size="xs" variant="ghost" type="button" :aria-label="`Retirer ${entry.catalog.name}`" @click="removeService(entry.index)"><X class="h-4 w-4" /></Button></div></div>
-                            <p v-else class="px-4 py-9 text-center text-sm text-muted-foreground">Ajoutez au moins une prestation.</p>
+                            <div class="flex items-center justify-between gap-2 border-b border-border bg-muted/35 px-4 py-3">
+                                <span class="flex items-center gap-2 text-sm font-bold text-foreground"><ShoppingCart class="h-4 w-4 text-primary" />Sélection</span>
+                                <span class="flex items-center gap-1.5">
+                                    <button v-if="cart.length > 1" type="button" class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-destructive" @click="clearCart"><Trash2 class="h-3.5 w-3.5" />Tout retirer</button>
+                                    <Badge variant="secondary">{{ cart.length }}</Badge>
+                                </span>
+                            </div>
+                            <!-- Les deux rayons restent distincts dans le
+                                 panier : ils ne se règlent pas sur le même
+                                 document (ADR-050), et le confondre ferait
+                                 lire un seul total à payer là où il y en a
+                                 deux. -->
+                            <template v-if="cartLines.length">
+                                <div v-for="group in [
+                                    { key: 'services', label: 'Désignations & consultations', entries: serviceCartLines },
+                                    { key: 'pharmacy', label: 'Pharmacie', entries: medicineCartLines },
+                                ].filter((g) => g.entries.length)" :key="group.key">
+                                    <p class="border-b border-border bg-muted/20 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{{ group.label }}</p>
+                                    <div class="divide-y divide-border">
+                                        <div v-for="entry in group.entries" :key="entry.line.catalog_item_uuid" class="flex items-center gap-3 px-4 py-3">
+                                            <span class="min-w-0 flex-1">
+                                                <span class="block truncate text-sm font-semibold text-foreground">{{ entry.catalog?.name }}</span>
+                                                <span class="text-xs text-muted-foreground">
+                                                    <template v-if="entry.line.kind === 'MEDICINE'">{{ entry.line.quantity }} {{ entry.catalog?.unit }} · {{ formatMoney(entry.catalog?.unit_price) }}</template>
+                                                    <template v-else>{{ entry.catalog?.module_label }}</template>
+                                                </span>
+                                            </span>
+                                            <span v-if="entry.line.kind === 'MEDICINE'" class="flex shrink-0 items-center gap-1">
+                                                <Button icon size="xs" variant="ghost" type="button" :aria-label="`Retirer une unité de ${entry.catalog?.name}`" @click="stepQuantity(entry, -1)"><Minus class="h-3.5 w-3.5" /></Button>
+                                                <span class="w-6 text-center text-sm font-bold tabular-nums text-foreground">{{ entry.line.quantity }}</span>
+                                                <Button icon size="xs" variant="ghost" type="button" :aria-label="`Ajouter une unité de ${entry.catalog?.name}`" @click="stepQuantity(entry, 1)"><Plus class="h-3.5 w-3.5" /></Button>
+                                            </span>
+                                            <Button icon size="xs" variant="ghost" type="button" :aria-label="`Retirer ${entry.catalog?.name}`" @click="removeService(entry.index)"><X class="h-4 w-4" /></Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            <p v-else class="px-4 py-9 text-center text-sm text-muted-foreground">Ajoutez au moins une prestation ou un médicament.</p>
+                            <p v-if="pharmacyOnlyCart" class="flex items-start gap-2 border-t border-border bg-amber-50/70 px-4 py-2.5 text-[11px] leading-4 text-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+                                <Info class="mt-px h-3.5 w-3.5 shrink-0" />
+                                <span>Médicaments seuls : après le dossier patient, le passage part directement à la Caisse avec son ticket. Aucun parcours clinique n’est ouvert.</span>
+                            </p>
                             <div class="border-t border-border p-3"><Button class="w-full" :disabled="!cart.length" @click="showEstimate">Voir l’estimation<ArrowRight class="h-4 w-4" /></Button></div>
                         </div>
                         <button type="button" class="group w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-start transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:bg-amber-50 hover:shadow-sm dark:border-amber-900 dark:bg-amber-950/20 dark:hover:border-amber-800" @click="continueWithoutKnownDesignation">
@@ -808,14 +1017,17 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
 
                         <div class="overflow-hidden rounded-md border border-border">
                             <div class="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-2.5">
-                                <p class="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{{ cartLines.length }} prestation{{ cartLines.length > 1 ? 's' : '' }}</p>
-                                <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary" @click="currentStep = 1"><Plus class="h-4 w-4" />Ajouter une prestation</button>
+                                <p class="text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">{{ cartLines.length }} ligne{{ cartLines.length > 1 ? 's' : '' }}</p>
+                                <span class="flex items-center gap-3">
+                                    <button v-if="cartLines.length > 1" type="button" class="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-destructive" @click="clearCart"><Trash2 class="h-4 w-4" />Tout retirer</button>
+                                    <button type="button" class="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary" @click="currentStep = 1"><Plus class="h-4 w-4" />Ajouter au panier</button>
+                                </span>
                             </div>
                             <div v-for="entry in cartLines" :key="entry.line.catalog_item_uuid" class="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-3 border-b border-border px-4 py-3 last:border-0 sm:grid-cols-[36px_minmax(0,1fr)_auto_minmax(120px,auto)_32px]">
-                                <span class="flex h-9 w-9 items-center justify-center rounded border border-border text-muted-foreground"><component :is="catalogModuleIcon(entry.catalog.module)" class="h-4 w-4" /></span>
+                                <span class="flex h-9 w-9 items-center justify-center rounded border border-border text-muted-foreground"><component :is="entry.line.kind === 'MEDICINE' ? Pill : catalogModuleIcon(entry.catalog.module)" class="h-4 w-4" /></span>
                                 <div class="min-w-0">
                                     <p class="truncate text-sm font-bold text-foreground">{{ entry.catalog.name }}</p>
-                                    <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ entry.catalog.code }} · {{ entry.catalog.module_label }}</p>
+                                    <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ entry.catalog.code }} · {{ entry.line.kind === 'MEDICINE' ? 'Médicament' : entry.catalog.module_label }}</p>
                                 </div>
                                 <div class="col-span-2 flex items-center gap-2 sm:col-span-1">
                                     <div class="inline-flex items-center rounded border border-border">
@@ -843,10 +1055,17 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                                 </p>
                                 <p class="mt-1 font-heading text-3xl font-bold text-emerald-800 dark:text-emerald-200">{{ estimate ? formatMoney(estimate.total_amount) : 'À confirmer' }}</p>
                             </div>
+                            <!-- Deux sous-totaux, parce que ce sont deux
+                                 documents : la facture du passage et le
+                                 ticket Pharmacie (ADR-050, ADR-104). Un
+                                 total unique laisserait croire à un seul
+                                 règlement. -->
                             <dl class="divide-y divide-border bg-card text-sm">
-                                <div class="flex items-center justify-between px-5 py-2.5"><dt class="text-muted-foreground">Prestations</dt><dd class="font-bold text-foreground">{{ cartLines.length }}</dd></div>
+                                <div v-if="serviceCartLines.length" class="flex items-center justify-between px-5 py-2.5"><dt class="text-muted-foreground">Prestations · {{ serviceCartLines.length }}</dt><dd class="font-bold tabular-nums text-foreground">{{ estimate ? formatMoney(estimate.services_total) : '—' }}</dd></div>
+                                <div v-if="medicineCartLines.length" class="flex items-center justify-between px-5 py-2.5"><dt class="text-muted-foreground">Pharmacie · {{ medicineCartLines.length }}</dt><dd class="font-bold tabular-nums text-foreground">{{ estimate ? formatMoney(estimate.medicines_total) : '—' }}</dd></div>
                                 <div class="flex items-center justify-between px-5 py-2.5"><dt class="text-muted-foreground">Barème appliqué</dt><dd class="font-bold text-foreground">Sans mutuelle</dd></div>
                             </dl>
+                            <p v-if="medicineCartLines.length && serviceCartLines.length" class="border-t border-border bg-muted/30 px-5 py-3 text-xs leading-5 text-muted-foreground">Les médicaments sont réglés sur un <strong class="font-semibold text-foreground">ticket Pharmacie séparé</strong> : leur délivrance attend ce règlement, indépendamment de la facture du passage.</p>
                             <p class="border-t border-border bg-muted/30 px-5 py-3 text-xs leading-5 text-muted-foreground">Le montant définitif peut varier selon le mode de prise en charge. Aucun Patient, Episode, facture ou paiement n’a encore été créé.</p>
                         </div>
 
@@ -1047,7 +1266,11 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     <div class="flex items-center gap-3 rounded-md border border-border bg-muted/35 px-3 py-2"><Avatar rounded size="sm" variant="slate-pale" :text="formatPatientInitials(selectedPatient)" /><span><strong class="block text-sm text-foreground">{{ formatPatientCivilName(selectedPatient) }}</strong><span class="font-mono text-xs text-muted-foreground">{{ selectedPatient.patient_number }}</span><span v-if="formatPatientAge(selectedPatient)" class="text-xs text-muted-foreground"> · {{ formatPatientAge(selectedPatient) }}</span></span></div>
                 </div>
 
-                <section v-if="capabilities.can_mark_emergency && episode.priority !== 'EMERGENCY'" class="mt-5 flex flex-col gap-4 rounded-md border border-red-200 bg-red-50/60 px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950/20">
+                <!-- Pas d'urgence sur un achat de médicaments : classer ce
+                     passage ouvrirait les files Soins et Médecine (ADR-056)
+                     pour quelqu'un venu chercher une boîte. Ajouter une
+                     prestation fait réapparaître la question. -->
+                <section v-if="capabilities.can_mark_emergency && episode.priority !== 'EMERGENCY' && ! pharmacyOnlyCart" class="mt-5 flex flex-col gap-4 rounded-md border border-red-200 bg-red-50/60 px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950/20">
                     <div class="min-w-0">
                         <h3 class="text-sm font-bold text-red-800 dark:text-red-200">Ce passage doit-il être traité en urgence ?</h3>
                         <p class="mt-1 max-w-3xl text-xs leading-5 text-red-700 dark:text-red-300">La décision concerne uniquement l’Épisode {{ episode.episode_number }}.</p>
@@ -1055,7 +1278,33 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     <Button class="shrink-0" size="rg" variant="danger" :disabled="emergencyForm.processing" @click="markEpisodeEmergency"><Activity class="h-4 w-4" />Classer ce passage en urgence</Button>
                 </section>
 
-                <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <!-- ADR-104 — panier de médicaments seuls : aucun mode de
+                     prise en charge ne s'applique, et l'étape suivante
+                     refuserait de toute façon de calculer une couverture sur
+                     zéro prestation. On propose donc les deux seules suites
+                     qui ont un sens pour ce patient. -->
+                <section v-if="pharmacyOnlyCart" class="mt-6 overflow-hidden rounded-xl border border-border">
+                    <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4">
+                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Pill class="h-4 w-4" /></span>
+                        <div class="min-w-0">
+                            <h3 class="text-sm font-bold text-foreground">Ce passage ne contient que des médicaments</h3>
+                            <p class="mt-1 text-xs leading-5 text-muted-foreground">
+                                Le ticket Pharmacie est réglé au tarif <strong class="font-semibold text-foreground">Sans mutuelle</strong> : aucun mode de prise en charge ne s’y applique.
+                                Le patient ne passera ni en Médecine ni aux Soins.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                        <Button variant="white-outline" :disabled="finalForm.processing" @click="currentStep = 1">
+                            <ArrowLeft class="h-4 w-4" />Ajouter une prestation
+                        </Button>
+                        <Button size="rg" :disabled="finalForm.processing" @click="finishToPharmacy">
+                            {{ finalForm.processing ? 'Transmission…' : 'Terminer — envoyer à la Caisse' }}<ArrowRight class="h-4 w-4" />
+                        </Button>
+                    </div>
+                </section>
+
+                <div v-else class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <button type="button" :aria-pressed="financialMode === 'SELF'" :class="['relative rounded-md border p-5 text-start transition lg:p-6', financialMode === 'SELF' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('SELF')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'SELF'" /><Wallet class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Standard</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Tarif STANDARD, à la charge du patient.</span></button>
                     <button type="button" :disabled="!capabilities.can_use_mutual" :aria-pressed="financialMode === 'MUTUAL'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'MUTUAL' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('MUTUAL')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'MUTUAL'" /><ShieldCheck class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Mutuelle</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Organisme existant et tarif MUTUAL du site.</span></button>
                     <button type="button" :disabled="!capabilities.can_use_staff || !capabilities.can_link_staff" :aria-pressed="financialMode === 'STAFF'" :class="['relative rounded-md border p-5 text-start transition disabled:cursor-not-allowed disabled:opacity-50 lg:p-6', financialMode === 'STAFF' ? 'border-primary bg-primary/5 ring-1 ring-ring/25 ' : 'border-border hover:border-primary/40']" @click="selectFinancialMode('STAFF')"><CircleCheck class="h-5 w-5 absolute end-4 top-4 text-primary" v-if="financialMode === 'STAFF'" /><Briefcase class="h-6 w-6 text-primary" /><span class="mt-3 block text-sm font-bold text-foreground">Personnel</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">Employé RH existant et règles Personnel serveur.</span></button>
@@ -1119,8 +1368,12 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <FormError v-if="firstError(financialErrors, 'financial_mode')" class="mt-4">{{ firstError(financialErrors, 'financial_mode') }}</FormError>
-                <div class="mt-6 flex justify-end border-t border-border pt-5"><Button size="lg" :disabled="financialLoading || (financialMode === 'MUTUAL' && (!mutualForm.mutual_organization_uuid || !mutualForm.employer_name)) || (financialMode === 'STAFF' && !selectedEmployee) || (financialMode === 'PARTNER' && !partnerForm.partner_organization_uuid)" @click="configureFinancialContext">{{ financialLoading ? 'Calcul Laravel…' : 'Calculer la prise en charge' }}<ArrowRight class="h-4 w-4" /></Button></div>
+                <FormError v-if="! pharmacyOnlyCart && firstError(financialErrors, 'financial_mode')" class="mt-4">{{ firstError(financialErrors, 'financial_mode') }}</FormError>
+                <FormError v-if="pharmacyOnlyCart && firstError(finalForm.errors, 'catalog_lines')" class="mt-4">{{ firstError(finalForm.errors, 'catalog_lines') }}</FormError>
+                <!-- Masqué pour un panier de médicaments seuls : ce bouton
+                     calcule une couverture sur les prestations, et il n'y en
+                     a aucune. La suite de ce passage est juste au-dessus. -->
+                <div v-if="! pharmacyOnlyCart" class="mt-6 flex justify-end border-t border-border pt-5"><Button size="lg" :disabled="financialLoading || (financialMode === 'MUTUAL' && (!mutualForm.mutual_organization_uuid || !mutualForm.employer_name)) || (financialMode === 'STAFF' && !selectedEmployee) || (financialMode === 'PARTNER' && !partnerForm.partner_organization_uuid)" @click="configureFinancialContext">{{ financialLoading ? 'Calcul Laravel…' : 'Calculer la prise en charge' }}<ArrowRight class="h-4 w-4" /></Button></div>
             </CardBody>
 
             <CardBody v-else-if="currentStep === 6" class="!p-5 lg:!p-7">

@@ -603,12 +603,22 @@ class MedicineDossierPresenter
                         ->orderBy('name')
                         ->get(['uuid', 'code', 'name'])
                     : [],
+                // ADR-106 — la famille accompagne chaque examen : l'écran
+                // sépare ECG et Échographie sans jamais lire un code. Un
+                // examen non classé revient à `null` et reste visible dans
+                // son propre groupe, plutôt que d'être rangé au hasard.
                 'imaging_catalog' => $isActive && $user->can('imaging_orders.create')
                     ? CatalogItem::query()
                         ->where('type', CatalogItemType::Service->value)
                         ->where('module', CatalogModule::Imaging->value)
                         ->orderBy('name')
-                        ->get(['uuid', 'code', 'name'])
+                        ->get(['uuid', 'code', 'name', 'imaging_modality'])
+                        ->map(fn (CatalogItem $item) => [
+                            'uuid' => $item->uuid,
+                            'code' => $item->code,
+                            'name' => $item->name,
+                            'modality' => $item->imaging_modality?->value,
+                        ])
                     : [],
                 'surgery_catalog' => $isActive && $user->can('surgery.request')
                     ? CatalogItem::query()
@@ -825,14 +835,14 @@ class MedicineDossierPresenter
             ->with('items')
             ->get()
             ->flatMap(fn (LabRequest $request) => $request->items->map(
-                fn ($item): string => trim($item->catalog_item_name_snapshot.($item->result_value ? ' : '.$item->result_value : ' — en attente')),
+                fn ($item): string => $this->paraclinicalLine($item->catalog_item_name_snapshot, $item->result_value),
             ))
             ->merge($consultation->imagingRequests()
                 ->whereNull('cancelled_at')
                 ->with('items')
                 ->get()
                 ->flatMap(fn (ImagingRequest $request) => $request->items->map(
-                    fn ($item): string => trim($item->catalog_item_name_snapshot.($item->result_value ? ' : '.$item->result_value : ' — en attente')),
+                    fn ($item): string => $this->paraclinicalLine($item->catalog_item_name_snapshot, $item->result_value),
                 )))
             ->implode("\n");
 
@@ -865,13 +875,68 @@ class MedicineDossierPresenter
      * The rich-text fields reach a printable letter as prose, not markup:
      * the referral is read on paper by someone with no browser.
      */
+    /**
+     * Une ligne de résultat paraclinique, en texte.
+     *
+     * Un compte rendu d'imagerie est saisi en éditeur riche et stocké en HTML
+     * (ADR-070) ; cette ligne rejoint un `<textarea>`, où le balisage
+     * s'affiche tel quel. Le préremplissage montrait donc au médecin
+     * « UTERUS<p>• Orientation… </p><p>• Volume… » — et c'est ce texte-là
+     * qui serait parti au service d'accueil.
+     */
+    private function paraclinicalLine(string $name, ?string $result): string
+    {
+        $text = $this->toPlainText($result);
+
+        if ($text === null) {
+            return trim($name).' — en attente';
+        }
+
+        // Un compte rendu tient sur plusieurs lignes : il est présenté sous
+        // son examen plutôt que collé derrière, sinon la première ligne
+        // absorbe le nom et les suivantes flottent sans rattachement.
+        return str_contains($text, "\n")
+            ? trim($name)." :\n".$text
+            : trim($name).' : '.$text;
+    }
+
+    /**
+     * Du HTML de l'éditeur riche vers du texte lisible.
+     *
+     * Seuls `</p>` et `<br>` produisaient un retour à la ligne : une liste à
+     * puces ou des titres se retrouvaient collés en une seule phrase. Chaque
+     * fin de bloc en produit un désormais, et les lignes vides consécutives
+     * sont réduites — un compte rendu doit rester relisible, pas fidèle à
+     * une mise en page qu'un champ de texte ne rend pas.
+     */
     private function toPlainText(?string $html): ?string
     {
         if ($html === null) {
             return null;
         }
 
-        $text = trim(html_entity_decode(strip_tags(str_replace(['</p>', '<br>', '<br/>', '<br />'], "\n", $html)), ENT_QUOTES | ENT_HTML5));
+        $withBreaks = preg_replace(
+            [
+                '/<br\s*\/?>/i',
+                // L'ouverture compte autant que la fermeture : un compte rendu
+                // écrit « UTERUS<p>• Orientation… » sans fermer avant, et seule
+                // la fermeture cassant la ligne, les deux restaient collés.
+                '/<(p|div|li|h[1-6]|tr|blockquote)(\s[^>]*)?>/i',
+                '/<\/(p|div|li|h[1-6]|tr|blockquote)\s*>/i',
+            ],
+            "\n",
+            $html,
+        ) ?? $html;
+
+        $text = html_entity_decode(strip_tags($withBreaks), ENT_QUOTES | ENT_HTML5);
+        // Espaces insécables compris : l'éditeur en produit, et `trim()` seul
+        // les laisse en début de ligne.
+        $text = preg_replace('/[ \t\x{00A0}]+/u', ' ', $text) ?? $text;
+        $text = preg_replace('/ *\n */', "\n", $text) ?? $text;
+        // Une ligne vide sur deux : ouverture *et* fermeture d'un même bloc
+        // cassent la ligne, et un champ de texte n'a pas d'interlignage à
+        // restituer. Le compte rendu se lit d'un bloc, ligne à ligne.
+        $text = trim(preg_replace('/\n{2,}/', "\n", $text) ?? $text);
 
         return $text !== '' ? $text : null;
     }

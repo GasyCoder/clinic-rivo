@@ -60,13 +60,20 @@ class DevelopmentMedicineStockSeederTest extends TestCase
             'active_key' => 'OPEN',
         ]);
 
-        $pharmacist = User::query()->sole();
-        $this->actingAs($pharmacist)
-            ->get('/pharmacy/counter-sales/create')
+        // ADR-104 — le catalogue vendable se lit désormais depuis le rayon
+        // Pharmacie du panier de la Réception : le médicament en rupture
+        // reste exclu, comme sur l'écran comptoir qu'il remplace.
+        $receptionist = User::factory()->create([
+            'role_id' => Role::query()->where('code', 'RECEPTION')->value('id'),
+        ]);
+
+        $this->actingAs($receptionist)
+            ->get('/reception/patients')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Pharmacy/CounterSales/Create')
-                ->has('medicines', 17));
+                ->component('Reception/Create')
+                ->where('capabilities.can_sell_medicines', true)
+                ->has('pharmacyCatalog', 17));
     }
 
     public function test_it_refuses_to_run_in_production(): void

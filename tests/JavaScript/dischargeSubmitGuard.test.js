@@ -22,11 +22,15 @@ const canSubmit = (() => {
     const expression = form.slice(bodyStart, form.indexOf('\n\n', bodyStart)).trim().replace(/\);$/, '');
 
     // eslint-disable-next-line no-new-func
-    const run = new Function('props', 'selectedDiagnoses', `return (${expression});`);
+    const run = new Function('props', 'selectedDiagnoses', 'isDeceased', `return (${expression});`);
 
-    return ({ requiresDiagnosis = true, diagnoses = 0, patientCondition = '', disabled = false }) => run(
-        { disabled, requiresDiagnosis, form: { processing: false, patient_condition: patientCondition } },
+    return ({ requiresDiagnosis = true, diagnoses = 0, patientCondition = '', disabled = false, type = 'NORMAL' }) => run(
+        { disabled, requiresDiagnosis, form: { processing: false, type, patient_condition: patientCondition } },
         { value: { size: diagnoses } },
+        // Le composant le dérive du type ; le harnais fait de même plutôt
+        // que de le poser à la main, sinon le test pourrait rester vert sur
+        // une règle que l'écran n'applique plus.
+        { value: type === 'DECEASED' },
     );
 })();
 
@@ -42,9 +46,25 @@ test('consultation ordinaire : un diagnostic coché débloque la sortie', () => 
     assert.equal(canSubmit({ requiresDiagnosis: true, diagnoses: 1, patientCondition: 'Guéri' }), true);
 });
 
-test('l’état du patient reste exigé dans tous les cas — CDC §33.1', () => {
+test('l’état du patient reste exigé pour une sortie ordinaire — CDC §33.1', () => {
     assert.equal(canSubmit({ requiresDiagnosis: false, diagnoses: 0, patientCondition: '' }), false);
     assert.equal(canSubmit({ requiresDiagnosis: true, diagnoses: 1, patientCondition: '' }), false);
+});
+
+/**
+ * ADR-107 — pour un décès, l'état du patient n'est pas demandé : le type de
+ * sortie *est* la réponse, et le serveur la pose. Continuer à l'exiger
+ * ici laisserait le bouton grisé sur une case qui n'existe plus à l'écran
+ * — exactement le défaut qu'avait corrigé l'ADR-094.
+ */
+test('un décès ne réclame pas un état du patient que l’écran ne demande plus', () => {
+    assert.equal(canSubmit({ type: 'DECEASED', requiresDiagnosis: false, patientCondition: '' }), true);
+});
+
+/** Le diagnostic, lui, garde sa règle : un décès ne l'exempte de rien. */
+test('un décès ne dispense pas du diagnostic quand il est dû', () => {
+    assert.equal(canSubmit({ type: 'DECEASED', requiresDiagnosis: true, diagnoses: 0, patientCondition: '' }), false);
+    assert.equal(canSubmit({ type: 'DECEASED', requiresDiagnosis: true, diagnoses: 1, patientCondition: '' }), true);
 });
 
 test('un formulaire en lecture seule ne transmet jamais', () => {

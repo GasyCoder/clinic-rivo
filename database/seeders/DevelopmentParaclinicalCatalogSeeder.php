@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AnalysisCatalog;
 use App\Models\CatalogItem;
@@ -15,28 +16,38 @@ use RuntimeException;
 
 class DevelopmentParaclinicalCatalogSeeder extends Seeder
 {
-    /** @var array<int, array{code: string, name: string, description: string}> */
+    /**
+     * ADR-106 — la famille accompagne chaque examen d'imagerie dès sa
+     * création. La migration classe ce qui existe déjà ; sans cette
+     * colonne ici, un site neuf repartirait avec vingt examens non classés.
+     *
+     * Le classement est explicite, ligne par ligne : un Holter est
+     * cardiologique et un Doppler est une échographie, ce qu'aucune règle
+     * sur le code ne dirait.
+     *
+     * @var array<int, array{code: string, name: string, modality: ImagingModality, description: string}>
+     */
     private const IMAGING = [
-        ['code' => 'ECG', 'name' => 'Électrocardiogramme (ECG)', 'description' => 'ECG standard 12 dérivations au repos.'],
-        ['code' => 'ECG-EFFORT', 'name' => 'Électrocardiogramme d’effort', 'description' => 'Enregistrement électrocardiographique pendant un effort contrôlé.'],
-        ['code' => 'HOLTER-ECG', 'name' => 'Holter ECG', 'description' => 'Enregistrement ambulatoire prolongé du rythme cardiaque.'],
-        ['code' => 'ECHO-CARD', 'name' => 'Échocardiographie', 'description' => 'Exploration échographique du cœur.'],
-        ['code' => 'ECHO-ABD', 'name' => 'Échographie abdominale', 'description' => 'Exploration échographique abdominale.'],
-        ['code' => 'ECHO-ABD-PEL', 'name' => 'Échographie abdomino-pelvienne', 'description' => 'Exploration échographique abdominale et pelvienne.'],
-        ['code' => 'ECHO-PEL', 'name' => 'Échographie pelvienne', 'description' => 'Exploration échographique pelvienne.'],
-        ['code' => 'ECHO-OBS', 'name' => 'Échographie obstétricale', 'description' => 'Échographie de suivi de grossesse.'],
-        ['code' => 'ECHO-OBS-T1', 'name' => 'Échographie obstétricale du 1er trimestre', 'description' => 'Évaluation échographique du premier trimestre.'],
-        ['code' => 'ECHO-OBS-T2', 'name' => 'Échographie obstétricale du 2e trimestre', 'description' => 'Évaluation échographique du deuxième trimestre.'],
-        ['code' => 'ECHO-OBS-T3', 'name' => 'Échographie obstétricale du 3e trimestre', 'description' => 'Évaluation échographique du troisième trimestre.'],
-        ['code' => 'ECHO-MORPHO', 'name' => 'Échographie morphologique fœtale', 'description' => 'Étude morphologique échographique du fœtus.'],
-        ['code' => 'ECHO-RENAL', 'name' => 'Échographie rénale et vésicale', 'description' => 'Exploration des reins et de la vessie.'],
-        ['code' => 'ECHO-PROSTATE', 'name' => 'Échographie prostatique', 'description' => 'Exploration échographique de la prostate.'],
-        ['code' => 'ECHO-THYROIDE', 'name' => 'Échographie thyroïdienne', 'description' => 'Exploration échographique de la thyroïde.'],
-        ['code' => 'ECHO-MAMMAIRE', 'name' => 'Échographie mammaire', 'description' => 'Exploration échographique mammaire.'],
-        ['code' => 'ECHO-SCROTALE', 'name' => 'Échographie scrotale', 'description' => 'Exploration échographique scrotale et testiculaire.'],
-        ['code' => 'ECHO-PARTIES-MOLLES', 'name' => 'Échographie des parties molles', 'description' => 'Exploration échographique ciblée des tissus mous.'],
-        ['code' => 'DOPPLER-MI-ART', 'name' => 'Écho-Doppler artériel des membres inférieurs', 'description' => 'Exploration Doppler artérielle des membres inférieurs.'],
-        ['code' => 'DOPPLER-MI-VEIN', 'name' => 'Écho-Doppler veineux des membres inférieurs', 'description' => 'Exploration Doppler veineuse des membres inférieurs.'],
+        ['code' => 'ECG', 'name' => 'Électrocardiogramme (ECG)', 'modality' => ImagingModality::Cardiology, 'description' => 'ECG standard 12 dérivations au repos.'],
+        ['code' => 'ECG-EFFORT', 'name' => 'Électrocardiogramme d’effort', 'modality' => ImagingModality::Cardiology, 'description' => 'Enregistrement électrocardiographique pendant un effort contrôlé.'],
+        ['code' => 'HOLTER-ECG', 'name' => 'Holter ECG', 'modality' => ImagingModality::Cardiology, 'description' => 'Enregistrement ambulatoire prolongé du rythme cardiaque.'],
+        ['code' => 'ECHO-CARD', 'name' => 'Échocardiographie', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique du cœur.'],
+        ['code' => 'ECHO-ABD', 'name' => 'Échographie abdominale', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique abdominale.'],
+        ['code' => 'ECHO-ABD-PEL', 'name' => 'Échographie abdomino-pelvienne', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique abdominale et pelvienne.'],
+        ['code' => 'ECHO-PEL', 'name' => 'Échographie pelvienne', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique pelvienne.'],
+        ['code' => 'ECHO-OBS', 'name' => 'Échographie obstétricale', 'modality' => ImagingModality::Ultrasound, 'description' => 'Échographie de suivi de grossesse.'],
+        ['code' => 'ECHO-OBS-T1', 'name' => 'Échographie obstétricale du 1er trimestre', 'modality' => ImagingModality::Ultrasound, 'description' => 'Évaluation échographique du premier trimestre.'],
+        ['code' => 'ECHO-OBS-T2', 'name' => 'Échographie obstétricale du 2e trimestre', 'modality' => ImagingModality::Ultrasound, 'description' => 'Évaluation échographique du deuxième trimestre.'],
+        ['code' => 'ECHO-OBS-T3', 'name' => 'Échographie obstétricale du 3e trimestre', 'modality' => ImagingModality::Ultrasound, 'description' => 'Évaluation échographique du troisième trimestre.'],
+        ['code' => 'ECHO-MORPHO', 'name' => 'Échographie morphologique fœtale', 'modality' => ImagingModality::Ultrasound, 'description' => 'Étude morphologique échographique du fœtus.'],
+        ['code' => 'ECHO-RENAL', 'name' => 'Échographie rénale et vésicale', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration des reins et de la vessie.'],
+        ['code' => 'ECHO-PROSTATE', 'name' => 'Échographie prostatique', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique de la prostate.'],
+        ['code' => 'ECHO-THYROIDE', 'name' => 'Échographie thyroïdienne', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique de la thyroïde.'],
+        ['code' => 'ECHO-MAMMAIRE', 'name' => 'Échographie mammaire', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique mammaire.'],
+        ['code' => 'ECHO-SCROTALE', 'name' => 'Échographie scrotale', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique scrotale et testiculaire.'],
+        ['code' => 'ECHO-PARTIES-MOLLES', 'name' => 'Échographie des parties molles', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration échographique ciblée des tissus mous.'],
+        ['code' => 'DOPPLER-MI-ART', 'name' => 'Écho-Doppler artériel des membres inférieurs', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration Doppler artérielle des membres inférieurs.'],
+        ['code' => 'DOPPLER-MI-VEIN', 'name' => 'Écho-Doppler veineux des membres inférieurs', 'modality' => ImagingModality::Ultrasound, 'description' => 'Exploration Doppler veineuse des membres inférieurs.'],
     ];
 
     /** @var array<int, array{code: string, name: string, description: string}> */
@@ -191,6 +202,7 @@ class DevelopmentParaclinicalCatalogSeeder extends Seeder
             'reception_routing_mode' => $module === CatalogModule::Laboratory
                 ? ReceptionRoutingMode::LaboratoryDirect
                 : null,
+            'imaging_modality' => $service['modality'] ?? null,
             'clinician_orderable' => true,
             'description' => $service['description'], 'created_by' => $actor->id, 'updated_by' => $actor->id,
         ]);

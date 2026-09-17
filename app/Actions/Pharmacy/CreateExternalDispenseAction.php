@@ -7,6 +7,7 @@ use App\Enums\CatalogModule;
 use App\Enums\MedicineStockReservationStatus;
 use App\Enums\PharmacyDispenseStatus;
 use App\Enums\PharmacyDispenseType;
+use App\Models\Episode;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MedicineStockReservation;
@@ -25,10 +26,16 @@ class CreateExternalDispenseAction
         private readonly MedicineStockAlertService $alerts,
     ) {}
 
-    /** @param array<string, mixed> $data */
-    public function execute(array $data, User $actor): PharmacyDispense
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  Episode|null  $episode  ADR-104 — une vente prise à la
+     *   Réception appartient au passage du patient. La colonne existait
+     *   déjà nullable : rattacher ne demande aucune migration, et une
+     *   vente sans passage reste lisible telle qu'elle a été enregistrée.
+     */
+    public function execute(array $data, User $actor, ?Episode $episode = null): PharmacyDispense
     {
-        return DB::transaction(function () use ($data, $actor): PharmacyDispense {
+        return DB::transaction(function () use ($data, $actor, $episode): PharmacyDispense {
             $requested = collect($data['lines'])->keyBy('medicine_uuid');
             $medicines = Medicine::query()
                 ->whereIn('uuid', $requested->keys())
@@ -52,6 +59,8 @@ class CreateExternalDispenseAction
 
             $dispense = PharmacyDispense::query()->create([
                 'type' => PharmacyDispenseType::External,
+                'patient_id' => $episode?->patient_id,
+                'episode_id' => $episode?->getKey(),
                 'customer_name' => filled($data['customer_name'] ?? null) ? trim($data['customer_name']) : null,
                 'customer_phone' => filled($data['customer_phone'] ?? null) ? trim($data['customer_phone']) : null,
                 'external_prescriber' => filled($data['external_prescriber'] ?? null)

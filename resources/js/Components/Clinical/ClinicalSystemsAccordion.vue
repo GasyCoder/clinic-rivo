@@ -2,7 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { cn } from '@/lib/cn';
 
 /**
  * The nine body systems as a horizontal slider: one card per system, swiped
@@ -33,7 +35,7 @@ const OPTIONS = [
 const DOT = {
     NORMAL: 'bg-emerald-500',
     ABNORMAL: 'bg-amber-500',
-    NOT_EXAMINED: 'bg-gray-300 dark:bg-gray-700',
+    NOT_EXAMINED: 'bg-muted-foreground/40',
 };
 
 const track = ref(null);
@@ -142,23 +144,23 @@ const setPerformed = (value) => {
 </script>
 
 <template>
-    <section class="rounded-lg border border-gray-200 p-4 dark:border-gray-900 sm:p-5">
+    <section class="rounded-lg border border-border p-4 sm:p-5">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Examen par appareil</h3>
-            <p v-if="performed" class="text-[11px] text-slate-400">
+            <h3 class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Examen par appareil</h3>
+            <p v-if="performed" class="text-[11px] text-muted-foreground">
                 {{ examinedCount }}/{{ systems.length }} examiné(s)<template v-if="abnormalCount"> · {{ abnormalCount }} anomalie(s)</template>
             </p>
         </div>
 
         <div class="mt-2 flex flex-wrap items-center gap-2.5">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Examen par appareil réalisé ?</span>
-            <span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950" role="radiogroup" aria-label="Un examen par appareil a-t-il été réalisé ?">
+            <span class="text-xs font-semibold text-foreground">Examen par appareil réalisé ?</span>
+            <span class="inline-flex rounded-md border border-border bg-card p-0.5" role="radiogroup" aria-label="Un examen par appareil a-t-il été réalisé ?">
                 <button
                     type="button"
                     role="radio"
                     :aria-checked="performed"
                     :disabled="disabled"
-                    :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', performed ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']"
+                    :class="['rounded px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50', performed ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
                     @click="setPerformed(true)"
                 >Oui</button>
                 <button
@@ -166,7 +168,7 @@ const setPerformed = (value) => {
                     role="radio"
                     :aria-checked="!performed"
                     :disabled="disabled"
-                    :class="['rounded px-3 py-1 text-xs font-semibold transition-colors', !performed ? 'bg-gray-200 text-slate-700 dark:bg-gray-800 dark:text-white' : 'text-slate-500 hover:bg-gray-50 dark:hover:bg-gray-1000']"
+                    :class="['rounded px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50', !performed ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
                     @click="setPerformed(false)"
                 >Non</button>
             </span>
@@ -175,12 +177,12 @@ const setPerformed = (value) => {
         <!-- Dit explicitement pour que « Non » ne se lise jamais « tout est
              normal » : aucun appareil n'a été examiné, et c'est ce que le
              dossier montrera. -->
-        <p v-if="!performed" class="mt-3 text-[11px] leading-4 text-slate-400">
+        <p v-if="!performed" class="mt-3 text-[11px] leading-4 text-muted-foreground">
             Aucun appareil examiné pour cette consultation. Les neuf appareils resteront « Non examiné » — ce n’est pas un examen normal.
         </p>
 
         <template v-else>
-            <p class="mt-2 text-[11px] leading-4 text-slate-400">
+            <p class="mt-2 text-[11px] leading-4 text-muted-foreground">
                 Chaque appareil reste « Non examiné » tant que vous ne l’avez pas renseigné. Une absence de saisie n’est jamais un examen normal.
             </p>
 
@@ -196,8 +198,8 @@ const setPerformed = (value) => {
                     :class="[
                         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
                         current === index
-                            ? 'border-primary-400 bg-primary-50 text-primary-700 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-300'
-                            : 'border-gray-200 text-slate-500 hover:border-gray-300 dark:border-gray-800 dark:text-slate-400',
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
                     ]"
                     @click="goTo(index)"
                 >
@@ -225,15 +227,15 @@ const setPerformed = (value) => {
                                 ? 'border-amber-300 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/10'
                                 : system.status === 'NORMAL'
                                     ? 'border-emerald-200 bg-emerald-50/30 dark:border-emerald-900 dark:bg-emerald-950/10'
-                                    : 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950',
+                                    : 'border-border bg-card',
                         ]"
                         :aria-label="`${system.label}, ${index + 1} sur ${systems.length}`"
                     >
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
-                                <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">{{ index + 1 }} / {{ systems.length }}</p>
-                                <h4 class="mt-0.5 truncate text-sm font-bold text-slate-700 dark:text-white">{{ system.label }}</h4>
-                                <p v-if="system.hint" class="mt-0.5 text-[11px] leading-4 text-slate-400">{{ system.hint }}</p>
+                                <p class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{{ index + 1 }} / {{ systems.length }}</p>
+                                <h4 class="mt-0.5 truncate text-sm font-bold text-foreground">{{ system.label }}</h4>
+                                <p v-if="system.hint" class="mt-0.5 text-[11px] leading-4 text-muted-foreground">{{ system.hint }}</p>
                             </div>
                             <span :class="['mt-1 h-2 w-2 shrink-0 rounded-full', DOT[system.status] ?? DOT.NOT_EXAMINED]" />
                         </div>
@@ -249,18 +251,17 @@ const setPerformed = (value) => {
                         />
 
                         <div v-if="system.status === 'ABNORMAL'" class="mt-3">
-                            <label :for="`findings_${system.system_code}`" class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">
+                            <label :for="`findings_${system.system_code}`" class="mb-1 block text-[11px] font-bold text-foreground">
                                 Constatations <span class="text-red-500">*</span>
                             </label>
-                            <textarea
+                            <Textarea
                                 :id="`findings_${system.system_code}`"
-                                :value="system.findings ?? ''"
+                                :model-value="system.findings ?? ''"
                                 :disabled="disabled"
                                 rows="3"
                                 maxlength="2000"
-                                class="block w-full resize-y rounded border border-gray-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white"
                                 placeholder="Décrivez l’anomalie constatée…"
-                                @input="update(system.system_code, { findings: $event.target.value })"
+                                @update:model-value="update(system.system_code, { findings: $event })"
                             />
                             <FormError :message="errors[system.system_code]" />
                         </div>
@@ -270,19 +271,19 @@ const setPerformed = (value) => {
                 <div class="mt-2 flex items-center justify-between">
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 transition-colors hover:border-gray-300 disabled:opacity-30 dark:border-gray-800 dark:text-slate-400"
+                        class="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-30"
                         :disabled="current === 0"
                         aria-label="Appareil précédent"
                         @click="goTo(current - 1)"
-                    ><Icon class="text-sm" name="chevron-left" />Précédent</button>
-                    <span class="text-[11px] tabular-nums text-slate-400">{{ current + 1 }} / {{ systems.length }}</span>
+                    ><ChevronLeft class="h-3.5 w-3.5" />Précédent</button>
+                    <span class="text-[11px] tabular-nums text-muted-foreground">{{ current + 1 }} / {{ systems.length }}</span>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 transition-colors hover:border-gray-300 disabled:opacity-30 dark:border-gray-800 dark:text-slate-400"
+                        class="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-30"
                         :disabled="current === systems.length - 1"
                         aria-label="Appareil suivant"
                         @click="goTo(current + 1)"
-                    >Suivant<Icon class="text-sm" name="chevron-right" /></button>
+                    >Suivant<ChevronRight class="h-3.5 w-3.5" /></button>
                 </div>
             </div>
         </template>

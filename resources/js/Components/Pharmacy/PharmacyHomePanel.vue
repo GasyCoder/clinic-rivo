@@ -23,14 +23,6 @@ const props = defineProps({
 // is shown only to accounts allowed to open the screen behind it.
 const actions = computed(() => [
     {
-        show: props.capabilities.can_create_counter_sale,
-        href: '/pharmacy/counter-sales/create',
-        icon: 'cart',
-        title: 'Vente comptoir',
-        text: 'Servir un client venu de l’extérieur.',
-        tone: 'emerald',
-    },
-    {
         show: props.capabilities.can_view_prescriptions,
         href: '/pharmacy/dispenses',
         icon: 'file-docs',

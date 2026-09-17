@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ReceptionPatientStep;
+use App\Http\Controllers\DeathRegisterController;
 use App\Http\Controllers\Administration\AnalysisCatalogController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\CashRegisterController;
@@ -40,7 +41,6 @@ use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\Pharmacy\CareConsumableController as PharmacyCareConsumableController;
-use App\Http\Controllers\Pharmacy\CounterSaleController as PharmacyCounterSaleController;
 use App\Http\Controllers\Pharmacy\DashboardController as PharmacyDashboardController;
 use App\Http\Controllers\Pharmacy\DispenseController as PharmacyDispenseController;
 use App\Http\Controllers\Pharmacy\GoodsReceiptController;
@@ -424,10 +424,15 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/pharmacy/stock/{medicine}', [PharmacyStockController::class, 'show'])
         ->name('pharmacy.stock.show')->middleware('can:stock.view');
 
-    Route::get('/pharmacy/counter-sales/create', [PharmacyCounterSaleController::class, 'create'])
-        ->name('pharmacy.counter-sales.create')->middleware('can:pharmacy.counter_sales.create');
-    Route::post('/pharmacy/counter-sales', [PharmacyCounterSaleController::class, 'store'])
-        ->name('pharmacy.counter-sales.store')->middleware('can:pharmacy.counter_sales.create');
+    // ADR-104 — la vente comptoir anonyme est retirée : toute vente de
+    // médicament est prise à la Réception, sur un dossier patient et un
+    // passage. L'URL reste valide et mène là où le travail se fait
+    // désormais ; les ventes déjà enregistrées restent lisibles.
+    Route::get('/pharmacy/counter-sales/create', fn () => redirect()
+        ->route('reception.patients.create')
+        ->with('status', 'La vente de médicaments se prend désormais à la Réception, sur un dossier patient.'))
+        ->name('pharmacy.counter-sales.create')
+        ->middleware('can:pharmacy.counter_sales.create');
 
     Route::get('/pharmacy/dispenses', [PharmacyDispenseController::class, 'index'])
         ->name('pharmacy.dispenses.index')->middleware('can:prescriptions.view');
@@ -756,6 +761,13 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // précise : `laboratory_orders.view` suffit à entrer, et chaque famille
     // est ensuite filtrée par son propre droit dans le contrôleur.
     Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:paraclinical_requests.view');
+
+    // ADR-107 — le registre des décès. Voir le registre et signer l'acte
+    // sont deux droits distincts : suivre les passages concernés n'est pas
+    // établir un document médico-légal.
+    Route::get('/deces', [DeathRegisterController::class, 'index'])->name('deaths.index')->middleware('can:death_records.view');
+    Route::post('/deces/{episode}/acte', [DeathRegisterController::class, 'store'])->name('deaths.store')->middleware('can:death_records.create');
+    Route::get('/deces/{episode}/acte/impression', [DeathRegisterController::class, 'print'])->name('deaths.print')->middleware('can:death_records.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');
     Route::get('/medicine/orientations/{episodeOrientation}/{step}', [MedicineController::class, 'show'])
         // 'diagnostic' et 'decision' restent acceptées pour ne pas casser un

@@ -40,16 +40,35 @@ class StoreMedicalDischargeRequest extends FormRequest
 
     public function rules(): array
     {
+        // ADR-107 — ce qu'on ne demande pas à une sortie pour décès.
+        //
+        // État du patient, traitement de sortie, conseils de surveillance et
+        // rendez-vous de contrôle s'adressent à quelqu'un qui rentre chez
+        // lui. Les proposer ici — « Guéri », « Suivre le traitement
+        // jusqu'au bout », « Contrôle dans 7 jours » — n'est pas seulement
+        // absurde à lire : ce sont des instructions qui n'ont pas de
+        // destinataire, et qui s'imprimeraient sur le document remis à la
+        // famille.
+        $deceased = $this->input('type') === MedicalDischargeType::Deceased->value;
+
         return [
             'type' => ['required', Rule::enum(MedicalDischargeType::class)],
             'final_diagnosis' => [
                 Rule::requiredIf(fn (): bool => $this->requiresFinalDiagnosis()),
                 'nullable', 'string', 'max:5000',
             ],
-            'patient_condition' => ['required', 'string', 'max:3000'],
-            'discharge_prescription' => ['nullable', 'string', 'max:5000'],
-            'recommendations' => ['nullable', 'string', 'max:5000'],
-            'follow_up_at' => ['nullable', 'date', 'after_or_equal:discharged_at'],
+            // L'état n'est pas absent, il est connu : le type de sortie
+            // *est* la réponse. Il est donc posé par le serveur plutôt que
+            // choisi dans une liste qui n'a pas de case juste.
+            'patient_condition' => [$deceased ? 'nullable' : 'required', 'string', 'max:3000'],
+            // `prohibited` remplace le jeu de règles entier, il ne s'y ajoute
+            // pas : laisser `string` à côté le faisait échouer sur le `null`
+            // que le formulaire envoie pour un champ vide, et le médecin
+            // lisait « doit être une chaîne de caractères » sur un champ
+            // qu'on venait justement de lui retirer.
+            'discharge_prescription' => $deceased ? ['prohibited'] : ['nullable', 'string', 'max:5000'],
+            'recommendations' => $deceased ? ['prohibited'] : ['nullable', 'string', 'max:5000'],
+            'follow_up_at' => $deceased ? ['prohibited'] : ['nullable', 'date', 'after_or_equal:discharged_at'],
             'observations' => ['nullable', 'string', 'max:5000'],
             'transfer_destination' => [
                 Rule::requiredIf($this->input('type') === MedicalDischargeType::Transfer->value),
@@ -76,6 +95,11 @@ class StoreMedicalDischargeRequest extends FormRequest
         return [
             'final_diagnosis.required' => 'Le diagnostic final est obligatoire pour prononcer la sortie.',
             'patient_condition.required' => 'Indiquez l’état du patient au moment de la sortie.',
+            // Un payload forgé reçoit une erreur nommée plutôt que d'être
+            // ignoré en silence : l'interface n'est jamais la seule garde.
+            'discharge_prescription.prohibited' => 'Une sortie pour décès ne porte aucun traitement de sortie.',
+            'recommendations.prohibited' => 'Une sortie pour décès ne porte aucun conseil de surveillance.',
+            'follow_up_at.prohibited' => 'Une sortie pour décès ne porte aucun rendez-vous de contrôle.',
             'transfer_destination.required' => 'Indiquez l’établissement ou le service de destination.',
             'death_occurred_at.required' => 'Indiquez la date et l’heure du décès.',
             'death_place.required' => 'Indiquez le lieu du décès.',

@@ -33,6 +33,7 @@ use App\Enums\ConsultationOrientationType;
 use App\Enums\ConsultationStep;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\MedicalDischargeType;
 use App\Enums\PrescriptionStatus;
 use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
@@ -1092,7 +1093,18 @@ class MedicineController extends Controller
         EpisodeOrientation $episodeOrientation,
         RecordMedicalDischargeAction $action,
     ): RedirectResponse {
-        $action->execute($episodeOrientation, $request->validated(), $request->user());
+        $discharge = $action->execute($episodeOrientation, $request->validated(), $request->user());
+
+        // ADR-107 — un décès a une suite propre : l'acte de constatation.
+        // Renvoyer le médecin à l'étape de clôture le laisserait devant un
+        // dossier dont le travail restant n'est plus là. La consultation
+        // reste ouverte et ré-ouvrable : seule la destination change, jamais
+        // ce que la sortie a fait (ADR-084).
+        if ($discharge->type === MedicalDischargeType::Deceased
+            && $request->user()?->can('death_records.view')) {
+            return redirect()->route('deaths.index')
+                ->with('status', 'Décès prononcé. Établissez l’acte de constatation depuis ce registre.');
+        }
 
         return $this->backToStep(
             $request,

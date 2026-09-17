@@ -78,7 +78,10 @@ class ReceptionJourneyTest extends TestCase
                 ->where('estimateCatalog.2.module_label', 'Médecine')
                 ->where('estimateCatalog.2.routing_mode', ReceptionRoutingMode::MedicineDirect->value)
                 ->where('estimateCatalog.2.reception_ready', true)
-                ->where('capabilities.can_open_pharmacy_counter_sale', false)
+                // Sans les droits Pharmacie, le rayon reste vide : un
+                // écran ne propose jamais ce qu'il ne pourra pas vendre.
+                ->where('capabilities.can_sell_medicines', false)
+                ->has('pharmacyCatalog', 0)
                 ->where('capabilities.can_manage_catalog', false));
     }
 

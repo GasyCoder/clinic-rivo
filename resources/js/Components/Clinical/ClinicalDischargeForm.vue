@@ -1,11 +1,15 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import Button from '@/Components/UI/Button.vue';
+import Button from '@/Components/Shadcn/Button.vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import IconInput from '@/Components/UI/IconInput.vue';
-import Input from '@/Components/UI/Input.vue';
+import { CalendarDays, Check, CircleAlert, CircleCheck, CircleX, Plus, Share2, Square, SquareCheckBig, UserRound } from 'lucide-vue-next';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 
 /**
  * La sortie médicale — cochée, pas rédigée.
@@ -40,11 +44,11 @@ const props = defineProps({
 const emit = defineEmits(['submit', 'cancel']);
 
 const ICONS = {
-    NORMAL: 'check-circle',
-    TRANSFER: 'share',
-    AT_PATIENT_REQUEST: 'user',
-    MEDICAL_DECISION_REFUSAL: 'cross-circle',
-    DECEASED: 'alert-circle',
+    NORMAL: CircleCheck,
+    TRANSFER: Share2,
+    AT_PATIENT_REQUEST: UserRound,
+    MEDICAL_DECISION_REFUSAL: CircleX,
+    DECEASED: CircleAlert,
 };
 
 const SHORT_LABELS = {
@@ -195,32 +199,74 @@ const showPrecision = ref(Boolean(props.form.observations));
  * doit aucun (ADR-094). Ce garde-fou reproduit la règle serveur — il ne la
  * décide pas, et `StoreMedicalDischargeRequest` la revérifie toujours.
  */
+/**
+ * ADR-107 — une sortie pour décès ne demande ni état du patient, ni
+ * traitement de sortie, ni conseils, ni rendez-vous : le type de sortie dit
+ * déjà l'état, et les trois autres n'ont pas de destinataire. Le serveur
+ * refuse ces champs et pose l'état lui-même ; l'écran ne fait que refléter
+ * sa règle.
+ */
+const isDeceased = computed(() => props.form.type === 'DECEASED');
+
 const canSubmit = computed(() => !props.disabled
     && !props.form.processing
     && (!props.requiresDiagnosis || selectedDiagnoses.value.size > 0)
-    && Boolean(props.form.patient_condition));
+    && (isDeceased.value || Boolean(props.form.patient_condition)));
+
+/**
+ * Prononcer une sortie médicale est un acte définitif : le passage change de
+ * statut médical (ADR-035), et un décès ouvre en plus son acte de
+ * constatation (ADR-107). Même format que la demande d'examen et
+ * l'ordonnance (ADR-106) : on relit ce qui est prononcé, et on signe.
+ */
+const confirming = ref(false);
+const openConfirmation = () => { confirming.value = true; };
+const closeConfirmation = () => { confirming.value = false; };
+const confirmDischarge = () => {
+    confirming.value = false;
+    emit('submit');
+};
+
+/** Ce que la fenêtre relit : ce qui part réellement, jamais un résumé deviné. */
+const confirmationLines = computed(() => [
+    ['Type de sortie', props.types.find((type) => type.value === props.form.type)?.label],
+    ['Décision datée du', props.form.discharged_at ? formatHuman(props.form.discharged_at) : null],
+    ['Établissement destinataire', props.form.type === 'TRANSFER' ? props.form.transfer_destination : null],
+    ['État du patient', isDeceased.value ? 'Décédé' : props.form.patient_condition],
+    ['Diagnostic final', props.form.final_diagnosis],
+    ['Date et heure du décès', isDeceased.value && props.form.death_occurred_at ? formatHuman(props.form.death_occurred_at) : null],
+    ['Lieu du décès', isDeceased.value ? props.form.death_place : null],
+    ['Causes constatées', isDeceased.value ? props.form.death_causes : null],
+].filter(([, value]) => String(value ?? '').trim() !== '')
+    .map(([label, value]) => ({ label, value: String(value).trim() })));
 
 const chipClass = (active) => [
     'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60',
     active
-        ? 'border-primary-400 bg-primary-50 text-primary-700 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-300'
-        : 'border-gray-200 bg-white text-slate-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-slate-300',
+        ? 'border-primary bg-primary/10 text-primary'
+        : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground',
 ];
 const rowClass = (active) => [
     'flex w-full items-start gap-2.5 rounded-md border px-3 py-2 text-start text-xs transition-colors disabled:cursor-not-allowed',
     active
-        ? 'border-primary-300 bg-primary-50/50 text-slate-700 dark:border-primary-800 dark:bg-primary-950/20 dark:text-white'
-        : 'border-gray-200 text-slate-400 line-through decoration-slate-300 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-1000',
+        ? 'border-primary/50 bg-primary/5 text-foreground'
+        : 'border-border text-muted-foreground line-through decoration-muted-foreground/60 hover:bg-accent',
 ];
-const selectClass = 'block h-9 w-full appearance-none rounded border border-gray-200 bg-white px-3 pe-9 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
-const textareaClass = 'block w-full resize-y rounded border border-gray-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
-const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-white';
+// `Select` attend `{ value, label }`. « Autre établissement » reste une
+// option à part entière : c'est elle qui ouvre la saisie libre, et la retirer
+// empêcherait de référer vers un établissement hors du référentiel.
+const destinationOptions = computed(() => [
+    ...props.siteOptions.map((site) => ({ value: site.destination, label: site.destination })),
+    { value: 'OTHER', label: 'Autre établissement' },
+]);
+
+const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foreground';
 </script>
 
 <template>
-    <form class="space-y-5" @submit.prevent="canSubmit && emit('submit')">
+    <form class="space-y-5" @submit.prevent="canSubmit && openConfirmation()">
         <div class="flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-            <Icon class="mt-0.5 shrink-0 text-sm" name="alert-circle" />
+            <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             <p><strong>Acte médical définitif.</strong> La Réception / Caisse conserve la responsabilité de la sortie administrative.</p>
         </div>
 
@@ -236,11 +282,11 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                              form.type === option.value
                                  ? (option.value === 'DECEASED'
                                      ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-300'
-                                     : 'border-primary-500 bg-primary-50/60 text-primary-700 dark:border-primary-700 dark:bg-primary-950/20 dark:text-primary-300')
-                                 : 'border-gray-200 text-slate-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:text-slate-300 dark:hover:bg-gray-1000']"
+                                     : 'border-primary bg-primary/10 text-primary')
+                                 : 'border-border text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground']"
                 >
                     <input v-model="form.type" type="radio" name="discharge_type" :value="option.value" :disabled="disabled" class="sr-only" />
-                    <Icon class="shrink-0 text-base" :name="ICONS[option.value] ?? 'check-circle'" />
+                    <component :is="ICONS[option.value] ?? CircleCheck" class="h-4 w-4 shrink-0" />
                     <span class="truncate whitespace-nowrap font-semibold leading-tight">{{ SHORT_LABELS[option.value] ?? option.label }}</span>
                 </label>
             </div>
@@ -249,28 +295,31 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
 
         <!-- Date : maintenant par défaut -->
         <div class="flex flex-wrap items-center gap-2 text-xs">
-            <Icon class="text-sm text-slate-400" name="calendar" />
-            <span class="text-slate-500 dark:text-slate-400">Décision datée du</span>
-            <strong class="text-slate-700 dark:text-white">{{ formatHuman(form.discharged_at) }}</strong>
-            <button v-if="!editingDate" type="button" class="font-semibold text-primary-700 hover:underline disabled:opacity-50 dark:text-primary-300" :disabled="disabled" @click="editingDate = true">Changer</button>
-            <IconInput v-else id="discharged_at" v-model="form.discharged_at" class="w-56" icon="calendar" type="datetime-local" :disabled="disabled" />
+            <CalendarDays class="h-4 w-4 text-muted-foreground" />
+            <span class="text-muted-foreground">Décision datée du</span>
+            <strong class="text-foreground">{{ formatHuman(form.discharged_at) }}</strong>
+            <button v-if="!editingDate" type="button" class="font-semibold text-primary hover:underline disabled:opacity-50" :disabled="disabled" @click="editingDate = true">Changer</button>
+            <IconInput v-else id="discharged_at" v-model="form.discharged_at" class="w-56" :icon="CalendarDays" type="datetime-local" :disabled="disabled" />
             <FormError class="w-full" :message="form.errors.discharged_at" />
         </div>
 
         <!-- Transfert -->
-        <div v-if="form.type === 'TRANSFER'" class="max-w-md">
-            <label for="transfer_destination" :class="labelClass">Établissement / service destinataire <span class="text-red-500">*</span></label>
-            <span class="relative block">
-                <select id="transfer_destination" v-model="destinationChoice" :disabled="disabled" :class="selectClass">
-                    <option value="">Choisir…</option>
-                    <option v-for="site in siteOptions" :key="site.code" :value="site.destination">{{ site.destination }}</option>
-                    <option value="OTHER">Autre établissement</option>
-                </select>
-                <Icon class="pointer-events-none absolute inset-y-0 end-3 my-auto text-sm text-slate-400" name="chevron-down" />
-            </span>
+        <FormField
+            v-if="form.type === 'TRANSFER'"
+            label="Établissement / service destinataire"
+            required
+            class="max-w-md"
+            :error="form.errors.transfer_destination"
+        >
+            <Select
+                id="transfer_destination"
+                v-model="destinationChoice"
+                :options="destinationOptions"
+                :disabled="disabled"
+                placeholder="Choisir…"
+            />
             <Input v-if="destinationChoice === 'OTHER'" v-model="destinationOther" class="mt-2" :disabled="disabled" placeholder="Nom de l’établissement" />
-            <FormError :message="form.errors.transfer_destination" />
-        </div>
+        </FormField>
 
         <div class="grid gap-5 lg:grid-cols-2">
             <!-- Diagnostic final : cochés d'office -->
@@ -286,7 +335,7 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                         :class="rowClass(selectedDiagnoses.has(diagnosis.id))"
                         @click="toggleDiagnosis(diagnosis.id)"
                     >
-                        <Icon class="mt-px shrink-0 text-sm" :name="selectedDiagnoses.has(diagnosis.id) ? 'checkbox-checked' : 'checkbox'" />
+                        <component :is="selectedDiagnoses.has(diagnosis.id) ? SquareCheckBig : Square" class="mt-px h-4 w-4 shrink-0" />
                         <span class="font-semibold">{{ diagnosis.description }}</span>
                     </button>
                 </div>
@@ -302,8 +351,10 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                 <FormError :message="form.errors.final_diagnosis" />
             </div>
 
-            <!-- État du patient -->
-            <div>
+            <!-- État du patient. Pour un décès, ce n'est pas un choix :
+                 le type de sortie *est* la réponse, et aucune des cinq
+                 options ne conviendrait (ADR-107). -->
+            <div v-if="!isDeceased">
                 <ClinicalSegmentedChoice
                     v-model="form.patient_condition"
                     name="discharge_patient_condition"
@@ -313,31 +364,33 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                 />
                 <FormError :message="form.errors.patient_condition" />
             </div>
+            <div v-else>
+                <p :class="labelClass">État du patient à la sortie</p>
+                <p class="text-xs text-muted-foreground">Décédé — porté au dossier par le type de sortie.</p>
+            </div>
         </div>
 
         <!-- Décès : le certificat exige le détail -->
         <div v-if="form.type === 'DECEASED'" class="grid gap-3 rounded-md border border-red-100 bg-red-50/30 p-4 dark:border-red-950 dark:bg-red-950/10 md:grid-cols-2">
-            <div>
-                <label for="death_occurred_at" :class="labelClass">Date et heure du décès <span class="text-red-500">*</span></label>
-                <IconInput id="death_occurred_at" v-model="form.death_occurred_at" icon="calendar" type="datetime-local" :disabled="disabled" />
-                <FormError :message="form.errors.death_occurred_at" />
-            </div>
-            <div>
-                <label for="death_place" :class="labelClass">Lieu du décès <span class="text-red-500">*</span></label>
+            <FormField label="Date et heure du décès" required :error="form.errors.death_occurred_at">
+                <IconInput id="death_occurred_at" v-model="form.death_occurred_at" :icon="CalendarDays" type="datetime-local" :disabled="disabled" />
+            </FormField>
+            <FormField label="Lieu du décès" required :error="form.errors.death_place">
                 <Input id="death_place" v-model="form.death_place" :disabled="disabled" />
-                <FormError :message="form.errors.death_place" />
-            </div>
-            <div class="md:col-span-2">
-                <label for="death_causes" :class="labelClass">Causes constatées <span class="text-red-500">*</span></label>
-                <textarea id="death_causes" v-model="form.death_causes" :disabled="disabled" rows="3" :class="textareaClass" />
-                <FormError :message="form.errors.death_causes" />
-            </div>
+            </FormField>
+            <FormField label="Causes constatées" required :error="form.errors.death_causes" class="md:col-span-2">
+                <Textarea id="death_causes" v-model="form.death_causes" :disabled="disabled" :rows="3" maxlength="5000" />
+            </FormField>
         </div>
 
-        <div class="grid gap-5 lg:grid-cols-2">
+        <!-- Traitement de sortie, conseils de surveillance et rendez-vous de
+             contrôle s'adressent à quelqu'un qui rentre chez lui. Ce ne sont
+             pas des cases à laisser vides : ce sont des instructions qui
+             n'ont pas de destinataire (ADR-107). -->
+        <div v-if="!isDeceased" class="grid gap-5 lg:grid-cols-2">
             <!-- Traitement de sortie : l'ordonnance, cochée d'office -->
             <div>
-                <p :class="labelClass">Traitement de sortie <span class="font-normal text-slate-400">· repris de l’ordonnance</span></p>
+                <p :class="labelClass">Traitement de sortie <span class="font-normal text-muted-foreground">· repris de l’ordonnance</span></p>
                 <div v-if="prescriptionLines.length" class="space-y-1.5">
                     <button
                         v-for="line in prescriptionLines"
@@ -348,11 +401,11 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                         :class="rowClass(selectedLines.has(line))"
                         @click="toggleLine(line)"
                     >
-                        <Icon class="mt-px shrink-0 text-sm" :name="selectedLines.has(line) ? 'checkbox-checked' : 'checkbox'" />
+                        <component :is="selectedLines.has(line) ? SquareCheckBig : Square" class="mt-px h-4 w-4 shrink-0" />
                         <span>{{ line }}</span>
                     </button>
                 </div>
-                <p v-else class="text-[11px] text-slate-400">Aucun médicament prescrit pour ce passage.</p>
+                <p v-else class="text-[11px] text-muted-foreground">Aucun médicament prescrit pour ce passage.</p>
             </div>
 
             <!-- Conseils -->
@@ -368,14 +421,14 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                         :class="chipClass(selectedAdvice.has(advice))"
                         @click="toggleAdvice(advice)"
                     >
-                        <Icon v-if="selectedAdvice.has(advice)" class="text-sm" name="check" />{{ advice }}
+                        <Check v-if="selectedAdvice.has(advice)" class="h-4 w-4" />{{ advice }}
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- Contrôle -->
-        <div>
+        <div v-if="!isDeceased">
             <p :class="labelClass">Contrôle</p>
             <div class="flex flex-wrap items-center gap-1.5">
                 <button
@@ -389,29 +442,72 @@ const labelClass = 'mb-1.5 block text-[11px] font-bold text-slate-700 dark:text-
                 >
                     {{ option.label }}
                 </button>
-                <span v-if="form.follow_up_at" class="ms-1 text-[11px] text-slate-500 dark:text-slate-400">→ {{ formatHuman(form.follow_up_at) }}</span>
+                <span v-if="form.follow_up_at" class="ms-1 text-[11px] text-muted-foreground">→ {{ formatHuman(form.follow_up_at) }}</span>
             </div>
             <FormError :message="form.errors.follow_up_at" />
         </div>
 
         <!-- Précision : facultative -->
         <div>
-            <button v-if="!showPrecision" type="button" class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 hover:text-primary-700 dark:text-slate-400" :disabled="disabled" @click="showPrecision = true">
-                <Icon class="text-sm" name="plus" />Ajouter une précision (facultatif)
+            <button v-if="!showPrecision" type="button" class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-primary" :disabled="disabled" @click="showPrecision = true">
+                <Plus class="h-4 w-4" />Ajouter une précision (facultatif)
             </button>
             <Input v-else id="discharge_observations" v-model="form.observations" :disabled="disabled" placeholder="Précision éventuelle" />
         </div>
 
         <FormError :message="form.errors.medical_discharge" />
 
-        <div class="flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 pt-3 dark:border-gray-900">
-            <p v-if="!canSubmit && !disabled" class="me-auto text-[11px] text-slate-400">
+        <div class="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-3">
+            <p v-if="!canSubmit && !disabled" class="me-auto text-[11px] text-muted-foreground">
                 {{ requiresDiagnosis && !selectedDiagnoses.size ? 'Cochez au moins un diagnostic.' : 'Choisissez l’état du patient.' }}
             </p>
             <Button v-if="cancellable" type="button" size="sm" variant="white-outline" @click="emit('cancel')">Annuler</Button>
             <Button type="submit" size="sm" :disabled="!canSubmit">
-                <Icon class="me-1.5 text-sm" name="check" />Confirmer la sortie médicale
+                <Check class="h-4 w-4" />Confirmer la sortie médicale
             </Button>
         </div>
+
+        <!-- ADR-106/107 — prononcer une sortie médicale change le statut
+             médical du passage (ADR-035) et, pour un décès, ouvre son acte
+             de constatation. Non fermable au clic extérieur : c'est un acte
+             définitif, pas une fenêtre qu'on parcourt. -->
+        <Dialog
+            :open="confirming"
+            :title="isDeceased ? 'Confirmer le décès' : 'Confirmer la sortie médicale'"
+            :description="isDeceased
+                ? 'Le passage sera porté au registre des décès, où son acte de constatation reste à établir.'
+                : 'La Réception / Caisse conserve la responsabilité de la sortie administrative.'"
+            :dismissible="false"
+            close-label="Revenir au formulaire"
+            @update:open="closeConfirmation"
+        >
+            <template #icon>
+                <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-full', isDeceased ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary']">
+                    <component :is="isDeceased ? CircleAlert : CircleCheck" class="h-5 w-5" />
+                </span>
+            </template>
+
+            <dl class="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                <div v-for="line in confirmationLines" :key="line.label" class="px-3 py-2">
+                    <dt class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{{ line.label }}</dt>
+                    <dd class="mt-0.5 whitespace-pre-line text-sm text-foreground">{{ line.value }}</dd>
+                </div>
+            </dl>
+
+            <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                Vous prononcez sous votre responsabilité, en tant que
+                <strong class="font-semibold text-foreground">{{ $page.props.auth.user.name }}</strong>.
+                Une sortie médicale ne se prononce qu’une fois pour ce passage.
+            </p>
+
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="form.processing" @click="closeConfirmation">
+                    Revenir au formulaire
+                </Button>
+                <Button type="button" :disabled="form.processing" @click="confirmDischarge">
+                    <Check class="h-4 w-4" />{{ isDeceased ? 'Je confirme le décès' : 'Je confirme la sortie' }}
+                </Button>
+            </template>
+        </Dialog>
     </form>
 </template>

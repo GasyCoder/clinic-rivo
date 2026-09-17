@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Input from '@/Components/UI/Input.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 
 /**
  * Composing a posology that reads like an instruction, not like three
@@ -75,7 +75,7 @@ const preview = computed(() => [
     <div class="space-y-3">
         <div class="grid gap-3 sm:grid-cols-2">
             <div>
-                <label class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">Dose <span class="text-red-500">*</span></label>
+                <label class="mb-1 block text-[11px] font-bold text-foreground">Dose <span class="text-destructive">*</span></label>
                 <div class="flex gap-2">
                     <Input
                         :model-value="line._dose_amount ?? ''"
@@ -91,7 +91,7 @@ const preview = computed(() => [
                         :value="line._dose_unit ?? 'mg'"
                         :disabled="disabled"
                         aria-label="Unité de la dose"
-                        class="h-9 w-28 shrink-0 rounded border border-gray-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"
+                        class="h-9 w-28 shrink-0 rounded-lg border border-input bg-card px-2 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
                         @change="setDose(line._dose_amount, $event.target.value)"
                     >
                         <option v-for="unit in DOSE_UNITS" :key="unit" :value="unit">{{ unit }}</option>
@@ -101,12 +101,12 @@ const preview = computed(() => [
             </div>
 
             <div>
-                <label class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">Voie</label>
+                <label class="mb-1 block text-[11px] font-bold text-foreground">Voie</label>
                 <select
                     :value="line.route ?? ''"
                     :disabled="disabled"
                     aria-label="Voie d’administration"
-                    class="h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"
+                    class="h-9 w-full rounded-lg border border-input bg-card px-2 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
                     @change="patch('route', $event.target.value || null)"
                 >
                     <option value="">Non précisée</option>
@@ -118,7 +118,7 @@ const preview = computed(() => [
 
         <div class="grid gap-3 sm:grid-cols-2">
             <div>
-                <label class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">Fréquence <span class="text-red-500">*</span></label>
+                <label class="mb-1 block text-[11px] font-bold text-foreground">Fréquence <span class="text-destructive">*</span></label>
                 <!-- Liste ouverte : les rythmes courants en un clic, la saisie
                      libre reste possible pour le reste. -->
                 <Input
@@ -137,7 +137,7 @@ const preview = computed(() => [
             </div>
 
             <div>
-                <label class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">Durée</label>
+                <label class="mb-1 block text-[11px] font-bold text-foreground">Durée</label>
                 <div class="flex gap-2">
                     <Input
                         :model-value="line._duration_amount ?? ''"
@@ -153,7 +153,7 @@ const preview = computed(() => [
                         :value="line._duration_unit ?? 'jours'"
                         :disabled="disabled"
                         aria-label="Unité de durée"
-                        class="h-9 w-32 shrink-0 rounded border border-gray-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-primary-500 dark:border-gray-800 dark:bg-gray-950 dark:text-white"
+                        class="h-9 w-32 shrink-0 rounded-lg border border-input bg-card px-2 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50"
                         @change="setDuration(line._duration_amount, $event.target.value)"
                     >
                         <option v-for="unit in DURATION_UNITS" :key="unit" :value="unit">{{ unit }}</option>
@@ -165,7 +165,7 @@ const preview = computed(() => [
 
         <div class="grid gap-3 sm:grid-cols-2">
             <div>
-                <label class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">Quantité totale <span class="text-red-500">*</span></label>
+                <label class="mb-1 block text-[11px] font-bold text-foreground">Quantité totale <span class="text-destructive">*</span></label>
                 <div class="flex items-center gap-2">
                     <Input
                         :model-value="line.quantity"
@@ -175,13 +175,13 @@ const preview = computed(() => [
                         class="min-w-0 flex-1"
                         @update:model-value="patch('quantity', $event)"
                     />
-                    <span class="shrink-0 text-[11px] text-slate-400">{{ quantityUnit }}</span>
+                    <span class="shrink-0 text-[11px] text-muted-foreground">{{ quantityUnit }}</span>
                 </div>
                 <FormError :message="errorFor('quantity')" />
             </div>
 
             <div>
-                <label class="mb-1 block text-[11px] font-bold text-slate-700 dark:text-white">Instructions <span class="font-normal text-slate-400">· facultatif</span></label>
+                <label class="mb-1 block text-[11px] font-bold text-foreground">Instructions <span class="font-normal text-muted-foreground">· facultatif</span></label>
                 <Input
                     :model-value="line.instructions"
                     :disabled="disabled"
@@ -196,7 +196,7 @@ const preview = computed(() => [
 
         <!-- Ce que la ligne dira une fois enregistrée : le médecin voit le
              résultat avant de valider, jamais une suite de nombres. -->
-        <p v-if="preview" class="rounded border border-gray-200 bg-gray-50/60 px-2.5 py-1.5 text-[11px] text-slate-600 dark:border-gray-800 dark:bg-gray-1000/40 dark:text-slate-300">
+        <p v-if="preview" class="rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-[11px] text-muted-foreground">
             <span class="font-semibold">Se lira :</span> {{ preview }}
         </p>
     </div>

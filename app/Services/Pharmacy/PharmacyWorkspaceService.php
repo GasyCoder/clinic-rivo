@@ -44,7 +44,6 @@ class PharmacyWorkspaceService
             'can_dispense' => $user->can('pharmacy.dispense'),
             'can_prepare_invoice' => $user->can('pharmacy.dispense.prepare_invoice'),
             'can_print_ticket' => $user->can('pharmacy.dispense.print'),
-            'can_create_counter_sale' => $user->can('pharmacy.counter_sales.create'),
             'can_adjust_stock' => $user->can('stock.adjust'),
             'can_view_alerts' => $user->can('stock.alerts.view'),
             'can_view_suppliers' => $user->can('medicine_suppliers.view'),
@@ -277,37 +276,6 @@ class PharmacyWorkspaceService
     }
 
     /** @return array{canPrintTicket: bool, medicines: array<int, array<string, mixed>>} */
-    public function counterSale(User $user): array
-    {
-        return [
-            'canPrintTicket' => $user->can('pharmacy.dispense.print'),
-            'medicines' => collect($this->stockOverview->overview()['medicines'])
-                ->filter(fn (array $medicine): bool => $medicine['active']
-                    && $medicine['billable']
-                    && filled($medicine['sale_price'])
-                    && $medicine['available_quantity'] > 0)
-                ->map(fn (array $medicine): array => [
-                    'uuid' => $medicine['uuid'],
-                    'code' => $medicine['code'],
-                    'name' => $medicine['name'],
-                    'generic_name' => $medicine['generic_name'],
-                    'form_label' => $medicine['form_label'],
-                    'strength' => $medicine['strength'],
-                    'barcode' => $medicine['barcode'],
-                    'category' => $medicine['category'] ? [
-                        'uuid' => $medicine['category']['uuid'],
-                        'name' => $medicine['category']['name'],
-                    ] : null,
-                    'unit' => $medicine['unit'],
-                    'sale_price' => $medicine['sale_price'],
-                    'prescription_required' => $medicine['prescription_required'],
-                    'available_quantity' => $medicine['available_quantity'],
-                ])
-                ->values()
-                ->all(),
-        ];
-    }
-
     /**
      * @param  array<string, bool>  $capabilities
      * @return array<int, array<string, mixed>>

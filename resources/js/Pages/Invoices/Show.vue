@@ -16,6 +16,8 @@ import {
     Printer,
     ShieldCheck,
     Smartphone,
+    UserRound,
+    UserRoundPlus,
     Wallet,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -28,8 +30,11 @@ import FormError from '@/Components/UI/FormError.vue';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientName } from '@/utilities/patient';
+import { usePermissions } from '@/composables/usePermissions';
 
 defineOptions({ layout: AppLayout });
+
+const { can } = usePermissions();
 
 const props = defineProps({
     invoice: Object,
@@ -562,6 +567,25 @@ onBeforeUnmount(() => {
                         <span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Imprimante thermique 80 mm. Remise rapide au guichet.</span>
                     </span>
                 </button>
+            </div>
+
+            <!-- Le document remis, le guichet enchaîne. Une rangée à part,
+                 en retrait : imprimer et quitter la page ne sont pas deux
+                 choix du même ordre, et les mettre côte à côte dans la
+                 grille ferait cliquer « Nouveau patient » à la place de
+                 « Ticket ». La Card qui les porte est déjà exclue du papier
+                 (`invoice-actions`). -->
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border bg-muted/25 px-4 py-3">
+                <span class="text-xs font-semibold text-muted-foreground">Et ensuite :</span>
+                <Button v-if="can('episodes.create')" :as="Link" href="/reception/patients" size="sm" variant="outline">
+                    <UserRoundPlus class="h-4 w-4" />Nouveau patient
+                </Button>
+                <Button v-if="can('cash.view')" :as="Link" href="/cash" size="sm" variant="outline">
+                    <Wallet class="h-4 w-4" />Caisse
+                </Button>
+                <Button v-if="invoice.patient" :as="Link" :href="`/patients/${invoice.patient.uuid}`" size="sm" variant="ghost">
+                    <UserRound class="h-4 w-4" />Dossier du patient
+                </Button>
             </div>
         </Card>
 

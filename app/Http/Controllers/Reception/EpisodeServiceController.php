@@ -148,6 +148,31 @@ class EpisodeServiceController extends Controller
 
         $message = "Parcours du passage {$episode->episode_number} confirmé.";
 
+        // ADR-104 — un passage venu uniquement pour des médicaments n'a
+        // aucune file clinique à rejoindre : le ticket part à la Caisse,
+        // qui encaisse avant que la Pharmacie ne délivre (ADR-049). La
+        // Réception n'a donc rien à faire du dossier patient ici.
+        if ($result->pharmacyOnly) {
+            $ticket = $result->pharmacyInvoice;
+
+            if ($ticket === null) {
+                return redirect()->route('patients.show', $episode->patient)
+                    ->with('status', trim("Passage {$episode->episode_number} créé. {$result->billingWarning}"));
+            }
+
+            if ($request->user()->can('cash.view')) {
+                return redirect()->route('cash.index', ['pharmacy_reference' => $ticket->invoice_number])
+                    ->with('status', "Ticket {$ticket->invoice_number} transmis à la Caisse.");
+            }
+
+            return redirect()->route('patients.show', $episode->patient)
+                ->with('status', "Ticket Pharmacie {$ticket->invoice_number} créé — à régler à la Caisse.");
+        }
+
+        if ($result->pharmacyInvoice) {
+            $message .= " Ticket Pharmacie {$result->pharmacyInvoice->invoice_number} transmis à la Caisse.";
+        }
+
         if ($result->billingWarning) {
             return redirect()->route('patients.show', $episode->patient)
                 ->with('status', "{$message} {$result->billingWarning}");

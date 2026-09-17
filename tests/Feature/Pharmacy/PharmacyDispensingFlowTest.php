@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Pharmacy;
 
+use App\Actions\Pharmacy\CreateExternalDispenseAction;
 use App\Actions\Medicine\CreatePrescriptionAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
@@ -116,22 +117,38 @@ class PharmacyDispensingFlowTest extends TestCase
         return [$medicine, $early, $late];
     }
 
-    public function test_external_counter_sale_has_its_own_authorized_page(): void
+    /**
+     * ADR-104 — la vente comptoir anonyme est retirée : toute vente de
+     * médicament est prise à la Réception, sur un dossier patient et un
+     * passage. L'URL reste valide et mène là où le travail se fait.
+     */
+    /**
+     * Une vente de médicaments, par l'unique Action qui la crée encore
+     * (ADR-104) — appelée par la Réception en production. Les tests
+     * passaient par l'écran comptoir retiré ; ce qu'ils garantissent
+     * (FEFO, règlement avant délivrance, référence automatique) ne dépend
+     * pas de l'écran et reste vérifié ici.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function sell(Medicine $medicine, int $quantity, array $attributes = []): PharmacyDispense
     {
-        [$medicine] = $this->saleMedicine();
+        return app(CreateExternalDispenseAction::class)->execute(
+            [...$attributes, 'lines' => [['medicine_uuid' => $medicine->uuid, 'quantity' => $quantity]]],
+            $this->pharmacist,
+        );
+    }
 
-        $this->actingAs($this->pharmacist)
-            ->get('/pharmacy/counter-sales/create')
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->component('Pharmacy/CounterSales/Create')
-                ->where('canPrintTicket', true)
-                ->has('medicines', 1)
-                ->where('medicines.0.uuid', $medicine->uuid)
-                ->where('medicines.0.available_quantity', 13)
-                ->missing('medicines.0.lots'));
+    public function test_the_counter_sale_screen_now_sends_the_user_to_reception(): void
+    {
+        $this->saleMedicine();
 
         $this->actingAs($this->cashier)
+            ->get('/pharmacy/counter-sales/create')
+            ->assertRedirect('/reception/patients');
+
+        // Le pharmacien ne crée plus la vente : son socle a perdu le droit.
+        $this->actingAs($this->pharmacist)
             ->get('/pharmacy/counter-sales/create')
             ->assertForbidden();
     }
@@ -277,22 +294,13 @@ class PharmacyDispensingFlowTest extends TestCase
     {
         [$medicine, $early, $late] = $this->saleMedicine();
 
-        $response = $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
+        $this->sell($medicine, 5, [
             'customer_name' => 'Client comptoir identifié',
             'customer_phone' => '034 00 000 00',
             'external_prescriber' => 'Dr Rakoto',
-            'print_after_create' => true,
-            'lines' => [['medicine_uuid' => $medicine->uuid, 'quantity' => 5]],
-        ])->assertSessionHas('status');
+        ]);
 
         $dispense = PharmacyDispense::query()->with(['invoice', 'lines.counterReservations'])->sole();
-        $response
-            ->assertRedirect('/pharmacy/counter-sales/create')
-            ->assertSessionHas('print_ticket_url', route('pharmacy.dispenses.ticket.show', [
-                'dispense' => $dispense,
-                'print' => 1,
-                'direct' => 1,
-            ]));
         $this->assertTrue(Str::isUuid($dispense->uuid));
         $this->assertTrue(Str::isUuid($dispense->lines->sole()->uuid));
         $this->assertSame(PharmacyDispenseStatus::AwaitingPayment, $dispense->status);
@@ -425,14 +433,10 @@ class PharmacyDispensingFlowTest extends TestCase
     {
         [$medicine] = $this->saleMedicine(true);
 
-        $response = $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
-            'external_prescription_reference' => 'REFERENCE-MANUELLE-IGNOREE',
-            'lines' => [['medicine_uuid' => $medicine->uuid, 'quantity' => 1]],
-        ])->assertSessionDoesntHaveErrors();
+        $this->sell($medicine, 1, ['external_prescription_reference' => 'REFERENCE-MANUELLE-IGNOREE']);
 
         $dispense = PharmacyDispense::query()->with('invoice')->sole();
 
-        $response->assertRedirect('/pharmacy/counter-sales/create');
         $this->assertNull($dispense->external_prescription_reference);
         $this->assertNotEmpty($dispense->invoice->invoice_number);
     }
@@ -440,9 +444,7 @@ class PharmacyDispensingFlowTest extends TestCase
     public function test_adjustment_cannot_consume_reserved_units_and_is_audited_when_valid(): void
     {
         [$medicine, $early] = $this->saleMedicine();
-        $this->actingAs($this->pharmacist)->post('/pharmacy/counter-sales', [
-            'lines' => [['medicine_uuid' => $medicine->uuid, 'quantity' => 3]],
-        ])->assertRedirect();
+        $this->sell($medicine, 3);
 
         $this->actingAs($this->pharmacist)->post('/pharmacy/stock/adjustments', [
             'lot_uuid' => $early->uuid,
@@ -477,8 +479,22 @@ class PharmacyDispensingFlowTest extends TestCase
             ->whereHas('roles', fn ($query) => $query->where('code', 'PHARMACY'))
             ->pluck('name');
 
-        $this->assertTrue($pharmacyPermissions->contains('pharmacy.counter_sales.create'));
+        // ADR-104 — créer la vente appartient désormais à la Réception ;
+        // la Pharmacie délivre toujours, et n'encaisse toujours rien.
+        $this->assertFalse($pharmacyPermissions->contains('pharmacy.counter_sales.create'));
+        $this->assertTrue($pharmacyPermissions->contains('pharmacy.dispense'));
         $this->assertTrue($pharmacyPermissions->contains('pharmacy.dispense.print'));
+
+        $receptionPermissions = Permission::query()
+            ->whereHas('roles', fn ($query) => $query->where('code', 'RECEPTION'))
+            ->pluck('name');
+
+        $this->assertTrue($receptionPermissions->contains('pharmacy.counter_sales.create'));
+        $this->assertTrue($receptionPermissions->contains('medicines.view'));
+        $this->assertTrue($receptionPermissions->contains('stock.availability.view'));
+        // Lire la disponibilité n'est pas muter le stock (ADR-036).
+        $this->assertFalse($receptionPermissions->contains('stock.entry'));
+        $this->assertFalse($receptionPermissions->contains('stock.adjust'));
         $this->assertFalse($pharmacyPermissions->contains(fn (string $name) => str_starts_with($name, 'cash.')));
         $this->assertFalse($pharmacyPermissions->contains(fn (string $name) => str_starts_with($name, 'payments.')));
     }

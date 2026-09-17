@@ -5408,6 +5408,22 @@ intention n'est pas un diagnostic. `SaveClinicalExaminationAction` continue
 de conserver la valeur existante quand la clé est absente (ADR-074), si bien
 qu'enregistrer l'examen n'efface jamais un report consigné à la clôture.
 
+**Amendement du 2026-09-17 — « Oui » ouvre la saisie au lieu d'échouer.** Ce
+refus serveur reste la règle, mais son message renvoyait à un champ que
+l'écran gardait replié : « Pas maintenant » masque volontairement la saisie,
+si bien qu'un médecin qui cliquait ensuite « Oui » lisait « Enregistrez le
+diagnostic ci-dessous » sans rien avoir en dessous. Une impasse, du même
+genre que le bouton d'orientation de l'ADR-106.
+
+Cliquer « Oui » alors qu'aucun diagnostic n'est enregistré n'est pas une
+réponse : c'est l'intention d'en poser un. L'écran ouvre donc la saisie et
+n'envoie rien, plutôt que d'envoyer une réponse dont il sait qu'elle sera
+rejetée ; la ligne « diagnostic différé » cède la place à « enregistrez la
+conclusion ci-dessous ». La réponse part réellement une fois le diagnostic
+consigné. C'est de l'ergonomie, pas un assouplissement : le serveur refuse
+toujours une réponse forgée, et la clôture continue d'exiger un diagnostic
+(CDC §33.1, ADR-081) sauf pour un passage paraclinique seul (ADR-094).
+
 ## Ce qu'aucune ligne n'invente
 
 La réponse est écrite sur `clinical_examinations`, là où elle vivait déjà —
@@ -6716,3 +6732,699 @@ distincte, à prendre en connaissance de cet arbitrage.
 
 Aucune permission, route, validation ou règle métier n'est modifiée par
 cette décision.
+
+---
+
+# ADR-104 — Panier d'arrivée à deux rayons, et vente de médicaments prise à la Réception
+
+**Status:** ACCEPTED (2026-09-17 — réunion client du 16/09/2026, arbitrages
+explicites du propriétaire)
+
+**Amende l'ADR-053** (« "Achat de médicaments uniquement" ne crée pas un
+panier Pharmacie dans la Réception »), **l'ADR-028** (« la sélection à la
+Réception est limitée à `type = SERVICE`… elle ne permet pas de vendre
+directement un médicament ») et **l'ADR-049/050** (la vente comptoir
+fonctionne sans Patient ni Episode). Les trois divergences ont été
+signalées au propriétaire avant toute ligne de code, conformément à
+l'ADR-020.
+
+## Le parcours demandé
+
+```text
+1 · BESOIN       deux rayons, un seul panier
+                 ├─ Désignations & consultations (tarif)
+                 └─ Pharmacie (prix de vente, stock disponible)
+2 · ESTIMATION   « je veux juste le prix » : on s'arrête là, rien n'est créé
+3 · PATIENT      identité
+4 · ÉPISODE      passage
+
+   panier avec prestations  → parcours clinique habituel
+   panier MÉDICAMENTS SEULS → aucune file clinique, bascule à la Caisse
+```
+
+## Un panier, deux rayons qui ne suivent pas le même circuit
+
+`ReceptionCartKind` (`SERVICE` | `MEDICINE`) voyage sur chaque ligne du
+panier, du navigateur jusqu'à la confirmation. La distinction n'est pas
+cosmétique : une prestation ouvre une file clinique et rejoint la facture du
+passage ; un médicament réserve du stock en FEFO et part sur un **ticket
+Pharmacie distinct**, dont la délivrance attend le règlement (ADR-049).
+
+Une ligne sans `kind` est une prestation. Les brouillons enregistrés avant
+cette décision n'en portent pas et ne contenaient que des prestations : le
+déduire lit ce qui existait, sans rien inventer (même principe qu'ADR-074 et
+ADR-083). Aucune migration de `reception_journey_drafts` : `catalog_lines`
+est déjà du JSON.
+
+## Deux factures, jamais une seule
+
+Arbitrage explicite du propriétaire. Les prestations vont sur la facture du
+passage, les médicaments sur leur ticket. Une facture mixte partiellement
+payée rendrait indécidable ce que la Pharmacie peut délivrer : l'ADR-050
+sépare déjà les factures Pharmacie dans leur onglet Caisse pour exactement
+cette raison. L'estimation affiche donc **deux sous-totaux** et dit
+lesquels se règlent sur quel document.
+
+## Un passage « médicaments seuls » ne reste pas ouvert
+
+Il n'ouvre aucune orientation : personne ne l'attend dans une file. Sans
+transition explicite il resterait `PENDING_ORIENTATION` indéfiniment — le
+trou exact que l'ADR-090 a bouché pour les passages cliniques.
+`CompleteEpisodeServicesAction::settleWithoutClinicalRouting()` le place
+donc directement en `PENDING_SETTLEMENT` : il rejoint « Sorties &
+règlements », où la Réception le clôt une fois le ticket encaissé.
+
+L'écran bascule ensuite vers `/cash` avec la référence du ticket. Le poste
+de caisse se choisit d'abord quand plusieurs sont configurés : la référence
+traverse ce choix (`Cash/Index`), sinon l'agent devrait la ressaisir juste
+après l'avoir vue.
+
+La Pharmacie n'encaisse toujours rien (ADR-012, ADR-013) : la Réception crée
+la vente et son ticket, la **Caisse** encaisse, la **Pharmacie** délivre.
+
+## La vente comptoir anonyme est retirée
+
+Arbitrage explicite du propriétaire : toute vente de médicament passe
+désormais par la Réception, sur un dossier patient et un passage. La
+conséquence a été posée avant le choix et est assumée — un passant qui veut
+une boîte de paracétamol doit désormais avoir un dossier.
+
+```text
+Retiré     CounterSaleController, Pharmacy/CounterSales/Create.vue,
+           POST /pharmacy/counter-sales,
+           PharmacyWorkspaceService::counterSale(),
+           l'entrée de menu « Vente comptoir » et ses raccourcis
+Conservé   CreateExternalDispenseAction — l'unique chemin qui crée encore
+           une vente, appelé depuis la Réception
+Conservé   PharmacyDispenseType::External, customer_name/phone,
+           external_prescriber : les ventes déjà enregistrées restent
+           lisibles telles qu'elles ont été faites (ADR-010)
+```
+
+`GET /pharmacy/counter-sales/create` reste une URL valide et redirige vers
+`/reception/patients` : un signet mène là où le travail se fait désormais,
+jamais à une page disparue (même principe qu'ADR-081 et ADR-084).
+
+`pharmacy_dispenses.patient_id` et `episode_id` étaient **déjà nullable** :
+rattacher une vente à un passage n'a demandé aucune migration de schéma.
+
+## Permissions — le droit suit le geste
+
+```text
+RECEPTION  + medicines.view, stock.availability.view,
+             pharmacy.counter_sales.create
+PHARMACY   − pharmacy.counter_sales.create
+```
+
+La paire de lecture est exactement celle que l'ADR-036 accorde déjà à
+`MEDICINE` pour prescrire : voir le référentiel et la disponibilité, sans
+aucun droit de mutation `stock.*`. La Réception ne sort jamais un lot.
+
+Voir le rayon et le vendre sont traités comme un seul droit à l'écran
+(`can_sell_medicines`) : proposer une boîte qu'on ne pourra pas transmettre
+à la Caisse ne servirait qu'à faire échouer la confirmation **après** la
+saisie du dossier patient.
+
+Conformément à l'ADR-064, ces attributions figurent dans
+`RolePermissionSeeder::GRANTS` pour la création d'un nouveau site, mais un
+site déjà en production les reçoit par la migration
+`2026_09_17_090000_move_counter_sale_to_reception`, qui ne touche que les
+socles de rôle — jamais les exceptions individuelles (ADR-033).
+
+## Une erreur Pharmacie n'efface jamais le passage
+
+`preparePharmacySale()` capture l'échec (boîte manquante, produit retiré du
+référentiel) et le remonte comme avertissement : l'identité et l'épisode
+déjà créés ne sont pas annulés, la régularisation appartient à la
+Pharmacie. Même principe que l'ADR-054 pour un acte clinique.
+
+## Amendement du 2026-09-17 — le choix est offert à l'étape « Prise en charge »
+
+Constat du propriétaire à l'usage : un patient venu seulement acheter des
+médicaments ne veut voir ni médecin ni infirmier, et l'écran le faisait
+malgré tout traverser le choix de couverture, la confirmation et le routage.
+
+Pire, c'était une **impasse** : le panier n'envoie que les prestations à
+l'aperçu financier (voir plus haut), donc un panier de médicaments seuls
+arrivait avec zéro ligne et `ReceptionFinancialPreviewService` refusait —
+« Sélectionnez entre une et cinquante prestations ».
+
+L'étape 5 propose désormais, pour ce seul cas, les deux suites qui ont un
+sens :
+
+```text
+Ajouter une prestation        retour au Besoin — le passage redevient normal
+Terminer — envoyer à la Caisse confirme, crée le ticket, ouvre /cash
+```
+
+Les cartes Standard/Mutuelle/Personnel/Partenaire et le bouton « Calculer la
+prise en charge » disparaissent alors : promettre une couverture qui ne
+s'appliquera pas au ticket est pire que ne rien proposer.
+
+`financial_mode` est résolu à `SELF` par
+`CompleteEpisodeServicesAction::settleWithoutClinicalRouting()` quand il est
+encore `null`. Ce n'est pas une règle nouvelle : le ticket Pharmacie est au
+tarif Sans mutuelle par construction, donc le patient en supporte le
+montant. Le laisser à `null` afficherait le passage comme « contexte
+financier à régulariser » (ADR-051) alors qu'il n'y a rien à régulariser. Un
+mode déjà choisi explicitement par la Réception n'est **jamais** réécrit.
+
+Le raccourci poste la confirmation réelle : c'est le serveur qui n'ouvre
+aucune file clinique parce qu'il ne trouve aucune prestation, jamais
+l'écran qui en décide.
+
+**L'urgence n'est pas proposée sur un achat de médicaments.** Classer un
+passage en urgence ouvre les files Soins **et** Médecine (ADR-056) : le
+proposer ici enverrait deux équipes chercher quelqu'un venu prendre une
+boîte. La carte disparaît donc du même coup que le choix de couverture, et
+« Ajouter une prestation » la fait réapparaître — un passage qui redevient
+clinique redevient requalifiable.
+
+Ce n'était pas qu'un bouton de trop. `settleWithoutClinicalRouting()`
+vérifie désormais qu'aucune orientation `PENDING`/`IN_PROGRESS` n'existe
+avant de faire quoi que ce soit : un passage requalifié en urgence par un
+autre chemin (Médecine, ADR-056) aurait sinon été déclaré `PENDING_SETTLEMENT`
+avec deux files ouvertes, et son `financial_mode` figé à `SELF` alors que
+des actes cliniques allaient encore s'y ajouter. Même garde que l'ADR-054
+avant de faire avancer un statut administratif. Le ticket Pharmacie, lui,
+part dans tous les cas : le patient doit payer ses médicaments.
+
+## Ce qui ne change pas
+
+La réservation FEFO, la règle « le stock ne sort qu'après règlement »
+(ADR-049), le ticket et son contrôle à la Caisse (ADR-050), le routage
+clinique des prestations (ADR-030, ADR-053), l'estimation read-only qui ne
+crée ni Patient, ni Episode, ni facture (ADR-051). Aucune règle de
+délivrance n'est assouplie.
+
+---
+
+# ADR-105 — Les examens paracliniques sont facturés et ne retiennent plus la clôture
+
+**Status:** ACCEPTED (2026-09-17 — exigences explicites de la Clinique Saint
+Georges, rapportées par le propriétaire)
+
+**Amende l'ADR-076** sur un point précis (une demande transmise résout son
+étape) et **complète l'ADR-079** (ce que devient la facturation quand une
+demande est retirée). Aucune règle de délivrance, d'encaissement ou de
+parcours clinique n'est modifiée.
+
+## Le défaut : l'examen n'était pas facturé du tout
+
+`CreateLabRequestAction` et `CreateImagingRequestAction` créaient la demande,
+l'orientation vers le Laboratoire, les instantanés du catalogue — et rien
+d'autre. Aucun `BillableItem`, aucune ligne de facture.
+
+Concrètement : un médecin demandait une NFS et une échographie, les deux
+partaient au service concerné, le patient sortait, et la clinique ne comptait
+jamais ce qu'elle avait fait. Ce n'est pas un défaut d'affichage comme celui
+qu'a corrigé l'ADR-103 — l'argent n'existait nulle part.
+
+L'incohérence était d'autant plus nette que le **même examen sélectionné à la
+Réception** est facturé depuis l'ADR-068 : `PlanEpisodeRoutingAction` crée son
+`BillableItem`. Une analyse valait donc 12 000 Ar à l'accueil et zéro quand
+c'est le médecin qui la demandait.
+
+## Facturé à la demande, comme à la Réception
+
+L'examen rejoint le compte du patient **au moment où le médecin l'ajoute**,
+pas quand le résultat revient — c'est ce que la clinique demande, et c'est
+déjà la règle pour le même acte sélectionné à l'arrivée (ADR-068).
+
+Chaque ligne de demande porte l'élément qu'elle a produit
+(`lab_request_items.billable_item_id`, `imaging_request_items.billable_item_id`,
+nullable et jamais rétro-rempli) : une annulation retrouve exactement ce
+qu'elle doit retirer, sans déduire par le nom ou la date.
+
+La clé d'idempotence dérive de l'UUID de la ligne : une relance ne facture
+jamais deux fois le même examen.
+
+## Une erreur financière ne retient jamais la demande
+
+Tarif absent, contexte financier du passage non résolu, politique Personnel
+non classifiée : la demande part quand même au Laboratoire et l'élément
+facturable n'est simplement pas créé. La régularisation appartient à la
+Réception — même règle que l'ADR-054 pour un acte Soins et l'ADR-072 pour un
+consommable.
+
+## Une règle écrite une fois, pas trois
+
+`App\Services\Billing\ClinicalActBiller` porte désormais les deux règles que
+chaque appelant recopiait : rattacher à la facture du passage tant qu'elle
+n'a reçu aucun encaissement, et avaler l'échec financier sans annuler l'acte.
+Les écrire une troisième fois les aurait fait diverger — le défaut que
+l'ADR-098 relève partout où une même règle vit à plusieurs endroits.
+
+## Retirer une demande retire ce qu'elle a facturé
+
+L'ADR-079 permet d'annuler une demande sans résultat. Elle ne disait rien de
+la facturation, qui n'existait pas encore.
+`DecideComplementaryExamsAction::releaseBilling()` annule les `BillableItem`
+encore `PENDING` de la demande retirée. Un élément déjà porté sur une facture
+n'est **pas** détricoté ici : seule la Réception/Caisse touche un montant
+facturé (ADR-012, même frontière qu'ADR-072).
+
+## La demande transmise résout son étape
+
+L'ADR-076 interdit de résoudre une étape « en effet de bord d'un
+enregistrement ». Cette règle vise une **saisie en cours** : ouvrir un écran
+ne doit pas passer pour un travail fait.
+
+Un ordre parti au Laboratoire ou à l'Imagerie n'est pas une saisie en cours.
+C'est un acte terminé, dont le médecin ne peut plus rien faire sur cette
+étape — et l'écran lui demandait pourtant de la « valider » avant de pouvoir
+clôturer. La clinique l'a signalé dans ces termes : ces examens sont déjà
+validés et envoyés à la page concernée, ils n'ont pas à retenir le passage.
+
+`ResolveConsultationStepAction::completeParaclinicalFromRequest()` marque donc
+l'étape `COMPLETED` à la création de la demande. Silencieuse par
+construction : une consultation qui n'est plus éditable, ou une étape déjà
+résolue, laisse l'état tel quel — ce chemin complète un dossier, il ne doit
+jamais faire échouer la demande clinique qui vient d'aboutir.
+
+`blockersForClosure()` écarte en outre l'étape Paraclinique dès qu'une
+demande active existe. Ce n'est pas une double sécurité décorative : les
+consultations antérieures à cette décision portent des demandes **sans**
+étape résolue, et c'est le fait clinique qui doit décider, pas l'état d'un
+écran — le principe qu'a déjà appliqué l'ADR-081 à la clôture.
+
+## Ce qui ne change pas
+
+« Aucun examen nécessaire » continue d'exiger la confirmation explicite du
+navigateur et refuse de retirer une demande portant déjà un résultat
+(ADR-079). Le Laboratoire et l'Imagerie gardent la saisie de leurs résultats.
+La Médecine n'encaisse toujours rien : l'élément facturable rejoint la
+facture du passage, et seule la Réception/Caisse encaisse (ADR-012, ADR-015).
+
+Aucune permission nouvelle : `laboratory_orders.create` et
+`imaging_orders.create` gouvernent la demande comme avant.
+
+---
+
+# ADR-106 — Famille d'imagerie réglée au catalogue, et signature d'une demande d'examen
+
+**Status:** ACCEPTED (2026-09-17 — exigences explicites du propriétaire)
+
+**Complète l'ADR-105** (les examens paracliniques sont facturés) et
+**applique l'ADR-052** (rien ne se déduit d'un code ou d'un libellé) à la
+séparation ECG / Échographie.
+
+## ECG et Échographie sont deux familles, pas un préfixe
+
+L'écran présentait un seul onglet « ECG / Échographie ». Les séparer exige de
+savoir lequel est lequel — et le code ne le dit pas :
+
+```text
+ECG-*     2 examens
+ECHO-*   15 examens
+???       HOLTER-ECG        un enregistrement cardiaque
+          DOPPLER-MI-ART    une échographie
+          DOPPLER-MI-VEIN   une échographie
+```
+
+Trois examens sur vingt auraient été mal classés ou perdus. Un futur examen
+nommé autrement disparaîtrait d'un onglet sans que personne ne le voie.
+`catalog_items.imaging_modality` porte donc la famille — `CARDIOLOGY` ou
+`ULTRASOUND` — comme `reception_routing_mode` porte le parcours Réception.
+
+**Nullable, et c'est le point.** Un examen que personne n'a classé apparaît
+dans un onglet « Non classés », visible seulement s'il en existe un. Le
+ranger d'office dans l'une des deux familles le ferait disparaître d'un
+onglet sans décision — la faute que l'ADR-077 refuse pour un appareil non
+examiné et l'ADR-079 pour une question non posée.
+
+Le pré-classement est **explicite, code par code**, dans la migration comme
+dans le seeder : aucun motif, aucun préfixe. La migration classe ce qui
+existe sur un site déjà installé ; le seeder classe ce qu'il crée sur un
+site neuf — sans lui, vingt examens repartiraient non classés (ADR-064).
+
+La recherche est bornée à la famille ouverte : chercher « écho » dans
+l'onglet ECG ne remonte rien, sinon la séparation n'en serait plus une. Les
+demandes déjà transmises comptent dans l'onglet de leur famille.
+
+## Transmettre une demande est un acte signé
+
+Un clic envoyait l'ordre au service **et** portait les examens au compte du
+patient (ADR-105), sans que rien ne l'annonce. Les deux effets sont
+immédiats et engagent le médecin.
+
+La confirmation n'est donc pas une formalité « êtes-vous sûr ? » — elle
+énonce ce qui est engagé :
+
+```text
+les examens, nommés un par un    confirmer « 2 examens » sans les voir
+                                  n'est pas une signature consciente
+la demande part au service        qui prendra le patient en charge
+le patient est facturé            et encaissé par Réception / Caisse
+sous la responsabilité de …       le nom du médecin connecté
+```
+
+La fenêtre n'est **pas fermable au clic extérieur** : on y signe, on n'y
+passe pas. Tous les chemins y mènent — le bouton comme la touche Entrée dans
+un champ — et les deux boutons se désactivent pendant l'envoi.
+
+Elle rappelle enfin qu'un retrait reste possible tant qu'aucun résultat n'a
+été saisi (ADR-079) : une signature engageante n'est pas une signature
+irréversible, et le dire évite l'hésitation à l'écran.
+
+## Amendement du même jour — la fenêtre est allégée
+
+Le propriétaire a demandé de retirer les deux phrases de conséquence. Elles
+restent vraies, elles ne sont plus répétées à chaque envoi : la fenêtre garde
+ce qui **ne peut pas** être déduit d'ailleurs — les examens nommés un par un,
+et le nom du médecin qui signe. C'est une décision d'ergonomie, pas un
+assouplissement : ni la garde serveur, ni le caractère non fermable au clic
+extérieur, ni le passage obligé par la confirmation ne changent.
+
+## L'ordonnance se signe aussi
+
+Même raisonnement, même format (2026-09-17) : valider une ordonnance
+**réserve les lots en FEFO** (ADR-036) et verrouille la quantité pour ce
+patient. Le bouton « Valider et réserver » passe donc par la même
+confirmation que les demandes d'examen.
+
+Elle relit chaque ligne avec **sa posologie composée** — « 500 mg · orale ·
+matin et soir · 7 jours », exactement ce que la Pharmacie et le patient
+liront. C'est le seul intérêt d'une confirmation ici : relire les doses, pas
+compter les lignes. La composition est celle de l'éditeur de ligne, jamais
+une seconde formule qui finirait par annoncer autre chose que ce qui est
+enregistré.
+
+Une ligne manuelle y porte la mention « Hors référentiel » : elle ne réserve
+aucun lot (ADR-037), et laisser croire le stock engagé serait faux.
+
+Le nom du médicament est relu depuis la liste par le helper de l'éditeur :
+une ligne catalogue ne porte que son UUID, et recopier le libellé dans la
+ligne le ferait diverger du référentiel.
+
+## Rappel d'orientation retiré de la Prescription
+
+L'étape Prescription portait encore un bandeau « Orientation actuelle » avec
+un bouton « Définir la suite de la prise en charge ». L'ADR-089 a rassemblé
+la conduite à tenir sur la seule étape « Décision & clôture » et l'a retirée
+de l'Interrogatoire, de l'Examen et de la Paraclinique — ce bandeau-ci avait
+survécu.
+
+Il n'était pas seulement redondant : **son bouton menait à l'Examen
+clinique**, où `ClinicalOrientationCard` n'existe plus depuis l'ADR-089. Un
+médecin qui cliquait « Définir la suite de la prise en charge » arrivait sur
+un écran où il n'y avait rien à définir. Le bandeau est retiré ; la conduite
+à tenir se décide à « Décision & clôture », et nulle part ailleurs.
+
+## Clôture : la navigation n'est plus dédoublée, et l'attente n'est plus un verrou
+
+Deux remarques du propriétaire le même jour, sur le même écran.
+
+**Le pied « Précédent / Suivant » est retiré.** Les trois sous-étapes de
+« Décision & clôture » portaient une barre d'onglets `1 · 2 · 3` en tête
+**et** une paire de boutons en pied. Les onglets sont toujours visibles et
+atteignent n'importe quelle section d'un clic : le pied refaisait le même
+travail, en suggérant de surcroît un ordre imposé qui n'existe pas. Rien
+d'autre ne bouge — les onglets restent l'unique pilote de `closureSubStep`,
+aucun n'est jamais condamné par l'état du dossier, et c'est toujours
+l'étape 3 qui refuse en nommant ce qui manque.
+
+**Un résultat attendu n'a jamais bloqué la clôture, mais il en avait
+l'air.** Le propriétaire a signalé rester « coincé à cause de *En attente
+de 2 résultats* ». Vérification faite sur le passage concerné, les deux
+blocages réels étaient le diagnostic absent et la conduite à tenir non
+renseignée (CDC §33.1, ADR-081, ADR-084) ; `awaitingResults` n'entre dans
+`closure_blockers` à aucun moment — il ouvre une simple confirmation.
+
+Le défaut était donc de **présentation** : un bandeau ambre, juste au-dessus
+de l'étape de clôture, se lit comme un verrou. Il devient neutre et dit ce
+qu'il est — « cela n'empêche pas de clôturer. Vous pouvez conclure
+maintenant, ou attendre ». C'est la même règle que l'ADR-102 applique aux
+chiffres manquants : l'ambre annonce un obstacle, et un écran qui en
+fabrique un là où il n'y en a pas coûte au médecin un passage abandonné.
+
+Un test de garde vérifie désormais les deux : que la clôture ne porte plus
+de second jeu de boutons, et que le bandeau d'attente n'emprunte ni la
+couleur ni le vocabulaire d'un blocage.
+
+## Clôture : corriger un diagnostic, et savoir où agir
+
+**La correction et le retrait d'un diagnostic étaient inatteignables.**
+L'ADR-081 les place « dans la carte Diagnostic », et l'ADR-089 a déplacé
+cette carte à « Décision & clôture » — la carte a suivi, ses deux gestes
+non. `PUT /diagnoses` et `POST /diagnoses/cancel`, leurs FormRequests, leurs
+Actions et les drapeaux `can_edit`/`can_cancel` du presenter existaient tous
+et n'étaient appelés par aucun écran : une faute de frappe restait dans le
+dossier sans rien pour la rectifier.
+
+`ClinicalDiagnosisList.vue` porte donc « Corriger » et « Retirer » par
+ligne. Rien n'est réécrit ni effacé (ADR-010, ADR-035) : corriger enregistre
+une nouvelle ligne et annule l'ancienne, retirer conserve la ligne d'origine
+avec son auteur et sa date, et l'historique complet — annulés compris — reste
+dans « Contexte clinique » (ADR-081). Les deux gestes restent réservés à
+l'auteur de la saisie : les drapeaux viennent du serveur, qui revoit toujours
+la règle, et un autre compte ne voit aucun bouton plutôt qu'un bouton qui
+refuserait. Le retrait passe par une fenêtre non fermable au clic extérieur,
+jamais par une fenêtre native du navigateur.
+
+**Chaque obstacle mène désormais à sa sous-étape.** `blockersForClosure()`
+portait `step => null` pour le diagnostic et la conduite à tenir, au motif
+qu'ils se règlent « déjà sur place ». C'était vrai de l'étape, pas de
+l'écran : le diagnostic est à la sous-étape 1, la conduite à tenir à la 2,
+et cette liste se lit depuis la 3. `closure_section` (1, 2 ou `null` pour un
+obstacle qui appartient à une autre étape du parcours) rend le « Y aller »
+opérant dans les deux cas — c'est la promesse de l'ADR-084, « ce qui manque
+encore **et le chemin pour y retourner** ».
+
+## Ce qui ne change pas
+
+Aucune permission nouvelle : `laboratory_orders.create` et
+`imaging_orders.create` gouvernent la demande comme avant. L'endpoint, la
+validation et la facturation (ADR-105) sont inchangés — seul le chemin qui y
+mène passe désormais par une confirmation.
+
+---
+
+# ADR-107 — Registre des décès et acte de constatation
+
+**Status:** ACCEPTED (2026-09-17 — exigence explicite du propriétaire)
+
+**Complète l'ADR-035**, qui définit déjà la sortie médicale de type `DECEASED`
+et conserve « l'heure, le lieu et les causes utiles au futur certificat de
+constatation ». Ce futur est construit ici. Aucune règle de l'ADR-035,
+l'ADR-084 ou l'ADR-090 n'est modifiée.
+
+## Le trou constaté
+
+Un décès prononcé en consultation ne réapparaissait nulle part. La file
+Médecine ne montre que les prises en charge en cours, et le passage rejoignait
+« Sorties & règlements » comme n'importe quel autre. Personne n'avait donc
+d'écran pour retrouver les patients concernés, ni pour établir le document
+que la famille emporte.
+
+## Deux faits, deux enregistrements
+
+```text
+MedicalDischarge (DECEASED)  la décision clinique : le décès est prononcé
+DeathRecord                   l'acte : un médecin constate, date et signe
+```
+
+Les confondre reviendrait à dire qu'un décès prononcé est un acte établi. Ce
+sont deux moments, deux signatures et deux dates. `death_records` porte donc
+son propre `constated_at`/`constated_by`, et l'heure de constatation
+appartient au serveur — elle atteste quand l'acte a été signé, pas quand on a
+rempli le formulaire (même règle que la date de demande, ADR-069).
+
+Les trois valeurs cliniques (moment, lieu, causes) sont **préremplies depuis
+la sortie médicale puis corrigeables ici** : le médecin qui constate signe ce
+qu'il écrit, il ne contresigne pas la saisie d'un autre écran.
+
+## Ce que l'acte ne prétend pas être
+
+Ce n'est pas l'acte d'état civil. Le numéro d'acte, le déclarant et l'officier
+d'état civil relèvent de la commune, et le CDC officiel n'en dit **rien** —
+aucune mention de décès dans tout le document. Ils ne sont donc pas inventés,
+et un test de garde vérifie qu'ils n'apparaissent ni à la saisie, ni à
+l'impression. À définir avec l'équipe le jour où ce volet sera réellement
+spécifié.
+
+## Un seul acte par passage
+
+Contrainte d'unicité en base, et refus explicite côté serveur. Un second acte
+serait un doublon d'état civil, jamais une correction : celle-ci relèvera de
+son propre mécanisme tracé (ADR-010), non d'une seconde signature.
+
+L'acte ne peut pas non plus **devancer** le décès : `RecordDeathCertificateAction`
+exige une sortie médicale de type `DECEASED` sur ce passage. Signer la
+constatation d'un décès que personne n'a prononcé attesterait un fait clinique
+inexistant.
+
+## Le médecin est conduit au registre
+
+Prononcer un décès redirige vers `/deces` au lieu de revenir à l'étape de
+clôture : le travail restant n'est plus dans le dossier, il est sur l'acte.
+Cela ne change **rien** à ce que la sortie fait — la consultation reste
+ouverte, la clôture reste le seul acte qui termine l'orientation Médecine
+(ADR-084), et une réouverture reste possible (ADR-096). Seule la destination
+de la redirection change, et seulement si le compte peut voir le registre.
+
+## Ce que le registre ne fait pas
+
+Il ne prononce aucun décès et n'encaisse rien : aucune permission `payments.*`
+ou `cash.*`, aucun lien vers la Caisse (ADR-012, ADR-013). Le passage suit son
+cours administratif normal vers « Sorties & règlements » (ADR-090) — un décès
+ne solde pas un compte.
+
+## Permissions
+
+```text
+death_records.view     consulter le registre et imprimer un acte
+death_records.create   établir l'acte de constatation
+```
+
+Voir et signer sont séparés, pour la même raison que l'ADR-090 sépare voir la
+file des sorties et prononcer la sortie : suivre les passages concernés n'est
+pas établir un document médico-légal. Accordées par défaut à `MEDICINE`.
+
+Conformément à l'ADR-064, elles figurent dans `RolePermissionSeeder::GRANTS`
+pour la création d'un nouveau site, mais un site déjà en production les reçoit
+par la migration `2026_09_20_090000_create_death_records_table`, qui ne touche
+que le socle du rôle — jamais les exceptions individuelles (ADR-033).
+
+## Au passage — ce que l'écran de conduite à tenir devait encore
+
+**Transmettre une demande est un acte signé** (ADR-106). Le bouton
+« Transmettre la demande » envoyait l'ordre au service destinataire **et**
+faisait passer l'orientation à `SUBMITTED`, ce qui débloque la clôture
+(ADR-084), sans que rien ne l'annonce. Il passe désormais par la même
+confirmation que la demande d'examen et l'ordonnance : la fenêtre nomme la
+destination, relit ce qui part — confirmer « une demande » sans la voir ne
+serait pas une signature consciente — porte le nom du médecin et n'est pas
+fermable au clic extérieur. Les quatre destinations (Chirurgie,
+Hospitalisation, Référence, Maternité/Pédiatrie) y passent, et changer
+d'orientation reste possible tant que la destination n'a pas pris la demande
+en charge.
+
+**Les derniers contrôles habillés à la main passent à shadcn** (ADR-099).
+`ClinicalOrientationCard` et `ClinicalDischargeForm` portaient encore deux
+`<select>` et dix-sept `<textarea>` natifs, habillés par des chaînes de
+classes recopiées — qui avaient déjà divergé entre les deux fichiers. Elles
+cèdent la place aux primitives `Select` et `Textarea`, sans changer un seul
+`v-model`, une seule route ni une seule règle de validation. « Autre
+établissement » reste une option à part entière de la liste : c'est elle qui
+ouvre la saisie libre, et la retirer empêcherait de référer hors référentiel.
+
+Les champs de date restent des `datetime-local` natifs dans `Input` /
+`IconInput` : aucune primitive de date n'existe dans la couche shadcn de RIVO,
+et en fabriquer une pour trois champs amènerait son propre calendrier à
+maintenir.
+
+## Le préremplissage recopiait du HTML dans un champ de texte
+
+Signalé par le propriétaire sur « Résumé clinique et examens », qui
+affichait :
+
+```text
+Échocardiographie : UTERUS<p>• Orientation: Antéversé…</p><p>• Volume</p>…
+```
+
+`orientationPrefill()` convertissait déjà `clinical_exam` et `reason` en texte,
+mais **pas** `result_value` — précisément le champ qui porte un compte rendu
+d'imagerie, saisi en éditeur riche et stocké en HTML (ADR-070). Ce n'était pas
+qu'un défaut d'affichage : c'est ce texte-là, balises comprises, qui partait au
+service d'accueil et s'imprimait sur le billet d'hospitalisation.
+
+`toPlainText()` était par ailleurs trop étroit — seuls `</p>` et `<br>`
+coupaient la ligne, si bien qu'une liste à puces ou des titres se retrouvaient
+collés en une phrase. Chaque **ouverture et fermeture** de bloc en produit une
+désormais : un compte rendu écrit « UTERUS<p>• Orientation… » sans fermer
+avant, et la seule fermeture laissait les deux collés. Les lignes vides
+consécutives sont réduites à une : un champ de texte n'a pas d'interlignage à
+restituer, et le compte rendu doit se lire ligne à ligne.
+
+Une absence reste une absence : un compte rendu vide renvoie `null`, jamais une
+chaîne vide, et l'examen s'affiche « — en attente ». Un résultat de plusieurs
+lignes est présenté **sous** son examen plutôt que collé derrière, sinon la
+première ligne absorbe le nom et les suivantes flottent sans rattachement.
+
+Les demandes **déjà transmises ne sont pas réécrites** (ADR-010) : leur
+`clinical_summary` est ce que le médecin a validé et ce que le service a reçu.
+
+## Les libellés de ces formulaires passent à `FormField`
+
+Vingt champs de `ClinicalOrientationCard` et quatre de `ClinicalDischargeForm`
+écrivaient leur libellé à la main, en `text-[11px] font-bold` — ni la taille
+ni la graisse du reste de l'application — avec l'astérisque, la précision
+« · repris du dossier » et le message d'erreur assemblés à côté. La primitive
+partagée porte les quatre, et l'erreur remonte au champ au lieu de flotter
+sous lui.
+
+Les cinq intitulés qui coiffent un **groupe de boutons** (type de sortie,
+diagnostics cochés, traitement de sortie, conseils, contrôle) gardent leur
+`<p>` : ces listes portent déjà leur propre structure, et les envelopper
+ajoutait un niveau sans rien résoudre. Leur typographie est en revanche
+exactement celle de `FormField`, pour que tous les libellés de l'écran se
+lisent de la même façon.
+
+Le résumé clinique passe enfin de quatre à dix rangées : un compte rendu
+d'imagerie en fait une dizaine, et il fallait faire défiler un champ pour
+relire ce qui part au service.
+
+## Ce qu'une sortie pour décès ne demande pas
+
+Constat du propriétaire : le type de sortie était bien « Décès », et le
+formulaire proposait toujours :
+
+```text
+État du patient à la sortie *   Guéri · Amélioré · Stable · Non amélioré · Aggravé
+Traitement de sortie             · repris de l'ordonnance
+Conseils et surveillance         Suivre le traitement jusqu'au bout…
+Contrôle                         Dans 3 jours · Dans 7 jours · Dans 15 jours
+```
+
+Ce ne sont pas des cases à laisser vides : ce sont des **instructions qui
+n'ont pas de destinataire**, et qui s'imprimeraient sur le document remis à la
+famille. Les trois dernières disparaissent donc de l'écran, et le serveur les
+refuse (`prohibited`) avec un message nommé plutôt que de les ignorer en
+silence — l'interface n'est jamais la seule garde (ADR-093). `RecordMedical
+DischargeAction` les met à `null` de son côté : une Action est atteignable
+autrement que par sa FormRequest.
+
+**L'état du patient, lui, n'est pas absent — il est connu.** Aucune des cinq
+options ne convient, mais le type de sortie *est* la réponse. Il est donc
+**posé par le serveur** (`EpisodeMedicalStatus::Deceased->label()`, soit
+« Décédé ») plutôt que demandé dans une liste qui n'a pas de case juste. Ce
+n'est pas une invention : c'est la même information que porte déjà
+`MedicalDischargeType::episodeMedicalStatus()`. L'écran l'affiche comme un fait
+acquis — « Décédé — porté au dossier par le type de sortie » — au lieu d'un
+blanc qui se lirait comme un oubli.
+
+La garde de complétude du bouton cesse en conséquence de réclamer cet état :
+le laisser exiger une case que l'écran ne montre plus aurait grisé le bouton
+sans dire pourquoi — exactement le défaut qu'avait corrigé l'ADR-094.
+
+**Ce qui ne change pas.** Le diagnostic final garde sa règle : un décès n'en
+dispense pas, et un passage paraclinique seul reste le seul cas où il est
+facultatif (ADR-094). L'heure, le lieu et les causes du décès restent exigés
+(ADR-035). Une sortie ordinaire continue d'exiger l'état du patient
+(CDC §33.1).
+
+## La sortie médicale se signe aussi
+
+Prononcer une sortie change le statut médical du passage (ADR-035) et, pour un
+décès, ouvre son acte de constatation. Le bouton « Confirmer la sortie
+médicale » passe donc par la même confirmation que la demande d'examen,
+l'ordonnance et la conduite à tenir (ADR-106) : la fenêtre relit le type, la
+date, l'état, le diagnostic et — pour un décès — l'heure, le lieu et les
+causes, porte le nom du médecin et n'est pas fermable au clic extérieur.
+
+Elle se nomme dans ses propres termes : « Confirmer le décès » et « Je
+confirme le décès ». Un acte de cette portée ne se confirme pas sous un
+intitulé générique.
+
+**Correctif du même jour.** `prohibited` **remplace** le jeu de règles d'un
+champ, il ne s'y ajoute pas : écrite `[$deceased ? 'prohibited' : 'nullable',
+'string', 'max:5000']`, la règle laissait `string` s'appliquer au `null` que
+le formulaire envoie pour un champ vide — et le médecin lisait « Le champ
+discharge prescription doit être une chaîne de caractères » sur un champ qu'on
+venait justement de lui retirer de l'écran.
+
+Le test ne l'avait pas vu parce qu'il omettait ces clés. Or un champ masqué
+par `v-if` **reste dans l'objet du formulaire** et part à vide : le
+`deceasedPayload()` des tests envoie désormais exactement ce que le navigateur
+envoie, et il échoue si la règle repasse à sa forme précédente.

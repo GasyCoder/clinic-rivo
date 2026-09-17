@@ -2,13 +2,13 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\CatalogItemType;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\MutualBeneficiaryType;
 use App\Enums\PatientCivility;
 use App\Enums\PatientSex;
 use App\Enums\PatientType;
+use App\Enums\ReceptionCartKind;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -205,16 +205,25 @@ class StoreArrivalRequest extends FormRequest
             // browser payload from the intentional empty list used by the
             // "besoin à préciser" path.
             'reception_draft.catalog_lines' => ['array', 'max:50'],
+            // ADR-104 — le panier porte deux rayons. Une ligne sans `kind`
+            // est une prestation : c'est ce que contenaient les brouillons
+            // antérieurs, et ne rien supposer d'autre évite de réinterpréter
+            // une sélection déjà enregistrée.
+            'reception_draft.catalog_lines.*.kind' => [
+                'sometimes', Rule::enum(ReceptionCartKind::class),
+            ],
+            // La forme est vérifiée ici, l'éligibilité par
+            // `ReceptionEstimateService` : les garde-fous d'un rayon
+            // dépendent de son `kind`, et les recopier en règle de
+            // validation les ferait diverger du résolveur qui chiffre
+            // réellement la ligne.
             'reception_draft.catalog_lines.*.catalog_item_uuid' => [
                 'required',
                 'uuid',
                 'distinct',
                 Rule::exists('catalog_items', 'uuid')->where(fn ($query) => $query
                     ->whereNull('deleted_at')
-                    ->where('type', CatalogItemType::Service->value)
-                    ->where('billable', true)
-                    ->where('reception_selectable', true)
-                    ->whereNotNull('reception_routing_mode')),
+                    ->where('billable', true)),
             ],
             'reception_draft.catalog_lines.*.quantity' => [
                 'required', 'numeric', 'gt:0', 'max:9999.99', 'decimal:0,2',
@@ -256,14 +265,14 @@ class StoreArrivalRequest extends FormRequest
                 if ($deferred && $lines !== []) {
                     $validator->errors()->add(
                         'reception_draft.catalog_lines',
-                        'Un besoin à préciser ne doit contenir aucune prestation sélectionnée.',
+                        'Un besoin à préciser ne doit contenir aucune ligne sélectionnée.',
                     );
                 }
 
                 if (! $deferred && $lines === []) {
                     $validator->errors()->add(
                         'reception_draft.catalog_lines',
-                        'Sélectionnez au moins une prestation avant de créer le passage.',
+                        'Sélectionnez au moins une prestation ou un médicament avant de créer le passage.',
                     );
                 }
             }

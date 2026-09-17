@@ -2,6 +2,8 @@
 
 namespace App\Actions\Medicine;
 
+use App\Actions\Billing\CancelBillableItemAction;
+use App\Enums\BillableItemStatus;
 use App\Models\ClinicalExamination;
 use App\Models\Consultation;
 use App\Models\ImagingRequest;
@@ -22,6 +24,10 @@ use Illuminate\Validation\ValidationException;
  */
 class DecideComplementaryExamsAction
 {
+    public function __construct(
+        private readonly CancelBillableItemAction $cancelBillableItem,
+    ) {}
+
     /**
      * Records the answer on the examination — the decision is a clinical
      * finding of this encounter, wherever the screen asks for it.
@@ -86,6 +92,7 @@ class DecideComplementaryExamsAction
                 'cancelled_by' => $actor->getKey(),
                 'cancel_reason' => $this->reason($reason),
             ]);
+            $this->releaseBilling($request, $actor);
             $withdrawn[] = 'Analyses du '.$request->requested_at?->format('d/m/Y H:i');
         }
 
@@ -95,10 +102,37 @@ class DecideComplementaryExamsAction
                 'cancelled_by' => $actor->getKey(),
                 'cancel_reason' => $this->reason($reason),
             ]);
+            $this->releaseBilling($request, $actor);
             $withdrawn[] = 'Imagerie du '.$request->requested_at?->format('d/m/Y H:i');
         }
 
         return $withdrawn;
+    }
+
+    /**
+     * ADR-105 — retirer une demande retire ce qu'elle a mis au compte du
+     * patient. Sans cela, un examen annulé resterait à payer.
+     *
+     * Seuls les éléments encore `PENDING` sont annulés : un élément déjà
+     * porté sur une facture ne se détricote pas ici — seule la
+     * Réception/Caisse touche un montant facturé (ADR-012, même règle
+     * qu'ADR-072 pour un consommable annulé).
+     */
+    private function releaseBilling(LabRequest|ImagingRequest $request, User $actor): void
+    {
+        foreach ($request->items as $line) {
+            $billable = $line->billableItem;
+
+            if ($billable?->status !== BillableItemStatus::Pending) {
+                continue;
+            }
+
+            $this->cancelBillableItem->execute(
+                $billable,
+                'Examen complémentaire retiré par le médecin.',
+                $actor,
+            );
+        }
     }
 
     /** Whether anything would be withdrawn — used to ask before acting. */

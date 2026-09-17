@@ -1,9 +1,7 @@
 <script setup>
 import { ref } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import DispenseDeliveryWorkspace from '@/Pages/Pharmacy/Partials/DispenseDeliveryWorkspace.vue';
 import DispenseQueue from '@/Pages/Pharmacy/Partials/DispenseQueue.vue';
@@ -52,13 +50,7 @@ const submitDelivery = () => deliveryForm
             description="Un médicament ne sort de l’étagère qu’une fois le ticket réglé ou pris en charge à la Caisse."
             icon="file-docs"
             tone="primary"
-        >
-            <template #actions>
-                <Button v-if="capabilities.can_create_counter_sale" :as="Link" href="/pharmacy/counter-sales/create" size="rg" variant="white-outline">
-                    <Icon name="cart" /><span class="ms-2">Nouvelle vente comptoir</span>
-                </Button>
-            </template>
-        </PageHeader>
+        />
 
         <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <DispenseQueue

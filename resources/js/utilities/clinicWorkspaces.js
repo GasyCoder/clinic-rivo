@@ -12,6 +12,7 @@ import {
     FileText,
     FlaskConical,
     Heart,
+    HeartCrack,
     LayoutDashboard,
     Microscope,
     Package,
@@ -20,7 +21,6 @@ import {
     Scissors,
     Settings,
     ShieldCheck,
-    ShoppingCart,
     Stethoscope,
     Syringe,
     Trash2,
@@ -53,6 +53,9 @@ export const CLINIC_WORKSPACES = [
     // Les demandes d'examens du médecin, toutes consultations confondues :
     // suivre un résultat ne devait plus obliger à rouvrir le passage de tête.
     { key: 'paraclinical-requests', group: 'clinical', text: 'Demandes d’examens', description: 'Analyses et imagerie demandées, et leurs résultats', icon: FileSearch, link: '/medicine/demandes-examens', permission: 'paraclinical_requests.view', tone: 'ocean' },
+    // ADR-107 — un décès prononcé en Consultation ne réapparaissait nulle
+    // part : la file Médecine ne montre que les prises en charge en cours.
+    { key: 'deaths', group: 'clinical', text: 'Décès', description: 'Registre et actes de constatation', icon: HeartCrack, link: '/deces', permission: 'death_records.view', tone: 'slate' },
     { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
@@ -75,7 +78,6 @@ export const CLINIC_WORKSPACES = [
         // is gated by the permission of the screen it opens. There is no
         // « Accueil »: the Pharmacy's tasks are on the overview page.
         children: [
-            { code: 'counter-sale', icon: ShoppingCart, label: 'Vente comptoir', link: '/pharmacy/counter-sales/create', activeLinks: ['/pharmacy/counter-sales'], permission: 'pharmacy.counter_sales.create' },
             { code: 'dispenses', icon: FileText, label: 'Ordonnances à délivrer', link: '/pharmacy/dispenses', activeLinks: ['/pharmacy/dispenses'], permission: 'prescriptions.view' },
             { code: 'care-consumables', icon: UserRoundCheck, label: 'Consommables Soins', link: '/pharmacy/care-consumables', activeLinks: ['/pharmacy/care-consumables'], permission: 'care_consumables.view' },
             // ADR-098 — Stock and Médicaments were one list twice: one page now.
@@ -162,7 +164,7 @@ export const ROLE_FOCUS = {
     },
     PHARMACY: {
         lead: 'Délivrances, ventes comptoir et état du stock.',
-        primary: { label: 'Nouvelle vente comptoir', link: '/pharmacy/counter-sales/create', icon: Plus, permission: 'pharmacy.counter_sales.create' },
+        primary: { label: 'Ordonnances à délivrer', link: '/pharmacy/dispenses', icon: FileText, permission: 'prescriptions.view' },
         shortcuts: ['pharmacy'],
         metrics: ['pharmacy_requests_today'],
     },

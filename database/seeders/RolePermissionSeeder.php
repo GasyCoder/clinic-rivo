@@ -97,6 +97,12 @@ class RolePermissionSeeder extends Seeder
             'visitors.view', 'visitors.create', 'visitors.close',
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
             'patients.medical_history.view', 'patients.medical_history.manage',
+            // ADR-104 — le rayon Pharmacie du panier d'arrivée. Lecture du
+            // référentiel et de la disponibilité, plus la création de la
+            // vente : exactement la paire que l'ADR-036 accorde déjà à
+            // MEDICINE pour prescrire, sans aucun droit de mutation
+            // `stock.*` — la Réception ne sort jamais un lot.
+            'medicines.view', 'stock.availability.view', 'pharmacy.counter_sales.create',
             'episodes.view', 'episodes.create', 'episodes.update', 'episodes.mark_emergency', 'episodes.cancel',
             // CDC §33.3 — Réception contrôle le compte et prononce la
             // sortie : payé comptant et évadé (un constat, pas une
@@ -120,6 +126,8 @@ class RolePermissionSeeder extends Seeder
             'medicines.view', 'stock.availability.view',
             'prescriptions.cancel', 'medical_discharge.create', 'patients.medical_history.view',
             'consultations.reopen',
+            // ADR-107 — le registre des décès et son acte de constatation.
+            'death_records.view', 'death_records.create',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
             // Le médecin peut requalifier ce passage précis pendant la
             // consultation ; ce droit ne modifie jamais le Patient.
@@ -189,7 +197,11 @@ class RolePermissionSeeder extends Seeder
         // reserved to Super Admin by ADR-024.
         'PHARMACY' => [
             'pharmacy.view', 'pharmacy.dispense', 'pharmacy.dispense.prepare_invoice', 'pharmacy.dispense.print',
-            'pharmacy.counter_sales.create', 'pharmacy.return',
+            // ADR-104 — `pharmacy.counter_sales.create` quitte ce socle :
+            // toute vente de médicament est désormais prise à la Réception,
+            // sur un dossier patient et un passage. La Pharmacie continue de
+            // délivrer, jamais de créer la vente.
+            'pharmacy.return',
             'pharmacy.reports.view', 'pharmacy.reports.export',
             'prescriptions.view', 'medicines.view', 'medicine_categories.view',
             'stock.availability.view',

@@ -124,7 +124,7 @@ const patch = (group, index, field, value) => emit('update', { group, index, fie
                                 :class="[
                                     'rounded border px-2.5 py-1 text-[11px] font-semibold transition-colors',
                                     item.type === type.value
-                                        ? 'border-primary-300 bg-primary/10 text-primary-800'
+                                        ? 'border-primary/50 bg-primary/10 text-primary'
                                         : 'border-border bg-card text-muted-foreground hover:bg-muted/35',
                                 ]"
                                 @click="patch('antecedents', index, 'type', type.value)"

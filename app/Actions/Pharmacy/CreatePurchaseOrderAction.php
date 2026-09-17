@@ -2,8 +2,8 @@
 
 namespace App\Actions\Pharmacy;
 
+use App\Actions\Pharmacy\Concerns\ResolvesOrderedMedicine;
 use App\Enums\PurchaseOrderStatus;
-use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\PurchaseOrder;
 use App\Services\Catalog\CatalogActor;
@@ -21,13 +21,15 @@ use Illuminate\Support\Facades\DB;
  */
 class CreatePurchaseOrderAction
 {
+    use ResolvesOrderedMedicine;
+
     public function __construct(private readonly FinancialNumberGenerator $numbers) {}
 
     /**
      * @param array{
      *   expected_delivery_at?: ?string,
      *   notes?: ?string,
-     *   lines: array<int, array{medicine_uuid: string, quantity_ordered: int, unit_price: string}>
+     *   lines: array<int, array{medicine_uuid?: ?string, supplier_catalog_item_uuid?: ?string, quantity_ordered: int, unit_price: string}>
      * } $data
      */
     public function execute(MedicineSupplier $supplier, array $data, CatalogActor $actor): PurchaseOrder
@@ -53,7 +55,7 @@ class CreatePurchaseOrderAction
                 ...$actor->externalAttribution('updated'),
             ]);
 
-            $totalMinor = $this->createLines($order, $supplier, $data['lines']);
+            $totalMinor = $this->createLines($order, $supplier, $data['lines'], $actor);
 
             $order->update(['total_amount' => Money::fromMinor($totalMinor)]);
 
@@ -61,13 +63,13 @@ class CreatePurchaseOrderAction
         });
     }
 
-    /** @param array<int, array{medicine_uuid: string, quantity_ordered: int, unit_price: string}> $lines */
-    private function createLines(PurchaseOrder $order, MedicineSupplier $supplier, array $lines): int
+    /** @param array<int, array<string, mixed>> $lines */
+    private function createLines(PurchaseOrder $order, MedicineSupplier $supplier, array $lines, CatalogActor $actor): int
     {
         $totalMinor = 0;
 
         foreach ($lines as $line) {
-            $medicine = Medicine::query()->where('uuid', $line['medicine_uuid'])->firstOrFail();
+            $medicine = $this->resolveMedicine($line, $supplier, $actor);
             $offer = $medicine->currentOfferFor($supplier)->first();
             $quantity = (int) $line['quantity_ordered'];
             $unitPriceMinor = Money::toMinor($line['unit_price']);

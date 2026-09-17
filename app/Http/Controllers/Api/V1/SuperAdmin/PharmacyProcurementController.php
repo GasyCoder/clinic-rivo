@@ -22,6 +22,7 @@ use App\Services\Pharmacy\SupplierPresenter;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\MessageBag;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -180,10 +181,11 @@ class PharmacyProcurementController extends Controller
     private function validateOrder(Request $request): array
     {
         $validated = $request->validate((new StorePurchaseOrderRequest)->rules());
-        $uuids = collect($validated['lines'])->pluck('medicine_uuid');
+        $errors = new MessageBag;
+        StorePurchaseOrderRequest::assertDistinctProducts($validated['lines'], $errors);
 
-        if ($uuids->count() !== $uuids->unique()->count()) {
-            throw ValidationException::withMessages(['lines' => 'Un même médicament ne peut apparaître qu’une seule fois dans la commande.']);
+        if ($errors->isNotEmpty()) {
+            throw ValidationException::withMessages($errors->toArray());
         }
 
         return $validated;

@@ -114,7 +114,7 @@ class SupplierCatalogController extends Controller
         abort_unless($catalogItem->catalog->medicine_supplier_id === $supplier->id, 404);
 
         $medicine = Medicine::query()->where('uuid', $request->validated('medicine_uuid'))->firstOrFail();
-        $action->execute($catalogItem, $medicine, $request->validated('change_reason'), $request->user());
+        $action->execute($catalogItem, $medicine, $request->validated('change_reason'), CatalogActor::fromUser($request->user()));
 
         return back()->with('status', 'Produit lié au catalogue clinique avec son prix fournisseur.');
     }

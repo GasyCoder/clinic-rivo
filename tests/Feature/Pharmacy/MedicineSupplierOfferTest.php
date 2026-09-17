@@ -6,13 +6,16 @@ use App\Actions\Pharmacy\SetMedicineSupplierOfferAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
+use App\Enums\SupplierCatalogFileKind;
 use App\Models\CatalogItem;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\MedicineSupplierOffer;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\SupplierCatalog;
 use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use App\Services\Pharmacy\ProcurementFormOptions;
 use App\Services\Pharmacy\SupplierOfferComparison;
 use Database\Seeders\PermissionSeeder;
@@ -79,8 +82,8 @@ class MedicineSupplierOfferTest extends TestCase
         $cheap = $this->supplier('FOUR-A', 'Fournisseur A');
         $dear = $this->supplier('FOUR-B', 'Fournisseur B');
         $action = app(SetMedicineSupplierOfferAction::class);
-        $action->execute($medicine, $dear, '120', 'Tarif 2026', $actor);
-        $action->execute($medicine, $cheap, '100', 'Tarif 2026', $actor);
+        $action->execute($medicine, $dear, '120', 'Tarif 2026', CatalogActor::fromUser($actor));
+        $action->execute($medicine, $cheap, '100', 'Tarif 2026', CatalogActor::fromUser($actor));
 
         $comparison = app(SupplierOfferComparison::class)->forSite();
         $line = $comparison['medicines'][0];
@@ -100,11 +103,58 @@ class MedicineSupplierOfferTest extends TestCase
         $quoted = $this->medicine($actor, 'Amoxicilline 500 mg');
         $this->medicine($actor, 'Paracétamol 500 mg');
         $supplier = $this->supplier();
-        app(SetMedicineSupplierOfferAction::class)->execute($quoted, $supplier, '100', 'Tarif 2026', $actor);
+        app(SetMedicineSupplierOfferAction::class)->execute($quoted, $supplier, '100', 'Tarif 2026', CatalogActor::fromUser($actor));
 
         $medicines = app(ProcurementFormOptions::class)->orderMedicines($supplier->fresh());
 
         $this->assertSame(['Amoxicilline 500 mg'], array_column($medicines, 'name'));
+    }
+
+    /**
+     * ADR-098 — the owner's case: one supplier, one imported catalogue, no
+     * medicine in the clinic catalogue yet. Every catalogue line must be
+     * orderable, otherwise a first purchase is impossible.
+     */
+    public function test_the_order_form_also_offers_the_active_catalogue_lines_the_clinic_has_not_taken_up(): void
+    {
+        $actor = $this->setupUser(['medicine_supplier_offers.create']);
+        $supplier = $this->supplier();
+        $catalog = $this->activeCatalog($supplier);
+        $catalog->items()->create(['reference' => 'ARB-001', 'medicine_label' => 'Zinc 20 mg', 'presentation' => 'boîte de 30', 'supplier_price' => '4500.00', 'row_number' => 1]);
+        $catalog->items()->create(['reference' => 'ARB-002', 'medicine_label' => 'Albendazole 400 mg', 'presentation' => null, 'supplier_price' => null, 'row_number' => 2]);
+
+        $products = app(ProcurementFormOptions::class)->orderMedicines($supplier->fresh());
+
+        $this->assertSame(['Albendazole 400 mg', 'Zinc 20 mg'], array_column($products, 'name'));
+        $this->assertSame([false, false], array_column($products, 'in_clinic_catalog'));
+        // A catalogue line is named by its own uuid: reading a form creates nothing.
+        $this->assertNull($products[0]['uuid']);
+        $this->assertSame(0, Medicine::query()->count());
+    }
+
+    /** An old price list is history, not something to order from. */
+    public function test_an_archived_catalogue_is_never_offered_for_ordering(): void
+    {
+        $actor = $this->setupUser(['medicine_supplier_offers.create']);
+        $supplier = $this->supplier();
+        $old = $this->activeCatalog($supplier);
+        $old->update(['active_key' => null]);
+        $old->items()->create(['reference' => 'OLD-1', 'medicine_label' => 'Tarif 2024', 'supplier_price' => '100.00', 'row_number' => 1]);
+
+        $this->assertSame([], app(ProcurementFormOptions::class)->orderMedicines($supplier->fresh()));
+    }
+
+    private function activeCatalog(MedicineSupplier $supplier): SupplierCatalog
+    {
+        return $supplier->catalogs()->create([
+            'original_name' => 'catalogue.xlsx',
+            'path' => 'suppliers/'.$supplier->uuid.'/catalogue.xlsx',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size' => 1024,
+            'kind' => SupplierCatalogFileKind::Excel,
+            'active_key' => 'ACTIVE',
+            'imported_at' => now(),
+        ]);
     }
 
     public function test_creating_an_offer_requires_the_create_permission_and_updating_it_requires_update(): void

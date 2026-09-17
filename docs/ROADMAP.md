@@ -461,6 +461,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Comparateur de prix fournisseurs par médicament (prix, moins-disant, stock restant), point d'entrée de la commande d'achat
 - [x] Commande d'achat composée sur plusieurs fournisseurs : un brouillon par fournisseur, jamais une commande mixte
 - [x] Formulaire de commande limité aux produits réellement fournis par le fournisseur
+- [x] Lignes du catalogue fournisseur actif commandables directement : le produit entre au catalogue de la clinique à la commande, sans prix de vente (fixé après réception)
 - [x] Facture fournisseur enregistrable comme document global (numéro, date, montant, pièce jointe) ; le détail par produit devient facultatif
 - [x] Fournisseurs, catalogues et factures archivés visibles dans la Corbeille, restaurables
 - [x] Suppression définitive depuis la seule Corbeille, refusée dès que l'élément a servi (`trash.force_delete`)

@@ -34,11 +34,20 @@ class CreateCatalogItemAction
         [$receptionSelectable, $routingMode] = $this->receptionRouting($type, $billable, $data);
         [$requiresAllergyCheck, $recommendsVitals, $clinicianOrderable] = $this->careRequirements($type, $data);
 
-        if ($billable && $actor->cannot('catalog.tariffs.create')) {
+        // ADR-098 — a medicine ordered from a supplier catalogue enters the
+        // referential before anyone has decided what the clinic will sell it
+        // for; its purchase price is not its selling price (ADR-024). The
+        // item is therefore created billable but without a tariff, a state
+        // ADR-031 already defines: billing waits, nothing is invented. Every
+        // screen that does name a price still sends one, and its FormRequest
+        // still requires it.
+        $withTariff = filled($data['tariff_amount'] ?? null);
+
+        if ($billable && $withTariff && $actor->cannot('catalog.tariffs.create')) {
             throw new AuthorizationException('Vous ne pouvez pas définir le tarif initial.');
         }
 
-        return DB::transaction(function () use ($data, $actor, $type, $billable, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals, $clinicianOrderable) {
+        return DB::transaction(function () use ($data, $actor, $type, $billable, $withTariff, $stockable, $staffCoveragePolicy, $receptionSelectable, $routingMode, $requiresAllergyCheck, $recommendsVitals, $clinicianOrderable) {
             $item = CatalogItem::create([
                 'code' => mb_strtoupper(trim($data['code'])),
                 'name' => trim($data['name']),
@@ -60,7 +69,7 @@ class CreateCatalogItemAction
                 ...$actor->externalAttribution('updated'),
             ]);
 
-            if ($billable) {
+            if ($billable && $withTariff) {
                 $amountMinor = Money::toMinor($data['tariff_amount']);
 
                 if ($amountMinor <= 0) {

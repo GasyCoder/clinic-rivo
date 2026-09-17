@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\StoreMedicineSupplierOfferRequest;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Http\RedirectResponse;
 
 class MedicineSupplierOfferController extends Controller
@@ -20,7 +21,7 @@ class MedicineSupplierOfferController extends Controller
             supplier: $supplier,
             quotedPrice: $request->validated('quoted_price'),
             reason: $request->validated('change_reason'),
-            actor: $request->user(),
+            actor: CatalogActor::fromUser($request->user()),
             supplierReference: $request->validated('supplier_reference'),
         );
 

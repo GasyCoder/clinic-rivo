@@ -5,7 +5,7 @@ namespace App\Actions\Pharmacy;
 use App\Models\Medicine;
 use App\Models\MedicineSupplierOffer;
 use App\Models\SupplierCatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -21,7 +21,7 @@ class LinkSupplierCatalogItemAction
 {
     public function __construct(private readonly SetMedicineSupplierOfferAction $setOffer) {}
 
-    public function execute(SupplierCatalogItem $item, Medicine $medicine, string $reason, User $actor): MedicineSupplierOffer
+    public function execute(SupplierCatalogItem $item, Medicine $medicine, string $reason, CatalogActor $actor): MedicineSupplierOffer
     {
         return DB::transaction(function () use ($item, $medicine, $reason, $actor) {
             $item = SupplierCatalogItem::query()->lockForUpdate()->findOrFail($item->id);

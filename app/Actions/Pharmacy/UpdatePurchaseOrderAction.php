@@ -2,8 +2,8 @@
 
 namespace App\Actions\Pharmacy;
 
+use App\Actions\Pharmacy\Concerns\ResolvesOrderedMedicine;
 use App\Enums\PurchaseOrderStatus;
-use App\Models\Medicine;
 use App\Models\PurchaseOrder;
 use App\Services\Catalog\CatalogActor;
 use App\Support\Money;
@@ -13,7 +13,9 @@ use Illuminate\Validation\ValidationException;
 
 class UpdatePurchaseOrderAction
 {
-    /** @param array{expected_delivery_at?: ?string, notes?: ?string, lines: array<int, array{medicine_uuid: string, quantity_ordered: int, unit_price: string}>} $data */
+    use ResolvesOrderedMedicine;
+
+    /** @param array{expected_delivery_at?: ?string, notes?: ?string, lines: array<int, array<string, mixed>>} $data */
     public function execute(PurchaseOrder $order, array $data, CatalogActor $actor): PurchaseOrder
     {
         if ($actor->cannot('purchase_orders.update')) {
@@ -34,7 +36,7 @@ class UpdatePurchaseOrderAction
             $totalMinor = 0;
 
             foreach ($data['lines'] as $line) {
-                $medicine = Medicine::query()->where('uuid', $line['medicine_uuid'])->firstOrFail();
+                $medicine = $this->resolveMedicine($line, $order->supplier, $actor);
                 $offer = $medicine->currentOfferFor($order->supplier)->first();
                 $quantity = (int) $line['quantity_ordered'];
                 $unitPriceMinor = Money::toMinor($line['unit_price']);

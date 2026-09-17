@@ -1,15 +1,21 @@
 <script setup>
-import { Head, usePage } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import PurchaseOrderForm from '@/Components/Pharmacy/PurchaseOrderForm.vue';
 
 defineOptions({ layout: AppLayout });
 
-defineProps({ suppliers: Array, medicines: Array });
+const props = defineProps({ suppliers: Array, supplierUuid: String, medicines: Array });
 
-const page = usePage();
-const initialSupplier = new URLSearchParams(page.url.split('?')[1] ?? '').get('supplier') ?? '';
+// Ce qu'un fournisseur peut livrer ne se devine pas côté navigateur : le
+// serveur le redit à chaque changement (ADR-098), catalogue compris.
+const onSupplierChange = (uuid) => router.get('/pharmacy/purchase-orders/create', uuid ? { supplier: uuid } : {}, {
+    preserveState: true,
+    preserveScroll: true,
+    replace: true,
+    only: ['supplierUuid', 'medicines'],
+});
 </script>
 
 <template>
@@ -25,9 +31,10 @@ const initialSupplier = new URLSearchParams(page.url.split('?')[1] ?? '').get('s
 
         <PurchaseOrderForm
             :suppliers="suppliers"
-            :supplier-uuid="initialSupplier"
+            :supplier-uuid="props.supplierUuid"
             :medicines="medicines"
-            :catalog-href="initialSupplier ? `/pharmacy/suppliers/${initialSupplier}/catalogs` : '/pharmacy/stock'"
+            :catalog-href="props.supplierUuid ? `/pharmacy/suppliers/${props.supplierUuid}/catalogs` : '/pharmacy/stock'"
+            @supplier-change="onSupplierChange"
             :submit-url="(uuid) => `/pharmacy/suppliers/${uuid}/purchase-orders`"
             cancel-href="/pharmacy/purchase-orders"
         />

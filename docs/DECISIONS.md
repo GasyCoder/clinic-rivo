@@ -6406,9 +6406,72 @@ réceptionné n'a ni lot, ni stock, ni prix de vente, et ne peut donc être ni
 délivré ni vendu (ADR-036, ADR-049). Le prix d'achat (`MedicineSupplierOffer`)
 et le prix de vente (`CatalogTariff`) restent deux mécanismes séparés qui ne
 se lisent ni ne s'écrivent l'un l'autre — modifier un prix fournisseur ne
-touche jamais un prix de vente. Interdire réellement la création tant qu'une
-réception n'existe pas exigerait de commander autrement qu'en désignant un
-médicament : à trancher avec le propriétaire avant toute implémentation.
+touche jamais un prix de vente.
+
+## Commander une ligne de catalogue (2026-09-18)
+
+Le paragraphe ci-dessus renvoyait la suite au propriétaire : « commander
+autrement qu'en désignant un médicament : à trancher ». Le constat qui la
+tranche est arrivé le lendemain, sur une base réelle — un fournisseur, un
+catalogue de 119 lignes importé, zéro médicament au catalogue clinique :
+l'écran « Créer une commande » ne proposait rien du tout. Exigence du
+propriétaire : « tous les médicaments du catalogue utilisé doivent
+apparaître sur la liste de commande ».
+
+Le formulaire réunit donc les deux sources, annoncées comme telles :
+
+```text
+Déjà au catalogue de la clinique     un Medicine, prix fournisseur en tête
+Au catalogue du fournisseur          les lignes de son catalogue ACTIF que
+                                     la clinique n'a pas encore reprises
+```
+
+Seul le catalogue **actif** est proposé : un ancien tarif est de l'histoire,
+pas une liste de courses (ADR-097). Lire un formulaire n'écrit rien — une
+ligne de catalogue est désignée par son propre UUID
+(`supplier_catalog_item_uuid`), jamais par un médicament créé à l'affichage.
+
+**Le produit entre au catalogue au moment où il est commandé**, par
+`CreateMedicineFromSupplierCatalogAction`, dans la transaction de la
+commande. C'est l'ordre naturel : ce que la clinique va tenir est justement
+ce qu'elle a décidé d'acheter. Ce qui est créé se limite à ce que le
+fournisseur dit lui-même :
+
+```text
+créé        code (sa référence), libellé, présentation comme unité
+créé        son prix d'achat versionné, si la ligne en porte un (ADR-097)
+non créé    prix de vente — ADR-024 : le prix d'achat n'est pas le prix
+            de vente, et personne ne l'a encore décidé
+non créé    DCI, forme, dosage, fabricant — un libellé commercial n'est
+            pas une DCI ; les déduire inventerait un fait clinique
+```
+
+Le médicament est donc `billable` **sans tarif**, un état qu'ADR-031
+définit déjà : la facturation attend, rien n'est inventé. Il ne peut par
+construction être ni délivré ni vendu tant que le pharmacien n'a pas fixé
+ce prix, après la réception — exactement la séparation du point 15, obtenue
+sans interdire la commande. `CreateCatalogItemAction` accepte pour cela un
+élément facturable sans tarif initial ; tout écran qui nomme un prix en
+envoie toujours un, et sa FormRequest continue de l'exiger.
+
+Rattacher la ligne au médicament créé rend l'opération rejouable : la
+commander une seconde fois réutilise le produit au lieu d'en créer un
+double. Une ligne appartenant à un autre fournisseur est refusée — son UUID
+est public, et l'accepter rattacherait un produit à un dossier qui ne l'a
+jamais proposé.
+
+Une commande écrite depuis le portail n'a pas d'auteur local :
+`medicines.created_by` et `medicine_supplier_offers.created_by` deviennent
+donc nullables, avec les colonnes `external_*` en regard, selon le patron
+déjà appliqué aux commandes et aux factures fournisseur. `LinkSupplierCatalogItemAction`
+et `SetMedicineSupplierOfferAction` reçoivent un `CatalogActor` au lieu d'un
+`User`, comme le reste du domaine catalogue.
+
+Permissions inchangées : commander reste `purchase_orders.create`, et faire
+entrer un produit au catalogue reste `medicines.create` + `catalog.items.create`
+(ADR-024) — un compte qui ne les a pas commande normalement ce que la
+clinique tient déjà, et se voit refuser la ligne de catalogue côté serveur,
+jamais seulement dans l'interface.
 
 ## Ce qui ne change pas
 

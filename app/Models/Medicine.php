@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'catalog_item_id', 'medicine_category_id', 'generic_name', 'form', 'strength',
     'manufacturer', 'barcode', 'minimum_stock', 'prescription_required', 'active',
     'created_by', 'updated_by',
+    'external_created_by_uuid', 'external_created_by_name',
+    'external_updated_by_uuid', 'external_updated_by_name',
 ])]
 class Medicine extends Model
 {

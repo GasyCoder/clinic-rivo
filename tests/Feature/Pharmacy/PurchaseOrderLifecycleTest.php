@@ -5,6 +5,7 @@ namespace Tests\Feature\Pharmacy;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
+use App\Enums\SupplierCatalogFileKind;
 use App\Models\CatalogItem;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
@@ -12,6 +13,7 @@ use App\Models\Permission;
 use App\Models\PharmacyStockMovement;
 use App\Models\PurchaseOrder;
 use App\Models\Role;
+use App\Models\SupplierCatalogItem;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -109,6 +111,91 @@ class PurchaseOrderLifecycleTest extends TestCase
         ]);
 
         return PurchaseOrder::query()->latest('id')->first();
+    }
+
+    /**
+     * ADR-098 — a first purchase from a supplier whose catalogue has been
+     * imported but whose products the clinic does not hold yet. Ordering a
+     * catalogue line is what brings the product into the clinic catalogue —
+     * without a selling price, which nobody has decided at this point.
+     */
+    public function test_ordering_a_supplier_catalogue_line_creates_the_clinic_medicine_without_a_selling_price(): void
+    {
+        $this->pharmacist->permissions()->attach(
+            Permission::query()->whereIn('name', ['medicines.create', 'catalog.items.create', 'medicine_supplier_offers.create'])->pluck('id'),
+            ['effect' => 'allow'],
+        );
+        $supplier = $this->supplier();
+        $line = $this->catalogLine($supplier, 'ARB-014', 'Zinc sulfate 20 mg', '4500.00');
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/purchase-orders", [
+            'lines' => [['supplier_catalog_item_uuid' => $line->uuid, 'quantity_ordered' => 10, 'unit_price' => '4500']],
+        ])->assertRedirect();
+
+        $medicine = Medicine::query()->sole();
+        $this->assertSame('Zinc sulfate 20 mg', $medicine->catalogItem->name);
+        $this->assertSame('ARB-014', $medicine->catalogItem->code);
+        // The purchase price is recorded; the selling price is not invented.
+        $this->assertNull($medicine->catalogItem->currentStandardTariff);
+        $this->assertSame('4500.00', $medicine->currentOfferFor($supplier)->value('quoted_price'));
+        // The catalogue line now points at it: ordering it twice never
+        // creates the product twice.
+        $this->assertSame($medicine->id, $line->fresh()->linked_medicine_id);
+        $this->assertSame($medicine->id, PurchaseOrder::query()->latest('id')->first()->lines->sole()->medicine_id);
+    }
+
+    public function test_ordering_a_catalogue_line_is_refused_without_the_right_to_add_a_medicine(): void
+    {
+        $supplier = $this->supplier();
+        $line = $this->catalogLine($supplier, 'ARB-015', 'Albendazole 400 mg', '2000.00');
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/purchase-orders", [
+            'lines' => [['supplier_catalog_item_uuid' => $line->uuid, 'quantity_ordered' => 5, 'unit_price' => '2000']],
+        ])->assertForbidden();
+
+        $this->assertSame(0, Medicine::query()->count());
+        $this->assertSame(0, PurchaseOrder::query()->count());
+    }
+
+    /**
+     * ADR-098 — the clinic's own order screen offered the whole catalogue
+     * whatever the supplier, which is what the portal's form stopped doing.
+     * Nothing is listed until a supplier is named.
+     */
+    public function test_the_clinic_order_screen_lists_nothing_until_a_supplier_is_chosen(): void
+    {
+        $supplier = $this->supplier();
+        $this->medicine('Paracétamol 500 mg');
+        $sold = $this->medicine('Amoxicilline 500 mg');
+        $sold->suppliers()->attach($supplier->id);
+
+        $products = fn (?string $query) => collect(
+            $this->actingAs($this->pharmacist)->get('/pharmacy/purchase-orders/create'.$query)
+                ->assertOk()->viewData('page')['props']['medicines']
+        )->pluck('name')->all();
+
+        $this->assertSame([], $products(null));
+        $this->assertSame(['Amoxicilline 500 mg'], $products("?supplier={$supplier->uuid}"));
+    }
+
+    private function catalogLine(MedicineSupplier $supplier, string $reference, string $label, ?string $price): SupplierCatalogItem
+    {
+        $catalog = $supplier->catalogs()->create([
+            'original_name' => 'catalogue.xlsx',
+            'path' => 'suppliers/'.$supplier->uuid.'/catalogue.xlsx',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size' => 2048,
+            'kind' => SupplierCatalogFileKind::Excel,
+            'active_key' => 'ACTIVE',
+            'imported_at' => now(),
+        ]);
+
+        return $catalog->items()->create([
+            'reference' => $reference,
+            'medicine_label' => $label,
+            'supplier_price' => $price,
+            'row_number' => 1,
+        ]);
     }
 
     public function test_a_draft_order_can_be_submitted_then_becomes_ordered(): void

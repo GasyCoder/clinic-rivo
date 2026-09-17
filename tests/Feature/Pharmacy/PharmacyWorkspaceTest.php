@@ -24,6 +24,7 @@ use App\Models\Prescription;
 use App\Models\PrescriptionLine;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -124,7 +125,7 @@ class PharmacyWorkspaceTest extends TestCase
         $centrale = MedicineSupplier::query()->create(['code' => 'CENTRALE', 'name' => 'Centrale']);
         $linked->suppliers()->attach($distrib->id);
         app(SetMedicineSupplierOfferAction::class)
-            ->execute($priced, $centrale, '600', 'Tarif initial', $pharmacist);
+            ->execute($priced, $centrale, '600', 'Tarif initial', CatalogActor::fromUser($pharmacist));
 
         $medicines = collect($this->actingAs($pharmacist)->get('/pharmacy/stock/entries/create')
             ->assertOk()

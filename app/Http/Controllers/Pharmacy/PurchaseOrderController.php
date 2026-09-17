@@ -11,7 +11,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\CancelPurchaseOrderRequest;
 use App\Http\Requests\Pharmacy\StorePurchaseOrderRequest;
 use App\Http\Requests\Pharmacy\UpdatePurchaseOrderRequest;
-use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\PurchaseOrder;
 use App\Services\Catalog\CatalogActor;
@@ -61,20 +60,25 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
-    public function create(Request $request): Response
+    /**
+     * ADR-098 — the products offered depend on the supplier, so nothing is
+     * listed until one is chosen: this screen used to offer the whole clinic
+     * catalogue whatever the supplier, which is exactly what the portal's
+     * form stopped doing. `ProcurementFormOptions` is the single answer to
+     * "what can this supplier deliver", here as there.
+     */
+    public function create(Request $request, ProcurementFormOptions $options): Response
     {
         abort_unless($request->user()?->can('purchase_orders.create'), 403);
 
+        $supplier = filled($request->query('supplier'))
+            ? MedicineSupplier::query()->where('uuid', $request->query('supplier'))->first()
+            : null;
+
         return Inertia::render('Pharmacy/PurchaseOrders/Create', [
             'suppliers' => MedicineSupplier::query()->orderBy('name')->get(['uuid', 'code', 'name']),
-            'medicines' => Medicine::query()->where('active', true)
-                ->with('catalogItem:id,code,name')
-                ->get()
-                ->map(fn (Medicine $medicine) => [
-                    'uuid' => $medicine->uuid,
-                    'code' => $medicine->catalogItem?->code,
-                    'name' => $medicine->catalogItem?->name,
-                ])->values(),
+            'supplierUuid' => $supplier?->uuid ?? '',
+            'medicines' => $supplier ? $options->orderMedicines($supplier) : [],
         ]);
     }
 

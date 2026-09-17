@@ -6,7 +6,7 @@ use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\MedicineSupplierOffer;
 use App\Models\SupplierCatalogItem;
-use App\Models\User;
+use App\Services\Catalog\CatalogActor;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +28,7 @@ class SetMedicineSupplierOfferAction
         MedicineSupplier $supplier,
         string|int $quotedPrice,
         string $reason,
-        User $actor,
+        CatalogActor $actor,
         ?string $supplierReference = null,
         ?SupplierCatalogItem $sourceCatalogItem = null,
     ): MedicineSupplierOffer {
@@ -68,7 +68,8 @@ class SetMedicineSupplierOfferAction
                 $current->fill([
                     'effective_until' => $effectiveAt,
                     'active_key' => null,
-                    'ended_by' => $actor->getKey(),
+                    'ended_by' => $actor->localUserId(),
+                    ...$actor->externalAttribution('ended'),
                 ])->save();
             }
 
@@ -87,7 +88,8 @@ class SetMedicineSupplierOfferAction
                 'effective_from' => $effectiveAt,
                 'active_key' => 'CURRENT',
                 'change_reason' => trim($reason),
-                'created_by' => $actor->getKey(),
+                'created_by' => $actor->localUserId(),
+                ...$actor->externalAttribution('created'),
             ]);
         });
     }

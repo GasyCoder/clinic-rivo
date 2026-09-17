@@ -64,7 +64,7 @@ class MedicineController extends Controller
             );
 
             if ($item) {
-                $link->execute($item, $medicine, 'Ajout au catalogue clinique depuis le catalogue fournisseur', $request->user());
+                $link->execute($item, $medicine, 'Ajout au catalogue clinique depuis le catalogue fournisseur', CatalogActor::fromUser($request->user()));
             }
 
             return $medicine;

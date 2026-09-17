@@ -192,6 +192,15 @@ class SupplierPresenter
             'effective_from' => $offer->effective_from?->toIso8601String(),
             'effective_until' => $offer->effective_until?->toIso8601String(),
             'change_reason' => $offer->change_reason,
+            // Where this line comes from, and whether the clinic ever
+            // actually received it: a supplier catalogue proposes, a
+            // reception is what makes a product really the pharmacy's.
+            'source_catalog' => $offer->sourceCatalogItem?->catalog()->withTrashed()->value('original_name'),
+            'received_at' => $offer->medicine->lots()->max('created_at'),
+            'in_stock' => $offer->medicine->lots()
+                ->where('active', true)
+                ->whereDate('expires_at', '>=', now()->toDateString())
+                ->sum('quantity_on_hand'),
         ];
     }
 }

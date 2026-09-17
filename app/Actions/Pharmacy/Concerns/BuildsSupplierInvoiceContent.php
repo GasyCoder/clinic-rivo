@@ -51,6 +51,32 @@ trait BuildsSupplierInvoiceContent
     }
 
     /**
+     * An invoice is a financial document first: detailed line by line when the
+     * supplier's document is, or reduced to its total when it is not. The two
+     * never coexist as separate truths — with lines, the total is their sum,
+     * so a typed total can never contradict what is listed under it.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{0: array<int, array<string, mixed>>, 1: string}
+     */
+    private function resolveContent(array $data): array
+    {
+        $lines = $data['lines'] ?? [];
+
+        if ($lines !== []) {
+            return $this->buildLines($lines);
+        }
+
+        if (! filled($data['total_amount'] ?? null)) {
+            throw ValidationException::withMessages([
+                'total_amount' => 'Indiquez le montant total de la facture.',
+            ]);
+        }
+
+        return [[], Money::normalize((string) $data['total_amount'])];
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $input
      * @return array{0: array<int, array<string, mixed>>, 1: string}
      */

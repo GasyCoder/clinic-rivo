@@ -98,6 +98,31 @@ class SupplierInvoiceTest extends TestCase
         $this->assertSame(0, SupplierInvoice::query()->count());
     }
 
+    public function test_an_invoice_is_recorded_as_a_global_document_without_listing_its_products(): void
+    {
+        $supplier = $this->supplier();
+
+        // What the supplier billed, and its document — the detail of what
+        // physically arrived belongs to the reception, not here.
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/invoices", [
+            'invoice_number' => 'FAC-GLOBAL-001',
+            'invoice_date' => now()->toDateString(),
+            'total_amount' => '250000',
+        ])->assertSessionHasNoErrors();
+
+        $invoice = SupplierInvoice::query()->where('invoice_number', 'FAC-GLOBAL-001')->sole();
+        $this->assertSame('250000.00', (string) $invoice->total_amount);
+        $this->assertSame(0, $invoice->lines()->count());
+
+        // Neither lines nor total: the invoice says nothing and is refused.
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/invoices", [
+            'invoice_number' => 'FAC-GLOBAL-002',
+            'invoice_date' => now()->toDateString(),
+        ])->assertSessionHasErrors('total_amount');
+
+        $this->assertSame(1, SupplierInvoice::query()->count());
+    }
+
     public function test_recording_an_invoice_never_touches_stock(): void
     {
         $supplier = $this->supplier();

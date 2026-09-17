@@ -829,6 +829,67 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'GET', $path, [], $actor);
     }
 
+    /**
+     * @param  array<int, string>  $supplierUuids
+     */
+    public function forceDeleteTrashItem(string $siteCode, string $category, string $uuid, User $actor): array
+    {
+        $path = 'super-admin/trash/'.rawurlencode($category).'/'.rawurlencode($uuid);
+
+        return $this->request($this->site($siteCode), 'DELETE', $path, [], $actor);
+    }
+
+    /**
+     * The catalogue file of a site, fetched as bytes so the portal can hand
+     * it to the browser. Nothing is stored centrally: the file keeps living
+     * on its site (ADR-098).
+     *
+     * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
+     */
+    public function pharmacySupplierCatalogFile(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor, string $filename): array
+    {
+        $site = $this->site($siteCode);
+        $apiUrl = trim((string) ($site['api_url'] ?? ''));
+        $token = trim((string) ($site['api_token'] ?? ''));
+
+        if ($apiUrl === '' || $token === '') {
+            return ['ok' => false, 'message' => 'L’URL ou le jeton API de ce site n’est pas configuré.', 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+        }
+
+        $path = 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/catalogs/'.rawurlencode($catalogUuid).'/download';
+
+        try {
+            $response = Http::withToken($token)
+                ->withHeaders([
+                    'X-Request-UUID' => (string) Str::uuid(),
+                    'X-Rivo-Actor-UUID' => $actor->uuid,
+                    'X-Rivo-Actor-Name' => $actor->name,
+                    'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
+                ])
+                ->timeout(max(5, (int) config('rivo.site_api.timeout', 5)))
+                ->get(rtrim($apiUrl, '/').'/'.$path);
+        } catch (Throwable $exception) {
+            return ['ok' => false, 'message' => 'Le site est injoignable : '.$exception->getMessage(), 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+        }
+
+        if (! $response->successful()) {
+            return ['ok' => false, 'message' => 'Le site a refusé le téléchargement de ce fichier.', 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+        }
+
+        return [
+            'ok' => true,
+            'message' => '',
+            'body' => $response->body(),
+            'content_type' => $response->header('Content-Type') ?: 'application/octet-stream',
+            'filename' => $filename,
+        ];
+    }
+
+    public function pharmacySupplierOffers(string $siteCode, User $actor, array $supplierUuids = []): array
+    {
+        return $this->request($this->site($siteCode), 'GET', 'super-admin/pharmacy/supplier-offers', ['suppliers' => $supplierUuids], $actor);
+    }
+
     public function pharmacySuppliers(string $siteCode, User $actor, array $query = []): array
     {
         return $this->request($this->site($siteCode), 'GET', 'super-admin/pharmacy/suppliers', $query, $actor);

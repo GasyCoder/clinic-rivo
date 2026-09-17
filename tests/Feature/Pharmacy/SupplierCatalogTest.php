@@ -92,6 +92,62 @@ class SupplierCatalogTest extends TestCase
         ]);
     }
 
+    public function test_a_real_supplier_catalogue_without_prices_is_imported_instead_of_being_rejected(): void
+    {
+        // Le fichier réel du fournisseur Arbiochem : 119 produits, aucun
+        // prix. Un catalogue liste d'abord ce que le fournisseur propose ;
+        // le tarif arrive parfois séparément (ADR-098).
+        $supplier = $this->supplier();
+        $user = $this->setupUser(['supplier_catalogs.create', 'supplier_catalogs.update']);
+        $fixture = base_path('tests/Fixtures/Pharmacy/Arbiochem_catalogue_rempli.xlsx');
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/catalogs", [
+            'file' => new UploadedFile($fixture, 'Arbiochem_catalogue_rempli.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true),
+        ])->assertRedirect();
+
+        $catalog = SupplierCatalog::query()->latest('id')->sole();
+        $preview = app(SupplierCatalogImportService::class)->preview($catalog);
+
+        $this->assertNull($preview['error']);
+        $this->assertSame([], $preview['missing_headers']);
+        $this->assertSame(0, $preview['invalid_count']);
+        $this->assertSame(119, $preview['valid_count']);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/catalogs/{$catalog->uuid}/import")
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(119, $catalog->items()->count());
+        $this->assertNull($catalog->items()->first()->supplier_price);
+    }
+
+    public function test_an_unreadable_price_names_the_line_the_column_and_the_value(): void
+    {
+        $supplier = $this->supplier();
+        $user = $this->setupUser(['supplier_catalogs.create', 'supplier_catalogs.update']);
+
+        $this->actingAs($user)->post("/pharmacy/suppliers/{$supplier->uuid}/catalogs", [
+            'file' => $this->excelFile([
+                ['REF-1', 'Paracétamol 500 mg', 'boîte de 10', '4 500,50 Ar'],
+                ['REF-2', 'Amoxicilline', 'boîte', 'cent'],
+                ['REF-3', '', 'flacon', '100'],
+            ]),
+        ]);
+        $catalog = SupplierCatalog::query()->latest('id')->sole();
+        $preview = app(SupplierCatalogImportService::class)->preview($catalog);
+
+        // Un montant formaté par Excel reste un prix, pas une erreur.
+        $this->assertSame('4500.50', $preview['rows'][0]['supplier_price']);
+        $this->assertSame([], $preview['rows'][0]['errors']);
+
+        $this->assertSame('Prix fournisseur', $preview['rows'][1]['issues'][0]['column']);
+        $this->assertSame('cent', $preview['rows'][1]['issues'][0]['value']);
+        $this->assertStringContainsString('nombre', $preview['rows'][1]['issues'][0]['message']);
+
+        $this->assertSame('Médicament', $preview['rows'][2]['issues'][0]['column']);
+        $this->assertStringContainsString('obligatoire', $preview['rows'][2]['issues'][0]['message']);
+        $this->assertSame(2, $preview['invalid_count']);
+    }
+
     public function test_only_one_catalog_can_be_active_per_supplier_at_a_time(): void
     {
         $supplier = $this->supplier();

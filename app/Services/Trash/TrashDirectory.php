@@ -4,13 +4,19 @@ namespace App\Services\Trash;
 
 use App\Actions\Catalog\RestoreCatalogItemAction;
 use App\Actions\Patient\RestorePatientAction;
+use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
+use App\Actions\Pharmacy\RestoreSupplierCatalogAction;
+use App\Actions\Pharmacy\RestoreSupplierInvoiceAction;
 use App\Enums\TrashCategory;
 use App\Models\AddressEntry;
 use App\Models\AuditLog;
 use App\Models\CashRegister;
 use App\Models\CatalogItem;
+use App\Models\MedicineSupplier;
 use App\Models\MutualOrganization;
 use App\Models\Patient;
+use App\Models\SupplierCatalog;
+use App\Models\SupplierInvoice;
 use App\Services\Administration\AddressEntryManager;
 use App\Services\Administration\MutualOrganizationManager;
 use App\Services\Cash\CashRegisterManager;
@@ -21,6 +27,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Explicit registry of records that may safely be restored from the central
@@ -38,6 +46,9 @@ class TrashDirectory
         private readonly AddressEntryManager $addressEntries,
         private readonly MutualOrganizationManager $mutualOrganizations,
         private readonly CashRegisterManager $cashRegisters,
+        private readonly RestoreMedicineSupplierAction $restoreSupplier,
+        private readonly RestoreSupplierCatalogAction $restoreCatalog,
+        private readonly RestoreSupplierInvoiceAction $restoreInvoice,
     ) {}
 
     /**
@@ -120,6 +131,9 @@ class TrashDirectory
                     TrashCategory::AddressEntry => $this->addressEntries->restore($model),
                     TrashCategory::MutualOrganization => $this->mutualOrganizations->restore($model),
                     TrashCategory::CashRegister => $this->cashRegisters->restore($model),
+                    TrashCategory::MedicineSupplier => $this->restoreSupplier->execute($model, $actor),
+                    TrashCategory::SupplierCatalog => $this->restoreCatalog->execute($model, $actor),
+                    TrashCategory::SupplierInvoice => $this->restoreInvoice->execute($model, $actor),
                 };
             }
 
@@ -129,6 +143,95 @@ class TrashDirectory
                 'already_restored' => $alreadyRestored,
             ];
         });
+    }
+
+    /**
+     * Destroy a trashed record for good.
+     *
+     * Deliberately narrow (ADR-010, same reasoning as ADR-062 for an account
+     * that never served): the model itself decides, through
+     * `isForceDeleteProtected()`, and refuses as soon as anything references
+     * it — an order, a reception, a price, a stock movement. A supplier that
+     * delivered once, a catalog that was imported and a supplier invoice are
+     * therefore never destroyed: they are the history of what was bought.
+     *
+     * @return array{category: string, uuid: string}
+     */
+    public function forceDelete(TrashCategory $category, string $uuid, CatalogActor $actor): array
+    {
+        if ($actor->cannot('trash.force_delete') || $actor->cannot($category->restorePermission())) {
+            throw new AuthorizationException('Cette suppression définitive n’est pas autorisée.');
+        }
+
+        return DB::transaction(function () use ($category, $uuid): array {
+            /** @var Model&SoftDeletes $model */
+            $model = $this->modelQuery($category)
+                ->withTrashed()
+                ->where('uuid', $uuid)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $model->trashed()) {
+                throw ValidationException::withMessages([
+                    'uuid' => 'Cet élément n’est pas dans la corbeille : mettez-le d’abord à la corbeille.',
+                ]);
+            }
+
+            // The model's own guard is the rule; this message names it before
+            // the exception does, so the screen can say why it is refused.
+            if ($model->isForceDeleteProtected()) {
+                throw ValidationException::withMessages([
+                    'uuid' => 'Cet élément a déjà servi : il reste dans la corbeille et peut être restauré, mais il ne peut pas être supprimé définitivement.',
+                ]);
+            }
+
+            // Ce qui n'appartient qu'à l'élément part avec lui : sinon
+            // « supprimer définitivement » laisserait des fichiers et des
+            // lignes qui ne désignent plus rien.
+            $this->deleteOwnedContent($category, $model);
+
+            $model->forceDelete();
+
+            return ['category' => $category->value, 'uuid' => $uuid];
+        });
+    }
+
+    /**
+     * Le contenu propre d'un élément détruit pour de bon.
+     *
+     * Un dossier fournisseur possède ses fichiers de catalogue et ses
+     * rattachements « peut fournir » : ni l'un ni l'autre n'a de sens sans
+     * lui. Ce qui relève de l'histoire (commandes, factures, lots,
+     * mouvements, prix) a déjà bloqué la suppression en amont.
+     */
+    private function deleteOwnedContent(TrashCategory $category, Model $model): void
+    {
+        match ($category) {
+            TrashCategory::MedicineSupplier => $this->deleteSupplierFolder($model),
+            TrashCategory::SupplierCatalog => $this->deleteCatalogFile($model),
+            default => null,
+        };
+    }
+
+    private function deleteSupplierFolder(MedicineSupplier $supplier): void
+    {
+        $supplier->medicines()->detach();
+
+        foreach ($supplier->catalogs()->withTrashed()->get() as $catalog) {
+            $this->deleteCatalogFile($catalog);
+            // Les lignes partent avec le catalogue (cascadeOnDelete). Le
+            // catalogue ne se protège pas contre la fin de son propre
+            // dossier : il n'aurait plus rien à désigner.
+            $catalog->deletingWithFolder = true;
+            $catalog->forceDelete();
+        }
+    }
+
+    private function deleteCatalogFile(SupplierCatalog $catalog): void
+    {
+        if (filled($catalog->path) && Storage::disk('local')->exists($catalog->path)) {
+            Storage::disk('local')->delete($catalog->path);
+        }
     }
 
     /** @return Builder<Model> */
@@ -152,6 +255,13 @@ class TrashDirectory
                         ->where('label', 'like', "%{$search}%"),
                     TrashCategory::MutualOrganization, TrashCategory::CashRegister => $nested
                         ->where('name', 'like', "%{$search}%"),
+                    TrashCategory::MedicineSupplier => $nested
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%"),
+                    TrashCategory::SupplierCatalog => $nested
+                        ->where('original_name', 'like', "%{$search}%"),
+                    TrashCategory::SupplierInvoice => $nested
+                        ->where('invoice_number', 'like', "%{$search}%"),
                 };
             });
         }
@@ -176,6 +286,9 @@ class TrashDirectory
             TrashCategory::AddressEntry => AddressEntry::query(),
             TrashCategory::MutualOrganization => MutualOrganization::query(),
             TrashCategory::CashRegister => CashRegister::query(),
+            TrashCategory::MedicineSupplier => MedicineSupplier::query(),
+            TrashCategory::SupplierCatalog => SupplierCatalog::query()->with('supplier'),
+            TrashCategory::SupplierInvoice => SupplierInvoice::query()->with('supplier'),
         };
     }
 
@@ -230,6 +343,17 @@ class TrashDirectory
                 'Couverture '.$model->coverage_rate.' %',
             ],
             TrashCategory::CashRegister => [$model->name, null, 'Référentiel des caisses'],
+            TrashCategory::MedicineSupplier => [$model->name, $model->code, 'Dossier fournisseur'],
+            TrashCategory::SupplierCatalog => [
+                $model->original_name,
+                null,
+                'Catalogue de '.($model->supplier?->name ?? 'fournisseur archivé'),
+            ],
+            TrashCategory::SupplierInvoice => [
+                'Facture '.$model->invoice_number,
+                $model->invoice_number,
+                ($model->supplier?->name ?? 'Fournisseur archivé').' · '.$model->total_amount.' MGA',
+            ],
         };
 
         return [

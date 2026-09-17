@@ -19,8 +19,10 @@ const props = defineProps({
     catalogs: { type: Array, default: () => [] },
     can: { type: Object, default: () => ({}) },
     baseUrl: { type: String, required: true },
-    // The portal never streams a clinic's file: only the site can open it.
+    // The clinic opens its own file directly; the portal streams it back
+    // through the site API (`downloadUrl`), never a central copy.
     canOpenFile: { type: Boolean, default: true },
+    downloadUrl: { type: Function, default: null },
     // The parsed lines of a catalog are browsed from the clinic folder.
     canBrowseItems: { type: Boolean, default: true },
     // Blank Excel file with the columns a catalog must have to be read.
@@ -77,6 +79,9 @@ const confirmArchive = () => archiveForm.delete(`${props.baseUrl}/${archiving.va
 });
 
 const itemsHref = (catalog) => `${props.baseUrl}/${catalog.uuid}/items`;
+const fileHref = (catalog) => (props.downloadUrl
+    ? props.downloadUrl(catalog)
+    : `${props.baseUrl}/${catalog.uuid}`);
 
 // Only what is written about a catalog changes; a new tariff is a new file.
 const editing = ref(null);
@@ -177,7 +182,9 @@ const VIEW_OPTIONS = [
                         <template v-if="!catalog.archived">
                             <Button v-if="catalog.kind === 'EXCEL' && can.create" :as="Link" :href="`${baseUrl}/${catalog.uuid}/import`" size="sm" :variant="catalog.is_imported ? 'white-outline' : 'primary'" class="justify-center">{{ catalog.is_imported ? 'Relire les lignes' : 'Lire les lignes' }}</Button>
                             <Button v-if="canBrowseItems && catalog.kind === 'EXCEL' && catalog.is_imported" :as="Link" :href="itemsHref(catalog)" size="sm" variant="white-outline" class="justify-center">Voir les produits</Button>
-                            <Button v-if="canOpenFile" as="a" :href="`${baseUrl}/${catalog.uuid}`" target="_blank" size="sm" variant="white-outline" class="justify-center">Ouvrir le fichier</Button>
+                            <Button v-if="canOpenFile || downloadUrl" as="a" :href="fileHref(catalog)" :target="canOpenFile ? '_blank' : null" size="sm" variant="white-outline" class="justify-center">
+                                <component :is="canOpenFile ? Eye : Download" class="h-4 w-4" />{{ canOpenFile ? 'Ouvrir le fichier' : 'Télécharger' }}
+                            </Button>
                             <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" class="justify-center" @click="activate(catalog)">Utiliser ce catalogue</Button>
                             <Button v-if="can.update" size="sm" variant="white-outline" class="justify-center" @click="startEdit(catalog)">Modifier</Button>
                             <Button v-if="can.delete" size="sm" variant="white-outline" class="justify-center text-red-600" @click="archiving = catalog">Archiver</Button>
@@ -219,8 +226,8 @@ const VIEW_OPTIONS = [
                             <Button v-if="canBrowseItems && catalog.kind === 'EXCEL' && catalog.is_imported" :as="Link" :href="itemsHref(catalog)" size="sm" variant="white-outline">
                                 <Eye class="h-4 w-4" />Voir les produits
                             </Button>
-                            <Button v-if="canOpenFile" as="a" :href="`${baseUrl}/${catalog.uuid}`" target="_blank" size="sm" variant="white-outline" :title="`Ouvrir ${catalog.original_name}`">
-                                <ExternalLink class="h-4 w-4" />Ouvrir le fichier
+                            <Button v-if="canOpenFile || downloadUrl" as="a" :href="fileHref(catalog)" :target="canOpenFile ? '_blank' : null" size="sm" variant="white-outline" :title="`${canOpenFile ? 'Ouvrir' : 'Télécharger'} ${catalog.original_name}`">
+                                <component :is="canOpenFile ? ExternalLink : Download" class="h-4 w-4" />{{ canOpenFile ? 'Ouvrir le fichier' : 'Télécharger' }}
                             </Button>
                             <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" @click="activate(catalog)">Utiliser ce catalogue</Button>
                             <Button v-if="can.update" size="sm" variant="white-outline" @click="startEdit(catalog)"><Pencil class="h-4 w-4" />Modifier</Button>

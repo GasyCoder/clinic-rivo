@@ -59,6 +59,7 @@ class PermissionSeeder extends Seeder
         'api.view' => 'Voir l’état des intégrations API',
         'trash.view' => 'Voir la corbeille multi-sites',
         'trash.restore' => 'Restaurer un élément depuis la corbeille multi-sites',
+        'trash.force_delete' => 'Supprimer définitivement un élément jamais utilisé de la corbeille',
 
         // CDC officiel §17, affiné par la décision projet qui sépare RH,
         // Logistique, Support et Maintenance en responsabilités autonomes.

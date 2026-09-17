@@ -240,6 +240,17 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Fiche médicament passée à shadcn (ADR-099) : `MedicineForm` et `MedicineStatusPanel`, partagés par la clinique et le portail, quittent les champs habillés à la main et la fenêtre modale maison
 - [x] Familles : renommer, archiver (refusé si médicament actif), restaurer
 - [x] Modifier une commande brouillon, une facture fournisseur et la date/remarque d'un catalogue, clinique et portail
+- [x] Comparateur de prix fournisseurs par médicament (prix, moins-disant, stock restant), point d'entrée de la commande d'achat
+- [x] Commande d'achat composée sur plusieurs fournisseurs : un brouillon par fournisseur, jamais une commande mixte
+- [x] Formulaire de commande limité aux produits réellement fournis par le fournisseur
+- [x] Facture fournisseur enregistrable comme document global (numéro, date, montant, pièce jointe) ; le détail par produit devient facultatif
+- [x] Fournisseurs, catalogues et factures archivés visibles dans la Corbeille, restaurables
+- [x] Suppression définitive depuis la seule Corbeille, refusée dès que l'élément a servi (`trash.force_delete`)
+- [x] Prix facultatif dans un catalogue fournisseur : un fichier sans tarif s'importe, le prix est exigé au rattachement à un médicament
+- [x] Erreur d'import nommant la ligne, la colonne, la valeur lue et la raison ; montant formaté (« 4 500,50 Ar ») accepté
+- [x] Téléchargement d'un fichier de catalogue depuis le portail, relayé par l'API du site
+- [x] Actions Ouvrir / Modifier / Corbeille / Restaurer sur la liste des fournisseurs du portail
+- [x] Provenance d'un produit fournisseur affichée (catalogue d'origine) et distinction proposé / réellement réceptionné
 - [ ] Transfert stock
 - [ ] Rapports
 

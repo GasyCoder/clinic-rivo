@@ -94,6 +94,25 @@ const closeRestore = () => {
     restoring.value = null;
     restoreForm.clearErrors();
 };
+// Destroying for good is a second, deliberate step: it is never offered from
+// the main lists, only here, and the site refuses it as soon as anything
+// used the record (ADR-010).
+const destroying = ref(null);
+const destroyForm = useForm({});
+const openDestroy = (record) => {
+    destroying.value = record;
+    destroyForm.clearErrors();
+};
+const closeDestroy = () => {
+    if (destroyForm.processing) return;
+    destroying.value = null;
+    destroyForm.clearErrors();
+};
+const submitDestroy = () => destroyForm.delete(
+    `/super-admin/trash/${destroying.value.site.code}/${destroying.value.category}/${destroying.value.uuid}`,
+    { preserveScroll: true, onSuccess: closeDestroy },
+);
+
 const submitRestore = () => restoreForm.post(
     `/super-admin/trash/${restoring.value.site.code}/${restoring.value.category}/${restoring.value.uuid}/restore`,
     {
@@ -219,6 +238,9 @@ const formatDateTime = (value) => value
                         <Button v-if="can('trash.restore') && record.can_restore" size="sm" variant="white-outline" type="button" @click="openRestore(record)">
                             <RotateCcw class="h-4 w-4" />Restaurer
                         </Button>
+                        <Button v-if="can('trash.force_delete')" size="sm" variant="white-outline" type="button" class="ms-2 text-destructive hover:bg-destructive/10" title="Supprimer définitivement" @click="openDestroy(record)">
+                            <Trash2 class="h-4 w-4" />
+                        </Button>
                     </div>
                 </article>
             </div>
@@ -234,6 +256,28 @@ const formatDateTime = (value) => value
                 <span v-if="resultIsLimited">Les 100 suppressions les plus récentes de chaque site sont affichées.</span>
             </footer>
         </section>
+
+        <div v-if="destroying" class="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" @click.self="closeDestroy">
+            <form class="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl" @submit.prevent="submitDestroy">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-destructive/10 text-destructive"><Trash2 class="h-4.5 w-4.5" /></span>
+                    <div>
+                        <h2 class="text-base font-bold text-foreground">Supprimer définitivement ?</h2>
+                        <p class="mt-1 text-sm leading-5 text-muted-foreground">
+                            <strong>{{ destroying.title }}</strong> sera effacé de {{ destroying.site.name }}. Cette action est irréversible et il ne sera plus restaurable.
+                        </p>
+                    </div>
+                </div>
+                <p class="mt-4 rounded border border-border bg-muted/50 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+                    Le site refusera si cet élément a déjà servi — une commande, une réception, un prix ou un mouvement de stock. Dans ce cas il reste dans la corbeille, restaurable.
+                </p>
+                <p v-for="error in Object.values(destroyForm.errors)" :key="error" class="mt-3 text-xs text-red-600">{{ error }}</p>
+                <div class="mt-5 flex justify-end gap-3">
+                    <Button size="rg" variant="white-outline" type="button" @click="closeDestroy">Annuler</Button>
+                    <Button size="rg" variant="destructive" :disabled="destroyForm.processing"><Trash2 class="h-4 w-4" />{{ destroyForm.processing ? 'Suppression…' : 'Supprimer définitivement' }}</Button>
+                </div>
+            </form>
+        </div>
 
         <div v-if="restoring" class="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" @click.self="closeRestore">
             <form class="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl" @submit.prevent="submitRestore">

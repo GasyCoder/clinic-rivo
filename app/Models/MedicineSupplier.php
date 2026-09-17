@@ -49,6 +49,11 @@ class MedicineSupplier extends Model
         return $this->hasMany(PurchaseOrder::class);
     }
 
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(SupplierInvoice::class);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -59,14 +64,23 @@ class MedicineSupplier extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
 
+    /**
+     * Ce qui interdit la suppression définitive, c'est l'histoire de ce
+     * fournisseur : une commande, une facture, un lot reçu, un mouvement de
+     * stock, un prix d'achat déjà enregistré. Détruire le dossier
+     * effacerait alors le sens de lignes qui le désignent (ADR-010).
+     *
+     * Ses catalogues et ses rattachements « peut fournir » ne sont pas de
+     * l'histoire : ils n'appartiennent qu'au dossier et disparaissent avec
+     * lui (TrashDirectory::forceDelete), fichiers compris.
+     */
     public function isForceDeleteProtected(): bool
     {
-        return $this->medicines()->exists()
-            || $this->lots()->exists()
+        return $this->lots()->exists()
             || $this->stockMovements()->exists()
-            || $this->catalogs()->exists()
             || $this->offers()->exists()
-            || $this->purchaseOrders()->exists();
+            || $this->purchaseOrders()->exists()
+            || $this->invoices()->withTrashed()->exists();
     }
 
     protected function auditModule(): ?string

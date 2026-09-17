@@ -141,6 +141,31 @@ class PharmacySupplierPortalTest extends TestCase
                 ->where('error', null));
     }
 
+    public function test_a_catalog_file_can_be_downloaded_from_the_portal_through_the_site(): void
+    {
+        Http::fake(['https://a.test/api/v1/super-admin/pharmacy/suppliers/supplier-a/catalogs/catalog-1/download' => Http::response(
+            'contenu-du-fichier',
+            200,
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+        )]);
+
+        $response = $this->actingAs($this->superAdmin)
+            ->get('/super-admin/pharmacy-suppliers/A/supplier-a/catalogs/catalog-1/download?name=Tarif%202026.xlsx')
+            ->assertOk();
+
+        $this->assertSame('contenu-du-fichier', $response->streamedContent());
+        $this->assertStringContainsString('Tarif 2026.xlsx', $response->headers->get('content-disposition'));
+    }
+
+    public function test_a_missing_catalog_file_is_reported_instead_of_serving_an_empty_download(): void
+    {
+        Http::fake(['https://a.test/api/v1/*' => Http::response(['message' => 'Introuvable.'], 404)]);
+
+        $this->actingAs($this->superAdmin)
+            ->get('/super-admin/pharmacy-suppliers/A/supplier-a/catalogs/catalog-1/download?name=absent.xlsx')
+            ->assertNotFound();
+    }
+
     public function test_an_unknown_site_is_refused_before_any_api_call(): void
     {
         Http::fake();

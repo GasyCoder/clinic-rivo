@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Button from '@/Components/Shadcn/Button.vue';
 import FormSection from '@/Components/UI/FormSection.vue';
-import { CloudUpload, Copy, FileCheck, Info, Plus, Save, Trash2 } from 'lucide-vue-next';
+import { CloudUpload, Copy, FileCheck, Info, ListPlus, Plus, Save, Trash2, X } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
@@ -11,6 +11,10 @@ import { formatMoney } from '@/utilities/pharmacyStatus';
  * ADR-098 — the supplier invoice form, shared by the clinic and the central
  * portal. When the page provides the supplier's orders, the invoice can be
  * tied to an order (and its reception) and start from its lines.
+ *
+ * An invoice is a financial document first: its total is what the supplier
+ * billed, and detailing it product by product is a deliberate extra step —
+ * what physically arrived is already recorded by the reception.
  */
 const props = defineProps({
     // null when the supplier is fixed by the page.
@@ -40,10 +44,22 @@ const form = useForm({
     goods_receipt_uuid: initial?.goods_receipt_uuid ?? '',
     notes: initial?.notes ?? '',
     attachment: null,
+    total_amount: initial && !initial.lines.length ? String(initial.total_amount ?? '') : '',
     lines: initial?.lines.length
         ? initial.lines.map((line) => ({ medicine_uuid: line.medicine_uuid, description: line.description, quantity: line.quantity, unit_price: String(line.unit_price) }))
-        : [blankLine()],
+        : [],
 });
+
+// Off by default: most invoices are filed as a document and a total.
+const detailed = ref(Boolean(initial?.lines.length));
+const openDetail = () => {
+    detailed.value = true;
+    if (!form.lines.length) form.lines.push(blankLine());
+};
+const closeDetail = () => {
+    detailed.value = false;
+    form.lines = [];
+};
 
 const supplierLabel = computed(() => props.supplierName || props.suppliers?.find((supplier) => supplier.uuid === supplierUuid.value)?.name || '');
 const selectedOrder = computed(() => props.orders.find((order) => order.uuid === form.purchase_order_uuid) ?? null);
@@ -62,20 +78,29 @@ const onMedicineChange = (line) => { if (!line.description) line.description = m
 const copyOrderLines = () => {
     if (!selectedOrder.value) return;
     form.lines = selectedOrder.value.lines.map((line) => ({ ...line }));
+    detailed.value = true;
 };
 
 const addLine = () => form.lines.push(blankLine());
 const removeLine = (index) => { if (form.lines.length > 1) form.lines.splice(index, 1); };
 const lineTotal = (line) => (Number(line.quantity) || 0) * (Number(line.unit_price) || 0);
-const total = computed(() => form.lines.reduce((sum, line) => sum + lineTotal(line), 0));
+const linesTotal = computed(() => form.lines.reduce((sum, line) => sum + lineTotal(line), 0));
+// With a detail, the lines are the total: a typed amount could contradict them.
+const total = computed(() => (detailed.value ? linesTotal.value : Number(form.total_amount) || 0));
 const readyLines = computed(() => form.lines.filter((line) => line.medicine_uuid && line.description && Number(line.unit_price) > 0).length);
+const canSubmit = computed(() => Boolean(supplierUuid.value && form.invoice_number
+    && (detailed.value ? readyLines.value === form.lines.length && readyLines.value > 0 : total.value > 0)));
 
 const inputClass = 'h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 disabled:bg-muted disabled:text-muted-foreground ';
 const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
 
 const submit = () => {
-    if (!supplierUuid.value) return;
-    form.post(props.submitUrl(supplierUuid.value), { forceFormData: true, preserveScroll: true });
+    if (!canSubmit.value) return;
+    form
+        .transform((data) => (detailed.value
+            ? { ...data, total_amount: '' }
+            : { ...data, lines: [] }))
+        .post(props.submitUrl(supplierUuid.value), { forceFormData: true, preserveScroll: true });
 };
 </script>
 
@@ -101,7 +126,14 @@ const submit = () => {
                         <span :class="labelClass">Date de la facture <span class="text-red-500">*</span></span>
                         <input v-model="form.invoice_date" type="date" :class="inputClass" required>
                     </label>
-                    <label :class="['block', suppliers ? 'md:col-span-3' : '']">
+                    <label v-if="!detailed" class="block">
+                        <span :class="labelClass">Montant total <span class="text-red-500">*</span></span>
+                        <span class="relative block">
+                            <input v-model="form.total_amount" type="number" min="0.01" step="0.01" :class="[inputClass, 'pe-14 text-end font-semibold tabular-nums']" placeholder="0" required>
+                            <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
+                        </span>
+                    </label>
+                    <label :class="['block', suppliers ? 'md:col-span-3' : 'md:col-span-2']">
                         <span :class="labelClass">Remarque</span>
                         <input v-model="form.notes" type="text" maxlength="2000" :class="inputClass" placeholder="Ex. remise de 5 % appliquée">
                     </label>
@@ -138,8 +170,22 @@ const submit = () => {
                 <Button v-if="selectedOrder?.lines.length" type="button" size="rg" variant="white-outline" class="mt-4" @click="copyOrderLines"><Copy class="h-4 w-4" />Reprendre les lignes de {{ selectedOrder.order_number }}</Button>
             </FormSection>
 
-            <FormSection icon="list" title="Lignes de la facture" description="Une ligne par produit facturé ; le libellé est celui écrit sur la facture.">
+            <button
+                v-if="!detailed"
+                type="button"
+                class="flex w-full items-center gap-3 rounded-xl border border-dashed border-border bg-card px-4 py-4 text-start transition hover:border-primary/40"
+                @click="openDetail"
+            >
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><ListPlus class="h-5 w-5" /></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold text-foreground">Détailler les produits facturés</span>
+                    <span class="block text-xs text-muted-foreground">Facultatif. Le montant total suffit pour classer la facture ; c’est la réception qui fait entrer le stock.</span>
+                </span>
+            </button>
+
+            <FormSection v-else icon="list" title="Lignes de la facture" description="Une ligne par produit facturé ; le libellé est celui écrit sur la facture.">
                 <template #actions>
+                    <Button type="button" size="rg" variant="white-outline" @click="closeDetail"><X class="h-4 w-4" />Revenir au montant global</Button>
                     <Button type="button" size="rg" variant="white-outline" @click="addLine"><Plus class="h-4 w-4" />Ajouter une ligne</Button>
                 </template>
 
@@ -191,7 +237,7 @@ const submit = () => {
                     <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Fournisseur</dt><dd class="truncate text-end font-semibold text-foreground">{{ supplierLabel || '—' }}</dd></div>
                     <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Facture</dt><dd class="truncate text-end font-mono font-semibold text-foreground">{{ form.invoice_number || '—' }}</dd></div>
                     <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Commande</dt><dd class="font-semibold text-foreground">{{ selectedOrder?.order_number || (form.purchase_order_uuid ? 'Liée' : 'Aucune') }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Lignes complètes</dt><dd class="font-semibold tabular-nums text-foreground">{{ readyLines }} / {{ form.lines.length }}</dd></div>
+                    <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Détail</dt><dd class="font-semibold tabular-nums text-foreground">{{ detailed ? `${readyLines} / ${form.lines.length} lignes` : 'Montant global' }}</dd></div>
                     <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Document</dt><dd :class="['font-semibold', form.attachment || invoice?.has_attachment ? 'text-emerald-600' : 'text-muted-foreground']">{{ form.attachment ? 'À joindre' : (invoice?.has_attachment ? 'Déjà joint' : 'Aucun') }}</dd></div>
                 </dl>
                 <div class="mt-4 rounded-lg bg-primary/10 px-4 py-3">
@@ -199,7 +245,7 @@ const submit = () => {
                     <p class="mt-0.5 text-2xl font-bold tabular-nums text-primary">{{ formatMoney(total) }}</p>
                 </div>
                 <div class="mt-4 flex flex-col gap-2">
-                    <Button type="submit" size="lg" class="w-full justify-center" :disabled="form.processing || !supplierUuid || !form.invoice_number || !readyLines">
+                    <Button type="submit" size="lg" class="w-full justify-center" :disabled="form.processing || !canSubmit">
                         <Save class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : (invoice ? 'Enregistrer les modifications' : 'Enregistrer la facture') }}
                     </Button>
                     <Button :as="Link" :href="cancelHref" size="lg" variant="white-outline" class="w-full justify-center">Annuler</Button>

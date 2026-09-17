@@ -19,6 +19,7 @@ use App\Http\Controllers\Administration\UserController as AdministrationUserCont
 use App\Http\Controllers\AdministrationController;
 use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\AnesthesiaWorkspaceController;
+use App\Http\Controllers\AttentionDigestController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
@@ -28,14 +29,13 @@ use App\Http\Controllers\CashController;
 use App\Http\Controllers\DiagnosticCatalogSearchController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\EpisodeEmergencyController;
+use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
-use App\Http\Controllers\AttentionDigestController;
-use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
 use App\Http\Controllers\PaymentController;
@@ -72,8 +72,8 @@ use App\Http\Controllers\SuperAdmin\PaymentMethodController as SuperAdminPayment
 use App\Http\Controllers\SuperAdmin\PharmacyCatalogController as SuperAdminPharmacyCatalogController;
 use App\Http\Controllers\SuperAdmin\PharmacyProcurementController as SuperAdminPharmacyProcurementController;
 use App\Http\Controllers\SuperAdmin\PharmacySupplierController as SuperAdminPharmacySupplierController;
-use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
+use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
 use App\Http\Controllers\SurgeryController;
@@ -115,6 +115,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
     ->name('super-admin.')
     ->group(function () {
         Route::get('/trash', [SuperAdminTrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
+        Route::delete('/trash/{site}/{category}/{uuid}', [SuperAdminTrashController::class, 'destroy'])->name('trash.force-delete')->middleware('can:trash.force_delete');
         Route::post('/trash/{site}/{category}/{uuid}/restore', [SuperAdminTrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 
         Route::get('/sites/{site}', [SuperAdminController::class, 'site'])->name('sites.show')->middleware('can:sites.view');
@@ -142,6 +143,9 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/pharmacy-suppliers/import', [SuperAdminPharmacySupplierController::class, 'analyzeImport'])->name('pharmacy-suppliers.import.analyze')->middleware('can:medicine_suppliers.import');
         Route::get('/pharmacy-suppliers/import/{token}', [SuperAdminPharmacySupplierController::class, 'showImport'])->name('pharmacy-suppliers.import.show')->middleware('can:medicine_suppliers.import')->whereUuid('token');
         Route::post('/pharmacy-suppliers/import/{token}', [SuperAdminPharmacySupplierController::class, 'confirmImport'])->name('pharmacy-suppliers.import.confirm')->middleware('can:medicine_suppliers.import')->whereUuid('token');
+        // Before /{site}/{supplier}: preparing an order spans every supplier.
+        Route::get('/pharmacy-suppliers/{site}/commander', [SuperAdminPharmacyProcurementController::class, 'compare'])->name('pharmacy-suppliers.compare')->middleware('can:view-supplier-offers');
+        Route::post('/pharmacy-suppliers/{site}/commander', [SuperAdminPharmacyProcurementController::class, 'storeOrders'])->name('pharmacy-suppliers.orders.store-many')->middleware('can:purchase_orders.create');
         Route::get('/pharmacy-suppliers/{site}/{supplier}', [SuperAdminPharmacySupplierController::class, 'show'])->name('pharmacy-suppliers.show')->middleware('can:medicine_suppliers.view');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs', [SuperAdminPharmacySupplierController::class, 'catalogs'])->name('pharmacy-suppliers.catalogs.index')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/orders', [SuperAdminPharmacySupplierController::class, 'orders'])->name('pharmacy-suppliers.orders')->middleware('can:view-supplier-orders');
@@ -166,6 +170,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::delete('/pharmacy-suppliers/{site}/{supplier}', [SuperAdminPharmacySupplierController::class, 'archive'])->name('pharmacy-suppliers.archive')->middleware('can:medicine_suppliers.delete');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/restore', [SuperAdminPharmacySupplierController::class, 'restore'])->name('pharmacy-suppliers.restore')->middleware('can:medicine_suppliers.restore');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs', [SuperAdminPharmacySupplierController::class, 'uploadCatalog'])->name('pharmacy-suppliers.catalogs.store')->middleware('can:supplier_catalogs.create');
+        Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/download', [SuperAdminPharmacySupplierController::class, 'downloadCatalog'])->name('pharmacy-suppliers.catalogs.download')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items', [SuperAdminPharmacySupplierController::class, 'catalogItems'])->name('pharmacy-suppliers.catalogs.items')->middleware('can:view-supplier-catalogs');
         Route::patch('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}', [SuperAdminPharmacySupplierController::class, 'updateCatalog'])->name('pharmacy-suppliers.catalogs.update')->middleware('can:supplier_catalogs.update');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/activate', [SuperAdminPharmacySupplierController::class, 'activateCatalog'])->name('pharmacy-suppliers.catalogs.activate')->middleware('can:supplier_catalogs.update');

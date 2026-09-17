@@ -52,6 +52,7 @@ const catalogCan = computed(() => (props.supplier?.archived
                 :can="catalogCan"
                 :base-url="`${folderHref}/catalogs`"
                 :can-open-file="false"
+                :download-url="(catalog) => `${folderHref}/catalogs/${catalog.uuid}/download?name=${encodeURIComponent(catalog.original_name)}`"
                 template-url="/super-admin/pharmacy-suppliers/catalog-template"
             />
         </template>

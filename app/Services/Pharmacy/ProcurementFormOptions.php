@@ -15,12 +15,26 @@ use App\Support\Money;
  */
 class ProcurementFormOptions
 {
-    /** @return array<int, array<string, mixed>> Active medicines, this supplier's current price first. */
+    /**
+     * What this supplier can actually deliver: the medicines it quotes a
+     * current price for, or that its folder links to. Ordering from the
+     * whole clinic catalogue made the screen list hundreds of products the
+     * supplier never proposed. Falls back to the full catalogue only when
+     * the supplier has no product yet, so a first order stays possible
+     * before any catalogue is imported — the server forbids nothing here
+     * (ADR-098), it only stops guessing.
+     *
+     * @return array<int, array<string, mixed>> Active medicines, this supplier's current price first.
+     */
     public function orderMedicines(MedicineSupplier $supplier): array
     {
         $prices = $supplier->offers()->where('active_key', 'CURRENT')->pluck('quoted_price', 'medicine_id');
+        $supplied = $prices->keys()
+            ->merge($supplier->medicines()->pluck('medicines.id'))
+            ->unique();
 
         return Medicine::query()->where('active', true)
+            ->when($supplied->isNotEmpty(), fn ($query) => $query->whereIn('id', $supplied))
             ->with('catalogItem:id,code,name,unit')
             ->get()
             ->map(fn (Medicine $medicine) => [

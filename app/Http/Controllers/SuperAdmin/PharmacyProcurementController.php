@@ -20,6 +20,81 @@ class PharmacyProcurementController extends Controller
 {
     use RespondsToSiteApi;
 
+    /**
+     * Prepare an order across suppliers: compare every current price for the
+     * same medicine, then fill a basket. A purchase order still belongs to
+     * one supplier (ADR-097) — a basket spanning three suppliers therefore
+     * creates three orders, one per supplier, never a single mixed one.
+     */
+    public function compare(Request $request, string $site, PortalSiteApiClient $client): Response
+    {
+        $this->assertSite($site);
+        $selected = array_values(array_filter((array) $request->query('suppliers', [])));
+        $result = $client->pharmacySupplierOffers($site, $request->user(), $selected);
+
+        return Inertia::render('SuperAdmin/PharmacySuppliers/Compare', [
+            'targetSite' => $result['site'],
+            'suppliers' => data_get($result, 'data.suppliers', []),
+            'medicines' => data_get($result, 'data.medicines', []),
+            'selectedSuppliers' => $selected,
+            'error' => $result['ok'] ? null : $result['message'],
+        ]);
+    }
+
+    /** One draft order per supplier, from the basket built on the comparison. */
+    public function storeOrders(Request $request, string $site, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate([
+            'orders' => ['required', 'array', 'min:1'],
+            'orders.*.supplier_uuid' => ['required', 'uuid'],
+            'orders.*.lines' => ['required', 'array', 'min:1'],
+            'orders.*.lines.*.medicine_uuid' => ['required', 'uuid'],
+            'orders.*.lines.*.quantity' => ['required', 'integer', 'min:1'],
+            'orders.*.lines.*.unit_price' => ['required', 'numeric', 'gt:0'],
+            'expected_delivery_at' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $created = [];
+        $failures = [];
+
+        // Each supplier is a separate command on the site: one failing
+        // supplier never cancels the orders already accepted, and the screen
+        // says exactly which ones went through.
+        foreach ($validated['orders'] as $order) {
+            $result = $client->pharmacyProcurement($site, $order['supplier_uuid'], $request->user(), 'POST', 'orders', [
+                'lines' => $order['lines'],
+                ...array_filter([
+                    'expected_delivery_at' => $validated['expected_delivery_at'] ?? null,
+                    'notes' => $validated['notes'] ?? null,
+                ], fn ($value) => filled($value)),
+            ]);
+
+            if ($result['ok']) {
+                $created[] = ['supplier_uuid' => $order['supplier_uuid'], 'uuid' => data_get($result, 'data.uuid'), 'number' => data_get($result, 'data.order_number')];
+            } else {
+                $failures[] = $result['message'] ?: 'Commande refusée par le site.';
+            }
+        }
+
+        if ($created === []) {
+            return back()->withErrors(['orders' => implode(' ', $failures) ?: 'Aucune commande n’a pu être créée.'])->withInput();
+        }
+
+        $status = count($created) === 1
+            ? 'Commande '.($created[0]['number'] ?? '').' créée en brouillon.'
+            : count($created).' commandes créées en brouillon, une par fournisseur.';
+
+        if (count($created) === 1) {
+            return to_route('super-admin.pharmacy-suppliers.orders.show', [mb_strtoupper($site), $created[0]['supplier_uuid'], $created[0]['uuid']])
+                ->with('status', $status);
+        }
+
+        return to_route('super-admin.pharmacy-suppliers.index', ['site' => mb_strtoupper($site)])
+            ->with('status', $failures === [] ? $status : $status.' '.implode(' ', $failures));
+    }
+
     public function createOrder(Request $request, string $site, string $supplier, PortalSiteApiClient $client): Response
     {
         $this->assertSite($site);
@@ -128,14 +203,21 @@ class PharmacyProcurementController extends Controller
         $this->assertSite($site);
         $request->validate([
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
-            'lines' => ['required', 'array', 'min:1'],
+            'total_amount' => ['required_without:lines', 'nullable', 'numeric', 'gt:0'],
+            'lines' => ['nullable', 'array'],
         ]);
         $attachment = $request->file('attachment');
-        $payload = collect($request->only(['invoice_number', 'invoice_date', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
+        $payload = collect($request->only(['invoice_number', 'invoice_date', 'total_amount', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
             ->filter(fn ($value) => filled($value))
             ->all();
-        // A multipart body cannot nest arrays: the lines travel as JSON with the document.
-        $payload['lines'] = $attachment ? json_encode($request->input('lines')) : $request->input('lines');
+        $lines = array_values($request->input('lines') ?? []);
+
+        // A multipart body cannot nest arrays: the lines travel as JSON with
+        // the document. An invoice without lines sends none at all, so the
+        // site reads its total instead of an empty detail.
+        if ($lines !== []) {
+            $payload['lines'] = $attachment ? json_encode($lines) : $lines;
+        }
 
         $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'invoices/'.rawurlencode($invoice).'/update', $payload, $attachment);
 
@@ -188,14 +270,21 @@ class PharmacyProcurementController extends Controller
         $this->assertSite($site);
         $request->validate([
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
-            'lines' => ['required', 'array', 'min:1'],
+            'total_amount' => ['required_without:lines', 'nullable', 'numeric', 'gt:0'],
+            'lines' => ['nullable', 'array'],
         ]);
         $attachment = $request->file('attachment');
-        $payload = collect($request->only(['invoice_number', 'invoice_date', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
+        $payload = collect($request->only(['invoice_number', 'invoice_date', 'total_amount', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
             ->filter(fn ($value) => filled($value))
             ->all();
-        // A multipart body cannot nest arrays: the lines travel as JSON with the document.
-        $payload['lines'] = $attachment ? json_encode($request->input('lines')) : $request->input('lines');
+        $lines = array_values($request->input('lines') ?? []);
+
+        // A multipart body cannot nest arrays: the lines travel as JSON with
+        // the document. An invoice without lines sends none at all, so the
+        // site reads its total instead of an empty detail.
+        if ($lines !== []) {
+            $payload['lines'] = $attachment ? json_encode($lines) : $lines;
+        }
 
         $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'invoices', $payload, $attachment);
 

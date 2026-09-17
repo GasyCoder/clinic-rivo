@@ -44,6 +44,7 @@ const folderHref = computed(() => `/super-admin/pharmacy-suppliers/${props.targe
                 :supplier-name="supplier.name"
                 :supplier-uuid="supplier.uuid"
                 :medicines="medicines"
+                :catalog-href="`${folderHref}/catalogs`"
                 :submit-url="() => `${folderHref}/orders`"
                 :cancel-href="`${folderHref}/orders`"
             />

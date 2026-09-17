@@ -20,11 +20,14 @@ use App\Models\SupplierInvoice;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Pharmacy\MedicineSupplierImportService;
 use App\Services\Pharmacy\SupplierCatalogImportService;
+use App\Services\Pharmacy\SupplierOfferComparison;
 use App\Services\Pharmacy\SupplierPresenter;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * ADR-098 — suppliers and their catalogs are managed from the central portal
@@ -54,6 +57,40 @@ class PharmacySupplierController extends Controller
                 ])
                 ->values(),
             'meta' => ['site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')]],
+        ]);
+    }
+
+    /**
+     * Every supplier's current price for the same medicine, with what the
+     * clinic still holds — the reading an order is prepared from.
+     */
+    public function offers(Request $request, SupplierOfferComparison $comparison): JsonResponse
+    {
+        $this->authorizeActor($request, ['medicine_supplier_offers.view', 'medicine_suppliers.view']);
+        $suppliers = array_values(array_filter((array) $request->query('suppliers', [])));
+
+        return response()->json([
+            'data' => $comparison->forSite($suppliers),
+            'meta' => ['site' => ['code' => config('rivo.site.code'), 'name' => config('rivo.site.name')]],
+        ]);
+    }
+
+    /**
+     * The catalogue file itself. ADR-098 kept it on the site only, so the
+     * portal could see a catalogue listed but never open it — the file is
+     * exactly what a Super Admin needs to check before importing it.
+     * The bytes are streamed through the site API, never copied centrally.
+     */
+    public function downloadCatalog(Request $request, string $supplierUuid, string $catalogUuid): StreamedResponse
+    {
+        $this->authorizeActor($request, ['supplier_catalogs.view', 'medicine_suppliers.view']);
+        $supplier = $this->supplier($supplierUuid, withArchived: true);
+        $catalog = $supplier->catalogs()->withTrashed()->where('uuid', $catalogUuid)->firstOrFail();
+
+        abort_unless(Storage::disk('local')->exists($catalog->path), 404);
+
+        return Storage::disk('local')->download($catalog->path, $catalog->original_name, [
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 

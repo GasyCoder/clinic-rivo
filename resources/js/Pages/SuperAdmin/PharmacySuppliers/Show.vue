@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -55,6 +55,14 @@ const startEdit = () => {
     editing.value = true;
 };
 const saveEdit = () => editForm.put(baseUrl.value, { preserveScroll: true, onSuccess: () => { editing.value = false; } });
+
+// « Modifier » depuis la liste des fournisseurs arrive ici : le dossier
+// s'ouvre directement sur son formulaire, sans second clic.
+onMounted(() => {
+    if (props.can.update_supplier && !props.supplier?.archived && new URLSearchParams(window.location.search).get('edit') === '1') {
+        startEdit();
+    }
+});
 
 const archiving = ref(false);
 const archiveForm = useForm({ reason: '' });

@@ -29,7 +29,8 @@ class RecordSupplierInvoiceAction
      *   goods_receipt_uuid?: ?string,
      *   notes?: ?string,
      *   attachment?: ?UploadedFile,
-     *   lines: array<int, array{medicine_uuid: string, description: string, quantity: int, unit_price: string}>
+     *   total_amount?: ?string,
+     *   lines?: array<int, array{medicine_uuid: string, description: string, quantity: int, unit_price: string}>
      * } $data
      */
     public function execute(MedicineSupplier $supplier, array $data, CatalogActor $actor): SupplierInvoice
@@ -50,7 +51,7 @@ class RecordSupplierInvoiceAction
         try {
             return DB::transaction(function () use ($supplier, $data, $actor, $attachmentPath): SupplierInvoice {
                 [$purchaseOrder, $goodsReceipt] = $this->resolveLinks($supplier, $data);
-                [$lines, $total] = $this->buildLines($data['lines']);
+                [$lines, $total] = $this->resolveContent($data);
 
                 $invoice = SupplierInvoice::query()->create([
                     'invoice_number' => trim($data['invoice_number']),

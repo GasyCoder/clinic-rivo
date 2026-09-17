@@ -7,6 +7,7 @@ use App\Models\MedicineSupplierOffer;
 use App\Models\SupplierCatalogItem;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * ADR-097 — spec §5 "liaison": links one parsed supplier catalog row to an
@@ -25,6 +26,15 @@ class LinkSupplierCatalogItemAction
         return DB::transaction(function () use ($item, $medicine, $reason, $actor) {
             $item = SupplierCatalogItem::query()->lockForUpdate()->findOrFail($item->id);
             $item->loadMissing('catalog.supplier');
+
+            // A catalogue line may arrive without a price (ADR-098): the
+            // link is what creates the purchase price, so it cannot be made
+            // from an amount nobody gave.
+            if (! filled($item->supplier_price)) {
+                throw ValidationException::withMessages([
+                    'supplier_price' => 'Cette ligne du catalogue n’a pas de prix : indiquez le prix du fournisseur avant de la rattacher à un médicament.',
+                ]);
+            }
 
             $offer = $this->setOffer->execute(
                 medicine: $medicine,

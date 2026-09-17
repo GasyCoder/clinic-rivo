@@ -34,6 +34,14 @@ class SupplierCatalogImportService
         'prix_fournisseur' => 'Prix fournisseur',
     ];
 
+    /** Which column of the file each validated field comes from. */
+    private const COLUMN_OF = [
+        'reference' => 'reference',
+        'medicine_label' => 'medicament',
+        'presentation' => 'presentation',
+        'supplier_price' => 'prix_fournisseur',
+    ];
+
     public function __construct(private readonly ExcelWorkbook $workbook) {}
 
     /**
@@ -77,7 +85,14 @@ class SupplierCatalogImportService
 
         foreach ($rows as $index => $row) {
             $check = $this->checkRow($row, $index + 2);
-            $checked[] = ['row_number' => $check['row_number'], ...$check['data'], 'errors' => $check['errors']];
+            $checked[] = [
+                'row_number' => $check['row_number'],
+                ...$check['data'],
+                'errors' => $check['errors'],
+                // Column, value read and reason: enough to fix the file
+                // without hunting for what the line is missing.
+                'issues' => $check['issues'],
+            ];
         }
 
         $invalid = count(array_filter($checked, fn (array $row) => $row['errors'] !== []));
@@ -114,7 +129,9 @@ class SupplierCatalogImportService
             $check = $this->checkRow($row, $index + 2);
 
             if ($check['errors'] !== []) {
-                $errors[] = "Ligne {$check['row_number']} : {$check['errors'][0]}";
+                $issue = $check['issues'][0];
+                $read = $issue['value'] === '' ? 'vide' : '« '.$issue['value'].' »';
+                $errors[] = "Ligne {$check['row_number']}, colonne « {$issue['column']} » ({$read}) : {$issue['message']}";
 
                 if (count($errors) >= 20) {
                     break;
@@ -180,22 +197,47 @@ class SupplierCatalogImportService
         ));
     }
 
-    /** @return array{row_number: int, data: array<string, mixed>, errors: array<int, string>} */
+    /**
+     * A supplier catalogue is first the list of what the supplier proposes:
+     * its price may arrive separately, or later. A row without a price is
+     * therefore imported (ADR-098 amended) — it is the link to a clinic
+     * medicine that requires one, since that is what creates the versioned
+     * purchase price.
+     *
+     * An error names the column, the value read and the reason: « ligne 15 »
+     * alone leaves the pharmacist looking for what to fix.
+     *
+     * @return array{row_number: int, data: array<string, mixed>, errors: array<int, string>, issues: array<int, array<string, mixed>>}
+     */
     private function checkRow(array $row, int $line): array
     {
-        $data = [
-            'reference' => filled($row['reference'] ?? null) ? trim((string) $row['reference']) : null,
-            'medicine_label' => trim((string) ($row['medicament'] ?? '')),
-            'presentation' => filled($row['presentation'] ?? null) ? trim((string) $row['presentation']) : null,
+        $raw = [
+            'reference' => $row['reference'] ?? null,
+            'medicine_label' => $row['medicament'] ?? null,
+            'presentation' => $row['presentation'] ?? null,
             'supplier_price' => $row['prix_fournisseur'] ?? null,
+        ];
+        $data = [
+            'reference' => filled($raw['reference']) ? trim((string) $raw['reference']) : null,
+            'medicine_label' => trim((string) ($raw['medicine_label'] ?? '')),
+            'presentation' => filled($raw['presentation']) ? trim((string) $raw['presentation']) : null,
+            // "4 500,50 Ar" and "4500.50" are the same price to a
+            // pharmacist; only what is left after the currency and the
+            // spacing is judged as a number.
+            'supplier_price' => $this->normalizePrice($raw['supplier_price']),
         ];
 
         $validator = Validator::make($data, [
             'reference' => ['nullable', 'string', 'max:120'],
             'medicine_label' => ['required', 'string', 'max:255'],
             'presentation' => ['nullable', 'string', 'max:255'],
-            'supplier_price' => ['required', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
-        ], [], [
+            'supplier_price' => ['nullable', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
+        ], [
+            'medicine_label.required' => 'le nom du médicament est obligatoire.',
+            'supplier_price.numeric' => 'le prix doit être un nombre (sans « Ar » ni texte).',
+            'supplier_price.gt' => 'le prix doit être supérieur à zéro.',
+            'supplier_price.decimal' => 'le prix accepte au plus deux décimales.',
+        ], [
             'reference' => 'référence',
             'medicine_label' => 'médicament',
             'presentation' => 'présentation',
@@ -203,11 +245,40 @@ class SupplierCatalogImportService
         ]);
 
         $failed = $validator->fails();
+        $issues = [];
+
+        foreach ($validator->errors()->messages() as $field => $messages) {
+            $issues[] = [
+                'column' => self::HEADER_LABELS[self::COLUMN_OF[$field]] ?? $field,
+                'value' => is_scalar($raw[$field] ?? null) ? (string) $raw[$field] : '',
+                'message' => $messages[0],
+            ];
+        }
 
         return [
             'row_number' => $line,
             'data' => $failed ? $data : $validator->validated(),
             'errors' => $failed ? $validator->errors()->all() : [],
+            'issues' => $issues,
         ];
+    }
+
+    /** Excel gives a price as a number, a string, or a formatted amount. */
+    private function normalizePrice(mixed $value): ?string
+    {
+        if (! filled($value)) {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (string) $value;
+        }
+
+        // Non-breaking spaces, thousands separators, a decimal comma and a
+        // trailing currency are formatting, not a wrong price.
+        $cleaned = preg_replace('/[\s\x{00A0}\x{202F}]|(?:ar|mga)$/iu', '', trim((string) $value)) ?? '';
+        $cleaned = str_replace(',', '.', $cleaned);
+
+        return $cleaned === '' ? (string) $value : $cleaned;
     }
 }

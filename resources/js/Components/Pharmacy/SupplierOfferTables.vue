@@ -8,6 +8,10 @@ import { formatMoney } from '@/utilities/pharmacyStatus';
  * ADR-098 — a supplier's current prices and their history, shared by the
  * clinic's supplier folder and the central portal's. An old price is never
  * erased, so both screens show it the same way.
+ *
+ * Each line says where it comes from (which catalogue file, or a manual
+ * entry) and whether the clinic ever received it: a supplier catalogue only
+ * proposes — what the pharmacy really holds comes from a reception.
  */
 defineProps({
     offers: { type: Array, default: () => [] },
@@ -30,6 +34,8 @@ defineProps({
                         <th class="px-4 py-3 text-start">Référence chez le fournisseur</th>
                         <th class="px-4 py-3 text-end">Prix d’achat</th>
                         <th class="px-5 py-3 text-start">Depuis le</th>
+                        <th class="px-4 py-3 text-start">Provenance</th>
+                        <th class="px-4 py-3 text-start">À la pharmacie</th>
                         <th v-if="stockHref" class="px-5 py-3 text-end">Actions</th>
                     </tr>
                 </thead>
@@ -39,6 +45,14 @@ defineProps({
                         <td class="px-4 py-3.5 text-muted-foreground">{{ offer.supplier_label || '—' }}<span v-if="offer.supplier_reference" class="block font-mono text-xs text-muted-foreground">{{ offer.supplier_reference }}</span></td>
                         <td class="px-4 py-3.5 text-end font-semibold tabular-nums text-foreground">{{ formatMoney(offer.quoted_price) }}</td>
                         <td class="px-5 py-3.5 text-muted-foreground">{{ formatDate(offer.effective_from) }}</td>
+                        <td class="px-4 py-3.5 text-xs text-muted-foreground">
+                            <span v-if="offer.source_catalog">Catalogue<span class="block font-medium text-foreground">{{ offer.source_catalog }}</span></span>
+                            <span v-else>Saisi à la main</span>
+                        </td>
+                        <td class="px-4 py-3.5 text-xs">
+                            <span v-if="offer.received_at" class="font-medium text-emerald-600 dark:text-emerald-400">Réceptionné<span class="block font-normal text-muted-foreground">{{ offer.in_stock }} en stock</span></span>
+                            <span v-else class="text-muted-foreground">Jamais réceptionné<span class="block">proposé, pas encore acheté</span></span>
+                        </td>
                         <td v-if="stockHref" class="px-5 py-3.5 text-end"><Link :href="stockHref(offer.medicine_uuid)" class="text-sm font-semibold text-primary hover:underline">Voir le stock</Link></td>
                     </tr>
                 </tbody>

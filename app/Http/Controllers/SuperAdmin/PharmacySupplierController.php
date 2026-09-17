@@ -63,6 +63,10 @@ class PharmacySupplierController extends Controller
                 'create' => $user->can('medicine_suppliers.create'),
                 'import' => $user->can('medicine_suppliers.import'),
                 'export' => $user->can('medicine_suppliers.export'),
+                'order' => $user->can('purchase_orders.create'),
+                'update' => $user->can('medicine_suppliers.update'),
+                'archive' => $user->can('medicine_suppliers.delete'),
+                'restore' => $user->can('medicine_suppliers.restore'),
             ],
         ]);
     }
@@ -312,6 +316,22 @@ class PharmacySupplierController extends Controller
         $this->assertSite($site);
 
         return $this->respond($client->activatePharmacySupplierCatalog($site, $supplier, $catalog, $request->user()), 'Catalogue activé.');
+    }
+
+    /** Ouvrir ou télécharger le fichier d'un catalogue, relayé depuis son site. */
+    public function downloadCatalog(Request $request, string $site, string $supplier, string $catalog, PortalSiteApiClient $client): Response|StreamedResponse
+    {
+        $this->assertSite($site);
+        $name = (string) $request->query('name', 'catalogue');
+        $file = $client->pharmacySupplierCatalogFile($site, $supplier, $catalog, $request->user(), $name);
+
+        abort_unless($file['ok'], 404, $file['message']);
+
+        return response()->streamDownload(
+            fn () => print ($file['body']),
+            preg_replace('/[^\w .\-]/u', '_', $name) ?: 'catalogue',
+            ['Content-Type' => $file['content_type'], 'X-Content-Type-Options' => 'nosniff'],
+        );
     }
 
     public function catalogItems(Request $request, string $site, string $supplier, string $catalog, PortalSiteApiClient $client): Response

@@ -42,6 +42,27 @@ class PharmacyProcurementPortalTest extends TestCase
         ]);
     }
 
+    public function test_a_basket_spanning_two_suppliers_creates_one_draft_order_per_supplier(): void
+    {
+        Http::fake(['https://a.test/api/v1/super-admin/pharmacy/suppliers/*/orders' => Http::response([
+            'message' => 'Commande créée en brouillon.',
+            'data' => ['uuid' => 'order-10', 'order_number' => 'BC-000010'],
+        ], 201)]);
+
+        $this->actingAs($this->superAdmin)
+            ->post('/super-admin/pharmacy-suppliers/A/commander', [
+                'orders' => [
+                    ['supplier_uuid' => '11111111-1111-4111-8111-111111111111', 'lines' => [['medicine_uuid' => '22222222-2222-4222-8222-222222222222', 'quantity' => 10, 'unit_price' => '100']]],
+                    ['supplier_uuid' => '33333333-3333-4333-8333-333333333333', 'lines' => [['medicine_uuid' => '44444444-4444-4444-8444-444444444444', 'quantity' => 5, 'unit_price' => '250']]],
+                ],
+            ])
+            ->assertRedirect('/super-admin/pharmacy-suppliers?site=A')
+            ->assertSessionHas('status', '2 commandes créées en brouillon, une par fournisseur.');
+
+        // One command per supplier: a purchase order never mixes two folders.
+        Http::assertSentCount(2);
+    }
+
     public function test_an_order_is_forwarded_to_the_site_then_opens_on_its_own_page(): void
     {
         Http::fake([self::API.'/orders' => Http::response([

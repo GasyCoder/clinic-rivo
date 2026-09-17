@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Pharmacy;
 
+use App\Actions\Pharmacy\SetMedicineSupplierOfferAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
@@ -12,6 +13,8 @@ use App\Models\MedicineSupplierOffer;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Pharmacy\ProcurementFormOptions;
+use App\Services\Pharmacy\SupplierOfferComparison;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -67,6 +70,41 @@ class MedicineSupplierOfferTest extends TestCase
             'created_by' => $actor->id,
             'updated_by' => $actor->id,
         ]);
+    }
+
+    public function test_the_comparison_lists_every_supplier_price_for_the_same_medicine_cheapest_first(): void
+    {
+        $actor = $this->setupUser(['medicine_supplier_offers.create', 'medicine_supplier_offers.view']);
+        $medicine = $this->medicine($actor);
+        $cheap = $this->supplier('FOUR-A', 'Fournisseur A');
+        $dear = $this->supplier('FOUR-B', 'Fournisseur B');
+        $action = app(SetMedicineSupplierOfferAction::class);
+        $action->execute($medicine, $dear, '120', 'Tarif 2026', $actor);
+        $action->execute($medicine, $cheap, '100', 'Tarif 2026', $actor);
+
+        $comparison = app(SupplierOfferComparison::class)->forSite();
+        $line = $comparison['medicines'][0];
+
+        $this->assertSame($medicine->uuid, $line['medicine_uuid']);
+        $this->assertSame(['Fournisseur A', 'Fournisseur B'], array_column($line['quotes'], 'supplier_name'));
+        $this->assertSame('100.00', $line['best_price']);
+
+        // Restricting the comparison keeps only the chosen suppliers' prices.
+        $restricted = app(SupplierOfferComparison::class)->forSite([$dear->uuid]);
+        $this->assertSame(['Fournisseur B'], array_column($restricted['medicines'][0]['quotes'], 'supplier_name'));
+    }
+
+    public function test_an_order_form_offers_the_supplier_own_products_not_the_whole_catalogue(): void
+    {
+        $actor = $this->setupUser(['medicine_supplier_offers.create']);
+        $quoted = $this->medicine($actor, 'Amoxicilline 500 mg');
+        $this->medicine($actor, 'Paracétamol 500 mg');
+        $supplier = $this->supplier();
+        app(SetMedicineSupplierOfferAction::class)->execute($quoted, $supplier, '100', 'Tarif 2026', $actor);
+
+        $medicines = app(ProcurementFormOptions::class)->orderMedicines($supplier->fresh());
+
+        $this->assertSame(['Amoxicilline 500 mg'], array_column($medicines, 'name'));
     }
 
     public function test_creating_an_offer_requires_the_create_permission_and_updating_it_requires_update(): void

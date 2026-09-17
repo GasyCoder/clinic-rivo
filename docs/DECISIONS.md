@@ -4628,6 +4628,24 @@ poste de développement ordinaire. Son résultat a été exporté une fois dans
 code (comparé selon la collation de la base, « UREE » = « Urée »), sans jamais
 écraser une analyse existante ni inventer de tarif (ADR-024).
 
+## Plus aucune donnée Pharmacie préremplie (2026-09-17)
+
+Demande du propriétaire : la Pharmacie se saisit avec de vraies données.
+`DevelopmentMedicineStockSeeder` et `DevelopmentProcurementSeeder` quittent
+donc la liste de `DevelopmentSeeder` — un `migrate:fresh --seed` ne crée plus
+ni médicament, ni lot, ni fournisseur, ni commande. Les deux seeders restent
+appelables nommément pour qui veut une chaîne d'approvisionnement de
+démonstration.
+
+Pour vider une base déjà remplie, `php artisan rivo:pharmacy-reset` efface le
+domaine entier — fournisseurs, catalogues et leurs fichiers, prix, commandes,
+réceptions, factures fournisseur, stock, lots, mouvements, médicaments et
+familles — ainsi que ce que la Pharmacie a produit ailleurs : délivrances,
+lignes d'ordonnance citant un médicament, prestations facturées de
+médicaments. Une facture **déjà encaissée** est conservée avec ses paiements
+et signalée : supprimer un encaissement réel n'est pas un ménage de données
+(ADR-010, ADR-012). La commande refuse hors `local`/`testing`.
+
 ## Garde-fou production
 
 Tous ces seeders refusent de s'exécuter hors `local`/`testing`
@@ -5778,7 +5796,11 @@ nullable.
 Le catalogue est le premier fichier transmis du portail vers un site. Il part
 en multipart, tel que le Super Admin l'a choisi, jamais converti : la pharmacie
 doit pouvoir rouvrir l'original. L'idempotence couvre ce corps comme un corps
-JSON. Au portail, le fichier lui-même ne s'ouvre pas : il réside sur le site.
+JSON. **Amendement du 2026-09-17 :** le fichier se télécharge désormais depuis
+le portail, relayé par l'API du site (`/catalogs/{uuid}/download`). Il continue
+de résider sur le site — rien n'est copié au centre — mais vérifier un
+catalogue avant de l'importer exigeait d'ouvrir le fichier, et le portail ne
+le permettait pas.
 
 **Amendement du 2026-09-15 — commandes et factures depuis le portail.** Le
 propriétaire revient sur l'arbitrage « commandes, réceptions et factures restent
@@ -5967,6 +5989,134 @@ est décoché, pour que le lien et l'offre ne divergent pas. Les deux gardes
 (réservations en cours, médicaments actifs d'une famille) protègent
 l'intégrité des données existantes ; elles n'ajoutent aucune règle de
 délivrance.
+
+## Préparer un achat : comparer, puis commander (2026-09-17)
+
+Demande du propriétaire, après usage réel du module. Quatre défauts constatés
+dans le code, et les règles retenues pour les corriger.
+
+**Le formulaire de commande ignorait le fournisseur.** `ProcurementFormOptions::orderMedicines()`
+listait tout le catalogue clinique actif : commander chez un fournisseur
+proposait des centaines de produits qu'il ne vend pas. Il n'offre désormais
+que ce que ce fournisseur fournit réellement — prix en cours ou lien de son
+dossier — et ne retombe sur le catalogue entier que si le fournisseur n'a
+encore aucun produit, pour qu'une première commande reste possible avant tout
+import de catalogue. Le serveur n'interdit toujours rien ici : il cesse de
+deviner.
+
+**Comparer les prix n'était possible qu'en ouvrant les dossiers un par un.**
+`/super-admin/pharmacy-suppliers/{site}/commander` réunit, pour chaque
+médicament, le prix courant de chaque fournisseur, le moins cher signalé, et
+ce que la clinique tient encore en stock. Rien de nouveau n'est stocké :
+`SupplierOfferComparison` relit les offres versionnées de l'ADR-097 et les
+lots. Le choix reste celui de l'acheteur — un prix plus bas peut venir d'un
+fournisseur en rupture ou plus lent, et l'écran ne décide jamais.
+
+**Une commande reste le fait d'un seul fournisseur.** Le propriétaire demande
+de sélectionner plusieurs fournisseurs avant de choisir les produits. Une
+`PurchaseOrder` appartient pourtant à un fournisseur unique (ADR-097), et la
+réception comme la facture pointent cette commande. Le panier peut donc
+couvrir plusieurs fournisseurs, mais il part en **une commande par
+fournisseur** : trois fournisseurs, trois brouillons. Chaque envoi est une
+commande distincte au site — un refus sur l'un n'annule pas les autres, et
+l'écran nomme ceux qui sont passés.
+
+**La facture exigeait de ressaisir chaque médicament.** Une facture est
+d'abord une pièce comptable : son numéro, sa date, son montant et son
+document. Les lignes deviennent facultatives (`total_amount` obligatoire en
+leur absence), et le détail reste proposé pour qui le veut. Avec des lignes,
+le total est leur somme : un montant saisi ne peut jamais contredire ce qui
+est listé en dessous. Le stock n'est toujours pas touché — c'est la réception
+qui fait entrer la marchandise, et elle reste au site.
+
+## Un catalogue fournisseur peut arriver sans prix (2026-09-17)
+
+Constat sur un fichier réel : le catalogue Arbiochem, 119 produits, **aucun
+prix** — la colonne existe, ses cellules sont vides. L'import refusait donc
+le fichier entier, avec un message qui ne disait ni quelle ligne, ni quelle
+colonne.
+
+Le prix devient facultatif à l'import (`supplier_catalog_items.supplier_price`
+nullable). Un catalogue est d'abord la liste de ce que le fournisseur
+propose ; son tarif arrive parfois séparément, ou plus tard. Ce qui exige un
+prix, c'est le **rattachement** d'une ligne à un médicament de la clinique :
+c'est lui qui crée le prix d'achat versionné (ADR-097), et
+`LinkSupplierCatalogItemAction` le refuse explicitement quand la ligne n'en
+porte aucun.
+
+Deux corrections d'ergonomie qui vont avec :
+
+```text
+montant formaté   « 4 500,50 Ar » est un prix, pas une erreur : espaces
+                  insécables, séparateurs et devise sont du formatage
+erreur précise    ligne, colonne, valeur lue et raison — « Ligne 15,
+                  colonne « Prix fournisseur » (« 100Ar ») : le prix doit
+                  être un nombre » plutôt qu'un refus global
+```
+
+Le parcours Exporter le canevas → remplir → importer est ainsi refermé : le
+canevas exporté porte exactement les quatre colonnes attendues, et un fichier
+rempli sans prix s'importe au lieu d'être rejeté.
+
+## Corbeille et suppression définitive (2026-09-17)
+
+`TrashCategory` reçoit `MEDICINE_SUPPLIER`, `SUPPLIER_CATALOG` et
+`SUPPLIER_INVOICE` : un fournisseur, un catalogue ou une facture archivés
+quittent les listes et se retrouvent, avec leur motif et leur auteur, dans la
+Corbeille de l'ADR-061, d'où ils se restaurent par leur permission de
+restauration habituelle.
+
+La suppression définitive est ajoutée, volontairement étroite (ADR-010, même
+raisonnement que l'ADR-062 pour un compte n'ayant jamais servi) :
+
+```text
+permission        trash.force_delete, réservée au SUPER_ADMIN du portail
+jamais proposée   depuis une liste : uniquement depuis la Corbeille,
+                  après une confirmation qui dit que c'est irréversible
+refusée dès que   le modèle est référencé — isForceDeleteProtected()
+```
+
+Le garde-fou n'est pas réécrit dans la Corbeille : il vit sur le modèle, où
+il servait déjà.
+
+**Amendement du même jour**, après usage : un catalogue bloquait la
+suppression du fournisseur, alors qu'il n'appartient qu'à lui. Ce qui bloque
+est désormais uniquement l'**histoire** du dossier, et ce qui n'appartient
+qu'à lui **part avec lui** :
+
+```text
+bloque        commande, facture, lot reçu, mouvement de stock, prix d'achat
+part avec     fichiers de catalogue (et leurs lignes, et le fichier sur le
+              disque), rattachements « peut fournir »
+```
+
+Un catalogue ne se protège donc pas contre la fin de son propre dossier — il
+n'aurait plus rien à désigner. Le drapeau qui l'y autorise est posé par la
+Corbeille seule, jamais par une requête. Une facture fournisseur, elle,
+n'est jamais détruite : c'est une pièce comptable. Ce qui a servi reste dans
+la Corbeille, restaurable.
+
+## D'où vient un produit (2026-09-17)
+
+La page « Produits et prix » d'un fournisseur dit désormais, par ligne, le
+fichier de catalogue dont elle vient (ou « saisi à la main ») et si la
+clinique a déjà réceptionné ce produit, avec ce qu'elle en tient. Un
+catalogue fournisseur **propose** ; ce que la pharmacie détient vient d'une
+réception.
+
+**Conflit signalé — « seuls les produits réceptionnés entrent au catalogue
+pharmacie » (point 15 du propriétaire).** La règle ne peut pas être appliquée
+telle quelle : une ligne de commande référence un `Medicine`, donc le produit
+doit exister au catalogue clinique **avant** d'être commandé, sinon il est
+impossible de le commander. La séparation demandée existe cependant déjà dans
+les faits, et l'interface la rend maintenant visible : un médicament jamais
+réceptionné n'a ni lot, ni stock, ni prix de vente, et ne peut donc être ni
+délivré ni vendu (ADR-036, ADR-049). Le prix d'achat (`MedicineSupplierOffer`)
+et le prix de vente (`CatalogTariff`) restent deux mécanismes séparés qui ne
+se lisent ni ne s'écrivent l'un l'autre — modifier un prix fournisseur ne
+touche jamais un prix de vente. Interdire réellement la création tant qu'une
+réception n'existe pas exigerait de commander autrement qu'en désignant un
+médicament : à trancher avec le propriétaire avant toute implémentation.
 
 ## Ce qui ne change pas
 

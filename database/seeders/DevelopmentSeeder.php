@@ -34,9 +34,16 @@ class DevelopmentSeeder extends Seeder
             DevelopmentParaclinicalCatalogSeeder::class,  // analyses, ECG, échographies de base
             DevelopmentLegacyAnalysisCatalogSeeder::class, // 719 analyses historiques
             DevelopmentDiagnosticCatalogSeeder::class,    // diagnostics courants
-            DevelopmentMedicineStockSeeder::class,        // médicaments, lots, fournisseurs, stock
-            DevelopmentProcurementSeeder::class,          // prix, catalogues, commandes, réceptions, facture
             DevelopmentCashRegisterSeeder::class,         // Caisse 1 / Caisse 2
         ]);
+
+        // Demande du propriétaire (2026-09-17) : plus aucune donnée
+        // Pharmacie préremplie — les médicaments, le stock, les
+        // fournisseurs et leurs achats se saisissent désormais réellement.
+        // Les deux seeders restent disponibles pour qui veut une chaîne
+        // d'approvisionnement de démonstration :
+        //
+        //   php artisan db:seed --class=DevelopmentMedicineStockSeeder
+        //   php artisan db:seed --class=DevelopmentProcurementSeeder
     }
 }

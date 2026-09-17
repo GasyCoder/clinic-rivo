@@ -96,8 +96,15 @@ const confirmImport = () => router.post(props.importUrl, {}, {
                                 <td class="px-4 py-3 text-end tabular-nums">{{ row.supplier_price !== null && row.supplier_price !== '' ? formatMoney(row.supplier_price) : '—' }}</td>
                                 <td class="px-5 py-3">
                                     <Badge v-if="!row.errors.length" tone="success"><Check class="h-4 w-4" />Correcte</Badge>
-                                    <ul v-else class="space-y-0.5 text-xs text-red-700 dark:text-red-300">
-                                        <li v-for="error in row.errors" :key="error">{{ error }}</li>
+                                    <ul v-else class="space-y-1 text-xs text-red-700 dark:text-red-300">
+                                        <li v-for="(issue, index) in (row.issues ?? [])" :key="index">
+                                            <span class="font-semibold">{{ issue.column }}</span>
+                                            <span class="text-muted-foreground"> · lu : {{ issue.value === '' ? 'vide' : `« ${issue.value} »` }}</span>
+                                            <span class="block">{{ issue.message }}</span>
+                                        </li>
+                                        <template v-if="!(row.issues ?? []).length">
+                                            <li v-for="error in row.errors" :key="error">{{ error }}</li>
+                                        </template>
                                     </ul>
                                 </td>
                             </tr>

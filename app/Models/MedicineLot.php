@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\MedicineStockReservationStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -71,6 +72,22 @@ class MedicineLot extends Model
     public function reservedQuantity(): int
     {
         return (int) ($this->prescription_reserved_quantity ?? 0) + (int) ($this->counter_reserved_quantity ?? 0);
+    }
+
+    /**
+     * What this lot can still serve: its physical quantity minus what is
+     * already held for someone else. Same single definition as
+     * `reservedQuantity()` (ADR-098), so no screen invents its own subtraction.
+     */
+    public function availableQuantity(): int
+    {
+        return max(0, $this->quantity_on_hand - $this->reservedQuantity());
+    }
+
+    /** An expired lot is never available, whatever it still physically holds (ADR-036). */
+    public function isUsableOn(CarbonImmutable $day): bool
+    {
+        return $this->active && $this->expires_at !== null && $this->expires_at->gte($day);
     }
 
     public function stockMovements(): HasMany

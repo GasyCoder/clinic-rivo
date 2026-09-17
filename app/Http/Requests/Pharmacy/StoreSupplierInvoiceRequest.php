@@ -21,7 +21,12 @@ class StoreSupplierInvoiceRequest extends FormRequest
             'goods_receipt_uuid' => ['nullable', 'uuid', 'exists:goods_receipts,uuid'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
-            'lines' => ['required', 'array', 'min:1'],
+            // ADR-098 amended: an invoice is first a financial document. Its
+            // lines are optional — the detail belongs to the reception, which
+            // already recorded what physically arrived. Without lines, the
+            // total is what the supplier billed and must be given.
+            'total_amount' => ['required_without:lines', 'nullable', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
+            'lines' => ['nullable', 'array'],
             'lines.*.medicine_uuid' => ['required', 'uuid', 'exists:medicines,uuid'],
             'lines.*.description' => ['required', 'string', 'max:255'],
             'lines.*.quantity' => ['required', 'integer', 'min:1'],

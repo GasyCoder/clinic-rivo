@@ -73,4 +73,40 @@ class TrashController extends Controller
 
         return back()->with('status', $result['message'] ?: 'Élément restauré.');
     }
+
+    public function destroy(
+        Request $request,
+        string $site,
+        string $category,
+        string $uuid,
+        PortalSiteApiClient $client,
+    ): RedirectResponse {
+        $validated = validator([
+            'site' => $site,
+            'category' => $category,
+            'uuid' => $uuid,
+        ], [
+            'site' => ['required', Rule::in(collect(config('rivo.clinics', []))->pluck('code')->all())],
+            'category' => ['required', Rule::enum(TrashCategory::class)],
+            'uuid' => ['required', 'uuid'],
+        ])->validate();
+        $result = $client->forceDeleteTrashItem(
+            $validated['site'],
+            $validated['category'],
+            $validated['uuid'],
+            $request->user(),
+        );
+
+        if (! $result['ok']) {
+            $errors = collect($result['errors'] ?? [])->mapWithKeys(
+                fn ($messages, $field) => [
+                    $field => is_array($messages) ? ($messages[0] ?? $result['message']) : $messages,
+                ],
+            )->all();
+
+            return back()->withErrors($errors ?: ['force_delete' => $result['message']]);
+        }
+
+        return back()->with('status', $result['message'] ?: 'Élément supprimé définitivement.');
+    }
 }

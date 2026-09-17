@@ -6,11 +6,16 @@ import {
     Building2,
     Download,
     FileSpreadsheet,
+    Eye,
     Folder,
     FolderPlus,
     LayoutGrid,
     List,
+    Pencil,
+    RotateCcw,
     Search,
+    ShoppingCart,
+    Trash2,
     TriangleAlert,
     Upload,
 } from 'lucide-vue-next';
@@ -48,6 +53,31 @@ const visible = computed(() => {
         .filter(Boolean)
         .some((value) => value.toLocaleLowerCase().includes(needle)));
 });
+
+// Mettre à la corbeille et restaurer depuis la liste : ouvrir le dossier
+// pour archiver un fournisseur obligeait à un aller-retour, alors que la
+// décision se prend devant la liste. Le motif reste obligatoire (ADR-009).
+const archiving = ref(null);
+const archiveForm = useForm({ reason: '' });
+const restoreForm = useForm({});
+
+const openArchive = (supplier) => {
+    archiving.value = supplier;
+    archiveForm.reset();
+    archiveForm.clearErrors();
+};
+const closeArchive = () => {
+    if (archiveForm.processing) return;
+    archiving.value = null;
+};
+const submitArchive = () => archiveForm.delete(
+    `/super-admin/pharmacy-suppliers/${props.selectedSite}/${archiving.value.uuid}`,
+    { preserveScroll: true, onSuccess: () => { archiving.value = null; } },
+);
+const restoreSupplier = (supplier) => {
+    if (!confirm(`Restaurer ${supplier.name} ? Il sera de nouveau proposé pour les commandes et les entrées de stock.`)) return;
+    restoreForm.post(`/super-admin/pharmacy-suppliers/${props.selectedSite}/${supplier.uuid}/restore`, { preserveScroll: true });
+};
 
 const STATUS = {
     ONLINE: { variant: 'success', label: 'Connecté' },
@@ -142,8 +172,11 @@ const emptyTitle = computed(() => {
                 <Button v-if="can.import" type="button" variant="outline" @click="importing = true">
                     <Upload class="h-4 w-4" />Importer Excel
                 </Button>
-                <Button v-if="can.create" type="button" variant="primary" @click="creating = true">
+                <Button v-if="can.create" type="button" variant="outline" @click="creating = true">
                     <FolderPlus class="h-4 w-4" />Nouveau fournisseur
+                </Button>
+                <Button v-if="can.order" :as="Link" :href="`/super-admin/pharmacy-suppliers/${current.code}/commander`" variant="primary" title="Comparer les prix de tous les fournisseurs, puis commander">
+                    <ShoppingCart class="h-4 w-4" />Comparer et commander
                 </Button>
             </div>
         </header>
@@ -316,8 +349,13 @@ const emptyTitle = computed(() => {
                                         <Badge v-if="supplier.archived" variant="outline"><Archive class="h-3 w-3" />Archivé</Badge>
                                         <Badge v-else variant="success">Actif</Badge>
                                     </td>
-                                    <td class="border-b border-border px-4 py-3 text-end">
-                                        <Button :as="Link" :href="supplierUrl(supplier)" size="sm" variant="outline">Ouvrir le dossier</Button>
+                                    <td class="border-b border-border px-4 py-3">
+                                        <div class="flex items-center justify-end gap-1">
+                                            <Button :as="Link" :href="supplierUrl(supplier)" size="sm" variant="outline" title="Ouvrir le dossier"><Eye class="h-4 w-4" /><span class="hidden lg:inline">Ouvrir</span></Button>
+                                            <Button v-if="can.update && !supplier.archived" :as="Link" :href="`${supplierUrl(supplier)}?edit=1`" size="sm" variant="ghost" title="Modifier le fournisseur"><Pencil class="h-4 w-4" /></Button>
+                                            <Button v-if="can.archive && !supplier.archived" size="sm" variant="ghost" class="text-destructive" title="Mettre à la corbeille" @click="openArchive(supplier)"><Trash2 class="h-4 w-4" /></Button>
+                                            <Button v-if="can.restore && supplier.archived" size="sm" variant="ghost" title="Restaurer" :disabled="restoreForm.processing" @click="restoreSupplier(supplier)"><RotateCcw class="h-4 w-4" /></Button>
+                                        </div>
                                     </td>
                                 </tr>
                             </tbody>
@@ -430,4 +468,21 @@ const emptyTitle = computed(() => {
             </template>
         </Dialog>
     </div>
+    <Dialog :open="archiving !== null" title="Mettre ce fournisseur à la corbeille ?" @close="closeArchive">
+        <form id="archive-supplier" class="space-y-4" @submit.prevent="submitArchive">
+            <p class="text-sm leading-6 text-muted-foreground">
+                <strong class="text-foreground">{{ archiving?.name }}</strong> ne sera plus proposé pour une commande ni pour une entrée de stock.
+                Son dossier — catalogues, commandes, factures, prix — reste consultable, et il se restaure depuis la corbeille.
+            </p>
+            <FormField label="Motif" :error="archiveForm.errors.reason" required>
+                <Input v-model="archiveForm.reason" placeholder="Ex. fournisseur remplacé par la centrale" maxlength="1000" required />
+            </FormField>
+        </form>
+        <template #footer>
+            <Button type="button" variant="outline" :disabled="archiveForm.processing" @click="closeArchive">Annuler</Button>
+            <Button type="submit" form="archive-supplier" variant="destructive" :disabled="archiveForm.processing || archiveForm.reason.trim().length < 3">
+                <Trash2 class="h-4 w-4" />{{ archiveForm.processing ? 'Archivage…' : 'Mettre à la corbeille' }}
+            </Button>
+        </template>
+    </Dialog>
 </template>

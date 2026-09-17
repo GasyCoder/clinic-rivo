@@ -27,6 +27,7 @@ const initialSupplier = new URLSearchParams(page.url.split('?')[1] ?? '').get('s
             :suppliers="suppliers"
             :supplier-uuid="initialSupplier"
             :medicines="medicines"
+            :catalog-href="initialSupplier ? `/pharmacy/suppliers/${initialSupplier}/catalogs` : '/pharmacy/stock'"
             :submit-url="(uuid) => `/pharmacy/suppliers/${uuid}/purchase-orders`"
             cancel-href="/pharmacy/purchase-orders"
         />

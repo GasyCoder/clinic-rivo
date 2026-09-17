@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Button from '@/Components/Shadcn/Button.vue';
 import FormSection from '@/Components/UI/FormSection.vue';
-import { Info, Plus, Save, Trash2 } from 'lucide-vue-next';
+import { FileSpreadsheet, Info, Plus, Save, Trash2 } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
@@ -23,6 +23,9 @@ const props = defineProps({
     cancelHref: { type: String, required: true },
     // A draft being corrected: its lines fill the form and it is sent with PUT.
     order: { type: Object, default: null },
+    // Où aller quand le catalogue de la clinique est encore vide : les
+    // lignes du catalogue de ce fournisseur, d'où un produit s'ajoute.
+    catalogHref: { type: String, default: null },
 });
 
 const blankLine = () => ({ medicine_uuid: '', quantity_ordered: 1, unit_price: '' });
@@ -90,7 +93,19 @@ const submit = () => {
                 </div>
             </FormSection>
 
-            <FormSection icon="capsule" title="Médicaments commandés">
+            <section v-if="!medicines.length" class="rounded-xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/30">
+                <h2 class="font-heading text-base font-bold text-amber-900 dark:text-amber-200">Aucun médicament à commander</h2>
+                <p class="mt-1 text-sm leading-6 text-amber-900/90 dark:text-amber-200/90">
+                    Une commande porte sur les médicaments du catalogue de la clinique, et il est encore vide pour ce fournisseur.
+                    Un catalogue fournisseur ne suffit pas : il dit ce que le fournisseur propose, pas ce que la clinique a décidé de tenir.
+                    Ouvrez ses lignes de catalogue et ajoutez au catalogue de la clinique les produits que vous voulez commander.
+                </p>
+                <Button v-if="catalogHref" :as="Link" :href="catalogHref" size="rg" class="mt-4">
+                    <FileSpreadsheet class="h-4 w-4" />Ouvrir le catalogue du fournisseur
+                </Button>
+            </section>
+
+            <FormSection v-else icon="capsule" title="Médicaments commandés">
                 <template #description>
                     <template v-if="pricedCount">{{ pricedCount }} médicament{{ pricedCount > 1 ? 's' : '' }} avec un prix fournisseur, en tête de liste : le prix se remplit tout seul.</template>
                     <template v-else>Choisissez le médicament, la quantité et le prix unitaire.</template>

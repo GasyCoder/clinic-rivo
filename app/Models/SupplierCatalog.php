@@ -60,9 +60,25 @@ class SupplierCatalog extends Model
         return $this->imported_at !== null;
     }
 
+    /**
+     * Mis à vrai uniquement quand le dossier fournisseur lui-même est
+     * détruit : un catalogue ne survit pas au fournisseur qui l'a fourni.
+     * Jamais exposé à une requête — c'est TrashDirectory qui le pose.
+     */
+    public bool $deletingWithFolder = false;
+
+    /**
+     * A catalog that was imported, or whose lines already feed a medicine or
+     * a supplier price, is history: only a file uploaded by mistake and
+     * never used can leave the trash for good.
+     */
     public function isForceDeleteProtected(): bool
     {
-        return true;
+        if ($this->deletingWithFolder) {
+            return false;
+        }
+
+        return $this->isImported() || $this->items()->exists();
     }
 
     protected function auditModule(): ?string

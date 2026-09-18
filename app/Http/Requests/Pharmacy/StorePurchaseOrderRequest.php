@@ -19,6 +19,9 @@ class StorePurchaseOrderRequest extends FormRequest
         return [
             'expected_delivery_at' => ['nullable', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            // Enregistrer et envoyer au fournisseur en une seule opération :
+            // la commande n'existe jamais à moitié envoyée.
+            'send' => ['sometimes', 'boolean'],
             'lines' => ['required', 'array', 'min:1'],
             // ADR-098 — a line names a medicine the clinic already holds, or
             // a line of this supplier's catalogue it takes up now.

@@ -219,6 +219,8 @@ class PermissionSeeder extends Seeder
         'medicines.update' => 'Modifier le paramétrage d’un médicament',
         'medicines.delete' => 'Archiver un médicament',
         'medicines.restore' => 'Restaurer un médicament archivé',
+        'medicines.sale_price.update' => 'Fixer et modifier le prix de vente d’un médicament',
+        'medicines.name.update' => 'Renommer un médicament sous son nom de vente à la pharmacie',
         'medicines.import' => 'Importer en masse le référentiel des médicaments',
         'medicine_categories.view' => 'Voir les catégories thérapeutiques',
         'medicine_categories.create' => 'Créer une catégorie thérapeutique',

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\SuperAdmin\Concerns\RespondsToSiteApi;
+use App\Http\Requests\Pharmacy\UpdateSupplierCatalogItemRequest;
 use App\Services\Pharmacy\MedicineSupplierImportService;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Services\SuperAdmin\PortalSiteApiClient;
@@ -345,7 +346,57 @@ class PharmacySupplierController extends Controller
             'catalog' => data_get($result, 'data.catalog'),
             'items' => data_get($result, 'data.items', []),
             'error' => $result['ok'] ? null : $result['message'],
+            // What the routes below already allow — the screen must offer
+            // exactly that, no more and no less (ADR-098).
+            'can' => [
+                'update' => $request->user()->can('supplier_catalogs.update'),
+                'delete' => $request->user()->can('supplier_catalogs.delete'),
+                'restore' => $request->user()->can('supplier_catalogs.restore'),
+                'unlink' => $request->user()->can('medicine_supplier_offers.update'),
+            ],
         ]);
+    }
+
+    public function updateCatalogItem(Request $request, string $site, string $supplier, string $catalog, string $item, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate((new UpdateSupplierCatalogItemRequest)->rules());
+
+        return $this->respond(
+            $client->pharmacySupplierCatalogItem($site, $supplier, $catalog, $item, $request->user(), 'PUT', '', $validated),
+            'Ligne de catalogue corrigée.',
+        );
+    }
+
+    public function archiveCatalogItem(Request $request, string $site, string $supplier, string $catalog, string $item, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        return $this->respond(
+            $client->pharmacySupplierCatalogItem($site, $supplier, $catalog, $item, $request->user(), 'DELETE', '', $validated),
+            'Ligne mise à la corbeille.',
+        );
+    }
+
+    public function restoreCatalogItem(Request $request, string $site, string $supplier, string $catalog, string $item, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+
+        return $this->respond(
+            $client->pharmacySupplierCatalogItem($site, $supplier, $catalog, $item, $request->user(), 'POST', '/restore'),
+            'Ligne restaurée.',
+        );
+    }
+
+    public function unlinkCatalogItem(Request $request, string $site, string $supplier, string $catalog, string $item, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+
+        return $this->respond(
+            $client->pharmacySupplierCatalogItem($site, $supplier, $catalog, $item, $request->user(), 'POST', '/unlink'),
+            'Rattachement défait.',
+        );
     }
 
     public function updateCatalog(Request $request, string $site, string $supplier, string $catalog, PortalSiteApiClient $client): RedirectResponse
@@ -426,6 +477,14 @@ class PharmacySupplierController extends Controller
             'can' => [
                 'create_order' => $active && $user->can('purchase_orders.create'),
                 'create_invoice' => $active && $user->can('supplier_invoices.create'),
+                // A draft is corrected, a sent order is cancelled, and
+                // neither is ever deleted (ADR-010): the list offers the
+                // two that exist rather than a single « Voir ».
+                'update_order' => $user->can('purchase_orders.update'),
+                'cancel_order' => $user->can('purchase_orders.cancel'),
+                'update_invoice' => $user->can('supplier_invoices.update'),
+                'archive_invoice' => $user->can('supplier_invoices.delete'),
+                'restore_invoice' => $user->can('supplier_invoices.restore'),
             ],
         ]);
     }

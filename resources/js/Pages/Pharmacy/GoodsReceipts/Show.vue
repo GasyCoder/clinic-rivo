@@ -7,7 +7,7 @@ import { formatMoney } from '@/utilities/pharmacyStatus';
 
 defineOptions({ layout: AppLayout });
 
-defineProps({ receipt: Object });
+defineProps({ receipt: Object, canViewCost: { type: Boolean, default: false } });
 </script>
 
 <template>
@@ -35,7 +35,7 @@ defineProps({ receipt: Object });
                             <th class="px-4 py-3 text-start">Lot</th>
                             <th class="px-4 py-3 text-start">Péremption</th>
                             <th class="px-4 py-3 text-end">Quantité</th>
-                            <th class="px-4 py-3 text-end">Prix d’achat</th>
+                            <th v-if="canViewCost" class="px-4 py-3 text-end">Prix d’achat unitaire</th>
                             <th class="px-5 py-3 text-end">Actions</th>
                         </tr>
                     </thead>
@@ -45,7 +45,7 @@ defineProps({ receipt: Object });
                             <td class="px-4 py-3.5 font-mono">{{ line.lot_number }}</td>
                             <td class="px-4 py-3.5">{{ formatDate(line.expires_at) }}</td>
                             <td class="px-4 py-3.5 text-end tabular-nums">{{ line.quantity_received }}</td>
-                            <td class="px-4 py-3.5 text-end tabular-nums">{{ line.unit_purchase_price ? formatMoney(line.unit_purchase_price) : '—' }}</td>
+                            <td v-if="canViewCost" class="px-4 py-3.5 text-end tabular-nums">{{ line.unit_purchase_price ? formatMoney(line.unit_purchase_price) : '—' }}</td>
                             <td class="px-5 py-3.5 text-end"><Link :href="`/pharmacy/stock/${line.medicine_uuid}`" class="text-sm font-semibold text-primary-600 hover:underline">Voir le stock</Link></td>
                         </tr>
                     </tbody>

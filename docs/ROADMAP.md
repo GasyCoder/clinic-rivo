@@ -460,8 +460,11 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Modifier une commande brouillon, une facture fournisseur et la date/remarque d'un catalogue, clinique et portail
 - [x] Comparateur de prix fournisseurs par médicament (prix, moins-disant, stock restant), point d'entrée de la commande d'achat
 - [x] Commande d'achat composée sur plusieurs fournisseurs : un brouillon par fournisseur, jamais une commande mixte
+- [x] « Comparer et commander » liste aussi les produits du catalogue fournisseur pas encore repris par la clinique, regroupés par nom avec le même produit d'un autre fournisseur
 - [x] Formulaire de commande limité aux produits réellement fournis par le fournisseur
 - [x] Lignes du catalogue fournisseur actif commandables directement : le produit entre au catalogue de la clinique à la commande, sans prix de vente (fixé après réception)
+- [x] Choix du produit en fenêtre cherchable (prix fournisseur, provenance, déjà commandé) au lieu d'une liste déroulante de cent lignes
+- [x] Un même produit proposé par deux fournisseurs n'est jamais créé deux fois ; un produit désactivé n'est pas ranimé par une commande
 - [x] Facture fournisseur enregistrable comme document global (numéro, date, montant, pièce jointe) ; le détail par produit devient facultatif
 - [x] Fournisseurs, catalogues et factures archivés visibles dans la Corbeille, restaurables
 - [x] Suppression définitive depuis la seule Corbeille, refusée dès que l'élément a servi (`trash.force_delete`)
@@ -469,7 +472,17 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Erreur d'import nommant la ligne, la colonne, la valeur lue et la raison ; montant formaté (« 4 500,50 Ar ») accepté
 - [x] Téléchargement d'un fichier de catalogue depuis le portail, relayé par l'API du site
 - [x] Actions Ouvrir / Modifier / Corbeille / Restaurer sur la liste des fournisseurs du portail
+- [x] Ligne de catalogue corrigeable et retirable (corbeille + restauration), au site comme au portail — un import mal transcrit se répare
+- [x] Rattachement erroné défaisable : le prix d'achat qu'il avait créé est clos, jamais supprimé
+- [x] Relire un catalogue conserve les rattachements déjà faits, au lieu de les effacer silencieusement
+- [x] Actions Modifier / Corbeille / Restaurer sur les factures fournisseur du portail
+- [x] « Archiver » remplacé par « Mettre à la corbeille » ; « Supprimer définitivement » réservé à la Corbeille
+- [x] Colonne « Famille » facultative au canevas de catalogue fournisseur : lignes classées, filtrables, et famille proposée au médicament créé
+- [x] Prix d'achat appliqué automatiquement à la commande (quantité seule à saisir) ; prix négocié possible et signalé, sans écraser le tarif fournisseur
+- [x] Commande sans action possible : le motif est affiché (reçue, annulée, déjà envoyée) au lieu d'une colonne vide
+- [x] Un produit listé sous deux références du même catalogue n'occupe qu'une ligne de commande : refus nommé côté serveur, références marquées dans le sélecteur
 - [x] Provenance d'un produit fournisseur affichée (catalogue d'origine) et distinction proposé / réellement réceptionné
+- [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-112)
 - [ ] Transfert stock
 - [ ] Rapports
 

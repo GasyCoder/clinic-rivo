@@ -5,17 +5,23 @@ namespace App\Http\Controllers\Api\V1\SuperAdmin;
 use App\Actions\Pharmacy\ActivateSupplierCatalogAction;
 use App\Actions\Pharmacy\ArchiveMedicineSupplierAction;
 use App\Actions\Pharmacy\ArchiveSupplierCatalogAction;
+use App\Actions\Pharmacy\ArchiveSupplierCatalogItemAction;
 use App\Actions\Pharmacy\CreateMedicineSupplierAction;
 use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
 use App\Actions\Pharmacy\RestoreSupplierCatalogAction;
+use App\Actions\Pharmacy\RestoreSupplierCatalogItemAction;
+use App\Actions\Pharmacy\UnlinkSupplierCatalogItemAction;
 use App\Actions\Pharmacy\UpdateMedicineSupplierAction;
 use App\Actions\Pharmacy\UpdateSupplierCatalogAction;
+use App\Actions\Pharmacy\UpdateSupplierCatalogItemAction;
 use App\Actions\Pharmacy\UploadSupplierCatalogAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Pharmacy\UpdateSupplierCatalogItemRequest;
 use App\Models\MedicineSupplier;
 use App\Models\MedicineSupplierOffer;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierCatalog;
+use App\Models\SupplierCatalogItem;
 use App\Models\SupplierInvoice;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Pharmacy\MedicineSupplierImportService;
@@ -157,7 +163,7 @@ class PharmacySupplierController extends Controller
         return response()->json([
             'data' => [
                 'supplier' => $this->presenter->identity($supplier),
-                'invoices' => SupplierInvoice::query()
+                'invoices' => SupplierInvoice::query()->withTrashed()
                     ->where('medicine_supplier_id', $supplier->id)
                     ->with('supplier:id,uuid,name')
                     ->latest('invoice_date')
@@ -300,7 +306,9 @@ class PharmacySupplierController extends Controller
         return response()->json(['data' => [
             'supplier' => $this->presenter->identity($supplier),
             'catalog' => $this->presenter->catalog($catalog),
-            'items' => $catalog->items()
+            // Withdrawn lines travel too, flagged: the portal must be able
+            // to show them in order to restore them (ADR-009).
+            'items' => $catalog->items()->withTrashed()
                 ->with('linkedMedicine.catalogItem:id,code,name')
                 ->orderBy('row_number')
                 ->get()
@@ -310,12 +318,66 @@ class PharmacySupplierController extends Controller
                     'reference' => $item->reference,
                     'medicine_label' => $item->medicine_label,
                     'presentation' => $item->presentation,
+                    'family_label' => $item->family_label,
                     'supplier_price' => $item->supplier_price,
                     'linked_medicine_name' => $item->linkedMedicine?->catalogItem?->name,
                     'linked_medicine_code' => $item->linkedMedicine?->catalogItem?->code,
+                    'archived' => $item->trashed(),
+                    'delete_reason' => $item->delete_reason,
                 ])
                 ->values(),
         ]]);
+    }
+
+    /**
+     * ADR-098 — correcting, withdrawing, restoring or unlinking one line of
+     * a supplier catalogue, from the portal. Same Actions as the clinic:
+     * the rules, the audit and the permissions are the site's own.
+     */
+    public function updateCatalogItem(Request $request, string $supplierUuid, string $catalogUuid, string $itemUuid, UpdateSupplierCatalogItemAction $action): JsonResponse
+    {
+        $item = $this->catalogItem($supplierUuid, $catalogUuid, $itemUuid);
+        $validated = $request->validate((new UpdateSupplierCatalogItemRequest)->rules());
+        $action->execute($item, $validated, CatalogActor::fromRemoteRequest($request));
+
+        return response()->json(['message' => 'Ligne de catalogue corrigée.']);
+    }
+
+    public function archiveCatalogItem(Request $request, string $supplierUuid, string $catalogUuid, string $itemUuid, ArchiveSupplierCatalogItemAction $action): JsonResponse
+    {
+        $item = $this->catalogItem($supplierUuid, $catalogUuid, $itemUuid);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+        $action->execute($item, $validated['reason'], CatalogActor::fromRemoteRequest($request));
+
+        return response()->json(['message' => 'Ligne mise à la corbeille.']);
+    }
+
+    public function restoreCatalogItem(Request $request, string $supplierUuid, string $catalogUuid, string $itemUuid, RestoreSupplierCatalogItemAction $action): JsonResponse
+    {
+        $item = $this->catalogItem($supplierUuid, $catalogUuid, $itemUuid, withArchived: true);
+        $action->execute($item, CatalogActor::fromRemoteRequest($request));
+
+        return response()->json(['message' => 'Ligne restaurée.']);
+    }
+
+    public function unlinkCatalogItem(Request $request, string $supplierUuid, string $catalogUuid, string $itemUuid, UnlinkSupplierCatalogItemAction $action): JsonResponse
+    {
+        $item = $this->catalogItem($supplierUuid, $catalogUuid, $itemUuid);
+        $action->execute($item, CatalogActor::fromRemoteRequest($request));
+
+        return response()->json(['message' => 'Rattachement défait ; le prix fournisseur qu’il portait est clos.']);
+    }
+
+    /** A line's uuid is public: it must belong to that catalogue of that folder. */
+    private function catalogItem(string $supplierUuid, string $catalogUuid, string $itemUuid, bool $withArchived = false): SupplierCatalogItem
+    {
+        $catalog = $this->supplier($supplierUuid, withArchived: true)
+            ->catalogs()->withTrashed()->where('uuid', $catalogUuid)->firstOrFail();
+
+        return $catalog->items()
+            ->when($withArchived, fn ($query) => $query->withTrashed())
+            ->where('uuid', $itemUuid)
+            ->firstOrFail();
     }
 
     public function updateCatalog(Request $request, string $supplierUuid, string $catalogUuid, UpdateSupplierCatalogAction $action): JsonResponse

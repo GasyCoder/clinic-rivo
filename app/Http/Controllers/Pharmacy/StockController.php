@@ -67,7 +67,8 @@ class StockController extends Controller
                     'label' => $item->medicine_label,
                     'reference' => $item->reference,
                     'presentation' => $item->presentation,
-                    'purchase_price' => $medicine->supplierOffers()
+                    // ADR-112 — le prix d'achat reste confidentiel.
+                    'purchase_price' => ! $data['capabilities']['can_view_cost'] ? null : $medicine->supplierOffers()
                         ->where('medicine_supplier_id', $item->catalog?->medicine_supplier_id)
                         ->where('active_key', 'CURRENT')
                         ->value('quoted_price') ?? $item->supplier_price,

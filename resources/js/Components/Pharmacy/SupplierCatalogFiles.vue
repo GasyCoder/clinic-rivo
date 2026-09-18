@@ -193,7 +193,7 @@ const VIEW_OPTIONS = [
                             </Button>
                             <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" class="justify-center" @click="activate(catalog)">Utiliser ce catalogue</Button>
                             <Button v-if="can.update" size="sm" variant="white-outline" class="justify-center" @click="startEdit(catalog)">Modifier</Button>
-                            <Button v-if="can.delete" size="sm" variant="white-outline" class="justify-center text-red-600" @click="archiving = catalog">Archiver</Button>
+                            <Button v-if="can.delete" size="sm" variant="white-outline" class="justify-center text-red-600" @click="archiving = catalog">Mettre à la corbeille</Button>
                         </template>
                         <Button v-else-if="can.restore" size="sm" variant="white-outline" class="justify-center" @click="restore(catalog)">Restaurer</Button>
                     </div>
@@ -237,7 +237,7 @@ const VIEW_OPTIONS = [
                             </Button>
                             <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" @click="activate(catalog)">Utiliser ce catalogue</Button>
                             <Button v-if="can.update" size="sm" variant="white-outline" @click="startEdit(catalog)"><Pencil class="h-4 w-4" />Modifier</Button>
-                            <Button v-if="can.delete" size="sm" variant="white-outline" class="text-red-600" @click="archiving = catalog">Archiver</Button>
+                            <Button v-if="can.delete" size="sm" variant="white-outline" class="text-red-600" @click="archiving = catalog">Mettre à la corbeille</Button>
                         </template>
                         <Button v-else-if="can.restore" size="sm" variant="white-outline" @click="restore(catalog)">Restaurer</Button>
                     </div>
@@ -276,7 +276,7 @@ const VIEW_OPTIONS = [
 
         <div v-if="archiving" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" @click.self="archiving = null">
             <section class="w-full max-w-md rounded-xl bg-card p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="archive-catalog-title">
-                <h2 id="archive-catalog-title" class="font-heading text-lg font-bold text-foreground">Archiver « {{ archiving.original_name }} »</h2>
+                <h2 id="archive-catalog-title" class="font-heading text-lg font-bold text-foreground">Mettre « {{ archiving.original_name }} » à la corbeille</h2>
                 <p class="mt-1 text-sm text-muted-foreground">Le fichier reste dans le dossier et pourra être restauré.</p>
                 <form class="mt-4 space-y-4" @submit.prevent="confirmArchive">
                     <label class="block">
@@ -286,7 +286,7 @@ const VIEW_OPTIONS = [
                     </label>
                     <div class="flex justify-end gap-2">
                         <Button type="button" size="rg" variant="white-outline" @click="archiving = null">Retour</Button>
-                        <Button type="submit" size="rg" variant="danger" :disabled="archiveForm.processing">Archiver</Button>
+                        <Button type="submit" size="rg" variant="danger" :disabled="archiveForm.processing">Mettre à la corbeille</Button>
                     </div>
                 </form>
             </section>

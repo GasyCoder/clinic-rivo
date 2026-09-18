@@ -66,7 +66,7 @@ const restore = () => router.post(props.links.restore, {}, { preserveScroll: tru
                             <th class="px-5 py-3 text-start">Médicament</th>
                             <th class="px-4 py-3 text-start">Libellé facturé</th>
                             <th class="px-4 py-3 text-end">Qté</th>
-                            <th class="px-4 py-3 text-end">Prix unitaire</th>
+                            <th class="px-4 py-3 text-end">Prix d’achat unitaire</th>
                             <th class="px-5 py-3 text-end">Total</th>
                             <th v-if="links.stock" class="px-5 py-3 text-end">Actions</th>
                         </tr>

@@ -49,7 +49,10 @@ class PharmacyProcurementController extends Controller
             'orders' => ['required', 'array', 'min:1'],
             'orders.*.supplier_uuid' => ['required', 'uuid'],
             'orders.*.lines' => ['required', 'array', 'min:1'],
-            'orders.*.lines.*.medicine_uuid' => ['required', 'uuid'],
+            // A line names a clinic medicine, or a supplier catalogue line
+            // the site turns into one when the order is placed (ADR-098).
+            'orders.*.lines.*.medicine_uuid' => ['nullable', 'required_without:orders.*.lines.*.supplier_catalog_item_uuid', 'uuid'],
+            'orders.*.lines.*.supplier_catalog_item_uuid' => ['nullable', 'required_without:orders.*.lines.*.medicine_uuid', 'uuid'],
             'orders.*.lines.*.quantity' => ['required', 'integer', 'min:1'],
             'orders.*.lines.*.unit_price' => ['required', 'numeric', 'gt:0'],
             'expected_delivery_at' => ['nullable', 'date'],
@@ -112,7 +115,7 @@ class PharmacyProcurementController extends Controller
     {
         $this->assertSite($site);
         $request->validate(['lines' => ['required', 'array', 'min:1']]);
-        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders', $request->only(['expected_delivery_at', 'notes', 'lines']));
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders', $request->only(['expected_delivery_at', 'notes', 'lines', 'send']));
 
         if (! $result['ok']) {
             return back()->withErrors($this->siteErrors($result))->withInput();
@@ -169,7 +172,7 @@ class PharmacyProcurementController extends Controller
     {
         $this->assertSite($site);
         $request->validate(['lines' => ['required', 'array', 'min:1']]);
-        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'PUT', 'orders/'.rawurlencode($order), $request->only(['expected_delivery_at', 'notes', 'lines']));
+        $result = $client->pharmacyProcurement($site, $supplier, $request->user(), 'PUT', 'orders/'.rawurlencode($order), $request->only(['expected_delivery_at', 'notes', 'lines', 'send']));
 
         if (! $result['ok']) {
             return back()->withErrors($this->siteErrors($result))->withInput();

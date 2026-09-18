@@ -21,8 +21,12 @@ class SupplierCatalogTemplateController extends Controller
             'Catalogue fournisseur',
             array_values(SupplierCatalogImportService::HEADER_LABELS),
             [
-                ['AMOX-500', 'Amoxicilline 500 mg', 'Boîte de 12 gélules', '4500'],
-                ['PARA-1G', 'Paracétamol 1 g', 'Boîte de 8 comprimés', '1200'],
+                // « Famille » et « Prix fournisseur » sont facultatifs : un
+                // catalogue qui ne classe pas ses produits, ou qui annonce
+                // ses prix séparément, reste importable (ADR-098).
+                ['AMOX-500', 'Amoxicilline 500 mg', 'Boîte de 12 gélules', 'Antibiotiques', '4500'],
+                ['PARA-1G', 'Paracétamol 1 g', 'Boîte de 8 comprimés', 'Antalgiques', '1200'],
+                ['COMP-001', 'Compresses stériles 10x10', 'Sachet de 5', '', ''],
             ],
         );
     }

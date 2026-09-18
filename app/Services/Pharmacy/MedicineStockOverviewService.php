@@ -108,6 +108,14 @@ class MedicineStockOverviewService
                 'out_of_stock' => $medicines->where('status', 'OUT_OF_STOCK')->count(),
                 'expiring_soon' => $medicines->where('status', 'EXPIRING_SOON')->count(),
                 'expired_lots' => $medicines->sum(fn (array $medicine) => collect($medicine['lots'])->where('status', 'EXPIRED')->count()),
+                // ADR-098 — a product ordered from a supplier catalogue enters
+                // the referential without a selling price, which nobody had
+                // decided yet. Until it has one it cannot be sold or
+                // dispensed, and the screens must say so rather than let the
+                // counter look empty for no visible reason.
+                'without_sale_price' => $medicines
+                    ->filter(fn (array $medicine) => $medicine['active'] && blank($medicine['sale_price']))
+                    ->count(),
             ],
             'medicines' => $medicines->all(),
         ];

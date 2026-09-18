@@ -17,7 +17,8 @@ const form = useForm({
         quantity_received: line.quantity_remaining,
         lot_number: '',
         expires_at: '',
-        unit_purchase_price: line.unit_price,
+        // ADR-112 — sans valeur, le serveur reprend le prix de la commande.
+        unit_purchase_price: props.can.record_cost ? line.unit_price : null,
         _medicine_name: line.medicine_name,
         _medicine_code: line.medicine_code,
         _quantity_remaining: line.quantity_remaining,
@@ -69,8 +70,9 @@ const submit = () => {
                         <DatePicker v-model="line.expires_at" :required="Number(line.quantity_received) > 0" />
                     </label>
                     <label v-if="can.record_cost" class="block">
-                        <span :class="labelClass">Prix d’achat par unité (MGA)</span>
+                        <span :class="labelClass">Prix d’achat unitaire (MGA)</span>
                         <input v-model="line.unit_purchase_price" type="number" min="0" step="0.01" :class="inputClass">
+                        <span class="mt-1 block text-xs text-muted-foreground">Repris de la commande — à corriger seulement si la facture diffère.</span>
                     </label>
                 </div>
                 <p v-if="form.errors[`lines.${index}.lot_number`] || form.errors[`lines.${index}.expires_at`]" class="mt-2 text-sm text-red-600">{{ form.errors[`lines.${index}.lot_number`] || form.errors[`lines.${index}.expires_at`] }}</p>

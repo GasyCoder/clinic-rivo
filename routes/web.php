@@ -190,6 +190,10 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs', [SuperAdminPharmacySupplierController::class, 'uploadCatalog'])->name('pharmacy-suppliers.catalogs.store')->middleware('can:supplier_catalogs.create');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/download', [SuperAdminPharmacySupplierController::class, 'downloadCatalog'])->name('pharmacy-suppliers.catalogs.download')->middleware('can:view-supplier-catalogs');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items', [SuperAdminPharmacySupplierController::class, 'catalogItems'])->name('pharmacy-suppliers.catalogs.items')->middleware('can:view-supplier-catalogs');
+        Route::put('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}', [SuperAdminPharmacySupplierController::class, 'updateCatalogItem'])->name('pharmacy-suppliers.catalogs.items.update')->middleware('can:supplier_catalogs.update');
+        Route::delete('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}', [SuperAdminPharmacySupplierController::class, 'archiveCatalogItem'])->name('pharmacy-suppliers.catalogs.items.destroy')->middleware('can:supplier_catalogs.delete');
+        Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}/restore', [SuperAdminPharmacySupplierController::class, 'restoreCatalogItem'])->name('pharmacy-suppliers.catalogs.items.restore')->middleware('can:supplier_catalogs.restore');
+        Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}/unlink', [SuperAdminPharmacySupplierController::class, 'unlinkCatalogItem'])->name('pharmacy-suppliers.catalogs.items.unlink')->middleware('can:medicine_supplier_offers.update');
         Route::patch('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}', [SuperAdminPharmacySupplierController::class, 'updateCatalog'])->name('pharmacy-suppliers.catalogs.update')->middleware('can:supplier_catalogs.update');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/activate', [SuperAdminPharmacySupplierController::class, 'activateCatalog'])->name('pharmacy-suppliers.catalogs.activate')->middleware('can:supplier_catalogs.update');
         Route::delete('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}', [SuperAdminPharmacySupplierController::class, 'archiveCatalog'])->name('pharmacy-suppliers.catalogs.destroy')->middleware('can:supplier_catalogs.delete');
@@ -504,6 +508,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.medicines.edit')->middleware('can:medicines.update');
     Route::put('/pharmacy/medicines/{medicine}', [PharmacyMedicineController::class, 'update'])
         ->name('pharmacy.medicines.update')->middleware('can:medicines.update');
+    // ADR-112 — the pharmacy sets its own sale price, nothing else.
+    Route::put('/pharmacy/medicines/{medicine}/sale-price', [PharmacyMedicineController::class, 'updateSalePrice'])
+        ->name('pharmacy.medicines.sale-price')->middleware('can:medicines.sale_price.update');
     Route::post('/pharmacy/medicines/{medicine}/deactivate', [PharmacyMedicineController::class, 'deactivate'])
         ->name('pharmacy.medicines.deactivate')->middleware('can:medicines.delete');
     Route::post('/pharmacy/medicines/{medicine}/reactivate', [PharmacyMedicineController::class, 'reactivate'])
@@ -558,6 +565,16 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.suppliers.catalogs.restore')->middleware('can:supplier_catalogs.restore')->withTrashed();
     Route::post('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}/link', [SupplierCatalogController::class, 'linkItem'])
         ->name('pharmacy.suppliers.catalog-items.link')->middleware('can:set-medicine-supplier-offer');
+    // ADR-098 — a catalogue line is a transcription of the supplier's own
+    // document: it is corrected and withdrawn with the catalogue's rights.
+    Route::put('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}', [SupplierCatalogController::class, 'updateItem'])
+        ->name('pharmacy.suppliers.catalog-items.update')->middleware('can:supplier_catalogs.update');
+    Route::delete('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}', [SupplierCatalogController::class, 'destroyItem'])
+        ->name('pharmacy.suppliers.catalog-items.destroy')->middleware('can:supplier_catalogs.delete');
+    Route::post('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}/restore', [SupplierCatalogController::class, 'restoreItem'])
+        ->name('pharmacy.suppliers.catalog-items.restore')->middleware('can:supplier_catalogs.restore')->withTrashed();
+    Route::post('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}/unlink', [SupplierCatalogController::class, 'unlinkItem'])
+        ->name('pharmacy.suppliers.catalog-items.unlink')->middleware('can:medicine_supplier_offers.update');
 
     Route::post('/pharmacy/suppliers/{supplier}/offers', [MedicineSupplierOfferController::class, 'store'])
         ->name('pharmacy.suppliers.offers.store')->middleware('can:set-medicine-supplier-offer');

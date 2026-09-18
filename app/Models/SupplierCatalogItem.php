@@ -4,18 +4,19 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'supplier_catalog_id', 'reference', 'medicine_label', 'presentation',
+    'supplier_catalog_id', 'reference', 'medicine_label', 'presentation', 'family_label',
     'supplier_price', 'row_number', 'linked_medicine_id', 'created_by',
 ])]
 class SupplierCatalogItem extends Model
 {
-    use Auditable, HasUuid;
+    use Auditable, HasUuid, SoftDeletable;
 
     protected function casts(): array
     {

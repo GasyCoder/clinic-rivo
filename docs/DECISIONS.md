@@ -6304,6 +6304,17 @@ ce que la clinique tient encore en stock. Rien de nouveau n'est stocké :
 lots. Le choix reste celui de l'acheteur — un prix plus bas peut venir d'un
 fournisseur en rupture ou plus lent, et l'écran ne décide jamais.
 
+**Le comparateur montre aussi les catalogues (2026-09-18).** Il ne lisait
+que les prix déjà rattachés à un médicament : un fournisseur dont le
+catalogue était importé mais pas encore repris n'y proposait rien, alors que
+le formulaire de commande de son dossier listait toutes ses lignes. Les
+lignes du catalogue **actif** non encore reprises y figurent désormais,
+regroupées par nom (`ProductLabel`) avec le même produit chez les autres
+fournisseurs, et marquées « Nouveau ». Commandées, elles entrent au
+catalogue de la clinique comme depuis le dossier (voir « Commander une ligne
+de catalogue » ci-dessous). Une ligne sans prix se commande avec un prix
+saisi par l'acheteur.
+
 **Une commande reste le fait d'un seul fournisseur.** Le propriétaire demande
 de sélectionner plusieurs fournisseurs avant de choisir les produits. Une
 `PurchaseOrder` appartient pourtant à un fournisseur unique (ADR-097), et la
@@ -6460,6 +6471,21 @@ double. Une ligne appartenant à un autre fournisseur est refusée — son UUID
 est public, et l'accepter rattacherait un produit à un dossier qui ne l'a
 jamais proposé.
 
+**Un même produit chez deux fournisseurs reste un seul produit.** Le
+rattachement ci-dessus ne protège que la même ligne de catalogue ; deux
+fournisseurs qui proposent chacun « Paracétamol 500 mg » en auraient créé
+deux, avec deux stocks, deux historiques et deux prix de vente à tenir. Le
+libellé est donc comparé au catalogue de la clinique sans accents, sans
+casse et sans espaces doubles — deux fournisseurs écrivent rarement un
+produit de la même façon — et le produit trouvé est réutilisé : le second
+prix d'achat vient simplement se placer à côté du premier, ce que
+`medicine_supplier_offers` permet depuis l'ADR-097.
+
+Un produit **désactivé** n'est en revanche jamais ranimé par une commande :
+le désactiver était une décision motivée (voir plus haut), et le remettre en
+service en est une autre. La commande est refusée avec un message qui le
+dit, plutôt que de créer le doublon que cette règle vient d'écarter.
+
 Une commande écrite depuis le portail n'a pas d'auteur local :
 `medicines.created_by` et `medicine_supplier_offers.created_by` deviennent
 donc nullables, avec les colonnes `external_*` en regard, selon le patron
@@ -6467,11 +6493,140 @@ déjà appliqué aux commandes et aux factures fournisseur. `LinkSupplierCatalog
 et `SetMedicineSupplierOfferAction` reçoivent un `CatalogActor` au lieu d'un
 `User`, comme le reste du domaine catalogue.
 
+Le produit se choisit dans une **fenêtre cherchable** et non dans une liste
+déroulante : un catalogue fournisseur compte couramment plus de cent lignes,
+et chaque ligne y annonce son prix fournisseur, sa provenance (catalogue de
+la clinique ou du fournisseur) et si elle est déjà dans la commande. La
+ligne ajoutée reprend ce prix, qui reste modifiable — c'est le prix de la
+commande qui est figé (ADR-097), pas celui du catalogue.
+
 Permissions inchangées : commander reste `purchase_orders.create`, et faire
 entrer un produit au catalogue reste `medicines.create` + `catalog.items.create`
 (ADR-024) — un compte qui ne les a pas commande normalement ce que la
 clinique tient déjà, et se voit refuser la ligne de catalogue côté serveur,
 jamais seulement dans l'interface.
+
+## Corriger une ligne de catalogue (2026-09-18)
+
+Audit demandé par le propriétaire, module Pharmacie. Trois constats, et ce
+qu'ils ont donné.
+
+**Une ligne de catalogue n'était ni modifiable ni retirable.** Aucune route
+n'existait, ni au site ni au portail : un import mal transcrit — colonne
+décalée, prix dans la mauvaise unité, libellé tronqué — restait faux pour
+toujours. Elle se corrige désormais, et se met à la corbeille avec un motif.
+`supplier_catalog_items` reçoit pour cela `deleted_at`/`deleted_by`/
+`delete_reason` (ADR-009) ; rien n'est détruit, un prix d'achat peut déjà
+pointer dessus.
+
+Aucune permission n'est créée : une ligne appartient à son fichier, donc qui
+peut corriger le catalogue peut corriger ses lignes (`supplier_catalogs.update`
+/ `.delete` / `.restore`).
+
+**Un rattachement erroné était définitif.** Cas réel constaté en base :
+`ALCO-001 « Alcool bleu 25Litre »` rattaché au médicament
+« Alcool blanc 25Litre » — deux produits différents, un prix d'achat
+enregistré contre le mauvais. Rattacher existait depuis le premier jour,
+défaire non. `UnlinkSupplierCatalogItemAction` le permet et **clôt** le prix
+que ce rattachement avait créé (`effective_until`, `active_key` libéré),
+exactement comme une révision de prix clôt la précédente. Elle ne le supprime
+pas : la clinique a réellement cru ce prix pour ce produit, et l'audit doit
+continuer de le dire. Droit réutilisé : `medicine_supplier_offers.update`.
+
+**Relire un catalogue effaçait le travail de rattachement.** `import()`
+supprimait les lignes puis les recréait : tous les `linked_medicine_id`
+disparaissaient silencieusement. La relecture les conserve désormais par
+référence fournisseur. Elle reste un remplacement **physique** (`forceDelete`)
+et non une mise à la corbeille — une relecture est une nouvelle transcription
+du même document, pas cent lignes à conserver dans un bac.
+
+**Règles d'état, et pourquoi elles diffèrent.** La différence ne tient pas à
+la technique mais à qui a vu le document :
+
+```text
+Ligne de catalogue   transcription d'un document fournisseur
+                     → corrigeable librement
+Commande d'achat     engagement envoyé à un tiers
+                     → corrigeable en brouillon ; ensuite annulation motivée
+Facture fournisseur  pièce comptable
+                     → corrigeable, jamais détruite
+Réception, lot,      fait physique constaté
+mouvement            → jamais modifiable ; correction par ajustement tracé
+```
+
+Une commande réceptionnée n'a donc ni « Modifier » ni « Supprimer » : aucun
+mécanisme de correction post-réception n'existe, et aucun n'est inventé —
+c'est l'ajustement de stock qui joue ce rôle.
+
+**Le fournisseur classe son propre tarif (option B, retenue par le
+propriétaire).** Le canevas Excel reçoit une cinquième colonne, « Famille ».
+Elle n'est **pas** exigée : `HEADERS` reste à quatre colonnes, et les
+catalogues déjà distribués — celui d'Arbiochem le premier — s'importent sans
+changement. `supplier_catalog_items.family_label` conserve ce que le fichier
+dit, **verbatim** et sans clé étrangère : la façon dont un fournisseur nomme
+ses catégories n'est pas le référentiel de la clinique.
+
+L'écran des lignes de catalogue affiche cette famille et permet d'y filtrer ;
+elle se corrige comme le reste de la ligne.
+
+Quand une ligne devient un médicament de la clinique, la famille déclarée est
+rapprochée des familles existantes sans accents ni casse. Si elle manque, elle
+est créée — **uniquement par un acteur qui a le droit d'écrire le référentiel**
+(`medicine_categories.create`, ADR-024). Sans ce droit, ou sans famille
+déclarée, le médicament n'en a simplement pas et le pharmacien la choisit à sa
+fiche. Le libellé vient toujours du fichier du fournisseur, jamais d'une
+supposition sur le produit.
+
+**Le prix d'achat ne se saisit plus à la commande.** Il s'affiche et
+s'applique ; seule la quantité est demandée, et le total suit. Un bouton
+« Changer » reste disponible pour un prix négocié sur cette commande-là — il
+est alors signalé, et le prix du fournisseur n'est pas écrasé : c'est le prix
+de la commande qui est figé (ADR-097), pas le tarif. Lorsque le fournisseur
+n'a aucun prix, la ligne le dit et invite à le renseigner dans son catalogue,
+où il s'appliquera seul la fois suivante.
+
+**Une colonne d'actions vide dit pourquoi.** Sur la liste des commandes, une
+commande qui n'offre ni modification ni annulation affiche son motif — reçue,
+annulée, ou déjà envoyée au fournisseur — au lieu de laisser croire à un droit
+manquant.
+
+**Une ligne par produit, même quand le catalogue le liste deux fois.**
+Constaté le 2026-09-18 : le catalogue Arbiochem porte le même article sous
+deux références (`GANT-010` et `GANT-011`, 19 cas sur 121 lignes). La règle
+ci-dessus les ramène au même médicament, et la commande heurtait sa contrainte
+d'unicité `(purchase_order_id, medicine_id)` avec une erreur SQL. La
+validation ne pouvait pas le voir : deux UUID de catalogue distincts ne
+révèlent qu'après résolution qu'ils désignent un même produit.
+
+`ResolvesOrderedMedicine` refuse désormais la seconde ligne avec un message
+qui nomme le produit, avant toute écriture. Les quantités ne sont pas
+fusionnées à la place de l'acheteur : les deux références peuvent porter des
+prix différents, et garder l'une plutôt que l'autre est une décision d'achat.
+
+Le formulaire le sait avant l'envoi : chaque produit proposé porte un
+`product_group`, calculé par le serveur, et choisir l'une des références
+marque les autres « Dans la commande ». La comparaison des libellés vit dans
+`App\Support\ProductLabel`, seule source partagée par la création du
+médicament et par le formulaire — l'écran ne peut donc pas juger différents
+deux libellés que le serveur juge identiques.
+
+Au passage : rattacher une ligne à un médicament qui porte **déjà le même
+prix** chez ce fournisseur ne réécrit plus ce prix. Le refaire passait par le
+chemin « révision », qui exige `medicine_supplier_offers.update` : un compte
+autorisé à rattacher se voyait refuser son propre rattachement (403).
+
+**Vocabulaire.** « Archiver » disparaît de l'interface au profit de
+**« Mettre à la corbeille »** (réversible), « Supprimer définitivement »
+restant réservé à la Corbeille (ADR-061). Les deux gestes ne portaient pas
+le même nom d'un écran à l'autre pour la même action.
+
+**Ce que l'audit a confirmé sans rien changer** : le `SUPER_ADMIN` du portail
+détient déjà toutes les permissions du catalogue, `Gate::before`
+(`AppServiceProvider.php:43`) reste sans court-circuit par nom de rôle
+(ADR-007), et le modèle « un médicament, plusieurs offres fournisseur »
+d'ADR-097 n'avait aucune table à créer. Ce qui manquait n'était pas une
+autorisation mais, tantôt une action inexistante, tantôt une capacité non
+transmise à l'écran.
 
 ## Ce qui ne change pas
 
@@ -14501,3 +14656,75 @@ Les deux commandes passent par l'API du site cible, jamais par sa base. Le porta
 revérifient respectivement `users.manage` (rôle) et `permissions.assign` (compte). Le rôle
 `SUPER_ADMIN` reste protégé. Aucun changement de `User::effectivePermissionNames()`, aucune
 permission nouvelle, aucune migration.
+
+---
+
+# ADR-174 — Deux prix : achat confidentiel, vente fixée par la Pharmacie
+
+**Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire)
+
+**Amende l'ADR-024** (gestion des tarifs réservée au Super Admin) pour le
+seul prix de vente des médicaments, et **l'ADR-097** (prix d'achat saisi à la
+réception).
+
+## Le constat
+
+Trois libellés circulaient : « prix unitaire », « prix d'achat » et « prix de
+vente ». Vérification faite dans le code, il n'y a que deux prix :
+
+```text
+prix d'achat   medicine_supplier_offers.quoted_price   (tarif du fournisseur)
+               purchase_order_lines.unit_price          (figé à la commande)
+               pharmacy_stock_movements.unit_purchase_price (payé, par lot)
+prix de vente  catalog_tariffs (STANDARD)               (payé par le patient)
+```
+
+Chaque « prix unitaire » affiché était un prix d'achat par unité. Il est
+renommé **« Prix d'achat unitaire »** partout ; aucun troisième prix n'existe.
+
+## Le prix d'achat n'est jamais redemandé
+
+`ReceiveGoodsAction` reprend le prix de la ligne de commande quand la
+réception n'en transmet pas. Seul un compte doté de `stock.cost.record` peut
+le corriger, si la facture du fournisseur diffère. Le chemin est donc
+catalogue → commande (prix figé) → réception → mouvement de stock, sans
+ressaisie.
+
+## Le prix d'achat est confidentiel
+
+`stock.cost.view` et `stock.cost.record` quittent le socle `PHARMACY`
+(migration `2026_09_18_120000`, sans rejouer le seeder — ADR-064). Les écrans
+de réception et de détail du stock masquent colonne et marge sans
+`stock.cost.view`, et le serveur n'envoie plus la valeur. Le Super Admin du
+portail garde tout ; un compte local la reçoit nominativement.
+
+## La Pharmacie fixe le prix de vente — et lui seul
+
+`medicines.sale_price.update`, accordée à `PHARMACY`, permet de fixer et de
+modifier la grille **Standard** d'un élément de type **MEDICINE**, par
+`PUT /pharmacy/medicines/{medicine}/sale-price`. `SetCatalogTariffAction`
+l'accepte uniquement dans ce cas : un prix de consultation, d'acte ou la
+grille Mutuelle restent sous `catalog.tariffs.*` (ADR-024, ADR-031). Accorder
+`catalog.tariffs.*` à la Pharmacie lui aurait ouvert tous les tarifs de la
+clinique.
+
+Le premier prix se saisit sans motif ; un changement en exige un, l'ancien
+restant dans l'historique et les ventes passées inchangées. Aucun
+encaissement n'est ajouté à la Pharmacie (ADR-013).
+
+**Aussi à l'entrée de stock (même jour).** Le formulaire « Entrée de stock »
+propose le prix de vente sur chaque ligne, prérempli avec le prix actuel :
+recevoir un produit et le rendre vendable se font d'un seul geste.
+`RecordStockEntriesAction` l'applique dans la même transaction que les
+entrées ; un prix inchangé n'est pas réécrit, un prix changé prend le motif
+de la livraison, et deux lignes du même médicament à deux prix différents
+sont refusées.
+
+Le prix d'achat **n'apparaît plus** sur ce formulaire : il vient de la
+commande à la réception (voir plus haut). À la place, un champ facultatif
+**« Nom à la pharmacie »** permet de vendre un produit sous un autre nom que
+celui du fournisseur. Il renomme le produit du catalogue clinique
+(permission `medicines.name.update`, accordée à `PHARMACY` par la migration
+`2026_09_18_130000`) ; le libellé du fournisseur reste sur sa ligne de
+catalogue, les ventes et factures passées gardent leur instantané, et
+l'ancien nom reste lisible à l'audit (`CatalogItem` est `Auditable`).

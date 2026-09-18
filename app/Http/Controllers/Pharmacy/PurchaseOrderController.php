@@ -19,6 +19,7 @@ use App\Services\Pharmacy\PurchasesOverview;
 use App\Services\Pharmacy\SupplierPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -82,11 +83,19 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
-    public function store(StorePurchaseOrderRequest $request, MedicineSupplier $supplier, CreatePurchaseOrderAction $action): RedirectResponse
+    public function store(StorePurchaseOrderRequest $request, MedicineSupplier $supplier, CreatePurchaseOrderAction $action, SubmitPurchaseOrderAction $submit): RedirectResponse
     {
-        $order = $action->execute($supplier, $request->validated(), CatalogActor::fromUser($request->user()));
+        $actor = CatalogActor::fromUser($request->user());
+        $send = $request->boolean('send');
+        $order = DB::transaction(function () use ($action, $submit, $supplier, $request, $actor, $send) {
+            $order = $action->execute($supplier, $request->validated(), $actor);
 
-        return to_route('pharmacy.purchase-orders.show', $order)->with('status', 'Commande créée en brouillon.');
+            return $send ? $submit->execute($order, $actor) : $order;
+        });
+
+        return to_route('pharmacy.purchase-orders.show', $order)->with('status', $send
+            ? "Commande {$order->order_number} envoyée au fournisseur."
+            : "Commande {$order->order_number} enregistrée en brouillon.");
     }
 
     public function show(Request $request, PurchaseOrder $purchaseOrder): Response
@@ -128,11 +137,19 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
-    public function update(UpdatePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder, UpdatePurchaseOrderAction $action): RedirectResponse
+    public function update(UpdatePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder, UpdatePurchaseOrderAction $action, SubmitPurchaseOrderAction $submit): RedirectResponse
     {
-        $action->execute($purchaseOrder, $request->validated(), CatalogActor::fromUser($request->user()));
+        $actor = CatalogActor::fromUser($request->user());
+        $send = $request->boolean('send');
+        DB::transaction(function () use ($action, $submit, $purchaseOrder, $request, $actor, $send): void {
+            $order = $action->execute($purchaseOrder, $request->validated(), $actor);
 
-        return to_route('pharmacy.purchase-orders.show', $purchaseOrder)->with('status', 'Commande mise à jour.');
+            if ($send) {
+                $submit->execute($order, $actor);
+            }
+        });
+
+        return to_route('pharmacy.purchase-orders.show', $purchaseOrder)->with('status', $send ? 'Commande envoyée au fournisseur.' : 'Commande mise à jour.');
     }
 
     public function submit(Request $request, PurchaseOrder $purchaseOrder, SubmitPurchaseOrderAction $action): RedirectResponse

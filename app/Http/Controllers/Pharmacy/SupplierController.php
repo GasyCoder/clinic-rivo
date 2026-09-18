@@ -110,7 +110,9 @@ class SupplierController extends Controller
         return Inertia::render('Pharmacy/Suppliers/CatalogItems', [
             'supplier' => $this->presenter->identity($supplier),
             'catalog' => $this->presenter->catalog($catalog),
-            'items' => $catalog->items()
+            // Withdrawn lines are listed too, flagged: a line put in the bin
+            // by mistake must be findable to be restored (ADR-009).
+            'items' => $catalog->items()->withTrashed()
                 ->with('linkedMedicine.catalogItem:id,code,name')
                 ->orderBy('row_number')
                 ->get()
@@ -119,9 +121,12 @@ class SupplierController extends Controller
                     'reference' => $item->reference,
                     'medicine_label' => $item->medicine_label,
                     'presentation' => $item->presentation,
+                    'family_label' => $item->family_label,
                     'supplier_price' => $item->supplier_price,
                     'linked_medicine_uuid' => $item->linkedMedicine?->uuid,
                     'linked_medicine_name' => $item->linkedMedicine?->catalogItem?->name,
+                    'archived' => $item->trashed(),
+                    'delete_reason' => $item->delete_reason,
                 ])
                 ->values(),
             'medicines' => $canLink
@@ -136,7 +141,16 @@ class SupplierController extends Controller
                     ->sortBy('name')
                     ->values()
                 : [],
-            'can' => ['link' => $canLink, 'add_to_catalog' => $canAddToCatalog],
+            'can' => [
+                'link' => $canLink,
+                'add_to_catalog' => $canAddToCatalog,
+                // A line is corrected and withdrawn with the catalogue's own
+                // rights; undoing a link closes a price, hence .update.
+                'update' => $user->can('supplier_catalogs.update'),
+                'delete' => $user->can('supplier_catalogs.delete'),
+                'restore' => $user->can('supplier_catalogs.restore'),
+                'unlink' => $user->can('medicine_supplier_offers.update'),
+            ],
         ]);
     }
 

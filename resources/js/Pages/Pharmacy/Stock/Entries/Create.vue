@@ -36,7 +36,7 @@ const form = useForm({
     entries: [],
 });
 
-const blankLine = () => ({ medicine_uuid: '', operation: 'ENTREE', lot_number: '', expires_at: '', quantity: 1, unit_purchase_price: '' });
+const blankLine = () => ({ medicine_uuid: '', operation: 'ENTREE', lot_number: '', expires_at: '', quantity: 1, sale_name: '', sale_price: '' });
 const draft = ref({ ...blankLine(), medicine_uuid: query.get('medicine') ?? '' });
 const editingIndex = ref(null);
 const showLineForm = ref(true);
@@ -65,16 +65,21 @@ watch(existingLot, (lot) => {
     if (lot?.expires_at) draft.value.expires_at = lot.expires_at;
 });
 
-// The supplier's current price fills the purchase price, never replacing one typed.
-const quotedPrice = computed(() => (form.supplier_uuid ? selectedMedicine.value?.supplier_prices?.[form.supplier_uuid] ?? null : null));
-let autoFilledPrice = null;
-watch(quotedPrice, (price) => {
-    if (!props.capabilities.can_record_cost) return;
-    if (draft.value.unit_purchase_price === '' || draft.value.unit_purchase_price === autoFilledPrice) {
-        draft.value.unit_purchase_price = price ?? '';
-        autoFilledPrice = draft.value.unit_purchase_price;
+// ADR-112 — the purchase price is not asked here: it comes from the order
+// at reception, and stays confidential.
+
+// ADR-112 — the current sale price fills the field, so the pharmacist only
+// types one when the medicine has none yet, or when it changes.
+let autoFilledSale = null;
+watch(selectedMedicine, (medicine) => {
+    if (!props.capabilities.can_set_sale_price) return;
+    if (draft.value.sale_price === '' || draft.value.sale_price === autoFilledSale) {
+        draft.value.sale_price = medicine?.sale_price ?? '';
+        autoFilledSale = draft.value.sale_price;
     }
-});
+}, { immediate: true });
+const salePriceChanged = computed(() => draft.value.sale_price !== ''
+    && Number(draft.value.sale_price) !== Number(selectedMedicine.value?.sale_price ?? NaN));
 
 const operations = computed(() => [
     { value: 'ENTREE', title: 'Marchandise reçue', text: 'Ajouter des boîtes à un lot existant ou nouveau.' },
@@ -112,7 +117,7 @@ const addLine = () => {
 
     form.clearErrors();
     draft.value = blankLine();
-    autoFilledPrice = null;
+    autoFilledSale = null;
     editingIndex.value = null;
     showLineForm.value = false;
 };
@@ -127,7 +132,6 @@ const openLineForm = async () => {
 
 const editLine = async (index) => {
     draft.value = { ...form.entries[index] };
-    autoFilledPrice = null;
     editingIndex.value = index;
     showLineForm.value = true;
     lineError.value = '';
@@ -154,7 +158,6 @@ const lineErrors = (index) => Object.entries(form.errors)
     .map(([, message]) => message);
 
 const totalQuantity = computed(() => form.entries.reduce((sum, entry) => sum + (Number(entry.quantity) || 0), 0));
-const totalValue = computed(() => form.entries.reduce((sum, entry) => sum + (Number(entry.quantity) || 0) * (Number(entry.unit_purchase_price) || 0), 0));
 
 const deliveryReady = computed(() => form.origin.trim() && form.destination.trim() && form.reason.trim().length >= 3);
 const submit = () => {
@@ -237,6 +240,11 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                                     <option v-for="medicine in availableMedicines" :key="medicine.uuid" :value="medicine.uuid">{{ medicine.name }} · {{ medicine.code }}</option>
                                 </select>
                             </label>
+                            <label v-if="capabilities.can_rename_medicine && selectedMedicine" class="block sm:col-span-2">
+                                <span :class="labelClass">Nom à la pharmacie <span class="font-normal text-slate-400">(facultatif)</span></span>
+                                <input v-model="draft.sale_name" type="text" maxlength="255" :class="inputClass" :placeholder="selectedMedicine?.name ?? ''">
+                                <span class="mt-1 block text-xs text-slate-500">À remplir seulement si la pharmacie vend ce produit sous un autre nom que celui du fournisseur. Le nom du fournisseur reste connu dans son catalogue.</span>
+                            </label>
                             <fieldset v-if="operations.length > 1" class="sm:col-span-2">
                                 <legend :class="labelClass">Type d’entrée</legend>
                                 <div class="grid gap-2 sm:grid-cols-2">
@@ -263,10 +271,12 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                                     <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-slate-400">{{ selectedMedicine?.unit ?? 'unités' }}</span>
                                 </span>
                             </label>
-                            <label v-if="capabilities.can_record_cost" class="block">
-                                <span :class="labelClass">Prix d’achat unitaire (MGA)</span>
-                                <input v-model="draft.unit_purchase_price" type="number" min="0" step="0.01" :class="inputClass">
-                                <span v-if="quotedPrice" class="mt-1 block text-xs text-slate-500">Prix actuel du fournisseur : {{ quotedPrice }} MGA</span>
+                            <label v-if="capabilities.can_set_sale_price" class="block">
+                                <span :class="labelClass">Prix de vente (MGA)</span>
+                                <input v-model="draft.sale_price" type="number" min="1" step="0.01" :class="inputClass" :placeholder="selectedMedicine && !selectedMedicine.sale_price ? 'À fixer' : ''">
+                                <span v-if="selectedMedicine && !selectedMedicine.sale_price" class="mt-1 block text-xs text-amber-600">Pas encore de prix de vente : sans lui, ce médicament ne peut être ni vendu ni délivré.</span>
+                                <span v-else-if="salePriceChanged" class="mt-1 block text-xs text-amber-600">Nouveau prix : il remplacera {{ formatMoney(selectedMedicine.sale_price) }} à l’enregistrement. L’ancien reste dans l’historique.</span>
+                                <span v-else class="mt-1 block text-xs text-slate-500">Prix payé par le patient, pour une unité.</span>
                             </label>
                         </div>
                         <p v-if="lineError" class="mt-3 text-sm text-red-600">{{ lineError }}</p>
@@ -297,7 +307,7 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                                     <th class="px-4 py-3 text-start">Lot</th>
                                     <th class="px-4 py-3 text-start">Péremption</th>
                                     <th class="px-4 py-3 text-end">Quantité</th>
-                                    <th v-if="capabilities.can_record_cost" class="px-4 py-3 text-end">Prix unitaire</th>
+                                                                        <th v-if="capabilities.can_set_sale_price" class="px-4 py-3 text-end">Prix de vente</th>
                                     <th class="px-4 py-3 text-end">Actions</th>
                                 </tr>
                             </thead>
@@ -306,13 +316,15 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                                     <tr :class="[editingIndex === index && 'bg-primary-50/50 dark:bg-primary-950/20', lineErrors(index).length && 'bg-red-50/60 dark:bg-red-950/10']">
                                         <td class="px-4 py-3 text-slate-400">{{ index + 1 }}</td>
                                         <td class="px-4 py-3">
-                                            <p class="font-semibold text-slate-800 dark:text-white">{{ medicineByUuid[entry.medicine_uuid]?.name ?? '—' }}</p>
+                                            <p class="font-semibold text-slate-800 dark:text-white">{{ entry.sale_name?.trim() || medicineByUuid[entry.medicine_uuid]?.name || '—' }}</p>
+                                            <p v-if="entry.sale_name?.trim() && entry.sale_name.trim() !== medicineByUuid[entry.medicine_uuid]?.name" class="text-xs text-amber-600">Renommé · était « {{ medicineByUuid[entry.medicine_uuid]?.name }} »</p>
                                             <p class="text-xs text-slate-400">{{ operationLabel(entry.operation) }}</p>
                                         </td>
                                         <td class="px-4 py-3 font-mono text-slate-700 dark:text-slate-200">{{ entry.lot_number }}</td>
                                         <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ formatDate(entry.expires_at) }}</td>
                                         <td class="px-4 py-3 text-end font-semibold tabular-nums">{{ formatNumber(entry.quantity) }}</td>
-                                        <td v-if="capabilities.can_record_cost" class="px-4 py-3 text-end tabular-nums">{{ entry.unit_purchase_price !== '' ? formatMoney(entry.unit_purchase_price) : '—' }}</td>
+                                        
+                                        <td v-if="capabilities.can_set_sale_price" class="px-4 py-3 text-end tabular-nums">{{ entry.sale_price !== '' && entry.sale_price !== null ? formatMoney(entry.sale_price) : '—' }}</td>
                                         <td class="px-4 py-3">
                                             <div class="flex justify-end gap-1.5">
                                                 <Button size="sm" variant="white-outline" type="button" @click="editLine(index)">Modifier</Button>
@@ -321,17 +333,11 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                                         </td>
                                     </tr>
                                     <tr v-if="lineErrors(index).length">
-                                        <td colspan="7" class="bg-red-50/60 px-4 pb-3 text-xs text-red-700 dark:bg-red-950/10 dark:text-red-300">{{ lineErrors(index).join(' ') }}</td>
+                                        <td colspan="8" class="bg-red-50/60 px-4 pb-3 text-xs text-red-700 dark:bg-red-950/10 dark:text-red-300">{{ lineErrors(index).join(' ') }}</td>
                                     </tr>
                                 </template>
                             </tbody>
-                            <tfoot v-if="capabilities.can_record_cost && totalValue">
-                                <tr class="border-t border-gray-200 dark:border-gray-900">
-                                    <td colspan="5" class="px-4 py-3 text-end text-sm text-slate-500">Valeur d’achat de la livraison</td>
-                                    <td class="px-4 py-3 text-end font-bold tabular-nums">{{ formatMoney(totalValue) }}</td>
-                                    <td />
-                                </tr>
-                            </tfoot>
+                            
                         </table>
                     </div>
                     <EmptyState v-else icon="list-check" title="La liste est vide" description="Ajoutez le premier médicament de la livraison : il apparaîtra ici pour être vérifié." />

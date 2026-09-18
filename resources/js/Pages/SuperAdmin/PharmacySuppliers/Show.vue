@@ -102,7 +102,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
                         <div class="min-w-0">
                             <h1 class="flex flex-wrap items-center gap-2 font-heading text-2xl font-bold text-foreground">
                                 {{ supplier.name }}
-                                <Badge v-if="supplier.archived" tone="neutral">Archivé</Badge>
+                                <Badge v-if="supplier.archived" tone="neutral">À la corbeille</Badge>
                             </h1>
                             <p class="font-mono text-xs text-muted-foreground">{{ supplier.code }} <span class="font-sans">· {{ targetSite.name }}</span></p>
                         </div>
@@ -110,7 +110,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
                     <div class="flex flex-wrap gap-2">
                         <template v-if="!supplier.archived">
                             <Button v-if="can.update_supplier && !editing" size="rg" variant="white-outline" type="button" @click="startEdit"><Pencil class="h-4 w-4" />Modifier</Button>
-                            <Button v-if="can.archive_supplier" size="rg" variant="white-outline" type="button" class="text-red-600" @click="archiving = true"><Archive class="h-4 w-4" />Archiver</Button>
+                            <Button v-if="can.archive_supplier" size="rg" variant="white-outline" type="button" class="text-red-600" @click="archiving = true"><Archive class="h-4 w-4" />Mettre à la corbeille</Button>
                         </template>
                         <Button v-else-if="can.restore_supplier" size="rg" type="button" @click="restore"><RotateCcw class="h-4 w-4" />Restaurer</Button>
                     </div>
@@ -173,8 +173,8 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
 
         <div v-if="archiving" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" @click.self="archiving = false">
             <form class="w-full max-w-lg space-y-4 rounded-2xl bg-card p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="archive-supplier-title" @submit.prevent="confirmArchive">
-                <h2 id="archive-supplier-title" class="font-heading text-lg font-bold text-foreground">Archiver {{ supplier.name }}</h2>
-                <p class="text-sm text-muted-foreground">Il ne sera plus proposé pour les commandes ni les entrées de stock. Ses catalogues, prix, lots et factures sont conservés, et il pourra être restauré. Impossible tant qu’une commande est en brouillon ou attend une réception.</p>
+                <h2 id="archive-supplier-title" class="font-heading text-lg font-bold text-foreground">Mettre {{ supplier.name }} à la corbeille</h2>
+                <p class="text-sm text-muted-foreground">Ce n’est pas une suppression : le dossier part à la Corbeille et peut en être restauré. Il ne sera plus proposé pour les commandes ni les entrées de stock ; ses catalogues, prix, lots et factures sont conservés. Impossible tant qu’une commande est en brouillon ou attend une réception.</p>
                 <label class="block">
                     <span :class="labelClass">Motif <span class="text-red-500">*</span></span>
                     <textarea v-model="archiveForm.reason" rows="3" class="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25" placeholder="Ex. : fournisseur n’exerce plus" required></textarea>
@@ -182,7 +182,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
                 <p v-if="archiveForm.errors.reason || archiveForm.errors.site" class="text-sm text-red-600">{{ archiveForm.errors.reason || archiveForm.errors.site }}</p>
                 <div class="flex justify-end gap-2">
                     <Button type="button" size="rg" variant="white-outline" @click="archiving = false">Retour</Button>
-                    <Button type="submit" size="rg" :disabled="archiveForm.processing || archiveForm.reason.trim().length < 3" class="bg-red-600 hover:bg-red-700"><Archive class="h-4 w-4" />Archiver</Button>
+                    <Button type="submit" size="rg" :disabled="archiveForm.processing || archiveForm.reason.trim().length < 3" class="bg-red-600 hover:bg-red-700"><Archive class="h-4 w-4" />Mettre à la corbeille</Button>
                 </div>
             </form>
         </div>

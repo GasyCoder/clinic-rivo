@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
+import { medicineFamily, medicineMatches, medicineSubtitle } from '@/utilities/medicine';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
@@ -9,6 +10,12 @@ import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import MedicineFamilies from '@/Components/Pharmacy/MedicineFamilies.vue';
+import ShadcnButton from '@/Components/Shadcn/Button.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import { Tag } from 'lucide-vue-next';
 import { formatDate } from '@/utilities/date';
 import { printMedicineLabels } from '@/utilities/medicineLabels';
 import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
@@ -34,8 +41,31 @@ const status = ref(initialStatus ?? 'ALL');
 const search = ref('');
 const family = ref('');
 
+/*
+ * ADR-112 — la Pharmacie fixe elle-même le prix de vente. Le premier se
+ * saisit sans motif ; un changement en exige un, l'ancien prix restant dans
+ * l'historique.
+ */
+const pricing = ref(null);
+const priceForm = useForm({ sale_price: '', reason: '' });
+
+const openPricing = (medicine) => {
+    priceForm.reset();
+    priceForm.clearErrors();
+    priceForm.sale_price = medicine.sale_price ?? '';
+    pricing.value = medicine;
+};
+
+const savePrice = () => {
+    priceForm.put(`/pharmacy/medicines/${pricing.value.uuid}/sale-price`, {
+        preserveScroll: true,
+        onSuccess: () => { pricing.value = null; },
+    });
+};
+
 const medicines = computed(() => props.stock.medicines ?? []);
 const activeCategories = computed(() => props.categories.filter((category) => !category.archived));
+const unpriced = computed(() => medicines.value.filter((medicine) => medicine.active && !medicine.sale_price));
 
 const filters = computed(() => [
     { value: 'ALL', label: 'Tous', count: medicines.value.length },
@@ -45,17 +75,20 @@ const filters = computed(() => [
         ? [{ value: 'EXPIRING_SOON', label: 'Péremption proche', count: props.stock.summary?.expiring_soon ?? 0 }]
         : []),
     { value: 'INACTIVE', label: 'Inactifs', count: medicines.value.filter((item) => item.status === 'INACTIVE').length },
+    // Un produit sans prix de vente ne peut être ni vendu ni délivré : il
+    // doit se voir, sinon le comptoir paraît vide sans raison (ADR-098).
+    ...(unpriced.value.length ? [{ value: 'NO_SALE_PRICE', label: 'Sans prix de vente', count: unpriced.value.length }] : []),
 ]);
 
 const visible = computed(() => {
     const needle = search.value.trim().toLocaleLowerCase();
 
     return medicines.value.filter((medicine) => {
-        const matchesStatus = !showStock.value || status.value === 'ALL' || medicine.status === status.value;
+        const matchesStatus = status.value === 'NO_SALE_PRICE'
+            ? (medicine.active && !medicine.sale_price)
+            : (!showStock.value || status.value === 'ALL' || medicine.status === status.value);
         const matchesFamily = !family.value || medicine.category?.name === family.value;
-        const matchesSearch = !needle || [medicine.name, medicine.generic_name, medicine.code, medicine.barcode, medicine.form_label]
-            .filter(Boolean)
-            .some((value) => value.toLocaleLowerCase().includes(needle));
+        const matchesSearch = medicineMatches(medicine, needle);
 
         return matchesStatus && matchesFamily && matchesSearch;
     });
@@ -148,6 +181,22 @@ const summaryCards = computed(() => (showStock.value ? [
             </button>
         </div>
 
+        <section v-if="unpriced.length" class="flex flex-wrap items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
+            <Icon name="alert" class="mt-0.5 text-lg text-amber-600" />
+            <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    {{ unpriced.length }} médicament{{ unpriced.length > 1 ? 's' : '' }} sans prix de vente
+                </p>
+                <p class="mt-0.5 text-sm text-amber-900/90 dark:text-amber-100/90">
+                    Un produit reçu d’un fournisseur entre au catalogue avec son prix d’achat seulement : le prix de vente au patient est une décision distincte.
+                    Tant qu’il manque, le produit ne peut être ni vendu à la Réception ni délivré.
+                    <template v-if="capabilities.can_set_sale_price">Utilisez le bouton « Prix » de chaque ligne pour le fixer.</template>
+                    <template v-else>Ce prix se fixe par un compte Pharmacie ou depuis le portail Super Administration.</template>
+                </p>
+            </div>
+            <Button size="rg" variant="white-outline" type="button" @click="selectStatus('NO_SALE_PRICE')">Voir lesquels</Button>
+        </section>
+
         <section v-if="alerts.length && capabilities.can_view_alerts" class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
             <Icon name="alert" class="mt-0.5 text-lg text-amber-600" />
             <p class="text-sm text-amber-900 dark:text-amber-100">
@@ -212,7 +261,7 @@ const summaryCards = computed(() => (showStock.value ? [
                     :tone="tile(medicine).tone"
                     :badge="tile(medicine).badge"
                     :title="medicine.name"
-                    :subtitle="[medicine.strength, medicine.form_label].filter(Boolean).join(' · ')"
+                    :subtitle="medicineSubtitle(medicine)"
                     :highlight="showStock ? `${formatNumber(medicine.available_quantity)} ${medicine.unit ?? ''}` : null"
                     :meta="medicine.sale_price ? formatMoney(medicine.sale_price) : 'Prix non défini'"
                     :muted="!medicine.active"
@@ -249,9 +298,9 @@ const summaryCards = computed(() => (showStock.value ? [
                             </td>
                             <td class="px-4 py-3.5">
                                 <p class="font-semibold text-slate-800 dark:text-white">{{ medicine.name }}</p>
-                                <p class="mt-0.5 text-xs text-slate-400">{{ medicine.form_label }}<span v-if="medicine.strength"> · {{ medicine.strength }}</span><span v-if="medicine.generic_name"> · {{ medicine.generic_name }}</span> · <span class="font-mono">{{ medicine.code }}</span></p>
+                                <p class="mt-0.5 text-xs text-muted-foreground">{{ medicineSubtitle(medicine) }}</p>
                             </td>
-                            <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{ medicine.category?.name ?? '—' }}</td>
+                            <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{ medicineFamily(medicine) ?? '—' }}</td>
                             <td class="px-4 py-3.5 text-end tabular-nums text-slate-700 dark:text-white">{{ medicine.sale_price ? formatMoney(medicine.sale_price) : '—' }}</td>
                             <td v-if="showStock" class="px-4 py-3.5 text-end">
                                 <p class="text-base font-bold tabular-nums text-slate-800 dark:text-white">{{ formatNumber(medicine.available_quantity) }} <span class="text-xs font-normal text-slate-400">{{ medicine.unit }}</span></p>
@@ -269,6 +318,7 @@ const summaryCards = computed(() => (showStock.value ? [
                             <td class="px-5 py-3.5">
                                 <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
                                     <Button v-if="showStock" :as="Link" :href="`/pharmacy/stock/${medicine.uuid}`" size="sm" variant="white-outline">Lots</Button>
+                                    <Button v-if="capabilities.can_set_sale_price && medicine.active" size="sm" :variant="medicine.sale_price ? 'white-outline' : 'primary'" type="button" :title="`Prix de vente de ${medicine.name}`" @click="openPricing(medicine)">Prix</Button>
                                     <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Icon name="edit" /></Button>
                                     <Button v-if="capabilities.can_record_entry && medicine.active" :as="Link" :href="`/pharmacy/stock/entries/create?medicine=${medicine.uuid}`" size="sm" variant="white-outline" :title="`Entrée de stock pour ${medicine.name}`"><Icon name="plus" /></Button>
                                     <Button size="sm" variant="white-outline" type="button" :title="`Étiquette QR de ${medicine.name}`" @click="printLabels([medicine])"><Icon name="qr" /></Button>
@@ -314,5 +364,27 @@ const summaryCards = computed(() => (showStock.value ? [
                 <p v-if="importForm.errors.file" class="mt-2 text-xs text-red-600">{{ importForm.errors.file }}</p>
             </section>
         </div>
+
+        <Dialog
+            :open="pricing !== null"
+            :dismissible="false"
+            title="Prix de vente"
+            :description="pricing ? `${pricing.name} — prix payé par le patient, à la Réception comme à la délivrance.` : ''"
+            @update:open="pricing = $event ? pricing : null"
+        >
+            <div class="space-y-4">
+                <FormField label="Prix de vente (MGA)" required :error="priceForm.errors.sale_price">
+                    <Input v-model="priceForm.sale_price" type="number" min="1" step="0.01" inputmode="decimal" />
+                </FormField>
+                <FormField v-if="pricing?.sale_price" label="Motif du changement" required :error="priceForm.errors.reason">
+                    <Textarea v-model="priceForm.reason" :rows="2" placeholder="Ex. : hausse du prix fournisseur" />
+                </FormField>
+                <p v-if="pricing?.sale_price" class="text-xs text-muted-foreground">Prix actuel : {{ formatMoney(pricing.sale_price) }}. Il reste dans l’historique ; les ventes déjà faites ne changent pas.</p>
+            </div>
+            <template #footer>
+                <ShadcnButton type="button" variant="outline" @click="pricing = null">Annuler</ShadcnButton>
+                <ShadcnButton type="button" :disabled="priceForm.processing || !priceForm.sale_price" @click="savePrice"><Tag class="h-4 w-4" />Enregistrer le prix</ShadcnButton>
+            </template>
+        </Dialog>
     </div>
 </template>

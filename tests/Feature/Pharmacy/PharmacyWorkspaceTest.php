@@ -25,6 +25,7 @@ use App\Models\PrescriptionLine;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Pharmacy\MedicineStockOverviewService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -52,6 +53,21 @@ class PharmacyWorkspaceTest extends TestCase
         $this->pharmacist = User::factory()->create([
             'role_id' => Role::query()->where('code', 'PHARMACY')->value('id'),
         ]);
+    }
+
+    /**
+     * ADR-098 — a product received from a supplier catalogue has stock but
+     * no selling price, so the counter is legitimately empty. The screens
+     * must be able to say why instead of looking broken.
+     */
+    public function test_a_product_in_stock_without_a_selling_price_is_counted(): void
+    {
+        $medicine = $this->medicine('Zinc sulfate 20 mg');
+        $this->lot($medicine, 12);
+
+        $summary = app(MedicineStockOverviewService::class)->overview()['summary'];
+
+        $this->assertSame(1, $summary['without_sale_price']);
     }
 
     private function medicine(string $name = 'Paracétamol 500 mg'): Medicine

@@ -55,6 +55,8 @@ class PharmacyWorkspaceService
             'can_update_category' => $user->can('medicine_categories.update'),
             'can_archive_category' => $user->can('medicine_categories.delete'),
             'can_restore_category' => $user->can('medicine_categories.restore'),
+            'can_set_sale_price' => $user->can('medicines.sale_price.update'),
+            'can_rename_medicine' => $user->can('medicines.name.update'),
             'can_update_medicine' => $user->can('medicines.update') && $user->can('catalog.items.update'),
             'can_create_supplier' => $user->can('medicine_suppliers.create'),
             'can_create_medicine' => $user->can('medicines.create')
@@ -191,6 +193,7 @@ class PharmacyWorkspaceService
                     'code' => $medicine['code'],
                     'name' => $medicine['name'],
                     'unit' => $medicine['unit'],
+                    'sale_price' => $medicine['sale_price'] ?? null,
                     // ADR-098 — lets the form list only what the chosen
                     // supplier provides; « Tous » keeps the whole catalog.
                     'supplier_uuids' => $supplierUuids[$medicine['uuid']] ?? [],
@@ -275,7 +278,6 @@ class PharmacyWorkspaceService
         ];
     }
 
-    /** @return array{canPrintTicket: bool, medicines: array<int, array<string, mixed>>} */
     /**
      * @param  array<string, bool>  $capabilities
      * @return array<int, array<string, mixed>>

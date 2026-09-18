@@ -25,12 +25,18 @@ use Illuminate\Validation\ValidationException;
  */
 class SupplierCatalogImportService
 {
+    /**
+     * Columns the file must carry. « Famille » is deliberately absent: the
+     * catalogues already distributed do not have it, and a supplier who
+     * does not classify its products must still be importable.
+     */
     public const HEADERS = ['reference', 'medicament', 'presentation', 'prix_fournisseur'];
 
     public const HEADER_LABELS = [
         'reference' => 'Référence',
         'medicament' => 'Médicament',
         'presentation' => 'Présentation',
+        'famille' => 'Famille',
         'prix_fournisseur' => 'Prix fournisseur',
     ];
 
@@ -39,6 +45,7 @@ class SupplierCatalogImportService
         'reference' => 'reference',
         'medicine_label' => 'medicament',
         'presentation' => 'presentation',
+        'family_label' => 'famille',
         'supplier_price' => 'prix_fournisseur',
     ];
 
@@ -150,11 +157,20 @@ class SupplierCatalogImportService
         return DB::transaction(function () use ($catalog, $validatedRows, $actor): array {
             $catalog = SupplierCatalog::query()->lockForUpdate()->findOrFail($catalog->id);
 
+            // What the clinic had already taken up from this file, kept by
+            // the supplier's own reference. Re-reading a price list must not
+            // undo the work of linking its products to the clinic catalogue.
+            $linked = $catalog->items()->withTrashed()
+                ->whereNotNull('linked_medicine_id')
+                ->pluck('linked_medicine_id', 'reference');
+
             // Re-importing a catalog replaces its previously parsed rows —
             // a re-read of the same file, not a second, competing source.
-            // Offers already created from a row keep their history
+            // Physically, not to the bin: a hundred withdrawn lines per
+            // re-read would be noise, and these rows carry no history of
+            // their own. Offers already created from a row keep theirs
             // (medicine_supplier_offers is append-only, nullOnDelete).
-            $catalog->items()->delete();
+            $catalog->items()->withTrashed()->forceDelete();
 
             foreach ($validatedRows as $row) {
                 $catalog->items()->create([
@@ -162,7 +178,9 @@ class SupplierCatalogImportService
                     'reference' => $row['reference'],
                     'medicine_label' => $row['medicine_label'],
                     'presentation' => $row['presentation'],
+                    'family_label' => $row['family_label'],
                     'supplier_price' => $row['supplier_price'],
+                    'linked_medicine_id' => $linked[$row['reference']] ?? null,
                     // A portal import has no local author; the audit log
                     // keeps the remote Super Admin (ADR-098).
                     'created_by' => $actor->localUserId(),
@@ -215,12 +233,14 @@ class SupplierCatalogImportService
             'reference' => $row['reference'] ?? null,
             'medicine_label' => $row['medicament'] ?? null,
             'presentation' => $row['presentation'] ?? null,
+            'family_label' => $row['famille'] ?? null,
             'supplier_price' => $row['prix_fournisseur'] ?? null,
         ];
         $data = [
             'reference' => filled($raw['reference']) ? trim((string) $raw['reference']) : null,
             'medicine_label' => trim((string) ($raw['medicine_label'] ?? '')),
             'presentation' => filled($raw['presentation']) ? trim((string) $raw['presentation']) : null,
+            'family_label' => filled($raw['family_label']) ? trim((string) $raw['family_label']) : null,
             // "4 500,50 Ar" and "4500.50" are the same price to a
             // pharmacist; only what is left after the currency and the
             // spacing is judged as a number.
@@ -231,6 +251,7 @@ class SupplierCatalogImportService
             'reference' => ['nullable', 'string', 'max:120'],
             'medicine_label' => ['required', 'string', 'max:255'],
             'presentation' => ['nullable', 'string', 'max:255'],
+            'family_label' => ['nullable', 'string', 'max:120'],
             'supplier_price' => ['nullable', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
         ], [
             'medicine_label.required' => 'le nom du médicament est obligatoire.',
@@ -241,6 +262,7 @@ class SupplierCatalogImportService
             'reference' => 'référence',
             'medicine_label' => 'médicament',
             'presentation' => 'présentation',
+            'family_label' => 'famille',
             'supplier_price' => 'prix fournisseur',
         ]);
 

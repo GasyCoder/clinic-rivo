@@ -102,6 +102,13 @@ class ReceiveGoodsAction
 
         $orderLine->loadMissing('medicine');
 
+        // ADR-112 — le prix d'achat n'est jamais redemandé à la réception :
+        // c'est celui de la commande. Un compte autorisé peut seulement le
+        // corriger si le fournisseur a facturé autre chose.
+        $unitPurchasePrice = filled($lineData['unit_purchase_price'] ?? null)
+            ? $lineData['unit_purchase_price']
+            : $orderLine->unit_price;
+
         $movement = $this->recordEntry->execute([
             'medicine_uuid' => $orderLine->medicine->uuid,
             'operation' => 'ENTREE',
@@ -110,7 +117,7 @@ class ReceiveGoodsAction
             'expires_at' => $lineData['expires_at'],
             'quantity' => $quantity,
             'supplier_uuid' => $order->supplier->uuid,
-            'unit_purchase_price' => $lineData['unit_purchase_price'] ?? null,
+            'unit_purchase_price' => $unitPurchasePrice,
             'origin' => "Réception {$receipt->receipt_number}",
             'destination' => 'Stock pharmacie',
             'reason' => "Réception commande {$order->order_number}",
@@ -122,7 +129,7 @@ class ReceiveGoodsAction
             'lot_number' => $lineData['lot_number'],
             'expires_at' => $lineData['expires_at'],
             'quantity_received' => $quantity,
-            'unit_purchase_price' => $lineData['unit_purchase_price'] ?? null,
+            'unit_purchase_price' => $unitPurchasePrice,
             'pharmacy_stock_movement_id' => $movement->getKey(),
         ]);
 

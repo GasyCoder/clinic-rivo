@@ -1,5 +1,6 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
+import { medicineFamily, medicineSubtitle } from '@/utilities/medicine';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
@@ -32,12 +33,8 @@ defineProps({
                         <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">{{ medicine.name }}</h1>
                         <Badge :tone="statusTone(medicine.status)" dot>{{ medicine.status_label }}</Badge>
                     </div>
-                    <p class="mt-1 text-sm text-slate-500">
-                        {{ medicine.form_label }}<span v-if="medicine.strength"> · {{ medicine.strength }}</span>
-                        <span v-if="medicine.generic_name"> · DCI {{ medicine.generic_name }}</span>
-                        <span v-if="medicine.category"> · {{ medicine.category.name }}</span>
-                    </p>
-                    <p class="mt-1 font-mono text-xs text-slate-400">{{ medicine.code }}</p>
+                    <p class="mt-1 text-sm text-muted-foreground">{{ medicineSubtitle(medicine) }}</p>
+                    <Badge v-if="medicineFamily(medicine)" tone="neutral" class="mt-1.5">{{ medicineFamily(medicine) }}</Badge>
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="rg" variant="white-outline">
@@ -128,8 +125,8 @@ defineProps({
                             <th class="px-5 py-3 text-start">Fournisseur</th>
                             <th class="px-4 py-3 text-start">Nom chez le fournisseur</th>
                             <th class="px-4 py-3 text-start">Référence · présentation</th>
-                            <th class="px-4 py-3 text-end">Prix d’achat</th>
-                            <th class="px-5 py-3 text-end">Marge sur le prix de vente</th>
+                            <th v-if="capabilities.can_view_cost" class="px-4 py-3 text-end">Prix d’achat unitaire</th>
+                            <th v-if="capabilities.can_view_cost" class="px-5 py-3 text-end">Marge sur le prix de vente</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
@@ -137,8 +134,8 @@ defineProps({
                             <td class="px-5 py-3 font-semibold text-slate-700 dark:text-white">{{ entry.supplier ?? '—' }}</td>
                             <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ entry.label }}</td>
                             <td class="px-4 py-3 text-slate-500"><span class="font-mono">{{ entry.reference || '—' }}</span><span v-if="entry.presentation"> · {{ entry.presentation }}</span></td>
-                            <td class="px-4 py-3 text-end tabular-nums">{{ entry.purchase_price ? formatMoney(entry.purchase_price) : '—' }}</td>
-                            <td :class="['px-5 py-3 text-end font-semibold tabular-nums', medicine.sale_price && entry.purchase_price && Number(medicine.sale_price) < Number(entry.purchase_price) ? 'text-red-600' : 'text-emerald-600']">{{ medicine.sale_price && entry.purchase_price ? formatMoney(Number(medicine.sale_price) - Number(entry.purchase_price)) : '—' }}</td>
+                            <td v-if="capabilities.can_view_cost" class="px-4 py-3 text-end tabular-nums">{{ entry.purchase_price ? formatMoney(entry.purchase_price) : '—' }}</td>
+                            <td v-if="capabilities.can_view_cost" :class="['px-5 py-3 text-end font-semibold tabular-nums', medicine.sale_price && entry.purchase_price && Number(medicine.sale_price) < Number(entry.purchase_price) ? 'text-red-600' : 'text-emerald-600']">{{ medicine.sale_price && entry.purchase_price ? formatMoney(Number(medicine.sale_price) - Number(entry.purchase_price)) : '—' }}</td>
                         </tr>
                     </tbody>
                 </table>

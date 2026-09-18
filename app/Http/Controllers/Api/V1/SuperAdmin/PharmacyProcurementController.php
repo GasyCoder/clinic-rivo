@@ -22,6 +22,7 @@ use App\Services\Pharmacy\SupplierPresenter;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\MessageBag;
 use Illuminate\Validation\ValidationException;
 
@@ -51,13 +52,20 @@ class PharmacyProcurementController extends Controller
         ]]);
     }
 
-    public function storeOrder(Request $request, string $supplierUuid, CreatePurchaseOrderAction $action): JsonResponse
+    public function storeOrder(Request $request, string $supplierUuid, CreatePurchaseOrderAction $action, SubmitPurchaseOrderAction $submit): JsonResponse
     {
         $validated = $this->validateOrder($request);
-        $order = $action->execute($this->supplier($supplierUuid), $validated, CatalogActor::fromRemoteRequest($request));
+        $actor = CatalogActor::fromRemoteRequest($request);
+        $send = (bool) ($validated['send'] ?? false);
+        $supplier = $this->supplier($supplierUuid);
+        $order = DB::transaction(function () use ($action, $submit, $supplier, $validated, $actor, $send) {
+            $order = $action->execute($supplier, $validated, $actor);
+
+            return $send ? $submit->execute($order, $actor) : $order;
+        });
 
         return response()->json([
-            'message' => "Commande {$order->order_number} créée en brouillon.",
+            'message' => $send ? "Commande {$order->order_number} envoyée au fournisseur." : "Commande {$order->order_number} enregistrée en brouillon.",
             'data' => ['uuid' => $order->uuid, 'order_number' => $order->order_number],
         ], 201);
     }
@@ -82,12 +90,19 @@ class PharmacyProcurementController extends Controller
     }
 
     /** Only a draft is corrected; UpdatePurchaseOrderAction refuses any other status. */
-    public function updateOrder(Request $request, string $supplierUuid, string $orderUuid, UpdatePurchaseOrderAction $action): JsonResponse
+    public function updateOrder(Request $request, string $supplierUuid, string $orderUuid, UpdatePurchaseOrderAction $action, SubmitPurchaseOrderAction $submit): JsonResponse
     {
         $validated = $this->validateOrder($request);
-        $order = $action->execute($this->order($this->supplier($supplierUuid), $orderUuid), $validated, CatalogActor::fromRemoteRequest($request));
+        $actor = CatalogActor::fromRemoteRequest($request);
+        $send = (bool) ($validated['send'] ?? false);
+        $existing = $this->order($this->supplier($supplierUuid), $orderUuid);
+        $order = DB::transaction(function () use ($action, $submit, $existing, $validated, $actor, $send) {
+            $order = $action->execute($existing, $validated, $actor);
 
-        return response()->json(['message' => "Commande {$order->order_number} mise à jour.", 'data' => ['uuid' => $order->uuid]]);
+            return $send ? $submit->execute($order, $actor) : $order;
+        });
+
+        return response()->json(['message' => $send ? "Commande {$order->order_number} envoyée au fournisseur." : "Commande {$order->order_number} mise à jour.", 'data' => ['uuid' => $order->uuid]]);
     }
 
     public function submitOrder(Request $request, string $supplierUuid, string $orderUuid, SubmitPurchaseOrderAction $action): JsonResponse

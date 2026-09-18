@@ -1,9 +1,11 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { Link, router, useForm } from '@inertiajs/vue3';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import { FileText, Info, Package, Pencil, Send } from 'lucide-vue-next';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import { Ban, FileText, Info, Package, Pencil, Send } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
 
@@ -19,10 +21,17 @@ const props = defineProps({
     receptionNote: { type: String, default: null },
 });
 
-const submitOrder = () => {
-    if (!confirm('Envoyer cette commande au fournisseur ? Ses lignes ne pourront plus être modifiées.')) return;
-    router.post(props.links.submit, {}, { preserveScroll: true });
-};
+// Envoyer engage la clinique auprès d'un tiers : la fenêtre dit à qui, quoi
+// et pour combien, avant de le faire.
+const sending = ref(false);
+const sendProcessing = ref(false);
+const sendOrder = () => router.post(props.links.submit, {}, {
+    preserveScroll: true,
+    onStart: () => { sendProcessing.value = true; },
+    onFinish: () => { sendProcessing.value = false; },
+    onSuccess: () => { sending.value = false; },
+});
+const unitCount = computed(() => props.order.lines.reduce((sum, line) => sum + (Number(line.quantity_ordered) || 0), 0));
 
 const cancelling = ref(false);
 const cancelForm = useForm({ reason: '' });
@@ -56,7 +65,7 @@ const awaitingGoods = () => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(props.ord
                 <div class="flex flex-wrap gap-2">
                     <Button v-if="can.cancel && !['RECEIVED', 'CANCELLED'].includes(order.status)" size="rg" variant="white-outline" class="text-red-600" @click="cancelling = true">Annuler la commande</Button>
                     <Button v-if="can.update && links.edit && order.status === 'DRAFT'" :as="Link" :href="links.edit" size="rg" variant="white-outline"><Pencil class="h-4 w-4" />Modifier</Button>
-                    <Button v-if="can.submit && order.status === 'DRAFT'" size="rg" @click="submitOrder"><Send class="h-4 w-4" />Envoyer la commande</Button>
+                    <Button v-if="can.submit && order.status === 'DRAFT'" size="rg" @click="sending = true"><Send class="h-4 w-4" />Envoyer la commande</Button>
                     <Button v-if="can.receive && links.receive && awaitingGoods()" :as="Link" :href="links.receive" size="rg"><Package class="h-4 w-4" />Réceptionner</Button>
                     <Button v-if="can.create_invoice && links.newInvoice && order.status !== 'CANCELLED' && order.status !== 'DRAFT'" :as="Link" :href="links.newInvoice" size="rg" variant="white-outline"><FileText class="h-4 w-4" />Enregistrer la facture</Button>
                 </div>
@@ -75,7 +84,7 @@ const awaitingGoods = () => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(props.ord
                             <th class="px-4 py-3 text-end">Commandé</th>
                             <th class="px-4 py-3 text-end">Reçu</th>
                             <th class="px-4 py-3 text-end">Reste à recevoir</th>
-                            <th class="px-4 py-3 text-end">Prix unitaire</th>
+                            <th class="px-4 py-3 text-end">Prix d’achat unitaire</th>
                             <th class="px-5 py-3 text-end">Total</th>
                             <th v-if="links.stock" class="px-5 py-3 text-end">Actions</th>
                         </tr>
@@ -130,22 +139,41 @@ const awaitingGoods = () => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(props.ord
             </section>
         </div>
 
-        <div v-if="cancelling" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" @click.self="cancelling = false">
-            <section class="w-full max-w-md rounded-xl bg-card p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="cancel-order-title">
-                <h2 id="cancel-order-title" class="font-heading text-lg font-bold text-foreground">Annuler la commande {{ order.order_number }}</h2>
-                <p class="mt-1 text-sm text-muted-foreground">La commande reste visible dans l’historique, avec votre motif.</p>
-                <form class="mt-4 space-y-4" @submit.prevent="confirmCancel">
-                    <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-foreground">Motif <span class="text-red-500">*</span></span>
-                        <textarea v-model="cancelForm.reason" required rows="3" class="block w-full rounded-lg border border-border bg-card px-3 py-2 text-sm" />
-                        <span v-if="cancelForm.errors.reason || cancelForm.errors.status || cancelForm.errors.site" class="mt-1 block text-xs text-red-600">{{ cancelForm.errors.reason || cancelForm.errors.status || cancelForm.errors.site }}</span>
-                    </label>
-                    <div class="flex justify-end gap-2">
-                        <Button type="button" size="rg" variant="white-outline" @click="cancelling = false">Retour</Button>
-                        <Button type="submit" size="rg" variant="danger" :disabled="cancelForm.processing">Confirmer l’annulation</Button>
-                    </div>
-                </form>
-            </section>
-        </div>
+        <ConfirmModal
+            :open="sending"
+            title="Envoyer cette commande au fournisseur ?"
+            confirm-label="Envoyer la commande"
+            :icon="Send"
+            :processing="sendProcessing"
+            @update:open="sending = $event"
+            @confirm="sendOrder"
+        >
+            <dl class="space-y-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+                <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Fournisseur</dt><dd class="font-semibold text-foreground">{{ order.supplier }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-muted-foreground">Produits</dt><dd class="font-semibold tabular-nums text-foreground">{{ order.lines.length }} ligne{{ order.lines.length > 1 ? 's' : '' }} · {{ unitCount }} unité{{ unitCount > 1 ? 's' : '' }}</dd></div>
+                <div class="flex justify-between gap-3 border-t border-border pt-2"><dt class="text-muted-foreground">Montant total</dt><dd class="text-base font-bold tabular-nums text-foreground">{{ formatMoney(order.total_amount) }}</dd></div>
+            </dl>
+            <p class="mt-3 text-sm text-muted-foreground">Une fois envoyée, la commande ne peut plus être modifiée : seule une annulation motivée reste possible.</p>
+        </ConfirmModal>
+
+        <ConfirmModal
+            :open="cancelling"
+            :title="`Annuler la commande ${order.order_number} ?`"
+            description="La commande reste visible dans l’historique, avec votre motif."
+            confirm-label="Annuler la commande"
+            cancel-label="Retour"
+            tone="danger"
+            :icon="Ban"
+            :processing="cancelForm.processing"
+            :disabled="cancelForm.reason.trim().length < 3"
+            @update:open="cancelling = $event"
+            @confirm="confirmCancel"
+        >
+            <label class="block">
+                <span class="mb-1.5 block text-sm font-medium text-foreground">Motif de l’annulation <span class="text-destructive">*</span></span>
+                <Textarea v-model="cancelForm.reason" :rows="3" placeholder="Ex. le fournisseur ne peut pas livrer" />
+            </label>
+            <p v-if="cancelForm.errors.reason || cancelForm.errors.status || cancelForm.errors.site" class="mt-1.5 text-sm text-destructive">{{ cancelForm.errors.reason || cancelForm.errors.status || cancelForm.errors.site }}</p>
+        </ConfirmModal>
     </div>
 </template>

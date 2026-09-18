@@ -6,6 +6,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Enums\PurchaseOrderStatus;
+use App\Enums\SupplierCatalogFileKind;
 use App\Models\CatalogItem;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
@@ -159,7 +160,7 @@ class PharmacyProcurementSiteApiTest extends TestCase
             'path' => 'suppliers/'.$this->supplier->uuid.'/arbiochem.xlsx',
             'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'size' => 2048,
-            'kind' => \App\Enums\SupplierCatalogFileKind::Excel,
+            'kind' => SupplierCatalogFileKind::Excel,
             'active_key' => 'ACTIVE',
             'imported_at' => now(),
         ]);
@@ -209,7 +210,7 @@ class PharmacyProcurementSiteApiTest extends TestCase
             'path' => 'suppliers/'.$this->supplier->uuid.'/arbiochem.xlsx',
             'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'size' => 2048,
-            'kind' => \App\Enums\SupplierCatalogFileKind::Excel,
+            'kind' => SupplierCatalogFileKind::Excel,
             'active_key' => 'ACTIVE',
             'imported_at' => now(),
         ]);

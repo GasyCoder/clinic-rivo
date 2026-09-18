@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Pharmacy;
 
+use App\Actions\Catalog\SetCatalogTariffAction;
 use App\Actions\Pharmacy\CreateMedicineProductAction;
 use App\Actions\Pharmacy\LinkSupplierCatalogItemAction;
 use App\Actions\Pharmacy\ManageMedicineCategoryAction;
 use App\Actions\Pharmacy\SetMedicineActiveAction;
 use App\Actions\Pharmacy\UpdateMedicineProductAction;
+use App\Enums\CatalogTariffCategory;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\ImportMedicineCatalogRequest;
 use App\Http\Requests\Pharmacy\StoreMedicineCategoryRequest;
@@ -99,6 +101,34 @@ class MedicineController extends Controller
         $medicine = $action->execute($medicine, $request->validated(), CatalogActor::fromUser($request->user()));
 
         return to_route('pharmacy.stock.index')->with('status', "Médicament {$medicine->catalogItem->name} mis à jour.");
+    }
+
+    /**
+     * ADR-112 — the sale price only: the first one needs no reason, a change
+     * does, because the previous price stays in the history (ADR-024).
+     */
+    public function updateSalePrice(Request $request, Medicine $medicine, SetCatalogTariffAction $action): RedirectResponse
+    {
+        $medicine->loadMissing('catalogItem');
+        $hasPrice = $medicine->catalogItem->currentStandardTariff !== null;
+
+        $validated = $request->validate([
+            'sale_price' => ['required', 'numeric', 'gt:0', 'max:999999999999.99'],
+            'reason' => [$hasPrice ? 'required' : 'nullable', 'string', 'min:3', 'max:1000'],
+        ], [
+            'sale_price.gt' => 'Le prix de vente doit être supérieur à zéro.',
+            'reason.required' => 'Indiquez pourquoi le prix change : l’ancien prix reste dans l’historique.',
+        ]);
+
+        $action->execute(
+            $medicine->catalogItem,
+            CatalogTariffCategory::Standard,
+            (string) $validated['sale_price'],
+            filled($validated['reason'] ?? null) ? $validated['reason'] : 'Premier prix de vente fixé par la Pharmacie',
+            CatalogActor::fromUser($request->user()),
+        );
+
+        return back()->with('status', "Prix de vente de {$medicine->catalogItem->name} enregistré.");
     }
 
     public function deactivate(Request $request, Medicine $medicine, SetMedicineActiveAction $action): RedirectResponse

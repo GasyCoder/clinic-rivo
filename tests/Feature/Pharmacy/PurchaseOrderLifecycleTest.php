@@ -15,10 +15,12 @@ use App\Models\PurchaseOrder;
 use App\Models\Role;
 use App\Models\SupplierCatalogItem;
 use App\Models\User;
+use App\Services\Pharmacy\SupplierOfferComparison;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -57,6 +59,9 @@ class PurchaseOrderLifecycleTest extends TestCase
         'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
         'purchase_orders.submit', 'purchase_orders.cancel',
         'goods_receipts.view', 'goods_receipts.create',
+        // ADR-112 — correcting a purchase price at reception is a cost
+        // decision, never part of the PHARMACY role.
+        'stock.cost.record',
     ];
 
     public function test_procurement_is_not_part_of_the_pharmacy_role_by_default(): void
@@ -178,6 +183,109 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->assertSame(['Amoxicilline 500 mg'], $products("?supplier={$supplier->uuid}"));
     }
 
+    /**
+     * ADR-098 point 3 — "Paracétamol 500 mg" proposed by two suppliers is
+     * one product, not two. Ordering it from both must add the second
+     * purchase price beside the first, never split the stock in two.
+     */
+    public function test_the_same_product_from_two_suppliers_is_never_created_twice(): void
+    {
+        $this->pharmacist->permissions()->attach(
+            Permission::query()->whereIn('name', ['medicines.create', 'catalog.items.create', 'medicine_supplier_offers.create'])->pluck('id'),
+            ['effect' => 'allow'],
+        );
+        $first = $this->supplier();
+        $second = MedicineSupplier::query()->create(['code' => 'FOUR-02', 'name' => 'Deuxième fournisseur']);
+
+        $this->orderCatalogLine($first, $this->catalogLine($first, 'A-01', 'Paracétamol 500 mg', '100'));
+        // Different reference, different spelling, same product.
+        $this->orderCatalogLine($second, $this->catalogLine($second, 'B-77', 'PARACETAMOL  500 MG', '120'));
+
+        $medicine = Medicine::query()->sole();
+        $this->assertSame('Paracétamol 500 mg', $medicine->catalogItem->name);
+        $this->assertSame('100.00', (string) $medicine->currentOfferFor($first)->value('quoted_price'));
+        $this->assertSame('120.00', (string) $medicine->currentOfferFor($second)->value('quoted_price'));
+        $this->assertSame(2, PurchaseOrder::query()->count());
+    }
+
+    /** A product taken out of service is not silently revived by an order. */
+    public function test_ordering_a_deactivated_product_is_refused_instead_of_duplicating_it(): void
+    {
+        $this->pharmacist->permissions()->attach(
+            Permission::query()->whereIn('name', ['medicines.create', 'catalog.items.create', 'medicine_supplier_offers.create'])->pluck('id'),
+            ['effect' => 'allow'],
+        );
+        $supplier = $this->supplier();
+        $this->medicine('Paracétamol 500 mg')->update(['active' => false]);
+
+        $this->orderCatalogLine($supplier, $this->catalogLine($supplier, 'A-01', 'Paracétamol 500 mg', '100'))
+            ->assertSessionHasErrors('lines');
+
+        $this->assertSame(1, Medicine::query()->count());
+        $this->assertSame(0, PurchaseOrder::query()->count());
+    }
+
+    /**
+     * ADR-098 — cas réel : le catalogue Arbiochem liste le même article sous
+     * deux références (GANT-010 et GANT-011). Les deux ramènent au même
+     * médicament, et une commande n'accepte qu'une ligne par produit —
+     * l'insertion heurtait la contrainte d'unicité avec une erreur SQL.
+     */
+    public function test_two_catalogue_references_of_one_product_are_refused_instead_of_colliding(): void
+    {
+        $this->pharmacist->permissions()->attach(
+            Permission::query()->whereIn('name', ['medicines.create', 'catalog.items.create', 'medicine_supplier_offers.create'])->pluck('id'),
+            ['effect' => 'allow'],
+        );
+        $supplier = $this->supplier();
+        $first = $this->catalogLine($supplier, 'GANT-010', 'Polyglactin absorbable 1 (4 metric)', '133500');
+        $second = $first->catalog->items()->create([
+            'reference' => 'GANT-011',
+            'medicine_label' => 'POLYGLACTIN  ABSORBABLE 1 (4 METRIC)',
+            'supplier_price' => '133500',
+            'row_number' => 2,
+        ]);
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/purchase-orders", [
+            'lines' => [
+                ['supplier_catalog_item_uuid' => $first->uuid, 'quantity_ordered' => 1, 'unit_price' => '133500'],
+                ['supplier_catalog_item_uuid' => $second->uuid, 'quantity_ordered' => 1, 'unit_price' => '133500'],
+            ],
+        ])->assertSessionHasErrors('lines');
+
+        // Ni commande à moitié écrite, ni produit créé au passage.
+        $this->assertSame(0, PurchaseOrder::query()->count());
+        $this->assertSame(0, Medicine::query()->count());
+    }
+
+    /** Le même produit désigné par le catalogue et par le catalogue clinique. */
+    public function test_a_clinic_medicine_and_its_catalogue_line_cannot_both_be_ordered(): void
+    {
+        $this->pharmacist->permissions()->attach(
+            Permission::query()->whereIn('name', ['medicines.create', 'catalog.items.create', 'medicine_supplier_offers.create'])->pluck('id'),
+            ['effect' => 'allow'],
+        );
+        $supplier = $this->supplier();
+        $medicine = $this->medicine('Alcool blanc 25Litre');
+        $line = $this->catalogLine($supplier, 'ALCO-003', 'ALCOOL BLANC 25LITRE', '20000');
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/purchase-orders", [
+            'lines' => [
+                ['medicine_uuid' => $medicine->uuid, 'quantity_ordered' => 2, 'unit_price' => '20000'],
+                ['supplier_catalog_item_uuid' => $line->uuid, 'quantity_ordered' => 1, 'unit_price' => '20000'],
+            ],
+        ])->assertSessionHasErrors('lines');
+
+        $this->assertSame(0, PurchaseOrder::query()->count());
+    }
+
+    private function orderCatalogLine(MedicineSupplier $supplier, SupplierCatalogItem $line, int $quantity = 10): TestResponse
+    {
+        return $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/purchase-orders", [
+            'lines' => [['supplier_catalog_item_uuid' => $line->uuid, 'quantity_ordered' => $quantity, 'unit_price' => '100']],
+        ]);
+    }
+
     private function catalogLine(MedicineSupplier $supplier, string $reference, string $label, ?string $price): SupplierCatalogItem
     {
         $catalog = $supplier->catalogs()->create([
@@ -196,6 +304,23 @@ class PurchaseOrderLifecycleTest extends TestCase
             'supplier_price' => $price,
             'row_number' => 1,
         ]);
+    }
+
+    public function test_the_direct_order_comparison_lists_catalogue_lines_not_yet_in_the_clinic(): void
+    {
+        $first = $this->supplier();
+        $second = MedicineSupplier::query()->create(['code' => 'FOUR-02', 'name' => 'Second fournisseur']);
+        $this->catalogLine($first, 'GANT-01', 'Gant stérile 7,5', '500');
+        $this->catalogLine($second, 'GS-75', 'GANT STERILE 7.5', '450');
+
+        $rows = app(SupplierOfferComparison::class)->forSite()['medicines'];
+
+        // Same product name at two suppliers: one row, cheapest first.
+        $this->assertCount(1, $rows);
+        $this->assertFalse($rows[0]['in_clinic_catalog']);
+        $this->assertSame('450.00', $rows[0]['best_price']);
+        $this->assertSame(['Second fournisseur', 'Fournisseur de contrôle'], array_column($rows[0]['quotes'], 'supplier_name'));
+        $this->assertNotNull($rows[0]['quotes'][0]['supplier_catalog_item_uuid']);
     }
 
     public function test_a_draft_order_can_be_submitted_then_becomes_ordered(): void
@@ -389,5 +514,20 @@ class PurchaseOrderLifecycleTest extends TestCase
         ])->assertRedirect();
 
         $this->assertSame(5, $line->fresh()->quantity_received);
+
+        // ADR-112 — the purchase price is never asked again: it is the order's.
+        $this->assertSame('10.00', PharmacyStockMovement::query()->sole()->unit_purchase_price);
+        $this->assertSame('10.00', $order->receipts()->sole()->lines()->sole()->unit_purchase_price);
+    }
+
+    public function test_the_pharmacy_role_no_longer_sees_or_records_purchase_prices(): void
+    {
+        $pharmacist = User::factory()->create([
+            'role_id' => Role::query()->where('code', 'PHARMACY')->value('id'),
+        ]);
+
+        $this->assertFalse($pharmacist->can('stock.cost.view'));
+        $this->assertFalse($pharmacist->can('stock.cost.record'));
+        $this->assertTrue($pharmacist->can('medicines.sale_price.update'));
     }
 }

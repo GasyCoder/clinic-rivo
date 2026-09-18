@@ -4,14 +4,19 @@ namespace App\Http\Controllers\Pharmacy;
 
 use App\Actions\Pharmacy\ActivateSupplierCatalogAction;
 use App\Actions\Pharmacy\ArchiveSupplierCatalogAction;
+use App\Actions\Pharmacy\ArchiveSupplierCatalogItemAction;
 use App\Actions\Pharmacy\LinkSupplierCatalogItemAction;
 use App\Actions\Pharmacy\RestoreSupplierCatalogAction;
+use App\Actions\Pharmacy\RestoreSupplierCatalogItemAction;
+use App\Actions\Pharmacy\UnlinkSupplierCatalogItemAction;
 use App\Actions\Pharmacy\UpdateSupplierCatalogAction;
+use App\Actions\Pharmacy\UpdateSupplierCatalogItemAction;
 use App\Actions\Pharmacy\UploadSupplierCatalogAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\ArchiveSupplierCatalogRequest;
 use App\Http\Requests\Pharmacy\LinkSupplierCatalogItemRequest;
 use App\Http\Requests\Pharmacy\StoreSupplierCatalogRequest;
+use App\Http\Requests\Pharmacy\UpdateSupplierCatalogItemRequest;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\SupplierCatalog;
@@ -111,12 +116,55 @@ class SupplierCatalogController extends Controller
         SupplierCatalogItem $catalogItem,
         LinkSupplierCatalogItemAction $action,
     ): RedirectResponse {
-        abort_unless($catalogItem->catalog->medicine_supplier_id === $supplier->id, 404);
+        $this->assertOwnedBy($catalogItem, $supplier);
 
         $medicine = Medicine::query()->where('uuid', $request->validated('medicine_uuid'))->firstOrFail();
         $action->execute($catalogItem, $medicine, $request->validated('change_reason'), CatalogActor::fromUser($request->user()));
 
         return back()->with('status', 'Produit lié au catalogue clinique avec son prix fournisseur.');
+    }
+
+    public function updateItem(
+        UpdateSupplierCatalogItemRequest $request,
+        MedicineSupplier $supplier,
+        SupplierCatalogItem $catalogItem,
+        UpdateSupplierCatalogItemAction $action,
+    ): RedirectResponse {
+        $this->assertOwnedBy($catalogItem, $supplier);
+        $action->execute($catalogItem, $request->validated(), CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Ligne de catalogue corrigée.');
+    }
+
+    public function destroyItem(Request $request, MedicineSupplier $supplier, SupplierCatalogItem $catalogItem, ArchiveSupplierCatalogItemAction $action): RedirectResponse
+    {
+        $this->assertOwnedBy($catalogItem, $supplier);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+        $action->execute($catalogItem, $validated['reason'], CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Ligne mise à la corbeille.');
+    }
+
+    public function restoreItem(Request $request, MedicineSupplier $supplier, SupplierCatalogItem $catalogItem, RestoreSupplierCatalogItemAction $action): RedirectResponse
+    {
+        $this->assertOwnedBy($catalogItem, $supplier);
+        $action->execute($catalogItem, CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Ligne restaurée.');
+    }
+
+    public function unlinkItem(Request $request, MedicineSupplier $supplier, SupplierCatalogItem $catalogItem, UnlinkSupplierCatalogItemAction $action): RedirectResponse
+    {
+        $this->assertOwnedBy($catalogItem, $supplier);
+        $action->execute($catalogItem, CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Rattachement défait ; le prix fournisseur qu’il portait est clos.');
+    }
+
+    /** A line's uuid is public: it must belong to the folder being opened. */
+    private function assertOwnedBy(SupplierCatalogItem $item, MedicineSupplier $supplier): void
+    {
+        abort_unless($item->catalog->medicine_supplier_id === $supplier->id, 404);
     }
 
     public function destroy(ArchiveSupplierCatalogRequest $request, MedicineSupplier $supplier, SupplierCatalog $catalog, ArchiveSupplierCatalogAction $action): RedirectResponse

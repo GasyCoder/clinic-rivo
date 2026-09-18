@@ -8,6 +8,7 @@ use App\Models\MedicineSupplier;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierCatalogItem;
 use App\Support\Money;
+use App\Support\ProductLabel;
 use Illuminate\Support\Collection;
 
 /**
@@ -55,6 +56,10 @@ class ProcurementFormOptions
                 'unit' => $medicine->catalogItem?->unit,
                 'quoted_price' => isset($prices[$medicine->id]) ? Money::normalize((string) $prices[$medicine->id]) : null,
                 'in_clinic_catalog' => true,
+                // Deux entrées de même groupe sont le même produit pour le
+                // serveur : l'écran doit le savoir avant de les proposer
+                // toutes les deux, car la commande n'en accepte qu'une.
+                'product_group' => ProductLabel::normalize($medicine->catalogItem?->name),
             ]);
 
         return $medicines->concat($this->unlinkedCatalogLines($supplier))
@@ -98,6 +103,7 @@ class ProcurementFormOptions
                 'unit' => $item->presentation,
                 'quoted_price' => filled($item->supplier_price) ? Money::normalize((string) $item->supplier_price) : null,
                 'in_clinic_catalog' => false,
+                'product_group' => ProductLabel::normalize($item->medicine_label),
             ]);
     }
 

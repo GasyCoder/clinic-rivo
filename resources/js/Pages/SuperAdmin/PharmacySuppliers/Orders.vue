@@ -1,13 +1,15 @@
 <script setup>
-import { computed } from 'vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
-import { Folder, Plus, TriangleAlert } from 'lucide-vue-next';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import { Ban, Folder, Pencil, Plus, TriangleAlert } from 'lucide-vue-next';
 import { formatDate } from '@/utilities/date';
 import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
 
@@ -25,6 +27,35 @@ const listHref = computed(() => `/super-admin/pharmacy-suppliers?site=${props.ta
 const folderHref = computed(() => `/super-admin/pharmacy-suppliers/${props.targetSite.code}/${props.supplier?.uuid}`);
 const openCount = computed(() => props.orders.filter((order) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status)).length);
 const TILE_TONES = { DRAFT: 'slate', ORDERED: 'sky', PARTIALLY_RECEIVED: 'amber', RECEIVED: 'emerald', CANCELLED: 'rose' };
+
+// Une commande n'est jamais supprimée (ADR-010) : un brouillon se corrige,
+// une commande partie s'annule avec un motif, et une commande reçue ne se
+// défait plus — la marchandise est entrée en stock.
+const cancellable = (order) => !['RECEIVED', 'CANCELLED'].includes(order.status);
+
+// Une colonne d'actions vide laisse croire à un droit manquant. Elle dit
+// donc pourquoi il n'y a rien à faire — c'est l'état de la commande.
+const WHY_LOCKED = {
+    RECEIVED: 'Reçue : la marchandise est entrée en stock',
+    CANCELLED: 'Annulée',
+    ORDERED: 'Envoyée au fournisseur : elle s’annule, elle ne se modifie plus',
+    PARTIALLY_RECEIVED: 'Partiellement reçue : elle ne se modifie plus',
+};
+const lockedReason = (order) => (order.status === 'DRAFT' ? null : WHY_LOCKED[order.status] ?? null);
+
+const cancelling = ref(null);
+const cancelForm = useForm({ reason: '' });
+
+const askCancel = (order) => {
+    cancelForm.reset();
+    cancelForm.clearErrors();
+    cancelling.value = order;
+};
+
+const confirmCancel = () => cancelForm.post(`${folderHref.value}/orders/${cancelling.value.uuid}/cancel`, {
+    preserveScroll: true,
+    onSuccess: () => { cancelling.value = null; },
+});
 </script>
 
 <template>
@@ -88,12 +119,49 @@ const TILE_TONES = { DRAFT: 'slate', ORDERED: 'sky', PARTIALLY_RECEIVED: 'amber'
                                 <td class="px-4 py-3.5"><Badge :tone="statusTone(order.status)" dot>{{ order.status_label }}</Badge></td>
                                 <td class="px-4 py-3.5 text-end tabular-nums text-foreground">{{ formatMoney(order.total_amount) }}</td>
                                 <td class="px-4 py-3.5 text-muted-foreground">{{ formatDate(order.ordered_at || order.created_at) }}</td>
-                                <td class="px-5 py-3.5 text-end"><Button :as="Link" :href="`${folderHref}/orders/${order.uuid}`" size="sm" variant="white-outline">Voir</Button></td>
+                                <td class="px-5 py-3.5">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        <Button :as="Link" :href="`${folderHref}/orders/${order.uuid}`" size="sm" variant="white-outline">Voir</Button>
+                                        <Button
+                                            v-if="can.update_order && order.status === 'DRAFT'"
+                                            :as="Link"
+                                            :href="`${folderHref}/orders/${order.uuid}/edit`"
+                                            size="sm"
+                                            variant="white-outline"
+                                            :title="`Modifier ${order.order_number}`"
+                                        ><Pencil class="h-4 w-4" /></Button>
+                                        <Button
+                                            v-if="can.cancel_order && cancellable(order)"
+                                            size="sm"
+                                            variant="white-outline"
+                                            type="button"
+                                            :title="`Annuler ${order.order_number}`"
+                                            @click="askCancel(order)"
+                                        ><Ban class="h-4 w-4" /></Button>
+                                        <span v-if="!cancellable(order)" class="text-xs text-muted-foreground" :title="lockedReason(order)">{{ lockedReason(order) }}</span>
+                                    </div>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
                 </template>
             </ExplorerView>
         </template>
+
+        <Dialog
+            :open="cancelling !== null"
+            title="Annuler la commande"
+            :description="cancelling ? `${cancelling.order_number} sera annulée. Elle reste visible avec son motif : une commande n’est jamais supprimée.` : ''"
+            @update:open="cancelling = $event ? cancelling : null"
+        >
+            <Textarea v-model="cancelForm.reason" :rows="3" placeholder="Motif de l’annulation" />
+            <p v-if="cancelForm.errors.reason" class="mt-1.5 text-sm text-destructive">{{ cancelForm.errors.reason }}</p>
+            <template #footer>
+                <Button type="button" variant="outline" @click="cancelling = null">Revenir</Button>
+                <Button type="button" variant="destructive" :disabled="cancelForm.processing || cancelForm.reason.trim().length < 3" @click="confirmCancel">
+                    <Ban class="h-4 w-4" />Annuler la commande
+                </Button>
+            </template>
+        </Dialog>
     </div>
 </template>

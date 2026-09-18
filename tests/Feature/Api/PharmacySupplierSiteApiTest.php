@@ -146,6 +146,52 @@ class PharmacySupplierSiteApiTest extends TestCase
             ->assertJsonPath('data.catalogs.0.items_count', 2);
     }
 
+    /**
+     * ADR-098 — the portal corrects and withdraws a catalogue line through
+     * the site's own Actions. A line's uuid is public, so it must belong to
+     * the folder and the catalogue being addressed.
+     */
+    public function test_a_catalogue_line_is_corrected_and_withdrawn_from_the_portal(): void
+    {
+        $supplier = MedicineSupplier::query()->create(['code' => 'PHARMADIS', 'name' => 'Pharmadis']);
+        $other = MedicineSupplier::query()->create(['code' => 'SOMAPHAR', 'name' => 'Somaphar']);
+        $base = "/api/v1/super-admin/pharmacy/suppliers/{$supplier->uuid}/catalogs";
+
+        $this->withHeaders($this->headers(['supplier_catalogs.create']))
+            ->post($base, ['file' => $this->excelFile([['PDS-1', 'Paracétamol 500 mg', 'boîte de 10', 120]])]);
+        $catalog = SupplierCatalog::query()->sole();
+        $this->withHeaders($this->headers(['supplier_catalogs.create']))->postJson("{$base}/{$catalog->uuid}/import");
+        $item = SupplierCatalogItem::query()->sole();
+        $itemUrl = "{$base}/{$catalog->uuid}/items/{$item->uuid}";
+
+        $payload = ['reference' => 'PDS-1B', 'medicine_label' => 'Paracétamol 500 mg', 'presentation' => 'boîte de 10', 'supplier_price' => '150'];
+
+        $this->withHeaders($this->headers(['supplier_catalogs.view']))->putJson($itemUrl, $payload)->assertForbidden();
+
+        $this->withHeaders($this->headers(['supplier_catalogs.update']))->putJson($itemUrl, $payload)->assertOk();
+        $this->assertSame('PDS-1B', $item->fresh()->reference);
+        $this->assertSame('150.00', (string) $item->fresh()->supplier_price);
+
+        // Another folder never reaches this line, although its uuid is public.
+        $this->withHeaders($this->headers(['supplier_catalogs.update']))
+            ->putJson("/api/v1/super-admin/pharmacy/suppliers/{$other->uuid}/catalogs/{$catalog->uuid}/items/{$item->uuid}", $payload)
+            ->assertNotFound();
+
+        $this->withHeaders($this->headers(['supplier_catalogs.delete']))
+            ->deleteJson($itemUrl, ['reason' => 'Produit retiré du tarif'])
+            ->assertOk();
+        $this->assertTrue(SupplierCatalogItem::withTrashed()->findOrFail($item->id)->trashed());
+
+        $this->withHeaders($this->headers(['supplier_catalogs.restore']))->postJson("{$itemUrl}/restore")->assertOk();
+        $this->assertFalse($item->fresh()->trashed());
+
+        // The listing carries withdrawn lines, flagged, so they can be restored.
+        $this->withHeaders($this->headers(['supplier_catalogs.view']))
+            ->getJson("{$base}/{$catalog->uuid}/items")
+            ->assertOk()
+            ->assertJsonPath('data.items.0.archived', false);
+    }
+
     public function test_archiving_from_the_portal_requires_a_reason_and_can_be_restored(): void
     {
         $supplier = MedicineSupplier::query()->create(['code' => 'PHARMADIS', 'name' => 'Pharmadis']);

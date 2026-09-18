@@ -210,7 +210,7 @@ const submit = () => {
                                 <input v-model.number="line.quantity" type="number" min="1" :class="[inputClass, 'text-center']" required>
                             </label>
                             <label class="block">
-                                <span :class="labelClass">Prix unitaire</span>
+                                <span :class="labelClass">Prix d’achat unitaire</span>
                                 <span class="relative block">
                                     <input v-model="line.unit_price" type="number" min="0.01" step="0.01" :class="[inputClass, 'pe-14 text-end']" required>
                                     <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>

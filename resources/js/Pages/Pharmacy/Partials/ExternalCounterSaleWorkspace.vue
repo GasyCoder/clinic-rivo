@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { medicineFamily, medicineMatches, medicineSubtitle } from '@/utilities/medicine';
 import Badge from '@/Components/UI/Badge.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
@@ -11,6 +12,9 @@ const props = defineProps({
     form: { type: Object, required: true },
     medicines: { type: Array, default: () => [] },
     canPrintTicket: { type: Boolean, default: false },
+    // Combien de produits sont en stock mais sans prix de vente : c'est la
+    // raison la plus fréquente d'un comptoir vide (ADR-098).
+    unpricedCount: { type: Number, default: 0 },
 });
 
 const emit = defineEmits(['submit']);
@@ -26,7 +30,7 @@ const CATALOG_PAGE_SIZE = 6;
 const CART_PAGE_SIZE = 4;
 
 const categories = computed(() => [...new Set(props.medicines
-    .map((medicine) => medicine.category?.name)
+    .map((medicine) => medicineFamily(medicine))
     .filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, 'fr')));
 
@@ -34,17 +38,9 @@ const filteredMedicines = computed(() => {
     const needle = search.value.trim().toLocaleLowerCase();
 
     return props.medicines.filter((medicine) => {
-        const matchesCategory = category.value === 'ALL' || medicine.category?.name === category.value;
-        const matchesSearch = !needle || [
-            medicine.name,
-            medicine.generic_name,
-            medicine.code,
-            medicine.barcode,
-            medicine.form_label,
-            medicine.strength,
-        ].filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(needle));
+        const matchesCategory = category.value === 'ALL' || medicineFamily(medicine) === category.value;
 
-        return matchesCategory && matchesSearch;
+        return matchesCategory && medicineMatches(medicine, needle);
     });
 });
 const catalogPageCount = computed(() => Math.max(1, Math.ceil(filteredMedicines.value.length / CATALOG_PAGE_SIZE)));
@@ -226,7 +222,8 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                         <span v-else class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-slate-400 transition group-hover:bg-emerald-600 group-hover:text-white dark:bg-gray-900"><Icon name="plus" /></span>
                                     </div>
                                     <p class="mt-2 line-clamp-2 text-base font-semibold text-slate-800 dark:text-white">{{ medicine.name }}</p>
-                                    <p class="mt-0.5 line-clamp-1 text-xs text-slate-400">{{ medicine.form_label }}<span v-if="medicine.strength"> · {{ medicine.strength }}</span></p>
+                                    <p class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ medicineSubtitle(medicine) }}</p>
+                                    <Badge v-if="medicineFamily(medicine)" tone="neutral" class="mt-1.5">{{ medicineFamily(medicine) }}</Badge>
                                     <div class="mt-3 flex items-end justify-between gap-2">
                                         <p class="text-base font-bold text-slate-800 dark:text-white">{{ money(medicine.sale_price) }}</p>
                                         <p class="text-xs text-emerald-600">{{ number(medicine.available_quantity) }} {{ medicine.unit }} en stock</p>
@@ -238,8 +235,10 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                             <p class="truncate text-sm font-semibold text-slate-800 dark:text-white">{{ medicine.name }}</p>
                                             <p class="shrink-0 text-sm font-bold text-slate-800 dark:text-white">{{ money(medicine.sale_price) }}</p>
                                         </div>
+                                        <p class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ medicineSubtitle(medicine) }}</p>
                                         <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
                                             <span class="text-emerald-600">{{ number(medicine.available_quantity) }} {{ medicine.unit }} en stock</span>
+                                            <Badge v-if="medicineFamily(medicine)" tone="neutral">{{ medicineFamily(medicine) }}</Badge>
                                             <Badge v-if="medicine.prescription_required" tone="warning">Sur ordonnance</Badge>
                                         </div>
                                     </div>
@@ -253,6 +252,10 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                             <span class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
                             <p class="mt-3 text-sm font-semibold text-slate-800 dark:text-white">Aucun médicament trouvé</p>
                             <p class="mt-1 max-w-sm text-sm text-slate-500">Seuls les médicaments en stock et ayant un prix de vente apparaissent ici.</p>
+                            <p v-if="unpricedCount" class="mt-3 max-w-sm rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                                {{ unpricedCount }} médicament{{ unpricedCount > 1 ? 's sont' : ' est' }} en stock mais sans prix de vente : un produit reçu d’un fournisseur n’en a pas encore un.
+                                Fixez-le depuis <a href="/pharmacy/stock?status=NO_SALE_PRICE" class="font-semibold underline">Médicaments &amp; stock</a>.
+                            </p>
                         </div>
 
                         <nav v-if="catalogPageCount > 1" class="mt-5 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950" aria-label="Pages de médicaments">

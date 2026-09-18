@@ -27,6 +27,15 @@ it('keeps the target clinic out of the shared site prop on portal pages', functi
 });
 
 it('serves the blank supplier catalog canvas with the expected columns', function () {
+    // ADR-098 — « Famille » lets a supplier classify its own price list.
     expect(array_values(SupplierCatalogImportService::HEADER_LABELS))
-        ->toBe(['Référence', 'Médicament', 'Présentation', 'Prix fournisseur']);
+        ->toBe(['Référence', 'Médicament', 'Présentation', 'Famille', 'Prix fournisseur']);
+});
+
+it('keeps Famille and Prix fournisseur out of the columns a file must carry', function () {
+    // A catalogue that classifies nothing, or announces its prices apart,
+    // must still import: only the first three columns are required.
+    expect(SupplierCatalogImportService::HEADERS)
+        ->toBe(['reference', 'medicament', 'presentation', 'prix_fournisseur'])
+        ->and(SupplierCatalogImportService::HEADERS)->not->toContain('famille');
 });

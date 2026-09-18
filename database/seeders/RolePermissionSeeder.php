@@ -256,7 +256,10 @@ class RolePermissionSeeder extends Seeder
             'stock.approve', 'stock.import', 'stock.export',
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
             'stock.expiration.view', 'stock.alerts.view',
-            'stock.cost.view', 'stock.cost.record',
+            // ADR-112 — le prix d'achat est confidentiel : stock.cost.* n'est
+            // plus accordé à la Pharmacie, qui fixe en revanche le prix de
+            // vente de ses médicaments (et d'eux seuls).
+            'medicines.sale_price.update', 'medicines.name.update',
             // ADR-098 — suppliers and the whole procurement chain
             // (medicine_suppliers.*, supplier_catalogs.*,
             // medicine_supplier_offers.*, purchase_orders.*, goods_receipts.*,

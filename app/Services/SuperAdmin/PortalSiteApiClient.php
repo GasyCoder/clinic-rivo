@@ -1023,6 +1023,28 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'GET', $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/items', [], $actor);
     }
 
+    /**
+     * ADR-098 — one line of a supplier catalogue: correct it, withdraw it,
+     * restore it, or undo the medicine it was attached to. The site applies
+     * its own rules; the portal only carries the intent.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function pharmacySupplierCatalogItem(
+        string $siteCode,
+        string $supplierUuid,
+        string $catalogUuid,
+        string $itemUuid,
+        User $actor,
+        string $method,
+        string $suffix = '',
+        array $payload = [],
+    ): array {
+        $path = $this->supplierCatalogsPath($supplierUuid, $catalogUuid).'/items/'.rawurlencode($itemUuid).$suffix;
+
+        return $this->request($this->site($siteCode), $method, $path, $payload, $actor);
+    }
+
     /** @param array<string, mixed> $data */
     public function updatePharmacySupplierCatalog(string $siteCode, string $supplierUuid, string $catalogUuid, array $data, User $actor): array
     {

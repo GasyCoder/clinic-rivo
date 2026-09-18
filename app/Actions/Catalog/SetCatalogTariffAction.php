@@ -2,6 +2,7 @@
 
 namespace App\Actions\Catalog;
 
+use App\Enums\CatalogItemType;
 use App\Enums\CatalogTariffCategory;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
@@ -32,7 +33,7 @@ class SetCatalogTariffAction
             $current = $item->currentTariffFor($category)->lockForUpdate()->first();
             $permission = $current ? 'catalog.tariffs.update' : 'catalog.tariffs.create';
 
-            if ($actor->cannot($permission)) {
+            if ($actor->cannot($permission) && ! $this->isPharmacySalePrice($item, $category, $actor)) {
                 throw new AuthorizationException('Vous ne pouvez pas modifier ce tarif.');
             }
 
@@ -72,5 +73,18 @@ class SetCatalogTariffAction
                 ...$actor->externalAttribution('created'),
             ]);
         });
+    }
+
+    /**
+     * ADR-112 — la Pharmacie fixe le prix de vente de ses médicaments, et
+     * rien d'autre : la grille Standard d'un produit MEDICINE. Une
+     * consultation, un acte ou la grille Mutuelle restent sous
+     * catalog.tariffs.* (ADR-024, ADR-031).
+     */
+    private function isPharmacySalePrice(CatalogItem $item, CatalogTariffCategory $category, CatalogActor $actor): bool
+    {
+        return $item->type === CatalogItemType::Medicine
+            && $category === CatalogTariffCategory::Standard
+            && $actor->can('medicines.sale_price.update');
     }
 }

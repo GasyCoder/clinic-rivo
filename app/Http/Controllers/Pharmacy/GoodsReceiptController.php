@@ -68,7 +68,8 @@ class GoodsReceiptController extends Controller
                         'medicine_name' => $line->medicine->catalogItem?->name,
                         'medicine_code' => $line->medicine->catalogItem?->code,
                         'quantity_remaining' => $line->quantityRemaining(),
-                        'unit_price' => $line->unit_price,
+                        // ADR-112 — le prix d'achat est confidentiel.
+                        'unit_price' => $request->user()->can('stock.cost.view') ? $line->unit_price : null,
                     ])->values(),
             ],
             'can' => ['record_cost' => $request->user()->can('stock.cost.record')],
@@ -108,9 +109,10 @@ class GoodsReceiptController extends Controller
                     'lot_number' => $line->lot_number,
                     'expires_at' => $line->expires_at?->toDateString(),
                     'quantity_received' => $line->quantity_received,
-                    'unit_purchase_price' => $line->unit_purchase_price,
+                    'unit_purchase_price' => $request->user()->can('stock.cost.view') ? $line->unit_purchase_price : null,
                 ])->values(),
             ],
+            'canViewCost' => $request->user()->can('stock.cost.view'),
         ]);
     }
 }

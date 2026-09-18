@@ -8,11 +8,16 @@ use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Models\CatalogItem;
 use App\Models\Medicine;
+use App\Models\MedicineCategory;
 use App\Models\SupplierCatalogItem;
 use App\Services\Catalog\CatalogActor;
+use App\Support\Money;
+use App\Support\ProductLabel;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * ADR-098 — a line of a supplier catalogue becomes a clinic medicine at the
@@ -39,6 +44,9 @@ use Illuminate\Support\Str;
  */
 class CreateMedicineFromSupplierCatalogAction
 {
+    /** @var Collection<string, Medicine>|null */
+    private ?Collection $byName = null;
+
     public function __construct(
         private readonly CreateCatalogItemAction $createCatalogItem,
         private readonly SetMedicineSupplierOfferAction $setOffer,
@@ -80,6 +88,7 @@ class CreateMedicineFromSupplierCatalogAction
 
             $medicine = Medicine::query()->create([
                 'catalog_item_id' => $catalogItem->getKey(),
+                'medicine_category_id' => $this->family($item, $actor)?->getKey(),
                 // The label on a supplier invoice is a trade name, not a
                 // DCI: deducing one would invent a clinical fact.
                 'generic_name' => null,
@@ -94,23 +103,133 @@ class CreateMedicineFromSupplierCatalogAction
                 ...$actor->externalAttribution('updated'),
             ]);
 
-            $medicine->suppliers()->syncWithoutDetaching([$item->catalog->supplier->getKey()]);
-            $item->update(['linked_medicine_id' => $medicine->getKey()]);
+            $this->byName?->put($this->normalize((string) $catalogItem->name), $medicine);
 
-            if (filled($item->supplier_price)) {
-                $this->setOffer->execute(
-                    medicine: $medicine,
-                    supplier: $item->catalog->supplier,
-                    quotedPrice: (string) $item->supplier_price,
-                    reason: 'Prix repris du catalogue fournisseur à la commande',
-                    actor: $actor,
-                    supplierReference: $item->reference,
-                    sourceCatalogItem: $item,
-                );
-            }
-
-            return $medicine->fresh('catalogItem');
+            return $this->attach($item, $medicine, $actor);
         });
+    }
+
+    /**
+     * Links the catalogue line to the medicine and records what this
+     * supplier quotes for it. Same steps whether the medicine was just
+     * created or already existed, so the two cases cannot diverge.
+     */
+    private function attach(SupplierCatalogItem $item, Medicine $medicine, CatalogActor $actor): Medicine
+    {
+        $medicine->suppliers()->syncWithoutDetaching([$item->catalog->supplier->getKey()]);
+        $item->update(['linked_medicine_id' => $medicine->getKey()]);
+
+        // Un prix déjà en cours et identique n'a rien à réécrire. Le refaire
+        // passerait par le chemin « révision », qui exige `.update` et
+        // refuserait de toute façon un prix inchangé : un compte autorisé à
+        // rattacher se verrait interdire son propre rattachement.
+        $current = $medicine->currentOfferFor($item->catalog->supplier)->value('quoted_price');
+        $unchanged = filled($item->supplier_price) && filled($current)
+            && Money::toMinor((string) $item->supplier_price) === Money::toMinor((string) $current);
+
+        if (filled($item->supplier_price) && ! $unchanged) {
+            $this->setOffer->execute(
+                medicine: $medicine,
+                supplier: $item->catalog->supplier,
+                quotedPrice: (string) $item->supplier_price,
+                reason: 'Prix repris du catalogue fournisseur à la commande',
+                actor: $actor,
+                supplierReference: $item->reference,
+                sourceCatalogItem: $item,
+            );
+        }
+
+        return $medicine->fresh('catalogItem');
+    }
+
+    /**
+     * The family the supplier declares for this line, matched against the
+     * clinic's own families without accents or case. It is created when it
+     * is missing — and only by an actor allowed to write the referential
+     * (ADR-024): the wording comes from the supplier's file, never from a
+     * guess about the product. Without that right, or without a declared
+     * family, the medicine simply has none and the pharmacist sets it.
+     */
+    private function family(SupplierCatalogItem $item, CatalogActor $actor): ?MedicineCategory
+    {
+        if (blank($item->family_label)) {
+            return null;
+        }
+
+        $wanted = $this->normalize((string) $item->family_label);
+        $existing = MedicineCategory::query()
+            ->get(['id', 'name'])
+            ->first(fn (MedicineCategory $category) => $this->normalize((string) $category->name) === $wanted);
+
+        if ($existing || $actor->cannot('medicine_categories.create')) {
+            return $existing;
+        }
+
+        return MedicineCategory::query()->create([
+            'code' => $this->familyCode($item->family_label),
+            'name' => trim((string) $item->family_label),
+            'created_by' => $actor->localUserId(),
+            'updated_by' => $actor->localUserId(),
+        ]);
+    }
+
+    private function familyCode(string $label): string
+    {
+        $base = Str::of($label)->ascii()->upper()->replaceMatches('/[^A-Z0-9]+/', '-')->trim('-')->toString();
+        $base = mb_substr($base === '' ? 'FAM' : $base, 0, 40);
+        $code = $base;
+        $suffix = 1;
+
+        while (MedicineCategory::withTrashed()->where('code', $code)->exists()) {
+            $code = mb_substr($base, 0, 36).'-'.(++$suffix);
+        }
+
+        return $code;
+    }
+
+    /**
+     * The clinic medicine that already carries this label, if any —
+     * compared without accents, case or double spaces, because two
+     * suppliers rarely spell a product identically.
+     *
+     * A deactivated product is not silently revived: deactivating it was a
+     * decision with a reason (ADR-098), and ordering it again is one too.
+     */
+    private function existingMedicine(string $label): ?Medicine
+    {
+        $wanted = $this->normalize($label);
+
+        if ($wanted === '') {
+            return null;
+        }
+
+        // Built once per order: a basket of a hundred catalogue lines would
+        // otherwise read the whole catalogue a hundred times.
+        $this->byName ??= Medicine::query()
+            ->withTrashed()
+            ->whereRelation('catalogItem', 'type', CatalogItemType::Medicine->value)
+            ->with('catalogItem:id,name')
+            ->get()
+            ->keyBy(fn (Medicine $medicine) => $this->normalize((string) $medicine->catalogItem?->name));
+
+        $match = $this->byName->get($wanted);
+
+        if (! $match) {
+            return null;
+        }
+
+        if ($match->trashed() || ! $match->active) {
+            throw ValidationException::withMessages([
+                'lines' => "« {$match->catalogItem?->name} » existe déjà au catalogue de la clinique mais est désactivé. Réactivez-le avant de le commander.",
+            ]);
+        }
+
+        return $match;
+    }
+
+    private function normalize(string $value): string
+    {
+        return ProductLabel::normalize($value);
     }
 
     /**

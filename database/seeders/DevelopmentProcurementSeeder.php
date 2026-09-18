@@ -55,7 +55,6 @@ class DevelopmentProcurementSeeder extends Seeder
         'purchase_orders.submit', 'purchase_orders.cancel',
         'goods_receipts.view', 'goods_receipts.create',
         'supplier_invoices.view', 'supplier_invoices.create',
-        'stock.cost.record',
     ];
 
     /** medicine code, supplier code, earlier price (or null), current price */

@@ -170,6 +170,9 @@ class SupplierPresenter
             'invoice_date' => $invoice->invoice_date?->toDateString(),
             'total_amount' => $invoice->total_amount,
             'has_attachment' => $invoice->hasAttachment(),
+            // The list offers « restaurer » on a withdrawn invoice: it has to
+            // know which ones are in the bin (ADR-009).
+            'archived' => $invoice->trashed(),
         ];
     }
 

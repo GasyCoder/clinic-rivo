@@ -39,6 +39,9 @@ class StoreStockEntriesRequest extends FormRequest
             ],
             'entries.*.quantity' => ['required', 'integer', 'min:1'],
             'entries.*.unit_purchase_price' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
+            // ADR-112 — le prix de vente peut se fixer à l'entrée, par qui en a le droit.
+            'entries.*.sale_price' => ['nullable', 'numeric', 'gt:0', 'max:999999999999.99'],
+            'entries.*.sale_name' => ['nullable', 'string', 'max:255'],
         ];
     }
 
@@ -69,6 +72,18 @@ class StoreStockEntriesRequest extends FormRequest
         if ($priced && ! $this->user()?->can('stock.cost.record')) {
             abort(403, 'Vous ne pouvez pas enregistrer un prix d’achat.');
         }
+
+        $salePriced = collect($this->input('entries', []))->contains(fn ($entry) => filled($entry['sale_price'] ?? null));
+
+        if ($salePriced && ! $this->user()?->can('medicines.sale_price.update')) {
+            abort(403, 'Vous ne pouvez pas fixer un prix de vente.');
+        }
+
+        $renamed = collect($this->input('entries', []))->contains(fn ($entry) => filled($entry['sale_name'] ?? null));
+
+        if ($renamed && ! $this->user()?->can('medicines.name.update')) {
+            abort(403, 'Vous ne pouvez pas renommer un médicament.');
+        }
     }
 
     /** @return array<string, string> */
@@ -81,6 +96,7 @@ class StoreStockEntriesRequest extends FormRequest
             'entries.*.expires_at.required' => 'La date de péremption est obligatoire.',
             'entries.*.expires_at.after_or_equal' => 'La péremption ne peut pas précéder la réception.',
             'entries.*.quantity.min' => 'La quantité doit être supérieure à zéro.',
+            'entries.*.sale_price.gt' => 'Le prix de vente doit être supérieur à zéro.',
             'origin.required' => 'La provenance est obligatoire.',
             'destination.required' => 'Le lieu de rangement est obligatoire.',
             'reason.required' => 'Le motif de l’entrée est obligatoire.',

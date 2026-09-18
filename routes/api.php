@@ -74,6 +74,10 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/activate', [PharmacySupplierController::class, 'activateCatalog'])->name('pharmacy.suppliers.catalogs.activate');
         Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/download', [PharmacySupplierController::class, 'downloadCatalog'])->name('pharmacy.suppliers.catalogs.download');
         Route::get('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items', [PharmacySupplierController::class, 'catalogItems'])->name('pharmacy.suppliers.catalogs.items');
+        Route::put('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}', [PharmacySupplierController::class, 'updateCatalogItem'])->name('pharmacy.suppliers.catalogs.items.update');
+        Route::delete('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}', [PharmacySupplierController::class, 'archiveCatalogItem'])->name('pharmacy.suppliers.catalogs.items.destroy');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}/restore', [PharmacySupplierController::class, 'restoreCatalogItem'])->name('pharmacy.suppliers.catalogs.items.restore');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}/unlink', [PharmacySupplierController::class, 'unlinkCatalogItem'])->name('pharmacy.suppliers.catalogs.items.unlink');
         Route::patch('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}', [PharmacySupplierController::class, 'updateCatalog'])->name('pharmacy.suppliers.catalogs.update');
         Route::delete('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}', [PharmacySupplierController::class, 'archiveCatalog'])->name('pharmacy.suppliers.catalogs.destroy');
         Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/restore', [PharmacySupplierController::class, 'restoreCatalog'])->name('pharmacy.suppliers.catalogs.restore');

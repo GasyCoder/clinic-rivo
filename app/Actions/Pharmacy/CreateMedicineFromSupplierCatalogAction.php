@@ -58,6 +58,15 @@ class CreateMedicineFromSupplierCatalogAction
                 return Medicine::query()->findOrFail($item->linked_medicine_id);
             }
 
+            // The same product offered by two suppliers is one product: it
+            // is reused, and this supplier's price is simply added beside
+            // the other's (ADR-097 allows several current offers). Creating
+            // "Paracétamol 500 mg" twice because two folders name it would
+            // split its stock, its history and its selling price in two.
+            if ($existing = $this->existingMedicine($item->medicine_label)) {
+                return $this->attach($item, $existing, $actor);
+            }
+
             $catalogItem = $this->createCatalogItem->execute([
                 'code' => $this->code($item),
                 'name' => $item->medicine_label,

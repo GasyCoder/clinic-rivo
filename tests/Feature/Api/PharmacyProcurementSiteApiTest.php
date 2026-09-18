@@ -146,6 +146,85 @@ class PharmacyProcurementSiteApiTest extends TestCase
         $this->assertSame($this->actorUuid, $cancelled->external_cancelled_by_uuid);
     }
 
+    /**
+     * ADR-098 — the owner's own case, end to end: a supplier whose catalogue
+     * is imported but whose products the clinic does not hold. The catalogue
+     * line must be orderable from the portal, and the order must really
+     * exist in the site's database afterwards.
+     */
+    public function test_a_catalogue_line_is_ordered_from_the_portal_and_enters_the_clinic_catalogue(): void
+    {
+        $catalog = $this->supplier->catalogs()->create([
+            'original_name' => 'arbiochem.xlsx',
+            'path' => 'suppliers/'.$this->supplier->uuid.'/arbiochem.xlsx',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size' => 2048,
+            'kind' => \App\Enums\SupplierCatalogFileKind::Excel,
+            'active_key' => 'ACTIVE',
+            'imported_at' => now(),
+        ]);
+        $line = $catalog->items()->create([
+            'reference' => 'ARB-014',
+            'medicine_label' => 'Zinc sulfate 20 mg',
+            'presentation' => 'boîte de 30',
+            'supplier_price' => '4500.00',
+            'row_number' => 1,
+        ]);
+
+        // The form offers it although no clinic medicine exists for it.
+        $this->withHeaders($this->headers(['purchase_orders.create']))
+            ->getJson("{$this->base()}/order-form")
+            ->assertOk()
+            ->assertJsonPath('data.medicines.1.catalog_item_uuid', $line->uuid)
+            ->assertJsonPath('data.medicines.1.in_clinic_catalog', false);
+
+        $permissions = ['purchase_orders.create', 'medicines.create', 'catalog.items.create', 'medicine_supplier_offers.create'];
+
+        $uuid = $this->withHeaders($this->headers($permissions))
+            ->postJson("{$this->base()}/orders", ['lines' => [
+                ['supplier_catalog_item_uuid' => $line->uuid, 'quantity_ordered' => 12, 'unit_price' => '4500'],
+            ]])
+            ->assertCreated()
+            ->json('data.uuid');
+
+        $order = PurchaseOrder::query()->where('uuid', $uuid)->sole();
+        $created = Medicine::query()->whereRelation('catalogItem', 'code', 'ARB-014')->sole();
+
+        $this->assertSame(12, $order->lines->sole()->quantity_ordered);
+        $this->assertSame($created->id, $order->lines->sole()->medicine_id);
+        $this->assertSame('54000.00', (string) $order->total_amount);
+        // No local author, and the portal identity is kept beside it.
+        $this->assertNull($created->created_by);
+        $this->assertSame($this->actorUuid, $created->external_created_by_uuid);
+        // Purchase price recorded, selling price never invented (ADR-024).
+        $this->assertSame('4500.00', (string) $created->currentOfferFor($this->supplier)->value('quoted_price'));
+        $this->assertNull($created->catalogItem->currentStandardTariff);
+        $this->assertSame($created->id, $line->fresh()->linked_medicine_id);
+    }
+
+    public function test_ordering_a_catalogue_line_is_refused_without_the_right_to_add_a_medicine(): void
+    {
+        $catalog = $this->supplier->catalogs()->create([
+            'original_name' => 'arbiochem.xlsx',
+            'path' => 'suppliers/'.$this->supplier->uuid.'/arbiochem.xlsx',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size' => 2048,
+            'kind' => \App\Enums\SupplierCatalogFileKind::Excel,
+            'active_key' => 'ACTIVE',
+            'imported_at' => now(),
+        ]);
+        $line = $catalog->items()->create(['reference' => 'ARB-015', 'medicine_label' => 'Albendazole 400 mg', 'supplier_price' => '2000.00', 'row_number' => 1]);
+
+        $this->withHeaders($this->headers(['purchase_orders.create']))
+            ->postJson("{$this->base()}/orders", ['lines' => [
+                ['supplier_catalog_item_uuid' => $line->uuid, 'quantity_ordered' => 5, 'unit_price' => '2000'],
+            ]])
+            ->assertForbidden();
+
+        $this->assertSame(0, PurchaseOrder::query()->count());
+        $this->assertSame(1, Medicine::query()->count());
+    }
+
     public function test_an_invoice_is_recorded_with_its_document_then_archived_and_restored(): void
     {
         $response = $this->withHeaders($this->headers(['supplier_invoices.create']))

@@ -1,6 +1,7 @@
 import {
     Activity,
     BarChart3,
+    BookMarked,
     Briefcase,
     Building2,
     CalendarDays,
@@ -56,6 +57,9 @@ export const CLINIC_WORKSPACES = [
     // ADR-107 — un décès prononcé en Consultation ne réapparaissait nulle
     // part : la file Médecine ne montre que les prises en charge en cours.
     { key: 'deaths', group: 'clinical', text: 'Décès', description: 'Registre et actes de constatation', icon: HeartCrack, link: '/deces', permission: 'death_records.view', tone: 'slate' },
+    // ADR-111 — ce que la consultation propose vient d'ici : les protocoles
+    // écrits par les médecins de la clinique, jamais une règle inventée.
+    { key: 'clinical-protocols', group: 'clinical', text: 'Protocoles', description: 'Diagnostics et ordonnances types de la clinique', icon: BookMarked, link: '/medicine/protocoles', permission: 'clinical_protocols.view', tone: 'ocean' },
     { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on

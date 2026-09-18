@@ -69,6 +69,7 @@ use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Models\MedicalReferral;
 use App\Models\Prescription;
 use App\Support\ConsultationWorkflow;
+use App\Support\ImagingReportDocument;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\MedicineDossierPresenter;
 use Illuminate\Http\JsonResponse;
@@ -601,6 +602,8 @@ class MedicineController extends Controller
             $request->validated('diagnostic_catalog_uuid'),
             $request->validated('manual_code'),
             $request->validated('notes'),
+            $request->validated('suggestion_protocol_uuid'),
+            $request->validated('suggestion_source'),
         );
 
         return redirect()->route('medicine.orientations.step', [$episodeOrientation, $this->diagnosisReturnStep($request)])
@@ -796,49 +799,11 @@ class MedicineController extends Controller
         ClinicalRichTextSanitizer $richText,
     ): Response
     {
-        abort_if($imagingRequestItem->resulted_at === null, 404);
+        $document = ImagingReportDocument::for($imagingRequestItem, $richText);
 
-        $imagingRequestItem->load([
-            'resultedBy:id,name',
-            'imagingRequest.requestedBy:id,name',
-            'imagingRequest.episode.patient',
-        ]);
+        abort_if($document === null, 404);
 
-        $request = $imagingRequestItem->imagingRequest;
-        $episode = $request?->episode;
-        $patient = $episode?->patient;
-
-        abort_if($patient === null, 404);
-
-        return Inertia::render('Medicine/ImagingReportPrint', [
-            'report' => [
-                'uuid' => $imagingRequestItem->uuid,
-                'exam' => $imagingRequestItem->catalog_item_name_snapshot,
-                'code' => $imagingRequestItem->catalog_item_code_snapshot,
-                'value' => $richText->toSafeHtml($imagingRequestItem->result_value),
-                'notes' => $richText->toSafeHtml($imagingRequestItem->result_notes),
-                'resulted_at' => $imagingRequestItem->resulted_at,
-                'resulted_by' => $imagingRequestItem->resultedBy?->name,
-                'requested_at' => $request->requested_at,
-                'requested_by' => $request->requestedBy?->name,
-                'indication' => $request->notes,
-            ],
-            'episode' => [
-                'episode_number' => $episode->episode_number,
-                'priority' => $episode->priority->value,
-            ],
-            'patient' => [
-                'uuid' => $patient->uuid,
-                'patient_number' => $patient->patient_number,
-                'first_name' => $patient->first_name,
-                'last_name' => $patient->last_name,
-                'sex' => $patient->sex->value,
-                'sex_label' => $patient->sex->value === 'F' ? 'Féminin' : 'Masculin',
-                'birth_date' => $patient->birth_date?->toDateString(),
-                'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-                'age' => $patient->birth_date?->age ?? $patient->declared_age,
-            ],
-        ]);
+        return Inertia::render('Medicine/ImagingReportPrint', ['document' => $document]);
     }
 
     /**

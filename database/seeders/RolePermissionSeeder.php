@@ -128,6 +128,7 @@ class RolePermissionSeeder extends Seeder
             'consultations.reopen',
             // ADR-107 — le registre des décès et son acte de constatation.
             'death_records.view', 'death_records.create',
+            'clinical_protocols.view', 'clinical_protocols.manage',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
             // Le médecin peut requalifier ce passage précis pendant la
             // consultation ; ce droit ne modifie jamais le Patient.

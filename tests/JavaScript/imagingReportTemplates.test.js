@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const page = fs.readFileSync('resources/js/Pages/Medicine/Requests.vue', 'utf8');
+// La saisie est partagée entre « Demandes d'examens » et la consultation :
+// ses règles se vérifient dans le composant qui les porte.
+const dialog = fs.readFileSync('resources/js/Components/Clinical/ImagingReportDialog.vue', 'utf8');
 
 /**
  * ADR-108 — les feuilles de la clinique arrivent du serveur, jamais d'une
@@ -11,10 +14,13 @@ const page = fs.readFileSync('resources/js/Pages/Medicine/Requests.vue', 'utf8')
  */
 test('les feuilles viennent du serveur', () => {
     assert.match(page, /reportTemplates: \{ type: Array, default: \(\) => \[\] \}/);
-    assert.match(page, /v-for="template in reportTemplates"/);
+    assert.match(page, /:templates="reportTemplates"/);
+    assert.match(dialog, /v-for="template in templates"/);
 
-    // Aucune feuille codée dans l'écran.
-    assert.doesNotMatch(page, /ÉCHOGRAPHIE ABDOMINO|SAC OVULAIRE|Clarté nucale/);
+    // Aucune feuille codée dans un écran.
+    for (const source of [page, dialog]) {
+        assert.doesNotMatch(source, /ÉCHOGRAPHIE ABDOMINO|SAC OVULAIRE|Clarté nucale/);
+    }
 });
 
 /**
@@ -23,38 +29,38 @@ test('les feuilles viennent du serveur', () => {
  * qu'une correspondance automatique insère la mauvaise feuille.
  */
 test('aucune feuille n’est choisie à la place du médecin', () => {
-    const logic = page.slice(page.indexOf('const pendingTemplate'), page.indexOf('</script>'));
+    const logic = dialog.slice(dialog.indexOf('const pendingTemplate'), dialog.indexOf('</script>'));
 
     // Pas de correspondance sur le libellé de l'examen.
     assert.doesNotMatch(logic, /item\.exam/);
     assert.doesNotMatch(logic, /\.includes\(|startsWith\(|match\(/);
 
     // L'insertion part d'un clic, et de rien d'autre.
-    assert.match(page, /@click="chooseTemplate\(template\)"/);
+    assert.match(dialog, /@click="chooseTemplate\(template\)"/);
 });
 
 /** Une feuille remplace tout : sur un champ déjà écrit, on demande avant. */
 test('insérer une feuille n’écrase jamais une saisie en silence', () => {
-    const choose = page.slice(page.indexOf('const chooseTemplate'), page.indexOf('const applyTemplate'));
+    const choose = dialog.slice(dialog.indexOf('const chooseTemplate'), dialog.indexOf('const applyTemplate'));
 
-    assert.match(choose, /if \(hasReportContent\.value\)/);
+    assert.match(choose, /if \(hasContent\.value\)/);
     assert.match(choose, /pendingTemplate\.value = template;[\s\S]{0,40}return;/);
 
-    const dialog = page.slice(page.indexOf('title="Remplacer le compte rendu ?"') - 200);
-    assert.match(dialog, /:dismissible="false"/);
-    assert.match(dialog, /Conserver ma saisie/);
+    const confirmation = dialog.slice(dialog.indexOf('title="Remplacer le compte rendu ?"') - 200);
+    assert.match(confirmation, /:dismissible="false"/);
+    assert.match(confirmation, /Conserver ma saisie/);
 });
 
 /** Un champ ne portant que des balises vides n'est pas « déjà écrit ». */
 test('un compte rendu vide n’ouvre pas la confirmation', () => {
     // On ne découpe pas sur le premier « ; » : il y en a un dans la regex
     // `/&nbsp;|\u00a0/`, et la coupure tombait au milieu du littéral.
-    const start = page.indexOf('const hasReportContent');
-    const end = page.indexOf(".trim() !== ''", start) + ".trim() !== ''".length;
-    const expression = page.slice(page.indexOf('=>', start) + 2, end).trim();
+    const start = dialog.indexOf('const hasContent');
+    const end = dialog.indexOf(".trim() !== ''", start) + ".trim() !== ''".length;
+    const expression = dialog.slice(dialog.indexOf('=>', start) + 2, end).trim();
 
     // eslint-disable-next-line no-new-func
-    const run = new Function('reportForm', `return (${expression});`);
+    const run = new Function('form', `return (${expression});`);
 
     assert.equal(run({ result_value: '' }), false);
     assert.equal(run({ result_value: '<p></p><p>&nbsp;</p>' }), false);

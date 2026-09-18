@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ClinicalSuggestionSource;
 use App\Enums\DiagnosisType;
 use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -25,6 +26,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'notes',
     'is_manual',
     'recorded_by',
+    'suggestion_source',
+    'clinical_protocol_id',
 ])]
 class Diagnosis extends Model
 {
@@ -35,6 +38,7 @@ class Diagnosis extends Model
         return [
             'type' => DiagnosisType::class,
             'is_manual' => 'boolean',
+            'suggestion_source' => ClinicalSuggestionSource::class,
         ];
     }
 
@@ -51,6 +55,11 @@ class Diagnosis extends Model
     public function diagnosticCatalog(): BelongsTo
     {
         return $this->belongsTo(DiagnosticCatalog::class);
+    }
+
+    public function clinicalProtocol(): BelongsTo
+    {
+        return $this->belongsTo(ClinicalProtocol::class)->withTrashed();
     }
 
     public function cancellation(): HasOne

@@ -166,6 +166,14 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Dose facultative pour un produit qui ne se dose pas (compresses, gants) : la forme du référentiel décide, jamais le libellé (ADR-110)
 - [x] Quantité totale déduite de la fréquence et de la durée, base du calcul écrite sous le champ, jamais imposée sur une quantité déjà corrigée (ADR-110)
 - [x] Aucune quantité suggérée quand la posologie n'en implique aucune (« si besoin », fréquence libre, durée absente)
+- [x] Écran Ordonnance passé à shadcn (ADR-099) : `Select`/`FormField` dans l'éditeur de ligne, unité attachée à la quantité, catalogue distinguant « Dans l'ordonnance » et « Épuisé », reprise de la quantité déduite en un clic (amendement ADR-110)
+- [x] Protocoles thérapeutiques de la clinique (`/medicine/protocoles`) : signes évocateurs, population (âge, sexe, poids), ordonnance type — rédigés par les médecins, jamais inventés (ADR-111)
+- [x] Diagnostics proposés à l'Examen clinique et à Décision & clôture, avec les signes retrouvés ; « Retenir » les enregistre, toujours corrigeables (ADR-111)
+- [x] Ordonnance proposée à la Prescription pour les diagnostics posés : lignes préremplies et modifiables, épuisés non ajoutables, allergies en rouge et exclues de « Tout ajouter » (ADR-111)
+- [x] Origine de chaque diagnostic et ligne retenus tracée (`suggestion_source`, `clinical_protocol_id`) et revérifiée par le serveur (ADR-111)
+- [x] Algorithme local « Pratique de la clinique » : diagnostics appris du vocabulaire des consultations passées, ordonnance habituelle et sa posologie la plus fréquente, sans aucun service externe (ADR-111)
+- [x] Seuils de prudence (3 cas, 2 occurrences, 30 %), consultation en cours exclue de sa propre preuve, patient hors de la tranche d'âge déjà traitée signalé (ADR-111)
+- [x] Motif prérempli par le nom de la prestation retiré du texte analysé : ce n'est pas un symptôme (ADR-111)
 - [x] Navigation précédente pointant vers la dernière étape réellement pertinente, jamais vers une étape « Non nécessaire »
 - [x] Demandes d'analyses et d'imagerie annulables (`cancelled_at`), jamais supprimées ; une demande avec résultat n'est jamais retirée
 - [x] Conduite à tenir portée par `consultation_orientations` (SELECTED / SUBMITTED / CANCELLED), décidée dès que le médecin en sait assez (ADR-084)
@@ -179,6 +187,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
 - [x] Feuilles de compte rendu de la clinique (écho abdomino-pelvienne, écho obstétricale 1er trimestre) insérables dans le compte rendu, choisies par le médecin et jamais déduites du nom de l'examen (ADR-108)
 - [ ] Feuille ECG — aucun modèle transmis, rien n'est inventé (ADR-108)
+- [x] Une seule saisie du compte rendu d'imagerie (`ImagingReportDialog`), identique depuis la consultation et « Demandes d'examens » ; plus d'éditeur vide sous un compte rendu déjà enregistré (amendement ADR-108)
+- [x] Compte rendu d'imagerie au format de la feuille papier de la clinique (logo, N° de dossier, identité, deux colonnes, N.B., signature), identique à l'écran et à l'impression (amendement ADR-108)
 - [x] File Maternité passée à shadcn (ADR-099) : cartes, pastilles d'état et pagination par les primitives partagées ; la prise en charge devient un POST au lieu d'un bouton imbriqué dans un lien-bouton
 - [x] Cartes compteur partagées sur les files cliniques (Médecine, Soins, Laboratoire, Demandes d'examens) : la carte est le filtre, et le compte vient du serveur — jamais de la page affichée
 - [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)

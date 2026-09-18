@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\CatalogModule;
+use App\Enums\ClinicalSuggestionSource;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\EpisodeOrientation;
@@ -30,6 +31,11 @@ class StoreMedicineDiagnosisRequest extends FormRequest
             'description' => ['nullable', 'required_without:diagnostic_catalog_uuid', 'string', 'max:5000'],
             'manual_code' => ['nullable', 'string', 'max:50'],
             'notes' => ['nullable', 'string', 'max:5000'],
+            // ADR-111 — le protocole qui a proposé ce diagnostic, si le
+            // médecin l'a retenu depuis une proposition. L'Action vérifie
+            // qu'il traite bien ce diagnostic.
+            'suggestion_protocol_uuid' => ['nullable', 'uuid'],
+            'suggestion_source' => ['nullable', Rule::enum(ClinicalSuggestionSource::class)],
             // The wizard step to return to (examen or cloture, ADR-089).
             'return_step' => ['nullable', 'string', 'max:30'],
         ];

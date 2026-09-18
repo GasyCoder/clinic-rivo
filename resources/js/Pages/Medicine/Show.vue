@@ -5,6 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import {
     Activity,
     ArrowLeft,
+    BookMarked,
     Check,
     ChevronDown,
     ChevronUp,
@@ -19,11 +20,13 @@ import {
     FileStack,
     FileText,
     History,
+    Hourglass,
     Info,
     List,
     Lock,
     MessageSquare,
     Pencil,
+    PenLine,
     Pill,
     Plus,
     Printer,
@@ -40,10 +43,12 @@ import {
     User,
     X,
 } from 'lucide-vue-next';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import ShadcnDialog from '@/Components/Shadcn/Dialog.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import MedicineWorkflowNav from '@/Components/Medicine/MedicineWorkflowNav.vue';
@@ -58,6 +63,8 @@ import ClinicalExaminationSummary from '@/Components/Clinical/ClinicalExaminatio
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
 import ClinicalDiagnosisEntry from '@/Components/Clinical/ClinicalDiagnosisEntry.vue';
 import ClinicalDiagnosisList from '@/Components/Clinical/ClinicalDiagnosisList.vue';
+import ClinicalDiagnosisSuggestions from '@/Components/Clinical/ClinicalDiagnosisSuggestions.vue';
+import ClinicalPrescriptionSuggestions from '@/Components/Clinical/ClinicalPrescriptionSuggestions.vue';
 import PrescriptionLineEditor from '@/Components/Clinical/PrescriptionLineEditor.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import ClinicalVitalsCorrection from '@/Components/Clinical/ClinicalVitalsCorrection.vue';
@@ -69,7 +76,9 @@ import VitalSignsStrip from '@/Components/Clinical/VitalSignsStrip.vue';
 import PatientContextPanel from '@/Components/Clinical/PatientContextPanel.vue';
 import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
 import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor.vue';
+import ImagingReportDialog from '@/Components/Clinical/ImagingReportDialog.vue';
 import { useFormDraft } from '@/composables/useFormDraft';
+import { editorFieldsFor, isUndosedForm } from '@/utilities/posology';
 import { useToastStore } from '@/stores/toast';
 import { formatDate, formatDateTime } from '@/utilities/date';
 
@@ -95,6 +104,10 @@ const props = defineProps({
     options: Object,
     capabilities: Object,
     pending_reasons: { type: Array, default: () => [] },
+    // ADR-111 — ce que les protocoles de la clinique proposent. Calculé par
+    // le serveur à chaque affichage, jamais enregistré tant que le médecin
+    // ne retient rien.
+    clinical_suggestions: { type: Object, default: null },
     current_step: String,
 });
 
@@ -1290,17 +1303,13 @@ const awaitingResults = computed(() => [
 const hasPendingParaclinicalSelection = computed(() => (
     labRequestForm.items.length > 0 || imagingRequestForm.items.length > 0
 ));
-const imagingResultForms = {};
-const imagingResultForm = (itemUuid) => {
-    if (!imagingResultForms[itemUuid]) {
-        imagingResultForms[itemUuid] = useForm({ result_value: '', result_notes: '' });
-    }
-    return imagingResultForms[itemUuid];
-};
-const submitImagingResult = (item) => imagingResultForm(item.uuid).post(
-    `/medicine/orientations/${props.orientation.uuid}/imaging-requests/${item.uuid}/result`,
-    { preserveScroll: true },
-);
+/**
+ * Le compte rendu d'imagerie se saisit dans `ImagingReportDialog`, la même
+ * fenêtre que « Demandes d'examens » — feuilles de la clinique comprises
+ * (ADR-108). Il y avait ici un second éditeur, réduit et sans feuilles : deux
+ * outils pour la même colonne.
+ */
+const reportingImagingItem = ref(null);
 
 // Les demandes d'orientation (chirurgie, hospitalisation, référence,
 // service) vivent maintenant dans ClinicalOrientationCard, au plus près
@@ -1492,6 +1501,32 @@ const addPrescriptionMedicine = (medicine) => {
 const addManualPrescriptionLine = () => {
     prescriptionForm.lines.push(emptyManualPrescriptionLine());
 };
+/**
+ * ADR-111 — une ligne proposée (protocole ou pratique de la clinique)
+ * rejoint la préparation préremplie, et **rien de plus** : le médecin la
+ * règle comme n'importe quelle ligne, puis valide et signe (ADR-106). Elle
+ * garde son origine, que le serveur revérifie avant de l'enregistrer.
+ */
+const addSuggestedPrescriptionLine = (line, group) => {
+    const medicine = medicines.value.find((item) => item.uuid === line.medicine_uuid);
+
+    if (!medicine?.available || selectedMedicineUuids.value.has(line.medicine_uuid)) return;
+
+    prescriptionForm.lines.push({
+        ...emptyPrescriptionLine(medicine),
+        dosage: line.dosage ?? '',
+        route: line.route ?? null,
+        frequency: line.frequency ?? '',
+        duration: line.duration ?? '',
+        instructions: line.instructions ?? '',
+        quantity: line.quantity ?? 1,
+        ...editorFieldsFor(line),
+        suggestion_source: group.source,
+        suggestion_protocol_uuid: group.protocol_uuid ?? null,
+        suggestion_label: group.source === 'PROTOCOL' ? group.name : 'Pratique de la clinique',
+    });
+};
+const suggestions = computed(() => props.clinical_suggestions);
 /** Met à jour un champ d'une ligne en préparation, sans muter en place. */
 const updatePrescriptionLine = (index, { field, value }) => {
     prescriptionForm.lines = prescriptionForm.lines.map((line, position) => (
@@ -1502,7 +1537,17 @@ const updatePrescriptionLine = (index, { field, value }) => {
 const removePrescriptionLine = (index) => {
     prescriptionForm.lines.splice(index, 1);
 };
-const hasPosology = (line) => line.dosage.trim().length > 0 && line.frequency.trim().length > 0;
+/**
+ * ADR-110 — la dose n'est exigée que d'un produit qui se dose. Le serveur
+ * l'acceptait déjà absente pour une compresse, mais cette garde la réclamait
+ * encore : le bouton « Valider » restait grisé sans dire pourquoi.
+ */
+const hasPosology = (line) => {
+    const dosed = line.manual || !isUndosedForm(medicineForLine(line)?.form);
+
+    return (!dosed || String(line.dosage ?? '').trim().length > 0)
+        && String(line.frequency ?? '').trim().length > 0;
+};
 const prescriptionStockIsValid = computed(() => prescriptionForm.lines.length > 0
     && prescriptionForm.lines.every((line) => {
         if (!hasPosology(line)) return false;
@@ -1582,6 +1627,10 @@ const addPrescription = () => prescriptionForm
                 frequency: line.frequency,
                 duration: line.duration,
                 instructions: line.instructions,
+                // ADR-111 — d'où venait la proposition ; le serveur vérifie
+                // que ce protocole prescrit bien ce médicament.
+                suggestion_source: line.suggestion_source ?? null,
+                suggestion_protocol_uuid: line.suggestion_protocol_uuid ?? null,
             })),
     }))
     .post(
@@ -2351,6 +2400,18 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                             </li>
                                         </ul>
 
+                                        <ClinicalDiagnosisSuggestions
+                                            v-if="suggestions && capabilities.can_create_diagnosis"
+                                            class="mt-3"
+                                            :suggestions="suggestions.diagnoses"
+                                            :orientation-uuid="orientation.uuid"
+                                            return-step="examen"
+                                            :protocol-count="suggestions.protocol_count"
+                                            :practice-cases="suggestions.practice_cases"
+                                            :practice-min-cases="suggestions.practice_min_cases"
+                                            :can-manage-protocols="suggestions.can_manage_protocols"
+                                        />
+
                                         <div class="mt-3">
                                             <ClinicalDiagnosisEntry
                                                 :orientation-uuid="orientation.uuid"
@@ -2507,7 +2568,12 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         <div class="flex items-center justify-between gap-3">
                                             <span class="font-semibold text-foreground">{{ item.name }}</span>
                                             <span v-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">{{ item.result_value }}</span>
-                                            <span v-else class="text-muted-foreground">En attente de résultat</span>
+                                            <!-- Une icône suffit à l'écran ; le sens reste dit au
+                                                 survol et au lecteur d'écran. -->
+                                            <span v-else class="inline-flex shrink-0 items-center text-amber-600 dark:text-amber-400" title="En attente de résultat">
+                                                <Hourglass class="h-4 w-4" aria-hidden="true" />
+                                                <span class="sr-only">En attente de résultat</span>
+                                            </span>
                                         </div>
                                         <p v-if="item.result_notes" class="mt-0.5 text-[11px] text-muted-foreground">{{ item.result_notes }}</p>
                                     </li>
@@ -2618,39 +2684,40 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                     <li v-for="item in request.items" :key="item.uuid" class="text-xs">
                                         <div class="flex items-center justify-between gap-3">
                                             <span class="font-semibold text-foreground">{{ item.name }}</span>
-                                            <span v-if="item.resulted_at" class="font-semibold text-emerald-600 dark:text-emerald-300">Compte rendu disponible</span>
-                                            <span v-else class="text-muted-foreground">En attente</span>
+                                            <!-- Une icône suffit : le badge de la demande dit
+                                                 déjà « Résultats disponibles ». Le sens reste
+                                                 au survol et au lecteur d'écran. -->
+                                            <span v-if="item.resulted_at" class="inline-flex shrink-0 items-center text-emerald-600 dark:text-emerald-400" title="Compte rendu enregistré">
+                                                <CircleCheck class="h-4 w-4" aria-hidden="true" />
+                                                <span class="sr-only">Compte rendu enregistré</span>
+                                            </span>
+                                            <Button
+                                                v-else-if="capabilities.can_record_imaging_result"
+                                                type="button"
+                                                size="xs"
+                                                variant="white-outline"
+                                                @click="reportingImagingItem = { uuid: item.uuid, exam: item.name }"
+                                            >
+                                                <PenLine class="h-3.5 w-3.5" aria-hidden="true" />Saisir le compte rendu
+                                            </Button>
+                                            <span v-else class="inline-flex shrink-0 items-center text-amber-600 dark:text-amber-400" title="En attente de compte rendu">
+                                                <Hourglass class="h-4 w-4" aria-hidden="true" />
+                                                <span class="sr-only">En attente de compte rendu</span>
+                                            </span>
                                         </div>
-                                        <!-- Le compte rendu est du texte enrichi, assaini
-                                             côté serveur (`ClinicalRichTextSanitizer`).
-                                             Interpolé par `{{ }}`, il s'affichait balises
-                                             comprises : « UTERUS<p>Orientation… ». Même
-                                             rendu que l'aperçu d'un motif de consultation
-                                             plus bas dans cet écran, tronqué pour qu'un
-                                             compte rendu long ne déroule pas la liste. -->
-                                        <ClinicalRichTextDisplay
-                                            v-if="item.resulted_at"
-                                            class="mt-0.5 line-clamp-3 text-[11px] leading-4 text-muted-foreground"
-                                            :html="item.result_value"
-                                        />
-                                        <p v-if="item.resulted_at && item.result_notes" class="mt-0.5 text-[11px] italic text-muted-foreground">{{ item.result_notes }}</p>
-                                        <form v-else-if="capabilities.can_record_imaging_result" class="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-muted/35 p-3" @submit.prevent="submitImagingResult(item)">
-                                            <!-- Le même champ que « Demandes d'examens »,
-                                                 donc le même éditeur : une saisie en texte
-                                                 brut ici et en texte enrichi là-bas remplit
-                                                 une seule colonne avec deux formats. -->
-                                            <ClinicalRichTextEditor
-                                                v-model="imagingResultForm(item.uuid).result_value"
-                                                min-height-class="min-h-32"
-                                                placeholder="Compte rendu (résultat)"
+                                        <!-- Un compte rendu enregistré se lit, il ne se
+                                             ressaisit pas : le serveur refuserait un second
+                                             compte rendu. Le formulaire était rattaché par
+                                             `v-else-if` à la ligne des *notes* : sans notes,
+                                             un éditeur vide s'affichait sous un compte rendu
+                                             déjà enregistré. -->
+                                        <template v-if="item.resulted_at">
+                                            <ClinicalRichTextDisplay
+                                                class="mt-0.5 line-clamp-3 text-[11px] leading-4 text-muted-foreground"
+                                                :html="item.result_value"
                                             />
-                                            <FormError :message="imagingResultForm(item.uuid).errors.result_value" />
-                                            <div class="flex justify-end"><!-- Pas de test de vacuité ici : un éditeur riche vide vaut
-                                                     `<p></p>`, que `.trim()` juge rempli. C'est le
-                                                     serveur qui tranche, après assainissement, et son
-                                                     message nomme ce qui manque. -->
-                                                <Button type="submit" size="sm" :disabled="imagingResultForm(item.uuid).processing">Enregistrer le compte rendu</Button></div>
-                                        </form>
+                                            <p v-if="item.result_notes" class="mt-0.5 text-[11px] italic text-muted-foreground">{{ item.result_notes }}</p>
+                                        </template>
                                     </li>
                                 </ul>
                                 <p v-if="request.notes" class="mt-1.5 text-[11px] text-muted-foreground">{{ request.notes }}</p>
@@ -2919,8 +2986,8 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         <td class="px-5 py-3">
                                             <span class="flex flex-wrap items-center gap-1.5">
                                                 <span class="font-semibold text-foreground">{{ line.medication_name }}</span>
-                                                <span v-if="line.is_manual_entry && line.catalog_review_status === 'PENDING'" class="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Hors référentiel</span>
-                                                <span v-else-if="line.is_manual_entry" class="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"><Check class="h-4 w-4" />Traité par la Pharmacie</span>
+                                                <Badge v-if="line.is_manual_entry && line.catalog_review_status === 'PENDING'" tone="warning" class="px-2 py-0.5 text-[10px]"><CircleAlert class="h-3 w-3" aria-hidden="true" />Hors référentiel</Badge>
+                                                <Badge v-else-if="line.is_manual_entry" tone="success" class="px-2 py-0.5 text-[10px]"><Check class="h-3 w-3" aria-hidden="true" />Traité par la Pharmacie</Badge>
                                             </span>
                                             <span v-if="line.instructions" class="mt-0.5 block text-xs text-muted-foreground">{{ line.instructions }}</span>
                                         </td>
@@ -2942,21 +3009,20 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                         </td>
                                     </tr>
                                     <tr v-if="editingPrescriptionUuid === prescription.uuid" class="bg-muted/35">
-                                        <td colspan="7" class="px-5 py-4">
+                                        <td colspan="8" class="px-5 py-4">
                                             <form class="space-y-3" @submit.prevent="updatePrescription(prescription.uuid)">
                                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                                     <div><p class="text-xs font-bold text-foreground">Modifier l’ordonnance</p><p class="mt-0.5 text-[11px] text-muted-foreground">Le médicament reste inchangé ; quantité et posologie peuvent être corrigées.</p></div>
-                                                    <button type="button" class="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Fermer la modification" @click="closePrescriptionEdit"><X class="h-4 w-4" /></button>
+                                                    <Button type="button" icon size="sm" variant="ghost" aria-label="Fermer la modification" @click="closePrescriptionEdit"><X class="h-4 w-4" aria-hidden="true" /></Button>
                                                 </div>
                                                 <div v-for="(editLine, editIndex) in prescriptionEditForm.lines" :key="editLine.id" class="grid gap-3 rounded border border-border bg-card p-3 md:grid-cols-12">
-                                                    <div v-if="editLine.is_manual_entry" class="md:col-span-3"><label :for="`edit-name-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Médicament (hors référentiel)</label><Input :id="`edit-name-${editLine.id}`" v-model="editLine.medication_name" /></div>
+                                                    <FormField v-if="editLine.is_manual_entry" class="md:col-span-3" label="Médicament" hint="· hors référentiel" :for="`edit-name-${editLine.id}`"><Input :id="`edit-name-${editLine.id}`" v-model="editLine.medication_name" /></FormField>
                                                     <div v-else class="md:col-span-3"><p class="text-xs font-semibold text-foreground">{{ editLine.medication_name }}</p><p class="mt-1 text-[11px] text-muted-foreground">Stock mobilisable : {{ editLine.available_quantity }} {{ editLine.unit || 'unité(s)' }}</p></div>
-                                                    <div class="md:col-span-2"><label :for="`edit-quantity-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Quantité</label><Input :id="`edit-quantity-${editLine.id}`" v-model.number="editLine.quantity" type="number" min="1" :max="editLine.is_manual_entry ? undefined : editLine.available_quantity" :disabled="!editLine.stock_linked && !editLine.is_manual_entry" /></div>
-                                                    <div class="md:col-span-2"><label :for="`edit-dosage-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Dose *</label><Input :id="`edit-dosage-${editLine.id}`" v-model="editLine.dosage" placeholder="Ex. 500 mg" /></div>
-                                                    <div class="md:col-span-2"><label :for="`edit-frequency-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Fréquence *</label><Input :id="`edit-frequency-${editLine.id}`" v-model="editLine.frequency" placeholder="Ex. 3×/jour" /></div>
-                                                    <div class="md:col-span-3"><label :for="`edit-duration-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Durée</label><Input :id="`edit-duration-${editLine.id}`" v-model="editLine.duration" /></div>
-                                                    <div class="md:col-span-12"><label :for="`edit-instructions-${editLine.id}`" class="mb-1 block text-xs font-medium text-muted-foreground">Instructions</label><Input :id="`edit-instructions-${editLine.id}`" v-model="editLine.instructions" placeholder="Voie, moment de prise ou précaution" /></div>
-                                                    <FormError class="md:col-span-12" :message="prescriptionEditForm.errors[`lines.${editIndex}.quantity`] || prescriptionEditForm.errors[`lines.${editIndex}.dosage`] || prescriptionEditForm.errors[`lines.${editIndex}.frequency`]" />
+                                                    <FormField class="md:col-span-2" label="Quantité" required :error="prescriptionEditForm.errors[`lines.${editIndex}.quantity`]"><Input :id="`edit-quantity-${editLine.id}`" v-model.number="editLine.quantity" type="number" min="1" :max="editLine.is_manual_entry ? undefined : editLine.available_quantity" :disabled="!editLine.stock_linked && !editLine.is_manual_entry" /></FormField>
+                                                    <FormField class="md:col-span-2" label="Dose" required :error="prescriptionEditForm.errors[`lines.${editIndex}.dosage`]"><Input :id="`edit-dosage-${editLine.id}`" v-model="editLine.dosage" placeholder="Ex. 500 mg" /></FormField>
+                                                    <FormField class="md:col-span-2" label="Fréquence" required :error="prescriptionEditForm.errors[`lines.${editIndex}.frequency`]"><Input :id="`edit-frequency-${editLine.id}`" v-model="editLine.frequency" placeholder="Ex. 3×/jour" /></FormField>
+                                                    <FormField class="md:col-span-3" label="Durée" hint="· facultatif"><Input :id="`edit-duration-${editLine.id}`" v-model="editLine.duration" placeholder="Ex. 7 jours" /></FormField>
+                                                    <FormField class="md:col-span-12" label="Instructions" hint="· facultatif"><Input :id="`edit-instructions-${editLine.id}`" v-model="editLine.instructions" placeholder="Voie, moment de prise ou précaution" /></FormField>
                                                 </div>
                                                 <FormError :message="prescriptionEditForm.errors.lines || prescriptionEditForm.errors.prescription" />
                                                 <div class="flex justify-end gap-2"><Button type="button" size="rg" variant="white-outline" :disabled="prescriptionEditForm.processing" @click="closePrescriptionEdit"><X class="h-4 w-4 me-1.5" />Fermer</Button><Button type="submit" size="rg" :disabled="prescriptionEditForm.processing || !prescriptionEditStockIsValid"><Save class="h-4 w-4 me-1.5" />Enregistrer</Button></div>
@@ -2970,10 +3036,29 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     <p v-else-if="!consultation.prescriptions.length" class="px-5 py-6 text-sm text-muted-foreground">Aucune ordonnance active.</p>
 
                     <form v-if="capabilities.can_create_prescription" id="medicine-prescription-form" class="border-t border-border bg-muted/35 p-5" @submit.prevent="openPrescriptionConfirmation">
-                        <div class="mb-4">
-                            <h3 class="text-sm font-bold text-foreground">Nouvelle ordonnance</h3>
-                            <p class="mt-1 text-xs text-muted-foreground">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
+                        <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <h3 class="text-sm font-bold text-foreground">Nouvelle ordonnance</h3>
+                                <p class="mt-1 text-xs leading-5 text-muted-foreground">Sélectionnez uniquement un médicament réellement disponible. La validation réserve la quantité ; la délivrance reste à la Pharmacie.</p>
+                            </div>
+                            <Badge v-if="prescriptionForm.lines.length" tone="primary" class="shrink-0">
+                                <Pill class="h-3.5 w-3.5" aria-hidden="true" />{{ prescriptionForm.lines.length }} ligne{{ prescriptionForm.lines.length > 1 ? 's' : '' }}
+                            </Badge>
                         </div>
+
+                        <ClinicalPrescriptionSuggestions
+                            v-if="suggestions"
+                            class="mb-4"
+                            :prescription="suggestions.prescription"
+                            :selected-uuids="selectedMedicineUuids"
+                            :protocol-count="suggestions.protocol_count"
+                            :practice-cases="suggestions.practice_cases"
+                            :practice-min-cases="suggestions.practice_min_cases"
+                            :has-diagnosis="activeDiagnoses.length > 0"
+                            :can-manage-protocols="suggestions.can_manage_protocols"
+                            :routes="options.administration_routes"
+                            @add="addSuggestedPrescriptionLine"
+                        />
 
                         <!-- La séparation se déplace selon le moment : large catalogue pour
                              chercher, large ordonnance pour régler les posologies. Le choix
@@ -2988,72 +3073,112 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             end-label="panneau Prescription en préparation"
                         >
                             <template #start>
-                            <section class="overflow-hidden rounded border border-border bg-card" aria-labelledby="medicine-catalog-title">
+                            <section class="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm" aria-labelledby="medicine-catalog-title">
                                 <div class="border-b border-border p-3">
-                                    <div class="mb-1.5 flex items-center justify-between gap-2">
-                                        <label id="medicine-catalog-title" for="medicine-search" class="block text-xs font-bold text-muted-foreground">Médicaments disponibles</label>
-                                        <button type="button" class="shrink-0 text-xs font-semibold text-primary hover:underline" @click="addManualPrescriptionLine"><Plus class="h-4 w-4 me-1" />Médicament introuvable ?</button>
+                                    <div class="mb-2 flex items-center justify-between gap-2">
+                                        <label id="medicine-catalog-title" for="medicine-search" class="block text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Médicaments disponibles</label>
+                                        <!-- ADR-037 — la ligne manuelle n'est pas un recours
+                                             caché : elle est proposée là où le médecin
+                                             constate que le produit manque. -->
+                                        <Button type="button" size="xs" variant="ghost" class="shrink-0 text-primary hover:text-primary" @click="addManualPrescriptionLine">
+                                            <Plus class="h-3.5 w-3.5" aria-hidden="true" />Médicament introuvable ?
+                                        </Button>
                                     </div>
-                                    <div class="relative">
-                                        <Search class="h-4 w-4 pointer-events-none absolute inset-y-0 start-3 my-auto  text-muted-foreground" />
-                                        <Input id="medicine-search" v-model="medicineSearch" class="ps-9" placeholder="Nom, DCI, dosage ou code…" autocomplete="off" />
-                                    </div>
+                                    <IconInput id="medicine-search" v-model="medicineSearch" :icon="Search" placeholder="Nom, DCI, dosage ou code…" autocomplete="off" />
                                 </div>
 
-                                <div v-if="filteredMedicines.length" class="max-h-[430px] divide-y divide-border overflow-y-auto">
+                                <div v-if="filteredMedicines.length" class="max-h-[430px] flex-1 divide-y divide-border overflow-y-auto">
                                     <button
                                         v-for="medicine in filteredMedicines"
                                         :key="medicine.uuid"
                                         type="button"
                                         :disabled="!medicine.available || selectedMedicineUuids.has(medicine.uuid)"
-                                        class="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-muted/35 disabled:cursor-not-allowed disabled:bg-muted/35"
+                                        class="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-muted/40 disabled:hover:bg-muted/40"
                                         @click="addPrescriptionMedicine(medicine)"
                                     >
-                                        <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded border text-base', medicine.available ? 'border-border bg-card text-primary' : 'border-red-100 bg-red-50 text-red-500 dark:border-red-950 dark:bg-red-950/20']"><component :is="medicine.available ? Plus : X" class="h-4 w-4" /></span>
+                                        <!-- Trois états, jamais deux : disponible, déjà
+                                             retenu, épuisé. Confondus, le médecin relisait
+                                             « épuisé » sur un produit qu'il venait lui-même
+                                             d'ajouter. -->
+                                        <span
+                                            v-if="selectedMedicineUuids.has(medicine.uuid)"
+                                            class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                        ><Check class="h-4 w-4" aria-hidden="true" /></span>
+                                        <span
+                                            v-else-if="medicine.available"
+                                            class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-card text-primary"
+                                        ><Plus class="h-4 w-4" aria-hidden="true" /></span>
+                                        <span
+                                            v-else
+                                            class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-destructive/20 bg-destructive/10 text-destructive"
+                                        ><X class="h-4 w-4" aria-hidden="true" /></span>
+
                                         <span class="min-w-0 flex-1">
                                             <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                <strong class="truncate text-sm text-foreground">{{ medicine.name }}</strong>
+                                                <strong class="truncate text-sm font-semibold text-foreground">{{ medicine.name }}</strong>
                                                 <span v-if="medicine.strength" class="text-xs text-muted-foreground">{{ medicine.strength }}</span>
                                             </span>
                                             <span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ medicine.generic_name || medicine.form_label }} · {{ medicine.code }}</span>
                                         </span>
-                                        <span class="shrink-0 text-end">
-                                            <strong :class="['block text-sm', medicine.available ? 'text-foreground' : 'text-red-600 dark:text-red-300']">{{ medicine.available_quantity }} {{ medicine.unit }}</strong>
-                                            <span v-if="!medicine.available" class="text-[11px] font-semibold text-red-600 dark:text-red-300">Épuisé</span>
-                                            <span v-else-if="medicine.nearest_expiration" :class="['text-[11px]', medicine.expiring_soon ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-muted-foreground']">Péremption {{ formatDate(medicine.nearest_expiration) }}</span>
+
+                                        <span class="flex shrink-0 flex-col items-end gap-1">
+                                            <strong :class="['text-sm tabular-nums', medicine.available ? 'text-foreground' : 'text-destructive']">{{ medicine.available_quantity }} {{ medicine.unit }}</strong>
+                                            <Badge v-if="selectedMedicineUuids.has(medicine.uuid)" tone="success" class="px-2 py-0.5 text-[10px]">Dans l’ordonnance</Badge>
+                                            <Badge v-else-if="!medicine.available" tone="danger" class="px-2 py-0.5 text-[10px]">Épuisé</Badge>
+                                            <Badge v-else-if="medicine.expiring_soon && medicine.nearest_expiration" tone="warning" class="px-2 py-0.5 text-[10px]">Péremption {{ formatDate(medicine.nearest_expiration) }}</Badge>
+                                            <span v-else-if="medicine.nearest_expiration" class="text-[11px] text-muted-foreground">Péremption {{ formatDate(medicine.nearest_expiration) }}</span>
                                         </span>
                                     </button>
                                 </div>
-                                <div v-else class="px-4 py-8 text-center">
-                                    <Search class="mx-auto h-4 w-4 text-muted-foreground" />
-                                    <p class="mt-2 text-sm font-semibold text-muted-foreground">Aucun médicament trouvé</p>
-                                    <p class="mt-1 text-xs text-muted-foreground">Vérifiez la recherche ou le stock Pharmacie.</p>
+                                <div v-else class="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+                                    <span class="grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><Search class="h-5 w-5" aria-hidden="true" /></span>
+                                    <p class="mt-3 text-sm font-semibold text-foreground">Aucun médicament trouvé</p>
+                                    <p class="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">Vérifiez la recherche ou le stock Pharmacie. Un produit absent du référentiel s’ajoute avec « Médicament introuvable ? ».</p>
                                 </div>
                             </section>
                             </template>
                             <template #end>
-                            <section class="overflow-hidden rounded border border-border bg-card" aria-labelledby="prescription-selection-title">
-                                <div class="flex items-center justify-between border-b border-border px-4 py-3">
-                                    <div>
-                                        <h4 id="prescription-selection-title" class="text-xs font-bold text-muted-foreground">Prescription en préparation</h4>
-                                        <p class="mt-0.5 text-[11px] text-muted-foreground">{{ prescriptionForm.lines.length }} médicament(s)</p>
+                            <section class="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm" aria-labelledby="prescription-selection-title">
+                                <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                                    <div class="min-w-0">
+                                        <h4 id="prescription-selection-title" class="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Prescription en préparation</h4>
+                                        <p class="mt-0.5 text-xs text-muted-foreground">{{ prescriptionForm.lines.length }} médicament{{ prescriptionForm.lines.length > 1 ? 's' : '' }}</p>
                                     </div>
-                                    <FileText class="h-4 w-4 text-muted-foreground" />
+                                    <FileText class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                                 </div>
 
-                                <div v-if="prescriptionForm.lines.length" class="max-h-[560px] space-y-3 overflow-y-auto p-3">
-                                    <div v-for="(line, index) in prescriptionForm.lines" :key="line._key" class="rounded border border-border p-3">
-                                        <div class="mb-3 flex items-start justify-between gap-3">
+                                <div v-if="prescriptionForm.lines.length" class="max-h-[560px] flex-1 space-y-3 overflow-y-auto p-3">
+                                    <article v-for="(line, index) in prescriptionForm.lines" :key="line._key" class="rounded-xl border border-border bg-card p-3 shadow-sm transition-shadow focus-within:shadow-md">
+                                        <header class="mb-3 flex items-start justify-between gap-3">
                                             <div v-if="line.manual" class="min-w-0 flex-1">
-                                                <label :for="`manual-name-${index}`" class="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><CircleAlert class="h-4 w-4" />Hors référentiel Pharmacie</label>
+                                                <label :for="`manual-name-${index}`" class="mb-1.5 flex h-6 items-center gap-1.5 text-sm font-medium text-foreground">
+                                                    <Badge tone="warning" class="px-2 py-0.5 text-[10px]"><CircleAlert class="h-3 w-3" aria-hidden="true" />Hors référentiel</Badge>
+                                                </label>
                                                 <Input :id="`manual-name-${index}`" v-model="line.medication_name" placeholder="Nom du médicament" />
                                             </div>
-                                            <div v-else class="min-w-0">
+                                            <div v-else class="min-w-0 flex-1">
                                                 <p class="truncate text-sm font-bold text-foreground">{{ medicineForLine(line)?.name }}</p>
-                                                <p class="mt-0.5 text-xs text-muted-foreground">{{ medicineForLine(line)?.form_label }}<template v-if="medicineForLine(line)?.strength"> · {{ medicineForLine(line)?.strength }}</template></p>
+                                                <p class="mt-0.5 truncate text-xs text-muted-foreground">{{ medicineForLine(line)?.form_label }}<template v-if="medicineForLine(line)?.strength"> · {{ medicineForLine(line)?.strength }}</template></p>
+                                                <!-- L'origine reste visible jusqu'à la validation : le
+                                                     médecin sait ce qu'il relit, et l'ajuste en
+                                                     connaissance de cause. -->
+                                                <Badge v-if="line.suggestion_source" tone="info" class="mt-1.5 px-2 py-0.5 text-[10px]">
+                                                    <BookMarked class="h-3 w-3" aria-hidden="true" />Proposé · {{ line.suggestion_label }}
+                                                </Badge>
                                             </div>
-                                            <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-red-100 text-red-600 hover:bg-red-50 dark:border-red-950 dark:text-red-300 dark:hover:bg-red-950/20" title="Retirer" @click="removePrescriptionLine(index)"><Trash2 class="h-4 w-4" /></button>
-                                        </div>
+                                            <Button
+                                                type="button"
+                                                icon
+                                                variant="ghost"
+                                                size="sm"
+                                                class="shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                :title="`Retirer ${line.manual ? (line.medication_name || 'cette ligne') : (medicineForLine(line)?.name ?? 'cette ligne')}`"
+                                                @click="removePrescriptionLine(index)"
+                                            >
+                                                <Trash2 class="h-4 w-4" aria-hidden="true" />
+                                                <span class="sr-only">Retirer de l’ordonnance</span>
+                                            </Button>
+                                        </header>
 
                                         <PrescriptionLineEditor
                                             :line="line"
@@ -3063,24 +3188,32 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                             :error-for="(field) => prescriptionForm.errors[`lines.${index}.${field}`]"
                                             @update="updatePrescriptionLine(index, $event)"
                                         />
-                                        <p v-if="!line.manual" class="mt-1 text-[11px] text-muted-foreground">Disponible en Pharmacie : {{ medicineForLine(line)?.available_quantity }} {{ medicineForLine(line)?.unit }}</p>
-                                        <p v-else class="mt-1 text-[11px] text-muted-foreground">Sans lien de stock — non suivi par la Pharmacie.</p>
-                                        <p v-if="line.manual" class="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300"><Info class="h-4 w-4" />Sera transmis pour validation avant d’entrer en stock Pharmacie. Aucun prix n’est demandé ici.</p>
-                                        <p v-else-if="Number(line.quantity) > medicineForLine(line)?.available_quantity" class="mt-2 flex items-center gap-1.5 text-xs font-semibold text-red-600 dark:text-red-300"><Info class="h-4 w-4" />Quantité supérieure au stock disponible. L’ordonnance sera bloquée.</p>
-                                        <FormError :message="prescriptionForm.errors[`lines.${index}.medicine_uuid`] || prescriptionForm.errors[`lines.${index}.medication_name`] || prescriptionForm.errors[`lines.${index}.quantity`] || prescriptionForm.errors[`lines.${index}.dosage`] || prescriptionForm.errors[`lines.${index}.frequency`]" />
-                                    </div>
+
+                                        <!-- Ce que la Pharmacie tient encore, et ce que la
+                                             ligne engage : lu ici, jamais saisi (ADR-036). -->
+                                        <p v-if="!line.manual" class="mt-2.5 text-[11px] text-muted-foreground">Disponible en Pharmacie : <span class="font-semibold text-foreground tabular-nums">{{ medicineForLine(line)?.available_quantity }} {{ medicineForLine(line)?.unit }}</span></p>
+                                        <p v-else class="mt-2.5 text-[11px] text-muted-foreground">Sans lien de stock — non suivi par la Pharmacie.</p>
+
+                                        <p v-if="line.manual" class="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-4 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                            <Info class="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />Sera transmis pour validation avant d’entrer en stock Pharmacie. Aucun prix n’est demandé ici.
+                                        </p>
+                                        <p v-else-if="Number(line.quantity) > medicineForLine(line)?.available_quantity" class="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px] font-semibold leading-4 text-destructive">
+                                            <Info class="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />Quantité supérieure au stock disponible. L’ordonnance sera bloquée.
+                                        </p>
+                                        <FormError :message="prescriptionForm.errors[`lines.${index}.medicine_uuid`] || prescriptionForm.errors[`lines.${index}.medication_name`]" />
+                                    </article>
                                 </div>
-                                <div v-else class="flex min-h-48 flex-col items-center justify-center px-6 py-8 text-center">
-                                    <FileText class="mx-auto h-4 w-4 text-muted-foreground" />
-                                    <p class="mt-2 text-sm font-semibold text-muted-foreground">Ordonnance vide</p>
-                                    <p class="mt-1 max-w-xs text-xs text-muted-foreground">Choisissez un médicament dans la liste. Les produits épuisés ne peuvent pas être ajoutés.</p>
+                                <div v-else class="flex min-h-48 flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+                                    <span class="grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><FileText class="h-5 w-5" aria-hidden="true" /></span>
+                                    <p class="mt-3 text-sm font-semibold text-foreground">Ordonnance vide</p>
+                                    <p class="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">Choisissez un médicament dans la liste. Les produits épuisés ne peuvent pas être ajoutés.</p>
                                 </div>
                             </section>
                             </template>
                         </ResizableSplit>
 
-                        <div class="mt-4 flex items-start gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
-                            <ShieldCheck class="h-4 w-4 mt-0.5 shrink-0  text-primary" />
+                        <div class="mt-4 flex items-start gap-2 border-t border-border pt-4 text-xs leading-5 text-muted-foreground">
+                            <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                             <p>La validation contrôle à nouveau le stock et réserve les quantités disponibles. La délivrance reste à la Pharmacie.</p>
                         </div>
                         <FormError :message="prescriptionForm.errors.lines" />
@@ -3168,6 +3301,18 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 return-step="cloture"
                             />
                             <p v-else class="mt-1 text-[11px] leading-4 text-muted-foreground">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
+
+                            <ClinicalDiagnosisSuggestions
+                                v-if="suggestions && capabilities.can_create_diagnosis"
+                                class="mt-3"
+                                :suggestions="suggestions.diagnoses"
+                                :orientation-uuid="orientation.uuid"
+                                return-step="cloture"
+                                :protocol-count="suggestions.protocol_count"
+                                :practice-cases="suggestions.practice_cases"
+                                :practice-min-cases="suggestions.practice_min_cases"
+                                :can-manage-protocols="suggestions.can_manage_protocols"
+                            />
 
                             <!-- ADR-095 — la question est posée ici, la seule
                                  étape que tout patient atteint : un passage
@@ -3461,7 +3606,18 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
 
         <!-- Signer une ordonnance. Même format que la demande d'examen :
              ce qui est signé, nommé, et par qui. -->
-        <ShadcnDialog
+        <!-- ADR-108 — la saisie d'un compte rendu, la même qu'à « Demandes
+         d'examens ». -->
+    <ImagingReportDialog
+        :item="reportingImagingItem"
+        :orientation-uuid="orientation.uuid"
+        :subtitle="`${patient.first_name} ${patient.last_name} · Passage ${episode.episode_number}`"
+        :templates="options.imaging_report_templates ?? []"
+        @close="reportingImagingItem = null"
+        @saved="reportingImagingItem = null"
+    />
+
+    <ShadcnDialog
             :open="showPrescriptionConfirmation"
             title="Confirmer l’ordonnance"
             :description="`${patient.first_name} ${patient.last_name} · ${patient.patient_number} · Passage ${episode.episode_number}`"

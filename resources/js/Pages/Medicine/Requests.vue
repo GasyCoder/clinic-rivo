@@ -3,12 +3,13 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { Archive, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FileText, FlaskConical, LoaderCircle, PenLine, Printer, ScanLine, Search, Trash2 } from 'lucide-vue-next';
+import { Archive, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, LoaderCircle, PenLine, Printer, ScanLine, Search, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
-import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor.vue';
+import ImagingReportDialog from '@/Components/Clinical/ImagingReportDialog.vue';
+import ImagingReportDocument from '@/Components/Medicine/ImagingReportDocument.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { cn } from '@/lib/cn';
@@ -105,72 +106,26 @@ const familyIcon = (kind) => (kind === 'lab' ? FlaskConical : ScanLine);
  */
 const reporting = ref(null);
 
-const reportForm = useForm({ result_value: '', result_notes: '' });
-
 const openReport = (request, item) => {
     reporting.value = { request, item };
-    reportForm.reset();
-    reportForm.clearErrors();
 };
 
 const closeReport = () => {
     reporting.value = null;
-    pendingTemplate.value = null;
 };
 
 /**
- * Les feuilles de la clinique (ADR-108).
- *
- * Le médecin choisit la sienne : **rien n'est déduit du nom de l'examen**
- * (ADR-052). « Échographie pelvienne » et « échographie abdomino-pelvienne »
- * se ressemblent assez pour qu'une correspondance automatique finisse par
- * insérer la mauvaise, et un compte rendu commencé sur le mauvais canevas se
- * relit mal.
+ * La saisie elle-même vit dans `ImagingReportDialog`, partagée avec la
+ * consultation : un seul outil pour écrire un compte rendu, où qu'on
+ * l'ouvre. Cet écran ne garde que ce qui lui est propre — suivre la demande
+ * qui vient de quitter l'onglet « Active ».
  */
-const pendingTemplate = ref(null);
+const reportSaved = () => {
+    closeReport();
 
-const hasReportContent = computed(() => reportForm.result_value
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;|\u00a0/g, ' ')
-    .trim() !== '');
-
-const chooseTemplate = (template) => {
-    // Une feuille remplace tout le compte rendu. Sur un champ déjà écrit,
-    // c'est une perte de saisie : on demande avant, on n'écrase jamais.
-    if (hasReportContent.value) {
-        pendingTemplate.value = template;
-
-        return;
+    if (activeFilter.value === 'active') {
+        selectFilter('recent');
     }
-
-    applyTemplate(template);
-};
-
-const applyTemplate = (template) => {
-    reportForm.result_value = template.body_html;
-    pendingTemplate.value = null;
-};
-
-const submitReport = () => {
-    if (!reporting.value) {
-        return;
-    }
-
-    const { request, item } = reporting.value;
-
-    reportForm.post(`/medicine/orientations/${request.orientation_uuid}/imaging-requests/${item.uuid}/result`, {
-        preserveScroll: true,
-        onSuccess: () => {
-            closeReport();
-            // La demande vient de changer de statut : elle a quitté l'onglet
-            // où on la regardait. On suit le dossier plutôt que de laisser
-            // le médecin devant une ligne qui a disparu sous ses yeux.
-            // La demande vient de quitter « Active » : elle a un résultat.
-            if (activeFilter.value === 'active') {
-                selectFilter('recent');
-            }
-        },
-    });
 };
 
 /* ── Lecture d'un compte rendu ─────────────────────────────────────────── */
@@ -436,92 +391,22 @@ const submitWithdraw = () => {
             </template>
         </Card>
 
-        <!-- La feuille de compte rendu. Elle ne réécrit jamais : le serveur
-             refuse un second compte rendu sur le même examen. -->
-        <Dialog
-            :open="reporting !== null"
-            size="wide"
-            body-class="max-h-[78vh] overflow-y-auto"
-            :dismissible="false"
-            :title="reporting ? `Compte rendu — ${reporting.item.exam}` : 'Compte rendu'"
-            :description="reporting ? `${reporting.request.patient.name} · ${reporting.request.episode_number}` : ''"
-            @update:open="(value) => value || closeReport()"
-        >
-            <template #icon><PenLine class="h-5 w-5" /></template>
-
-            <!-- Une feuille en paysage : les deux champs côte à côte sur un
-                 écran large, empilés en dessous. Le compte rendu occupe les
-                 deux tiers — c'est lui que le médecin écrit vraiment. -->
-            <form v-if="reporting" class="space-y-4" @submit.prevent="submitReport">
-                <div class="grid gap-4 lg:grid-cols-3">
-                    <div class="lg:col-span-2">
-                        <label for="imaging_report" class="mb-1.5 block text-xs font-bold text-foreground">
-                            Compte rendu <span class="text-destructive">*</span>
-                        </label>
-
-                        <!-- ADR-108 — les feuilles de la clinique. Le médecin
-                             choisit la sienne : rien n'est déduit du nom de
-                             l'examen (ADR-052). L'en-tête, l'identité du
-                             patient et la signature ne sont pas dans le
-                             canevas : l'impression les porte déjà. -->
-                        <div v-if="reportTemplates.length" class="mb-2 flex flex-wrap items-center gap-1.5">
-                            <span class="text-[11px] font-semibold text-muted-foreground">Feuille :</span>
-                            <Button
-                                v-for="template in reportTemplates"
-                                :key="template.key"
-                                type="button"
-                                size="sm"
-                                variant="white-outline"
-                                :title="template.description"
-                                @click="chooseTemplate(template)"
-                            >
-                                <FileText class="h-3.5 w-3.5" />{{ template.label }}
-                            </Button>
-                        </div>
-
-                        <ClinicalRichTextEditor
-                            id="imaging_report"
-                            v-model="reportForm.result_value"
-                            :max-length="5000"
-                            min-height-class="min-h-[48vh]"
-                            placeholder="Technique, constatations, conclusion…"
-                        />
-                        <FormError class="mt-1" :message="reportForm.errors.result_value" />
-                    </div>
-
-                    <div>
-                        <label for="imaging_notes" class="mb-1.5 block text-xs font-bold text-foreground">
-                            Observations complémentaires <span class="font-normal text-muted-foreground">· facultatif</span>
-                        </label>
-                        <ClinicalRichTextEditor
-                            id="imaging_notes"
-                            v-model="reportForm.result_notes"
-                            :max-length="5000"
-                            min-height-class="min-h-[48vh]"
-                            placeholder="Ce que le compte rendu ne porte pas."
-                        />
-                        <FormError class="mt-1" :message="reportForm.errors.result_notes" />
-                    </div>
-                </div>
-
-                <p class="text-[11px] leading-4 text-muted-foreground">
-                    Un compte rendu enregistré n’est jamais réécrit : la demande cesse d’attendre un résultat et ne peut plus être retirée.
-                </p>
-            </form>
-
-            <template #footer>
-                <Button type="button" variant="white-outline" size="sm" @click="closeReport">Annuler</Button>
-                <Button type="button" size="sm" :disabled="reportForm.processing" @click="submitReport">
-                    <CircleCheck class="h-4 w-4" />Enregistrer le compte rendu
-                </Button>
-            </template>
-        </Dialog>
+        <!-- La feuille de compte rendu, partagée avec la consultation. Elle
+             ne réécrit jamais : le serveur refuse un second compte rendu. -->
+        <ImagingReportDialog
+            :item="reporting ? { uuid: reporting.item.uuid, exam: reporting.item.exam } : null"
+            :orientation-uuid="reporting?.request.orientation_uuid ?? ''"
+            :subtitle="reporting ? `${reporting.request.patient.name} · ${reporting.request.episode_number}` : ''"
+            :templates="reportTemplates"
+            @close="closeReport"
+            @saved="reportSaved"
+        />
 
         <!-- Le compte rendu, lu sur place. Lecture seule : la correction
              d'un résultat enregistré n'existe pas encore. -->
         <Dialog
             :open="viewing !== null"
-            size="xl"
+            size="wide"
             body-class="max-h-[72vh] overflow-y-auto"
             :title="viewing ? `Résultat — ${viewing.patient.name}` : 'Résultat'"
             :description="viewing ? `${viewing.patient.number} · ${viewing.episode_number}` : ''"
@@ -543,14 +428,22 @@ const submitWithdraw = () => {
                         </Button>
                     </div>
 
-                    <!-- Déjà assaini par ClinicalRichTextSanitizer : mise en
-                         forme seulement, ni lien, ni média, ni script. -->
-                    <div class="rq-report" v-html="item.report" />
-
-                    <div v-if="item.notes">
-                        <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Observations complémentaires</p>
-                        <div class="rq-report" v-html="item.notes" />
+                    <!-- ADR-108 — un compte rendu d'imagerie se lit sur la
+                         feuille de la clinique, exactement celle qui
+                         s'imprime. Un résultat d'analyse reste du texte. -->
+                    <div v-if="item.document" class="overflow-x-auto rounded-lg border border-border">
+                        <ImagingReportDocument :document="item.document" />
                     </div>
+                    <template v-else>
+                        <!-- Déjà assaini par ClinicalRichTextSanitizer : mise en
+                             forme seulement, ni lien, ni média, ni script. -->
+                        <div class="rq-report" v-html="item.report" />
+
+                        <div v-if="item.notes">
+                            <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Observations complémentaires</p>
+                            <div class="rq-report" v-html="item.notes" />
+                        </div>
+                    </template>
                 </section>
             </div>
 
@@ -608,34 +501,6 @@ const submitWithdraw = () => {
             </template>
         </Dialog>
 
-        <!-- Une feuille remplace tout le compte rendu. Sur un champ déjà
-             écrit, c'est une perte de saisie : on demande avant. -->
-        <Dialog
-            :open="pendingTemplate !== null"
-            title="Remplacer le compte rendu ?"
-            :description="pendingTemplate?.label ?? ''"
-            :dismissible="false"
-            close-label="Conserver ma saisie"
-            @update:open="pendingTemplate = null"
-        >
-            <template #icon>
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                    <FileText class="h-5 w-5" />
-                </span>
-            </template>
-
-            <p class="text-xs leading-5 text-muted-foreground">
-                Ce compte rendu porte déjà du texte. Insérer cette feuille le remplacera entièrement.
-                Rien n’est encore enregistré : vous pouvez revenir en arrière.
-            </p>
-
-            <template #footer>
-                <Button type="button" variant="outline" @click="pendingTemplate = null">Conserver ma saisie</Button>
-                <Button type="button" @click="applyTemplate(pendingTemplate)">
-                    <FileText class="h-4 w-4" />Insérer la feuille
-                </Button>
-            </template>
-        </Dialog>
     </div>
 </template>
 

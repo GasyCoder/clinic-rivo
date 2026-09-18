@@ -35,6 +35,9 @@ use App\Models\EpisodeServiceRequest;
 use App\Models\ImagingRequestItem;
 use App\Models\LabRequestItem;
 use App\Services\Billing\PlannedServiceBilling;
+use App\Services\Medicine\ClinicalProtocolMatcher;
+use App\Services\Medicine\ClinicPracticeAdvisor;
+use App\Services\Medicine\ClinicPracticeIndex;
 
 class MedicineDossierPresenter
 {
@@ -45,6 +48,8 @@ class MedicineDossierPresenter
         private readonly ClinicalRichTextSanitizer $richText,
         private readonly ConsultationWorkflow $workflow,
         private readonly PlannedServiceBilling $plannedBilling,
+        private readonly ClinicalProtocolMatcher $protocols,
+        private readonly ClinicPracticeAdvisor $practice,
     ) {}
 
     /** @return array<string, mixed> */
@@ -583,6 +588,10 @@ class MedicineDossierPresenter
                         'label' => $type->label(),
                         'form_title' => $type->formTitle(),
                     ])->values(),
+                // ADR-108 — les feuilles de compte rendu, servies ici comme à
+                // « Demandes d'examens » : la consultation ouvre la même
+                // saisie, pas une version appauvrie.
+                'imaging_report_templates' => $user->can('imaging_results.create') ? ImagingReportTemplates::all() : [],
                 'administration_routes' => collect(AdministrationRoute::cases())->map(fn (AdministrationRoute $r) => [
                     'value' => $r->value, 'label' => $r->label(), 'short_label' => $r->shortLabel(),
                 ])->values(),
@@ -643,6 +652,12 @@ class MedicineDossierPresenter
                 'transfer_destinations' => $transferDestinations,
             ],
             'pending_reasons' => $pendingReasons,
+            'clinical_suggestions' => $this->clinicalSuggestions(
+                $consultation,
+                $isActive && $user->can('diagnoses.create'),
+                $isActive && $user->can('prescriptions.create') && $canViewPharmacyAvailability,
+                $user->can('clinical_protocols.manage'),
+            ),
             'capabilities' => [
                 'can_view_medical_record' => $canViewMedicalRecord,
                 'can_update_consultation' => $isActive && $user->can('consultations.update'),
@@ -837,6 +852,99 @@ class MedicineDossierPresenter
      *
      * @return array<int, array{catalog_item_uuid: string, name: string, code: ?string, module: string, modality: ?string, already_billed: bool}>
      */
+    /**
+     * ADR-111 — ce que les protocoles de la clinique proposent pour ce
+     * dossier : des diagnostics tant qu'aucun n'est posé, une ordonnance dès
+     * qu'il y en a un.
+     *
+     * Calculé à chaque affichage, jamais enregistré : une proposition n'est
+     * pas un fait clinique. Ce qui est enregistré, c'est ce que le médecin en
+     * retient, avec l'origine de la proposition (`suggestion_source`).
+     *
+     * La disponibilité en stock est jointe ici, par le même calcul que la
+     * liste du catalogue : un produit épuisé reste visible — le protocole le
+     * prévoit — mais n'est jamais ajoutable.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function clinicalSuggestions(
+        ?Consultation $consultation,
+        bool $canDiagnose,
+        bool $canPrescribe,
+        bool $canManageProtocols,
+    ): ?array {
+        if ($consultation === null || (! $canDiagnose && ! $canPrescribe)) {
+            return null;
+        }
+
+        $context = $this->protocols->context($consultation);
+
+        // Protocoles d'abord : ils sont la décision écrite de la clinique. La
+        // pratique observée ne complète que ce qu'aucun protocole ne couvre.
+        $protocolDiagnoses = $canDiagnose ? $this->protocols->suggestDiagnoses($consultation, $context) : [];
+        $diagnoses = $canDiagnose
+            ? [...$protocolDiagnoses, ...$this->practice->suggestDiagnoses(
+                $consultation,
+                $context,
+                array_column($protocolDiagnoses, 'diagnostic_catalog_uuid'),
+            )]
+            : [];
+
+        $groups = [];
+        $excluded = [];
+
+        if ($canPrescribe) {
+            $protocolPrescription = $this->protocols->suggestPrescription($consultation, $context);
+            $covered = array_column($protocolPrescription['protocols'], 'diagnostic_catalog_id');
+            $excluded = $protocolPrescription['excluded'];
+            $groups = [
+                ...array_map(function (array $group): array {
+                    unset($group['diagnostic_catalog_id']);
+
+                    return $group;
+                }, $protocolPrescription['protocols']),
+                ...$this->practice->suggestPrescription(
+                    $consultation,
+                    $context,
+                    array_values(array_diff($context['diagnosis_catalog_ids'], $covered)),
+                ),
+            ];
+        }
+
+        if ($groups !== []) {
+            $stock = $this->medicineStock->availableCatalog()->keyBy('uuid');
+
+            $groups = array_map(fn (array $group): array => [
+                ...$group,
+                'lines' => array_map(fn (array $line): array => [
+                    ...$line,
+                    'available_quantity' => $stock->get($line['medicine_uuid'])['available_quantity'] ?? 0,
+                    'available' => (bool) ($stock->get($line['medicine_uuid'])['available'] ?? false),
+                    'unit' => $stock->get($line['medicine_uuid'])['unit'] ?? null,
+                ], $group['lines']),
+            ], $groups);
+        }
+
+        $prescription = ['groups' => $groups, 'excluded' => $excluded];
+
+        return [
+            'protocol_count' => $this->protocols->activeProtocolCount(),
+            // Ce que la pratique de la clinique connaît : zéro, elle ne peut
+            // encore rien proposer, et l'écran doit le dire.
+            'practice_cases' => $this->practice->caseCount(),
+            'practice_min_cases' => ClinicPracticeIndex::MIN_CASES,
+            'can_manage_protocols' => $canManageProtocols,
+            'context' => [
+                'age' => $context['age'],
+                'sex' => $context['sex'],
+                'weight' => $context['weight'],
+                'allergies' => $context['allergies'],
+            ],
+            'diagnoses' => $diagnoses,
+            'prescription' => $prescription,
+        ];
+    }
+
     private function plannedParaclinical(Consultation $consultation): array
     {
         $episode = $consultation->episode;

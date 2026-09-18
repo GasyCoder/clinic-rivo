@@ -380,6 +380,8 @@ class PermissionSeeder extends Seeder
         'medical_discharge.create' => 'Prononcer une sortie médicale',
         'death_records.view' => 'Consulter le registre des décès',
         'death_records.create' => 'Établir un acte de constatation de décès',
+        'clinical_protocols.view' => 'Consulter les protocoles thérapeutiques',
+        'clinical_protocols.manage' => 'Rédiger et archiver les protocoles thérapeutiques',
 
         // CDC §15 "Soins" — seedées ici en avance du module Soins/Vitals
         // (pas encore construit) car explicitement demandées pour le rôle

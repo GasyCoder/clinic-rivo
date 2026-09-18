@@ -7,6 +7,21 @@
  */
 
 /**
+ * Les unités et rythmes proposés à la saisie d'une ligne d'ordonnance.
+ *
+ * Partagés : l'éditeur les présente, et le préremplissage depuis un protocole
+ * (ADR-111) s'en sert pour découper « 500 mg » — deux listes finiraient par
+ * ne pas reconnaître la même unité.
+ */
+export const DOSE_UNITS = ['mg', 'g', 'ml', 'UI', 'µg', 'comprimé(s)', 'gélule(s)', 'goutte(s)', 'bouffée(s)', 'cuillère(s)'];
+export const DURATION_UNITS = ['jours', 'semaines', 'mois', 'prise unique'];
+export const FREQUENCIES = [
+    '1 fois/jour', '2 fois/jour', '3 fois/jour', '4 fois/jour',
+    'matin et soir', 'matin, midi et soir', 'toutes les 4 h', 'toutes les 6 h',
+    'toutes les 8 h', 'toutes les 12 h', 'au coucher', 'si besoin',
+];
+
+/**
  * Combien de prises par jour une fréquence représente.
  *
  * Seules les fréquences qui portent réellement un compte sont converties.
@@ -110,4 +125,68 @@ export const quantityBasis = ({ frequency, durationAmount, durationUnit }) => {
     const spelled = durationUnit === 'jours' ? '' : ` (${total} jours)`;
 
     return `${perDay}/jour × ${days} ${durationUnit}${spelled} · une unité par prise`;
+};
+
+/**
+ * Sépare « 500 mg » en `{ amount: '500', unit: 'mg' }` pour l'éditeur de
+ * ligne, qui présente le nombre et l'unité dans deux champs.
+ *
+ * Seule une unité connue est reconnue. Tout le reste — « 1 comprimé le
+ * matin », « selon poids » — est rendu tel quel dans `amount` avec une unité
+ * vide, plutôt que d'être tronqué ou affublé d'une unité qu'il n'a pas : un
+ * protocole préremplit une ligne, il ne doit rien réécrire en chemin
+ * (ADR-111).
+ *
+ * @param {?string} text
+ * @param {string[]} units
+ */
+export const splitAmount = (text, units) => {
+    const value = String(text ?? '').trim();
+
+    if (value === '') {
+        return { amount: '', unit: null };
+    }
+
+    if (units.includes(value)) {
+        return { amount: '', unit: value };
+    }
+
+    const match = value.match(/^(\d+(?:[.,]\d+)?)\s*(.+)$/);
+
+    if (match && units.includes(match[2].trim())) {
+        return { amount: match[1], unit: match[2].trim() };
+    }
+
+    return { amount: value, unit: '' };
+};
+
+/**
+ * Une quantité et son unité, jamais d'unité orpheline ni d'espace en trop :
+ * « 500 mg », « 1 comprimé le matin » (unité vide), « » (rien de saisi).
+ */
+export const composeAmount = (amount, unit) => {
+    const value = String(amount ?? '').trim();
+
+    return value === '' ? '' : [value, unit].filter(Boolean).join(' ');
+};
+
+/**
+ * Les champs de saisie d'une ligne dont la posologie est déjà écrite — une
+ * ligne proposée par un protocole, ou un protocole qu'on rouvre (ADR-111).
+ *
+ * Une quantité fixée par le protocole est une décision : elle est marquée
+ * « touchée », si bien que le calcul automatique de l'ADR-110 ne la réécrit
+ * pas. Sans quantité, c'est au calcul de la déduire.
+ */
+export const editorFieldsFor = ({ dosage, duration, quantity } = {}) => {
+    const dose = splitAmount(dosage, DOSE_UNITS);
+    const length = splitAmount(duration, DURATION_UNITS);
+
+    return {
+        _dose_amount: dose.amount,
+        _dose_unit: dose.unit ?? 'mg',
+        _duration_amount: length.unit === 'prise unique' ? '' : length.amount,
+        _duration_unit: length.unit ?? 'jours',
+        _quantity_touched: quantity !== null && quantity !== undefined && quantity !== '',
+    };
 };

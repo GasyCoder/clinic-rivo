@@ -914,7 +914,43 @@ fréquence tapée à la main non plus, et une durée absente n'a rien à
 multiplier. La suggestion n'écrase **jamais** une saisie : dès que le médecin
 touche la quantité, la ligne est verrouillée — corriger 21 en 30 parce que la
 boîte en contient trente est une décision, pas une faute de frappe à
-recalculer (même principe que le matériel habituel d'un acte, ADR-072).
+recalculer (même principe que le matériel habituel d'un acte, ADR-072). L'écran
+Ordonnance est entièrement en shadcn (amendement ADR-110) : `Select` et
+`FormField` dans l'éditeur, « Utiliser N » pour reprendre la quantité
+déduite après une correction, et un catalogue qui distingue une ligne déjà
+retenue d'une ligne épuisée.
+
+**La consultation propose un diagnostic et une ordonnance** (ADR-111), à
+partir des **protocoles écrits par les médecins de la clinique**
+(`clinical_protocols`, `/medicine/protocoles`) — jamais d'une règle inventée :
+ni le CDC ni le référentiel ne disent quel médicament traite quoi, à quelle
+dose. `ClinicalProtocolMatcher` lit le dossier déjà consigné (interrogatoire,
+examen, appareils anormaux, âge, sexe, poids, allergies) : il propose les
+diagnostics dont les signes évocateurs s'y retrouvent (mots entiers, sans
+accents ni casse), puis l'ordonnance type des diagnostics **posés**. Toute
+proposition dit pourquoi, tout protocole écarté aussi ; une borne d'âge ou de
+poids exclut un patient dont la valeur est inconnue. Les propositions sont
+calculées à l'affichage, **jamais enregistrées** ; « Retenir » / « Ajouter »
+en font une saisie du médecin, modifiable comme toute autre. Épuisé → non
+ajoutable ; allergie recoupée → rouge, hors « Tout ajouter ».
+`suggestion_source` + `clinical_protocol_id` tracent l'origine sur
+`diagnoses` et `prescription_lines`, revérifiés par le serveur (protocole qui
+traite ce diagnostic / prescrit ce médicament). Droits `clinical_protocols.view`
+et `.manage`, accordés à `MEDICINE`.
+
+**Tout est local : aucune API d'IA, aucun service externe**, aucune donnée ne
+quitte le site — précision explicite du propriétaire, imposée par un test qui
+interdit toute requête HTTP sortante. En complément des protocoles,
+l'algorithme « Pratique de la clinique » (`ClinicPracticeIndex`,
+`ClinicPracticeAdvisor`) apprend des consultations conclues : le vocabulaire
+qui accompagne chaque diagnostic (pondéré fréquent-ici / rare-ailleurs) et
+l'ordonnance habituelle avec sa posologie la plus fréquente. Il ne parle
+qu'à partir de 3 cas, affiche sa preuve (« 4/6 consultations »), exclut la
+consultation en cours de sa propre preuve, signale un patient hors de la
+tranche d'âge déjà traitée, et cède la place à un protocole applicable. Le
+motif prérempli par le nom de la prestation est retiré du texte analysé
+(`ClinicalNarrative`, lu par les deux moteurs) : ce n'est pas un symptôme.
+`suggestion_source` vaut `PROTOCOL` ou `CLINIC_PRACTICE`, toujours revérifié.
 
 La saisie ne distingue plus hypothèse et diagnostic final (ADR-082, amende
 ADR-035) : toute nouvelle ligne est enregistrée `FINAL`. `DiagnosisType`

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { isUndosedForm, quantityBasis, suggestedQuantity } from '../../resources/js/utilities/posology.js';
+import { composeAmount, editorFieldsFor, isUndosedForm, quantityBasis, splitAmount, suggestedQuantity } from '../../resources/js/utilities/posology.js';
 
 /**
  * ADR-110 — ce que la posologie permet de déduire, et ce qu'elle ne permet
@@ -64,10 +64,54 @@ test('seul un consommable ne se dose pas', () => {
 test('l’éditeur de ligne lit le calcul partagé', () => {
     const editor = fs.readFileSync('resources/js/Components/Clinical/PrescriptionLineEditor.vue', 'utf8');
 
-    assert.match(editor, /import \{ isUndosedForm, quantityBasis, suggestedQuantity \} from '@\/utilities\/posology'/);
+    for (const helper of ['isUndosedForm', 'quantityBasis', 'suggestedQuantity', 'composeAmount']) {
+        assert.match(editor, new RegExp(`import \\{[^}]*\\b${helper}\\b[^}]*\\} from '@/utilities/posology'`));
+    }
     // La dose disparaît, elle n'est pas seulement laissée vide.
-    assert.match(editor, /<div v-if="dosed">/);
+    assert.match(editor, /<FormField\s+v-if="dosed"/);
     // Et une quantité corrigée à la main n'est plus jamais réécrite.
     assert.match(editor, /if \(value === null \|\| props\.line\._quantity_touched\)/);
     assert.match(editor, /field: '_quantity_touched', value: true/);
+});
+
+/**
+ * ADR-111 — une ligne préremplie par un protocole arrive en texte (« 500 mg »)
+ * et l'éditeur la présente en deux champs. Le découpage ne doit rien perdre.
+ */
+test('une dose connue se découpe en nombre et unité', () => {
+    const units = ['mg', 'g', 'ml', 'comprimé(s)'];
+
+    assert.deepEqual(splitAmount('500 mg', units), { amount: '500', unit: 'mg' });
+    assert.deepEqual(splitAmount('2,5ml', units), { amount: '2,5', unit: 'ml' });
+    assert.deepEqual(splitAmount('1 comprimé(s)', units), { amount: '1', unit: 'comprimé(s)' });
+    assert.deepEqual(splitAmount('', units), { amount: '', unit: null });
+});
+
+test('une dose que l’éditeur ne sait pas découper est rendue telle quelle', () => {
+    const units = ['mg', 'g'];
+
+    // Ni tronquée, ni affublée d'une unité qu'elle n'a pas.
+    assert.deepEqual(splitAmount('1 comprimé le matin', units), { amount: '1 comprimé le matin', unit: '' });
+    assert.deepEqual(splitAmount('selon poids', units), { amount: 'selon poids', unit: '' });
+    assert.equal(composeAmount('1 comprimé le matin', ''), '1 comprimé le matin');
+});
+
+test('recomposer ne laisse ni unité orpheline ni espace en trop', () => {
+    assert.equal(composeAmount('500', 'mg'), '500 mg');
+    assert.equal(composeAmount('', 'mg'), '');
+    assert.equal(composeAmount('  7 ', 'jours'), '7 jours');
+});
+
+test('une ligne préremplie garde la quantité du protocole, ou laisse le calcul la déduire', () => {
+    const fixed = editorFieldsFor({ dosage: '500 mg', duration: '7 jours', quantity: 14 });
+    assert.equal(fixed._dose_amount, '500');
+    assert.equal(fixed._dose_unit, 'mg');
+    assert.equal(fixed._duration_amount, '7');
+    assert.equal(fixed._duration_unit, 'jours');
+    // Fixée par le protocole : une décision, jamais recalculée.
+    assert.equal(fixed._quantity_touched, true);
+
+    // Absente : le calcul de l'ADR-110 la déduira de la posologie.
+    assert.equal(editorFieldsFor({ dosage: '1 g', duration: '5 jours', quantity: null })._quantity_touched, false);
+    assert.equal(editorFieldsFor({ duration: 'prise unique' })._duration_unit, 'prise unique');
 });

@@ -7518,6 +7518,65 @@ en texte libre jusqu'à réception de sa feuille.
 Aucune permission, route, validation ou règle métier n'est modifiée par cette
 décision.
 
+## Amendement du 2026-09-18 — une seule saisie du compte rendu
+
+Question du propriétaire : quelle différence entre le champ « Compte rendu »
+de la consultation et « Saisir le résultat » de « Demandes d'examens » ?
+Aucune pour les données : les deux écrivent la même colonne par le même
+endpoint, et le serveur refuse un second compte rendu sur le même examen
+(`RecordImagingResultAction`). Mais l'interface faisait doublon :
+
+```text
+deux éditeurs      celui de « Demandes d'examens » portait les feuilles de la
+                   clinique et les observations ; celui de la consultation,
+                   réduit, n'avait ni l'un ni l'autre
+éditeur fantôme    dans la consultation, le formulaire était rattaché par
+                   `v-else-if` à la ligne des *notes* : un compte rendu
+                   enregistré sans notes affichait un éditeur vide en dessous,
+                   dont l'enregistrement aurait forcément échoué
+état dit deux fois le badge « Résultats disponibles » et le texte « Compte
+                   rendu disponible »
+```
+
+La saisie vit désormais dans un seul composant, `ImagingReportDialog`,
+ouvert à l'identique depuis les deux écrans — feuilles, observations,
+confirmation avant remplacement, fenêtre non fermable au clic extérieur. Un
+compte rendu enregistré se **lit** partout et ne s'offre plus à la saisie ;
+l'état d'un examen est une icône (sablier en attente, coche enregistré), le
+sens restant dit au survol et au lecteur d'écran. Aucune donnée, route ni
+permission ne change.
+
+## Amendement du 2026-09-18 — le compte rendu a la forme de la feuille papier
+
+Demande du propriétaire : le résultat affiché et imprimé doit ressembler aux
+feuilles « RÉSULTATS D'ÉCHOGRAPHIE » de la clinique, et non à une lettre
+générique.
+
+`ImagingReportDocument.vue` reproduit la feuille : bandeau bleu au logo,
+titre, N° de dossier, tableau d'identité (nom et prénom, date de naissance,
+sexe, adresse), bandeau de l'examen, compte rendu en **deux colonnes**
+séparées d'un filet, N.B., « Fait le » et « Le médecin responsable », puis
+les coordonnées de la clinique. Le bleu s'imprime (`print-color-adjust`).
+
+```text
+une seule source   App\Support\ImagingReportDocument prépare les données ;
+                   l'impression et « Voir le résultat » affichent le même
+                   composant — ce que le médecin relit est ce que la famille
+                   emporte
+titre              suit la famille réglée au catalogue (ADR-106) :
+                   « Résultats d'échographie », « d'électrocardiogramme »,
+                   sinon « d'imagerie » — jamais déduit du libellé
+identité           vient du dossier (adresse comprise), jamais du canevas
+date déclarée      jamais présentée comme une date de naissance : « N ans
+                   (âge déclaré) »
+coordonnées        logo, e-mail et téléphone viennent de la configuration du
+                   site (`RIVO_DOCUMENT_LOGO_URL`, `RIVO_LEGAL_EMAIL`,
+                   `RIVO_LEGAL_PHONE`) — rien n'est écrit en dur
+```
+
+Le numéro de passage figure à côté du N° de dossier : la feuille papier ne
+l'a pas, mais sans lui un compte rendu ne se rattache plus à sa venue.
+
 ---
 
 # ADR-109 — Le besoin de l'arrivée n'est ni redemandé au médecin, ni refacturé
@@ -7726,3 +7785,233 @@ sur une ligne d'ordonnance.
 
 Aucune permission, route ni migration nouvelle : `prescriptions.create`
 gouverne l'ordonnance comme avant.
+
+## Amendement du 2026-09-18 — l'écran Ordonnance passe à shadcn (ADR-099)
+
+Demande du propriétaire. `PrescriptionLineEditor` portait encore trois
+`<select>` natifs (unité de dose, voie, unité de durée) et six libellés
+écrits à la main : ils passent à `Select` et `FormField`. L'unité de la
+quantité est désormais **attachée au champ** — posée à côté en texte nu,
+elle se lisait comme une note. Le catalogue, les lignes en préparation, les
+pastilles du tableau et le formulaire de modification suivent les tokens
+sémantiques et `Badge`/`Button` partagés.
+
+Deux défauts d'ergonomie corrigés au passage :
+
+```text
+catalogue        une ligne déjà retenue et une ligne épuisée étaient toutes
+                 deux inertes, sans dire pourquoi → « Dans l'ordonnance »
+                 et « Épuisé » sont désormais deux états distincts
+quantité         une quantité corrigée à la main ne se recalcule jamais
+                 (règle ci-dessus) ; « Utiliser 21 » ramène la suggestion
+                 sans la recalculer de tête, par le même chemin que la saisie
+```
+
+La ligne de modification d'une ordonnance couvrait sept colonnes sur huit ;
+elle couvre désormais le tableau entier. Aucune donnée envoyée au serveur,
+aucune validation ni règle de réservation ne change.
+
+Un test de garde vérifie qu'aucun composant n'est utilisé sans import dans
+l'écran Médecine et les composants cliniques : le build ne le détecte pas,
+et c'est exactement ce qui s'est produit pendant cette migration.
+
+---
+
+# ADR-111 — Diagnostic et ordonnance proposés par les protocoles de la clinique
+
+**Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire, après
+arbitrage sur la source des propositions)
+
+Demande du propriétaire : le système analyse le dossier (interrogatoire,
+examen, diagnostic, âge, sexe…) et **propose** un diagnostic et une
+ordonnance, que le médecin peut toujours modifier. « Tout ce qui peut être
+automatisé doit l'être, mais rester modifiable par un humain. » Précision du
+propriétaire : un algorithme **local**, sur les données de l'application,
+sans API d'IA ni service externe.
+
+## Ce qui a été vérifié avant de construire
+
+```text
+CDC            aucune mention d'aide à la décision, de proposition ni de protocole
+référentiel    médicaments : nom, DCI, forme, dosage — aucune dose par âge ou
+               poids, aucune indication, aucune contre-indication
+               diagnostics : 30 entrées, aucun lien avec des symptômes
+historique     3 ordonnances, 5 diagnostics : rien à apprendre
+```
+
+Rien dans le système ne permet donc de **déduire** une ordonnance. Écrire des
+règles « diagnostic → médicament → dose » dans le code aurait été inventer de
+la médecine — ce que la règle du projet interdit, et ce qui met un patient en
+danger. La question a été posée au propriétaire.
+
+## L'arbitrage retenu : un algorithme local, aucune IA externe
+
+Une première question a été mal posée : elle proposait une « IA (Claude) »
+comme source possible, et sa réponse a d'abord été lue comme un choix d'IA
+externe. Le propriétaire a précisé le 2026-09-18 ce qu'il demandait réellement :
+**« intelligent et automatique » veut dire un algorithme qui s'appuie sur les
+données locales de l'application, sans aucune API d'IA ni aucun service
+externe.**
+
+```text
+source 1  les protocoles écrits par les médecins de la clinique
+source 2  la pratique de la clinique : ce que ses médecins ont conclu et
+          prescrit dans les consultations déjà enregistrées
+réseau    aucun — tout est calculé dans la base du site, rien n'en sort
+```
+
+Les protocoles passent d'abord : ils sont la décision écrite de la clinique.
+La pratique observée ne complète que ce qu'aucun protocole ne couvre. Aucune
+donnée patient ne quitte le site : la question de l'envoi « anonymisé » ou
+« complet » ne se pose plus. Un test l'impose : les propositions sont
+calculées avec toute requête HTTP sortante interdite.
+
+## Ce qui est construit : les protocoles de la clinique
+
+`clinical_protocols` et `clinical_protocol_lines` portent ce qu'un médecin
+écrit : le diagnostic traité, ses **signes évocateurs**, la population visée
+(âge, sexe, poids), l'ordonnance type et des notes. Le système les applique ;
+il n'en invente aucun. Au premier jour la table est vide, et l'écran le dit
+plutôt que de ne rien proposer en silence.
+
+`ClinicalProtocolMatcher` lit ce que le dossier contient déjà — motif,
+histoire, début, notes, notes d'examen, observation générale, constatations
+des seuls appareils **anormaux** (ADR-077), âge au passage, sexe, poids relevé
+aux Soins, allergies permanentes et déclarées — et :
+
+```text
+diagnostics  proposés quand leurs signes se retrouvent dans le dossier ;
+             mot pour mot, sans accents ni casse ; « toux » ne se trouve
+             pas dans « touxine » ; déjà posés → pas reproposés
+ordonnance   celle des protocoles des diagnostics **posés**, pour ce patient
+```
+
+Chaque proposition dit **pourquoi** : les signes retrouvés (« 2/3 signes »).
+Chaque protocole écarté dit pourquoi aussi (« Réservé aux 1–14 ans — patient
+de 32 ans ») : sans la raison, le médecin conclurait qu'aucun protocole
+n'existe. Une borne posée **exclut** un patient dont la valeur est inconnue —
+un protocole pédiatrique ne s'applique pas faute de connaître l'âge.
+
+## Proposer n'est pas décider
+
+Les propositions sont **calculées à chaque affichage, jamais enregistrées** :
+ce n'est pas un fait clinique. Elles apparaissent là où le médecin conclut —
+Examen clinique, Décision & clôture, Prescription.
+
+```text
+diagnostic proposé  → « Retenir » l'enregistre ; corrigeable et retirable
+                       ensuite comme tout autre (ADR-035, ADR-106)
+ligne proposée      → « Ajouter » la met en préparation, préremplie ; le
+                       médecin règle dose, durée, quantité, puis valide et
+                       signe (ADR-106)
+```
+
+Rien n'est validé automatiquement. Deux garde-fous :
+
+```text
+produit épuisé          visible, jamais ajoutable
+allergie recoupée       en rouge ; exclue de « Tout ajouter » ; ajoutable
+                        seulement ligne par ligne, « malgré l'allergie »
+```
+
+La comparaison d'allergie est par mots entiers, sans accents, dans les deux
+sens. C'est un **signal**, pas une interdiction : le médecin peut avoir ses
+raisons, mais il ne le fera pas sans l'avoir vu.
+
+## La trace d'origine ne peut pas être forgée
+
+`diagnoses` et `prescription_lines` reçoivent `suggestion_source` et
+`clinical_protocol_id`. Le médecin reste l'auteur ; la trace dit d'où venait
+la proposition retenue, **même ajustée**. Le serveur la revérifie :
+
+```text
+diagnostic  le protocole doit traiter ce diagnostic
+ligne       le protocole doit prescrire ce médicament
+```
+
+Sinon, refus explicite plutôt que d'attribuer au protocole ce qu'il n'a jamais
+proposé. La même vérification vaut pour la pratique de la clinique (plus bas).
+
+## Rédiger un protocole
+
+`/medicine/protocoles` : liste (actifs, suspendus, archivés), rédaction en
+trois temps (diagnostic, patients concernés, ordonnance type) avec le même
+éditeur de ligne que l'ordonnance. Corriger un protocole ne réécrit aucun
+dossier : il remplace ses lignes, et l'audit (`clinical_protocol.create` /
+`.update`) garde l'ancienne et la nouvelle version. L'archivage exige un motif
+(Soft Delete, ADR-009) ; un protocole qui a servi est protégé contre la
+suppression définitive.
+
+```text
+clinical_protocols.view     lire les protocoles
+clinical_protocols.manage   les rédiger, les archiver, les restaurer
+```
+
+Les deux sont accordées au rôle `MEDICINE` : un protocole est une décision
+médicale. Conséquence assumée : tout médecin peut modifier ce qui est proposé
+à ses confrères — l'audit le trace, et l'éditeur de socle (ADR-064) peut
+réserver `.manage` à un médecin référent.
+
+## La pratique de la clinique : ce que ses médecins ont déjà fait
+
+`ClinicPracticeIndex` apprend des consultations conclues — diagnostics non
+annulés, ordonnances actives, 3 000 dernières au plus — et
+`ClinicPracticeAdvisor` en tire deux propositions.
+
+```text
+diagnostic   les mots de l'interrogatoire et de l'examen qui accompagnent
+             un diagnostic ; un mot pèse d'autant plus qu'il est fréquent
+             pour ce diagnostic et rare ailleurs (« toux » distingue une
+             bronchite, « douleur » presque rien)
+ordonnance   les médicaments prescrits pour un diagnostic posé, avec la
+             posologie qui revient le plus souvent ; la quantité est laissée
+             au calcul de la posologie (ADR-110)
+```
+
+Il **rejoue ce que les médecins ont fait**, il n'invente rien — et il le dit :
+« Mots retrouvés dans 5 consultations passées : toux (4), fièvre (3) »,
+« prescrit dans 4/6 consultations ». Des seuils l'empêchent de parler trop
+tôt, et ce sont des règles de statistique, pas de médecine :
+
+```text
+MIN_CASES        3     consultations d'un diagnostic avant de le proposer
+MIN_OCCURRENCES  2     occurrences d'un mot ou d'un médicament
+MIN_SHARE        30 %  des cas d'un diagnostic où le médicament a été prescrit
+```
+
+Quatre précautions :
+
+```text
+motif prérempli      le nom de la prestation (« Consultation de médecine
+                     générale ») est retiré du texte : c'est l'orientation,
+                     pas un symptôme — sans cela, « générale » évoquait un
+                     diagnostic (constaté en test, puis corrigé)
+propre preuve        la consultation en cours est retirée du calcul : elle ne
+                     prouve pas ce qu'elle vient d'écrire
+tranche d'âge        un patient hors des âges déjà traités est signalé et
+                     exclu de « Tout ajouter » — une dose d'adulte ne se
+                     transpose pas à un enfant ; âge inconnu, idem
+fraîcheur            l'index est reconstruit dès qu'un diagnostic, une
+                     annulation ou une ligne d'ordonnance change
+```
+
+Au premier jour, l'historique est vide et l'algorithme ne propose rien —
+l'écran le dit, avec le nombre de consultations déjà apprises. **Il devient
+plus pertinent à mesure que la clinique utilise RIVO**, sans rien configurer.
+
+La trace d'origine vaut pour les deux sources : `suggestion_source` prend
+`PROTOCOL` ou `CLINIC_PRACTICE`. Pour la seconde, le serveur revérifie que la
+pratique pouvait réellement faire cette proposition — un diagnostic assez
+documenté, un médicament réellement et régulièrement prescrit pour l'un des
+diagnostics posés. Une trace forgée est refusée.
+
+Le texte du dossier est lu par une seule classe, `ClinicalNarrative`, pour
+les deux moteurs : deux lectures finiraient par diverger.
+
+## Au passage — une dose exigée à tort (ADR-110)
+
+La garde qui active « Valider » réclamait encore une dose pour toute ligne :
+le serveur acceptait une compresse sans dose, mais le bouton restait grisé.
+`hasPosology()` suit désormais la même règle que le serveur. Les unités de
+dose et de durée vivent maintenant dans `utilities/posology.js`, partagées par
+l'éditeur et le préremplissage.

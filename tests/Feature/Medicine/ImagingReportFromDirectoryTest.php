@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Medicine;
 
+use App\Enums\ImagingModality;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
@@ -192,10 +193,67 @@ class ImagingReportFromDirectoryTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Medicine/ImagingReportPrint')
-                ->where('report.value', '<p>Rythme sinusal <strong>régulier</strong>.</p>')
-                ->where('report.resulted_by', $doctor->name)
-                ->where('patient.patient_number', $episode->patient->patient_number)
-                ->where('episode.episode_number', $episode->episode_number));
+                ->where('document.value', '<p>Rythme sinusal <strong>régulier</strong>.</p>')
+                ->where('document.resulted_by', $doctor->name)
+                ->where('document.patient.patient_number', $episode->patient->patient_number)
+                ->where('document.episode_number', $episode->episode_number)
+                // La feuille papier porte l'adresse et le sexe : l'identité
+                // vient du dossier, jamais du canevas (ADR-108).
+                ->has('document.patient.address')
+                ->where('document.patient.sex', $episode->patient->sex->value));
+    }
+
+    /**
+     * Le titre suit la famille réglée au catalogue (ADR-106), jamais le
+     * libellé de l'examen : « RÉSULTATS D'ÉCHOGRAPHIE » comme sur la feuille.
+     */
+    public function test_the_document_title_follows_the_catalog_family(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->passage($doctor);
+        $this->imagingRequest($orientation, $doctor);
+        $item = ImagingRequestItem::query()->sole();
+        $item->catalogItem->update(['imaging_modality' => ImagingModality::Ultrasound]);
+
+        $this->actingAs($doctor)->post($this->url($orientation, $item), ['result_value' => '<p>Foie normal</p>']);
+
+        $this->actingAs($doctor)
+            ->get("/medicine/imaging-requests/{$item->uuid}/compte-rendu")
+            ->assertInertia(fn ($page) => $page->where('document.title', 'Résultats d’échographie'));
+    }
+
+    /** Ce que le médecin relit à l'écran est ce que la famille emporte. */
+    public function test_the_results_view_receives_the_same_document_as_the_print(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->passage($doctor);
+        $this->imagingRequest($orientation, $doctor);
+        $item = ImagingRequestItem::query()->sole();
+
+        $this->actingAs($doctor)->post($this->url($orientation, $item), ['result_value' => '<p>Rythme sinusal</p>']);
+
+        $printed = null;
+        $this->actingAs($doctor)
+            ->get("/medicine/imaging-requests/{$item->uuid}/compte-rendu")
+            ->assertInertia(function ($page) use (&$printed) {
+                $printed = $page->toArray()['props']['document'];
+
+                return $page;
+            });
+
+        $this->actingAs($doctor)
+            // Une demande qui vient de recevoir son compte rendu est
+            // « rendue récemment ».
+            ->get('/medicine/demandes-examens?filter=recent')
+            ->assertInertia(function ($page) use ($printed) {
+                $shown = collect($page->toArray()['props']['requests'])
+                    ->flatMap(fn ($row) => $row['items'])
+                    ->firstWhere('uuid', $printed['uuid'])['document'] ?? null;
+
+                $this->assertEquals($printed, $shown);
+
+                return $page;
+            });
     }
 
     /**

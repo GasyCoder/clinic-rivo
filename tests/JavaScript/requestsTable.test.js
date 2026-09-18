@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const page = fs.readFileSync('resources/js/Pages/Medicine/Requests.vue', 'utf8');
+// La feuille de saisie vit dans un composant partagé avec la consultation :
+// ses règles de forme se vérifient là où elle est écrite.
+const reportDialog = fs.readFileSync('resources/js/Components/Clinical/ImagingReportDialog.vue', 'utf8');
 
 /** L'écran « Demandes d'examens » : un vrai tableau, et des actions honnêtes. */
 
@@ -67,8 +70,8 @@ test('l’onglet dit « rendu », jamais « validé »', () => {
 
 /** Après une saisie, la ligne a quitté « Active » : on la suit. */
 test('après la saisie, on suit la ligne vers « Rendu récemment »', () => {
-    const success = page.slice(page.indexOf('onSuccess: () => {'));
-    const body = success.slice(0, success.indexOf('},'));
+    const success = page.slice(page.indexOf('const reportSaved = () => {'));
+    const body = success.slice(0, success.indexOf('};'));
 
     assert.match(body, /selectFilter\('recent'\)/);
     assert.match(body, /activeFilter\.value === 'active'/);
@@ -82,7 +85,7 @@ test('après la saisie, on suit la ligne vers « Rendu récemment »', () => {
  * s'écrit en paysage.
  */
 test('la feuille de compte rendu est un rectangle, pas une colonne', () => {
-    const dialog = page.slice(page.indexOf(':open="reporting !== null"'));
+    const dialog = reportDialog.slice(reportDialog.indexOf(':open="item !== null"'));
     const head = dialog.slice(0, dialog.indexOf('</Dialog>'));
 
     assert.match(head, /size="wide"/);
@@ -95,13 +98,13 @@ test('la feuille de compte rendu est un rectangle, pas une colonne', () => {
  * grand moniteur et déborde sur un portable.
  */
 test('la zone d’écriture s’adapte à la taille de l’écran', () => {
-    assert.match(page, /min-height-class="min-h-\[48vh\]"/);
-    assert.doesNotMatch(page, /min-height-class="min-h-\d+"/);
+    assert.match(reportDialog, /min-height-class="min-h-\[48vh\]"/);
+    assert.doesNotMatch(reportDialog, /min-height-class="min-h-\d+"/);
 });
 
 /** Une fenêtre ne doit jamais dépasser l'écran : le corps défile. */
 test('la feuille ne dépasse jamais la hauteur de l’écran', () => {
-    assert.match(page, /body-class="max-h-\[78vh\] overflow-y-auto"/);
+    assert.match(reportDialog, /body-class="max-h-\[78vh\] overflow-y-auto"/);
 });
 
 /**
@@ -110,7 +113,7 @@ test('la feuille ne dépasse jamais la hauteur de l’écran', () => {
  * ferment, deux gestes explicites.
  */
 test('la feuille de saisie ne se ferme pas par un clic à côté', () => {
-    const dialog = page.slice(page.indexOf(':open="reporting !== null"'));
+    const dialog = reportDialog.slice(reportDialog.indexOf(':open="item !== null"'));
     const head = dialog.slice(0, dialog.indexOf('</Dialog>'));
 
     assert.match(head, /:dismissible="false"/);

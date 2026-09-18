@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Support\ImagingReportDocument;
 use App\Support\ImagingReportTemplates;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -151,11 +152,16 @@ class ParaclinicalRequestDirectoryController extends Controller
             ->with([
                 'items',
                 'items.resultedBy:id,name',
+                // Le document imprimable reprend la famille réglée au
+                // catalogue et l'identité complète (ADR-108) : chargés ici une
+                // fois, pas une requête par examen.
+                'items.catalogItem:id,imaging_modality',
                 'requestedBy:id,name',
                 'consultation:id,episode_orientation_id,status,completed_at',
                 'consultation.orientation:id,uuid,status',
                 'episode:id,uuid,episode_number,patient_id',
-                'episode.patient:id,uuid,first_name,last_name,patient_number',
+                'episode.patient:id,uuid,first_name,last_name,patient_number,sex,birth_date,birth_date_is_approximate,declared_age,address,address_entry_id',
+                'episode.patient.addressEntry:id,label',
             ])
             ->latest('requested_at')
             ->get()
@@ -197,6 +203,11 @@ class ParaclinicalRequestDirectoryController extends Controller
                     // cette route ne désignerait rien.
                     'print_url' => $kind === 'imaging' && $item->resulted_at !== null
                         ? "/medicine/imaging-requests/{$item->uuid}/compte-rendu"
+                        : null,
+                    // Le même document que l'impression : ce que le médecin
+                    // relit à l'écran est ce que la famille emporte.
+                    'document' => $kind === 'imaging' && $item->resulted_at !== null
+                        ? ImagingReportDocument::for($item->setRelation('imagingRequest', $request), $richText)
                         : null,
                     // Jamais réécrit : `RecordImagingResultAction` refuse un
                     // second compte rendu, et une demande retirée n'attend

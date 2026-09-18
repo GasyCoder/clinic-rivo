@@ -3,11 +3,14 @@
 namespace App\Actions\Medicine;
 
 use App\Actions\Pharmacy\CreateInternalDispenseRequestAction;
+use App\Enums\ClinicalSuggestionSource;
 use App\Enums\PrescriptionLineReviewStatus;
 use App\Enums\PrescriptionStatus;
+use App\Models\ClinicalProtocol;
 use App\Models\Consultation;
 use App\Models\Prescription;
 use App\Models\User;
+use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Pharmacy\MedicineStockService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -17,6 +20,7 @@ class CreatePrescriptionAction
     public function __construct(
         private readonly MedicineStockService $stock,
         private readonly CreateInternalDispenseRequestAction $createDispenseRequest,
+        private readonly ClinicPracticeAdvisor $practice,
     ) {}
 
     /**
@@ -39,6 +43,8 @@ class CreatePrescriptionAction
                 ->all();
             $lockedMedicines = $this->stock->lockPrescribableMedicines($catalogUuids);
 
+            $origins = [];
+
             foreach ($lines as $index => $line) {
                 if (($line['manual'] ?? false)) {
                     continue;
@@ -49,6 +55,14 @@ class CreatePrescriptionAction
                         "lines.{$index}.medicine_uuid" => 'Ce médicament n’est plus disponible dans le référentiel Pharmacie.',
                     ]);
                 }
+
+                $origins[$index] = $this->suggestionOrigin(
+                    $consultation,
+                    $line['suggestion_source'] ?? null,
+                    $line['suggestion_protocol_uuid'] ?? null,
+                    $lockedMedicines->get($line['medicine_uuid'])->getKey(),
+                    $index,
+                );
             }
 
             // One ordonnance per consultation: adding more lines later (the
@@ -97,6 +111,8 @@ class CreatePrescriptionAction
                     'frequency' => $line['frequency'] ?? null,
                     'duration' => $line['duration'] ?? null,
                     'instructions' => $line['instructions'] ?? null,
+                    'suggestion_source' => $origins[$index][0] ?? null,
+                    'clinical_protocol_id' => ($origins[$index][1] ?? null)?->getKey(),
                 ]);
                 $reservation = $this->stock->reserve(
                     $medicine,
@@ -116,5 +132,54 @@ class CreatePrescriptionAction
 
             return $prescription->fresh(['lines.stockReservations', 'pharmacyDispense.lines']);
         });
+    }
+
+    /**
+     * ADR-111 — d'où venait la ligne retenue, vérifié plutôt que cru.
+     *
+     * @return array{0: ?ClinicalSuggestionSource, 1: ?ClinicalProtocol}
+     */
+    private function suggestionOrigin(Consultation $consultation, ?string $source, ?string $protocolUuid, int $medicineId, int $index): array
+    {
+        if ($source === ClinicalSuggestionSource::ClinicPractice->value) {
+            // La pratique n'a pu proposer qu'un médicament réellement et
+            // régulièrement prescrit pour l'un des diagnostics posés ici.
+            if (! $this->practice->supportsMedicine($consultation, $medicineId)) {
+                throw ValidationException::withMessages([
+                    "lines.{$index}.suggestion_source" => 'La pratique de la clinique n’a jamais proposé ce médicament pour les diagnostics posés.',
+                ]);
+            }
+
+            return [ClinicalSuggestionSource::ClinicPractice, null];
+        }
+
+        $protocol = $this->suggestingProtocol($protocolUuid, $medicineId, $index);
+
+        return [$protocol ? ClinicalSuggestionSource::Protocol : null, $protocol];
+    }
+
+    /**
+     * ADR-111 — une ligne ne se réclame d'un protocole que si ce protocole
+     * prescrit réellement ce médicament. Une ligne manuelle n'en a jamais :
+     * aucun protocole ne peut proposer un produit absent du référentiel.
+     */
+    private function suggestingProtocol(?string $uuid, int $medicineId, int $index): ?ClinicalProtocol
+    {
+        if ($uuid === null || $uuid === '') {
+            return null;
+        }
+
+        $protocol = ClinicalProtocol::query()
+            ->where('uuid', $uuid)
+            ->whereHas('lines', fn ($query) => $query->where('medicine_id', $medicineId))
+            ->first();
+
+        if (! $protocol) {
+            throw ValidationException::withMessages([
+                "lines.{$index}.suggestion_protocol_uuid" => 'Cette ligne ne correspond à aucun protocole prescrivant ce médicament.',
+            ]);
+        }
+
+        return $protocol;
     }
 }

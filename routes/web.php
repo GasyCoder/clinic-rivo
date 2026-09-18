@@ -2,6 +2,7 @@
 
 use App\Enums\ReceptionPatientStep;
 use App\Http\Controllers\DeathRegisterController;
+use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Administration\AnalysisCatalogController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\CashRegisterController;
@@ -766,6 +767,15 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // sont deux droits distincts : suivre les passages concernés n'est pas
     // établir un document médico-légal.
     Route::get('/deces', [DeathRegisterController::class, 'index'])->name('deaths.index')->middleware('can:death_records.view');
+
+    // ADR-111 — protocoles thérapeutiques : lire et rédiger sont deux droits.
+    Route::get('/medicine/protocoles', [ClinicalProtocolController::class, 'index'])->name('medicine.protocols.index')->middleware('can:clinical_protocols.view');
+    Route::get('/medicine/protocoles/nouveau', [ClinicalProtocolController::class, 'create'])->name('medicine.protocols.create')->middleware('can:clinical_protocols.manage');
+    Route::post('/medicine/protocoles', [ClinicalProtocolController::class, 'store'])->name('medicine.protocols.store')->middleware('can:clinical_protocols.manage');
+    Route::get('/medicine/protocoles/{clinicalProtocol}/modifier', [ClinicalProtocolController::class, 'edit'])->name('medicine.protocols.edit')->middleware('can:clinical_protocols.manage');
+    Route::put('/medicine/protocoles/{clinicalProtocol}', [ClinicalProtocolController::class, 'update'])->name('medicine.protocols.update')->middleware('can:clinical_protocols.manage');
+    Route::post('/medicine/protocoles/{clinicalProtocol}/archive', [ClinicalProtocolController::class, 'archive'])->name('medicine.protocols.archive')->middleware('can:clinical_protocols.manage');
+    Route::post('/medicine/protocoles/{clinicalProtocol}/restore', [ClinicalProtocolController::class, 'restore'])->withTrashed()->name('medicine.protocols.restore')->middleware('can:clinical_protocols.manage');
     Route::post('/deces/{episode}/acte', [DeathRegisterController::class, 'store'])->name('deaths.store')->middleware('can:death_records.create');
     Route::get('/deces/{episode}/acte/impression', [DeathRegisterController::class, 'print'])->name('deaths.print')->middleware('can:death_records.view');
     Route::get('/medicine/orientations/{episodeOrientation}', [MedicineController::class, 'begin'])->name('medicine.orientations.show')->middleware('can:consultations.view');

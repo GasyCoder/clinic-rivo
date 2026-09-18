@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Enums\AdministrationRoute;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ClinicalSuggestionSource;
 use App\Enums\EpisodeOrientationStatus;
 use App\Models\EpisodeOrientation;
 use Illuminate\Foundation\Http\FormRequest;
@@ -73,6 +74,11 @@ class StoreMedicinePrescriptionRequest extends FormRequest
             'lines.*.frequency' => ['required', 'string', 'max:255'],
             'lines.*.duration' => ['nullable', 'string', 'max:255'],
             'lines.*.instructions' => ['nullable', 'string', 'max:1000'],
+            // ADR-111 — le protocole qui a proposé la ligne. Le médecin a pu
+            // en changer la dose ou la durée : la trace dit d'où venait la
+            // proposition, pas qu'elle a été reprise telle quelle.
+            'lines.*.suggestion_protocol_uuid' => ['nullable', 'uuid'],
+            'lines.*.suggestion_source' => ['nullable', Rule::enum(ClinicalSuggestionSource::class)],
         ];
     }
 

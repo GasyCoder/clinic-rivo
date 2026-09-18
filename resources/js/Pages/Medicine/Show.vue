@@ -1192,6 +1192,21 @@ const activeRequestedCatalogUuids = (requests) => new Set(
 const alreadyRequestedLabUuids = computed(() => activeRequestedCatalogUuids(props.consultation?.lab_requests));
 const alreadyRequestedImagingUuids = computed(() => activeRequestedCatalogUuids(props.consultation?.imaging_requests));
 
+/**
+ * ADR-109 — le besoin de l'arrivée est déjà connu.
+ *
+ * Mme R. est venue pour une échographie obstétricale : la Réception l'a
+ * planifiée et facturée. Faire chercher le même examen dans le catalogue,
+ * c'est demander de ressaisir ce que le dossier porte déjà — exactement ce
+ * que l'ADR-084 refuse pour les formulaires d'orientation.
+ *
+ * Le serveur décide ce qui reste à transmettre : une ligne disparaît dès
+ * qu'une demande active la porte. L'écran ne déduit rien d'un libellé.
+ */
+const plannedParaclinical = computed(() => props.consultation?.planned_paraclinical ?? []);
+const plannedLab = computed(() => plannedParaclinical.value.filter((line) => line.module === 'LABORATORY'));
+const plannedImaging = computed(() => plannedParaclinical.value.filter((line) => line.module === 'IMAGING'));
+
 const imagingRequestForm = useForm({ items: [], notes: '', continue_to_diagnosis: true });
 const isImagingItemSelected = (item) => imagingRequestForm.items.some((line) => line.catalog_item_uuid === item.uuid);
 const isAlreadyRequestedImaging = (item) => alreadyRequestedImagingUuids.value.has(item.uuid);
@@ -1202,6 +1217,32 @@ const addImagingItem = (item) => {
     imagingRequestForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name });
     imagingSearch.value = '';
 };
+/**
+ * Le besoin connu entre dans la demande en préparation, une fois, au
+ * montage. Il reste retirable : un médecin peut décider que l'examen
+ * demandé à l'accueil n'est finalement pas celui qu'il faut.
+ *
+ * `watch` avec `immediate` plutôt qu'`onMounted` : la liste arrive du
+ * serveur, et une visite Inertia qui la met à jour doit être reprise.
+ * `once` par item : on ne réinjecte jamais une ligne que le médecin a
+ * retirée à la main.
+ */
+const preselected = new Set();
+
+watch([plannedLab, plannedImaging], () => {
+    for (const line of plannedLab.value) {
+        if (preselected.has(line.catalog_item_uuid)) continue;
+        preselected.add(line.catalog_item_uuid);
+        addLabItem({ uuid: line.catalog_item_uuid, code: line.code, name: line.name });
+    }
+
+    for (const line of plannedImaging.value) {
+        if (preselected.has(line.catalog_item_uuid)) continue;
+        preselected.add(line.catalog_item_uuid);
+        addImagingItem({ uuid: line.catalog_item_uuid, code: line.code, name: line.name });
+    }
+}, { immediate: true });
+
 const removeImagingItem = (line) => {
     const index = imagingRequestForm.items.indexOf(line);
     if (index >= 0) imagingRequestForm.items.splice(index, 1);
@@ -2475,6 +2516,16 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </div>
                         </div>
                         <form v-if="capabilities.can_create_lab_request" id="lab-request-form" class="p-5" @submit.prevent="openRequestConfirmation('lab')">
+
+                            <!-- ADR-109 — le besoin de l'arrivée, déjà porté dans la
+                                 demande en préparation. Le dire évite de croire à une
+                                 sélection faite par erreur, et de le facturer deux fois
+                                 en le cherchant à nouveau au catalogue. -->
+                            <p v-if="plannedLab.length" class="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <ClipboardCheck class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                                <span class="font-semibold text-foreground">{{ plannedLab.map((line) => line.name).join(' · ') }}</span>
+                                — demandé à l’arrivée<template v-if="plannedLab.some((line) => line.already_billed)">, déjà facturé</template>.
+                            </p>
                             <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
                                 <div class="min-w-0 space-y-4">
                                     <div>
@@ -2606,6 +2657,16 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             </div>
                         </div>
                         <form v-if="capabilities.can_create_imaging_request" id="imaging-request-form" class="p-5" @submit.prevent="openRequestConfirmation('imaging')">
+
+                            <!-- ADR-109 — le besoin de l'arrivée, déjà porté dans la
+                                 demande en préparation. Le dire évite de croire à une
+                                 sélection faite par erreur, et de le facturer deux fois
+                                 en le cherchant à nouveau au catalogue. -->
+                            <p v-if="plannedImaging.length" class="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <ClipboardCheck class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                                <span class="font-semibold text-foreground">{{ plannedImaging.map((line) => line.name).join(' · ') }}</span>
+                                — demandé à l’arrivée<template v-if="plannedImaging.some((line) => line.already_billed)">, déjà facturé</template>.
+                            </p>
                             <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
                                 <div class="min-w-0 space-y-4">
                                     <div>
@@ -2998,6 +3059,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                             :line="line"
                                             :routes="options.administration_routes"
                                             :quantity-unit="line.manual ? 'unité(s)' : (medicineForLine(line)?.unit ?? 'unité(s)')"
+                                            :medicine-form="line.manual ? null : medicineForLine(line)?.form"
                                             :error-for="(field) => prescriptionForm.errors[`lines.${index}.${field}`]"
                                             @update="updatePrescriptionLine(index, $event)"
                                         />

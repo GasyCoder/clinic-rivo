@@ -12,6 +12,7 @@ use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequest;
 use App\Models\User;
 use App\Services\Billing\ClinicalActBiller;
+use App\Services\Billing\PlannedServiceBilling;
 use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,6 +28,7 @@ class CreateImagingRequestAction
 {
     public function __construct(
         private readonly ClinicalActBiller $biller,
+        private readonly PlannedServiceBilling $plannedBilling,
         private readonly ResolveConsultationStepAction $resolveStep,
     ) {}
 
@@ -98,13 +100,18 @@ class CreateImagingRequestAction
 
                 // ADR-105 — l'ECG ou l'échographie rejoint le compte du
                 // patient dès sa demande, comme à la Réception (ADR-068).
-                $billable = $this->biller->bill(
-                    $episode,
-                    $catalogItem,
-                    'imaging_request_item:'.$line->uuid,
-                    $actor,
-                    $line,
-                );
+                // ADR-109 — si la Réception a déjà planifié et facturé cet
+                // examen à l'arrivée (ADR-068), la demande du médecin rattache
+                // cette prestation au lieu d'en créer une seconde : le patient
+                // ne paie pas deux fois la même échographie.
+                $billable = $this->plannedBilling->unconsumedFor($episode, $catalogItem)
+                    ?? $this->biller->bill(
+                        $episode,
+                        $catalogItem,
+                        'imaging_request_item:'.$line->uuid,
+                        $actor,
+                        $line,
+                    );
 
                 if ($billable) {
                     $line->update(['billable_item_id' => $billable->getKey()]);

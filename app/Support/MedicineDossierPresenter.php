@@ -31,6 +31,10 @@ use App\Services\Care\CareRecordReadModel;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Pharmacy\MedicineStockService;
 use Illuminate\Support\Collection;
+use App\Models\EpisodeServiceRequest;
+use App\Models\ImagingRequestItem;
+use App\Models\LabRequestItem;
+use App\Services\Billing\PlannedServiceBilling;
 
 class MedicineDossierPresenter
 {
@@ -40,6 +44,7 @@ class MedicineDossierPresenter
         private readonly CareRecordReadModel $careRecord,
         private readonly ClinicalRichTextSanitizer $richText,
         private readonly ConsultationWorkflow $workflow,
+        private readonly PlannedServiceBilling $plannedBilling,
     ) {}
 
     /** @return array<string, mixed> */
@@ -285,6 +290,10 @@ class MedicineDossierPresenter
                         ],
                     ]),
                 'closure_blockers' => $this->workflow->blockersForClosure($consultation),
+                // ADR-109 — le besoin de l'arrivée, là où il se transforme en
+                // demande. Le patient est venu pour une échographie : la
+                // Paraclinique doit la proposer, pas la faire rechercher.
+                'planned_paraclinical' => $this->plannedParaclinical($consultation),
                 // ADR-094 — l'écran doit dire la même chose que le serveur :
                 // sans ce drapeau, le formulaire de sortie afficherait encore
                 // « Diagnostic final * » et son bandeau d'avertissement sur
@@ -812,6 +821,70 @@ class MedicineDossierPresenter
     }
 
     /** @return array<string, ?string> */
+    /**
+     * Les examens que la Réception a déjà planifiés et dont la demande reste
+     * à transmettre (ADR-109).
+     *
+     * Le besoin est connu depuis l'arrivée (`EpisodeServiceRequest`, ADR-030)
+     * et déjà facturé (ADR-068). Faire chercher le même examen dans le
+     * catalogue, c'est demander au médecin de ressaisir ce que le dossier
+     * porte déjà — exactement ce que l'ADR-084 refuse pour les formulaires
+     * d'orientation.
+     *
+     * Une ligne disparaît dès qu'une demande active la porte : ce qui est
+     * transmis n'est plus à transmettre. Rien n'est déduit d'un libellé —
+     * le module du `catalog_item` décide, comme partout ailleurs (ADR-052).
+     *
+     * @return array<int, array{catalog_item_uuid: string, name: string, code: ?string, module: string, modality: ?string, already_billed: bool}>
+     */
+    private function plannedParaclinical(Consultation $consultation): array
+    {
+        $episode = $consultation->episode;
+
+        if (! $episode) {
+            return [];
+        }
+
+        $requested = LabRequestItem::query()
+            ->whereHas('labRequest', fn ($query) => $query
+                ->where('episode_id', $episode->getKey())
+                ->whereNull('cancelled_at'))
+            ->pluck('catalog_item_id')
+            ->merge(ImagingRequestItem::query()
+                ->whereHas('imagingRequest', fn ($query) => $query
+                    ->where('episode_id', $episode->getKey())
+                    ->whereNull('cancelled_at'))
+                ->pluck('catalog_item_id'))
+            ->filter()
+            ->unique();
+
+        return EpisodeServiceRequest::query()
+            ->where('episode_id', $episode->getKey())
+            ->whereNotIn('catalog_item_id', $requested)
+            ->with('catalogItem')
+            ->get()
+            ->filter(fn (EpisodeServiceRequest $request): bool => in_array(
+                $request->catalogItem?->module,
+                [CatalogModule::Laboratory, CatalogModule::Imaging],
+                true,
+            ))
+            ->map(fn (EpisodeServiceRequest $request): array => [
+                'catalog_item_uuid' => $request->catalogItem->uuid,
+                // Le libellé du catalogue, pas l'instantané : c'est celui que
+                // porte la liste où l'écran doit retrouver la ligne.
+                'name' => $request->catalogItem->name,
+                'code' => $request->catalogItem->code,
+                'module' => $request->catalogItem->module->value,
+                'modality' => $request->catalogItem->imaging_modality?->value,
+                // ADR-109 : l'écran le dit, pour qu'on ne craigne pas de
+                // facturer deux fois en transmettant la demande.
+                'already_billed' => $this->plannedBilling
+                    ->unconsumedFor($episode, $request->catalogItem) !== null,
+            ])
+            ->values()
+            ->all();
+    }
+
     private function orientationPrefill(Consultation $consultation): array
     {
         $examination = $consultation->clinicalExamination;

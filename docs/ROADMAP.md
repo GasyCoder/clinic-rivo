@@ -139,6 +139,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Traitements habituels du dossier patient (`patient_treatments`) affichés sans ressaisie, avec question de changement déclaré
 - [x] Allergies, antécédents et traitements signalés pendant l'entretien conservés sur la consultation ; promotion au dossier permanent explicite et soumise à `patients.medical_history.manage`
 - [x] Examens paracliniques (analyses, ECG, échographie) facturés dès la demande du médecin, comme à la Réception (ADR-105)
+- [x] Un examen déjà demandé à la Réception n'est **jamais refacturé** : la demande du médecin rattache la prestation de l'arrivée au lieu d'en créer une seconde (ADR-109)
+- [x] Le besoin de l'arrivée entre de lui-même dans la demande paraclinique, retirable, avec la mention « déjà porté au compte du patient » (ADR-109)
 - [x] ECG et Échographie séparés en deux onglets, sur une famille réglée au catalogue (`imaging_modality`) — jamais déduite d'un code (ADR-106)
 - [x] Onglet « Non classés » visible uniquement s'il contient un examen : un examen sans famille n'est jamais rangé au hasard
 - [x] Transmission d'une demande d'examen confirmée comme une signature : examens nommés un par un et responsabilité nominative (ADR-106)
@@ -161,6 +163,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Saisie de diagnostic sans distinction hypothèse / final ; les hypothèses déjà enregistrées gardent leur type et restent signalées (ADR-082)
 - [x] Voie d'administration sur les lignes d'ordonnance, facultative et jamais rétro-remplie (ADR-083)
 - [x] Posologie composée avec ses unités à la saisie ; plus de « Dose 500 / Fréquence 3 » sans contexte
+- [x] Dose facultative pour un produit qui ne se dose pas (compresses, gants) : la forme du référentiel décide, jamais le libellé (ADR-110)
+- [x] Quantité totale déduite de la fréquence et de la durée, base du calcul écrite sous le champ, jamais imposée sur une quantité déjà corrigée (ADR-110)
+- [x] Aucune quantité suggérée quand la posologie n'en implique aucune (« si besoin », fréquence libre, durée absente)
 - [x] Navigation précédente pointant vers la dernière étape réellement pertinente, jamais vers une étape « Non nécessaire »
 - [x] Demandes d'analyses et d'imagerie annulables (`cancelled_at`), jamais supprimées ; une demande avec résultat n'est jamais retirée
 - [x] Conduite à tenir portée par `consultation_orientations` (SELECTED / SUBMITTED / CANCELLED), décidée dès que le médecin en sait assez (ADR-084)
@@ -172,6 +177,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Clôture seule responsable de terminer l'orientation Médecine et de porter la sortie sur l'épisode
 - [x] Permission propre à l'espace « Demandes d'examens » (`paraclinical_requests.view`, ADR-100) : l'écran s'ouvrait uniquement avec le droit sur les analyses, refusant un compte qui n'avait que l'imagerie
 - [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
+- [x] Feuilles de compte rendu de la clinique (écho abdomino-pelvienne, écho obstétricale 1er trimestre) insérables dans le compte rendu, choisies par le médecin et jamais déduites du nom de l'examen (ADR-108)
+- [ ] Feuille ECG — aucun modèle transmis, rien n'est inventé (ADR-108)
 - [x] File Maternité passée à shadcn (ADR-099) : cartes, pastilles d'état et pagination par les primitives partagées ; la prise en charge devient un POST au lieu d'un bouton imbriqué dans un lien-bouton
 - [x] Cartes compteur partagées sur les files cliniques (Médecine, Soins, Laboratoire, Demandes d'examens) : la carte est le filtre, et le compte vient du serveur — jamais de la page affichée
 - [x] Réouverture tracée d'une consultation clôturée, tant que la Réception n'a pas clos le passage (ADR-096, construit le mécanisme annoncé par l'ADR-076)

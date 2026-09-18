@@ -642,6 +642,26 @@ plutôt qu'une copie par appelant. Retirer une demande (ADR-079) annule ses
 `BillableItem` encore `PENDING` ; un élément déjà porté sur une facture n'est
 pas détricoté — seule la Réception/Caisse touche un montant facturé.
 
+**Le besoin de l'arrivée n'est ni redemandé, ni refacturé** (ADR-109,
+complète ADR-105). Mme R. arrive pour une échographie obstétricale : la
+Réception la planifie et la facture (ADR-068), l'en-tête de la consultation
+l'affiche — et l'étape Paraclinique présentait un champ de recherche vide,
+demandant au médecin de retrouver le même examen au catalogue. Ce n'était pas
+qu'une ressaisie : depuis l'ADR-105, créer la demande facture, avec une clé
+dérivée de la ligne — donc **un second `BillableItem` de 50 000 Ar pour la
+même échographie**. `RecordBillableItemAction` savait déjà ne pas refacturer
+une prestation planifiée (ADR-054), mais seulement en l'absence de clé
+explicite, et l'ADR-105 en imposait une systématiquement.
+`PlannedServiceBilling::unconsumedFor()` répond à la question qui manquait :
+la demande **rattache** la prestation de l'arrivée quand elle existe et n'est
+pas déjà portée par une autre ligne, et facture normalement sinon — un examen
+redemandé après lecture du résultat reste un second acte. `planned_paraclinical`
+sert au médecin ce qui reste à transmettre : l'écran le met dans la demande au
+montage, le dit (« déjà porté au compte du patient »), et le laisse retirable.
+Le serveur décide ce qui reste à transmettre ; rien n'est déduit d'un libellé
+(ADR-052), et le médecin reste libre d'ajouter ce qu'il veut, avant comme
+après son diagnostic.
+
 **ECG et Échographie sont deux familles distinctes** (ADR-106).
 `catalog_items.imaging_modality` (`CARDIOLOGY` | `ULTRASOUND`, nullable) la
 porte, réglée au catalogue comme `reception_routing_mode` porte le parcours
@@ -865,6 +885,36 @@ déjà assemblée par le presenter (`posology`), si bien qu'aucun écran n'a à
 deviner l'unité d'un nombre nu. Prescrire reste une décision : la validation
 réserve en FEFO (ADR-036) sans décrémenter aucune quantité physique, seule la
 délivrance Pharmacie le fait.
+
+**Une ordonnance ne réclame que ce que le produit porte réellement**
+(ADR-110). `dosage` était obligatoire pour tout produit : sur un paquet de
+compresses stériles, c'était un champ impossible à remplir honnêtement — une
+compresse n'a pas de dose, on en utilise un nombre. La **forme du
+référentiel** décide (`MedicineForm::undosedValues()`, une seule source
+relue par `isDosed()`), jamais un libellé contenant « compresse » ou
+« gants » (ADR-052) : `PARAPHARMACY_CONSUMABLE` rend la dose facultative,
+toute autre forme l'exige, et une ligne manuelle (ADR-037) l'exige aussi —
+elle ne référence aucune forme, donc rien ne permet de savoir qu'elle ne se
+dose pas. La règle est résolue **ligne par ligne** côté serveur
+(`Rule::forEach`, une règle `lines.*` ne pouvant pas lire la forme du produit
+de sa propre ligne) : masquer le champ dans Vue n'aurait rien protégé d'un
+appelant qui poste directement. Un champ vide est enregistré `null`, jamais
+une chaîne vide (ADR-077) ; `prescription_lines.dosage` était déjà nullable,
+aucune migration.
+
+La **quantité totale** est déduite de la fréquence et de la durée
+(`resources/js/utilities/posology.js`, écrit une seule fois pour l'éditeur et
+la confirmation de l'ADR-106 — deux formules finiraient par annoncer deux
+quantités). Le calcul suppose une unité par prise et l'écrit sous le champ
+(`3/jour × 7 jours · une unité par prise`) plutôt que de livrer un chiffre
+nu : déduire qu'une dose couvre deux comprimés exigerait de comparer deux
+textes libres dont l'unité ne correspond pas toujours. **Il ne propose rien
+quand il n'a rien à proposer** — « si besoin » n'a pas de cadence, une
+fréquence tapée à la main non plus, et une durée absente n'a rien à
+multiplier. La suggestion n'écrase **jamais** une saisie : dès que le médecin
+touche la quantité, la ligne est verrouillée — corriger 21 en 30 parce que la
+boîte en contient trente est une décision, pas une faute de frappe à
+recalculer (même principe que le matériel habituel d'un acte, ADR-072).
 
 La saisie ne distingue plus hypothèse et diagnostic final (ADR-082, amende
 ADR-035) : toute nouvelle ligne est enregistrée `FINAL`. `DiagnosisType`

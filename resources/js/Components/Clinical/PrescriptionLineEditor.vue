@@ -1,7 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import { isUndosedForm, quantityBasis, suggestedQuantity } from '@/utilities/posology';
 
 /**
  * Composing a posology that reads like an instruction, not like three
@@ -19,6 +20,12 @@ const props = defineProps({
     disabled: { type: Boolean, default: false },
     /** Unit suggested by the medicine's own form (gélule, ampoule…). */
     quantityUnit: { type: String, default: 'unité(s)' },
+    /**
+     * La forme pharmaceutique du référentiel (ADR-036). Elle décide si la
+     * dose a un sens : une compresse stérile ne se dose pas, on en utilise
+     * un nombre. Jamais déduite d'un libellé (ADR-052).
+     */
+    medicineForm: { type: String, default: null },
     errorFor: { type: Function, default: () => null },
 });
 
@@ -62,6 +69,46 @@ const setDuration = (value, unit) => {
     emit('update', { field: 'duration', value: amount === '' ? '' : `${amount} ${chosen}` });
 };
 
+/**
+ * ADR-110 — la dose n'est pas demandée quand elle n'existe pas.
+ *
+ * « Compresses stériles · Paquet de 10 » réclamait « 500 mg » : un champ
+ * obligatoire qu'on ne pouvait pas remplir honnêtement. Le serveur applique
+ * la même règle ; l'écran ne fait que la refléter.
+ */
+const dosed = computed(() => !isUndosedForm(props.medicineForm));
+
+/**
+ * La quantité que la posologie implique — suggérée, jamais imposée.
+ *
+ * Elle est posée tant que le médecin n'a pas saisi la sienne ; dès qu'il
+ * corrige le champ, sa valeur est une décision et n'est plus jamais réécrite
+ * (même règle que le matériel suggéré par un acte de soins, ADR-072).
+ */
+const posologyInput = computed(() => ({
+    frequency: props.line.frequency,
+    durationAmount: props.line._duration_amount,
+    durationUnit: props.line._duration_unit ?? 'jours',
+}));
+
+const suggestion = computed(() => suggestedQuantity(posologyInput.value));
+const basis = computed(() => quantityBasis(posologyInput.value));
+
+watch(suggestion, (value) => {
+    if (value === null || props.line._quantity_touched) {
+        return;
+    }
+
+    if (Number(props.line.quantity) !== value) {
+        emit('update', { field: 'quantity', value });
+    }
+}, { immediate: true });
+
+const setQuantity = (value) => {
+    emit('update', { field: '_quantity_touched', value: true });
+    emit('update', { field: 'quantity', value });
+};
+
 /** What the line will read as once saved — shown live, so no surprise. */
 const preview = computed(() => [
     props.line.dosage,
@@ -74,7 +121,9 @@ const preview = computed(() => [
 <template>
     <div class="space-y-3">
         <div class="grid gap-3 sm:grid-cols-2">
-            <div>
+            <!-- ADR-110 — un consommable ne se dose pas : le champ disparaît
+                 au lieu de rester vide et obligatoire. -->
+            <div v-if="dosed">
                 <label class="mb-1 block text-[11px] font-bold text-foreground">Dose <span class="text-destructive">*</span></label>
                 <div class="flex gap-2">
                     <Input
@@ -173,10 +222,12 @@ const preview = computed(() => [
                         inputmode="numeric"
                         aria-label="Quantité totale à délivrer"
                         class="min-w-0 flex-1"
-                        @update:model-value="patch('quantity', $event)"
+                        @update:model-value="setQuantity($event)"
                     />
                     <span class="shrink-0 text-[11px] text-muted-foreground">{{ quantityUnit }}</span>
                 </div>
+                <!-- Sur quoi le chiffre repose, jamais un total tombé du ciel. -->
+                <p v-if="basis" class="mt-1 text-[11px] text-muted-foreground">{{ basis }}</p>
                 <FormError :message="errorFor('quantity')" />
             </div>
 

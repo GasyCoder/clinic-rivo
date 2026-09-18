@@ -7428,3 +7428,301 @@ Le test ne l'avait pas vu parce qu'il omettait ces clés. Or un champ masqué
 par `v-if` **reste dans l'objet du formulaire** et part à vide : le
 `deceasedPayload()` des tests envoie désormais exactement ce que le navigateur
 envoie, et il échoue si la règle repasse à sa forme précédente.
+
+---
+
+# ADR-108 — Feuilles de compte rendu d'échographie
+
+**Status:** ACCEPTED (2026-09-17 — formulaires papier transmis par le
+propriétaire)
+
+**Complète l'ADR-106** (familles d'imagerie) et **applique l'ADR-052** : rien
+ne se déduit du nom ni du code d'un examen.
+
+## Le constat
+
+La saisie d'un compte rendu d'imagerie était un éditeur riche vide, avec un
+simple texte d'invite « Technique, constatations, conclusion… ». En pratique,
+le médecin recopiait ou collait à la main la feuille papier de la clinique —
+c'est exactement ce qu'on a retrouvé dans le dossier, balises comprises, quand
+le préremplissage d'une demande d'hospitalisation l'a fait remonter.
+
+## Ce qui est transcrit, et ce qui ne l'est pas
+
+`ImagingReportTemplates` porte les deux formulaires fournis :
+
+```text
+ECHO_ABDOMINO_PELVIENNE   foie, reins, pancréas, rate, vessie, utérus,
+                          ovaires, cul de sac de Douglas, prostate, conclusion
+ECHO_OBSTETRICALE_T1      utérus, ovaires, sac ovulaire, embryon,
+                          conclusion, observation, N.B.
+```
+
+Le canevas ne porte que le **corps clinique**. L'en-tête de la clinique, le
+numéro de dossier, l'identité du patient, « Fait le » et « Le médecin
+responsable » sont déjà produits par `ClinicalDocumentPrint` à l'impression,
+depuis le dossier réel : les remettre dans le canevas les ferait diverger, et
+l'ADR-084 pose qu'aucune donnée déjà consignée n'est redemandée. Un test le
+vérifie feuille par feuille.
+
+## Le médecin choisit sa feuille
+
+Aucune correspondance automatique avec le libellé de l'examen. « Échographie
+pelvienne » et « échographie abdomino-pelvienne » se ressemblent assez pour
+qu'une règle sur le nom finisse par insérer la mauvaise, et un compte rendu
+commencé sur le mauvais canevas se relit mal — c'est la raison même de
+l'ADR-052, et celle qui a déjà imposé une colonne configurée pour la famille
+ECG/échographie (ADR-106).
+
+Une feuille **remplace** tout le compte rendu. Sur un champ déjà écrit, c'est
+une perte de saisie : l'insertion demande confirmation, et n'écrase jamais en
+silence.
+
+## Pourquoi un canevas de texte, et non des champs
+
+Les formulaires de la clinique sont des feuilles à compléter : « Échostructure :
+____ », « Bord : ____ Contours : ____ ». Leur contenu est du texte libre, et
+il diffère d'un examen à l'autre. Un modèle relationnel à un champ par ligne
+figerait dans une migration ce que la clinique corrige sur son traitement de
+texte, pour un bénéfice nul — rien n'est calculé ni compté sur ces valeurs.
+
+Le canevas reste donc du HTML restreint, dans la colonne `result_value` qui
+existe déjà, et passe par le même `ClinicalRichTextSanitizer` que ce que le
+médecin tape. Aucune migration, aucun second chemin d'écriture.
+
+## Divergences signalées, jamais corrigées en silence
+
+Les deux versions du formulaire abdomino-pelvien transmises ne disent pas la
+même chose :
+
+```text
+« Abdomino-Pelvienne.pdf »   REIN : « Diamètre : »          + rubrique PROSTATE
+« Échographie_1.pdf »        REIN : « Diamètre bipariétal » + rubrique N.B.
+```
+
+Le diamètre bipariétal est une mesure du crâne fœtal : sur un rein, c'est un
+report de la feuille obstétricale. La transcription suit donc la première
+version, qui est cohérente et porte la prostate. La seconde divergence (N.B.)
+est signalée sans être tranchée.
+
+Le formulaire obstétrical écrit « Retraversé (Fléchi) » là où le terme est
+« rétroversé ». Le canevas reprend le formulaire tel qu'il est : corriger la
+terminologie d'un document clinique n'appartient pas à l'implémentation.
+
+## Ce qui manque
+
+**Aucune feuille ECG.** Le propriétaire cite l'ECG, mais aucun modèle n'a été
+transmis et le CDC n'en décrit pas. Rien n'est inventé : l'examen reste saisi
+en texte libre jusqu'à réception de sa feuille.
+
+Aucune permission, route, validation ou règle métier n'est modifiée par cette
+décision.
+
+---
+
+# ADR-109 — Le besoin de l'arrivée n'est ni redemandé au médecin, ni refacturé
+
+**Status:** ACCEPTED (2026-09-18 — signalement explicite du propriétaire)
+
+**Complète l'ADR-105** (les examens paracliniques sont facturés à la demande)
+et **applique l'ADR-084** (« jamais deux fois la même saisie ») à l'étape
+Paraclinique.
+
+## Le constat du propriétaire
+
+Mme R. arrive pour une **Échographie obstétricale**. La Réception la
+sélectionne, l'écran de consultation l'affiche en tête — « Consultation en
+cours · Échographie obstétricale ». Puis l'étape Paraclinique présente un
+champ de recherche vide et demande au médecin de retrouver le même examen
+dans le catalogue.
+
+Le propriétaire l'a posé en ces termes : le besoin est déjà connu, pourquoi
+forcer le médecin à le ressaisir.
+
+## Ce que la vérification a trouvé de plus grave
+
+Sur le passage réel `A-26-0009-01` :
+
+```text
+demande de la Réception   Échographie obstétricale (module IMAGING)
+prestation facturable     Échographie obstétricale — 50 000 Ar — INVOICED
+demande d'imagerie        aucune
+```
+
+La Réception avait donc **déjà facturé** l'examen (ADR-068), et la facture
+était émise. Depuis l'ADR-105, créer la demande d'imagerie facture aussi —
+avec une clé d'idempotence dérivée de la ligne de demande. Le médecin qui
+suivait la consigne de l'écran produisait donc un **second `BillableItem` de
+50 000 Ar pour la même échographie**.
+
+Ce n'était pas un défaut d'ergonomie avec un effet secondaire : c'est le même
+défaut. Ressaisir un besoin déjà connu, c'est créer une seconde fois ce qui
+existait.
+
+## Pourquoi la garde existante ne s'appliquait pas
+
+`RecordBillableItemAction` sait déjà ne pas refacturer une prestation
+planifiée à la Réception (ADR-054) : en l'absence de clé explicite, elle en
+dérive une de l'`EpisodeServiceRequest` correspondante et **rejoue** la
+prestation déjà créée.
+
+L'ADR-105 imposait une clé à chaque appel — `'imaging_request_item:'.$uuid` —
+ce qui court-circuitait exactement cette garde. La clé était juste pour son
+propre besoin (une relance ne facture pas deux fois la même ligne) et fausse
+pour celui-là.
+
+## La règle
+
+`PlannedServiceBilling::unconsumedFor()` répond à la seule question qui
+manquait : *cet examen a-t-il déjà été facturé à l'arrivée, et cette
+facturation est-elle encore disponible ?*
+
+```text
+prestation planifiée ET facturée, non encore rattachée  -> la demande la rattache
+aucune prestation planifiée                             -> la demande facture (ADR-105)
+prestation déjà rattachée à une autre ligne             -> la demande facture
+prestation annulée                                      -> la demande facture
+```
+
+Le troisième cas compte autant que le premier : un médecin qui redemande une
+échographie après en avoir lu le résultat demande un **second acte**, et il se
+facture. La garde ne transforme jamais « déjà payé une fois » en « gratuit
+ensuite ». Un test le vérifie dans les deux sens.
+
+La ligne de demande porte alors le `billable_item_id` de la Réception : la
+facturation n'est pas seulement évitée, elle est **rattachée**. Retirer la
+demande (ADR-079) retrouve donc exactement ce qu'elle a porté, et n'annule
+pas un montant que la Réception a déjà facturé — seule la Réception/Caisse
+touche un montant facturé (ADR-012).
+
+## Le besoin connu entre dans la demande
+
+`planned_paraclinical` sert au médecin les examens que la Réception a
+planifiés et dont la demande reste à transmettre. L'écran les met dans la
+demande en préparation **au montage**, et l'annonce en une ligne :
+
+> Échographie obstétricale — demandé à l'arrivée, déjà facturé.
+
+La première version tenait trois phrases et expliquait aussi qu'on pouvait
+retirer la ligne. Le propriétaire l'a fait raccourcir : la ligne est juste
+en dessous avec son bouton de retrait, et un bandeau qui explique ce que
+l'écran montre déjà se lit comme un avertissement.
+
+Trois précisions qui ne sont pas décoratives :
+
+- **Le serveur décide ce qui reste à transmettre.** Une ligne disparaît dès
+  qu'une demande active la porte — ce qui est transmis n'est plus à
+  transmettre. Rien n'est déduit d'un libellé : c'est le module du
+  `catalog_item` qui classe, comme partout ailleurs (ADR-052).
+- **La présélection est faite une fois par examen.** Une ligne que le médecin
+  retire à la main ne revient jamais : il peut décider que l'examen demandé à
+  l'accueil n'est pas celui qu'il faut.
+- **Le médecin reste libre d'ajouter ce qu'il veut**, avant comme après son
+  diagnostic. La recherche au catalogue ne disparaît pas ; elle cesse
+  seulement d'être le seul chemin.
+
+## Ce qui ne change pas
+
+La facturation à la demande (ADR-105), la confirmation de transmission
+(ADR-106), l'annulation d'une demande sans résultat (ADR-079), la résolution
+de l'étape à l'envoi (ADR-105). La Médecine n'encaisse toujours rien.
+
+Aucune permission, route ni migration.
+
+---
+
+# ADR-110 — Une ordonnance ne réclame que ce que le produit porte réellement
+
+**Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire :
+« lorsqu'on donne une ordonnance il faut adapter logique et intelligence,
+ex : Compresses stériles pourquoi on a besoin de Dose ? »)
+
+**Complète l'ADR-083** (posologie non ambiguë) et **applique l'ADR-052** : la
+forme du référentiel décide, jamais le nom ni le code d'un produit.
+
+## Le constat
+
+L'éditeur de ligne posait les mêmes quatre champs à tout produit du
+référentiel Pharmacie, et `dosage` était **obligatoire** côté serveur. Pour un
+comprimé, « 500 mg » est la donnée la plus importante de la ligne. Pour un
+paquet de compresses stériles, c'est un champ obligatoire **impossible à
+remplir honnêtement** : une compresse n'a pas de dose, on en utilise un
+nombre. Le médecin n'avait que deux issues — écrire quelque chose de faux, ou
+ne pas prescrire le produit.
+
+Deuxième constat du même message : la quantité totale se calculait dans la
+tête. « 3 fois/jour pendant 7 jours » vaut 21 unités, et rien ne le disait.
+
+## La dose suit la forme, jamais le libellé
+
+```text
+forme du référentiel PARAPHARMACY_CONSUMABLE  -> dose facultative
+toute autre forme                              -> dose exigée
+ligne manuelle (ADR-037)                       -> dose exigée
+```
+
+`MedicineForm::undosedValues()` porte cette liste une seule fois, et
+`isDosed()` la relit. Rien n'est déduit d'un nom contenant « compresse » ou
+« gants » (ADR-052) : un produit mal classé au référentiel se corrige au
+référentiel, il ne se devine pas à la prescription.
+
+Une **ligne manuelle** garde sa dose obligatoire, et ce n'est pas un oubli :
+elle ne référence aucune forme, donc rien ne permet de savoir qu'elle ne se
+dose pas. L'exiger est la seule réponse qui n'invente rien.
+
+La règle vit côté serveur — `lines.*.dosage` résolue **ligne par ligne** par
+`Rule::forEach`, une règle `lines.*` ne pouvant pas lire la forme du produit
+de sa propre ligne. Masquer le champ dans Vue n'aurait rien protégé d'un
+appelant qui poste directement. `prescription_lines.dosage` était déjà
+nullable : aucune migration.
+
+Une absence reste une absence : un champ vide est enregistré `null`, jamais
+une chaîne vide (ADR-077). Le champ masqué par `v-if` reste dans l'objet du
+formulaire et part à vide — c'est exactement ce que le navigateur envoie, et
+c'est ce que le test poste.
+
+## La quantité que la posologie implique
+
+`resources/js/utilities/posology.js` porte le calcul **une seule fois** : le
+même module sert l'éditeur de ligne et la fenêtre de confirmation de
+l'ADR-106, et deux formules finiraient par annoncer deux quantités pour la
+même ordonnance.
+
+```text
+3 fois/jour × 7 jours    -> 21     · une unité par prise
+matin et soir × 2 semaines -> 28
+2 fois/jour, prise unique  -> 2
+```
+
+Le calcul suppose **une unité par prise**, et l'écran l'écrit sous le champ
+(`3/jour × 7 jours · une unité par prise`) plutôt que de livrer un chiffre
+nu. Déduire qu'une dose couvre deux comprimés exigerait de comparer la dose
+au dosage du produit — deux textes libres dont l'unité ne correspond pas
+toujours, et une erreur de facteur deux sur une quantité réservée n'est pas
+une approximation acceptable.
+
+**Il ne propose rien quand il n'a rien à proposer**, et c'est le point :
+
+```text
+« si besoin »            aucune cadence — une prise conditionnelle n'en a pas
+fréquence tapée à la main  deviner un nombre dans une phrase libre
+                           reviendrait à inventer une posologie
+durée absente ou absurde   rien à multiplier
+```
+
+La suggestion **n'écrase jamais une saisie**. Dès que le médecin touche la
+quantité, `_quantity_touched` verrouille la ligne : corriger 21 en 30 parce
+que la boîte en contient trente est une décision, pas une faute de frappe à
+recalculer. C'est le même principe que le matériel habituel d'un acte de
+soins (ADR-072) — une suggestion de saisie, jamais une règle.
+
+## Ce qui ne change pas
+
+Prescrire reste une décision : la validation réserve en FEFO (ADR-036) sans
+décrémenter aucune quantité physique, et une ligne manuelle ne réserve
+toujours rien (ADR-037). La posologie composée avec ses unités (ADR-083) et
+la confirmation de validation (ADR-106) sont inchangées. Aucun prix n'apparaît
+sur une ligne d'ordonnance.
+
+Aucune permission, route ni migration nouvelle : `prescriptions.create`
+gouverne l'ordonnance comme avant.

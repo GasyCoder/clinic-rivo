@@ -10,6 +10,8 @@ use App\Models\EpisodeOrientation;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
+use App\Enums\MedicineForm;
+use App\Models\Medicine;
 
 class StoreMedicinePrescriptionRequest extends FormRequest
 {
@@ -53,13 +55,48 @@ class StoreMedicinePrescriptionRequest extends FormRequest
             ],
             'lines.*.medication_name' => ['nullable', 'required_if:lines.*.manual,true', 'string', 'max:255'],
             'lines.*.quantity' => ['required', 'integer', 'min:1', 'max:100000'],
-            'lines.*.dosage' => ['required', 'string', 'max:255'],
+            // ADR-110 — la dose n'est exigée que pour un produit qui se
+            // dose. Une compresse stérile ou une paire de gants n'a pas de
+            // dose : on en utilise un nombre, et réclamer « 500 mg » sur un
+            // paquet de dix créait un champ obligatoire impossible à remplir
+            // honnêtement. La forme du référentiel décide (ADR-036), jamais
+            // un libellé ni un code (ADR-052).
+            // `forEach` n'est jamais enveloppée dans un tableau : Laravel ne
+            // la reconnaît alors plus comme règle compilable, l'attribut
+            // résolu est perdu et toutes les lignes retombent sur
+            // « required » — le défaut que le test de cette ADR a attrapé.
+            'lines.*.dosage' => Rule::forEach(
+                fn ($value, string $attribute): array => $this->dosageRulesFor($attribute),
+            ),
             // Clinically decisive: 500 mg orally is not 500 mg IV.
             'lines.*.route' => ['nullable', Rule::in(AdministrationRoute::values())],
             'lines.*.frequency' => ['required', 'string', 'max:255'],
             'lines.*.duration' => ['nullable', 'string', 'max:255'],
             'lines.*.instructions' => ['nullable', 'string', 'max:1000'],
         ];
+    }
+
+    /**
+     * Les règles de la dose d'une ligne donnée.
+     *
+     * `forEach` donne l'attribut résolu (`lines.3.dosage`) : on peut donc
+     * remonter à la ligne et lire la forme de son médicament, ce qu'une
+     * règle `lines.*` ne permet pas.
+     *
+     * @return array<int, mixed>
+     */
+    private function dosageRulesFor(string $attribute): array
+    {
+        $index = explode('.', $attribute)[1] ?? null;
+        $line = $index === null ? [] : (array) $this->input("lines.{$index}", []);
+        $uuid = $line['medicine_uuid'] ?? null;
+
+        $undosed = $uuid !== null && Medicine::query()
+            ->whereIn('form', MedicineForm::undosedValues())
+            ->whereHas('catalogItem', fn ($query) => $query->where('uuid', $uuid))
+            ->exists();
+
+        return [$undosed ? 'nullable' : 'required', 'string', 'max:255'];
     }
 
     public function messages(): array

@@ -15,6 +15,26 @@ enum MedicineForm: string
     case SuppositoryOvule = 'SUPPOSITORY_OVULE';
     case Other = 'OTHER';
 
+    /**
+     * Les formes qui ne se dosent pas (ADR-110).
+     *
+     * Une compresse, un sparadrap ou une paire de gants s'utilise en nombre,
+     * pas en milligrammes. La liste vit ici, avec les formes elles-mêmes :
+     * l'écran et la validation la lisent au même endroit, et ni l'un ni
+     * l'autre ne la déduit d'un libellé (ADR-052).
+     *
+     * @return array<int, string>
+     */
+    public static function undosedValues(): array
+    {
+        return [self::ParapharmacyConsumable->value];
+    }
+
+    public function isDosed(): bool
+    {
+        return ! in_array($this->value, self::undosedValues(), true);
+    }
+
     public function label(): string
     {
         return match ($this) {

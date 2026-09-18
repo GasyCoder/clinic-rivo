@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Support\ImagingReportTemplates;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -103,6 +104,11 @@ class ParaclinicalRequestDirectoryController extends Controller
             // un vide muet se lit « aucune demande » — l'écran doit dire que
             // c'est un droit qui manque, pas du travail terminé.
             'can' => ['lab' => $canViewLab, 'imaging' => $canViewImaging],
+            // ADR-108 — les feuilles de la clinique, servies à l'écran de
+            // saisie. Elles n'intéressent que qui peut écrire un compte
+            // rendu : les envoyer à un compte qui ne fait que consulter
+            // remplirait le payload d'un canevas qu'il ne verra jamais.
+            'report_templates' => $canViewImaging ? ImagingReportTemplates::all() : [],
         ]);
     }
 

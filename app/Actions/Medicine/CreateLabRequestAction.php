@@ -14,6 +14,7 @@ use App\Models\EpisodeOrientation;
 use App\Models\LabRequest;
 use App\Models\User;
 use App\Services\Billing\ClinicalActBiller;
+use App\Services\Billing\PlannedServiceBilling;
 use App\Support\ParaclinicalRequestGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -30,6 +31,7 @@ class CreateLabRequestAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly ClinicalActBiller $biller,
+        private readonly PlannedServiceBilling $plannedBilling,
         private readonly ResolveConsultationStepAction $resolveStep,
     ) {}
 
@@ -112,13 +114,18 @@ class CreateLabRequestAction
                 // demande, comme lorsque la Réception la sélectionne à
                 // l'arrivée (ADR-068). Un échec de facturation ne bloque
                 // jamais la demande : elle est déjà partie au Laboratoire.
-                $billable = $this->biller->bill(
-                    $episode,
-                    $catalogItem,
-                    'lab_request_item:'.$line->uuid,
-                    $actor,
-                    $line,
-                );
+                // ADR-109 — si la Réception a déjà planifié et facturé cet
+                // examen à l'arrivée (ADR-068), la demande du médecin rattache
+                // cette prestation au lieu d'en créer une seconde : le patient
+                // ne paie pas deux fois la même échographie.
+                $billable = $this->plannedBilling->unconsumedFor($episode, $catalogItem)
+                    ?? $this->biller->bill(
+                        $episode,
+                        $catalogItem,
+                        'lab_request_item:'.$line->uuid,
+                        $actor,
+                        $line,
+                    );
 
                 if ($billable) {
                     $line->update(['billable_item_id' => $billable->getKey()]);

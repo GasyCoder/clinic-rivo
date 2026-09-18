@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { Archive, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, LoaderCircle, PenLine, Printer, ScanLine, Search, Trash2 } from 'lucide-vue-next';
+import { Archive, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FileText, FlaskConical, LoaderCircle, PenLine, Printer, ScanLine, Search, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -34,6 +34,8 @@ const props = defineProps({
     filters: { type: Object, default: () => ({}) },
     /** Ce que le compte a le droit de voir ici : `{ lab, imaging }`. */
     can: { type: Object, default: () => ({ lab: true, imaging: true }) },
+    /** Les feuilles de la clinique (ADR-108), servies par le serveur. */
+    reportTemplates: { type: Array, default: () => [] },
 });
 
 /**
@@ -113,6 +115,40 @@ const openReport = (request, item) => {
 
 const closeReport = () => {
     reporting.value = null;
+    pendingTemplate.value = null;
+};
+
+/**
+ * Les feuilles de la clinique (ADR-108).
+ *
+ * Le médecin choisit la sienne : **rien n'est déduit du nom de l'examen**
+ * (ADR-052). « Échographie pelvienne » et « échographie abdomino-pelvienne »
+ * se ressemblent assez pour qu'une correspondance automatique finisse par
+ * insérer la mauvaise, et un compte rendu commencé sur le mauvais canevas se
+ * relit mal.
+ */
+const pendingTemplate = ref(null);
+
+const hasReportContent = computed(() => reportForm.result_value
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;|\u00a0/g, ' ')
+    .trim() !== '');
+
+const chooseTemplate = (template) => {
+    // Une feuille remplace tout le compte rendu. Sur un champ déjà écrit,
+    // c'est une perte de saisie : on demande avant, on n'écrase jamais.
+    if (hasReportContent.value) {
+        pendingTemplate.value = template;
+
+        return;
+    }
+
+    applyTemplate(template);
+};
+
+const applyTemplate = (template) => {
+    reportForm.result_value = template.body_html;
+    pendingTemplate.value = null;
 };
 
 const submitReport = () => {
@@ -422,6 +458,27 @@ const submitWithdraw = () => {
                         <label for="imaging_report" class="mb-1.5 block text-xs font-bold text-foreground">
                             Compte rendu <span class="text-destructive">*</span>
                         </label>
+
+                        <!-- ADR-108 — les feuilles de la clinique. Le médecin
+                             choisit la sienne : rien n'est déduit du nom de
+                             l'examen (ADR-052). L'en-tête, l'identité du
+                             patient et la signature ne sont pas dans le
+                             canevas : l'impression les porte déjà. -->
+                        <div v-if="reportTemplates.length" class="mb-2 flex flex-wrap items-center gap-1.5">
+                            <span class="text-[11px] font-semibold text-muted-foreground">Feuille :</span>
+                            <Button
+                                v-for="template in reportTemplates"
+                                :key="template.key"
+                                type="button"
+                                size="sm"
+                                variant="white-outline"
+                                :title="template.description"
+                                @click="chooseTemplate(template)"
+                            >
+                                <FileText class="h-3.5 w-3.5" />{{ template.label }}
+                            </Button>
+                        </div>
+
                         <ClinicalRichTextEditor
                             id="imaging_report"
                             v-model="reportForm.result_value"
@@ -547,6 +604,35 @@ const submitWithdraw = () => {
                 <Button type="button" variant="white-outline" size="sm" @click="closeWithdraw">Annuler</Button>
                 <Button type="button" variant="destructive" size="sm" :disabled="withdrawForm.processing" @click="submitWithdraw">
                     <Trash2 class="h-4 w-4" />Retirer la demande
+                </Button>
+            </template>
+        </Dialog>
+
+        <!-- Une feuille remplace tout le compte rendu. Sur un champ déjà
+             écrit, c'est une perte de saisie : on demande avant. -->
+        <Dialog
+            :open="pendingTemplate !== null"
+            title="Remplacer le compte rendu ?"
+            :description="pendingTemplate?.label ?? ''"
+            :dismissible="false"
+            close-label="Conserver ma saisie"
+            @update:open="pendingTemplate = null"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                    <FileText class="h-5 w-5" />
+                </span>
+            </template>
+
+            <p class="text-xs leading-5 text-muted-foreground">
+                Ce compte rendu porte déjà du texte. Insérer cette feuille le remplacera entièrement.
+                Rien n’est encore enregistré : vous pouvez revenir en arrière.
+            </p>
+
+            <template #footer>
+                <Button type="button" variant="outline" @click="pendingTemplate = null">Conserver ma saisie</Button>
+                <Button type="button" @click="applyTemplate(pendingTemplate)">
+                    <FileText class="h-4 w-4" />Insérer la feuille
                 </Button>
             </template>
         </Dialog>

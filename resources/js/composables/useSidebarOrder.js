@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue';
+import { computed, getCurrentInstance, onMounted, ref, watch } from 'vue';
 
 /**
  * Lets each account choose the vertical order of its sidebar workspaces.
@@ -54,9 +54,18 @@ export function useSidebarOrder(userId) {
 
     const storageKey = computed(() => (userId.value ? `${STORAGE_PREFIX}.${userId.value}` : null));
 
-    // Read eagerly rather than on mount: this app has no SSR, so there is
-    // no hydration to mismatch, and waiting would re-order the sidebar
-    // visibly on every single page load.
+    // Read only once the browser has taken over — never while rendering.
+    //
+    // The app IS server-rendered (Inertia SSR). The server cannot see
+    // `localStorage`, so it renders the recommended order; reading the
+    // stored order during setup made the first client render differ from
+    // the HTML it hydrates. Vue does not repair attribute and text
+    // mismatches in production: a row kept one module's label while
+    // pointing to another's link — « Soins » opening Patients, icons shifted
+    // by one row, the highlight on the wrong entry. Constaté le 2026-09-18.
+    //
+    // The layout is persistent, so this runs once per full page load, not
+    // on every Inertia navigation.
     const load = () => {
         stored.value = {};
 
@@ -73,7 +82,12 @@ export function useSidebarOrder(userId) {
         }
     };
 
-    watch(storageKey, load, { immediate: true });
+    if (getCurrentInstance()) {
+        onMounted(load);
+    } else {
+        load();
+    }
+    watch(storageKey, load);
 
     const persist = () => {
         if (!storageKey.value) return;

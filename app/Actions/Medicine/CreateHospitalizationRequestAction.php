@@ -3,6 +3,7 @@
 namespace App\Actions\Medicine;
 
 use App\Actions\Episode\CreateEpisodeOrientationAction;
+use App\Actions\Hospitalization\AdmitHospitalStayAction;
 use App\Enums\CatalogModule;
 use App\Enums\ClinicalPriority;
 use App\Enums\ConsultationOrientationType;
@@ -19,10 +20,9 @@ use Illuminate\Validation\ValidationException;
  * The doctor asks for the patient to be admitted.
  *
  * Creates the DEMANDE and the orientation that carries it to the ward —
- * never the stay. Admission, bed, ward round and discharge from the ward
- * belong to an Hospitalisation module that does not exist yet, and whose
- * rules are defined nowhere (ADR-032, ADR-074); the request therefore stops
- * at REQUESTED.
+ * and, since ADR-113, the stay itself: admission is automatic at request
+ * time (owner's decision), so the patient is hospitalised from this moment.
+ * The stay ends with the doctor's medical discharge.
  *
  * @see CreateSurgicalReferralAction for the same shape toward Chirurgie.
  */
@@ -31,6 +31,7 @@ class CreateHospitalizationRequestAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly RecordConsultationOrientationAction $recordOrientation,
+        private readonly AdmitHospitalStayAction $admit,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -38,6 +39,7 @@ class CreateHospitalizationRequestAction
     {
         return DB::transaction(function () use ($consultation, $data, $actor): HospitalizationRequest {
             $lockedConsultation = Consultation::query()->lockForUpdate()->findOrFail($consultation->getKey());
+            $this->recordOrientation->ensureNotAlreadySubmitted($lockedConsultation, ConsultationOrientationType::Hospitalization);
             $medicineOrientation = EpisodeOrientation::query()
                 ->with('episode')
                 ->lockForUpdate()
@@ -51,19 +53,22 @@ class CreateHospitalizationRequestAction
             }
 
             $priority = ClinicalPriority::from($data['priority']);
+            // ADR-113 — le motif est repris du dossier, puis complété dans le
+            // module Hospitalisation : il peut partir vide, jamais inventé.
+            $reason = trim((string) ($data['reason'] ?? '')) ?: null;
             $orientation = $this->createOrientation->execute(
                 $medicineOrientation->episode,
                 CatalogModule::Medicine,
                 CatalogModule::Hospitalization,
                 $actor,
-                trim($data['reason']),
+                $reason,
             );
 
             $request = HospitalizationRequest::query()->create([
                 'episode_id' => $medicineOrientation->episode_id,
                 'consultation_id' => $lockedConsultation->getKey(),
                 'episode_orientation_id' => $orientation->getKey(),
-                'reason' => trim($data['reason']),
+                'reason' => $reason,
                 'admission_diagnosis' => $data['admission_diagnosis'] ?? null,
                 'clinical_summary' => $data['clinical_summary'] ?? null,
                 'planned_treatment' => $data['planned_treatment'] ?? null,
@@ -75,6 +80,9 @@ class CreateHospitalizationRequestAction
                 'requested_by' => $actor->getKey(),
                 'requested_at' => now(),
             ]);
+
+            // ADR-113 — l'admission est automatique : le séjour commence ici.
+            $this->admit->execute($request, $orientation, $actor);
 
             $this->recordOrientation->submit(
                 $lockedConsultation,

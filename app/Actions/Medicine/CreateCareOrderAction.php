@@ -26,6 +26,13 @@ use Illuminate\Validation\ValidationException;
  */
 class CreateCareOrderAction
 {
+    /**
+     * Written on the Soins orientation this action opens. It is how a later
+     * withdrawal knows the orientation exists only for care orders — an
+     * orientation reused from the arrival plan keeps its own reason.
+     */
+    public const ORIENTATION_REASON = 'Ordre de soins demandé en consultation.';
+
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
     ) {}
@@ -112,7 +119,7 @@ class CreateCareOrderAction
                 CatalogModule::Medicine,
                 CatalogModule::Care,
                 $actor,
-                'Ordre de soins demandé en consultation.',
+                self::ORIENTATION_REASON,
             );
 
             $careOrder = CareOrder::query()->create([

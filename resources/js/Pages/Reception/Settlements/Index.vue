@@ -297,6 +297,14 @@ const counterTiles = computed(() => [
                                     </span>
                                     <span class="mt-1 block text-xs text-muted-foreground">{{ formatDateTime(episode.administrative_exit.exited_at) }}<template v-if="episode.administrative_exit.author"> · {{ episode.administrative_exit.author }}</template></span>
                                     <span v-if="Number(episode.administrative_exit.balance_amount) > 0" class="mt-0.5 block text-xs font-bold text-red-600 dark:text-red-400">Créance {{ formatMoney(episode.administrative_exit.balance_amount) }}</span>
+                                    <!-- ADR-116 — la fiche de sortie, contrôlée ensuite au poste de gardiennage. -->
+                                    <Button
+                                        :as="Link"
+                                        :href="`/reception/passages/${episode.uuid}/sortie-administrative/fiche`"
+                                        size="sm"
+                                        variant="white-outline"
+                                        class="mt-1.5"
+                                    >Imprimer la fiche de sortie</Button>
                                 </template>
                                 <span v-else class="text-xs text-muted-foreground">{{ episode.administrative_status_label }}</span>
                             </td>

@@ -14,6 +14,8 @@ use App\Enums\ReceptionRoutingMode;
 use App\Models\BillableItem;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
+use App\Models\Episode;
+use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequestItem;
 use App\Models\Patient;
 use App\Models\Role;
@@ -159,7 +161,7 @@ class PlannedParaclinicalBillingTest extends TestCase
         return BillableItem::query()->where('episode_id', $episodeId)->count();
     }
 
-    /** @return array{0: \App\Models\Episode, 1: \App\Models\EpisodeOrientation} */
+    /** @return array{0: Episode, 1: EpisodeOrientation} */
     private function arrivalFor(CatalogItem $exam): array
     {
         $patient = Patient::query()->create([

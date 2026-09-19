@@ -4,7 +4,10 @@ namespace App\Providers;
 
 use App\Models\Permission;
 use App\Models\User;
+use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,6 +26,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Les migrations ajoutent des permissions par DB::table() — sans
+        // passer par le modèle, donc sans l'événement qui vide le cache des
+        // noms connus. Le Gate ignorait alors la nouvelle permission et
+        // refusait l'accès (403) à des rôles qui la détenaient pourtant.
+        // Vider ce cache à la fin de chaque migration couvre toutes les
+        // migrations, passées et futures, sans compter sur chacune d'elles.
+        Event::listen(MigrationsEnded::class, fn () => Cache::forget(Permission::CACHE_KEY));
+
         // ADR-009 / CDC §11: the three columns every SoftDeletable model
         // needs, declared once so they can never drift between migrations.
         Blueprint::macro('softDeletesWithReason', function () {

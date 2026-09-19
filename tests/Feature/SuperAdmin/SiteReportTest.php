@@ -4,6 +4,7 @@ namespace Tests\Feature\SuperAdmin;
 
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\InvoiceStatus;
+use App\Enums\PatientSex;
 use App\Enums\PaymentStatus;
 use App\Models\CashSession;
 use App\Models\Episode;
@@ -179,7 +180,7 @@ class SiteReportTest extends TestCase
             'first_name' => 'Soa',
             'last_name' => 'Rakoto',
             'birth_date' => '1990-01-01',
-            'sex' => \App\Enums\PatientSex::Female->value,
+            'sex' => PatientSex::Female->value,
         ]);
     }
 

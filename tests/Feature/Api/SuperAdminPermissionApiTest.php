@@ -4,7 +4,6 @@ namespace Tests\Feature\Api;
 
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\User;
 use App\Services\Authorization\PermissionUsageScanner;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;

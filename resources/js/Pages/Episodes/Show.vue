@@ -3,8 +3,11 @@ import { computed } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
+import EpisodePathwayList from '@/Components/Clinical/EpisodePathwayList.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import ShadcnButton from '@/Components/Shadcn/Button.vue';
+import { FileText, NotebookPen } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
 import { formatPatientName } from '@/utilities/patient';
@@ -35,24 +38,6 @@ const administrativeStatusLabels = {
     DISCHARGED_PAID: 'Sorti — payé comptant',
     DISCHARGED_DEBT: 'Sorti — dette validée',
     DISCHARGED_ESCAPED: 'Sorti — évadé',
-};
-const orientationStatusBadgeClass = {
-    PENDING: 'border-gray-200 text-slate-500 dark:border-gray-800 dark:text-slate-400',
-    IN_PROGRESS: 'border-primary-200 text-primary-700 dark:border-primary-900 dark:text-primary-300',
-    COMPLETED: 'border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-300',
-    CANCELLED: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-300',
-};
-const orientationStatusIcon = {
-    PENDING: 'clock',
-    IN_PROGRESS: 'activity',
-    COMPLETED: 'check-circle',
-    CANCELLED: 'cross',
-};
-const orientationIconBgClass = {
-    PENDING: 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400',
-    IN_PROGRESS: 'bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300',
-    COMPLETED: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300',
-    CANCELLED: 'bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-300',
 };
 const diagnosisTypeLabels = { HYPOTHESIS: 'Hypothèse', FINAL: 'Diagnostic final' };
 const prescriptionStatusLabels = { ACTIVE: 'Active', CANCELLED: 'Annulée' };
@@ -135,7 +120,17 @@ const vitalsRows = computed(() => {
                     </p>
                 </div>
             </div>
-            <Button :as="Link" :href="`/patients/${episode.patient.uuid}?section=episodes`" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Retour au dossier</span></Button>
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- ADR-116 — les fiches papier de la clinique, reconstituées
+                     depuis ce qui est déjà consigné dans le passage. -->
+                <ShadcnButton :as="Link" :href="`/passages/${episode.uuid}/dossier-medical`" size="sm" variant="white-outline">
+                    <FileText class="h-4 w-4" />Dossier médical
+                </ShadcnButton>
+                <ShadcnButton v-if="capabilities.can_view_treatment_journal" :as="Link" :href="`/passages/${episode.uuid}/journal`" size="sm" variant="white-outline">
+                    <NotebookPen class="h-4 w-4" />Journal de traitement
+                </ShadcnButton>
+                <Button :as="Link" :href="`/patients/${episode.patient.uuid}?section=episodes`" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">Retour au dossier</span></Button>
+            </div>
         </header>
 
         <section v-if="emergencyContact" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
@@ -154,25 +149,14 @@ const vitalsRows = computed(() => {
         </section>
 
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <!-- ADR-117 : le parcours complet, composé par Laravel — Réception, services
+             (chaque demande distincte, avec la suite décidée par le médecin),
+             Pharmacie, Caisse et sortie. La frise du dossier patient affiche les
+             mêmes étapes. -->
         <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:order-2 xl:col-span-1">
-            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Parcours clinique</h2><p class="mt-0.5 text-xs text-slate-400">Orientations créées pour ce passage.</p></div>
-            <ul v-if="episode.orientations.length" class="divide-y divide-gray-100 dark:divide-gray-900">
-                <li v-for="orientation in episode.orientations" :key="orientation.uuid" class="flex items-start gap-3 px-5 py-3.5">
-                    <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-full', orientationIconBgClass[orientation.status] ?? 'bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-400']"><Icon class="text-sm" :name="orientationStatusIcon[orientation.status] ?? 'clock'" /></span>
-                    <div class="min-w-0 flex-1">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="text-sm font-bold text-slate-700 dark:text-white">{{ orientation.destination_module_label }}</span>
-                            <span :class="['rounded border px-1.5 py-0.5 text-[10px] font-medium', orientationStatusBadgeClass[orientation.status] ?? 'border-gray-200 text-slate-500']">{{ orientation.status_label }}</span>
-                        </div>
-                        <p class="mt-0.5 text-xs text-slate-400">
-                            Orienté le {{ formatDateTime(orientation.oriented_at) }}
-                            <template v-if="orientation.accepted_at"> · Pris en charge le {{ formatDateTime(orientation.accepted_at) }}</template>
-                            <template v-if="orientation.completed_at"> · Terminé le {{ formatDateTime(orientation.completed_at) }}</template>
-                        </p>
-                    </div>
-                </li>
-            </ul>
-            <p v-else class="px-5 py-6 text-center text-sm text-slate-400">Aucune orientation enregistrée pour ce passage.</p>
+            <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Parcours du passage</h2><p class="mt-0.5 text-xs text-slate-400">De la Réception à la sortie : services, Pharmacie et Caisse.</p></div>
+            <EpisodePathwayList :steps="episode.pathway" />
+            <p v-if="episode.pathway.length === 1" class="border-t border-gray-100 px-5 py-4 text-center text-sm text-slate-400 dark:border-gray-900">Aucun service n'a encore été orienté pour ce passage.</p>
         </section>
 
         <div class="space-y-4 xl:order-1 xl:col-span-2">
@@ -195,7 +179,7 @@ const vitalsRows = computed(() => {
                 </li>
             </ul>
             <p v-else-if="episode.care_record.no_procedure_reason" class="px-5 py-3 text-xs text-slate-500 dark:text-slate-300"><span class="font-semibold">Aucun acte réalisé :</span> {{ episode.care_record.no_procedure_reason }}</p>
-            <p v-if="episode.care_record.transmission_reason" class="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-slate-500 dark:border-gray-900 dark:text-slate-300"><span class="font-semibold text-slate-600 dark:text-slate-200">Transmis à Médecine :</span> {{ episode.care_record.transmission_reason }}</p>
+            <div v-if="episode.care_record.transmission_reason_html" class="grid gap-1 border-t border-gray-100 px-5 py-3 text-xs leading-5 text-slate-500 dark:border-gray-900 dark:text-slate-300 sm:grid-cols-[130px_minmax(0,1fr)]"><span class="font-semibold text-slate-600 dark:text-slate-200">Transmis à Médecine :</span><ClinicalRichTextDisplay :html="episode.care_record.transmission_reason_html" /></div>
         </section>
 
         <template v-if="capabilities.can_view_medical_record && episode.consultations.length">

@@ -7117,6 +7117,15 @@ Le nom du médicament est relu depuis la liste par le helper de l'éditeur :
 une ligne catalogue ne porte que son UUID, et recopier le libellé dans la
 ligne le ferait diverger du référentiel.
 
+## La demande de soins se signe aussi
+
+Même format (2026-09-18, exigence du propriétaire) : « Transmettre aux
+Soins » crée l'orientation vers Soins et envoie les actes à l'équipe
+(ADR-055). Le bouton comme la touche Entrée ouvrent une confirmation qui
+nomme chaque acte avec sa quantité, relit le parcours choisi (retour en
+Médecine ou fin aux Soins) et les instructions, porte le nom du médecin et
+n'est pas fermable au clic extérieur. Seule cette fenêtre envoie.
+
 ## Rappel d'orientation retiré de la Prescription
 
 L'étape Prescription portait encore un bandeau « Orientation actuelle » avec
@@ -7417,6 +7426,15 @@ Elle se nomme dans ses propres termes : « Confirmer le décès » et « Je
 confirme le décès ». Un acte de cette portée ne se confirme pas sous un
 intitulé générique.
 
+**Amendement du 2026-09-18 — le détail du décès s'établit au registre.**
+Demande du propriétaire : le registre des décès existe, la sortie médicale
+ne doit plus y faire saisir le détail. Prononcer un décès demande le type, la
+date de la décision et le diagnostic final ; **l'heure, le lieu et les causes
+du décès ne sont plus exigés à la sortie** — ils restent acceptés s'ils sont
+déjà connus, et sont exigés par l'acte de constatation du registre, où ils se
+saisissent une seule fois. L'écran de sortie le dit à la place des trois
+champs.
+
 **Correctif du même jour.** `prohibited` **remplace** le jeu de règles d'un
 champ, il ne s'y ajoute pas : écrite `[$deceased ? 'prohibited' : 'nullable',
 'string', 'max:5000']`, la règle laissait `string` s'appliquer au `null` que
@@ -7428,6 +7446,44 @@ Le test ne l'avait pas vu parce qu'il omettait ces clés. Or un champ masqué
 par `v-if` **reste dans l'objet du formulaire** et part à vide : le
 `deceasedPayload()` des tests envoie désormais exactement ce que le navigateur
 envoie, et il échoue si la règle repasse à sa forme précédente.
+
+## Amendement du 2026-09-18 — l'acte suit la feuille de la clinique
+
+Demande du propriétaire : la clinique a déjà son modèle papier du « Certificat
+médical de constatation de décès », et l'acte doit s'y conformer, avec du
+texte riche.
+
+La fenêtre de saisie et l'impression reprennent donc les rubriques de la
+feuille, dans son ordre : N° de dossier, **Médecin traitant**, **Informations
+relatives au défunt** (nom, date et lieu de naissance, sexe, adresse,
+filiation, CNI délivrée le / à), date et heure du décès et son lieu, causes du
+décès, puis la mention « délivré à la famille du défunt pour servir et valoir
+ce que de droit » et les **Signatures** (date, lieu, médecin traitant).
+L'impression reproduit le bandeau au logo et les couleurs de la feuille, comme
+le compte rendu d'imagerie (ADR-108) ; le titre y est écrit
+« CONSTATATION » — la feuille fournie portait « CONSTATION », une coquille.
+
+```text
+repris du dossier      nom, date de naissance, sexe, N° de dossier
+préremplis du dossier  lieu de naissance, adresse, N° de CNI — corrigeables
+saisis sur l'acte      filiation, CNI délivrée le / à, lieu de signature
+texte riche            causes du décès (exigées), observations
+```
+
+Les nouvelles valeurs sont des colonnes nullables de `death_records` : elles
+sont figées sur l'acte signé et **n'écrivent jamais le dossier patient**. Le
+médecin qui constate atteste ce qu'on lui a présenté ce jour-là ; corriger
+l'identité permanente reste l'affaire de l'écran Patient. Le lieu de
+signature vaut le site par défaut. Un acte établi avant cet amendement
+s'imprime avec les valeurs du dossier patient pour ce qu'il ne portait pas,
+et laisse vide la filiation, qu'il n'a jamais consignée.
+
+Les causes et les observations passent par `ClinicalRichTextSanitizer` (même
+liste blanche que l'interrogatoire) ; la longueur et le caractère obligatoire
+des causes se vérifient sur le texte, jamais sur les balises : un paragraphe
+vide n'est pas une cause. Le volet état civil reste hors périmètre (numéro
+d'acte, déclarant, officier) : la feuille de la clinique ne le porte pas
+davantage que le CDC.
 
 ---
 
@@ -8015,3 +8071,1653 @@ le serveur acceptait une compresse sans dose, mais le bouton restait grisé.
 `hasPosology()` suit désormais la même règle que le serveur. Les unités de
 dose et de durée vivent maintenant dans `utilities/posology.js`, partagées par
 l'éditeur et le préremplissage.
+
+---
+
+# ADR-112 — Le médecin retire un acte demandé aux Soins
+
+**Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire)
+
+**Complète l'ADR-055** (ordre de soins Médecine → Soins), qui ne prévoyait
+aucun moyen de revenir sur une demande transmise.
+
+## La règle
+
+Le médecin peut **retirer** un acte demandé tant que la demande est en
+cours et que l'acte n'a pas été réalisé (règle élargie par l'amendement
+ci-dessous ; la première version s'arrêtait dès que les Soins prenaient le
+patient).
+
+```text
+orientation Soins PENDING, acte ni réalisé ni marqué  → retrait possible
+Soins a pris le patient (IN_PROGRESS)                 → refus nommé, « Non réalisé » côté Soins
+consultation clôturée                                 → refus
+```
+
+## Retirer n'est pas supprimer
+
+`care_order_items` reçoit `cancelled_at`, `cancelled_by` et `cancel_reason`
+(ADR-010). **Aucun motif n'est saisi** (précision du propriétaire, même règle
+que l'annulation d'un diagnostic, ADR-035) : le serveur enregistre l'auteur,
+la date et un motif fixe (`CancelCareOrderItemAction::DEFAULT_REASON`). Le
+geste est une icône corbeille suivie d'une confirmation non fermable au clic
+extérieur. La ligne reste visible des deux côtés, barrée et marquée
+« Retiré », avec son auteur et l'heure ; l'audit l'enregistre
+sous `care_order.item.cancel`. Un acte retiré compte comme résolu : il ne
+bloque pas la fin des Soins, ne peut plus être enregistré comme réalisé ni
+marqué non réalisé, et peut être **redemandé** — c'est une nouvelle demande.
+
+Quand plus aucun acte de la demande n'est actif, `CareOrderStatus::Cancelled`
+est posé et la file Soins se referme (`EpisodeOrientation::cancel()`) —
+**seulement** si elle n'existait que pour des ordres de soins : ouverte par
+`CreateCareOrderAction` (motif `ORIENTATION_REASON`), passage non urgent, et
+aucune autre demande en attente. Une file du plan d'arrivée ou d'une urgence
+(ADR-021, ADR-056) n'appartient pas à cette demande et reste ouverte.
+
+## Permissions
+
+Aucune nouvelle : `care_orders.create`. Qui peut demander peut retirer ;
+`NURSE` ne le peut pas. Le serveur revérifie chaque condition.
+
+## Amendement du 2026-09-18 — retirable tant que la demande est en cours
+
+Constat du propriétaire : une demande « En cours » dont l'acte était marqué
+« Non réalisé » par l'infirmier ne pouvait plus être retirée — la règle
+ci-dessus s'arrêtait dès que les Soins avaient pris le patient. Elle devient :
+
+```text
+demande en cours (en attente OU prise par les Soins)
+  acte non réalisé, même marqué « Non réalisé »       → retrait possible
+  acte réalisé, même en partie                         → refus : il a eu lieu
+demande terminée ou retirée                            → refus
+consultation clôturée                                  → refus
+```
+
+Le constat « Non réalisé » de l'infirmier n'est pas effacé : il reste sur la
+ligne, à côté du retrait. Quand les Soins ont déjà le patient, retirer tous
+les actes ne referme pas leur prise en charge — l'infirmier la termine comme
+d'habitude, et la règle « au moins un acte réalisé » ne s'applique plus à une
+demande dont le médecin a tout retiré : l'exiger obligerait à inventer un
+acte. Tant que personne n'a pris le patient, le comportement ci-dessus est
+inchangé (demande annulée, file refermée).
+
+## Écran « Prescription de soins » (2026-09-18)
+
+À la demande du propriétaire, la carte est allégée en deux colonnes
+(shadcn, ADR-099) : à gauche la préparation — recherche, actes retenus sur
+une ligne chacun (quantité, corbeille), instructions sur deux lignes et
+« Après les soins » en sélecteur segmenté ; à droite, en colonne latérale,
+les demandes déjà transmises. Seules celles encore à l'œuvre aux Soins y
+sont dépliées ; les demandes terminées ou retirées se replient sous
+« Historique ». Aucune donnée ni règle ne change.
+
+---
+
+# ADR-113 — Module Hospitalisation et fiche de régime
+
+**Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire, qui
+fournit la « Fiche de régime » papier de la clinique et tranche les règles
+ci-dessous)
+
+**Complète l'ADR-084**, qui s'arrêtait à la demande d'hospitalisation
+(`REQUESTED` / `CANCELLED`) faute de règles d'admission et de sortie, et
+**l'ADR-032/ADR-074**, qui annonçaient ce module sans le définir. Le CDC
+officiel ne décrit ni admission, ni séjour, ni régime alimentaire ; il
+connaît seulement le statut médical « Hospitalisé » (§32). Les règles
+ci-dessous viennent donc toutes du propriétaire, question par question.
+
+## Les règles tranchées
+
+```text
+admission        automatique : le séjour commence dès que le médecin
+                 transmet sa demande d'hospitalisation
+fin du séjour    la sortie médicale prononcée par le médecin (CDC §33.1)
+fiche de régime  remplie par Médecine et Soins, en texte libre
+facturation      aucune : la fiche est un suivi, jamais une prestation
+chambre / lit    texte libre facultatif, sans gestion d'occupation des lits
+```
+
+## Le séjour, distinct de la demande
+
+`hospital_stays` porte ce que la demande ne peut pas porter : l'heure réelle
+d'entrée et son auteur, le service (repris de la demande), la chambre / le
+lit, la sortie et la `MedicalDischarge` qui l'a prononcée. La demande reste
+une DEMANDE (ADR-084) ; `MedicalRequestStatus` ne reçoit toujours aucun
+`ADMITTED` — c'est le séjour qui est admis.
+
+`AdmitHospitalStayAction` s'exécute dans la transaction de
+`CreateHospitalizationRequestAction` : l'orientation Médecine →
+Hospitalisation est prise en charge au même instant, le passage passe au
+statut médical `HOSPITALIZED`, et un `active_key` garantit **un seul séjour
+en cours par passage**.
+
+Parce que l'orientation reste active pendant le séjour, clôturer la
+consultation laisse le passage `IN_CARE` : un patient au lit n'apparaît pas
+dans « Sorties & règlements » (ADR-090) tant que le médecin ne l'a pas fait
+sortir.
+
+## Retirer une demande, tant que rien n'a commencé
+
+L'admission étant immédiate, l'orientation n'est jamais « en attente », et
+la règle de l'ADR-084 (« refusé dès que la destination a pris la demande »)
+aurait interdit tout changement d'avis. Le retrait reste donc possible
+**tant que la fiche de régime est vide** : le séjour passe `CANCELLED` (jamais
+supprimé, ADR-010), l'orientation est annulée, le statut médical revient à
+`IN_CARE`. Dès la première ligne de régime, le patient a réellement séjourné :
+le retrait est refusé, et c'est la sortie médicale qui termine le séjour.
+
+## La sortie est la sortie médicale
+
+`DischargeHospitalStayAction` crée la même `MedicalDischarge` qu'une
+consultation (ADR-035, ADR-107) — mêmes types, mêmes champs, même
+validation (`DischargeHospitalStayRequest` hérite de
+`StoreMedicalDischargeRequest`), même formulaire à l'écran avec sa
+confirmation signée. Elle est rattachée à la consultation qui a demandé
+l'hospitalisation, sans la rouvrir ni la modifier : aucun diagnostic n'y est
+ajouté, le diagnostic final vit sur la sortie et y est **toujours exigé** —
+un séjour hospitalier n'est jamais un passage paraclinique seul (ADR-094).
+
+Elle termine l'orientation, porte le statut médical du type de sortie, et
+fait passer le passage en `PENDING_SETTLEMENT` selon la règle de l'ADR-054.
+Un décès prononcé ici rejoint le registre des décès (ADR-107).
+
+## La fiche de régime
+
+Elle reproduit la feuille de la clinique. L'en-tête — N° de dossier, nom,
+allergie, tabac, motif d'hospitalisation — est **repris du dossier**, jamais
+ressaisi : allergies permanentes du patient, tabac de la fiche Soins du
+passage, motif de la demande. Un tabac non renseigné reste non renseigné,
+jamais écrit « Non ».
+
+`hospital_diet_entries` porte une ligne par jour et heure, avec les quatre
+colonnes « Régime » de la feuille (Thé / Pain, Sosoa / Brochette, Yaourt,
+Purée) et une observation, en texte libre. Une ligne vide est refusée. Une
+ligne se **corrige** (auteur de la correction conservé, ancienne valeur à
+l'audit) mais ne se supprime jamais. Ajouter exige un séjour en cours ;
+corriger reste possible tant que le passage est ouvert, comme la fiche Soins
+(ADR-092).
+
+L'impression reproduit la feuille papier (bandeau au logo, en-tête, grille,
+coordonnées de la clinique), complétée de lignes vides pour rester utilisable
+au lit du patient. Impression navigateur, jamais de PDF serveur (ADR-070).
+
+## Reprise des demandes existantes
+
+Les demandes transmises avant ce module attendaient dans une orientation que
+personne ne prenait. La migration `admit_existing_hospitalization_requests`
+leur applique la règle d'admission telle quelle : admis à l'heure de la
+demande, par le médecin qui l'a faite — **seulement** pour les passages
+encore ouverts ; rien n'est inventé pour un passage déjà clos.
+
+## Permissions
+
+```text
+hospitalization.view     voir l'espace Hospitalisation et la fiche de régime
+hospitalization.update   renseigner la chambre / le lit
+hospital_diet.record     saisir et corriger la fiche de régime
+medical_discharge.create prononcer la sortie (existante, MEDICINE)
+```
+
+Les trois nouvelles sont accordées à `MEDICINE` et `NURSE` par la migration
+— un site en production ne rejoue plus `RolePermissionSeeder` (ADR-064).
+L'espace n'encaisse rien et ne facture aucun repas (ADR-012, ADR-015).
+
+## Hors périmètre
+
+Gestion des lits et de leur occupation, visites de service, prescriptions
+propres au séjour, facturation d'un forfait journalier, transfert entre
+services : aucune règle n'est définie, rien n'est inventé.
+
+## Amendement du 2026-09-18 — une destination qui a son module se transmet en un clic
+
+Demande du propriétaire : puisque l'Hospitalisation et le registre des décès
+existent, la consultation ne doit plus y faire remplir de formulaire. Le
+médecin coche la destination et transmet ; le détail se complète dans le
+module qui le porte.
+
+```text
+Hospitalisation   la carte ne garde que la priorité et « Transmettre la
+                  demande ». Motif, diagnostic, résumé et traitement partent
+                  repris du dossier (jamais inventés : un motif absent reste
+                  vide, `hospitalization_requests.reason` devient nullable)
+                  et se complètent sur la page du séjour, section « Demande
+                  d'hospitalisation » (`PUT /hospitalisation/{séjour}/demande`,
+                  `hospitalization.request` — le contenu médical reste au
+                  médecin). Le service se complète avec la chambre / le lit.
+Décès             voir l'amendement de l'ADR-107.
+Chirurgie         inchangé, choix du propriétaire : l'intervention reste
+                  choisie à la transmission — aucune demande « sans
+                  intervention » n'arrive au bloc ; le reste se complète dans
+                  le module Chirurgie, qui modifiait déjà l'intervention.
+Référence         d'abord inchangé ; transmise en un clic depuis l'ADR-114,
+                  qui lui donne son module Transferts.
+```
+
+La transmission reste un acte signé (ADR-106) : la confirmation relit ce qui
+part, repris du dossier.
+
+---
+
+# ADR-114 — Modules Transferts et Pédiatrie, demandes transmises en un clic
+
+**Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire, règles
+tranchées question par question)
+
+**Complète l'ADR-084** (demandes de conduite à tenir), **l'ADR-113**
+(amendement « une destination qui a son module se transmet en un clic ») et
+**amende l'ADR-084** sur un point : la Référence/Transfert s'arrêtait à la
+demande, faute de règle sur le départ.
+
+## Le trou constaté
+
+Deux destinations de la conduite à tenir n'avaient aucun module. Une
+orientation Transfert ou Pédiatrie restait donc `PENDING` indéfiniment : la
+clôture de la consultation laissait le passage `IN_CARE`, et il n'atteignait
+jamais « Sorties & règlements » (ADR-090). Personne n'avait non plus d'écran
+pour retrouver les patients transférés.
+
+## Les règles tranchées
+
+```text
+Transfert terminé    bouton « Transfert effectué » : le patient est alors
+                     TRANSFERRED et rejoint « Sorties & règlements » ;
+                     jusqu'au départ il reste en soins
+accès Transferts     Médecine, Réception, Soins
+Pédiatrie            module simple : file, prise en charge, sortie médicale ;
+                     aucune fiche propre tant que la clinique n'en fournit pas
+```
+
+## Transferts (`/transferts`)
+
+`transfers.view` ouvre l'espace, `transfers.manage` complète la demande et
+constate le départ — accordées toutes deux à `MEDICINE`, `NURSE` et
+`RECEPTION` par la migration `2026_09_24_090000` (ADR-064). Deux onglets :
+« À transférer » et « Transférés ».
+
+La demande part **en un clic** depuis la consultation : le motif, le
+diagnostic, le résumé et les traitements partent repris du dossier ;
+l'établissement destinataire se précise dans le module
+(`medical_referrals.facility` et `.reason` deviennent nullables). Une valeur
+absente reste absente — la lettre de référence écrit « À préciser », jamais un
+établissement deviné.
+
+« Transfert effectué » (`ConfirmTransferDepartureAction`) est un **constat**,
+pas une décision : il exige l'établissement, date le départ (jamais dans le
+futur), enregistre qui l'a constaté (`departed_at`, `departed_by`,
+`departure_notes`), termine l'orientation Transfert, porte le statut médical
+`TRANSFERRED` et fait passer le passage en `PENDING_SETTLEMENT` selon la
+règle de l'ADR-054 — seulement si plus aucun service n'a le patient. Il ne
+fabrique aucune `MedicalDischarge` et n'encaisse rien. La confirmation est
+une fenêtre signée, non fermable au clic extérieur (ADR-106).
+
+`MedicalRequestStatus` ne reçoit toujours aucun `DEPARTED` : le départ est un
+fait daté sur sa propre colonne, et la demande reste une demande. Un
+transfert effectué ou annulé ne se modifie plus. L'arrivée à destination et
+l'accusé de réception restent hors périmètre : personne ici ne les observe.
+
+## Pédiatrie (`/pediatrie`)
+
+`pediatrics.view` et `pediatrics.manage`, accordées à `MEDICINE`. La file
+liste les orientations `PEDIATRICS`. La prise en charge
+(`AcceptPediatricsOrientationAction`) accepte l'orientation ; la sortie
+(`DischargePediatricsOrientationAction`) est la même `MedicalDischarge` que la
+consultation et l'hospitalisation — mêmes types, mêmes règles, diagnostic
+final exigé — rattachée à la consultation qui a orienté l'enfant, sans la
+rouvrir. Elle termine l'orientation et fait rejoindre « Sorties &
+règlements » selon l'ADR-054. La page relit le motif, les diagnostics de la
+consultation et les allergies : rien n'est ressaisi. Aucune fiche
+pédiatrique n'est inventée.
+
+## Formulaires de conduite à tenir simplifiés
+
+```text
+Chirurgie        l'intervention reste choisie (choix du propriétaire) ; le
+                 « Diagnostic / hypothèse » est généré : ce que le médecin a
+                 saisi, sinon les diagnostics actifs de la consultation
+                 (`CreateSurgicalReferralAction::diagnosticFor`). Sans
+                 diagnostic posé, la ligne reste absente — jamais inventée.
+Maternité        un clic : le motif et l'indication partent repris du dossier
+Pédiatrie        (`reason` nullable côté serveur)
+Transfert        un clic : priorité seule, le reste dans Transferts
+```
+
+Chaque transmission reste un acte signé (ADR-106) : la confirmation relit ce
+qui part.
+
+## Une demande transmise ne se retransmet pas (2026-09-18)
+
+Constat du propriétaire : après « Transmettre la demande », le bouton restait
+actif. Le cliquer à nouveau ne corrigeait rien : il créait un **second**
+enregistrement — un transfert en double dans la liste, une seconde demande au
+bloc, une seconde tentative d'admission — sur la même orientation.
+
+Une demande transmise vers une destination qui a son module (Chirurgie,
+Hospitalisation, Transfert, Maternité, Pédiatrie) se **complète dans ce
+module**. L'écran remplace donc le formulaire par « Demande transmise » et un
+lien vers l'espace concerné (`module_url`, servi seulement avec la
+permission de le voir) ; « Modifier » reste là pour changer de destination,
+ce qui annule proprement la demande (ADR-084). Le serveur refuse de son côté
+toute seconde transmission du même type
+(`RecordConsultationOrientationAction::ensureNotAlreadySubmitted()`) —
+l'interface n'est jamais la seule garde.
+
+## La demande de transfert se rédige en texte riche (2026-09-18)
+
+Demande du propriétaire. Motif, diagnostic, résumé clinique, traitements,
+recommandations et observations passent du champ de texte à l'éditeur riche
+de l'interrogatoire (`ClinicalRichTextEditor`) ; l'établissement reste une
+ligne simple. Aucune colonne ne change — elles sont déjà `text`.
+
+```text
+écriture   HTML assaini par ClinicalRichTextSanitizer, même liste blanche que
+           l'interrogatoire ; un éditeur vidé (« <p><br></p> ») redevient vide
+longueur   comptée sur le texte lu, jamais sur les balises
+lecture    MedicalReferralDocument sert la valeur brute pour l'éditeur et le
+           HTML assaini pour la page Transferts et la lettre de référence ;
+           la liste n'en montre que le texte
+ancien     un texte sans balise (repris du dossier) garde ses lignes, à
+           l'écran comme dans l'éditeur, sans ligne vide ajoutée
+```
+
+La lettre imprimée rend la mise en forme ; elle n'affiche jamais une balise
+en clair.
+
+## Hors périmètre
+
+Transfert d'une sortie médicale de type `TRANSFER` prononcée sans demande :
+elle garde son propre circuit (ADR-035) et n'apparaît pas dans le module.
+Fiche pédiatrique, courbes de croissance, vaccinations : aucune règle
+fournie, rien n'est inventé.
+
+---
+
+# ADR-115 — Menu latéral : rendu serveur fidèle, entrées mères par module
+
+**Status:** ACCEPTED (2026-09-18 — signalement explicite du propriétaire)
+
+## Le défaut constaté
+
+« Parfois je ne peux pas cliquer, parfois deux liens sont actifs » : la
+capture montrait des icônes décalées d'une ligne. Reproduit en navigateur
+réel : après un rechargement, la ligne « Soins » portait l'icône de Patients
+**et pointait vers `/patients`**.
+
+La cause n'était pas le menu mais son rendu. L'application est rendue côté
+serveur (Inertia SSR). Le serveur ne voit pas `localStorage` : il rendait
+l'ordre recommandé, tandis que le navigateur lisait l'ordre personnel
+(« Personnaliser l'ordre ») **pendant le rendu** et produisait une autre
+liste. Vue ne répare pas ces écarts d'hydratation en production : une ligne
+gardait le libellé d'un module et le lien d'un autre. Le commentaire du code
+affirmait « this app has no SSR » — ce n'est plus vrai.
+
+## La règle
+
+Aucune préférence de navigateur n'est lue pendant le rendu : elle s'applique
+une fois la page reprise par le navigateur (`onMounted`). La mise en page
+étant persistante, cela n'a lieu qu'au chargement complet d'une page.
+Corrigé au même titre : la vue liste/grille des Patients, des passages d'un
+patient, de l'explorateur et des catalogues fournisseurs, qui présentaient le
+même écart dès qu'un compte avait choisi la grille.
+
+## Entrées mères par module
+
+Les menus d'un **même module et d'une même famille d'adresses** sont réunis
+sous une entrée mère à liste déroulante (`SIDEBAR_GROUPS`) :
+
+```text
+Médecine       File de consultation, Demandes d'examens, Protocoles  (/medicine)
+Réception      Accueil & passages, Sorties & règlements              (/reception)
+Référentiels   Désignations & tarifs, Catalogue des analyses
+```
+
+Rien n'est regroupé sur une ressemblance de nom. Un groupe n'est qu'une
+présentation : chaque membre garde sa permission, son lien et ses règles ; un
+membre interdit n'est pas listé, et un groupe réduit à un seul membre
+s'affiche comme le lien simple de ce membre. La Vue d'ensemble garde une
+tuile par module. Un ordre personnel enregistré avant le regroupement est
+repris : chaque membre y vaut pour son groupe, à la place donnée.
+
+## Une seule entrée, un seul enfant actif
+
+Un enfant s'allumait par préfixe, indépendamment de ses voisins :
+« File de consultation » (`/medicine`) s'allumait avec « Demandes
+d'examens ». Les enfants concourent désormais comme les entrées de premier
+niveau — la correspondance la plus profonde gagne, par segment d'adresse —
+et seulement dans l'entrée qui possède la page. Le portail Super Admin, dont
+les modules de site s'adressent par la requête (`?module=`), garde sa règle.
+
+## Icônes
+
+Une icône dit ce que fait le module : Soins → pansement, Transferts →
+ambulance, Sorties & règlements → porte de sortie, Décès → registre,
+Protocoles → livre validé, Désignations & tarifs → étiquettes. Deux modules
+ne partagent jamais la même icône (test existant).
+
+Aucune permission, route ni règle métier n'est modifiée.
+
+---
+
+# ADR-116 — Fiches papier de la clinique : dossier médical, journal de
+traitement, fiche de sortie et poste de gardiennage
+
+**Status:** ACCEPTED (2026-09-19 — modèles papier transmis par le
+propriétaire : « Dossier médical », « Dossier médical – Traitement »,
+« Fiche de sortie » (Réception/Caisse), « Fiche de sortie » (contrôle de
+sortie), « Lettre de référence pour le transfert de patient »)
+
+## Le constat
+
+Le propriétaire a transmis cinq modèles papier de la clinique et a demandé
+que le système en reprenne la logique. Vérification faite modèle par
+modèle :
+
+```text
+Dossier médical – Traitement    aucun équivalent — construit ici
+Dossier médical                 aucun équivalent — construit ici
+Fiche de sortie (Caisse)        aucun équivalent — construit ici
+Fiche de sortie (contrôle)      aucun équivalent — construit ici,
+                                 le catalogue `guarding.*` existait sans
+                                 le moindre écran (ADR-101 l'aurait
+                                 signalé « pas encore vérifiée »)
+Lettre de référence             déjà couverte : `MedicalReferralPrint.vue`,
+                                 le module Transferts (ADR-114)
+```
+
+Le cinquième modèle ne demandait donc rien de nouveau ; les quatre premiers,
+si.
+
+## Dossier médical – Traitement : deux sources, une seule feuille
+
+La feuille papier a trois colonnes — date et heure, description, visa du
+personnel médical — et le propriétaire a confirmé que les deux sources
+comptent : ce que l'application enregistre déjà (consultation, actes de
+soins, demandes de soins, ordonnances, analyses, imagerie, admission et
+sortie), et ce qu'un soignant ajoute à la main pour ce qu'elle n'enregistre
+pas encore.
+
+`App\Services\Medicine\TreatmentJournal` compose la chronologie à chaque
+affichage à partir de ce qui existe déjà (jamais recopié, une correction de
+la source se voit donc ici) et de `treatment_journal_entries`, la seule table
+nouvelle du volet automatique/manuel. Chaque source n'apparaît qu'avec la
+permission qui la garde déjà ailleurs — `consultations.view`, `care.view`,
+`care_orders.view`, `prescriptions.view`, `laboratory_orders.view`,
+`imaging_orders.view`, `hospitalization.view`, `medical_record.view` — même
+principe de gardiennage section par section que la page « Détail du passage »
+(ADR-054).
+
+La ligne manuelle est **append-only** (ADR-032) : jamais de modification ni
+de suppression, une erreur se corrige par une nouvelle ligne qui le dit. Le
+visa est l'utilisateur connecté, jamais un nom saisi. `treatment_journal.view`
+et `treatment_journal.record`, accordées à `MEDICINE` et `NURSE`, gouvernent
+respectivement la lecture et l'écriture ; un passage clos par la sortie
+administrative (ADR-090) refuse toute nouvelle ligne.
+
+L'écran (`Medicine/TreatmentJournalSheet.vue`) est à la fois le formulaire de
+saisie et la feuille imprimable : le panneau d'ajout n'apparaît jamais à
+l'impression (`@media print { .tjs-panel { display: none } }`).
+
+## Dossier médical : rien n'est ressaisi
+
+Chaque case de la feuille a déjà son domicile dans le dossier : identité et
+coordonnées (`patients`), constantes et tabac (fiche Soins, ADR-032),
+allergies et antécédents familiaux (dossier permanent, ADR-074), motif et
+dates d'hospitalisation (séjour, ADR-113), diagnostic (consultation,
+ADR-035). `App\Support\Documents\MedicalRecordSheet` relit ces sources sans
+jamais en dupliquer une, et les sections plus sensibles restent gouvernées
+par leur propre permission (`vitals.view`, `patients.medical_history.view`) :
+la feuille imprimée n'est pas un moyen de contourner ce que l'ADR-054 protège
+déjà ailleurs. Une case que personne n'a remplie reste vide — jamais « Non »
+ni « Normal » (ADR-077).
+
+## Fiche de sortie (Réception/Caisse) : deux sorties que le papier confondait
+
+Le papier ne porte qu'une seule date de sortie et un seul jeu de cases
+(sortie normale / transfert / sur sa demande / décédé), signées par la
+Caisse. Le dossier informatisé distingue depuis longtemps deux faits que ce
+papier confondait — la sortie **médicale** (ADR-035, prononcée par le
+médecin) et la sortie **administrative** (ADR-090, prononcée par la Caisse
+selon le solde, CDC §33.3) — et la feuille imprimée montre les deux plutôt
+que de forcer l'un dans l'unique case du papier. Les cases de type de sortie
+sont complétées des types que le dossier connaît en plus du papier
+(`MEDICAL_DECISION_REFUSAL`) : une divergence signalée à l'écran, jamais
+masquée (ADR-020).
+
+Imprimable seulement une fois la sortie administrative prononcée
+(`episode.administrative_exit_type` non nul, sinon 404) : rien à signer
+avant. La permission est la même que celle de la liste dont elle part,
+`episodes.settlement.view` — imprimer ce que l'écran affiche déjà n'ouvre
+aucun droit nouveau. Le reste dû et le numéro de créance suivent exactement
+ce que l'écran « Sorties & règlements » affiche déjà sans gate supplémentaire
+(`administrative_exit_balance`, figé sur l'épisode par l'ADR-090).
+
+Elle porte un QR encodant la référence humaine du passage (`episode_number`),
+comme le ticket Pharmacie encode sa référence de facture (ADR-050) — jamais
+l'UUID brut, illisible à saisir à la main. C'est ce document que le poste de
+gardiennage contrôle ensuite.
+
+## Le poste de gardiennage : un catalogue de permissions enfin consommé
+
+Vérification faite avant d'écrire une ligne : le catalogue `guarding.view`,
+`guarding.entries.view/.create/.update/.close`, `guarding.reports.view/.export`
+existait dans `PermissionSeeder` et dans le profil `SUPPORT/GUARD`
+(ADR-033) depuis le début du projet, mais **aucune route ni aucun écran ne
+les vérifiait**. La seule tuile de menu qui prétendait ouvrir « le
+Gardiennage » (`guarding.view`) pointait en réalité vers le registre des
+visiteurs (`/reception/visitors`), gardé par `visitors.view` — un droit
+distinct que seul le profil GUARD complet reçoit en plus. Un compte n'ayant
+que `guarding.*` voyait donc la tuile et recevait un 403 en cliquant ; un
+compte Réception, qui détient bien `visitors.*` par défaut, n'avait
+**aucune** entrée de menu pour y accéder, faute de `guarding.view`. Un défaut
+symétrique à celui que l'ADR-100 avait déjà corrigé pour
+`paraclinical_requests.view`.
+
+Le contrôle de sortie que le propriétaire demande — la « Signature Service
+Sécurité » du ticket de sortie — est le premier consommateur réel de ce
+catalogue. `/guarding` (`GuardingController`, `guarding.view`) liste les
+passages sortis administrativement (`DISCHARGED_PAID`/`DISCHARGED_DEBT`) sans
+contrôle encore enregistré, et ceux déjà contrôlés. Le gardien peut
+rechercher par numéro de dossier/de passage/nom, ou scanner le QR de la fiche
+de sortie — même mécanisme que le contrôle des tickets Pharmacie à la Caisse
+(ADR-050).
+
+**Le gardien ne décide jamais une sortie ; il la constate.**
+`RecordExitControlAction` (`guarding.entries.close`) refuse :
+
+```text
+aucune sortie administrative encore prononcée   → orienter vers la Réception
+sortie « évadé »                                → déjà parti sans passer la
+                                                   porte, rien à constater
+un contrôle déjà enregistré pour ce passage      → un seul par passage,
+                                                   jamais une correction
+```
+
+`episode_exit_controls` porte une contrainte d'unicité sur `episode_id` :
+techniquement, pas seulement applicativement, un seul contrôle par passage.
+Aucun motif n'est exigé (un constat, pas une décision — même principe que le
+retrait d'un acte de soins, ADR-112) ; une observation facultative reste
+possible. L'action est auditée sous `episode.exit_control`.
+
+Deux nouvelles entrées de menu corrigent le défaut constaté :
+
+```text
+Gardiennage   → /guarding (guarding.view) — contrôle de sortie, seul
+                consommateur réel du catalogue guarding.*
+Visiteurs     → /reception/visitors (visitors.view) — le registre déjà
+                existant (ADR-023), enfin atteignable par qui en a le droit
+```
+
+La page Gardiennage garde un lien vers le registre des visiteurs pour qui a
+aussi ce droit (le profil GUARD complet l'a) ; les deux registres restent
+fonctionnellement distincts (ADR-026 : le registre visiteurs ne crée ni
+patient, ni épisode, ni facture — le contrôle de sortie ne fait, lui, que
+constater un départ déjà décidé par la Caisse).
+
+## Un chrome partagé, pour ne pas recopier une quatrième fois
+
+`ADR-107`, `ADR-108` et `ADR-113` avaient chacune recopié le même bandeau au
+logo et la même règle d'impression, sous un préfixe de classe différent
+(`dc-*`, `rd-*`, `ds-*`). Une quatrième feuille recopiée de plus aurait été
+la redondance que l'ADR-098 corrige ailleurs pour la même raison.
+`resources/js/Components/Clinical/PaperSheet.vue` porte désormais le bandeau,
+le titre encadré et le pied communs, en classes `ps-*` ; chaque feuille garde
+son propre tableau de contenu et ses propres couleurs de section. Les trois
+feuilles déjà publiées ne sont pas retouchées : un changement de chrome
+partagé n'a rien à leur apporter qui justifierait d'y revenir (ADR-091).
+
+## Ce qui n'est pas inventé
+
+Aucune gestion des lits ou de leur occupation (déjà hors périmètre de
+l'ADR-113). Aucun volet état civil sur la fiche de sortie ou le contrôle de
+gardiennage (déjà hors périmètre de l'ADR-107 pour la même raison : le CDC
+n'en dit rien). Le poste de gardiennage n'encaisse rien et ne prononce
+aucune sortie : il constate un fait déjà décidé par la Caisse (ADR-012,
+ADR-090).
+
+## Permissions
+
+```text
+treatment_journal.view     MEDICINE, NURSE
+treatment_journal.record   MEDICINE, NURSE
+```
+
+Aucune permission nouvelle pour le dossier médical (`patients.view`, comme la
+page « Détail du passage ») ni pour la fiche de sortie Réception/Caisse
+(`episodes.settlement.view`, comme la liste dont elle part). Le contrôle de
+gardiennage réutilise le catalogue `guarding.*` déjà seedé et déjà recommandé
+par le profil GUARD (ADR-033), désormais réellement vérifié par le code —
+`PermissionUsageScanner` (ADR-101) le reclasse en conséquence.
+
+Conformément à l'ADR-064, les deux permissions `treatment_journal.*` figurent
+dans `RolePermissionSeeder::GRANTS` pour la création d'un nouveau site, mais
+un site déjà en production doit les ajouter depuis le portail sans rejouer
+ce seeder.
+
+
+---
+
+# ADR-117 — Le parcours d'un passage : une seule chronologie, de la Réception à la sortie
+
+**Status:** ACCEPTED (2026-09-19 — signalement explicite du propriétaire, sur le
+passage `A-26-0009-01`)
+
+**Complète l'ADR-054** (la page « Détail du passage ») et **l'ADR-055** (ordre
+de soins Médecine → Soins), sans modifier aucune de leurs règles. Aucune
+permission nouvelle, aucune migration.
+
+## Le constat
+
+Le dossier d'un patient (sa frise) et le « Détail du passage » (son panneau
+« Parcours clinique ») racontaient chacun le parcours à partir des seules
+orientations, chacun à sa façon. Le passage `A-26-0009-01` affichait :
+
+```text
+Médecine › Laboratoire › Soins › Soins › Transfert
+```
+
+Trois défauts, tous nommés par le propriétaire :
+
+```text
+« Soins », « Soins »   deux demandes distinctes du médecin se lisaient comme
+                       un doublon : rien ne disait qu'il y en avait deux, ni
+                       d'où elles venaient, ni ce que chacune contenait
+la suite des soins     retour en Médecine ou sortie directe — décidée par le
+                       médecin à chaque demande (ADR-055), affichée nulle part
+Réception, Pharmacie,  faisaient pourtant partie du parcours du patient et
+Caisse                 n'y figuraient pas
+```
+
+Le premier n'était pas un bug de données : `CreateEpisodeOrientationAction`
+ouvre une nouvelle orientation vers un service dès que la précédente est
+terminée, si bien que deux demandes de soins successives donnent légitimement
+deux orientations « Soins » (ADR-055, ADR-088). C'est l'affichage qui ne les
+distinguait pas.
+
+## Une seule chronologie, composée par Laravel
+
+`App\Support\EpisodePathwayTimeline` compose le parcours une fois ; les deux
+écrans l'affichent sans rien recalculer — même principe que
+`CareRecordReadModel` (ADR-054) ou `ClinicalActBiller` (ADR-105) : une règle
+recopiée à deux endroits finit par diverger, et les deux écrans racontaient
+déjà deux histoires différentes.
+
+```text
+RECEPTION    l'arrivée, qui l'a enregistrée, ce que le patient venait faire
+ORIENTATION  chaque orientation, d'où elle vient (« Médecine → Soins »)
+PHARMACY     chaque demande de dispensation liée au passage
+INVOICE      chaque facture non annulée, avec son reste à payer
+PAYMENT      chaque encaissement, annulés compris (état « annulé »)
+EXIT         la sortie prononcée par la Réception (CDC §33.3)
+```
+
+Chaque étape sort d'un enregistrement existant : rien n'est déduit ni
+inventé. Le seul élément qui n'est pas un fait passé est l'étape « Sortie — à
+prononcer par la Réception », servie quand le passage est ouvert, en
+`PENDING_SETTLEMENT`, sans sortie prononcée : c'est la réponse à « pourquoi ce
+passage est-il encore ouvert ? » lorsque plus aucun service n'a le patient
+(ADR-090).
+
+Les étapes sont classées par date, celle qui n'en a pas (la sortie à
+prononcer) en dernier ; à horodatage égal, le sens du patient décide (la
+Réception avant le service, le service avant la Caisse).
+
+## Deux demandes, deux étapes numérotées
+
+Quand un même service apparaît plusieurs fois, chaque étape porte son rang :
+`sequence` / `sequence_total`, et une mention lisible — « 1re demande »,
+« 2e demande » pour des soins demandés par le médecin, « 2e orientation » sinon.
+La frise écrit « Soins 1 », « Soins 2 ». Un service visité une seule fois garde
+son nom tout court. Les rangs s'écrivent « 1re », « 2e » : les exposants
+Unicode ne sont pas rendus par toutes les polices.
+
+## La suite décidée par le médecin
+
+`care_orders.requires_return_to_medicine`, choisi à chaque demande (ADR-055),
+devient une mention explicite sur l'étape Soins correspondante :
+
+```text
+RETURN_TO_MEDICINE   Retour en Médecine prévu après les soins
+DIRECT_EXIT          Sortie directe après les soins (sans retour en Médecine)
+```
+
+C'est l'**intention déclarée**, jamais un fait accompli : la consultation reste
+ouverte pendant les soins et aucune orientation Médecine n'est créée pour un
+retour (ADR-088). « Sortie directe » ne dit pas que la sortie administrative
+est prononcée — elle reste à la Réception (ADR-090) —, seulement que le patient
+ne repasse pas chez le médecin. Le lien entre orientation et demande est
+`care_orders.care_orientation_id` ; une orientation Soins sans demande derrière
+elle (arrivée, urgence) n'affiche aucune suite : elle n'en a pas.
+
+## Les actes demandés, lus sur ce qui a été fait
+
+Sous chaque demande de soins, ses actes — « Réalisé », « Partiellement
+réalisé », « À réaliser », « Non réalisé », « Retiré » — sont lus sur les
+`care_record_procedures` réellement enregistrés par les Soins, jamais sur un
+drapeau saisi (ADR-032). C'est ce qui répond à « pourquoi deux fois Soins ? » :
+sur le cas signalé, la 1re demande portait une *Injection IM* réalisée, la 2e
+la même injection, retirée par le médecin (ADR-112) après que les Soins avaient
+pris le patient — d'où deux étapes, la seconde terminée sans acte.
+
+## Chaque section garde la permission qui possède sa donnée
+
+```text
+Pharmacie        pharmacy.view — ou prescriptions.view pour l'ordonnance
+                 (amendement du 2026-09-19, plus bas)
+Factures         billing.view
+Paiements        billing.view et payments.view
+Actes demandés   care_orders.view
+```
+
+Sans le droit, l'étape n'est **pas servie** — jamais servie vide, qui se
+lirait « rien n'a eu lieu » (ADR-054, ADR-102). Restent visibles à toute
+personne qui voit le passage : la Réception, les orientations, qui a demandé
+les soins et la suite décidée — de l'information de routage, de même nature que
+l'orientation elle-même —, et le type de sortie, que l'écran patient exposait
+déjà. Le reste dû à la sortie exige `billing.view`, et le motif de la sortie
+n'est pas servi : il peut contenir un commentaire de la Réception qui n'a pas
+sa place dans une frise.
+
+## Un nombre constant de requêtes
+
+`forEpisodes()` compose plusieurs passages en une requête par source
+(orientations, demandes de soins, besoins, dispensations, factures, paiements,
+noms) : le dossier d'un patient en liste souvent plusieurs, et le temps de
+l'écran ne doit pas dépendre de son historique. Un test compare le nombre de
+requêtes pour un et pour quatre passages. Les noms sont lus en un appel et
+servis comme du texte : aucune relation chargée n'est sérialisée avec le
+passage.
+
+## Deux écrans, une source
+
+```text
+Détail du passage   EpisodePathwayList  — la liste détaillée, en frise verticale
+Dossier patient     EpisodePathwayTrail — une pastille par étape, détail en infobulle
+```
+
+`episodeSteps()`, la dérivation locale de la frise depuis les seules
+orientations, est supprimée ; `episode.orientations` du détail du passage est
+remplacé par `episode.pathway`. L'apparence — icône et couleur par état — vit
+dans `utilities/episodePathway.js`, partagée : un même état a la même couleur
+aux deux endroits. Les deux composants sont écrits en shadcn-vue (ADR-099). Les
+libellés d'état des orientations (« Orienté », « En attente »…) sont inchangés.
+
+## Hors périmètre
+
+Le contrôle de gardiennage (ADR-116), le séjour hospitalier (ADR-113) et le
+registre des décès (ADR-107) ne sont pas ajoutés à la chronologie : le
+propriétaire a nommé la Réception, la Caisse et la Pharmacie. À décider s'ils
+doivent y figurer.
+
+## Amendement du 2026-09-19 — l'ordonnance du prescripteur figure au parcours
+
+Constat du propriétaire sur le passage `A-26-0001-01` : l'ordonnance était bien
+partie à la Pharmacie (dispensation « délivrée »), mais le parcours ne la
+montrait pas. La cause n'était pas une donnée manquante : la Pharmacie n'était
+servie qu'avec `pharmacy.view`, et le médecin qui avait prescrit — qui voit son
+ordonnance dans le même écran — ne détient pas ce droit.
+
+```text
+prescriptions.view   l'étape de ses ordonnances, avec ce que la Pharmacie en
+                     a fait : Transmise, Délivrée, Délivrée partiellement, Annulée
+pharmacy.view        toutes les dispensations, avec leur état complet
+```
+
+**Une ordonnance et la dispensation qu'elle a déclenchée ne font qu'une étape**
+(« Pharmacie · Ordonnance », `Médecine → Pharmacie`), jamais deux : c'est un
+seul passage à la Pharmacie. L'étape est datée de la prescription et porte la
+date de délivrance.
+
+**Le prescripteur lit l'issue, pas le règlement.** Sans `pharmacy.view`, l'état
+est celui qui le concerne — transmise, délivrée, annulée. « En attente de
+règlement » et « prête à délivrer » sont des états de la Pharmacie et de la
+Caisse : ils ne sont pas servis à qui ne les détient pas (ADR-013, ADR-054).
+Un achat au comptoir n'étant l'ordonnance de personne, il exige toujours
+`pharmacy.view`.
+
+**Une ordonnance qui n'est jamais allée à la Pharmacie le dit.** Une ordonnance
+faite uniquement de lignes hors référentiel ne crée aucune demande de
+dispensation (`CreateInternalDispenseRequestAction`, ADR-037) : annoncer
+« Pharmacie » serait inventer un passage qui n'a pas eu lieu. L'étape s'appelle
+alors « Ordonnance », état « Établie », avec la mention « Hors référentiel :
+aucune demande de dispensation à la Pharmacie. » Une ordonnance annulée l'est
+à l'écran (« Ordonnance annulée ») quelle que soit sa dispensation.
+
+**Le ticket de la Pharmacie se reconnaît à la Caisse.** La Caisse encaisse le
+ticket sans détenir le droit de voir la Pharmacie ; la facture — et son
+encaissement — portent donc la mention « Ticket Pharmacie », lue sur la
+dispensation liée à la facture. Sans elle, une facture réglée après la sortie
+ne se rattachait à rien. Cette mention n'ouvre pas l'étape de la Pharmacie à
+qui n'en a pas le droit.
+
+Aucune permission nouvelle, aucune migration.
+
+
+---
+
+# ADR-118 — Tous les journaux de traitement d'un patient en un seul document, et une file Soins qui distingue passages et demandes
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-116** (journal de traitement) et **l'ADR-117** (parcours d'un
+passage), sans modifier aucune de leurs règles. Aucune permission nouvelle,
+aucune migration.
+
+## Le constat
+
+Le journal « Dossier médical – Traitement » (ADR-116) se lisait un passage à la
+fois. Un patient qui revient a autant de journaux que de passages, et rien ne
+permettait de les lire ensemble ni de les remettre en un seul fichier.
+
+Dans la file Soins, la fenêtre d'un patient annonçait « 2 passages » pour un
+seul passage, `A-26-0009-01`, au numéro écrit deux fois : la file groupait par
+patient et appelait « passage » ce qui était une **orientation**. Deux demandes
+de soins du même passage (ADR-055) sont deux orientations — jamais deux
+passages (ADR-117).
+
+## Un document, pas un nouveau calcul
+
+`/patients/{patient}/journaux-de-traitement`
+(`patients.treatment-journals.show`, `PatientTreatmentJournalController`)
+exige `patients.view` **et** `treatment_journal.view`. Elle sert, pour chaque
+passage du patient, ce que `TreatmentJournal::rows()` sert déjà à la feuille de
+ce passage : mêmes sources, mêmes permissions par source (ADR-054, ADR-116). La
+page réunit, elle n'élargit rien — un test compare, ligne à ligne, le document
+réuni et la feuille d'un passage pour un compte qui n'a que
+`treatment_journal.view`.
+
+Les passages sont classés du plus ancien au plus récent (date de début, puis
+identifiant), les lignes de chaque journal du plus ancien au plus récent. La
+page est en **lecture seule** : une ligne manuelle s'ajoute depuis le journal du
+passage, jamais depuis le document réuni.
+
+## La forme du document
+
+```text
+Couverture   identité du patient + tableau des passages, avec le nombre de
+             lignes de chacun
+Feuilles     une par passage qui porte au moins une ligne, chacune sur sa page
+```
+
+Un passage sans ligne figure dans la liste (« Aucune ligne ») mais n'occupe pas
+une page blanche. La grille « date · description · visa » est un composant
+partagé (`TreatmentJournalTable`) : la feuille d'un passage et le document réuni
+ne dessinent jamais la même feuille de deux façons. `PaperSheet` reçoit
+`showActions` pour que les feuilles suivantes n'aient pas chacune leurs boutons.
+
+## Le PDF est celui du navigateur
+
+Aucun PDF n'est généré côté serveur (ADR-070) : le texte reste sélectionnable
+et aucune bibliothèque de plus n'est à déployer sur trois sites. « Télécharger le
+PDF » ouvre la fenêtre d'impression, où l'on choisit « Enregistrer au format
+PDF » : **une seule impression donne un seul fichier**, avec un saut de page
+entre chaque passage.
+
+Le seul contrôle que l'on ait sur le fichier est son nom, que les navigateurs
+tirent du titre de la page. `printAsPdf()` le pose le temps de l'impression —
+« Journaux de traitement - A-26-0009 - RASOAMIFIDY Malala Odette » — puis le
+rend à `afterprint` (`utilities/pdfDownload.js`, les caractères qu'un nom de
+fichier ne peut pas porter sont remplacés).
+
+## Où se trouve le bouton
+
+```text
+Dossier patient   en-tête « Journaux de traitement » ; onglet Passages
+                  « Tous les journaux (PDF) » et « Journal » sur chaque passage
+File Soins        pied de la fenêtre d'un patient
+```
+
+Il n'apparaît qu'avec `treatment_journal.view` et au moins un passage à réunir :
+la Réception, qui ne détient pas ce droit, ne le voit pas.
+
+## La file Soins compte les passages, et nomme les demandes
+
+`App\Support\CareRequestSummary` porte, une fois, ce que le parcours du passage
+(ADR-117) et la file Soins disent d'une demande de soins : qui l'a faite, la
+suite décidée (« Retour en Médecine prévu » / « Sortie directe après les soins »)
+et ses actes, dont l'état est lu sur les `care_record_procedures` réellement
+enregistrés. Les deux écrans l'appellent — une règle recopiée finit par
+diverger, et le parcours l'avait déjà écrite pour son compte.
+
+La file expose `care_request` sur chaque orientation. Les actes exigent
+`care_orders.view` ; le routage — qui a demandé, quelle suite — reste servi à
+qui voit la file, comme l'orientation elle-même (ADR-117). Une orientation sans
+demande de médecin derrière elle (arrivée, urgence) n'en porte pas et n'invente
+aucune suite.
+
+**Plusieurs demandes peuvent partager une orientation Soins encore active** :
+`CreateEpisodeOrientationAction` réutilise l'orientation ouverte
+(`active_key`). Elles sont donc regroupées par orientation, jamais indexées
+une par une — sinon la première disparaîtrait derrière la seconde.
+
+La fenêtre écrit « 1 passage · 2 demandes de soins », chaque demande dans son
+rang (« Demande 1 », « Demande 2 »), et la ligne de la file « Voir les 2
+demandes ».
+
+## Dossier patient et journaux passés à shadcn-vue (ADR-099)
+
+`Patients/Show.vue` quitte la police d'icônes et la palette DashWind : pastilles
+`Badge` et icônes lucide pour les statuts de parcours, de passage et de facture,
+`FormField` pour les fenêtres d'encaissement et d'annulation, `Checkbox` pour le
+choix des prestations d'une facture. Le comportement, les routes et les
+permissions ne changent pas.
+
+Dans l'en-tête, le badge de situation dit déjà « En attente de règlement » : le
+parcours n'est plus répété à côté du badge lorsqu'il dit la même chose. Le lien
+devient « Pourquoi ce statut ? », vers le détail du passage.
+
+## Hors périmètre
+
+- Un PDF **généré par le serveur** — pour un envoi par courriel ou un
+  archivage sans interaction — exigerait une bibliothèque de rendu ; à décider
+  si le besoin apparaît.
+- Choisir les passages à inclure dans le document : il réunit tout ce que le
+  patient a, ce qui est ce qui a été demandé.
+
+---
+
+# ADR-119 — Répertoire des patients : où chacun a encore besoin d'aller
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-117** (le parcours d'un passage) et **l'ADR-118** (la file Soins
+compte les passages), sans modifier aucune de leurs règles. Aucune permission
+nouvelle, aucune migration.
+
+## Le constat
+
+Le répertoire (`/patients`) disait qu'un patient avait « un passage en cours »
+sans dire **où**. Pour savoir s'il attendait le médecin, les soins ou la
+pharmacie, la Réception devait ouvrir chaque dossier. Les quatre cartes du haut
+(total, passages ouverts, créés ce mois, urgences) ne répondaient pas non plus à
+la question qu'elle se pose vingt fois par jour : « qui attend quoi ? ».
+
+Demande du propriétaire : filtrer et compter les patients selon le service dont
+ils ont encore besoin — Médecine seulement, Soins seulement, Pharmacie seulement,
+tous, et Soins + Médecine + Pharmacie.
+
+## Deux choix d'interprétation, signalés
+
+**« Seulement » est une combinaison exacte.** Chaque patient tombe dans une seule
+case : celle de l'ensemble exact des services qu'il attend. « Médecine seulement »
+exclut celui qui attend aussi la pharmacie. La somme des cases est donc le nombre
+de patients, et « Tous » n'est pas une case de plus mais leur total. Trois
+services donnent sept combinaisons non vides, plus « aucun » :
+
+```text
+Médecine · Soins · Pharmacie              seul, chacun            (cartes du haut)
+Médecine + Soins + Pharmacie              les trois ensemble      (cartes du haut)
+Soins + Médecine, Médecine + Pharmacie,
+Soins + Pharmacie                         les paires              (pastilles)
+Aucun de ces services                     rien à attendre ici     (pastille)
+```
+
+La lecture « au moins » (un patient compté dans plusieurs cases) n'a pas été
+retenue : elle ferait mentir « seulement », et la somme des cases ne serait plus
+le nombre de patients.
+
+**Le besoin de Pharmacie se sert avec `patients.view`.** Le répertoire s'ouvre
+avec `patients.view` (Réception, Médecine et Soins par défaut) ; `pharmacy.view`
+n'est détenu par défaut que par la Pharmacie. Le besoin de Pharmacie est
+pourtant servi avec `patients.view` : c'est une information de **routage** — le
+patient doit y passer —, de même nature que l'orientation vers Médecine ou
+Soins, que l'ADR-117 sert déjà à toute personne qui voit le passage. Il ne porte
+ni médicament, ni quantité, ni montant, ni état de règlement (ADR-013). Sans lui,
+la Réception — qui envoie le patient à la pharmacie — ne pourrait pas savoir qu'il
+y attend, ce qui est précisément la question posée.
+
+La garder derrière `pharmacy.view` ferait diverger les compteurs d'un compte à
+l'autre ; c'est possible si le propriétaire le préfère.
+
+## Ce que « attend ce service » veut dire
+
+```text
+MEDICINE  une orientation Médecine PENDING ou IN_PROGRESS, sur un passage OPEN
+CARE      une orientation Soins PENDING ou IN_PROGRESS, sur un passage OPEN
+PHARMACY  une demande de dispensation liée à un patient, pas encore terminée :
+          AWAITING_INVOICE, AWAITING_PAYMENT, READY ou PARTIALLY_DISPENSED
+```
+
+Ce sont les définitions des files de ces services. Celle de la Pharmacie vivait
+dans `PharmacyPrescriptionQueueService::activeDispenseStatuses()` : elle devient
+`PharmacyDispenseStatus::openValues()`, que la file et le répertoire appellent
+tous les deux — deux copies de la liste auraient fini par compter deux réalités.
+
+Ne comptent pas : une orientation terminée ou annulée ; l'orientation d'un
+passage clos par la sortie administrative (ADR-090) ; une dispensation terminée
+ou annulée ; une dispensation sans patient (une vente anonyme antérieure à
+l'ADR-104 — sans dossier, il n'y a personne à qui rattacher un besoin).
+
+## Où en est le besoin
+
+```text
+Médecine / Soins   en attente (ambre)      l'orientation attend qu'on la prenne
+                   pris en charge (vert)   un professionnel l'a acceptée
+Pharmacie          neutre ; seule « délivrance partielle » se dit
+```
+
+La Pharmacie ne dit jamais « à régler » ni « prête à délivrer » : ce sont des
+états financiers, que la distinction de l'ADR-117 entre l'issue d'une ordonnance
+et son règlement garde à la Pharmacie et à la Caisse. Le répertoire dit que le
+patient doit y passer, jamais où en est son règlement.
+
+Un patient peut avoir plusieurs demandes du même service (deux passages
+ouverts, deux ordonnances) : la ligne garde la plus avancée — « en cours »
+l'emporte sur « en attente », et à état égal la plus ancienne, celle qui attend
+depuis le plus longtemps. Ce que la pastille n'a pas la place de porter — depuis
+quand, sur quel passage — est dans son infobulle. « Depuis » ne s'écrit que pour
+une heure passée : un décalage d'horloge ne fabrique pas un « depuis » absurde.
+
+## Les compteurs sont des facettes
+
+Chaque compte est ce que donnerait un clic sur sa case, les autres filtres du
+répertoire (recherche, type de patient, urgence) inchangés — le filtre du besoin
+lui-même étant exclu du calcul. Une case qui annonce 2 et ouvre une liste vide
+serait pire que pas de compteur.
+
+Les comptes viennent toujours du serveur. La liste est paginée : un compte tiré
+de la page affichée mentirait dès la deuxième page.
+
+La carte est le filtre, comme dans les files de Médecine, de Soins et du
+Laboratoire (`QueueCounters`) : cliquer une carte déjà active la referme,
+« Tous » efface le filtre.
+
+## Le filtre voyage dans l'adresse
+
+`/patients?need=…` :
+
+```text
+MEDICINE | CARE | PHARMACY   un seul service, exactement
+MEDICINE,CARE               une combinaison, toujours dans l'ordre canonique
+NONE                        aucun de ces trois services
+ALL, ou absent              pas de filtre
+```
+
+Une valeur inconnue ne filtre rien : un signet périmé montre tous les patients
+plutôt qu'une liste vide qui se lirait « personne n'attend » — même principe que
+l'ADR-102, où un vide n'est jamais présenté comme un zéro. La clé canonique est
+renvoyée telle quelle (`filters.need`) et la pagination la conserve.
+
+L'ordre canonique de l'adresse est Médecine, Soins, Pharmacie. Les libellés se
+lisent, eux, dans l'ordre du parcours du patient — les soins précèdent le
+médecin, qui précède la pharmacie : « Soins + Médecine ».
+
+## Deux requêtes, pas une par ligne
+
+`App\Services\Patient\PatientServiceNeeds` lit les orientations (jointes à leur
+passage) et les dispensations ouvertes. Ces deux requêtes ne portent que sur les
+patients qui ont un besoin — ceux qui sont dans la clinique à cet instant, pas
+tout le répertoire —, puis les combinaisons se calculent en PHP. Le filtre devient
+un `whereIn` sur ces patients, ou un `whereNotIn` pour « aucun ».
+
+Trois sous-requêtes corrélées par ligne de `patients` auraient fait dépendre le
+temps de l'écran de la taille de l'historique plutôt que de la salle d'attente.
+Si le nombre de patients qui attendent atteignait un jour des milliers, ce calcul
+serait à porter en SQL : c'est signalé ici plutôt que caché.
+
+## L'écran
+
+```text
+Cartes                 Tous les patients · Médecine seulement · Soins seulement ·
+                       Pharmacie seulement · Les 3 services
+« Autres situations »  les paires, seulement si quelqu'un s'y trouve (ou si c'est
+                       celle qu'on filtre, pour pouvoir la quitter) ; « Aucun de
+                       ces services » toujours
+Ligne                  « Situation actuelle » : la présence du patient et une
+                       pastille par service attendu ; « — » quand il n'attend rien
+```
+
+Chaque carte porte une infobulle qui dit ce qu'elle exclut : « seulement » n'est
+pas « au moins ».
+
+**Ce qui quitte l'écran.** Les quatre cartes de chiffres : le résumé passe en une
+ligne dans l'en-tête du tableau (« 12 dossiers · 10 avec un passage ouvert · 12
+créés ce mois »), et les urgences en cours deviennent un bouton rouge dans
+l'en-tête, qui applique le filtre d'urgence. Le contrat `summary` du serveur ne
+change pas. La colonne « Catégorie » : « Standard » ne disait rien, l'ADR-051 ayant
+fait du type de patient une donnée héritée qui ne pilote plus le tarif — seul un
+type qui change la prise en charge (Mutuelle, Personnel) reste affiché sur la
+ligne.
+
+**Ce qui s'ajoute.** La recherche se lance d'elle-même après une courte pause
+(Entrée la lance tout de suite) et les compteurs la suivent. La vue grille
+affiche aussi le besoin. Le motif d'archivage (ADR-009) passe par `FormField` et
+`Textarea` ; il reste obligatoire.
+
+Le conteneur de défilement du tableau est `relative` : `sr-only` est en position
+absolue, et sans ancêtre positionné il échappait au défilement du tableau et
+élargissait la page entière (constaté à 1 280 px).
+
+## Ce qui ne change pas
+
+Le répertoire reste protégé par `patients.view`. L'archivage et la restauration,
+l'état de présence et le contrat `summary` sont inchangés. La file Pharmacie compte
+les mêmes demandes qu'avant : sa liste de statuts a été déplacée, pas modifiée.
+
+## Amendement du 2026-09-19 (ADR-120)
+
+Les pastilles « Autres situations » (paires et « Aucun de ces services ») sont
+retirées de l'écran à la demande du propriétaire ; `?need=` continue d'accepter
+toutes les combinaisons. Les cartes du haut restent.
+
+## Hors périmètre
+
+- Laboratoire, Imagerie, Maternité, Chirurgie, Hospitalisation, Transferts,
+  Pédiatrie et Caisse ne sont pas des cases : la demande nomme trois services. Les
+  combinaisons exactes ne survivent pas à un quatrième — trois services donnent
+  sept cases, quatre en donnent quinze. Un service de plus demandera une autre
+  forme (une sélection de services, une lecture « au moins »), pas une case de
+  plus.
+- Un seuil d'attente ou une alerte « attend depuis trop longtemps » : aucune règle
+  ne le définit ; l'infobulle dit seulement depuis quand.
+
+---
+
+# ADR-120 — Répertoire des patients : des onglets qui classent par état
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Amende l'ADR-119** sur la présentation seulement : les pastilles « Autres
+situations » (paires de services et « Aucun de ces services ») quittent l'écran.
+Les cinq cartes de besoin, `?need=` et leurs règles sont inchangés. Aucune
+permission nouvelle, aucune migration.
+
+## La demande
+
+Une première version de ce jour ajoutait des filtres d'ancienneté (nouveaux /
+anciens) et de besoin (en cours / récent). Le propriétaire les retire : il veut
+des **onglets** qui classent chaque patient dans l'état qu'il lit déjà sur sa
+ligne. Les filtres `visit` et `activity` n'existent donc plus.
+
+## Les onglets
+
+```text
+Tous                     tous les patients
+Besoin en cours          un passage est ouvert et pas seulement en attente de
+                         règlement ; une urgence ouverte y est toujours
+En attente de règlement  le seul passage ouvert n'attend que la sortie de la
+                         Réception (ADR-090)
+Aucun passage ouvert     aucun passage ouvert
+```
+
+Ce sont exactement les états de `presenceState` (`utilities/episodePresence.js`),
+le badge de la ligne : l'onglet et le badge ne peuvent pas se contredire. Ils
+s'excluent : un patient est dans un seul onglet. Un patient encore en soins sur
+un passage et en attente de règlement sur un autre est « en cours », comme sur
+sa ligne. « Besoin en cours » nomme l'état : il ne dit pas *où* — c'est le rôle
+des cartes de besoin (ADR-119).
+
+## Mécanique
+
+`?status=open|settlement|none` ; une valeur inconnue ne filtre rien, comme
+`need`. L'onglet se combine avec la recherche, le type, l'urgence et les cartes
+de besoin. Chaque compte est ce que donnerait un clic sur son onglet, tous les
+**autres** filtres restant appliqués et le sien seul levé
+(`segments.status`) ; les cartes de besoin suivent l'onglet choisi. Les comptes
+viennent du serveur, jamais de la page paginée. L'onglet actif apparaît en puce
+et « Tout effacer » le retire.
+
+## Ce qui ne change pas
+
+`patients.view` reste la seule garde. Le répertoire lit, il ne décide rien.
+
+---
+
+# ADR-121 — Prendre un patient qui n'est pas le premier : les Soins demandent aussi
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-085** (un seul soignant par prise en charge), sans modifier
+aucune de ses règles. Aucune permission nouvelle, aucune migration, aucune règle
+serveur.
+
+## Le constat
+
+La file Médecine rappelle déjà, avant de prendre le n° 2, que le n° 1 attend
+encore. La file Soins laissait prendre n'importe qui d'un clic, sans un mot :
+« Prendre en charge » postait directement.
+
+## La règle
+
+Prendre un patient dont d'autres attendent encore devant lui ouvre une
+confirmation : « Un patient attend avant celui-ci » — ou « Une urgence attend
+avant ce patient » si l'un d'eux est une urgence —, avec les patients devant et
+depuis combien de temps ils attendent. « Prendre celui-ci quand même » confirme,
+« Annuler » ne prend personne.
+
+**On demande, on n'interdit pas.** Passer le n° 2 est parfois la bonne décision :
+le premier est parti, son dossier est incomplet, une priorité clinique. Aucune
+règle du CDC n'impose l'ordre d'arrivée, donc le serveur ne bloque rien ; le
+garde-fou évite l'oubli, pas la décision (comme en Médecine).
+
+- Ne comptent « devant » que les patients encore **en attente** : un patient déjà
+  pris en charge ne bloque personne.
+- Un autre passage du **même patient** n'est pas « un autre patient avant ».
+- Sur une page autre que la première, des patients arrivés avant ne sont pas
+  affichés : la fenêtre le dit plutôt que de laisser croire qu'il n'y a personne.
+- Le premier de la file se prend sans aucune question.
+
+## Une seule règle pour les deux files
+
+La règle vit dans `useQueueSkipGuard` et la fenêtre dans `QueueSkipConfirm` ;
+Médecine et Soins les emploient tous deux. La copie qui vivait dans la page
+Médecine est retirée : deux copies auraient fini par se contredire. Les trois
+boutons « Prendre en charge » des Soins (ligne du tableau, carte mobile, fenêtre
+d'un patient à plusieurs passages) passent par le garde-fou ; un test interdit
+qu'un seul poste directement.
+
+---
+
+# ADR-122 — Remettre en file un patient pris en charge par erreur (Soins)
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-085** (un seul soignant par prise en charge) et l'ADR-121
+(confirmation avant de sauter un patient). Aucune permission nouvelle
+(`care.update`), aucune migration.
+
+## Le constat
+
+Un clic au mauvais endroit prenait le patient en charge, et rien ne permettait de
+revenir en arrière : le soignant devait garder un patient qu'il n'avait pas
+commencé à soigner, ou le terminer sans acte.
+
+## La règle
+
+« Remettre en file » (`ReleaseCareOrientationAction`) fait repasser l'orientation
+de « pris en charge » à « en attente » : le patient **retrouve sa place**. La
+place vient de `oriented_at`, que la prise en charge n'a jamais modifié ; rien
+n'est recalculé. Sur un patient qui était le n° 1, il redevient le n° 1.
+
+Conditions, toutes revérifiées côté serveur sur la ligne verrouillée :
+
+```text
+orientation Soins encore IN_PROGRESS
+demandée par le soignant qui a pris le patient (accepted_by)
+passage OPEN
+aucun travail enregistré depuis la prise en charge
+```
+
+« Aucun travail » : ni fiche de soins modifiée, ni acte réalisé, ni matériel
+déclaré, ni acte marqué « non réalisé » depuis `accepted_at`. Dès qu'un soin
+existe, le patient a réellement été soigné et ne se « rend » plus : la suite
+passe par les soins terminés (ADR-092). Une saisie non enregistrée n'est qu'un
+brouillon jetable (ADR-073) : elle est écartée avec la remise en file.
+
+Le passage repasse « orienté » si la prise en charge l'avait fait passer « en
+soins » et que plus aucune orientation n'est en cours sur lui.
+
+## Où
+
+Un bouton « Remettre en file » sur la ligne de la file (tableau et carte mobile)
+et sur la fiche, seulement pour le soignant qui a pris le patient ; sur la fiche,
+seulement tant qu'aucune fiche n'a été enregistrée. Le serveur décide : un refus
+s'affiche en clair. L'action est auditée (`care.orientation.release`, ancienne et
+nouvelle valeur).
+
+## Hors périmètre
+
+La Médecine n'a pas d'équivalent : prendre un patient y ouvre une consultation,
+qu'il faudrait aussi défaire. À décider séparément.
+
+---
+
+# ADR-123 — La transmission à Médecine rejoint l'étape « Terminer » de la fiche Soins
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Amende l'ADR-032** sur la présentation seulement : la fiche de soins passe de
+six à cinq étapes. Les données, les règles et le serveur ne changent pas.
+Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+L'étape 5 « Transmission » n'était qu'un écran de deux zones de texte
+**facultatives** — « Information médicale complémentaire » (ce que le patient a
+dit de vive voix) et « Observations / transmission infirmière ». Rien ne l'exigeait
+(`nullable`, 3 000 caractères), « Suivant » la passait sans rien saisir, et elle
+n'apparaissait que si le patient continue vers Médecine (consultation générale,
+besoin à préciser, urgence). Un écran entier pour deux champs vides dans la
+plupart des cas.
+
+Ces deux champs restent pourtant utiles : les constantes et les actes arrivent au
+médecin par des données structurées, mais c'est le **seul** endroit où le soignant
+écrit l'état du patient, sa réaction, la surveillance, les points de vigilance.
+Le médecin le lit dans son « Contexte clinique », le détail du passage, le dossier
+médical imprimé et le résumé Chirurgie.
+
+## La règle
+
+L'étape disparaît ; ses champs passent **dans « Terminer »**, là où l'infirmier
+transmet le patient, dans un bloc « Transmission à Médecine » (facultatif) placé
+avant le récapitulatif :
+
+```text
+Contexte → Constantes → Allergies → Actes et matériel → Terminer
+                                                        └ Transmission à Médecine
+```
+
+- Le bloc n'apparaît que si le parcours prévoit une transmission
+  (`care_transmission_expected`) : un parcours qui se termine aux Soins n'en
+  affiche aucun, comme avant. Le serveur continue de refuser ces champs dans ce cas.
+- Le diagnostic déjà posé par un médecin y reste montré en lecture seule.
+- Une erreur de validation sur ces champs ramène à « Terminer » (et non plus à
+  une étape qui n'existe plus).
+- La ligne « Transmission » du récapitulatif disparaît : le champ est modifiable
+  juste au-dessus, la répéter en lecture seule ne servirait à rien.
+
+## Ce qui ne change pas
+
+Les noms des champs (`diagnostic_note`, `transmission_reason`), leur stockage, leur
+lecture par Médecine, Chirurgie et le dossier imprimé, la restauration du brouillon
+(ADR-073) et la règle « au moins un acte réalisé pour un parcours `CARE_ONLY` »
+(ADR-032).
+
+## Amendement du même jour — colonne de droite et texte riche
+
+Le bloc ne s'empile plus au-dessus du récapitulatif : « Terminer » est en **deux
+colonnes**, le récapitulatif (actes, matériel, allergies, constantes) à gauche et
+la **transmission à Médecine à droite**, suivie des points de vigilance. L'étape
+et son bouton d'enregistrement tiennent ainsi dans un seul écran, sans défilement
+de la page.
+
+Les deux champs deviennent du **texte riche** (`ClinicalRichTextEditor`, gras,
+italique, souligné, surlignage, listes), dans des `FormField` shadcn avec le
+diagnostic transmis en lecture seule dans une pastille `Badge`.
+
+- **Assaini côté serveur** : `SaveCareRecordAction` passe les deux notes par
+  `ClinicalRichTextSanitizer` (même liste blanche que l'interrogatoire) ; un
+  éditeur vidé (`<p><br></p>`) redevient une absence, jamais une chaîne de
+  balises. La limite serveur passe à 12 000 caractères de HTML ; l'éditeur borne
+  toujours le texte lu à 3 000.
+- **Lu en HTML assaini partout** : `CareRecord::transmission_reason_html` et
+  `diagnostic_note_html` (accesseurs, `displayHtml()`) sont servis à côté de la
+  valeur brute, qui reste celle de l'éditeur. Un ancien texte sans balise garde
+  ses retours à la ligne. Consommateurs : contexte clinique Médecine, détail du
+  passage, dossier patient, dossier médical imprimé et résumé Chirurgie/Anesthésie.
+
+## Amendement du même jour — barre de séparation redimensionnable
+
+Les deux colonnes sont séparées par le `ResizableSplit` déjà employé pour
+l'examen clinique et le socle des rôles : on glisse la barre, on la manie au
+clavier (flèches, Début/Fin), un double-appui remet le rapport par défaut. Par
+défaut 45 % / 55 %, borné à 30–65 % ; il est conservé sur le poste
+(`rivo:care:finish-split`) et jamais envoyé au serveur. Sous 54 rem de large, les
+panneaux s'empilent et la barre disparaît.
+
+Quand il n'y a rien à mettre à droite (pas de transmission, aucun point de
+vigilance), le composant reçoit `single` : le premier panneau prend toute la
+largeur, sans barre ni panneau vide.
+
+## Amendement du même jour — points de vigilance épinglés à gauche
+
+Les points de vigilance (constantes hors bornes, allergie à vérifier, matériel
+au-delà du stock, actes demandés en attente) quittent la colonne de droite, qui
+n'est plus que la transmission. Ils sont **épinglés en bas du panneau de gauche**
+(`mt-auto`), sous le récapitulatif, et **repliés en pastilles d'une ligne** — le
+titre avant « — » : « TA sévèrement élevée », « FC très basse »…, rouge ou ambre
+selon la gravité, le texte complet au survol. « Voir le détail » déplie les
+explications complètes.
+
+Aucun repère n'est masqué : seuls leur texte et leur hauteur se réduisent. Ils
+restent une aide au dépistage et ne bloquent rien (ADR-039 à ADR-041).
+
+La colonne de droite n'existe donc que si le parcours prévoit une transmission ;
+sinon le récapitulatif garde toute la largeur, points de vigilance compris.
+
+---
+
+# ADR-124 — La file Soins ne montre que ce qui reste à faire : deux onglets
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Amende l'ADR-118** (la file Soins) sur ce que la page affiche. Aucune
+permission nouvelle, aucune migration.
+
+## Le constat
+
+La page Soins mélangeait ce qui reste à faire et un historique : sous
+« Orientés », tous les patients dont les Soins étaient terminés, y compris ceux que
+le médecin avait déjà accueillis depuis des jours (76 h d'attente affichée pour un
+patient en consultation). Le module Patients porte déjà cette liste, avec l'état de
+chacun.
+
+## La règle
+
+La file Soins n'a que **deux onglets**, chacun avec son compteur :
+
+```text
+À prendre aux Soins                  orientation Soins en attente ou en cours
+Orientés · en attente du médecin     Soins terminés, et Médecine n'a pas encore
+                                     accueilli le patient (orientation Médecine
+                                     en attente)
+```
+
+Dès que le médecin accueille le patient, ou que les Soins se terminent sans
+médecin (parcours `CARE_ONLY`), le patient **quitte cette page** : il se retrouve
+dans le module Patients (ADR-119). Un patient renvoyé au médecin (nouvelle
+orientation Médecine en attente) redevient « en attente du médecin » ; un patient
+dont l'orientation Médecine a été annulée n'attend personne.
+
+Le filtre `?filter=` n'accepte plus que `active` et `waiting_doctor` ; toute autre
+valeur — l'ancien `oriented`, par exemple — retombe sur la file active, comme une
+valeur inconnue.
+
+## Lecture d'une ligne « en attente du médecin »
+
+Le statut dit ce que le patient attend — « En attente du médecin » — et l'attente
+se compte **depuis que Médecine a été sollicitée**, pas depuis la fin des Soins
+(`doctor.since`, une requête pour toute la page). Du plus ancien au plus récent :
+celui qui attend depuis le plus longtemps est en tête, comme dans la file active.
+C'est de l'information de routage, de même nature que l'orientation elle-même
+(ADR-117) : aucune permission de plus.
+
+## Ce qui ne change pas
+
+Les cartes de priorité (Urgences, Priorité normale) restent des filtres et suivent
+l'onglet choisi ; le garde-fou « un patient attend avant celui-ci » (ADR-121) et la
+remise en file (ADR-122) ne concernent que la file active.
+
+---
+
+# ADR-125 — Les constantes se lisent selon l'âge ; une valeur critique ou improbable se dit
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire) — **chiffres à
+faire valider par un médecin de la clinique**
+
+**Étend les ADR-038 à ADR-041**, qui ne fixaient que des seuils d'adulte. Aucune
+permission nouvelle, aucune migration.
+
+## Le constat
+
+Les alertes de constantes ignoraient l'âge presque partout. Sur un enfant de 4 ans,
+170/120 s'affichait « TA très élevée » — un niveau d'étape 2 d'adulte — alors que
+c'est critique à cet âge ; 78 bpm passait sans un mot alors que la plage usuelle à
+4 ans est 80–120 ; aucune fréquence trop rapide n'était jamais signalée, à aucun
+âge. Et une valeur absurde (un poids de 45 kg à 4 ans) n'alertait personne.
+
+## Une seule table, servie à l'écran
+
+`App\Support\VitalSignAgeReference` porte tous les chiffres par âge. Les
+évaluations serveur (`HeartRateAssessment`, `BloodPressureAssessment`,
+`TemperatureAssessment`) la lisent ; Vue reçoit le résultat par les références
+qu'elle recevait déjà (`heartRateReference`…) et n'en recopie aucun seuil. Les
+projections lues par Médecine et Chirurgie (`CareRecordReadModel`) passent l'âge
+aux mêmes évaluations : un écran ne peut pas contredire l'autre.
+
+| Constante | Lecture par âge |
+|---|---|
+| Fréquence cardiaque | Enfant : plage de l'éveillé selon l'âge — <1 an 100–180, 1–2 ans 98–140, 3–5 ans 80–120, 6–11 ans 75–118, dès 12 ans 60–100. Sous 60 bpm, un mineur est toujours signalé. Adulte : plus rapide que 100 bpm est signalé (marqué au-delà de 125). Écart marqué : moins de 85 % du minimum ou plus de 125 % du maximum. |
+| Tension | Hypotension d'un enfant (PALS) : systolique <70 avant 1 an, <70 + 2 × âge de 1 à 10 ans, <90 au-delà. Dès 13 ans, les étapes de l'adulte. Avant 13 ans, pas de classement d'adulte : ≥120/80 = « à comparer aux tables de l'enfant », ≥140/90 = élevée quels que soient âge, sexe et taille. Le seuil sévère (>180/120) reste critique à tout âge. |
+| Température | Nourrisson de moins d'un an : ≥38 °C = fièvre à avis médical rapide ; <36,5 °C bas, <36,0 °C hypothermie. Sinon inchangé. |
+| SpO₂, IMC | Inchangés (ADR-040, ADR-032). |
+
+Sources : AHA/PALS (fréquence de l'enfant, hypotension), AAP 2017 (âge à partir duquel
+les étapes de l'adulte s'appliquent), OMS (température du nourrisson). Ce sont des
+**aides au dépistage**, jamais un diagnostic et jamais bloquantes.
+
+## Ce que l'application ne fait pas, et le dit
+
+- **Le sexe ne change aucun seuil ci-dessus** : ces références ne le distinguent
+  pas. Il compterait pour la tension de l'enfant (percentiles d'âge, sexe et taille)
+  et l'IMC de l'enfant (courbes de croissance), qui exigent des tables complètes que
+  l'application ne porte pas : elle affiche « à comparer aux tables » plutôt que
+  d'inventer un classement. Le même refus vaut pour la **grossesse**, que ni le sexe
+  ni l'âge ne permettent de déduire.
+- **Sans âge, aucune plage n'est devinée** : ni fréquence rapide, ni seuil d'enfant.
+  L'écran demande de renseigner l'âge (ADR-039).
+
+## Un message qui ne passe pas inaperçu
+
+Un repère hors norme se lit sous son champ, comme avant. Une valeur **critique**
+(danger) ou **improbable** déclenche en plus un **message toast**, dans deux cas :
+
+- un repère de tonalité `danger` (TA sévère, FC très basse ou très élevée, SpO₂ très
+  basse, hypothermie, fièvre du nourrisson, hypotension de l'enfant, tension saisie
+  au mauvais format) ;
+- une **invraisemblance** : poids ou taille très au-delà de ce qu'un patient de cet
+  âge peut atteindre (`VitalSignAgeReference::plausibility()` : par exemple 30 kg
+  et 130 cm avant 5 ans), ou IMC <8 ou >70 — presque sûrement une faute de saisie.
+  Ces bornes sont des invraisemblances volontairement larges, pas des références
+  cliniques.
+
+Le message part une fois la saisie posée (900 ms, pas à chaque chiffre) et pas deux
+fois pour le même repère : recontrôler 170 puis 175 n'en refait pas un. Une valeur
+restaurée du brouillon (ADR-073) n'en déclenche pas : elle est déjà affichée sous
+son champ. Un avertissement simple (`warning`) n'en fait pas non plus : trop de
+messages finissent par n'en faire lire aucun.
+
+## À décider
+
+- La validation des tables ci-dessus par un médecin, avant usage clinique.
+- La tension et l'IMC de l'enfant selon les percentiles, si la clinique veut un
+  classement chiffré : il faudra fournir les tables (âge, sexe, taille).
+- Une durée de vie du nourrisson plus fine que l'année (nouveau-né, moins de
+  3 mois) : l'âge n'est connu qu'en années entières.
+
+---
+
+# ADR-126 — Tabac et alcool selon l'âge, âge invraisemblable, « Oui » rouge et « Non » vert
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire) — seuils
+d'âge **à faire valider par un médecin de la clinique**
+
+**Complète l'ADR-125** (les constantes se lisent selon l'âge) et l'ADR-032 (tabac,
+alcool, diabète : trois états). Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+Cocher « Tabac : Oui » et « Alcool : Oui » pour un enfant de 4 ans n'alertait
+personne : ces champs ne dépendaient pas de l'âge. C'est la même faute de saisie que
+« 45 kg à 4 ans » (ADR-125), et elle passait sous silence. Un âge de 118 ans non plus
+n'alertait personne, alors que les repères de constantes en dépendent.
+
+## La règle
+
+```text
+âge < 10 ans        « Oui » (tabac ou alcool) : peu vraisemblable — vérifiez la saisie
+                    → rouge sous le champ ET toast
+10 ≤ âge < 18 ans   « Oui » : consommation chez un mineur — à noter et à signaler
+                    au médecin → ambre sous le champ, sans toast
+âge ≥ 110 ans       c'est l'âge qu'il faut vérifier (date de naissance, âge déclaré)
+                    → bandeau rouge en tête des constantes ET toast à l'ouverture
+```
+
+Les chiffres vivent avec les autres repères d'âge, dans
+`VitalSignAgeReference` (`SUBSTANCE_UNLIKELY_BELOW_AGE`, `VERY_OLD_FROM_AGE`), et
+arrivent à l'écran par `vitalPlausibility` ; aucun n'est écrit dans Vue. Comme pour
+les constantes, ce sont des aides à la saisie : rien ne bloque l'enregistrement. Le
+diabète « Oui » ne déclenche aucune alerte d'âge : il existe à tout âge. Sans âge
+connu, on ne devine rien.
+
+Le message toast suit les règles de l'ADR-125 : posé, dédoublonné, réservé au
+niveau critique. La consommation d'un mineur reste sous son champ.
+
+## Couleurs
+
+Dans les trois groupes Diabète, Tabac et Alcool, « Oui » coché est **rouge** et
+« Non » coché **vert** ; « N/R » reste neutre. Un facteur de risque présent ne se
+confond pas avec son absence, et un « Oui » n'est plus discret au milieu de trois
+boutons identiques (`yesNoClasses`, une seule règle pour les trois).
+
+## À décider
+
+Les âges de 10 ans (improbable) et de 110 ans (invraisemblable) sont des repères de
+saisie, pas des références cliniques : à faire confirmer par un médecin de la
+clinique, qui peut souhaiter un autre seuil pour le tabac et l'alcool des mineurs.
+
+## Amendement du même jour — le n° d'ordre reste visible, et c'est celui du médecin
+
+Dans l'onglet « Orientés · en attente du médecin », la colonne N° était vide : un
+patient qui attend le médecin n'avait plus de numéro, alors que deux services en
+portaient chacun un pour le même patient — de quoi se disputer la priorité.
+
+La ligne affiche désormais **le n° d'ordre de la file Médecine**, celui que le
+médecin voit pour ce patient. Il n'y a qu'un numéro par patient :
+
+- `EpisodeQueuePresenter::medicineQueueNumbers()` numérote **toute** la file Médecine
+  (orientations en attente, par heure d'arrivée chez le médecin ; une urgence encore
+  prioritaire n'en a pas, comme chez lui). Les Soins et la Médecine lisent ce même
+  calcul.
+- La file Médecine ne numérote plus la seule page affichée : le n° d'un patient ne
+  change plus avec un filtre, une recherche ou une page. Avant, chercher un nom le
+  faisait passer n° 1.
+- L'onglet est classé dans l'ordre de la file Médecine, urgences non encore vues en
+  tête : le n° 1 est bien en première ligne.
+
+Un patient à prendre aux Soins garde son n° de la file Soins ; une infobulle dit de
+quelle file vient le numéro.
+
+
+---
+
+# ADR-127 — Remettre en file un patient pris en charge par erreur (Médecine)
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-122**, qui n'avait pas d'équivalent en Médecine : « consultation à
+défaire ».
+
+## Le constat
+
+Un clic sur « Prendre en charge » au mauvais endroit — un patient dont ce n'est pas
+encore le tour — ouvre une consultation et l'inscrit au nom du médecin. Rien ne
+permettait de revenir en arrière.
+
+## La règle
+
+« Remettre en file » (`ReleaseMedicineOrientationAction`,
+`POST /medicine/orientations/{o}/release`, `consultations.create`) repasse
+l'orientation Médecine `PENDING`, `accepted_by`/`accepted_at` vidés. La place est celle
+de `oriented_at`, que la prise en charge n'a jamais touché : le patient retrouve son n°.
+
+```text
+qui       le médecin qui a pris le patient, jamais un confrère
+quand     orientation IN_PROGRESS, passage OPEN
+tant que  la consultation est restée vierge
+```
+
+## Vierge, c'est-à-dire
+
+Motif d'office inchangé (`AcceptMedicineOrientationAction::initialReasonFor()`, une
+seule source), aucun texte d'interrogatoire ni d'examen, aucun traitement déclaré,
+aucun examen structuré, aucune étape, diagnostic, demande d'analyse ou d'imagerie,
+ordonnance, sortie, orientation de conduite à tenir ni ordre de soins. Une seule ligne
+clinique suffit à refuser : le médecin a réellement commencé, et la suite passe par la
+clôture puis la réouverture tracées (ADR-076, ADR-096), jamais par une suppression.
+
+## Ce que l'action supprime, et pourquoi c'est acceptable
+
+La consultation vierge est **supprimée physiquement**, et cette suppression est tracée :
+`consultations.episode_orientation_id` est unique (soft-deleted compris), donc une
+consultation seulement archivée empêcherait la prochaine prise en charge d'en ouvrir une
+propre. Ce n'est pas une donnée médicale — c'est le reste de l'erreur, et la garde
+ci-dessus garantit qu'elle ne contient rien. Le brouillon non envoyé (ADR-073) est écarté.
+
+Le passage revient `ORIENTED`, et son statut médical est vidé si aucune autre
+consultation ne le justifie. Si un autre service travaille encore sur le passage, rien
+n'est touché. Audit : `medicine.orientation.release`, avec l'ancien état.
+
+## Écran
+
+Bouton « Remettre en file » dans la file Médecine, sur la ligne d'un patient pris par
+le compte connecté. Le serveur reste juge : si la consultation est commencée, un avis
+le dit. Aucune permission nouvelle.

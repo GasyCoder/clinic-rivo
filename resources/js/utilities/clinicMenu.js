@@ -1,5 +1,5 @@
 import { TrendingUp } from 'lucide-vue-next';
-import { CLINIC_WORKSPACES, ROLE_FOCUS, WORKSPACE_GROUPS } from './clinicWorkspaces.js';
+import { CLINIC_WORKSPACES, ROLE_FOCUS, SIDEBAR_GROUPS, WORKSPACE_GROUPS } from './clinicWorkspaces.js';
 import { normalizeOrder } from '../composables/useSidebarOrder.js';
 
 /**
@@ -61,6 +61,63 @@ export function recommendedItems(roleFocus, can) {
 }
 
 /**
+ * Puts the members of one module under a single parent entry.
+ *
+ * The parent takes the place of its first member in the recommended order,
+ * so a role whose primary workspace is Médecine still opens on Médecine.
+ * Members keep their own permission and matching rules as children; the
+ * group itself has neither — it is visible as long as one member is.
+ */
+export function groupRelatedItems(items) {
+    const grouped = [];
+
+    for (const item of items) {
+        const family = SIDEBAR_GROUPS.find((candidate) => candidate.members.includes(item.key));
+
+        if (!family) {
+            grouped.push(item);
+            continue;
+        }
+
+        if (grouped.some((row) => row.key === family.key)) continue;
+
+        const members = family.members
+            .map((key) => items.find((candidate) => candidate.key === key))
+            .filter(Boolean);
+
+        grouped.push({
+            key: family.key,
+            icon: family.icon,
+            text: family.text,
+            group: item.group,
+            family: true,
+            members,
+            children: members.map((member) => ({
+                code: member.key,
+                icon: member.icon,
+                label: family.labels?.[member.key] ?? member.text,
+                link: member.link,
+                activeLinks: member.activeLinks,
+                exact: member.exact,
+                permission: member.permission,
+            })),
+        });
+    }
+
+    return grouped;
+}
+
+/**
+ * A stored order written before a module was grouped names its members;
+ * each one now stands for its group, at the place the account gave it.
+ */
+function aliasStoredOrder(storedOrder) {
+    if (!Array.isArray(storedOrder)) return storedOrder;
+
+    return storedOrder.map((key) => SIDEBAR_GROUPS.find((family) => family.members.includes(key))?.key ?? key);
+}
+
+/**
  * Applies the account's stored order to one group.
  *
  * Every item is placed, always: the stored keys first, then anything the
@@ -68,7 +125,7 @@ export function recommendedItems(roleFocus, can) {
  * order can therefore reorder the sidebar but never shorten it.
  */
 export function orderGroup(items, storedOrder) {
-    const keys = normalizeOrder(storedOrder, items.map((item) => item.key));
+    const keys = normalizeOrder(aliasStoredOrder(storedOrder), items.map((item) => item.key));
     const placed = keys.map((key) => items.find((item) => item.key === key)).filter(Boolean);
 
     return [...placed, ...items.filter((item) => !placed.includes(item))];
@@ -82,7 +139,7 @@ export function orderGroup(items, storedOrder) {
  * @param {string} options.overviewLabel
  */
 export function buildClinicMenu({ roleCode, can, stored = {}, overviewLabel = 'Vue d’ensemble' }) {
-    const items = recommendedItems(ROLE_FOCUS[roleCode] ?? null, can);
+    const items = groupRelatedItems(recommendedItems(ROLE_FOCUS[roleCode] ?? null, can));
 
     return [
         { heading: 'Principal' },
@@ -115,7 +172,7 @@ export function visibleMenu(rawMenu, can) {
 
         if (rawItem.permission && !can(rawItem.permission)) continue;
 
-        const item = rawItem.children
+        let item = rawItem.children
             ? {
                 ...rawItem,
                 children: rawItem.children.filter((child) => (!child.permission || can(child.permission))
@@ -124,6 +181,14 @@ export function visibleMenu(rawMenu, can) {
             : rawItem;
 
         if (item.children && !item.children.length) continue;
+
+        // A module group reduced to one member is that member's plain link:
+        // a dropdown holding a single entry is one click for nothing. The
+        // row keeps the group's key, so a personal order still places it.
+        if (item.family && item.children.length === 1) {
+            const member = item.members.find((candidate) => candidate.key === item.children[0].code);
+            item = { ...member, key: item.key, group: item.group };
+        }
 
         if (pendingHeading) {
             visible.push(pendingHeading);

@@ -77,6 +77,10 @@ class CareOrder extends Model
             return 'COMPLETED';
         }
 
+        if ($this->status === CareOrderStatus::Cancelled) {
+            return 'CANCELLED';
+        }
+
         $items = $this->relationLoaded('items') ? $this->items : $this->items()->with('careRecordProcedures')->get();
 
         return $items->contains(fn (CareOrderItem $item) => $item->realizedQuantity() !== '0.00' || $item->not_performed_at !== null)

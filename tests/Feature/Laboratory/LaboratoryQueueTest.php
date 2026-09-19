@@ -7,6 +7,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Models\CatalogItem;
 use App\Models\Episode;
+use App\Models\EpisodeOrientation;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
 use App\Models\Patient;
@@ -104,7 +105,7 @@ class LaboratoryQueueTest extends TestCase
         return $user->fresh(['role']);
     }
 
-    /** @return array{0: Episode, 1: \App\Models\EpisodeOrientation} */
+    /** @return array{0: Episode, 1: EpisodeOrientation} */
     private function episodeWithLabOrientation(User $actor): array
     {
         $patient = Patient::query()->create([

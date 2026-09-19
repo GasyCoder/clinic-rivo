@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Pharmacy;
 
-use App\Actions\Pharmacy\CreateExternalDispenseAction;
 use App\Actions\Medicine\CreatePrescriptionAction;
+use App\Actions\Pharmacy\CreateExternalDispenseAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;

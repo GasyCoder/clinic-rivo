@@ -87,6 +87,8 @@ class RolePermissionSeeder extends Seeder
         'MAINTENANCE' => [],
         'RECEPTION' => [
             'reception.view',
+            // ADR-114 — l'accueil organise la sortie d'un patient transféré.
+            'transfers.view', 'transfers.manage',
             'employees.patient_lookup',
             'patient_staff_links.view', 'patient_staff_links.create',
             'address_entries.view', 'address_entries.create',
@@ -128,6 +130,12 @@ class RolePermissionSeeder extends Seeder
             'consultations.reopen',
             // ADR-107 — le registre des décès et son acte de constatation.
             'death_records.view', 'death_records.create',
+            // ADR-113 — le séjour hospitalier et sa fiche de régime.
+            'hospitalization.view', 'hospitalization.update', 'hospital_diet.record',
+            // ADR-114 — transferts et file Pédiatrie.
+            'transfers.view', 'transfers.manage', 'pediatrics.view', 'pediatrics.manage',
+            // ADR-116 — journal de traitement du passage.
+            'treatment_journal.view', 'treatment_journal.record',
             'clinical_protocols.view', 'clinical_protocols.manage',
             'patients.medical_history.manage', 'patients.view', 'episodes.view',
             // Le médecin peut requalifier ce passage précis pendant la
@@ -176,6 +184,12 @@ class RolePermissionSeeder extends Seeder
             // `prescriptions.create`: Soins may not prescribe.
             'care_consumables.view', 'care_consumables.request',
             'care_consumables.cancel',
+            // ADR-113 — la fiche de régime se remplit au lit du patient.
+            'hospitalization.view', 'hospitalization.update', 'hospital_diet.record',
+            // ADR-114 — les Soins accompagnent le départ d'un patient transféré.
+            'transfers.view', 'transfers.manage',
+            // ADR-116 — journal de traitement du passage.
+            'treatment_journal.view', 'treatment_journal.record',
         ],
         // SURGERY is the surgeon/operating-team baseline. Access to the
         // separate Anesthesia workspace is granted explicitly per account;

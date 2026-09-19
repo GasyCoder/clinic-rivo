@@ -9,6 +9,7 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ConsultationOrientationStatus;
 use App\Enums\ConsultationOrientationType;
+use App\Enums\ConsultationStep;
 use App\Enums\ConsultationStepStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
@@ -24,6 +25,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SurgicalRequest;
 use App\Models\User;
+use App\Support\ConsultationWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -470,7 +472,7 @@ class ConsultationOrientationTest extends TestCase
             'medical_discharge_id' => null,
         ]);
 
-        $blockersBefore = collect(app(\App\Support\ConsultationWorkflow::class)
+        $blockersBefore = collect(app(ConsultationWorkflow::class)
             ->blockersForClosure($consultation->fresh()))->pluck('message')->implode(' ');
         $this->assertStringContainsString('non transmise', $blockersBefore);
 
@@ -488,7 +490,7 @@ class ConsultationOrientationTest extends TestCase
             $active->medical_discharge_id,
         );
 
-        $blockersAfter = collect(app(\App\Support\ConsultationWorkflow::class)
+        $blockersAfter = collect(app(ConsultationWorkflow::class)
             ->blockersForClosure($consultation->fresh()))->pluck('message')->implode(' ');
         $this->assertStringNotContainsString('non transmise', $blockersAfter);
     }
@@ -625,8 +627,8 @@ class ConsultationOrientationTest extends TestCase
     public function test_neither_legacy_step_appears_in_the_pathway(): void
     {
         $wizard = array_map(
-            fn (\App\Enums\ConsultationStep $step): string => $step->value,
-            \App\Enums\ConsultationStep::wizardCases(),
+            fn (ConsultationStep $step): string => $step->value,
+            ConsultationStep::wizardCases(),
         );
 
         $this->assertSame(
@@ -636,8 +638,8 @@ class ConsultationOrientationTest extends TestCase
 
         // Mais les valeurs restent lisibles : une ligne ancienne ne doit pas
         // devenir illisible parce que l'étape a quitté le parcours.
-        $this->assertNotNull(\App\Enums\ConsultationStep::tryFrom('diagnostic'));
-        $this->assertNotNull(\App\Enums\ConsultationStep::tryFrom('decision'));
+        $this->assertNotNull(ConsultationStep::tryFrom('diagnostic'));
+        $this->assertNotNull(ConsultationStep::tryFrom('decision'));
     }
 
     public function test_the_old_decision_url_redirects_to_the_closure_step(): void

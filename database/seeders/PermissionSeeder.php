@@ -438,6 +438,18 @@ class PermissionSeeder extends Seeder
 
         'surgery.request' => 'Demander une intervention chirurgicale depuis Médecine',
         'hospitalization.request' => 'Demander une hospitalisation depuis Médecine',
+        // ADR-113 — le séjour et sa fiche de régime.
+        'hospitalization.view' => 'Consulter les patients hospitalisés et leur fiche de régime',
+        'hospitalization.update' => 'Renseigner la chambre / le lit d’un séjour',
+        'hospital_diet.record' => 'Saisir la fiche de régime d’un patient hospitalisé',
+        // ADR-116 — le « Dossier médical – Traitement » de la clinique.
+        'treatment_journal.view' => 'Consulter le journal de traitement d’un passage',
+        'treatment_journal.record' => 'Ajouter une ligne au journal de traitement',
+        // ADR-114 — modules Transferts et Pédiatrie.
+        'transfers.view' => 'Consulter les patients à transférer et transférés',
+        'transfers.manage' => 'Compléter un transfert et enregistrer le départ du patient',
+        'pediatrics.view' => 'Consulter la file Pédiatrie',
+        'pediatrics.manage' => 'Prendre en charge un patient orienté en Pédiatrie',
         'maternity.request' => 'Demander une orientation Maternité depuis Médecine',
         'maternity.view' => 'Voir la file et les dossiers Maternité',
         'maternity.create' => 'Ouvrir un dossier Maternité',

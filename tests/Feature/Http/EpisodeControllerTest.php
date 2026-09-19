@@ -43,8 +43,19 @@ class EpisodeControllerTest extends TestCase
                 ->where('capabilities.can_view_diagnoses', true)
                 ->where('capabilities.can_view_prescriptions', true)
                 ->where('capabilities.can_view_billing', true)
-                ->has('episode.orientations', 1)
-                ->where('episode.orientations.0.destination_module', 'CARE')
+                // Réception, le service Soins, l'ordonnance et la facture : quatre
+                // étapes, dans l'ordre du patient, alors même qu'elles partagent
+                // le même instant.
+                ->has('episode.pathway', 4)
+                ->where('episode.pathway.0.type', 'RECEPTION')
+                ->where('episode.pathway.1.type', 'ORIENTATION')
+                ->where('episode.pathway.1.module', 'CARE')
+                // L'ordonnance de la fixture n'a que des lignes hors référentiel :
+                // aucune dispensation, donc aucun passage à la Pharmacie à annoncer.
+                ->where('episode.pathway.2.type', 'PHARMACY')
+                ->where('episode.pathway.2.label', 'Ordonnance')
+                ->where('episode.pathway.2.state_label', 'Établie')
+                ->where('episode.pathway.3.type', 'INVOICE')
                 ->where('episode.care_record.blood_group', 'O+')
                 ->has('episode.care_record.procedures', 1)
                 ->has('episode.consultations', 1)
@@ -71,7 +82,10 @@ class EpisodeControllerTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Episodes/Show')
-                ->has('episode.orientations', 1)
+                // Sans `billing.view`, la facture n'est pas servie : le parcours
+                // ne montre que ce que la personne a le droit de voir.
+                ->has('episode.pathway', 2)
+                ->where('episode.pathway.1.module', 'CARE')
                 ->where('episode.care_record', null)
                 ->has('episode.consultations', 0)
                 ->where('billing', null)

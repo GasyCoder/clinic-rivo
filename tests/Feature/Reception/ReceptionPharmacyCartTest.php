@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Reception;
 
+use App\Actions\Episode\MarkEpisodeEmergencyAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
@@ -332,9 +333,9 @@ class ReceptionPharmacyCartTest extends TestCase
         $episode = $this->arrive($lines);
 
         // Requalification en urgence : ouvre Soins ET Médecine.
-        app(\App\Actions\Episode\MarkEpisodeEmergencyAction::class)->execute(
+        app(MarkEpisodeEmergencyAction::class)->execute(
             $episode,
-            \App\Enums\CatalogModule::Reception,
+            CatalogModule::Reception,
             $this->receptionist,
         );
         $this->assertSame(2, EpisodeOrientation::query()->where('episode_id', $episode->id)->count());

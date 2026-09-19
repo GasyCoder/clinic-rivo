@@ -3,9 +3,9 @@
 namespace App\Models;
 
 use App\Enums\CatalogItemType;
-use App\Enums\ImagingModality;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\Concerns\Auditable;

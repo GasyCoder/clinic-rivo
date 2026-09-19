@@ -33,7 +33,7 @@ class StoreHospitalizationRequestRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'reason' => ['required', 'string', 'max:3000'],
+            'reason' => ['nullable', 'string', 'max:3000'],
             'admission_diagnosis' => ['nullable', 'string', 'max:3000'],
             'clinical_summary' => ['nullable', 'string', 'max:5000'],
             'planned_treatment' => ['nullable', 'string', 'max:3000'],
@@ -48,7 +48,6 @@ class StoreHospitalizationRequestRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'reason.required' => 'Indiquez le motif de l’hospitalisation.',
         ];
     }
 }

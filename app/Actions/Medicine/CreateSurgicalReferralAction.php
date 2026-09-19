@@ -34,7 +34,7 @@ class CreateSurgicalReferralAction
     public function execute(
         Consultation $consultation,
         string $catalogItemUuid,
-        string $diagnostic,
+        ?string $diagnostic,
         ?string $indication,
         string $priority,
         ?string $notes,
@@ -42,6 +42,7 @@ class CreateSurgicalReferralAction
     ): SurgicalRequest {
         return DB::transaction(function () use ($consultation, $catalogItemUuid, $diagnostic, $indication, $priority, $notes, $actor): SurgicalRequest {
             $lockedConsultation = Consultation::query()->lockForUpdate()->findOrFail($consultation->getKey());
+            $this->recordOrientation->ensureNotAlreadySubmitted($lockedConsultation, ConsultationOrientationType::Surgery);
             $medicineOrientation = EpisodeOrientation::query()
                 ->with('episode')
                 ->lockForUpdate()
@@ -81,7 +82,11 @@ class CreateSurgicalReferralAction
                 'catalog_item_id' => $catalogItem->getKey(),
                 'procedure_name' => $catalogItem->name,
                 'procedure_details' => $indication,
-                'notes' => trim("Diagnostic : {$diagnostic}\nPriorité : {$priority}".($notes ? "\n{$notes}" : '')),
+                'notes' => trim(implode("\n", array_filter([
+                    ($diagnostic = $this->diagnosticFor($lockedConsultation, $diagnostic)) ? "Diagnostic : {$diagnostic}" : null,
+                    "Priorité : {$priority}",
+                    $notes ?: null,
+                ]))),
             ]);
 
             // The conduite à tenir now has a record of its own, pointing at
@@ -100,5 +105,31 @@ class CreateSurgicalReferralAction
 
             return $surgicalRequest;
         });
+    }
+
+    /**
+     * Le diagnostic part généré du dossier : ce que le médecin a saisi s'il l'a
+     * saisi, sinon les diagnostics actifs de la consultation. Rien n'est
+     * inventé : sans diagnostic posé, la ligne reste absente et le module
+     * Chirurgie la complète.
+     */
+    private function diagnosticFor(Consultation $consultation, ?string $typed): ?string
+    {
+        $typed = trim((string) $typed);
+
+        if ($typed !== '') {
+            return $typed;
+        }
+
+        $active = $consultation->diagnoses()
+            ->whereDoesntHave('cancellation')
+            ->oldest('id')
+            ->pluck('description')
+            ->map(fn ($description) => trim((string) $description))
+            ->filter()
+            ->unique()
+            ->implode(' ; ');
+
+        return $active !== '' ? $active : null;
     }
 }

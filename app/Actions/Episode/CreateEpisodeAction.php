@@ -31,10 +31,10 @@ class CreateEpisodeAction
 
     /**
      * @param  array<string, mixed>  $episodeData  Passage-specific admin
-     *                                              extras (ADR-034: e.g.
-     *                                              emergency contact, which
-     *                                              can differ from one
-     *                                              passage to the next).
+     *                                             extras (ADR-034: e.g.
+     *                                             emergency contact, which
+     *                                             can differ from one
+     *                                             passage to the next).
      */
     public function execute(
         Patient $patient,

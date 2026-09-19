@@ -53,6 +53,6 @@ class OrientationPrefillTextTest extends TestCase
     /** L'éditeur produit des espaces insécables que `trim()` seul laisse passer. */
     public function test_it_normalises_editor_whitespace(): void
     {
-        $this->assertSame('Deux mots', $this->convert("<p>&nbsp; Deux   mots &nbsp;</p>"));
+        $this->assertSame('Deux mots', $this->convert('<p>&nbsp; Deux   mots &nbsp;</p>'));
     }
 }

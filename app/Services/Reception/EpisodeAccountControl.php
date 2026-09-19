@@ -80,7 +80,7 @@ class EpisodeAccountControl
      * queries instead of two per row.
      *
      * @param  array<int, int>  $episodeIds
-     * @return array<int, array<string, mixed>>  keyed by episode id
+     * @return array<int, array<string, mixed>> keyed by episode id
      */
     public function summarizeMany(array $episodeIds): array
     {

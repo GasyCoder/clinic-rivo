@@ -7,12 +7,12 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ClinicalSuggestionSource;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\MedicineForm;
 use App\Models\EpisodeOrientation;
+use App\Models\Medicine;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
-use App\Enums\MedicineForm;
-use App\Models\Medicine;
 
 class StoreMedicinePrescriptionRequest extends FormRequest
 {

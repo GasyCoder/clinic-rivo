@@ -2,26 +2,9 @@
 
 namespace Tests\Feature\Medicine;
 
-use App\Actions\Episode\CreateEpisodeAction;
-use App\Actions\Episode\PlanEpisodeRoutingAction;
-use App\Actions\Medicine\AcceptMedicineOrientationAction;
-use App\Enums\CatalogItemType;
-use App\Enums\CatalogModule;
 use App\Enums\ClinicalSuggestionSource;
-use App\Enums\MedicineForm;
-use App\Enums\ReceptionRoutingMode;
 use App\Models\AuditLog;
-use App\Models\CatalogItem;
 use App\Models\ClinicalProtocol;
-use App\Models\Consultation;
-use App\Models\DiagnosticCatalog;
-use App\Models\EpisodeOrientation;
-use App\Models\Medicine;
-use App\Models\MedicineLot;
-use App\Models\Patient;
-use App\Models\Permission;
-use App\Models\Role;
-use App\Models\User;
 use App\Services\Medicine\ClinicalProtocolMatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\Medicine\Concerns\BuildsClinicalSuggestionFixtures;

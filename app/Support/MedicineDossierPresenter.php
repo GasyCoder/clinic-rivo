@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Enums\AdministrationRoute;
+use App\Enums\CareOrderStatus;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ClinicalExamSystem;
@@ -16,6 +17,7 @@ use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
+use App\Enums\HospitalStayStatus;
 use App\Enums\MedicalDischargeType;
 use App\Enums\PatientAntecedentType;
 use App\Enums\PrescriptionStatus;
@@ -24,20 +26,20 @@ use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\ConsultationOrientation;
 use App\Models\EpisodeOrientation;
-use App\Models\ImagingRequest;
-use App\Models\LabRequest;
-use App\Models\User;
-use App\Services\Care\CareRecordReadModel;
-use App\Services\Medicine\ClinicalRichTextSanitizer;
-use App\Services\Pharmacy\MedicineStockService;
-use Illuminate\Support\Collection;
 use App\Models\EpisodeServiceRequest;
+use App\Models\ImagingRequest;
 use App\Models\ImagingRequestItem;
+use App\Models\LabRequest;
 use App\Models\LabRequestItem;
+use App\Models\User;
 use App\Services\Billing\PlannedServiceBilling;
+use App\Services\Care\CareRecordReadModel;
 use App\Services\Medicine\ClinicalProtocolMatcher;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Medicine\ClinicPracticeIndex;
+use App\Services\Pharmacy\MedicineStockService;
+use Illuminate\Support\Collection;
 
 class MedicineDossierPresenter
 {
@@ -422,7 +424,7 @@ class MedicineDossierPresenter
                 'care_orders' => $canViewCareOrders
                     ? CareOrder::query()
                         ->where('consultation_id', $consultation->getKey())
-                        ->with(['items.careRecordProcedures', 'requestedBy:id,name'])
+                        ->with(['items.careRecordProcedures', 'items.catalogItem:id,uuid', 'items.cancelledBy:id,name', 'careOrientation', 'requestedBy:id,name'])
                         ->latest('ordered_at')
                         ->get()
                         ->map(fn (CareOrder $careOrder) => [
@@ -435,6 +437,10 @@ class MedicineDossierPresenter
                             'completed_at' => $careOrder->completed_at,
                             'items' => $careOrder->items->map(fn ($item) => [
                                 'uuid' => $item->uuid,
+                                // The act itself, not this request line: the
+                                // same key CreateCareOrderAction uses to refuse
+                                // a second pending request for the same act.
+                                'catalog_item_uuid' => $item->catalogItem?->uuid,
                                 'name' => $item->catalog_item_name_snapshot,
                                 'code' => $item->catalog_item_code_snapshot,
                                 'quantity' => $item->quantity,
@@ -442,6 +448,17 @@ class MedicineDossierPresenter
                                 'remaining_quantity' => $item->remainingQuantity(),
                                 'not_performed_at' => $item->not_performed_at,
                                 'not_performed_reason' => $item->not_performed_reason,
+                                'cancelled_at' => $item->cancelled_at,
+                                'cancelled_by' => $item->cancelledBy?->name,
+                                'cancel_reason' => $item->cancel_reason,
+                                // Mirrors CancelCareOrderItemAction, which re-checks:
+                                // withdrawable while the order is under way and the
+                                // act has not been performed.
+                                'can_cancel' => $isActive
+                                    && $user->can('care_orders.create')
+                                    && ! $item->isCancelled()
+                                    && (float) $item->realizedQuantity() === 0.0
+                                    && $careOrder->status === CareOrderStatus::Pending,
                                 'instructions' => $item->instructions,
                             ])->values(),
                         ])->values()
@@ -759,7 +776,7 @@ class MedicineDossierPresenter
                 'priority_label' => $active->priority?->label(),
                 'submitted_at' => $active->submitted_at,
                 'selected_by' => $active->selectedBy?->name,
-                'request' => $this->presentOrientationRequest($active),
+                'request' => $this->presentOrientationRequest($active, $user),
             ] : null,
             // Cancelled orientations stay visible: changing course is a
             // clinical fact, and the first intention is never erased.
@@ -780,7 +797,51 @@ class MedicineDossierPresenter
     }
 
     /** @return array<string, mixed>|null */
-    private function presentOrientationRequest(ConsultationOrientation $orientation): ?array
+    private function presentOrientationRequest(ConsultationOrientation $orientation, User $user): ?array
+    {
+        $request = $this->orientationRequestSummary($orientation);
+
+        if ($request === null) {
+            return null;
+        }
+
+        // ADR-114 — une demande transmise se complète dans son module, jamais
+        // en la retransmettant depuis la consultation : l'écran y conduit.
+        return $request + $this->orientationModuleLink($orientation, $request['kind'], $user);
+    }
+
+    /** @return array{module_url: ?string, module_label: ?string} */
+    private function orientationModuleLink(ConsultationOrientation $orientation, string $kind, User $user): array
+    {
+        $none = ['module_url' => null, 'module_label' => null];
+
+        return match ($kind) {
+            'HOSPITALIZATION' => ($stay = $orientation->hospitalizationRequest?->hospitalStay)
+                && $stay->status !== HospitalStayStatus::Cancelled
+                && $user->can('hospitalization.view')
+                    ? ['module_url' => "/hospitalisation/{$stay->uuid}", 'module_label' => 'Hospitalisation']
+                    : $none,
+            'REFERRAL' => $user->can('transfers.view')
+                ? ['module_url' => "/transferts/{$orientation->medicalReferral->uuid}", 'module_label' => 'Transferts']
+                : $none,
+            'SURGERY' => $user->can('surgery.view')
+                ? ['module_url' => "/surgery/{$orientation->surgicalRequest->uuid}", 'module_label' => 'Chirurgie']
+                : $none,
+            'SERVICE' => match ($orientation->episodeOrientation->destination_module) {
+                CatalogModule::Maternity => $user->can('maternity.view')
+                    ? ['module_url' => "/maternity/orientations/{$orientation->episodeOrientation->uuid}", 'module_label' => 'Maternité']
+                    : $none,
+                CatalogModule::Pediatrics => $user->can('pediatrics.view')
+                    ? ['module_url' => "/pediatrie/{$orientation->episodeOrientation->uuid}", 'module_label' => 'Pédiatrie']
+                    : $none,
+                default => $none,
+            },
+            default => $none,
+        };
+    }
+
+    /** @return array<string, mixed>|null */
+    private function orientationRequestSummary(ConsultationOrientation $orientation): ?array
     {
         if ($request = $orientation->hospitalizationRequest) {
             return [

@@ -19,6 +19,7 @@ use App\Models\Consultation;
 use App\Models\Diagnosis;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\MedicalDischarge;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\Patient;
@@ -985,15 +986,22 @@ class MedicineWorkflowTest extends TestCase
             'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
         ])->assertSessionHasErrors('transfer_destination');
 
+        $this->assertDatabaseCount('medical_discharges', 0);
+        $this->assertSame(EpisodeOrientationStatus::InProgress, $orientation->fresh()->status);
+
+        // ADR-107 (amendement) — un décès se prononce sans son détail : l'heure,
+        // le lieu et les causes s'établissent dans le registre des décès, qui
+        // les exige pour l'acte de constatation.
         $this->post("/medicine/orientations/{$orientation->uuid}/discharge", [
             'type' => MedicalDischargeType::Deceased->value,
             'final_diagnosis' => 'Arrêt cardio-respiratoire',
-            'patient_condition' => 'Décès constaté.',
             'discharged_at' => now()->subMinute()->format('Y-m-d H:i:s'),
-        ])->assertSessionHasErrors(['death_occurred_at', 'death_place', 'death_causes']);
+        ])->assertSessionHasNoErrors();
 
-        $this->assertDatabaseCount('medical_discharges', 0);
-        $this->assertSame(EpisodeOrientationStatus::InProgress, $orientation->fresh()->status);
+        $discharge = MedicalDischarge::query()->sole();
+        $this->assertNull($discharge->death_occurred_at);
+        $this->assertNull($discharge->death_place);
+        $this->assertNull($discharge->death_causes);
     }
 
     public function test_medical_discharge_permission_is_enforced_by_laravel(): void

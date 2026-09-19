@@ -1,4 +1,5 @@
 <script setup>
+import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
 import { computed, ref } from 'vue';
 import { Activity, ChevronDown, CircleAlert, Eye } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
@@ -210,7 +211,8 @@ const vitalValueClasses = (assessment) => {
                 </div>
                 <div :class="['rounded border border-border', compact ? 'p-2.5' : 'p-3']">
                     <h3 class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Transmission Soins</h3>
-                    <p :class="[compact ? 'mt-1 text-xs leading-4' : 'mt-2 text-sm', 'text-muted-foreground']">{{ careSummary.transmission_reason || careSummary.diagnostic_note || 'Aucune transmission renseignée.' }}</p>
+                    <ClinicalRichTextDisplay v-if="careSummary.transmission_reason_html || careSummary.diagnostic_note_html" :html="careSummary.transmission_reason_html || careSummary.diagnostic_note_html" :class="[compact ? 'mt-1 text-xs leading-4' : 'mt-2 text-sm', 'text-muted-foreground']" />
+                    <p v-else :class="[compact ? 'mt-1 text-xs leading-4' : 'mt-2 text-sm', 'text-muted-foreground']">Aucune transmission renseignée.</p>
                 </div>
                 <div :class="['rounded border border-border', compact ? 'p-2.5' : 'p-3']">
                     <h3 class="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Traçabilité</h3>

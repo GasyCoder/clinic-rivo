@@ -16,10 +16,12 @@ use App\Models\BillableItem;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
 use App\Models\Episode;
+use App\Models\EpisodeOrientation;
 use App\Models\LabRequest;
 use App\Models\Patient;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\ConsultationWorkflow;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -104,7 +106,7 @@ class ParaclinicalBillingTest extends TestCase
         $this->assertSame(ConsultationStepStatus::Completed, $step->status);
         $this->assertSame($this->doctor->id, $step->completed_by);
 
-        $blockers = app(\App\Support\ConsultationWorkflow::class)->closureBlockerMessages($consultation);
+        $blockers = app(ConsultationWorkflow::class)->closureBlockerMessages($consultation);
         $this->assertEmpty(array_filter(
             $blockers,
             fn (string $message) => str_contains($message, 'paraclinique'),
@@ -152,7 +154,7 @@ class ParaclinicalBillingTest extends TestCase
         $this->assertNull(LabRequest::query()->where('episode_id', $episode->id)->sole()->items()->sole()->billable_item_id);
     }
 
-    /** @return array{0: Episode, 1: \App\Models\EpisodeOrientation} */
+    /** @return array{0: Episode, 1: EpisodeOrientation} */
     private function consultation(): array
     {
         $patient = Patient::query()->create([

@@ -5,6 +5,7 @@ namespace Tests\Feature\Medicine;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
+use App\Actions\Medicine\CreateImagingRequestAction;
 use App\Actions\Medicine\CreateLabRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
@@ -19,6 +20,7 @@ use App\Models\CatalogItem;
 use App\Models\ClinicalExamination;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\Patient;
 use App\Models\Permission;
@@ -377,11 +379,11 @@ class ComplementaryExamDecisionTest extends TestCase
         $doctor = $this->doctor();
         [, $orientation] = $this->medicineConsultation($doctor);
 
-        $item = \App\Models\CatalogItem::query()->create([
+        $item = CatalogItem::query()->create([
             'code' => 'LAB-'.uniqid(),
             'name' => 'Ionogramme',
-            'type' => \App\Enums\CatalogItemType::Service,
-            'module' => \App\Enums\CatalogModule::Laboratory,
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Laboratory,
             'unit' => 'analyse',
             'billable' => false,
             'stockable' => false,
@@ -397,11 +399,11 @@ class ComplementaryExamDecisionTest extends TestCase
 
         // Et quand il demande explicitement de poursuivre, il avance —
         // jamais vers l'examen qu'il vient de quitter.
-        $other = \App\Models\CatalogItem::query()->create([
+        $other = CatalogItem::query()->create([
             'code' => 'LAB-'.uniqid(),
             'name' => 'CRP',
-            'type' => \App\Enums\CatalogItemType::Service,
-            'module' => \App\Enums\CatalogModule::Laboratory,
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Laboratory,
             'unit' => 'analyse',
             'billable' => false,
             'stockable' => false,
@@ -722,7 +724,7 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->assertNotNull($imaging->fresh()->cancelled_at);
     }
 
-    private function imagingRequestWithResult(EpisodeOrientation $orientation, User $doctor): \App\Models\ImagingRequest
+    private function imagingRequestWithResult(EpisodeOrientation $orientation, User $doctor): ImagingRequest
     {
         $request = $this->imagingRequest($orientation, $doctor);
 
@@ -735,7 +737,7 @@ class ComplementaryExamDecisionTest extends TestCase
         return $request->fresh('items');
     }
 
-    private function imagingRequest(EpisodeOrientation $orientation, User $doctor): \App\Models\ImagingRequest
+    private function imagingRequest(EpisodeOrientation $orientation, User $doctor): ImagingRequest
     {
         $item = CatalogItem::query()->create([
             'code' => 'IMG-'.uniqid(),
@@ -749,7 +751,7 @@ class ComplementaryExamDecisionTest extends TestCase
             'updated_by' => $doctor->id,
         ]);
 
-        return $this->app->make(\App\Actions\Medicine\CreateImagingRequestAction::class)->execute(
+        return $this->app->make(CreateImagingRequestAction::class)->execute(
             $orientation->consultation()->firstOrFail(),
             [['catalog_item_uuid' => $item->uuid]],
             null,

@@ -17,10 +17,11 @@ use Illuminate\Validation\ValidationException;
  * Orienting the patient toward an internal service that has no request
  * model of its own: Maternité and Pédiatrie.
  *
- * Only `EpisodeOrientation` is reused, its `reason` carrying the structured
- * text the doctor entered. Maternité already consumes that orientation in
- * its own workspace; Pédiatrie has none yet, and inventing a table for a
- * module whose workflow is undefined would fabricate process (§10).
+ * Only `EpisodeOrientation` is reused, its `reason` carrying the text taken
+ * from the record. Maternité and Pédiatrie (ADR-114) both consume that
+ * orientation in their own workspace; the doctor transmits in one click and
+ * nothing is typed twice. Pédiatrie gets no table of its own: no paediatric
+ * form has been provided, and inventing one would fabricate process (§10).
  *
  * Hospitalisation and Référence/Transfert used to pass through here too.
  * They now have their own request records, because what the receiving team
@@ -42,7 +43,7 @@ class CreateServiceReferralAction
     public function execute(
         Consultation $consultation,
         CatalogModule $destination,
-        string $reason,
+        ?string $reason,
         User $actor,
         ?ClinicalPriority $priority = null,
     ): EpisodeOrientation {
@@ -67,6 +68,8 @@ class CreateServiceReferralAction
                     'destination' => 'Cette destination possède son propre formulaire de demande.',
                 ]);
             }
+
+            $this->recordOrientation->ensureNotAlreadySubmitted($lockedConsultation, $type);
 
             $orientation = $this->createOrientation->execute(
                 $medicineOrientation->episode,

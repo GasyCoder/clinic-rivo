@@ -10,7 +10,6 @@ use App\Enums\BillableItemStatus;
 use App\Enums\CareCompletionMode;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
-use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\AllergenReference;
@@ -24,6 +23,7 @@ use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientAllergy;
 use App\Models\User;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\CareHandlerGuard;
 use App\Support\CareWorkflow;
 use App\Support\VitalSignRules;
@@ -42,6 +42,7 @@ class SaveCareRecordAction
         private readonly RecordBillableItemAction $recordBillableItem,
         private readonly AttachBillableItemToUnpaidInvoiceAction $attachToUnpaidInvoice,
         private readonly RequestCareConsumablesAction $requestConsumables,
+        private readonly ClinicalRichTextSanitizer $richText,
     ) {}
 
     /**
@@ -202,9 +203,9 @@ class SaveCareRecordAction
         return $attributes + (array_key_exists('allergy_note', $data) ? [
             'allergy_note' => $this->nullableText($data['allergy_note']),
         ] : []) + (array_key_exists('diagnostic_note', $data) ? [
-            'diagnostic_note' => $this->nullableText($data['diagnostic_note']),
+            'diagnostic_note' => $this->richNote($data['diagnostic_note']),
         ] : []) + (array_key_exists('transmission_reason', $data) ? [
-            'transmission_reason' => $this->nullableText($data['transmission_reason']),
+            'transmission_reason' => $this->richNote($data['transmission_reason']),
         ] : []);
     }
 
@@ -429,6 +430,12 @@ class SaveCareRecordAction
                 ]);
             }
 
+            if ($careOrderItem?->isCancelled()) {
+                throw ValidationException::withMessages([
+                    "procedures.{$index}.care_order_item_uuid" => 'Cet acte a été retiré par le médecin.',
+                ]);
+            }
+
             if ($careOrderItem && (float) $procedure['quantity'] > (float) $careOrderItem->remainingQuantity()) {
                 throw ValidationException::withMessages([
                     "procedures.{$index}.quantity" => 'La quantité dépasse ce qui reste à réaliser pour cet acte demandé.',
@@ -528,6 +535,17 @@ class SaveCareRecordAction
         if ($unpaidInvoice) {
             $this->attachToUnpaidInvoice->execute($unpaidInvoice, $billableItem);
         }
+    }
+
+    /**
+     * Note de transmission en texte riche : assainie, et un éditeur vidé
+     * (`<p><br></p>`) redevient une absence, jamais une chaîne de balises.
+     */
+    private function richNote(mixed $value): ?string
+    {
+        $clean = $this->richText->sanitize((string) ($value ?? ''));
+
+        return $this->richText->isBlank($clean) ? null : $clean;
     }
 
     private function nullableText(mixed $value): ?string

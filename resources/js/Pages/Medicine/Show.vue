@@ -51,6 +51,7 @@ import FormError from '@/Components/UI/FormError.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 import MedicineWorkflowNav from '@/Components/Medicine/MedicineWorkflowNav.vue';
 import ConsultationStepBar from '@/Components/Medicine/ConsultationStepBar.vue';
 import ClinicalGeneralState from '@/Components/Clinical/ClinicalGeneralState.vue';
@@ -996,21 +997,45 @@ const careOrderForm = useForm({
 });
 /**
  * Acts already waiting at Soins for this consultation: asking again would
- * queue the same act twice. The server refuses it too; the list says so
- * before the doctor tries.
+ * queue the same act twice. The server refuses it too (CreateCareOrderAction);
+ * the screen must never let such a line reach « Actes demandés ».
+ *
+ * Keyed by the catalog UUID — the key the server checks — with the code as a
+ * fallback for payloads that predate it.
  */
-const pendingCareOrderCodes = computed(() => new Set((props.consultation?.care_orders ?? [])
+const pendingCareOrderItems = computed(() => (props.consultation?.care_orders ?? [])
     .filter((order) => order.status === 'PENDING')
     .flatMap((order) => order.items)
-    .filter((item) => !item.not_performed_at && Number(item.remaining_quantity) > 0)
-    .map((item) => item.code)));
-const isCareOrderItemPending = (item) => pendingCareOrderCodes.value.has(item.code);
+    .filter((item) => !item.cancelled_at && !item.not_performed_at && Number(item.remaining_quantity) > 0));
+const isCareOrderItemPending = (item) => pendingCareOrderItems.value.some((pending) => (
+    (pending.catalog_item_uuid && pending.catalog_item_uuid === (item.catalog_item_uuid ?? item.uuid))
+    || (pending.code && pending.code === item.code)
+));
+/**
+ * A line can enter the selection without passing through the search list:
+ * the server-side draft (ADR-073) restores whatever was saved, including an
+ * act transmitted since. Such a line is withdrawn and the doctor is told
+ * which one and why — never kept, never dropped silently.
+ */
+const careOrderDuplicateNotice = ref('');
+watch(
+    () => [careOrderForm.items.length, pendingCareOrderItems.value.length, careOrderForm.items.map((line) => line.catalog_item_uuid).join()],
+    () => {
+        const duplicates = careOrderForm.items.filter((line) => isCareOrderItemPending(line));
+        if (!duplicates.length) return;
+
+        careOrderForm.items = careOrderForm.items.filter((line) => !duplicates.includes(line));
+        careOrderDuplicateNotice.value = `${duplicates.map((line) => line.name).join(', ')} retiré${duplicates.length > 1 ? 's' : ''} de la demande : déjà en attente aux Soins.`;
+    },
+    { immediate: true },
+);
 
 const isCareOrderItemSelected = (item) => careOrderForm.items.some((line) => line.catalog_item_uuid === item.uuid);
 const addCareOrderItem = (item) => {
-    if (isCareOrderItemSelected(item)) return;
+    if (isCareOrderItemSelected(item) || isCareOrderItemPending(item)) return;
 
     careOrderForm.items.push({ catalog_item_uuid: item.uuid, code: item.code, name: item.name, quantity: 1 });
+    careOrderDuplicateNotice.value = '';
     careOrderSearch.value = '';
 };
 const removeCareOrderItem = (line) => {
@@ -1021,7 +1046,59 @@ const submitCareOrder = () => careOrderForm.post(
     `/medicine/orientations/${props.orientation.uuid}/care-orders`,
     { preserveScroll: true, onSuccess: () => { careOrderForm.reset(); careOrderSearch.value = ''; } },
 );
-const careOrderStatusLabel = (status) => ({ PENDING: 'En attente', IN_PROGRESS: 'En cours', COMPLETED: 'Terminé' }[status] ?? status);
+/**
+ * Transmettre aux Soins est un acte signé (ADR-106) : l'orientation vers
+ * Soins est créée et les actes partent à l'équipe. Le bouton comme la
+ * touche Entrée ouvrent la confirmation ; seule elle envoie.
+ */
+const showCareOrderConfirmation = ref(false);
+const openCareOrderConfirmation = () => {
+    if (!careOrderForm.items.length || careOrderForm.processing) return;
+    if (careOrderForm.items.some((line) => isCareOrderItemPending(line))) return;
+
+    showCareOrderConfirmation.value = true;
+};
+const closeCareOrderConfirmation = () => {
+    if (careOrderForm.processing) return;
+    showCareOrderConfirmation.value = false;
+};
+const confirmCareOrder = () => {
+    showCareOrderConfirmation.value = false;
+    submitCareOrder();
+};
+/** Demandes encore à l'œuvre aux Soins ; le reste se replie sous « Historique ». */
+const activeCareOrders = computed(() => (props.consultation?.care_orders ?? [])
+    .filter((order) => !['COMPLETED', 'CANCELLED'].includes(order.status)));
+const pastCareOrders = computed(() => (props.consultation?.care_orders ?? [])
+    .filter((order) => ['COMPLETED', 'CANCELLED'].includes(order.status)));
+const careOrderHistoryOpen = ref(false);
+const careOrderStatusLabel = (status) => ({ PENDING: 'En attente', IN_PROGRESS: 'En cours', COMPLETED: 'Terminé', CANCELLED: 'Retirée' }[status] ?? status);
+
+/**
+ * Retirer un acte demandé, tant que Soins n'a pas pris le patient
+ * (CancelCareOrderItemAction). Aucun motif à saisir : le serveur enregistre
+ * l'auteur, la date et un motif fixe. Rien n'est effacé : la ligne reste,
+ * barrée. Le serveur revérifie tout.
+ */
+const withdrawingCareOrderItem = ref(null);
+const careOrderWithdrawalForm = useForm({});
+const openCareOrderWithdrawal = (item) => {
+    careOrderWithdrawalForm.clearErrors();
+    withdrawingCareOrderItem.value = item;
+};
+const closeCareOrderWithdrawal = () => {
+    if (careOrderWithdrawalForm.processing) return;
+    withdrawingCareOrderItem.value = null;
+};
+const confirmCareOrderWithdrawal = () => {
+    const item = withdrawingCareOrderItem.value;
+    if (!item) return;
+
+    careOrderWithdrawalForm.post(
+        `/medicine/orientations/${props.orientation.uuid}/care-order-items/${item.uuid}/cancel`,
+        { preserveScroll: true, onSuccess: () => { withdrawingCareOrderItem.value = null; } },
+    );
+};
 
 const labCatalog = computed(() => props.options?.lab_catalog ?? []);
 const labSearch = ref('');
@@ -1091,6 +1168,7 @@ const labRequestStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px]
     REQUESTED: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
     IN_PROGRESS: 'bg-primary/10 text-primary',
     COMPLETED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200',
+    CANCELLED: 'bg-muted text-muted-foreground line-through',
 }[status] ?? 'bg-muted text-muted-foreground'];
 
 /**
@@ -2070,7 +2148,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </div>
                     <div class="p-5">
                         <div class="grid gap-3 lg:grid-cols-2">
-                        <section :class="['rounded-md border border-border bg-muted/35 p-4', !(care_record?.transmission_reason || care_record?.diagnostic_note) ? 'lg:col-span-2' : '']">
+                        <section :class="['rounded-md border border-border bg-muted/35 p-4', !(care_record?.transmission_reason_html || care_record?.diagnostic_note_html) ? 'lg:col-span-2' : '']">
                             <p class="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground"><Clipboard class="h-4 w-4" />Besoin exprimé à l’accueil</p>
                             <div v-if="episode.designations.length" class="flex flex-wrap gap-1.5">
                                 <span v-for="designation in episode.designations" :key="designation.uuid" class="inline-flex items-center gap-1.5 rounded border border-border bg-muted/35 px-2.5 py-1.5 text-xs font-semibold text-foreground">
@@ -2081,11 +2159,11 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                             <p v-else class="text-sm text-muted-foreground">Motif à préciser pendant la consultation.</p>
                         </section>
 
-                        <section v-if="care_record?.transmission_reason || care_record?.diagnostic_note" class="rounded-md border border-primary/30 bg-primary/5 p-4">
+                        <section v-if="care_record?.transmission_reason_html || care_record?.diagnostic_note_html" class="rounded-md border border-primary/30 bg-primary/5 p-4">
                             <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                                 <Send class="h-4 w-4" />Transmission des Soins
                             </p>
-                            <p class="mt-1.5 text-sm leading-5 text-foreground">{{ care_record.transmission_reason || care_record.diagnostic_note }}</p>
+                            <ClinicalRichTextDisplay class="mt-1.5 text-sm leading-5 text-foreground" :html="care_record.transmission_reason_html || care_record.diagnostic_note_html" />
                         </section>
                         </div>
 
@@ -2830,117 +2908,142 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </ConsultationStepBar>
                 </Card>
 
-                <div v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders" class="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1 shadow-sm" role="tablist" aria-label="Type de prescription">
-                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'medicines'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'medicines' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-accent hover:text-foreground']" @click="prescriptionTab = 'medicines'">
-                        <Pill class="h-4 w-4" />
-                        <span>Médicaments</span>
-                        <span v-if="prescriptionForm.lines.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">{{ prescriptionForm.lines.length }}</span>
+                <!-- Onglets au format shadcn (TabsList) : compacts, à la taille
+                     de leur contenu. Chaque onglet garde sa couleur — primaire
+                     pour Médicaments, émeraude pour Soins — sur l'icône, le
+                     texte et le compteur ; l'onglet ouvert se détache sur fond
+                     carte. -->
+                <div v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders" class="inline-flex h-9 items-center gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label="Type de prescription">
+                    <button
+                        type="button"
+                        role="tab"
+                        :aria-selected="prescriptionTab === 'medicines'"
+                        :class="['inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                                 prescriptionTab === 'medicines' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-primary']"
+                        @click="prescriptionTab = 'medicines'"
+                    >
+                        <Pill class="h-3.5 w-3.5 text-primary" />
+                        Médicaments
+                        <span v-if="prescriptionForm.lines.length" class="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold tabular-nums text-primary">{{ prescriptionForm.lines.length }}</span>
                     </button>
-                    <button type="button" role="tab" :aria-selected="prescriptionTab === 'care'" :class="['flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-all', prescriptionTab === 'care' ? 'bg-card text-primary shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:bg-accent hover:text-foreground']" @click="prescriptionTab = 'care'">
-                        <Activity class="h-4 w-4" />
-                        <span>Soins</span>
-                        <span v-if="careOrderForm.items.length" class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">{{ careOrderForm.items.length }}</span>
+                    <button
+                        type="button"
+                        role="tab"
+                        :aria-selected="prescriptionTab === 'care'"
+                        :class="['inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40',
+                                 prescriptionTab === 'care' ? 'bg-card text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-emerald-700 dark:hover:text-emerald-300']"
+                        @click="prescriptionTab = 'care'"
+                    >
+                        <Activity class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        Soins
+                        <span v-if="careOrderForm.items.length" class="rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">{{ careOrderForm.items.length }}</span>
                     </button>
                 </div>
 
-                <Card v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders && prescriptionTab === 'care'" class="w-full overflow-hidden border-s-4 border-s-primary shadow-sm">
-                    <div class="flex items-start justify-between gap-4 border-b border-border bg-muted/35 px-5 py-4">
-                        <div class="flex min-w-0 items-start gap-3">
-                            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
-                            <div>
-                                <h2 class="text-sm font-bold text-foreground">Prescription de soins</h2>
-                                <p class="mt-1 text-xs text-muted-foreground">Sélectionnez les actes à transmettre à l’équipe Soins pour ce passage.</p>
+                <!-- Deux colonnes : à gauche ce que le médecin prépare, à droite
+                     ce qui est déjà parti. Les demandes terminées ou retirées se
+                     replient sous « Historique » pour ne pas repousser le
+                     formulaire hors de l'écran. -->
+                <Card v-if="cardIsOpen('ordonnance') && capabilities.can_view_care_orders && prescriptionTab === 'care'" class="w-full overflow-hidden shadow-sm">
+                    <div class="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
+                        <div class="flex min-w-0 items-center gap-3">
+                            <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
+                            <div class="min-w-0">
+                                <h2 class="text-sm font-semibold text-foreground">Prescription de soins</h2>
+                                <p class="truncate text-xs text-muted-foreground">Actes à transmettre à l’équipe Soins pour ce passage.</p>
                             </div>
                         </div>
-                        <span v-if="careOrderForm.items.length" class="shrink-0 rounded-full border border-primary/20 bg-card px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary">{{ careOrderForm.items.length }} acte(s)</span>
+                        <Badge v-if="careOrderForm.items.length" variant="outline" class="shrink-0">{{ careOrderForm.items.length }} à transmettre</Badge>
                     </div>
 
-                    <div v-if="consultation.care_orders?.length" class="space-y-2 border-b border-border p-5">
-                        <div v-for="order in consultation.care_orders" :key="order.uuid" class="rounded border border-border p-3">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <p class="text-xs font-semibold text-foreground">{{ formatDateTime(order.ordered_at) }} — Dr {{ order.requested_by }}</p>
-                                <span :class="careOrderStatusBadgeClass(order.status)">{{ careOrderStatusLabel(order.status) }}</span>
+                    <div class="grid lg:grid-cols-[minmax(0,1fr)_20rem]">
+                        <form v-if="capabilities.can_create_care_order" id="care-order-form" class="min-w-0 space-y-4 p-5" @submit.prevent="openCareOrderConfirmation">
+                            <div>
+                                <IconInput v-model="careOrderSearch" :icon="Search" placeholder="Ajouter un acte : injection, perfusion, pansement…" aria-label="Ajouter un acte de soins" />
+                                <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-1.5 max-h-52 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-popover shadow-md">
+                                    <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item) || isCareOrderItemPending(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2 text-start transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent" @click="addCareOrderItem(item)">
+                                        <span class="min-w-0">
+                                            <span class="block truncate text-sm font-medium text-foreground">{{ item.name }}</span>
+                                            <span v-if="item.code" class="block font-mono text-[10px] text-muted-foreground">{{ item.code }}</span>
+                                        </span>
+                                        <span v-if="isCareOrderItemPending(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300"><Clock class="h-3.5 w-3.5" />Déjà en attente aux Soins</span>
+                                        <span v-else-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-primary"><Check class="h-3.5 w-3.5" />Ajouté</span>
+                                        <Plus v-else class="h-4 w-4 shrink-0 text-primary" />
+                                    </button>
+                                </div>
+                                <p v-else-if="careOrderSearch.trim()" class="mt-1.5 text-xs text-muted-foreground">Aucun acte prescriptible ne correspond.</p>
+                                <FormError :message="careOrderForm.errors.items" />
+                                <p v-if="careOrderDuplicateNotice" class="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300" role="status"><Clock class="mt-0.5 h-3.5 w-3.5 shrink-0" />{{ careOrderDuplicateNotice }}</p>
                             </div>
-                            <ul class="mt-2 space-y-1.5">
-                                <li v-for="item in order.items" :key="item.uuid" class="flex items-center justify-between gap-3 text-xs">
-                                    <span class="font-semibold text-foreground">{{ item.name }}</span>
-                                    <span v-if="item.not_performed_at" class="font-semibold text-red-600 dark:text-red-300">Non réalisé</span>
-                                    <span v-else-if="Number(item.remaining_quantity) <= 0" class="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-300"><CircleCheck class="h-4 w-4" />Réalisé</span>
-                                    <span v-else class="text-muted-foreground">Demandé {{ item.quantity }} · Réalisé {{ item.realized_quantity }} · Reste {{ item.remaining_quantity }}</span>
+
+                            <ul v-if="careOrderForm.items.length" class="divide-y divide-border rounded-lg border border-border">
+                                <li v-for="(line, index) in careOrderForm.items" :key="line.catalog_item_uuid" class="flex items-center gap-3 px-3 py-2">
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-sm font-medium text-foreground">{{ line.name }}</span>
+                                        <span v-if="line.code" class="block font-mono text-[10px] text-muted-foreground">{{ line.code }}</span>
+                                        <FormError :message="careOrderForm.errors[`items.${index}.quantity`]" />
+                                    </span>
+                                    <Input :id="`care-order-quantity-${index}`" v-model="line.quantity" type="number" min="1" step="1" inputmode="numeric" class="w-20 text-center" :aria-label="`Quantité de ${line.name}`" />
+                                    <Button type="button" size="icon" variant="ghost" class="text-muted-foreground hover:text-destructive" :title="`Retirer ${line.name}`" :aria-label="`Retirer ${line.name}`" @click="removeCareOrderItem(line)"><Trash2 class="h-4 w-4" /></Button>
                                 </li>
                             </ul>
-                            <p v-if="order.instructions" class="mt-1.5 text-[11px] text-muted-foreground">{{ order.instructions }}</p>
-                            <p class="mt-1.5 text-[11px] font-semibold text-muted-foreground">Retour Médecine : {{ order.requires_return_to_medicine ? 'Oui' : 'Non' }}</p>
-                        </div>
-                    </div>
+                            <p v-else class="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">Recherchez un acte pour le préparer.</p>
 
-                    <form v-if="capabilities.can_create_care_order" id="care-order-form" class="space-y-5 p-5" @submit.prevent="submitCareOrder">
-                        <div>
-                            <label class="mb-1.5 block text-sm font-semibold text-foreground">Ajouter un acte de soins</label>
-                            <IconInput v-model="careOrderSearch" :icon="Search" placeholder="Injection, perfusion, pansement…" />
-                            <div v-if="careOrderSearch.trim() && filteredCareOrderCatalog.length" class="mt-2 max-h-52 divide-y divide-border overflow-y-auto rounded-md border border-border bg-card shadow-lg">
-                                <button v-for="item in filteredCareOrderCatalog" :key="item.uuid" type="button" :disabled="isCareOrderItemSelected(item) || isCareOrderItemPending(item)" class="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-start transition-colors hover:bg-muted/35 disabled:cursor-default disabled:bg-muted/35" @click="addCareOrderItem(item)">
-                                    <span class="min-w-0">
-                                        <span class="block truncate text-sm font-semibold text-foreground">{{ item.name }}</span>
-                                        <span v-if="item.code" class="mt-0.5 block font-mono text-[10px] text-muted-foreground">{{ item.code }}</span>
-                                    </span>
-                                    <span v-if="isCareOrderItemPending(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300"><Clock class="h-4 w-4" />Déjà en attente aux Soins</span>
-                                    <span v-else-if="isCareOrderItemSelected(item)" class="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary"><Check class="h-4 w-4" />Ajouté</span>
-                                    <span v-else class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-primary"><Plus class="h-4 w-4" /></span>
-                                </button>
-                            </div>
-                            <p v-else-if="careOrderSearch.trim()" class="mt-2 text-xs text-muted-foreground">Aucun acte prescriptible ne correspond.</p>
-                            <FormError :message="careOrderForm.errors.items" />
-                        </div>
-                        <div v-if="careOrderForm.items.length" class="overflow-hidden rounded-md border border-border">
-                            <div class="flex items-center justify-between border-b border-border bg-muted/35 px-4 py-2.5">
-                                <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Actes demandés</p>
-                                <span class="text-xs text-muted-foreground">Quantité ajustable</span>
-                            </div>
-                            <div v-for="(line, index) in careOrderForm.items" :key="line.catalog_item_uuid" class="grid grid-cols-[minmax(0,1fr)_6.5rem_2.25rem] items-end gap-3 border-b border-border px-4 py-3 last:border-b-0">
-                                <div class="flex min-w-0 items-center gap-3 self-center">
-                                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"><Activity class="h-4 w-4" /></span>
-                                    <span class="min-w-0">
-                                        <span class="block truncate text-sm font-semibold text-foreground">{{ line.name }}</span>
-                                        <span v-if="line.code" class="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">{{ line.code }}</span>
-                                    </span>
-                                </div>
-                                <div>
-                                    <label :for="`care-order-quantity-${index}`" class="mb-1 block text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Quantité</label>
-                                    <Input :id="`care-order-quantity-${index}`" v-model="line.quantity" type="number" min="1" step="1" inputmode="numeric" aria-label="Quantité" />
-                                    <FormError :message="careOrderForm.errors[`items.${index}.quantity`]" />
-                                </div>
-                                <Button type="button" size="rg" icon variant="danger-outline" title="Retirer cet acte" :aria-label="`Retirer ${line.name}`" @click="removeCareOrderItem(line)"><Trash2 class="h-4 w-4" /></Button>
-                            </div>
-                        </div>
-                        <div class="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]">
-                            <div>
-                                <label for="care_order_instructions" class="mb-1.5 block text-sm font-semibold text-foreground">Instructions pour l’équipe Soins</label>
-                                <textarea id="care_order_instructions" v-model="careOrderForm.instructions" rows="5" :class="textareaClass" placeholder="Précisez la voie, la fréquence, les précautions ou toute consigne utile…" />
-                                <FormError :message="careOrderForm.errors.instructions" />
-                            </div>
+                            <FormField label="Instructions pour l’équipe Soins" hint="facultatif" :error="careOrderForm.errors.instructions">
+                                <Textarea id="care_order_instructions" v-model="careOrderForm.instructions" rows="2" placeholder="Voie, fréquence, précautions…" />
+                            </FormField>
+
                             <fieldset>
-                                <legend class="mb-1.5 text-sm font-semibold text-foreground">Parcours après réalisation</legend>
-                                <div class="grid gap-2">
-                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === true ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border bg-card hover:border-border']">
-                                        <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === true" @change="careOrderForm.requires_return_to_medicine = true">
-                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === true ? 'bg-primary text-white' : 'bg-muted text-muted-foreground']"><ArrowLeft class="h-4 w-4" /></span>
-                                        <span><span class="block text-sm font-semibold text-foreground">Retour en Médecine</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Le patient revient au médecin après les soins.</span></span>
-                                    </label>
-                                    <label :class="['flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors', careOrderForm.requires_return_to_medicine === false ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border bg-card hover:border-border']">
-                                        <input class="sr-only" type="radio" :checked="careOrderForm.requires_return_to_medicine === false" @change="careOrderForm.requires_return_to_medicine = false">
-                                        <span :class="['mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full', careOrderForm.requires_return_to_medicine === false ? 'bg-primary text-white' : 'bg-muted text-muted-foreground']"><CircleCheck class="h-4 w-4" /></span>
-                                        <span><span class="block text-sm font-semibold text-foreground">Fin du parcours prévue</span><span class="mt-0.5 block text-xs leading-5 text-muted-foreground">Les Soins terminent le parcours clinique prévu.</span></span>
-                                    </label>
+                                <legend class="mb-1.5 text-xs font-semibold text-foreground">Après les soins</legend>
+                                <div class="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted p-1" role="radiogroup">
+                                    <button type="button" role="radio" :aria-checked="careOrderForm.requires_return_to_medicine === true" :class="['flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors', careOrderForm.requires_return_to_medicine === true ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground']" title="Le patient revient au médecin après les soins." @click="careOrderForm.requires_return_to_medicine = true"><ArrowLeft class="h-3.5 w-3.5" />Retour en Médecine</button>
+                                    <button type="button" role="radio" :aria-checked="careOrderForm.requires_return_to_medicine === false" :class="['flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors', careOrderForm.requires_return_to_medicine === false ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground']" title="Les Soins terminent le parcours clinique prévu." @click="careOrderForm.requires_return_to_medicine = false"><CircleCheck class="h-3.5 w-3.5" />Fin aux Soins</button>
                                 </div>
                                 <FormError :message="careOrderForm.errors.requires_return_to_medicine" />
                             </fieldset>
-                        </div>
-                        <div class="flex items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
-                            <Info class="h-4 w-4 text-primary" />
-                            <span>L’envoi crée l’orientation vers Soins et transmet les actes ainsi que vos instructions.</span>
-                        </div>
-                    </form>
+                        </form>
+                        <p v-else class="p-5 text-xs text-muted-foreground">Vous ne pouvez pas demander de soins depuis cette consultation.</p>
+
+                        <aside class="border-t border-border bg-muted/30 p-4 lg:border-s lg:border-t-0" aria-label="Demandes transmises aux Soins">
+                            <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Demandes transmises</p>
+                            <p v-if="!activeCareOrders.length" class="text-xs text-muted-foreground">Aucune demande en attente.</p>
+                            <ul class="space-y-2">
+                                <li v-for="order in activeCareOrders" :key="order.uuid" class="rounded-lg border border-border bg-card p-2.5">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="text-[11px] text-muted-foreground">{{ formatDateTime(order.ordered_at) }}</span>
+                                        <span :class="careOrderStatusBadgeClass(order.status)">{{ careOrderStatusLabel(order.status) }}</span>
+                                    </div>
+                                    <ul class="mt-1.5 space-y-1">
+                                        <li v-for="item in order.items" :key="item.uuid" class="flex items-center gap-2 text-xs">
+                                            <span :class="['min-w-0 flex-1 truncate', item.cancelled_at ? 'text-muted-foreground line-through' : 'font-medium text-foreground']" :title="item.cancelled_at ? `Retiré par ${item.cancelled_by} le ${formatDateTime(item.cancelled_at)}` : item.name">{{ item.name }}</span>
+                                            <span v-if="item.cancelled_at" class="shrink-0 text-[11px] text-muted-foreground">Retiré</span>
+                                            <span v-else-if="item.not_performed_at" class="shrink-0 text-[11px] font-medium text-destructive">Non réalisé</span>
+                                            <CircleCheck v-else-if="Number(item.remaining_quantity) <= 0" class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" aria-label="Réalisé" />
+                                            <span v-else class="shrink-0 text-[11px] tabular-nums text-muted-foreground">{{ Number(item.realized_quantity) }}/{{ Number(item.quantity) }}</span>
+                                            <Button v-if="item.can_cancel" type="button" size="icon-xs" variant="ghost" class="shrink-0 text-muted-foreground hover:text-destructive" :title="`Retirer ${item.name}`" :aria-label="`Retirer ${item.name}`" @click="openCareOrderWithdrawal(item)"><Trash2 class="h-3.5 w-3.5" /></Button>
+                                        </li>
+                                    </ul>
+                                    <p class="mt-1.5 text-[10px] text-muted-foreground">{{ order.requires_return_to_medicine ? 'Retour en Médecine' : 'Fin aux Soins' }}<template v-if="order.instructions"> · {{ order.instructions }}</template></p>
+                                </li>
+                            </ul>
+
+                            <template v-if="pastCareOrders.length">
+                                <button type="button" class="mt-3 flex w-full items-center justify-between rounded-md px-1 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" :aria-expanded="careOrderHistoryOpen" @click="careOrderHistoryOpen = !careOrderHistoryOpen">
+                                    <span class="flex items-center gap-1.5"><History class="h-3.5 w-3.5" />Historique ({{ pastCareOrders.length }})</span>
+                                    <component :is="careOrderHistoryOpen ? ChevronUp : ChevronDown" class="h-3.5 w-3.5" />
+                                </button>
+                                <ul v-if="careOrderHistoryOpen" class="mt-1 space-y-1.5">
+                                    <li v-for="order in pastCareOrders" :key="order.uuid" class="rounded-md border border-border bg-card px-2.5 py-2 text-xs">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-[11px] text-muted-foreground">{{ formatDateTime(order.ordered_at) }}</span>
+                                            <span :class="careOrderStatusBadgeClass(order.status)">{{ careOrderStatusLabel(order.status) }}</span>
+                                        </div>
+                                        <p v-for="item in order.items" :key="item.uuid" :class="['mt-1 truncate', item.cancelled_at ? 'text-muted-foreground line-through' : 'text-foreground']" :title="item.cancelled_at ? `Retiré par ${item.cancelled_by} le ${formatDateTime(item.cancelled_at)}` : ''">{{ item.name }}<span v-if="item.not_performed_at" class="ms-1 text-destructive">· non réalisé</span></p>
+                                    </li>
+                                </ul>
+                            </template>
+                        </aside>
+                    </div>
                 </Card>
 
                 <Card v-if="cardIsOpen('ordonnance') && prescriptionTab === 'medicines'" class="w-full overflow-hidden border-s-4 border-s-primary shadow-sm">
@@ -3539,7 +3642,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         <template v-if="current_step === 'ordonnance'" #actions>
                             <Button v-if="prescriptionTab === 'medicines' && prescriptionForm.lines.length" type="button" size="rg" :disabled="prescriptionForm.processing || !prescriptionStockIsValid" @click="openPrescriptionConfirmation"><FileText class="mx-auto h-4 w-4 me-2" />{{ prescriptionForm.processing ? 'Validation en cours…' : 'Valider et réserver' }}</Button>
                             <Button v-else-if="prescriptionForm.lines.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'medicines'">Finaliser la prescription ({{ prescriptionForm.lines.length }})</Button>
-                            <Button v-else-if="prescriptionTab === 'care' && careOrderForm.items.length" type="submit" form="care-order-form" size="rg" :disabled="careOrderForm.processing"><Activity class="h-4 w-4 me-2" />{{ careOrderForm.processing ? 'Transmission en cours…' : 'Transmettre aux Soins' }}</Button>
+                            <Button v-else-if="prescriptionTab === 'care' && careOrderForm.items.length" type="button" size="rg" :disabled="careOrderForm.processing" @click="openCareOrderConfirmation"><Activity class="h-4 w-4 me-2" />{{ careOrderForm.processing ? 'Transmission en cours…' : 'Transmettre aux Soins' }}</Button>
                             <Button v-else-if="careOrderForm.items.length" type="button" size="rg" variant="white-outline" @click="prescriptionTab = 'care'">Finaliser la demande Soins ({{ careOrderForm.items.length }})</Button>
                         </template>
                     </ConsultationStepBar>
@@ -3708,6 +3811,87 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                 </Button>
                 <Button type="button" :disabled="labRequestForm.processing || imagingRequestForm.processing" @click="confirmRequest">
                     <Send class="h-4 w-4" />Je confirme et transmets
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <!-- Signer une demande de soins. Non fermable au clic extérieur :
+             chaque acte est nommé avec sa quantité, et le parcours choisi
+             (retour en Médecine ou fin aux Soins) est relu avant l'envoi. -->
+        <ShadcnDialog
+            :open="showCareOrderConfirmation"
+            title="Confirmer la transmission aux Soins"
+            :description="`${patient.first_name} ${patient.last_name} · ${patient.patient_number} · Passage ${episode.episode_number}`"
+            :dismissible="false"
+            close-label="Annuler la transmission"
+            @update:open="closeCareOrderConfirmation"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                    <Activity class="h-5 w-5" />
+                </span>
+            </template>
+
+            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {{ careOrderForm.items.length }} acte{{ careOrderForm.items.length > 1 ? 's' : '' }} à transmettre
+            </p>
+            <ul class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border">
+                <li v-for="line in careOrderForm.items" :key="line.catalog_item_uuid" class="flex items-start justify-between gap-3 px-3 py-2.5">
+                    <span class="min-w-0">
+                        <span class="block text-sm font-semibold text-foreground">{{ line.name }}</span>
+                        <span v-if="line.code" class="font-mono text-[11px] text-muted-foreground">{{ line.code }}</span>
+                    </span>
+                    <span class="shrink-0 text-xs text-muted-foreground">× {{ line.quantity }}</span>
+                </li>
+            </ul>
+
+            <p class="mt-3 text-xs text-muted-foreground">
+                Après les soins :
+                <strong class="font-semibold text-foreground">{{ careOrderForm.requires_return_to_medicine ? 'retour en Médecine' : 'fin du parcours aux Soins' }}</strong>
+            </p>
+            <p v-if="careOrderForm.instructions.trim()" class="mt-1 whitespace-pre-line text-xs text-muted-foreground">Instructions : {{ careOrderForm.instructions.trim() }}</p>
+
+            <p class="mt-3 text-xs leading-5 text-muted-foreground">
+                Vous transmettez cette demande sous votre responsabilité, en tant que <strong class="font-semibold text-foreground">{{ $page.props.auth.user.name }}</strong>.
+            </p>
+
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="careOrderForm.processing" @click="closeCareOrderConfirmation">
+                    Revenir à la demande
+                </Button>
+                <Button type="button" :disabled="careOrderForm.processing" @click="confirmCareOrder">
+                    <Send class="h-4 w-4" />Je confirme et transmets aux Soins
+                </Button>
+            </template>
+        </ShadcnDialog>
+
+        <!-- Retirer un acte demandé aux Soins : une confirmation, sans motif
+             à saisir. Non fermable au clic extérieur. -->
+        <ShadcnDialog
+            :open="withdrawingCareOrderItem !== null"
+            title="Retirer cet acte ?"
+            :description="withdrawingCareOrderItem ? withdrawingCareOrderItem.name : ''"
+            :dismissible="false"
+            close-label="Garder l’acte"
+            @update:open="closeCareOrderWithdrawal"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive">
+                    <Trash2 class="h-5 w-5" />
+                </span>
+            </template>
+
+            <p class="text-sm text-muted-foreground">
+                L’acte ne sera plus demandé aux Soins. Il reste visible, barré, avec votre nom et l’heure du retrait.
+            </p>
+            <FormError :message="careOrderWithdrawalForm.errors.care_order_item" />
+
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="careOrderWithdrawalForm.processing" @click="closeCareOrderWithdrawal">
+                    Garder l’acte
+                </Button>
+                <Button type="button" variant="danger" :disabled="careOrderWithdrawalForm.processing" @click="confirmCareOrderWithdrawal">
+                    <Trash2 class="h-4 w-4" />Retirer
                 </Button>
             </template>
         </ShadcnDialog>

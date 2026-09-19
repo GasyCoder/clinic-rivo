@@ -20,7 +20,12 @@ test('une seule entrée est active, même quand plusieurs partagent un préfixe'
     // commun — la logique ne les a jamais allumés ensemble, c'était le
     // survol qui ressemblait à la sélection (sidebarActiveStyle.test.js).
     assert.deepEqual(activeTexts('/patients'), ['Patients']);
-    assert.deepEqual(activeTexts('/reception/visitors'), ['Gardiennage']);
+    // ADR-116 — « Gardiennage » ne pointe plus vers cette adresse : la page
+    // n'avait par ailleurs jamais été gardée par la bonne permission
+    // (`guarding.view` ouvrait la tuile, `visitors.view` ouvrait la page).
+    // « Visiteurs » porte désormais ce lien, gardée par `visitors.view`.
+    assert.deepEqual(activeTexts('/reception/visitors'), ['Visiteurs']);
+    assert.deepEqual(activeTexts('/guarding'), ['Gardiennage']);
     assert.deepEqual(activeTexts('/reception'), ['Réception']);
     assert.deepEqual(activeTexts('/reception/patients'), ['Réception']);
 });
@@ -121,9 +126,16 @@ const rowsOf = (stored = {}) => visibleMenu(
     canReception,
 ).filter((row) => !row.heading && row.key);
 
+/** The modules behind the rows: a group stands for each of its members. */
+const moduleKeys = (rows) => rows.flatMap((row) => (row.family ? row.children.map((child) => child.code) : [row.key]));
+
 test('un compte Réception voit ses quatre modules', () => {
-    assert.deepEqual(rowsOf().map((row) => row.key).sort(),
+    assert.deepEqual(moduleKeys(rowsOf()).sort(),
         ['cash', 'patients', 'reception', 'settlements']);
+    // Réception et Sorties & règlements vivent sous /reception : une entrée
+    // mère et sa liste déroulante.
+    const reception = rowsOf().find((row) => row.key === 'reception-space');
+    assert.deepEqual(reception.children.map((child) => child.code), ['reception', 'settlements']);
 });
 
 test('réordonner ne fait jamais disparaître un module', () => {
@@ -140,7 +152,7 @@ test('réordonner ne fait jamais disparaître un module', () => {
 
     for (const clinical of orders) {
         const rows = rowsOf({ clinical });
-        assert.deepEqual(rows.map((row) => row.key).sort(),
+        assert.deepEqual(moduleKeys(rows).sort(),
             ['cash', 'patients', 'reception', 'settlements'],
             `modules perdus pour l’ordre ${JSON.stringify(clinical)}`);
         assert.equal(new Set(rows.map((row) => row.key)).size, rows.length, 'module dupliqué');
@@ -148,8 +160,13 @@ test('réordonner ne fait jamais disparaître un module', () => {
 });
 
 test('l’ordre enregistré est bien celui affiché', () => {
+    // Un ordre écrit avant le regroupement nomme les membres : chacun vaut
+    // désormais pour son groupe, à la place que le compte lui avait donnée.
     const rows = rowsOf({ clinical: ['cash', 'reception', 'patients', 'settlements'] });
-    assert.deepEqual(rows.map((row) => row.key), ['cash', 'reception', 'patients', 'settlements']);
+    assert.deepEqual(rows.map((row) => row.key), ['cash', 'reception-space', 'patients']);
+
+    const current = rowsOf({ clinical: ['patients', 'reception-space', 'cash'] });
+    assert.deepEqual(current.map((row) => row.key), ['patients', 'reception-space', 'cash']);
 });
 
 test('chaque module garde sa propre icône et son propre lien après réordonnancement', () => {
@@ -214,4 +231,87 @@ test('deux modules ne partagent jamais la même icône', async () => {
     const shared = [...byIcon].filter(([, modules]) => modules.length > 1);
 
     assert.deepEqual(shared, [], shared.map(([icon, m]) => `${icon} : ${m.join(' / ')}`).join(' | '));
+});
+
+/* ------------------------------------------------------------------ */
+/* Entrées mères : les menus d'un même module sous une liste déroulante */
+/* ------------------------------------------------------------------ */
+
+const MEDICINE_PERMISSIONS = new Set([
+    'consultations.view', 'paraclinical_requests.view', 'clinical_protocols.view',
+    'laboratory_orders.view', 'patients.view', 'care.update', 'death_records.view',
+]);
+const canMedicine = (permission) => MEDICINE_PERMISSIONS.has(permission);
+const medicineRows = () => visibleMenu(buildClinicMenu({ roleCode: 'MEDICINE', can: canMedicine }), canMedicine)
+    .filter((row) => !row.heading && row.key);
+
+test('la Médecine regroupe sa file, ses demandes d’examens et ses protocoles', () => {
+    const rows = medicineRows();
+    const medicine = rows.find((row) => row.key === 'medicine-space');
+
+    // Le rôle s'ouvre toujours sur la Médecine.
+    assert.equal(rows[0].key, 'medicine-space');
+    assert.deepEqual(medicine.children.map((child) => child.label),
+        ['File de consultation', 'Demandes d’examens', 'Protocoles']);
+    // Aucun des trois n'apparaît en plus à la racine.
+    for (const key of ['medicine', 'paraclinical-requests', 'clinical-protocols']) {
+        assert.equal(rows.some((row) => row.key === key), false, `${key} dupliqué à la racine`);
+    }
+});
+
+test('une page Médecine n’allume qu’une entrée, et qu’un seul enfant', () => {
+    const rows = medicineRows();
+    const medicine = rows.find((row) => row.key === 'medicine-space');
+
+    for (const [path, child] of [
+        ['/medicine', 'medicine'],
+        ['/medicine/orientations/abc/examen', 'medicine'],
+        ['/medicine/demandes-examens', 'paraclinical-requests'],
+        ['/medicine/protocoles/abc/edit', 'clinical-protocols'],
+    ]) {
+        assert.deepEqual(activeMenuKeys(rows, path).map((index) => rows[index].key), ['medicine-space'], path);
+
+        const depths = medicine.children.map((entry) => menuMatchDepth(entry, path));
+        const deepest = Math.max(...depths);
+        const lit = medicine.children.filter((entry, index) => depths[index] === deepest).map((entry) => entry.code);
+        assert.deepEqual(lit, [child], `${path} allume ${lit.join(', ')}`);
+    }
+
+    // Les autres modules gardent leur propre page.
+    assert.deepEqual(activeMenuKeys(rows, '/deces').map((index) => rows[index].key), ['deaths']);
+    assert.deepEqual(activeMenuKeys(rows, '/care').map((index) => rows[index].key), ['care']);
+});
+
+test('un groupe réduit à un seul membre devient un lien simple', () => {
+    const only = new Set(['consultations.view', 'patients.view']);
+    const can = (permission) => only.has(permission);
+    const rows = visibleMenu(buildClinicMenu({ roleCode: 'MEDICINE', can }), can).filter((row) => !row.heading && row.key);
+    const medicine = rows.find((row) => row.key === 'medicine-space');
+
+    assert.equal(medicine.children, undefined, 'une liste déroulante d’une seule entrée');
+    assert.equal(medicine.link, '/medicine');
+    assert.equal(medicine.text, 'Médecine');
+});
+
+test('un groupe ne révèle jamais un membre interdit', () => {
+    const can = (permission) => ['consultations.view', 'clinical_protocols.view'].includes(permission);
+    const medicine = visibleMenu(buildClinicMenu({ roleCode: 'MEDICINE', can }), can)
+        .find((row) => row.key === 'medicine-space');
+
+    assert.deepEqual(medicine.children.map((child) => child.code), ['medicine', 'clinical-protocols']);
+});
+
+/**
+ * Le bug de la capture du 2026-09-18 : l'application est rendue côté
+ * serveur (Inertia SSR). Lire l'ordre personnel pendant le rendu faisait
+ * différer la première image du HTML hydraté, et Vue ne répare pas ces
+ * écarts : « Soins » ouvrait Patients, les icônes étaient décalées d'une
+ * ligne. L'ordre ne se lit qu'une fois le navigateur maître de la page.
+ */
+test('l’ordre personnel n’est jamais lu pendant le rendu', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(new URL('../../resources/js/composables/useSidebarOrder.js', import.meta.url), 'utf8');
+
+    assert.doesNotMatch(source, /watch\(storageKey, load, \{ immediate: true \}\)/);
+    assert.match(source, /onMounted\(load\)/);
 });

@@ -176,6 +176,7 @@ class CompleteEpisodeServicesAction
             );
         }
     }
+
     /**
      * Le rayon Pharmacie du panier devient une vente rattachée au passage :
      * réservation FEFO des lots puis ticket, par la même Action que la

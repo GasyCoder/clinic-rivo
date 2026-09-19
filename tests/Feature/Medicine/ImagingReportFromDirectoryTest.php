@@ -2,13 +2,13 @@
 
 namespace Tests\Feature\Medicine;
 
-use App\Enums\ImagingModality;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CreateImagingRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\ImagingModality;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\CatalogItem;
 use App\Models\Episode;

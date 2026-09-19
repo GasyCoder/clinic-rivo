@@ -9,15 +9,16 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * What the doctor asks the clinic to do: admit this patient.
  *
  * It is a DEMANDE, exactly like `SurgicalRequest` — never the stay itself.
- * The admission, the bed, the ward round and the discharge from the ward
- * belong to an Hospitalisation module that does not exist yet, and whose
- * rules the CDC does not define; `requested_admission_at` is therefore the
- * date the doctor asks for, never a recorded admission (ADR-032, ADR-074).
+ * Since ADR-113 the stay is a separate `HospitalStay`, opened automatically
+ * when this request is sent and ended by the doctor's medical discharge;
+ * `requested_admission_at` remains the date the doctor asks for, and the
+ * recorded admission lives on the stay.
  *
  * No site column: each site runs its own database (ADR-001, ADR-025), so
  * the site is implicit. Admitting at another site is a Référence/Transfert,
@@ -63,6 +64,11 @@ class HospitalizationRequest extends Model
     public function requestedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function hospitalStay(): HasOne
+    {
+        return $this->hasOne(HospitalStay::class);
     }
 
     public function cancelledBy(): BelongsTo

@@ -33,6 +33,7 @@ use App\Models\Prescription;
 use App\Models\PrescriptionLine;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Care\CareConsumableDirectory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -526,7 +527,7 @@ class CareConsumableFlowTest extends TestCase
             'consumables' => [['medicine_uuid' => $consumable->uuid, 'quantity' => 3]],
         ])->assertRedirect();
 
-        $projection = app(\App\Services\Care\CareConsumableDirectory::class)
+        $projection = app(CareConsumableDirectory::class)
             ->forOrientation($orientation->id)
             ->first();
 

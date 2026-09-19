@@ -149,3 +149,54 @@ test('les résultats attendus ne se présentent pas comme un blocage', () => {
     const blockers = page.slice(page.indexOf('const closureBlockers'), page.indexOf('const closureBlockers') + 900);
     assert.doesNotMatch(blockers, /awaitingResults/);
 });
+
+/**
+ * Transmettre aux Soins crée l'orientation et envoie les actes : jamais sur
+ * un simple clic, ni par la touche Entrée (demande du propriétaire).
+ */
+test('aucun chemin ne transmet aux Soins sans confirmation', () => {
+    assert.doesNotMatch(page, /form="care-order-form"/);
+    assert.match(page, /@submit\.prevent="openCareOrderConfirmation"/);
+
+    const confirm = page.slice(page.indexOf('const confirmCareOrder'), page.indexOf('const careOrderStatusLabel'));
+    assert.match(confirm, /submitCareOrder\(\)/);
+
+    const dialog = page.slice(page.indexOf('Confirmer la transmission aux Soins') - 400, page.indexOf('Je confirme et transmets aux Soins'));
+    assert.match(dialog, /:dismissible="false"/);
+    assert.match(dialog, /v-for="line in careOrderForm\.items"/);
+    assert.match(dialog, /\$page\.props\.auth\.user\.name/);
+});
+
+/**
+ * Un acte encore en attente aux Soins ne peut pas être redemandé : ni depuis
+ * la recherche, ni par un brouillon restauré (ADR-073), ni à l'envoi.
+ */
+test('un acte en attente aux Soins ne rejoint jamais la nouvelle demande', () => {
+    const add = page.slice(page.indexOf('const addCareOrderItem'), page.indexOf('const removeCareOrderItem'));
+    assert.match(add, /isCareOrderItemPending\(item\)\) return/);
+
+    // Le brouillon restauré est nettoyé, et le médecin est prévenu.
+    assert.match(page, /careOrderForm\.items\.filter\(\(line\) => isCareOrderItemPending\(line\)\)/);
+    assert.match(page, /careOrderDuplicateNotice/);
+
+    const open = page.slice(page.indexOf('const openCareOrderConfirmation'), page.indexOf('const closeCareOrderConfirmation'));
+    assert.match(open, /isCareOrderItemPending\(line\)/);
+
+    // La clé est celle que vérifie le serveur.
+    assert.match(page, /pending\.catalog_item_uuid === \(item\.catalog_item_uuid \?\? item\.uuid\)/);
+});
+
+/**
+ * Retirer un acte demandé aux Soins : icône corbeille, confirmation, aucun
+ * motif à saisir — le serveur trace l'auteur, la date et un motif fixe.
+ */
+test('le retrait d’un acte de soins se confirme sans motif à saisir', () => {
+    assert.match(page, /v-if="item\.can_cancel"[^>]*@click="openCareOrderWithdrawal\(item\)"><Trash2/);
+
+    const dialog = page.slice(page.indexOf('title="Retirer cet acte ?"') - 300, page.indexOf('@click="confirmCareOrderWithdrawal"'));
+    assert.match(dialog, /:dismissible="false"/);
+    assert.doesNotMatch(dialog, /Textarea|reason/);
+
+    // Un acte retiré n'empêche pas de le redemander.
+    assert.match(page, /\.filter\(\(item\) => !item\.cancelled_at && !item\.not_performed_at/);
+});

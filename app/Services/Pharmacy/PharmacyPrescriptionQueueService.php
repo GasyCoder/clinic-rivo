@@ -207,11 +207,6 @@ class PharmacyPrescriptionQueueService
     /** @return array<int, string> */
     private function activeDispenseStatuses(): array
     {
-        return [
-            PharmacyDispenseStatus::AwaitingInvoice->value,
-            PharmacyDispenseStatus::AwaitingPayment->value,
-            PharmacyDispenseStatus::Ready->value,
-            PharmacyDispenseStatus::PartiallyDispensed->value,
-        ];
+        return PharmacyDispenseStatus::openValues();
     }
 }

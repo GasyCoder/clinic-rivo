@@ -205,7 +205,7 @@ class AdministrativeExitTest extends TestCase
         $this->actingAs($actor);
         $this->exit($actor, $episode, ['exit_type' => AdministrativeExitType::PaidCash->value]);
 
-        $entry = \App\Models\AuditLog::query()->where('action', 'episode.administrative_exit')->sole();
+        $entry = AuditLog::query()->where('action', 'episode.administrative_exit')->sole();
 
         $this->assertStringContainsString('Compte soldé', (string) $entry->reason);
     }

@@ -64,6 +64,29 @@ class EpisodeQueuePresenter
     }
 
     /**
+     * Le n° d'ordre de chaque patient qui attend le médecin, sur **toute** la file
+     * Médecine — jamais sur la page ou le filtre affichés (ADR-124). C'est ce qui
+     * évite qu'un même patient porte deux numéros : celui de la file Médecine et
+     * celui que les Soins affichent pour lui sont, par construction, le même.
+     *
+     * @return array<int, int> n° d'ordre indexé par EpisodeOrientation::id (Médecine)
+     */
+    public function medicineQueueNumbers(): array
+    {
+        return $this->assignQueueNumbers(
+            EpisodeOrientation::query()
+                ->where('destination_module', CatalogModule::Medicine->value)
+                ->where('status', EpisodeOrientationStatus::Pending->value)
+                ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'))
+                ->whereHas('episode.patient')
+                ->with('episode')
+                ->orderBy('oriented_at')
+                ->orderBy('id')
+                ->get(),
+        );
+    }
+
+    /**
      * Batched equivalent of MedicineDossierPresenter's single-consultation
      * pending-reasons computation, grouped by consultation so a paginated
      * queue never issues one query per row. Only a Médecine orientation

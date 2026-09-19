@@ -2,8 +2,17 @@
 
 namespace Tests\Feature\Medicine;
 
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
 use App\Enums\ImagingModality;
 use App\Models\CatalogItem;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\User;
+use Database\Seeders\DevelopmentParaclinicalCatalogSeeder;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -24,21 +33,21 @@ class ImagingModalityTest extends TestCase
     {
         // Le seeder exige un auteur traçable du catalogue (ADR-024).
         $this->seed([
-            \Database\Seeders\RoleSeeder::class,
-            \Database\Seeders\PermissionSeeder::class,
-            \Database\Seeders\RolePermissionSeeder::class,
+            RoleSeeder::class,
+            PermissionSeeder::class,
+            RolePermissionSeeder::class,
         ]);
         // Un compte SUPER_ADMIN ne reçoit aucune permission sur un site
         // clinique (ADR-027) : l'auteur du catalogue est un compte local
         // avec l'autorisation explicite.
-        $author = \App\Models\User::factory()->create([
-            'role_id' => \App\Models\Role::query()->where('code', 'ADMINISTRATION')->value('id'),
+        $author = User::factory()->create([
+            'role_id' => Role::query()->where('code', 'ADMINISTRATION')->value('id'),
         ]);
         $author->permissions()->attach(
-            \App\Models\Permission::query()->where('name', 'catalog.items.create')->value('id'),
+            Permission::query()->where('name', 'catalog.items.create')->value('id'),
             ['effect' => 'allow'],
         );
-        $this->seed(\Database\Seeders\DevelopmentParaclinicalCatalogSeeder::class);
+        $this->seed(DevelopmentParaclinicalCatalogSeeder::class);
 
         $modalityOf = fn (string $code) => CatalogItem::query()
             ->where('code', $code)
@@ -61,12 +70,12 @@ class ImagingModalityTest extends TestCase
         $item = CatalogItem::query()->create([
             'code' => 'IRM-CEREBRALE',
             'name' => 'IRM cérébrale',
-            'type' => \App\Enums\CatalogItemType::Service,
-            'module' => \App\Enums\CatalogModule::Imaging,
+            'type' => CatalogItemType::Service,
+            'module' => CatalogModule::Imaging,
             'unit' => 'examen',
             'billable' => true,
             'stockable' => false,
-            'created_by' => \App\Models\User::factory()->create()->id,
+            'created_by' => User::factory()->create()->id,
         ]);
 
         $this->assertNull($item->fresh()->imaging_modality);

@@ -66,6 +66,27 @@ class ClinicalRichTextSanitizer
         return $this->sanitize($value);
     }
 
+    /**
+     * HTML to show in an element that keeps line breaks (`pre-wrap`, print).
+     *
+     * `toSafeHtml()` turns a plain legacy text into `nl2br`, which keeps the
+     * newline after each `<br>`: displayed with line breaks preserved, every
+     * line would be followed by an empty one. Empty text is `null`, never
+     * an empty string — an absence stays an absence.
+     */
+    public function displayHtml(?string $value): ?string
+    {
+        $html = $this->toSafeHtml($value);
+
+        return $html === '' ? null : (preg_replace('/<br\s*\/?>\r?\n/i', '<br>', $html) ?? $html);
+    }
+
+    /** Whether a rich or plain value carries any text at all. */
+    public function isBlank(?string $value): bool
+    {
+        return $this->plainText($value) === '';
+    }
+
     public function plainText(?string $value): string
     {
         $value = trim((string) $value);

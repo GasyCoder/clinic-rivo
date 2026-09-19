@@ -1,11 +1,9 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import {
-    Activity,
     AlertTriangle,
     ArrowRight,
-    CalendarPlus,
     CheckCircle2,
     Eye,
     Filter,
@@ -23,17 +21,23 @@ import {
     X,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import PatientNeedBadges from '@/Components/Clinical/PatientNeedBadges.vue';
+import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import CheckBox from '@/Components/Shadcn/Checkbox.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
-import Input from '@/Components/Shadcn/Input.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
+import { presenceState as sharedPresenceState } from '@/utilities/episodePresence';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
+import { NEED_ALL, needFilterLabel, needTiles, statusFilterLabel, statusTabs } from '@/utilities/patientNeeds';
 
 defineOptions({
     layout: AppLayout,
@@ -43,6 +47,8 @@ const props = defineProps({
     patients: Object,
     search: String,
     filters: Object,
+    needs: Object,
+    segments: Object,
     summary: Object,
 });
 
@@ -54,14 +60,22 @@ const canDeletePatient = computed(() => can('patients.delete'));
 const query = ref(props.search ?? '');
 const typeFilter = ref(props.filters?.type ?? '');
 const emergencyFilter = ref(props.filters?.emergency ?? '');
-const storedViewMode = (() => {
+// Le besoin filtré vient du serveur, qui le renvoie sous sa forme canonique :
+// il n'a pas de copie locale à garder synchronisée.
+const needFilter = computed(() => props.filters?.need ?? null);
+const readStoredViewMode = () => {
     try {
         return localStorage.getItem('rivo:patients:view');
     } catch {
         return null;
     }
-})();
-const viewMode = ref(storedViewMode ?? 'list');
+};
+const viewMode = ref('list');
+// Applied once the browser has the page: the server renders the default
+// view, and reading storage while rendering would not match it (hydration).
+onMounted(() => {
+    viewMode.value = readStoredViewMode() ?? 'list';
+});
 const selectedUuids = ref([]);
 const deleteTargets = ref([]);
 const deleteReason = ref('');
@@ -73,14 +87,40 @@ const allCurrentSelected = computed(() => currentPageUuids.value.length > 0
     && currentPageUuids.value.every((uuid) => selectedUuids.value.includes(uuid))
 );
 
-const submitFilters = () => {
+let searchTimer = null;
+
+/**
+ * `overrides.need` change le besoin filtré ; sans lui, on garde celui de la
+ * page. Les autres filtres sont les champs de la barre.
+ */
+const submitFilters = (overrides = {}) => {
+    clearTimeout(searchTimer);
     selectedUuids.value = [];
+    const need = 'need' in overrides ? overrides.need : needFilter.value;
+    const status = 'status' in overrides ? overrides.status : props.filters?.status;
+
     router.get('/patients', {
-        q: query.value || undefined,
+        q: query.value.trim() || undefined,
         type: typeFilter.value || undefined,
         emergency: emergencyFilter.value || undefined,
-    }, { preserveState: true, replace: true });
+        need: need || undefined,
+        status: status || undefined,
+    }, { preserveState: true, preserveScroll: true, replace: true });
 };
+
+const submitSearch = () => submitFilters();
+
+// La recherche se lance d'elle-même quand on cesse de taper : « Rechercher »
+// n'a plus à être cherché. Entrée la lance tout de suite.
+watch(query, () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        if (query.value.trim() !== (props.search ?? '')) {
+            submitFilters();
+        }
+    }, 350);
+});
+onBeforeUnmount(() => clearTimeout(searchTimer));
 
 const TYPE_LABELS = {
     STANDARD: 'Standard',
@@ -106,6 +146,14 @@ const emergencyOptions = [
 const activeFilters = computed(() => {
     const chips = [];
 
+    if (needFilter.value) {
+        chips.push({ key: 'need', label: `Besoin : ${needFilterLabel(needFilter.value)}` });
+    }
+    const statusLabel = statusFilterLabel(props.filters?.status ?? null);
+
+    if (statusLabel) {
+        chips.push({ key: 'status', label: statusLabel });
+    }
     if (query.value) {
         chips.push({ key: 'q', label: `« ${query.value} »` });
     }
@@ -120,6 +168,11 @@ const activeFilters = computed(() => {
 });
 
 const clearFilter = (key) => {
+    if (key === 'need' || key === 'status') {
+        submitFilters({ [key]: null });
+        return;
+    }
+
     if (key === 'q') query.value = '';
     if (key === 'type') typeFilter.value = '';
     if (key === 'emergency') emergencyFilter.value = '';
@@ -131,7 +184,7 @@ const resetFilters = () => {
     query.value = '';
     typeFilter.value = '';
     emergencyFilter.value = '';
-    submitFilters();
+    submitFilters({ need: null, status: null });
 };
 
 const updateTypeFilter = (value) => {
@@ -144,11 +197,25 @@ const updateEmergencyFilter = (value) => {
     submitFilters();
 };
 
-/** Jumps from the "Urgence en cours" counter straight into its own filter. */
+/** Jumps from the "urgence en cours" alert straight into its own filter. */
 const focusEmergencies = () => {
     emergencyFilter.value = 'active';
     submitFilters();
 };
+
+const tabs = computed(() => statusTabs(props.segments, props.filters?.status ?? null));
+const selectTab = (value) => submitFilters({ status: value });
+
+// Les compteurs viennent du serveur : recalculés depuis la page affichée, ils
+// mentiraient dès la deuxième page. Une carte déjà active se referme.
+const facets = computed(() => props.needs?.facets ?? []);
+const tiles = computed(() => needTiles(facets.value, needFilter.value));
+
+const selectNeed = (key) => {
+    submitFilters({ need: key === NEED_ALL || key === needFilter.value ? null : key });
+};
+
+const emergencyCount = computed(() => props.summary?.emergency ?? 0);
 
 const setViewMode = (mode) => {
     viewMode.value = mode;
@@ -248,6 +315,9 @@ const confirmDelete = () => {
 const SEX_LABELS = { M: 'Homme', F: 'Femme' };
 const sexLabel = (patient) => SEX_LABELS[patient.sex] ?? 'Sexe non renseigné';
 const patientTypeLabel = (patient) => TYPE_LABELS[patient.patient_type] ?? 'Standard';
+// « Standard » est la valeur par défaut : la répéter sur chaque ligne ne dit
+// rien. Seule une catégorie qui change la prise en charge mérite d'être lue.
+const hasSpecialType = (patient) => Boolean(patient.patient_type) && patient.patient_type !== 'STANDARD';
 
 /**
  * "Femme · 35 ans" — sex and age are read together in practice, so they
@@ -264,52 +334,14 @@ const patientProfile = (patient) => {
 
 const ageIsDeclared = (patient) => !patient.birth_date && (patient.declared_age ?? null) !== null;
 
-/**
- * Quatre états mutuellement exclusifs, du plus au moins urgent.
- *
- * « Passage en cours » ne dit qu'une chose : un passage est ouvert — jamais
- * une appréciation clinique du patient. Il couvrait aussi le passage dont
- * Médecine avait déjà conclu, si bien qu'un médecin venant de clôturer
- * relisait ici « en cours » et croyait à une contradiction. Ce cas porte
- * désormais son propre libellé : la partie clinique est finie, c'est la
- * Réception qui doit prononcer la sortie.
- *
- * Un patient peut avoir plusieurs passages : celui encore en soins prime sur
- * celui qui n'attend qu'un règlement.
- */
-const presenceState = (patient) => {
-    if (patient.active_emergency_episodes_count > 0) {
-        return {
-            label: 'Urgence',
-            variant: 'destructive',
-            dot: 'bg-red-500',
-        };
-    }
-
-    const awaitingSettlement = patient.settlement_episodes_count ?? 0;
-
-    if ((patient.open_episodes_count ?? 0) - awaitingSettlement > 0) {
-        return {
-            label: 'Passage en cours',
-            variant: 'warning',
-            dot: 'bg-amber-500',
-        };
-    }
-
-    if (awaitingSettlement > 0) {
-        return {
-            label: 'En attente de règlement',
-            variant: 'secondary',
-            dot: 'bg-sky-500',
-        };
-    }
-
-    return {
-        label: 'Aucun passage ouvert',
-        variant: 'outline',
-        dot: 'bg-slate-300 dark:bg-slate-600',
-    };
-};
+// Partagée avec le dossier du patient (Patients/Show.vue) : les deux écrans
+// doivent employer les mêmes mots et les mêmes couleurs pour le même fait
+// (utilities/episodePresence.js).
+const presenceState = (patient) => sharedPresenceState({
+    activeEmergencyCount: patient.active_emergency_episodes_count,
+    openCount: patient.open_episodes_count,
+    settlementCount: patient.settlement_episodes_count,
+});
 
 const isEmergency = (patient) => patient.active_emergency_episodes_count > 0;
 const rowAccent = (patient) => (isEmergency(patient)
@@ -328,38 +360,6 @@ const visitCountLabel = (patient) => {
     return count > 0 ? `${count} passage${count > 1 ? 's' : ''}` : null;
 };
 
-const summaryTiles = computed(() => [
-    {
-        key: 'total',
-        label: 'Dossiers patients',
-        value: props.summary?.total ?? props.patients.total,
-        icon: Users,
-        tone: 'bg-secondary text-secondary-foreground',
-    },
-    {
-        key: 'emergency',
-        label: 'Urgence en cours',
-        value: props.summary?.emergency ?? 0,
-        icon: AlertTriangle,
-        tone: 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300',
-        action: (props.summary?.emergency ?? 0) > 0 ? focusEmergencies : null,
-    },
-    {
-        key: 'in_progress',
-        label: 'Passages en cours',
-        value: props.summary?.in_progress ?? 0,
-        icon: Activity,
-        tone: 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-300',
-    },
-    {
-        key: 'created_this_month',
-        label: 'Nouveaux ce mois',
-        value: props.summary?.created_this_month ?? 0,
-        icon: CalendarPlus,
-        tone: 'bg-accent text-accent-foreground',
-    },
-]);
-
 const rangeLabel = computed(() => {
     const { from, to, total } = props.patients;
 
@@ -368,6 +368,30 @@ const rangeLabel = computed(() => {
     }
 
     return `${from}–${to} sur ${total}`;
+});
+
+const plural = (count, one, many) => `${count} ${count > 1 ? many : one}`;
+// Ce que les quatre cartes d'indicateurs disaient, en une ligne : le besoin par
+// service a pris leur place, mais le nombre de dossiers, de passages ouverts et
+// de dossiers récents reste lisible.
+const summaryLine = computed(() => [
+    plural(props.summary?.total ?? props.patients.total, 'dossier', 'dossiers'),
+    `${props.summary?.in_progress ?? 0} avec un passage ouvert`,
+    plural(props.summary?.created_this_month ?? 0, 'créé ce mois', 'créés ce mois'),
+].join(' · '));
+
+const emptyMessage = computed(() => {
+    if (!needFilter.value) {
+        return 'Modifiez votre recherche ou commencez une nouvelle prise en charge.';
+    }
+
+    const label = `« ${needFilterLabel(needFilter.value)} »`;
+
+    // Le besoin seul : la réponse est « personne pour le moment ». Combiné à une
+    // recherche, un type ou une urgence, ce sont ces filtres ensemble qui vident la liste.
+    return activeFilters.value.length > 1
+        ? `Aucun patient ne correspond à ${label} avec les autres filtres choisis.`
+        : `Aucun patient ne correspond à ${label} pour le moment.`;
 });
 
 watch(
@@ -391,9 +415,22 @@ watch(
                     <div class="flex flex-wrap items-center gap-2">
                         <h1 class="font-heading text-2xl font-bold tracking-tight text-foreground">Patients</h1>
                         <Badge variant="secondary">Répertoire clinique</Badge>
+                        <!-- Une urgence se voit sans chercher : le même bouton
+                             ouvrait jadis une carte d'indicateurs parmi quatre. -->
+                        <button
+                            v-if="emergencyCount > 0"
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
+                            title="Afficher les patients en urgence"
+                            @click="focusEmergencies"
+                        >
+                            <AlertTriangle class="h-3.5 w-3.5" />
+                            {{ plural(emergencyCount, 'urgence en cours', 'urgences en cours') }}
+                            <ArrowRight class="h-3 w-3" />
+                        </button>
                     </div>
                     <p class="mt-1 text-sm text-muted-foreground">
-                        Retrouvez l’identité permanente du patient et l’état de son passage actuel.
+                        Retrouvez l’identité permanente du patient et le service où il doit encore aller.
                     </p>
                 </div>
             </div>
@@ -410,53 +447,52 @@ watch(
             </div>
         </header>
 
-        <section class="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Indicateurs des patients">
-            <Card
-                v-for="tile in summaryTiles"
-                :key="tile.key"
-                :class="[
-                    'relative overflow-hidden p-4 transition-all sm:p-5',
-                    tile.action && 'hover:-translate-y-0.5 hover:border-red-200 hover:shadow-md dark:hover:border-red-900',
-                ]"
-            >
-                <button
-                    v-if="tile.action"
-                    type="button"
-                    class="absolute inset-0 z-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-inset focus:ring-ring"
-                    :aria-label="`Afficher : ${tile.label}`"
-                    @click="tile.action()"
-                ></button>
-                <div class="pointer-events-none relative flex items-start justify-between gap-3">
-                    <div>
-                        <p class="text-2xl font-bold tracking-tight text-foreground">{{ tile.value }}</p>
-                        <p class="mt-1 text-xs font-medium text-muted-foreground sm:text-sm">{{ tile.label }}</p>
-                        <span v-if="tile.action" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-300">
-                            Voir les urgences <ArrowRight class="h-3 w-3" />
-                        </span>
-                    </div>
-                    <span :class="['grid h-10 w-10 shrink-0 place-items-center rounded-lg', tile.tone]">
-                        <component :is="tile.icon" class="h-5 w-5" />
-                    </span>
-                </div>
-            </Card>
+        <section class="space-y-3" aria-labelledby="patient-needs-title">
+            <div>
+                <h2 id="patient-needs-title" class="text-sm font-bold text-foreground">Besoin actuel des patients</h2>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                    Chaque patient n’est compté que dans une case : celle des services qu’il attend en ce moment.
+                </p>
+            </div>
+
+            <QueueCounters :tiles="tiles" class="lg:grid-cols-3 xl:grid-cols-5" @select="selectNeed" />
         </section>
+
+        <div class="-mb-3 overflow-x-auto" role="tablist" aria-label="Classer les patients">
+            <div class="flex min-w-max gap-1 border-b border-border">
+                <button
+                    v-for="tab in tabs"
+                    :key="tab.key"
+                    type="button"
+                    role="tab"
+                    :title="tab.hint"
+                    :aria-selected="tab.active"
+                    :class="[
+                        '-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                        tab.active
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+                    ]"
+                    @click="selectTab(tab.value)"
+                >
+                    {{ tab.label }}
+                    <span :class="['rounded-full px-2 py-0.5 text-xs tabular-nums', tab.active ? 'bg-primary/10' : 'bg-muted']">{{ tab.count }}</span>
+                </button>
+            </div>
+        </div>
 
         <Card class="overflow-visible">
             <div class="space-y-4 p-4 sm:p-5">
                 <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
-                    <form class="relative min-w-0 flex-1 xl:max-w-xl" role="search" @submit.prevent="submitFilters">
-                        <Search class="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
+                    <form class="min-w-0 flex-1 xl:max-w-xl" role="search" @submit.prevent="submitSearch">
+                        <IconInput
                             v-model="query"
-                            class="ps-9 pe-20"
+                            :icon="Search"
                             type="search"
                             placeholder="Nom, numéro patient ou téléphone…"
                             autocomplete="off"
                             aria-label="Rechercher un patient"
                         />
-                        <button type="submit" class="absolute end-1.5 top-1/2 -translate-y-1/2 rounded-md px-2.5 py-1 text-xs font-semibold text-primary hover:bg-accent">
-                            Rechercher
-                        </button>
                     </form>
 
                     <div class="flex flex-col gap-2 sm:flex-row">
@@ -474,7 +510,7 @@ watch(
                         />
                     </div>
 
-                    <div class="flex items-center justify-between gap-3 xl:justify-end">
+                    <div class="flex items-center justify-between gap-3 xl:ms-auto xl:justify-end">
                         <span class="whitespace-nowrap text-xs font-medium text-muted-foreground">{{ rangeLabel }}</span>
                         <div class="inline-flex rounded-lg border border-border bg-muted/50 p-1" role="group" aria-label="Mode d’affichage">
                             <Button
@@ -537,13 +573,16 @@ watch(
             <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5 sm:px-5">
                 <div>
                     <h2 class="text-sm font-bold text-foreground">Dossiers patients</h2>
-                    <p class="mt-0.5 text-xs text-muted-foreground">Un dossier permanent peut contenir plusieurs passages.</p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">{{ summaryLine }}</p>
                 </div>
                 <Badge variant="outline">{{ rangeLabel }}</Badge>
             </div>
 
-            <div v-if="viewMode === 'list'" class="overflow-x-auto">
-                <table class="w-full min-w-[980px] border-collapse">
+            <!-- `relative` : le texte `sr-only` est en position absolue ; sans
+                 conteneur positionné il échappe au défilement du tableau et
+                 élargit la page entière au lieu du seul tableau. -->
+            <div v-if="viewMode === 'list'" class="relative overflow-x-auto">
+                <table class="w-full min-w-[960px] border-collapse">
                     <caption class="sr-only">Liste des patients</caption>
                     <thead>
                         <tr class="border-b border-border bg-muted/55">
@@ -555,12 +594,11 @@ watch(
                                     @update:model-value="toggleCurrentPage"
                                 />
                             </th>
-                            <th class="px-5 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Patient</th>
-                            <th class="px-5 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Catégorie</th>
-                            <th class="px-5 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Identité</th>
-                            <th class="px-5 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Activité</th>
-                            <th class="px-5 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Situation actuelle</th>
-                            <th class="px-5 py-3 text-end text-[11px] font-bold uppercase tracking-wider text-muted-foreground"><span class="sr-only">Actions</span></th>
+                            <th class="px-4 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Patient</th>
+                            <th class="px-4 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Identité</th>
+                            <th class="px-4 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Activité</th>
+                            <th class="px-4 py-3 text-start text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Situation actuelle</th>
+                            <th class="px-4 py-3 text-end text-[11px] font-bold uppercase tracking-wider text-muted-foreground"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-border">
@@ -580,8 +618,8 @@ watch(
                                     @update:model-value="togglePatient(patient.uuid, $event)"
                                 />
                             </td>
-                            <td :class="['px-5 py-3.5', canDeletePatient ? '' : rowAccent(patient)]">
-                                <div class="flex min-w-[250px] items-center gap-3">
+                            <td :class="['px-4 py-3.5', canDeletePatient ? '' : rowAccent(patient)]">
+                                <div class="flex min-w-[230px] items-center gap-3">
                                     <Avatar :initials="formatPatientInitials(patient)" :emergency="isEmergency(patient)" aria-hidden="true" />
                                     <div class="min-w-0">
                                         <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary">
@@ -592,26 +630,32 @@ watch(
                                             <span class="inline-flex items-center gap-1.5 font-medium"><FolderOpen class="h-3.5 w-3.5" />{{ patient.patient_number }}</span>
                                             <a v-if="patient.phone" :href="`tel:${patient.phone}`" class="inline-flex items-center gap-1.5 hover:text-primary"><Phone class="h-3.5 w-3.5" />{{ patient.phone }}</a>
                                             <span v-else class="inline-flex items-center gap-1.5 italic"><Phone class="h-3.5 w-3.5" />Non renseigné</span>
+                                            <Badge v-if="hasSpecialType(patient)" variant="outline" class="px-1.5 py-0 text-[10px]" :title="patient.patient_type_label">{{ patientTypeLabel(patient) }}</Badge>
                                         </span>
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-5 py-3.5"><Badge variant="secondary" :title="patient.patient_type_label">{{ patientTypeLabel(patient) }}</Badge></td>
-                            <td class="px-5 py-3.5">
+                            <td class="whitespace-nowrap px-4 py-3.5">
                                 <p class="text-sm font-medium text-foreground">{{ patientProfile(patient) }}</p>
                                 <p v-if="ageIsDeclared(patient)" class="mt-1 text-xs text-muted-foreground">Âge déclaré</p>
                             </td>
-                            <td class="px-5 py-3.5">
+                            <td class="whitespace-nowrap px-4 py-3.5">
                                 <p class="text-sm font-medium text-foreground" :title="lastVisitTitle(patient)">{{ lastVisitLabel(patient) }}</p>
                                 <p class="mt-1 text-xs text-muted-foreground">{{ visitCountLabel(patient) ?? 'Aucun passage' }}</p>
                             </td>
-                            <td class="px-5 py-3.5">
-                                <Badge :variant="presenceState(patient).variant">
-                                    <span :class="['h-1.5 w-1.5 rounded-full', presenceState(patient).dot]"></span>
-                                    {{ presenceState(patient).label }}
-                                </Badge>
+                            <!-- Où en est le patient, puis où il doit encore aller : la
+                                 même lecture en une cellule plutôt qu'en deux colonnes qui
+                                 obligeaient le tableau à défiler sur un écran de portable. -->
+                            <td class="px-4 py-3.5">
+                                <div class="flex flex-col items-start gap-1.5">
+                                    <Badge class="whitespace-nowrap" :variant="presenceState(patient).variant">
+                                        <span :class="['h-1.5 w-1.5 rounded-full', presenceState(patient).dot]"></span>
+                                        {{ presenceState(patient).label }}
+                                    </Badge>
+                                    <PatientNeedBadges v-if="patient.needs?.length" :needs="patient.needs" :patient-name="formatPatientName(patient)" />
+                                </div>
                             </td>
-                            <td class="px-5 py-3.5 text-end">
+                            <td class="px-4 py-3.5 text-end">
                                 <div class="inline-flex items-center gap-1">
                                     <Button v-if="canViewPatient" :as="Link" :href="`/patients/${patient.uuid}`" size="sm" variant="outline" :aria-label="`Ouvrir le dossier de ${formatPatientName(patient)}`">
                                         <Eye class="h-4 w-4" /> Ouvrir
@@ -619,6 +663,9 @@ watch(
                                     <Button v-if="canUpdatePatient && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" size="icon" variant="ghost" :aria-label="`Modifier ${formatPatientName(patient)}`" title="Modifier le dossier">
                                         <Pencil class="h-4 w-4" />
                                     </Button>
+                                    <!-- Un dossier Personnel ne se modifie pas ici : l'espace reste
+                                         réservé pour que « Ouvrir » ne saute pas d'une ligne à l'autre. -->
+                                    <span v-else-if="canUpdatePatient" class="h-9 w-9 shrink-0" aria-hidden="true"></span>
                                     <Button v-if="canDeletePatient" size="icon" variant="ghost" class="text-muted-foreground hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40 dark:hover:text-red-300" type="button" :aria-label="`Archiver ${formatPatientName(patient)}`" title="Archiver le dossier" @click="openDeleteDialog([patient])">
                                         <Trash2 class="h-4 w-4" />
                                     </Button>
@@ -652,7 +699,12 @@ watch(
 
                     <div class="mt-4 flex flex-wrap gap-2">
                         <Badge :variant="presenceState(patient).variant"><span :class="['h-1.5 w-1.5 rounded-full', presenceState(patient).dot]"></span>{{ presenceState(patient).label }}</Badge>
-                        <Badge variant="secondary">{{ patientTypeLabel(patient) }}</Badge>
+                        <Badge v-if="hasSpecialType(patient)" variant="secondary">{{ patientTypeLabel(patient) }}</Badge>
+                    </div>
+
+                    <div class="mt-3">
+                        <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Besoin actuel</p>
+                        <PatientNeedBadges :needs="patient.needs" :patient-name="formatPatientName(patient)" inline />
                     </div>
 
                     <dl class="mt-4 grid grid-cols-2 gap-3 text-xs">
@@ -689,7 +741,7 @@ watch(
             <div v-if="patients.data.length === 0" class="px-6 py-16 text-center">
                 <span class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><Users class="h-6 w-6" /></span>
                 <h3 class="mt-4 text-sm font-bold text-foreground">Aucun patient trouvé</h3>
-                <p class="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">Modifiez votre recherche ou commencez une nouvelle prise en charge.</p>
+                <p class="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">{{ emptyMessage }}</p>
                 <Button v-if="activeFilters.length" class="mt-5" size="sm" variant="outline" type="button" @click="resetFilters">
                     <RotateCcw class="h-4 w-4" /> Réinitialiser les filtres
                 </Button>
@@ -732,19 +784,15 @@ watch(
                 </li>
             </ul>
 
-            <div class="mt-4 space-y-2">
-                <label for="delete_reason" class="text-sm font-semibold text-foreground">Motif de l’archivage <span class="text-red-500">*</span></label>
-                <textarea
-                    id="delete_reason"
+            <FormField class="mt-4" label="Motif de l’archivage" required :error="deleteError">
+                <Textarea
                     v-model="deleteReason"
                     rows="3"
                     autofocus
                     placeholder="Ex. dossier créé en double"
-                    class="flex w-full resize-y rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-red-400 focus:ring-2 focus:ring-red-100 dark:focus:ring-red-950"
-                    @input="deleteError = ''"
-                ></textarea>
-                <p v-if="deleteError" class="flex items-center gap-1.5 text-xs font-medium text-red-600"><AlertTriangle class="h-3.5 w-3.5" />{{ deleteError }}</p>
-            </div>
+                    @update:model-value="deleteError = ''"
+                />
+            </FormField>
 
             <template #footer>
                 <Button variant="outline" type="button" :disabled="deleteProcessing" @click="closeDeleteDialog">Annuler</Button>

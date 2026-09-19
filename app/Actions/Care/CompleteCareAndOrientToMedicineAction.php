@@ -173,13 +173,17 @@ class CompleteCareAndOrientToMedicineAction
     ): EpisodeOrientation {
         $procedureCount = $locked->episode->careRecord?->procedures->count() ?? 0;
 
-        if ($procedureCount === 0) {
+        $careOrder->load(['items.careRecordProcedures']);
+
+        // ADR-112 — si le médecin a retiré tous les actes demandés, il n'y a
+        // plus rien à réaliser : exiger un acte obligerait à en inventer un.
+        $everythingWithdrawn = $careOrder->items->every(fn ($item) => $item->isCancelled());
+
+        if ($procedureCount === 0 && ! $everythingWithdrawn) {
             throw ValidationException::withMessages([
                 'procedures' => 'Enregistrez au moins un acte réellement réalisé avant de terminer les soins.',
             ]);
         }
-
-        $careOrder->load(['items.careRecordProcedures']);
 
         if ($careOrder->hasUnresolvedItems()) {
             throw ValidationException::withMessages([

@@ -6,6 +6,7 @@ use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
+use App\Actions\Medicine\CancelCareOrderItemAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodePriority;
@@ -91,6 +92,14 @@ class CareOrderFlowTest extends TestCase
             'requires_return_to_medicine' => false,
         ])->assertSessionHasErrors('items');
         $this->assertSame(1, CareOrder::query()->count());
+
+        // The screen matches on the act's catalog UUID — the key checked
+        // above — to keep the pending act out of the next request.
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$medicineOrientation->uuid}/ordonnance")
+            ->assertInertia(fn ($page) => $page
+                ->where('consultation.care_orders.0.status', 'PENDING')
+                ->where('consultation.care_orders.0.items.0.catalog_item_uuid', $aspiration->uuid));
 
         // A different act is a new, legitimate request.
         $this->actingAs($doctor)->post($url, [
@@ -542,6 +551,182 @@ class CareOrderFlowTest extends TestCase
         )->assertSessionHasErrors('reason');
 
         $this->assertNull($item->fresh()->not_performed_at);
+    }
+
+    public function test_the_doctor_withdraws_an_act_soins_has_not_taken_yet(): void
+    {
+        $doctor = $this->doctor();
+        [, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
+        $injection = $this->clinicianOrderableItem($doctor, 'INJECTION-IM', 'Injection IM');
+        $url = "/medicine/orientations/{$medicineOrientation->uuid}/care-orders";
+
+        $this->actingAs($doctor)->post($url, [
+            'items' => [['catalog_item_uuid' => $injection->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ])->assertSessionHasNoErrors();
+        $careOrder = CareOrder::query()->sole();
+        $item = $careOrder->items->sole();
+        $cancelUrl = "/medicine/orientations/{$medicineOrientation->uuid}/care-order-items/{$item->uuid}/cancel";
+
+        // No reason to type: the author and time trace the gesture, and a
+        // fixed reason is recorded (like a diagnosis cancellation, ADR-035).
+        $this->actingAs($doctor)->post($cancelUrl, [])->assertSessionHasNoErrors();
+
+        $item->refresh();
+        $this->assertNotNull($item->cancelled_at);
+        $this->assertSame($doctor->id, $item->cancelled_by);
+        $this->assertSame(CancelCareOrderItemAction::DEFAULT_REASON, $item->cancel_reason);
+        $this->assertDatabaseCount('care_order_items', 1);
+
+        // Nothing left to do: the order is withdrawn and the Soins queue it
+        // opened closes, while the consultation stays open.
+        $this->assertSame('CANCELLED', $careOrder->fresh()->status->value);
+        $this->assertSame('CANCELLED', EpisodeOrientation::query()->findOrFail($careOrder->care_orientation_id)->status->value);
+        $this->assertSame('IN_PROGRESS', $medicineOrientation->fresh()->status->value);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'care_order.item.cancel', 'entity_uuid' => $item->uuid]);
+
+        // The screen shows it withdrawn, no longer withdrawable.
+        $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$medicineOrientation->uuid}/ordonnance")
+            ->assertInertia(fn ($page) => $page
+                ->where('consultation.care_orders.0.status', 'CANCELLED')
+                ->where('consultation.care_orders.0.items.0.cancel_reason', CancelCareOrderItemAction::DEFAULT_REASON)
+                ->where('consultation.care_orders.0.items.0.can_cancel', false));
+
+        // A withdrawn act can be asked for again.
+        $this->actingAs($doctor)->post($url, [
+            'items' => [['catalog_item_uuid' => $injection->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame(2, CareOrder::query()->count());
+    }
+
+    public function test_withdrawing_one_act_keeps_the_rest_of_the_order_at_soins(): void
+    {
+        $doctor = $this->doctor();
+        [, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
+        $injection = $this->clinicianOrderableItem($doctor, 'INJECTION-IM', 'Injection IM');
+        $perfusion = $this->clinicianOrderableItem($doctor, 'PERFUSION', 'Perfusion');
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$medicineOrientation->uuid}/care-orders", [
+            'items' => [
+                ['catalog_item_uuid' => $injection->uuid, 'quantity' => 1],
+                ['catalog_item_uuid' => $perfusion->uuid, 'quantity' => 1],
+            ],
+            'requires_return_to_medicine' => false,
+        ]);
+        $careOrder = CareOrder::query()->sole();
+        $injectionItem = $careOrder->items()->where('catalog_item_code_snapshot', 'INJECTION-IM')->sole();
+
+        $this->actingAs($doctor)->post(
+            "/medicine/orientations/{$medicineOrientation->uuid}/care-order-items/{$injectionItem->uuid}/cancel",
+            ['reason' => 'Plus nécessaire'],
+        )->assertSessionHasNoErrors();
+
+        $this->assertSame('PENDING', $careOrder->fresh()->status->value);
+        $this->assertSame('PENDING', EpisodeOrientation::query()->findOrFail($careOrder->care_orientation_id)->status->value);
+
+        // Soins can no longer record the withdrawn act.
+        $careOrientation = EpisodeOrientation::query()->findOrFail($careOrder->care_orientation_id);
+        $nurse = $this->nurse();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $nurse);
+        $this->actingAs($nurse)->put("/care/orientations/{$careOrientation->uuid}/record-and-complete", [
+            'procedures' => [[
+                'catalog_item_uuid' => $injection->uuid,
+                'care_order_item_uuid' => $injectionItem->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertSessionHasErrors('procedures.0.care_order_item_uuid');
+    }
+
+    public function test_an_act_can_be_withdrawn_while_soins_has_the_patient_and_soins_then_closes_freely(): void
+    {
+        $doctor = $this->doctor();
+        [, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
+        $injection = $this->clinicianOrderableItem($doctor, 'INJECTION-IM', 'Injection IM');
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$medicineOrientation->uuid}/care-orders", [
+            'items' => [['catalog_item_uuid' => $injection->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ]);
+        $careOrder = CareOrder::query()->sole();
+        $item = $careOrder->items->sole();
+        $careOrientation = EpisodeOrientation::query()->findOrFail($careOrder->care_orientation_id);
+        $nurse = $this->nurse();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $nurse);
+
+        // The nurse has already said « Non réalisé »: the doctor may still withdraw it.
+        $this->actingAs($nurse)->post(
+            "/care/orientations/{$careOrientation->uuid}/care-order-items/{$item->uuid}/not-performed",
+            ['reason' => 'Patient absent'],
+        )->assertSessionHasNoErrors();
+
+        $this->actingAs($doctor)->post(
+            "/medicine/orientations/{$medicineOrientation->uuid}/care-order-items/{$item->uuid}/cancel",
+            [],
+        )->assertSessionHasNoErrors();
+
+        $this->assertNotNull($item->fresh()->cancelled_at);
+        // Soins has the patient: the order stays open and the nurse closes it.
+        $this->assertSame('PENDING', $careOrder->fresh()->status->value);
+        $this->assertSame('IN_PROGRESS', $careOrientation->fresh()->status->value);
+
+        // Nothing is left to perform: closing no longer demands an invented act.
+        $this->actingAs($nurse)->post("/care/orientations/{$careOrientation->uuid}/complete")
+            ->assertSessionHasNoErrors();
+        $this->assertSame('COMPLETED', $careOrientation->fresh()->status->value);
+    }
+
+    public function test_a_performed_act_can_never_be_withdrawn(): void
+    {
+        $doctor = $this->doctor();
+        [, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
+        $injection = $this->clinicianOrderableItem($doctor, 'INJECTION-IM', 'Injection IM');
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$medicineOrientation->uuid}/care-orders", [
+            'items' => [['catalog_item_uuid' => $injection->uuid, 'quantity' => 2]],
+            'requires_return_to_medicine' => false,
+        ]);
+        $careOrder = CareOrder::query()->sole();
+        $item = $careOrder->items->sole();
+        $careOrientation = EpisodeOrientation::query()->findOrFail($careOrder->care_orientation_id);
+        $nurse = $this->nurse();
+        $this->app->make(AcceptCareOrientationAction::class)->execute($careOrientation, $nurse);
+
+        // One of two injections done: it happened, it stays.
+        $this->actingAs($nurse)->put("/care/orientations/{$careOrientation->uuid}/record", [
+            'procedures' => [[
+                'catalog_item_uuid' => $injection->uuid,
+                'care_order_item_uuid' => $item->uuid,
+                'quantity' => 1,
+            ]],
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($doctor)->post(
+            "/medicine/orientations/{$medicineOrientation->uuid}/care-order-items/{$item->uuid}/cancel",
+            [],
+        )->assertSessionHasErrors('care_order_item');
+
+        $this->assertNull($item->fresh()->cancelled_at);
+    }
+
+    public function test_a_nurse_cannot_withdraw_a_doctors_care_order(): void
+    {
+        $doctor = $this->doctor();
+        [, $medicineOrientation] = $this->normalMedicineConsultation($doctor);
+        $injection = $this->clinicianOrderableItem($doctor, 'INJECTION-IM', 'Injection IM');
+        $this->actingAs($doctor)->post("/medicine/orientations/{$medicineOrientation->uuid}/care-orders", [
+            'items' => [['catalog_item_uuid' => $injection->uuid, 'quantity' => 1]],
+            'requires_return_to_medicine' => false,
+        ]);
+        $item = CareOrder::query()->sole()->items->sole();
+
+        $this->actingAs($this->nurse())->post(
+            "/medicine/orientations/{$medicineOrientation->uuid}/care-order-items/{$item->uuid}/cancel",
+            ['reason' => 'Test'],
+        )->assertForbidden();
+
+        $this->assertNull($item->fresh()->cancelled_at);
     }
 
     private function doctor(): User

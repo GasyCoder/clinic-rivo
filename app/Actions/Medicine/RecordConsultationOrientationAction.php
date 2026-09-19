@@ -2,11 +2,12 @@
 
 namespace App\Actions\Medicine;
 
+use App\Actions\Hospitalization\CancelHospitalStayAction;
 use App\Enums\ClinicalPriority;
 use App\Enums\ConsultationOrientationStatus;
 use App\Enums\ConsultationOrientationType;
-use App\Enums\MedicalDischargeType;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\MedicalDischargeType;
 use App\Enums\MedicalRequestStatus;
 use App\Enums\SurgicalRequestStatus;
 use App\Models\Consultation;
@@ -32,6 +33,8 @@ use Illuminate\Validation\ValidationException;
  */
 class RecordConsultationOrientationAction
 {
+    public function __construct(private readonly CancelHospitalStayAction $cancelStay) {}
+
     /**
      * The doctor states where this patient is heading. Re-selecting the same
      * destination only refreshes the priority — it never cancels a request
@@ -193,9 +196,21 @@ class RecordConsultationOrientationAction
             ]);
         }
 
+        // ADR-113 — une hospitalisation est admise dès la demande : son
+        // orientation n'est donc jamais « en attente ». Tant que la fiche de
+        // régime n'a pas commencé, le retrait annule le séjour ; ensuite il
+        // est refusé et c'est la sortie médicale qui termine le séjour.
+        $stay = $orientation->hospitalizationRequest?->hospitalStay;
+
+        if ($stay?->isActive()) {
+            $this->cancelStay->execute($stay, $reason, $actor);
+            $orientation->load('episodeOrientation');
+        }
+
         $episodeOrientation = $orientation->episodeOrientation;
 
-        if ($episodeOrientation && $episodeOrientation->status !== EpisodeOrientationStatus::Pending) {
+        if ($episodeOrientation
+            && ! in_array($episodeOrientation->status, [EpisodeOrientationStatus::Pending, EpisodeOrientationStatus::Cancelled], true)) {
             throw ValidationException::withMessages([
                 'orientation' => sprintf(
                     'Le service %s a déjà pris en charge cette demande : elle ne peut plus être retirée ici.',
@@ -205,7 +220,9 @@ class RecordConsultationOrientationAction
         }
 
         $surgicalRequest?->update(['status' => SurgicalRequestStatus::Cancelled]);
-        $episodeOrientation?->cancel($actor);
+        if ($episodeOrientation?->status === EpisodeOrientationStatus::Pending) {
+            $episodeOrientation->cancel($actor);
+        }
 
         foreach ([$orientation->hospitalizationRequest, $orientation->medicalReferral] as $request) {
             $request?->update([
@@ -227,11 +244,30 @@ class RecordConsultationOrientationAction
         ]);
     }
 
+    /**
+     * ADR-114 — une demande déjà transmise ne repart pas une seconde fois.
+     *
+     * Retransmettre créait un second enregistrement (un transfert en double
+     * dans la liste, une seconde demande au bloc) au lieu de corriger le
+     * premier. Une demande transmise se complète dans son module ; pour
+     * changer d'avis, on change d'orientation, ce qui annule proprement.
+     */
+    public function ensureNotAlreadySubmitted(Consultation $consultation, ConsultationOrientationType $type): void
+    {
+        $active = $this->activeOrientation($consultation);
+
+        if ($active?->type === $type && $active->status === ConsultationOrientationStatus::Submitted) {
+            throw ValidationException::withMessages([
+                'orientation' => 'Cette demande a déjà été transmise. Complétez-la dans son espace, ou changez d’orientation.',
+            ]);
+        }
+    }
+
     private function activeOrientation(Consultation $consultation): ?ConsultationOrientation
     {
         return $consultation->orientations()
             ->whereNotNull('active_key')
-            ->with(['surgicalRequest', 'episodeOrientation', 'hospitalizationRequest', 'medicalReferral'])
+            ->with(['surgicalRequest', 'episodeOrientation', 'hospitalizationRequest.hospitalStay', 'medicalReferral'])
             ->lockForUpdate()
             ->first();
     }

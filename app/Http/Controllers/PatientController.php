@@ -22,6 +22,8 @@ use App\Models\CashSession;
 use App\Models\Patient;
 use App\Models\PaymentMethod;
 use App\Services\Billing\BillableCatalogDirectory;
+use App\Services\Patient\PatientServiceNeeds;
+use App\Support\EpisodePathwayTimeline;
 use App\Support\Money;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -45,8 +47,58 @@ class PatientController extends Controller
         $emergency = in_array($request->query('emergency'), ['active', 'none'], true)
             ? $request->query('emergency')
             : null;
+        // ADR-119 : où le patient a encore besoin d'aller — Médecine, Soins,
+        // Pharmacie. `null` = tous, `[]` = aucun de ces services, sinon la
+        // combinaison exacte.
+        $need = PatientServiceNeeds::parse($request->query('need'));
+        $needs = PatientServiceNeeds::current();
 
-        $patients = Patient::query()
+        // ADR-120 : l'onglet choisi reprend les états que la ligne affiche déjà
+        // (`presenceState`) : besoin en cours, en attente de règlement, aucun
+        // passage ouvert. Une urgence ouverte est toujours « en cours ».
+        $status = in_array($request->query('status'), ['open', 'settlement', 'none'], true) ? $request->query('status') : null;
+        $needIds = $needs->patientIds();
+        $openEpisode = fn ($episode) => $episode->where('status', EpisodeStatus::Open->value);
+        $inCare = fn ($episode) => $openEpisode($episode)
+            ->where('administrative_status', '!=', EpisodeAdministrativeStatus::PendingSettlement->value);
+        $emergencyOpen = fn ($episode) => $openEpisode($episode)->where('priority', EpisodePriority::Emergency->value);
+
+        $statusScope = fn ($query, ?string $value) => match ($value) {
+            'open' => $query->where(fn ($q) => $q->whereHas('episodes', $inCare)->orWhereHas('episodes', $emergencyOpen)),
+            'settlement' => $query->whereHas('episodes', fn ($episode) => $openEpisode($episode)
+                ->where('administrative_status', EpisodeAdministrativeStatus::PendingSettlement->value))
+                ->whereDoesntHave('episodes', $inCare)
+                ->whereDoesntHave('episodes', $emergencyOpen),
+            'none' => $query->whereDoesntHave('episodes', $openEpisode),
+            default => $query,
+        };
+        $needScope = fn ($query, ?array $value) => match (true) {
+            $value === null => $query,
+            $value === [] => $query->whereNotIn('patients.id', $needIds),
+            default => $query->whereIn('patients.id', $needs->idsMatching($value)),
+        };
+
+        // Les filtres que les compteurs de besoin respectent : chaque compteur
+        // annonce ce que donnerait un clic sur sa case, les autres filtres
+        // (recherche, type, urgence) inchangés.
+        $filtered = fn () => Patient::query()
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('patient_number', 'like', "%{$search}%")
+                        ->orWhere('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
+                });
+            })
+            ->when($type, fn ($query) => $query->where('patient_type', $type))
+            ->when($emergency === 'active', fn ($query) => $query->whereHas('episodes', fn ($episode) => $episode
+                ->where('priority', EpisodePriority::Emergency->value)
+                ->where('status', EpisodeStatus::Open->value)))
+            ->when($emergency === 'none', fn ($query) => $query->whereDoesntHave('episodes', fn ($episode) => $episode
+                ->where('priority', EpisodePriority::Emergency->value)
+                ->where('status', EpisodeStatus::Open->value)));
+
+        $patients = $filtered()
             ->select([
                 'id', 'uuid', 'patient_number', 'patient_type', 'first_name',
                 'last_name', 'birth_date', 'birth_date_is_approximate',
@@ -78,27 +130,14 @@ class PatientController extends Controller
                     ->where('status', '!=', EpisodeStatus::Cancelled->value)],
                 'started_at',
             )
-            ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('patient_number', 'like', "%{$search}%")
-                        ->orWhere('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%");
-                });
-            })
-            ->when($type, fn ($query) => $query->where('patient_type', $type))
-            ->when($emergency === 'active', fn ($query) => $query->whereHas('episodes', fn ($episode) => $episode
-                ->where('priority', EpisodePriority::Emergency->value)
-                ->where('status', EpisodeStatus::Open->value)))
-            ->when($emergency === 'none', fn ($query) => $query->whereDoesntHave('episodes', fn ($episode) => $episode
-                ->where('priority', EpisodePriority::Emergency->value)
-                ->where('status', EpisodeStatus::Open->value)))
+            ->tap(fn ($query) => $needScope($statusScope($query, $status), $need))
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
 
-        $patients->getCollection()->each(function (Patient $patient) {
+        $patients->getCollection()->each(function (Patient $patient) use ($needs) {
             $this->appendAdministrativePresentation($patient);
+            $patient->setAttribute('needs', $needs->forPatient($patient->getKey()));
 
             // withMax() returns the driver's raw datetime string, which
             // differs between MySQL and SQLite; normalise it once here so
@@ -113,12 +152,28 @@ class PatientController extends Controller
         return Inertia::render('Patients/Index', [
             'patients' => $patients,
             'search' => $search,
-            'filters' => ['type' => $type, 'emergency' => $emergency],
+            'filters' => [
+                'type' => $type,
+                'emergency' => $emergency,
+                'need' => $need === null ? null : PatientServiceNeeds::key($need),
+                'status' => $status,
+            ],
+            // Chaque compteur est ce que donnerait un clic : les autres filtres
+            // restent appliqués, le sien seul est levé.
+            'needs' => ['facets' => $needs->facets($statusScope($filtered(), $status))],
+            'segments' => [
+                'status' => [
+                    'all' => $needScope($filtered(), $need)->count(),
+                    'open' => $needScope($statusScope($filtered(), 'open'), $need)->count(),
+                    'settlement' => $needScope($statusScope($filtered(), 'settlement'), $need)->count(),
+                    'none' => $needScope($statusScope($filtered(), 'none'), $need)->count(),
+                ],
+            ],
             'summary' => $this->directorySummary(),
         ]);
     }
 
-    public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog): Response
+    public function show(Request $request, Patient $patient, BillableCatalogDirectory $catalog, EpisodePathwayTimeline $timeline): Response
     {
         // Care record data (constants, allergy snapshot, acts performed) is
         // gated behind care.view, matching CareController's own capability
@@ -162,6 +217,11 @@ class PatientController extends Controller
         }
 
         $this->appendAdministrativePresentation($patient);
+
+        // ADR-117 : le même parcours que celui du détail du passage, servi
+        // ici pour chaque passage du dossier — la frise ne recompose rien.
+        $pathways = $timeline->forEpisodes($patient->episodes, $request->user());
+        $patient->episodes->each(fn ($episode) => $episode->setAttribute('pathway', $pathways[$episode->getKey()] ?? []));
 
         $account = null;
         $paymentMethods = [];

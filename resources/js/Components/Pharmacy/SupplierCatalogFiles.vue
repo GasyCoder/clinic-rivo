@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Link, router, useForm } from '@inertiajs/vue3';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -34,7 +34,12 @@ const VIEW_KEY = 'rivo.supplier-catalogs.view';
 const readView = () => {
     try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
 };
-const view = ref(readView());
+const view = ref('grid');
+// Applied once the browser has the page: the server renders the default
+// view, and reading storage while rendering would not match it (hydration).
+onMounted(() => {
+    view.value = readView();
+});
 const setView = (value) => {
     view.value = value;
     try { localStorage.setItem(VIEW_KEY, value); } catch { /* private window */ }

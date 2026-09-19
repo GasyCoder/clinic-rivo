@@ -1,7 +1,11 @@
 import {
     Activity,
+    Ambulance,
+    Baby,
+    Bandage,
     BarChart3,
-    BookMarked,
+    BedDouble,
+    BookOpenCheck,
     Briefcase,
     Building2,
     CalendarDays,
@@ -9,29 +13,31 @@ import {
     ClipboardList,
     Clock,
     Copy,
+    DoorOpen,
     FileSearch,
     FileText,
     FlaskConical,
     Heart,
-    HeartCrack,
+    IdCard,
+    Library,
     LayoutDashboard,
     Microscope,
     Package,
     Pill,
     Plus,
     Scissors,
+    ScrollText,
     Settings,
     ShieldCheck,
     Stethoscope,
     Syringe,
+    Tags,
     Trash2,
     Truck,
-    UserRoundCheck,
     UserRoundCog,
     Users,
     UsersRound,
     Wallet,
-    WalletMinimal,
 } from 'lucide-vue-next';
 
 /**
@@ -47,24 +53,38 @@ export const CLINIC_WORKSPACES = [
     { key: 'reception', group: 'clinical', text: 'Réception', description: 'Passages, urgences et orientation', icon: ClipboardList, link: '/reception', permission: 'reception.view', tone: 'navy' },
     // CDC §33.3 — les passages que le médecin a terminés et qui attendent
     // la décision administrative : contrôle du compte puis sortie.
-    { key: 'settlements', group: 'clinical', text: 'Sorties & règlements', description: 'Comptes à solder et sorties administratives', icon: WalletMinimal, link: '/reception/sorties', permission: 'episodes.settlement.view', tone: 'ocean' },
+    { key: 'settlements', group: 'clinical', text: 'Sorties & règlements', description: 'Comptes à solder et sorties administratives', icon: DoorOpen, link: '/reception/sorties', permission: 'episodes.settlement.view', tone: 'ocean' },
+    // ADR-023 — le parcours Visiteur, distinct du parcours Patient. Gardé par
+    // `visitors.view`, que Réception détient déjà par défaut ; jusqu'ici
+    // aucune entrée de menu ne le vérifiait, la seule tuile existante étant
+    // gardée par `guarding.view` — un droit que Réception n'a jamais reçu
+    // (ADR-116).
+    { key: 'visitors', group: 'clinical', text: 'Visiteurs', description: 'Entrées, sorties et pièces jointes des visiteurs', icon: IdCard, link: '/reception/visitors', permission: 'visitors.view', tone: 'navy' },
     { key: 'cash', group: 'clinical', text: 'Caisse', description: 'Factures, règlements, session', icon: Wallet, link: '/cash', activeLinks: ['/cash', '/receipts'], permission: 'cash.view', tone: 'green' },
     { key: 'patients', group: 'clinical', text: 'Patients', description: 'Dossiers et historique des passages', icon: UsersRound, link: '/patients', permission: 'patients.view', tone: 'cyan' },
     { key: 'medicine', group: 'clinical', text: 'Médecine', description: 'File d’attente et consultations', icon: Stethoscope, link: '/medicine', permission: 'consultations.view', tone: 'ocean' },
     // Les demandes d'examens du médecin, toutes consultations confondues :
     // suivre un résultat ne devait plus obliger à rouvrir le passage de tête.
     { key: 'paraclinical-requests', group: 'clinical', text: 'Demandes d’examens', description: 'Analyses et imagerie demandées, et leurs résultats', icon: FileSearch, link: '/medicine/demandes-examens', permission: 'paraclinical_requests.view', tone: 'ocean' },
+    // ADR-113 — les patients hospitalisés et leur fiche de régime. Le séjour
+    // commence à la demande du médecin et se termine par sa sortie médicale.
+    { key: 'hospitalization', group: 'clinical', text: 'Hospitalisation', description: 'Patients hospitalisés et fiche de régime', icon: BedDouble, link: '/hospitalisation', permission: 'hospitalization.view', tone: 'ocean' },
+    // ADR-114 — les patients référés ailleurs : la demande part en un clic,
+    // l'établissement se complète ici, puis « Transfert effectué ».
+    { key: 'transfers', group: 'clinical', text: 'Transferts', description: 'Patients à transférer et transférés', icon: Ambulance, link: '/transferts', permission: 'transfers.view', tone: 'cyan' },
+    // ADR-114 — Pédiatrie simple : file, prise en charge, sortie médicale.
+    { key: 'pediatrics', group: 'clinical', text: 'Pédiatrie', description: 'Enfants orientés par Médecine', icon: Baby, link: '/pediatrie', permission: 'pediatrics.view', tone: 'green' },
     // ADR-107 — un décès prononcé en Consultation ne réapparaissait nulle
     // part : la file Médecine ne montre que les prises en charge en cours.
-    { key: 'deaths', group: 'clinical', text: 'Décès', description: 'Registre et actes de constatation', icon: HeartCrack, link: '/deces', permission: 'death_records.view', tone: 'slate' },
+    { key: 'deaths', group: 'clinical', text: 'Décès', description: 'Registre et actes de constatation', icon: ScrollText, link: '/deces', permission: 'death_records.view', tone: 'slate' },
     // ADR-111 — ce que la consultation propose vient d'ici : les protocoles
     // écrits par les médecins de la clinique, jamais une règle inventée.
-    { key: 'clinical-protocols', group: 'clinical', text: 'Protocoles', description: 'Diagnostics et ordonnances types de la clinique', icon: BookMarked, link: '/medicine/protocoles', permission: 'clinical_protocols.view', tone: 'ocean' },
+    { key: 'clinical-protocols', group: 'clinical', text: 'Protocoles', description: 'Diagnostics et ordonnances types de la clinique', icon: BookOpenCheck, link: '/medicine/protocoles', permission: 'clinical_protocols.view', tone: 'ocean' },
     { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
     // care.update keeps the Soins queue for the role that operates it.
-    { key: 'care', group: 'clinical', text: 'Soins', description: 'Constantes et fiches de soins', icon: UserRoundCheck, link: '/care', permission: 'care.update', tone: 'green' },
+    { key: 'care', group: 'clinical', text: 'Soins', description: 'Constantes et fiches de soins', icon: Bandage, link: '/care', permission: 'care.update', tone: 'green' },
     { key: 'maternity', group: 'clinical', text: 'Maternité', description: 'Suivi et actes de Maternité', icon: Heart, link: '/maternity', permission: 'maternity.view', tone: 'yellow' },
     { key: 'surgery', group: 'clinical', text: 'Chirurgie', description: 'Demandes et suivi du Bloc', icon: Scissors, link: '/surgery', permission: 'surgery.view', tone: 'yellow' },
     { key: 'anesthesia', group: 'clinical', text: 'Anesthésie', description: 'Évaluations anesthésiques', icon: Syringe, link: '/anesthesia', permission: 'anesthesia.view', tone: 'cyan' },
@@ -83,7 +103,7 @@ export const CLINIC_WORKSPACES = [
         // « Accueil »: the Pharmacy's tasks are on the overview page.
         children: [
             { code: 'dispenses', icon: FileText, label: 'Ordonnances à délivrer', link: '/pharmacy/dispenses', activeLinks: ['/pharmacy/dispenses'], permission: 'prescriptions.view' },
-            { code: 'care-consumables', icon: UserRoundCheck, label: 'Consommables Soins', link: '/pharmacy/care-consumables', activeLinks: ['/pharmacy/care-consumables'], permission: 'care_consumables.view' },
+            { code: 'care-consumables', icon: Bandage, label: 'Consommables Soins', link: '/pharmacy/care-consumables', activeLinks: ['/pharmacy/care-consumables'], permission: 'care_consumables.view' },
             // ADR-098 — Stock and Médicaments were one list twice: one page now.
             { code: 'medicines-stock', icon: Pill, label: 'Médicaments & stock', link: '/pharmacy/stock', activeLinks: ['/pharmacy/stock', '/pharmacy/medicines'], anyPermission: ['stock.view', 'medicines.view'] },
             // ADR-098 — orders, receptions and supplier invoices: one purchasing page with tabs.
@@ -120,9 +140,16 @@ export const CLINIC_WORKSPACES = [
         ],
     },
     { key: 'logistics', group: 'management', text: 'Logistique', description: 'Inventaire et équipements', icon: Package, link: '/logistics', permission: 'logistics.view', tone: 'yellow' },
-    { key: 'guarding', group: 'management', text: 'Gardiennage', description: 'Visiteurs et contrôle des sorties', icon: ShieldCheck, link: '/reception/visitors', permission: 'guarding.view', tone: 'ocean' },
+    // ADR-116 — jusqu'ici `guarding.view` n'ouvrait aucune page à lui : la
+    // tuile pointait vers `/reception/visitors`, gardée par `visitors.view`,
+    // un droit distinct que le profil GUARD reçoit en plus mais qu'un compte
+    // ayant seulement `guarding.*` n'aurait jamais eu (ADR-101 l'aurait
+    // signalé « pas encore vérifiée »). Elle ouvre désormais le contrôle de
+    // sortie, qui en est le seul consommateur réel ; le registre des
+    // visiteurs reste un lien depuis cette page pour qui a aussi ce droit.
+    { key: 'guarding', group: 'management', text: 'Gardiennage', description: 'Contrôle de sortie des patients', icon: ShieldCheck, link: '/guarding', permission: 'guarding.view', tone: 'ocean' },
     { key: 'users', group: 'management', text: 'Utilisateurs & accès', description: 'Comptes et permissions', icon: UserRoundCog, link: '/administration/users', activeLinks: ['/administration/users'], permission: 'users.view', tone: 'cyan' },
-    { key: 'catalog', group: 'management', text: 'Référentiels & tarifs', description: 'Désignations et grilles tarifaires', icon: Settings, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
+    { key: 'catalog', group: 'management', text: 'Référentiels & tarifs', description: 'Désignations et grilles tarifaires', icon: Tags, link: '/administration/catalog', activeLinks: ['/administration/catalog'], permission: 'catalog.items.view', tone: 'navy' },
     { key: 'analysis_catalog', group: 'management', text: 'Catalogue analyses', description: 'Analyses et valeurs de référence', icon: Microscope, link: '/administration/analyses', activeLinks: ['/administration/analyses'], permission: 'analysis_catalog.view', tone: 'cyan' },
     { key: 'trash', group: 'management', text: 'Corbeille', description: 'Éléments supprimés du site', icon: Trash2, link: '/trash', permission: 'trash.view', tone: 'navy' },
 ];
@@ -131,6 +158,44 @@ export const WORKSPACE_GROUPS = {
     clinical: 'Gestion clinique',
     management: 'Gestion',
 };
+
+/**
+ * Menus that belong to the same module, shown under one parent entry.
+ *
+ * Only the sidebar groups them: the overview keeps one tile per workspace,
+ * and every member keeps its own permission, link and matching rules — a
+ * group is a presentation, never a right. A member the account cannot open
+ * simply is not listed; a group left with a single member is shown as that
+ * member's plain link, never as a one-item dropdown.
+ *
+ * Members share a module *and* a route family. Médecine's queue, its
+ * paraclinical requests and its protocols all live under `/medicine`;
+ * Réception and its settlements under `/reception`. Nothing is grouped on
+ * a resemblance of name.
+ */
+export const SIDEBAR_GROUPS = [
+    {
+        key: 'medicine-space',
+        text: 'Médecine',
+        icon: Stethoscope,
+        members: ['medicine', 'paraclinical-requests', 'clinical-protocols'],
+        labels: { medicine: 'File de consultation' },
+    },
+    {
+        key: 'reception-space',
+        text: 'Réception',
+        icon: ClipboardList,
+        members: ['reception', 'settlements', 'visitors'],
+        labels: { reception: 'Accueil & passages' },
+    },
+    {
+        key: 'referentials-space',
+        text: 'Référentiels',
+        icon: Library,
+        members: ['catalog', 'analysis_catalog'],
+        labels: { catalog: 'Désignations & tarifs', analysis_catalog: 'Catalogue des analyses' },
+    },
+];
 
 /**
  * What each role does first when it opens the application.
@@ -150,7 +215,7 @@ export const ROLE_FOCUS = {
     },
     NURSE: {
         lead: 'Vos patients en attente aux Soins et les fiches du jour.',
-        primary: { label: 'Ouvrir la file Soins', link: '/care', icon: UserRoundCheck, permission: 'care.update' },
+        primary: { label: 'Ouvrir la file Soins', link: '/care', icon: Bandage, permission: 'care.update' },
         shortcuts: ['maternity', 'anesthesia', 'patients'],
         metrics: ['care_records_today', 'passages_today'],
     },
@@ -192,7 +257,7 @@ export const ROLE_FOCUS = {
     },
     SUPPORT: {
         lead: 'Entrées, sorties et visiteurs présents.',
-        primary: { label: 'Ouvrir le Gardiennage', link: '/reception/visitors', icon: ShieldCheck, permission: 'guarding.view' },
+        primary: { label: 'Ouvrir le Gardiennage', link: '/guarding', icon: ShieldCheck, permission: 'guarding.view' },
         shortcuts: [],
         metrics: ['visitors_today'],
     },

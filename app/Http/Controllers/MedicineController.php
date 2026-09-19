@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
+use App\Actions\Medicine\CancelCareOrderItemAction;
 use App\Actions\Medicine\CancelDiagnosisAction;
 use App\Actions\Medicine\CancelParaclinicalRequestAction;
 use App\Actions\Medicine\CancelPrescriptionAction;
@@ -23,6 +24,7 @@ use App\Actions\Medicine\RecordConsultationOrientationAction;
 use App\Actions\Medicine\RecordDiagnosisAction;
 use App\Actions\Medicine\RecordImagingResultAction;
 use App\Actions\Medicine\RecordMedicalDischargeAction;
+use App\Actions\Medicine\ReleaseMedicineOrientationAction;
 use App\Actions\Medicine\ReopenConsultationAction;
 use App\Actions\Medicine\ResolveConsultationStepAction;
 use App\Actions\Medicine\SaveConsultationAction;
@@ -35,6 +37,7 @@ use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Enums\PrescriptionStatus;
+use App\Http\Requests\CancelCareOrderItemRequest;
 use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
 use App\Http\Requests\Medicine\CancelParaclinicalRequestRequest;
@@ -60,17 +63,19 @@ use App\Http\Requests\StoreServiceReferralRequest;
 use App\Http\Requests\StoreSurgicalReferralRequest;
 use App\Http\Requests\UpdateMedicineDiagnosisRequest;
 use App\Http\Requests\UpdateMedicinePrescriptionRequest;
+use App\Models\CareOrderItem;
 use App\Models\ConsultationDraft;
 use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
 use App\Models\HospitalizationRequest;
 use App\Models\ImagingRequestItem;
-use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Models\MedicalReferral;
 use App\Models\Prescription;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\ConsultationWorkflow;
-use App\Support\ImagingReportDocument;
 use App\Support\EpisodeQueuePresenter;
+use App\Support\ImagingReportDocument;
+use App\Support\MedicalReferralDocument;
 use App\Support\MedicineDossierPresenter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -154,7 +159,9 @@ class MedicineController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        $queueNumbers = $presenter->assignQueueNumbers($orientations->getCollection());
+        // Sur toute la file, pas sur la page : le n° d'un patient ne change ni avec un filtre ni avec une
+        // recherche, et il est le même que celui que les Soins affichent pour lui (ADR-124).
+        $queueNumbers = $presenter->medicineQueueNumbers();
         $pendingReasons = $presenter->pendingReasonsFor($orientations->getCollection());
         $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present(
             $orientation,
@@ -179,6 +186,18 @@ class MedicineController extends Controller
 
         return redirect()->route('medicine.orientations.step', [$episodeOrientation, 'dossier'])
             ->with('status', 'Patient pris en charge en Médecine.');
+    }
+
+    /** ADR-127 : remettre en file, à sa place, un patient pris en charge par erreur. */
+    public function release(
+        Request $request,
+        EpisodeOrientation $episodeOrientation,
+        ReleaseMedicineOrientationAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->user());
+
+        return redirect()->route('medicine.index')
+            ->with('status', 'Patient remis en file, à sa place.');
     }
 
     public function begin(EpisodeOrientation $episodeOrientation): RedirectResponse
@@ -797,8 +816,7 @@ class MedicineController extends Controller
     public function printImagingReport(
         ImagingRequestItem $imagingRequestItem,
         ClinicalRichTextSanitizer $richText,
-    ): Response
-    {
+    ): Response {
         $document = ImagingReportDocument::for($imagingRequestItem, $richText);
 
         abort_if($document === null, 404);
@@ -853,15 +871,9 @@ class MedicineController extends Controller
             ...$this->printHeader($episodeOrientation),
             'referral' => [
                 'uuid' => $medicalReferral->uuid,
-                'facility' => $medicalReferral->facility,
-                'reason' => $medicalReferral->reason,
-                'diagnosis' => $medicalReferral->diagnosis,
-                'clinical_summary' => $medicalReferral->clinical_summary,
-                'treatments_given' => $medicalReferral->treatments_given,
+                ...app(MedicalReferralDocument::class)->present($medicalReferral),
                 'priority' => $medicalReferral->priority->value,
                 'priority_label' => $medicalReferral->priority->label(),
-                'recommendations' => $medicalReferral->recommendations,
-                'notes' => $medicalReferral->notes,
                 'status' => $medicalReferral->status->value,
                 'status_label' => $medicalReferral->status->label(),
                 'referred_at' => $medicalReferral->referred_at,
@@ -919,6 +931,18 @@ class MedicineController extends Controller
 
         return redirect()->route('medicine.index')
             ->with('status', 'Ordre de soins transmis. Le patient est orienté vers Soins.');
+    }
+
+    /** Retirer un acte encore en attente aux Soins (voir CancelCareOrderItemAction). */
+    public function cancelCareOrderItem(
+        CancelCareOrderItemRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        CareOrderItem $careOrderItem,
+        CancelCareOrderItemAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $careOrderItem, $request->validated('reason'), $request->user());
+
+        return back()->with('status', 'Acte retiré de la demande de soins.');
     }
 
     public function storeLabRequest(
@@ -1046,7 +1070,7 @@ class MedicineController extends Controller
         $action->execute(
             $episodeOrientation->consultation()->firstOrFail(),
             CatalogModule::from($request->validated('destination')),
-            $request->validated('reason'),
+            trim((string) $request->validated('reason')) ?: null,
             $request->user(),
         );
 

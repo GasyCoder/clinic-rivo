@@ -26,6 +26,8 @@ const props = defineProps({
     maxRatio: { type: Number, default: 0.75 },
     startLabel: { type: String, default: 'panneau gauche' },
     endLabel: { type: String, default: 'panneau droit' },
+    /** Rien à mettre dans le second panneau : le premier prend toute la largeur, sans poignée. */
+    single: { type: Boolean, default: false },
 });
 
 const clamp = (value) => Math.min(props.maxRatio, Math.max(props.minRatio, value));
@@ -191,7 +193,7 @@ const percent = computed(() => Math.round(ratio.value * 100));
         <div
             ref="root"
             class="rs-root"
-            :class="{ 'rs-dragging': dragging }"
+            :class="{ 'rs-dragging': dragging, 'rs-single': single }"
         >
         <div class="rs-pane min-w-0">
             <slot name="start" />
@@ -200,6 +202,7 @@ const percent = computed(() => Math.round(ratio.value * 100));
         <!-- Ligne fine, zone de préhension large : la cible cliquable fait
              20px alors que le trait n'en fait que 2 (§4). -->
         <div
+            v-if="!single"
             class="rs-handle"
             role="separator"
             aria-orientation="vertical"
@@ -222,7 +225,7 @@ const percent = computed(() => Math.round(ratio.value * 100));
             </span>
         </div>
 
-        <div class="rs-pane min-w-0">
+        <div v-if="!single" class="rs-pane min-w-0">
             <slot name="end" />
         </div>
         </div>
@@ -280,6 +283,11 @@ const percent = computed(() => Math.round(ratio.value * 100));
 
 .rs-container {
     --rs-gutter: 1.25rem;
+}
+
+/* Un seul panneau : toute la largeur, quelle que soit celle du conteneur. */
+.rs-root.rs-single {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 /* Le trait : discret au repos, à la couleur de l'application au survol,

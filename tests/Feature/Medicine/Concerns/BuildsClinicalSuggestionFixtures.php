@@ -7,10 +7,8 @@ use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
-use App\Enums\ClinicalSuggestionSource;
 use App\Enums\MedicineForm;
 use App\Enums\ReceptionRoutingMode;
-use App\Models\AuditLog;
 use App\Models\CatalogItem;
 use App\Models\ClinicalProtocol;
 use App\Models\Consultation;
@@ -22,7 +20,6 @@ use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
-use App\Services\Medicine\ClinicalProtocolMatcher;
 
 /**
  * ADR-111 — un médecin, une consultation en cours, un diagnostic du

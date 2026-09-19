@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { useToastStore } from '@/stores/toast';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import {
     Activity,
@@ -24,9 +25,14 @@ import {
     Send,
     ShieldCheck,
     Trash2,
+    Undo2,
     X,
 } from 'lucide-vue-next';
+import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -45,6 +51,7 @@ const props = defineProps({
     heartRateReference: Object,
     oxygenSaturationReference: Object,
     temperatureReference: Object,
+    vitalPlausibility: { type: Object, default: null },
     patientAllergies: Array,
     allergenReference: Array,
     procedureCatalog: Array,
@@ -57,6 +64,23 @@ const props = defineProps({
 });
 
 const episode = computed(() => props.orientation.episode);
+
+// Pris en charge par erreur (ADR-122) : tant que rien n'a été enregistré, le
+// patient retrouve sa place. Le serveur revérifie tout ; ce bouton n'est
+// proposé que là où il a une chance d'aboutir.
+const canRelease = computed(() => props.orientation.status === 'IN_PROGRESS'
+    && !props.capabilities?.handled_by_other
+    && !props.careRecord);
+const releasing = ref(false);
+const releaseError = ref('');
+const releasePatient = () => {
+    releasing.value = true;
+    releaseError.value = '';
+    router.post(`/care/orientations/${props.orientation.uuid}/release`, {}, {
+        onError: (errors) => { releaseError.value = errors.orientation ?? 'Le patient n’a pas pu être remis en file.'; },
+        onFinish: () => { releasing.value = false; },
+    });
+};
 const patient = computed(() => episode.value.patient);
 const procedureSearch = ref('');
 const activePatientAllergyUuids = computed(() => new Set(props.patientAllergies.map((allergy) => allergy.uuid)));
@@ -264,7 +288,6 @@ const steps = [
     // Acts and the material they consumed are one single gesture for a
     // nurse (a dressing IS its compresses): one step, one save.
     { key: 'procedures', label: 'Actes et matériel', icon: CircleCheck },
-    ...(props.orientation.episode.care_transmission_expected ? [{ key: 'transmission', label: 'Transmission', icon: Send }] : []),
     { key: 'finish', label: 'Terminer', icon: Flag },
 ];
 /**
@@ -283,6 +306,16 @@ const initialStepIndex = (() => {
 })();
 const currentStepIndex = ref(initialStepIndex);
 const currentStepKey = computed(() => steps[currentStepIndex.value]?.key);
+// Colonne de droite de « Terminer » : la transmission à Médecine, quand le parcours en prévoit une.
+// Points de vigilance : une pastille d'une ligne par repère (le titre avant « — »),
+// le détail complet sur demande. Ils restent tous visibles ; seul leur texte se replie.
+const warningsExpanded = ref(false);
+const warningTitle = (warning) => String(warning.text).split(' — ')[0];
+const warningPillClass = (tone) => ({
+    danger: 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300',
+    warning: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200',
+}[tone] ?? 'border-border bg-muted/40 text-foreground');
+const hasSideColumn = computed(() => Boolean(props.orientation.episode.care_transmission_expected));
 const stepIndexFor = (key) => steps.findIndex((step) => step.key === key);
 const goToStep = (index) => {
     currentStepIndex.value = index;
@@ -452,6 +485,19 @@ const yesNoOptions = [
     { value: '0', label: 'Non', title: 'Non' },
     { value: '1', label: 'Oui', title: 'Oui' },
 ];
+/**
+ * « Oui » se lit en rouge et « Non » en vert dès qu'on les coche : un facteur de
+ * risque présent ne doit pas se confondre avec son absence. N/R reste neutre.
+ */
+const yesNoClasses = (current, option) => {
+    const base = 'flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors';
+
+    if (current !== option.value) return `${base} text-muted-foreground hover:text-foreground`;
+    if (option.value === '1') return `${base} bg-red-50 text-red-700 shadow-sm ring-1 ring-red-300 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-800`;
+    if (option.value === '0') return `${base} bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800`;
+
+    return `${base} bg-card text-foreground shadow-sm ring-1 ring-border`;
+};
 const routingLabels = {
     MEDICINE_DIRECT: 'Médecine directe',
     CARE_THEN_MEDICINE: 'Soins → Médecine',
@@ -673,7 +719,21 @@ const bloodPressureAssessment = computed(() => {
         return reference.severe;
     }
 
-    if (systolic < reference.low_systolic_below || diastolic < reference.low_diastolic_below) {
+    // Lue selon l'âge (ADR-125) : hypotension de l'enfant, et pas de seuil
+    // d'adulte avant 13 ans.
+    if (reference.minor) {
+        if (systolic < reference.hypotension_systolic_below) return reference.pediatric_hypotension;
+
+        if (reference.child_under_13) {
+            if (systolic >= reference.child_very_high_systolic_from || diastolic >= reference.child_very_high_diastolic_from) {
+                return reference.child_very_high;
+            }
+
+            return systolic >= reference.child_high_systolic_from || diastolic >= reference.child_high_diastolic_from
+                ? reference.child_high
+                : null;
+        }
+    } else if (systolic < reference.low_systolic_below || diastolic < reference.low_diastolic_below) {
         return reference.low;
     }
 
@@ -692,13 +752,35 @@ const heartRateAssessment = computed(() => {
     const value = numericVitalValue(form.heart_rate);
     const reference = props.heartRateReference;
 
-    if (!reference || value === null || value <= 0 || value >= reference.low_threshold) return null;
-    if (reference.patient_age === null || reference.patient_age === undefined) {
+    if (!reference || value === null || value <= 0) return null;
+
+    const age = reference.patient_age;
+
+    if (age === null || age === undefined) {
+        if (value >= reference.low_threshold) return null;
+
         return value < reference.marked_low_threshold
             ? reference.age_unknown_marked_low
             : reference.age_unknown_low;
     }
-    if (reference.patient_age < reference.adult_min_age) return reference.pediatric_low;
+
+    // Un mineur : sous 60 bpm toujours, sinon contre la plage de son âge (ADR-125).
+    if (age < reference.adult_min_age) {
+        if (value < reference.low_threshold) return reference.pediatric_low;
+
+        const { min, max } = reference.age_range;
+
+        if (value < min) return value < min * reference.marked_low_factor ? reference.marked_low_for_age : reference.low_for_age;
+        if (value > max) return value > max * reference.marked_high_factor ? reference.marked_high : reference.high;
+
+        return null;
+    }
+
+    if (value > reference.adult_high_threshold) {
+        return value > reference.adult_high_threshold * reference.marked_high_factor ? reference.marked_high : reference.high;
+    }
+
+    if (value >= reference.low_threshold) return null;
 
     return value < reference.marked_low_threshold
         ? reference.adult_marked_low
@@ -719,6 +801,16 @@ const temperatureAssessment = computed(() => {
     const reference = props.temperatureReference;
 
     if (!reference || value === null || value < 25 || value > 45) return null;
+
+    // Un nourrisson de moins d'un an est lu plus strictement (ADR-125).
+    if (reference.infant) {
+        if (value >= reference.fever_from) return reference.infant_fever;
+        if (value < reference.infant_low_danger_below) return reference.infant_very_low;
+        if (value < reference.infant_low_warning_below) return reference.infant_low;
+
+        return null;
+    }
+
     if (value < reference.low_danger_below) return reference.very_low;
     if (value < reference.low_warning_below) return reference.low;
     if (value >= reference.high_danger_from) return reference.very_high;
@@ -726,6 +818,125 @@ const temperatureAssessment = computed(() => {
 
     return null;
 });
+
+// ── Alertes de saisie (ADR-125) ───────────────────────────────────────────
+// Un repère « hors norme » se lit sous son champ ; une valeur critique ou
+// improbable se dit en plus par un message qui ne peut pas passer inaperçu.
+// Le message ne part qu'une fois la saisie posée (pas à chaque chiffre) et pas
+// deux fois pour le même repère : recontrôler 170 puis 175 n'en refait pas un.
+const toast = useToastStore();
+const vitalToastTimers = new Map();
+const vitalToasted = new Map();
+const patientAgeLabel = computed(() => {
+    const age = props.heartRateReference?.patient_age;
+
+    if (age === null || age === undefined) return null;
+
+    return age < 1 ? 'moins d’un an' : age === 1 ? '1 an' : `${age} ans`;
+});
+
+/** Poids, taille et IMC qu'aucun patient de cet âge n'atteint : presque sûrement une faute de saisie. */
+const implausibleVitals = computed(() => {
+    const limits = props.vitalPlausibility;
+    const weight = numericVitalValue(form.weight_kg);
+    const height = numericVitalValue(form.height_cm);
+    const bmi = numericVitalValue(displayedBmi.value);
+    const context = patientAgeLabel.value ? ` pour un patient de ${patientAgeLabel.value}` : '';
+    const found = [];
+
+    if (limits && weight !== null && weight > limits.weight_max) {
+        found.push({ key: 'weight', code: 'WEIGHT', text: `Poids de ${weight} kg peu vraisemblable${context}. Vérifiez la saisie.` });
+    }
+    if (limits && height !== null && height > limits.height_max) {
+        found.push({ key: 'height', code: 'HEIGHT', text: `Taille de ${height} cm peu vraisemblable${context}. Vérifiez la saisie.` });
+    }
+    if (bmi !== null && (bmi < 8 || bmi > 70) && !found.length) {
+        found.push({ key: 'bmi', code: 'BMI', text: `IMC de ${bmi} : poids et taille incohérents. Vérifiez la saisie.` });
+    }
+
+    return found;
+});
+
+/**
+ * Tabac et alcool selon l'âge (ADR-126) : cocher « Oui » pour un enfant est presque
+ * sûrement une faute de saisie ; pour un mineur, c'est un fait à noter.
+ */
+const substanceAlert = (value, name) => {
+    const limits = props.vitalPlausibility;
+    const age = limits?.patient_age;
+
+    if (value !== '1' || age === null || age === undefined) return null;
+
+    if (age < limits.substance_unlikely_below) {
+        return {
+            code: `SUBSTANCE_${name}_UNLIKELY`,
+            tone: 'danger',
+            label: `${name} : peu vraisemblable`,
+            message: `« Oui » peu vraisemblable pour un patient de ${patientAgeLabel.value}. Vérifiez la saisie.`,
+        };
+    }
+
+    if (age < limits.adult_age) {
+        return {
+            code: `SUBSTANCE_${name}_MINOR`,
+            tone: 'warning',
+            label: `${name} chez un mineur`,
+            message: `Consommation déclarée chez un patient de ${patientAgeLabel.value} : à noter et à signaler au médecin.`,
+        };
+    }
+
+    return null;
+};
+const smokerAlert = computed(() => substanceAlert(form.smoker, 'Tabac'));
+const alcoholAlert = computed(() => substanceAlert(form.alcohol, 'Alcool'));
+
+/** Un âge qu'aucun patient n'atteint : c'est la date de naissance ou l'âge déclaré qu'il faut vérifier. */
+const veryOldAlert = computed(() => {
+    const limits = props.vitalPlausibility;
+    const age = limits?.patient_age;
+
+    if (age === null || age === undefined || age < limits.very_old_from) return null;
+
+    return {
+        code: 'AGE_VERY_OLD',
+        tone: 'danger',
+        label: 'Âge à vérifier',
+        message: `Le dossier indique ${age} ans. Vérifiez la date de naissance ou l’âge déclaré : les repères de constantes en dépendent.`,
+    };
+});
+onMounted(() => {
+    if (veryOldAlert.value) toast.warning(`${veryOldAlert.value.label} — ${veryOldAlert.value.message}`, 12000);
+});
+
+const criticalToastFor = (assessment) => (assessment?.tone === 'danger'
+    ? { code: assessment.code, text: `${assessment.label} — ${assessment.message}` }
+    : null);
+
+const watchForToast = (key, source) => watch(source, (alert) => {
+    clearTimeout(vitalToastTimers.get(key));
+
+    if (!alert) {
+        vitalToasted.delete(key);
+
+        return;
+    }
+
+    vitalToastTimers.set(key, setTimeout(() => {
+        if (vitalToasted.get(key) === alert.code) return;
+
+        vitalToasted.set(key, alert.code);
+        toast.warning(alert.text, 10000);
+    }, 900));
+});
+
+watchForToast('bp', () => criticalToastFor(bloodPressureAssessment.value));
+watchForToast('hr', () => criticalToastFor(heartRateAssessment.value));
+watchForToast('spo2', () => criticalToastFor(oxygenSaturationAssessment.value));
+watchForToast('temp', () => criticalToastFor(temperatureAssessment.value));
+watchForToast('implausible', () => implausibleVitals.value[0] ?? null);
+watchForToast('smoker', () => criticalToastFor(smokerAlert.value));
+watchForToast('alcohol', () => criticalToastFor(alcoholAlert.value));
+onBeforeUnmount(() => vitalToastTimers.forEach((timer) => clearTimeout(timer)));
 
 const vitalInputClasses = (assessment) => assessment?.tone === 'danger'
     ? '!border-red-400 !bg-red-50/30 focus:!border-red-500 focus:!ring-red-100 dark:!border-red-800 dark:!bg-red-950/10 dark:focus:!ring-red-950'
@@ -838,7 +1049,7 @@ const confirmNotPerformed = () => {
     );
 };
 
-const activeCareOrder = computed(() => props.careOrders.find((order) => order.status !== 'COMPLETED') ?? null);
+const activeCareOrder = computed(() => props.careOrders.find((order) => !['COMPLETED', 'CANCELLED'].includes(order.status)) ?? null);
 /**
  * Acts the doctor asked for that nothing covers yet.
  *
@@ -848,7 +1059,7 @@ const activeCareOrder = computed(() => props.careOrders.find((order) => order.st
  * The server re-checks after saving, in the same transaction.
  */
 const careOrderUnresolvedCount = computed(() => activeCareOrder.value?.items.filter((item) => {
-    if (item.not_performed_at) return false;
+    if (item.not_performed_at || item.cancelled_at) return false;
 
     const entered = form.procedures
         .filter((line) => line.care_order_item_uuid === item.uuid)
@@ -892,7 +1103,7 @@ const procedureSourceLabel = (source) => ({
     ADDED_ON_SITE: 'Ajouté sur place',
 }[source] ?? '—');
 
-const orderStatusLabel = (status) => ({ PENDING: 'En attente', IN_PROGRESS: 'En cours', COMPLETED: 'Terminé' }[status] ?? status);
+const orderStatusLabel = (status) => ({ PENDING: 'En attente', IN_PROGRESS: 'En cours', COMPLETED: 'Terminé', CANCELLED: 'Retirée' }[status] ?? status);
 const orderStatusBadgeClass = (status) => ['rounded px-2 py-0.5 text-[10px] font-bold uppercase', {
     PENDING: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
     IN_PROGRESS: 'bg-primary/10 text-primary ',
@@ -1115,7 +1326,7 @@ const errorStepKeyByField = {
     diabetes_note: 'vitals', height_cm: 'vitals', weight_kg: 'vitals', smoker: 'vitals',
     alcohol: 'vitals',
     allergy_note: 'allergies', allergy_uuids: 'allergies', allergen_reference_uuids: 'allergies', new_allergies: 'allergies',
-    diagnostic_note: 'transmission', transmission_reason: 'transmission',
+    diagnostic_note: 'finish', transmission_reason: 'finish',
 };
 const stepKeyForErrorField = (field) => {
     if (field.startsWith('procedures.') || field === 'no_procedure_reason' || field === 'care_record') return 'procedures';
@@ -1171,7 +1382,20 @@ const submitAndComplete = (orientToMedicine = false) => {
         <div class="flex items-center gap-2">
             <span :class="['inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold', orientation.status === 'IN_PROGRESS' ? 'border-primary/30 bg-primary/10 text-primary ' : orientation.status === 'PENDING' ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' : orientation.status === 'COMPLETED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' : 'border-border bg-muted/35 text-muted-foreground']"><span class="h-1.5 w-1.5 rounded-full bg-current" />{{ orientation.status_label }}</span>
             <span class="text-xs text-muted-foreground">Pris en charge {{ orientation.accepted_at ? formatDateTime(orientation.accepted_at) : '—' }}<span v-if="orientation.accepted_by"> par {{ orientation.accepted_by }}</span></span>
+            <Button
+                v-if="canRelease"
+                type="button"
+                size="sm"
+                variant="white-outline"
+                class="ms-auto"
+                :disabled="releasing"
+                title="Pris en charge par erreur ? Le patient retrouve sa place dans la file."
+                @click="releasePatient"
+            >
+                <Undo2 class="h-4 w-4" aria-hidden="true" />Remettre en file
+            </Button>
         </div>
+        <p v-if="releaseError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300" role="alert">{{ releaseError }}</p>
 
         <div v-if="capabilities.handled_by_other" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200" role="status">
             <Lock class="h-4 w-4 mt-0.5 shrink-0" />
@@ -1272,11 +1496,13 @@ const submitAndComplete = (orientToMedicine = false) => {
                             <ul class="mt-2 space-y-1.5 border-t border-primary/20 pt-2">
                                 <li v-for="item in order.items" :key="item.uuid" class="text-sm text-muted-foreground">
                                     <div class="flex items-center justify-between gap-2">
-                                        <span>{{ item.name }}</span>
-                                        <span v-if="item.not_performed_at" class="text-[11px] font-semibold text-red-600 dark:text-red-300">Non réalisé</span>
+                                        <span :class="item.cancelled_at ? 'line-through' : ''">{{ item.name }}</span>
+                                        <span v-if="item.cancelled_at" class="text-[11px] font-semibold text-muted-foreground">Retiré par le médecin</span>
+                                        <span v-else-if="item.not_performed_at" class="text-[11px] font-semibold text-red-600 dark:text-red-300">Non réalisé</span>
                                         <span v-else class="text-[11px] font-semibold text-muted-foreground">{{ item.realized_quantity }}/{{ item.quantity }}</span>
                                     </div>
-                                    <p v-if="item.not_performed_reason" class="mt-0.5 text-[11px] text-muted-foreground">Motif : {{ item.not_performed_reason }}</p>
+                                    <p v-if="item.cancelled_at" class="mt-0.5 text-[11px] text-muted-foreground">Motif : {{ item.cancel_reason }}</p>
+                                    <p v-else-if="item.not_performed_reason" class="mt-0.5 text-[11px] text-muted-foreground">Motif : {{ item.not_performed_reason }}</p>
                                     <div v-else-if="Number(item.remaining_quantity) > 0 && orientation.status === 'IN_PROGRESS' && capabilities.can_edit" class="mt-1 flex items-center gap-3">
                                         <button type="button" class="text-[11px] font-semibold text-primary hover:underline " @click="realizeOrderItem(item)">Réaliser</button>
                                         <button type="button" class="text-[11px] font-semibold text-red-500 hover:underline" @click="markNotPerformed(item)">Non réalisé</button>
@@ -1310,6 +1536,10 @@ const submitAndComplete = (orientToMedicine = false) => {
                         <p class="mt-1 text-xs text-muted-foreground">Renseignez uniquement les données réellement relevées pendant ce passage. Tous les champs sont facultatifs.</p>
                     </div>
                 </div>
+
+                <p v-if="veryOldAlert" class="flex items-start gap-2 border-b border-red-200 bg-red-50 px-5 py-3 text-xs font-semibold text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300" role="alert">
+                    <CircleAlert class="mt-px h-4 w-4 shrink-0" aria-hidden="true" />{{ veryOldAlert.label }} — {{ veryOldAlert.message }}
+                </p>
 
                 <div class="divide-y divide-border">
                     <section class="px-5 py-5">
@@ -1353,7 +1583,7 @@ const submitAndComplete = (orientToMedicine = false) => {
                             <fieldset class="min-w-0">
                                 <legend class="mb-1.5 block text-xs font-semibold text-foreground">Diabète connu</legend>
                                 <div class="grid h-10 grid-cols-3 gap-1 rounded border border-border bg-muted/35 p-1">
-                                    <label v-for="option in yesNoOptions" :key="`diabetes-${option.value}`" :title="option.title" :class="['flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors', form.known_diabetes === option.value ? 'bg-card text-foreground shadow-sm ring-1 ring-border ' : 'text-muted-foreground hover:text-foreground', !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.known_diabetes" class="sr-only" type="radio" name="known_diabetes" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
+                                    <label v-for="option in yesNoOptions" :key="`diabetes-${option.value}`" :title="option.title" :class="[yesNoClasses(form.known_diabetes, option), !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.known_diabetes" class="sr-only" type="radio" name="known_diabetes" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
                                 </div>
                                 <FormError class="mt-1" :message="form.errors.known_diabetes" />
                                 <div v-if="form.known_diabetes === '1'" class="mt-2">
@@ -1364,15 +1594,17 @@ const submitAndComplete = (orientToMedicine = false) => {
                             <fieldset class="min-w-0">
                                 <legend class="mb-1.5 block text-xs font-semibold text-foreground">Tabac</legend>
                                 <div class="grid h-10 grid-cols-3 gap-1 rounded border border-border bg-muted/35 p-1">
-                                    <label v-for="option in yesNoOptions" :key="`smoker-${option.value}`" :title="option.title" :class="['flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors', form.smoker === option.value ? 'bg-card text-foreground shadow-sm ring-1 ring-border ' : 'text-muted-foreground hover:text-foreground', !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.smoker" class="sr-only" type="radio" name="smoker" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
+                                    <label v-for="option in yesNoOptions" :key="`smoker-${option.value}`" :title="option.title" :class="[yesNoClasses(form.smoker, option), !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.smoker" class="sr-only" type="radio" name="smoker" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
                                 </div>
+                                <p v-if="smokerAlert" :class="['mt-1.5 flex items-start gap-1.5 text-[11px] font-semibold leading-4', smokerAlert.tone === 'danger' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300']"><CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ smokerAlert.message }}</p>
                                 <FormError class="mt-1" :message="form.errors.smoker" />
                             </fieldset>
                             <fieldset class="min-w-0">
                                 <legend class="mb-1.5 block text-xs font-semibold text-foreground">Alcool</legend>
                                 <div class="grid h-10 grid-cols-3 gap-1 rounded border border-border bg-muted/35 p-1">
-                                    <label v-for="option in yesNoOptions" :key="`alcohol-${option.value}`" :title="option.title" :class="['flex cursor-pointer items-center justify-center rounded px-2 text-xs font-semibold transition-colors', form.alcohol === option.value ? 'bg-card text-foreground shadow-sm ring-1 ring-border ' : 'text-muted-foreground hover:text-foreground', !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.alcohol" class="sr-only" type="radio" name="alcohol" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
+                                    <label v-for="option in yesNoOptions" :key="`alcohol-${option.value}`" :title="option.title" :class="[yesNoClasses(form.alcohol, option), !capabilities.can_edit_vitals ? 'pointer-events-none opacity-60' : '']"><input v-model="form.alcohol" class="sr-only" type="radio" name="alcohol" :value="option.value" :disabled="!capabilities.can_edit_vitals" />{{ option.label }}</label>
                                 </div>
+                                <p v-if="alcoholAlert" :class="['mt-1.5 flex items-start gap-1.5 text-[11px] font-semibold leading-4', alcoholAlert.tone === 'danger' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300']"><CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ alcoholAlert.message }}</p>
                                 <FormError class="mt-1" :message="form.errors.alcohol" />
                             </fieldset>
                             <div class="min-w-0">
@@ -1676,29 +1908,6 @@ const submitAndComplete = (orientToMedicine = false) => {
                 </section>
             </section>
 
-            <section v-else-if="currentStepKey === 'transmission'" class="overflow-hidden rounded-lg border border-border bg-card shadow-sm shadow-slate-200/20 dark:shadow-none">
-                <div class="flex items-start gap-3 border-b border-border px-5 py-4">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground"><Send class="h-5 w-5" /></span>
-                    <div class="min-w-0">
-                        <div class="flex flex-wrap items-center gap-2"><h2 class="text-sm font-bold text-foreground">Transmission clinique</h2><span class="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">Vers Médecine</span></div>
-                        <p class="mt-1 text-xs text-muted-foreground">Ce qui doit être su avant la suite du parcours.</p>
-                    </div>
-                </div>
-                <div class="grid gap-4 p-5">
-                    <div v-if="latestDiagnosis" class="rounded border border-border bg-muted/25 px-4 py-3">
-                        <p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Diagnostic transmis <span class="rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">Lecture seule</span></p>
-                        <p class="mt-1.5 text-sm font-semibold text-foreground">{{ latestDiagnosis.description }}</p>
-                        <p class="mt-1 text-[11px] text-muted-foreground">Dr {{ latestDiagnosis.doctor }} · {{ formatDateTime(latestDiagnosis.recorded_at) }}</p>
-                    </div>
-                    <div>
-                        <label for="diagnostic_note" class="mb-1.5 block text-sm font-medium text-foreground">Information médicale complémentaire <span class="font-normal text-muted-foreground">(si communiquée verbalement)</span></label>
-                        <textarea id="diagnostic_note" v-model="form.diagnostic_note" rows="2" :disabled="!capabilities.can_edit" placeholder="Ne pas inventer un diagnostic : uniquement ce qui a été réellement communiqué" class="block w-full resize-y rounded border border-border bg-card px-4 py-2 text-sm text-foreground outline-none focus:border-primary/60 focus:ring-2 focus:ring-ring/25 disabled:bg-muted/40" />
-                        <FormError class="mt-1" :message="form.errors.diagnostic_note" />
-                    </div>
-                    <div><label for="transmission_reason" class="mb-1.5 block text-sm font-medium text-foreground">Observations / transmission infirmière</label><textarea id="transmission_reason" v-model="form.transmission_reason" rows="3" :disabled="!capabilities.can_edit" placeholder="État du patient, actes réalisés, réaction, surveillance, points de vigilance" class="block w-full resize-y rounded border border-border bg-card px-4 py-2 text-sm text-foreground outline-none focus:border-primary/60 focus:ring-2 focus:ring-ring/25 disabled:bg-muted/40" /><FormError class="mt-1" :message="form.errors.transmission_reason" /></div>
-                </div>
-            </section>
-
             <section v-else-if="currentStepKey === 'finish'" class="overflow-hidden rounded-lg border border-border bg-card shadow-sm shadow-slate-200/20 dark:shadow-none">
                 <header class="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
                     <div class="flex min-w-0 items-start gap-3">
@@ -1714,8 +1923,21 @@ const submitAndComplete = (orientToMedicine = false) => {
                 <!-- Content on the left, context on the right: a single wide
                      column left "Aucun" floating in empty space and gave the
                      alerts the same visual weight as the data. -->
-                <div :class="['grid gap-0', completionWarnings.length ? 'lg:grid-cols-[minmax(0,1fr)_340px] lg:divide-x lg:divide-border' : '']">
-                    <div class="space-y-5 p-5">
+                <!-- Deux panneaux que l'on redimensionne à la barre : ce que le soignant
+                     enregistre à gauche, ce qu'il transmet à droite. Le rapport est une
+                     préférence d'affichage, jamais envoyée au serveur. -->
+                <ResizableSplit
+                    class="p-5"
+                    :single="!hasSideColumn"
+                    storage-key="rivo:care:finish-split"
+                    :default-ratio="0.45"
+                    :min-ratio="0.3"
+                    :max-ratio="0.65"
+                    start-label="panneau À enregistrer maintenant"
+                    end-label="panneau Transmission à Médecine"
+                >
+                    <template #start>
+                    <div class="flex h-full flex-col gap-5">
                         <div>
                             <h3 class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">À enregistrer maintenant</h3>
                             <dl class="mt-3 space-y-2.5">
@@ -1755,14 +1977,6 @@ const submitAndComplete = (orientToMedicine = false) => {
                                         <span v-if="newAllergyCount" class="mt-0.5 block text-[11px] text-primary">{{ newAllergyCount }} ajoutée(s) au dossier permanent</span>
                                     </dd>
                                 </div>
-
-                                <div v-if="episode.care_transmission_expected" class="grid gap-0.5 sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-3">
-                                    <dt class="text-xs text-muted-foreground">Transmission</dt>
-                                    <dd class="text-xs">
-                                        <span v-if="trimmed(form.transmission_reason)" class="text-foreground">{{ form.transmission_reason }}</span>
-                                        <span v-else class="text-muted-foreground">Non renseignée</span>
-                                    </dd>
-                                </div>
                             </dl>
                         </div>
 
@@ -1786,28 +2000,80 @@ const submitAndComplete = (orientToMedicine = false) => {
                             <History class="h-4 w-4" />
                             <span>Déjà au dossier : {{ alreadyOnFile.join(' · ') }}</span>
                         </p>
-                    </div>
 
-                    <aside v-if="completionWarnings.length" class="border-t border-border p-5 lg:border-t-0">
-                        <h3 class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                            Points de vigilance
-                            <span class="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">{{ completionWarnings.length }}</span>
-                        </h3>
-                        <ul class="mt-3 space-y-2">
-                            <li v-for="warning in completionWarnings" :key="warning.text" :class="['flex items-start gap-2 rounded border-s-2 py-1.5 pe-2 ps-2.5 text-[11px] leading-4', {
-                                danger: 'border-s-red-500 bg-red-50/60 text-red-800 dark:bg-red-950/20 dark:text-red-300',
-                                warning: 'border-s-amber-500 bg-amber-50/60 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200',
-                                info: 'border-s-slate-300 bg-muted/35 text-foreground dark:border-s-slate-600 ',
-                            }[warning.tone]]">
-                                <component :is="warning.tone === Info ? Info : CircleAlert" class="h-4 w-4 mt-px shrink-0" />
-                                <span>{{ warning.text }}</span>
-                            </li>
-                        </ul>
-                        <p class="mt-3 text-[10px] leading-4 text-muted-foreground">
-                            Ces repères sont une aide au dépistage et ne bloquent pas la validation.
-                        </p>
+                        <!-- Épinglés en bas du panneau, repliés en pastilles : le
+                             repère se voit d'un coup d'œil sans allonger la page. -->
+                        <section v-if="completionWarnings.length" class="mt-auto space-y-2 border-t border-border pt-3" aria-labelledby="care-warnings-title">
+                            <div class="flex items-center justify-between gap-2">
+                                <h3 id="care-warnings-title" class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                                    Points de vigilance
+                                    <Badge variant="outline">{{ completionWarnings.length }}</Badge>
+                                </h3>
+                                <button type="button" class="text-[11px] font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" :aria-expanded="warningsExpanded" @click="warningsExpanded = !warningsExpanded">
+                                    {{ warningsExpanded ? 'Masquer le détail' : 'Voir le détail' }}
+                                </button>
+                            </div>
+
+                            <ul v-if="!warningsExpanded" class="flex flex-wrap gap-1.5">
+                                <li v-for="warning in completionWarnings" :key="warning.text" :title="warning.text" :class="['inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold', warningPillClass(warning.tone)]">
+                                    <CircleAlert class="h-3 w-3 shrink-0" aria-hidden="true" />{{ warningTitle(warning) }}
+                                </li>
+                            </ul>
+                            <ul v-else class="space-y-1.5">
+                                <li v-for="warning in completionWarnings" :key="warning.text" :class="['flex items-start gap-2 rounded border-s-2 py-1 pe-2 ps-2.5 text-[11px] leading-4', {
+                                    danger: 'border-s-red-500 bg-red-50/60 text-red-800 dark:bg-red-950/20 dark:text-red-300',
+                                    warning: 'border-s-amber-500 bg-amber-50/60 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200',
+                                    info: 'border-s-slate-300 bg-muted/35 text-foreground dark:border-s-slate-600',
+                                }[warning.tone]]">
+                                    <CircleAlert class="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    <span>{{ warning.text }}</span>
+                                </li>
+                            </ul>
+                            <p class="text-[10px] leading-4 text-muted-foreground">Ces repères sont une aide au dépistage et ne bloquent pas la validation.</p>
+                        </section>
+                    </div>
+                    </template>
+
+                    <template #end>
+                    <aside v-if="hasSideColumn" class="space-y-5">
+                        <section v-if="episode.care_transmission_expected" aria-labelledby="care-transmission-title" class="space-y-3">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary"><Send class="h-4 w-4" aria-hidden="true" /></span>
+                                <h3 id="care-transmission-title" class="text-sm font-bold text-foreground">Transmission à Médecine</h3>
+                                <Badge variant="secondary">Facultatif</Badge>
+                            </div>
+
+                            <div v-if="latestDiagnosis" class="rounded-md border border-border bg-muted/30 px-3 py-2.5">
+                                <p class="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Diagnostic transmis <Badge variant="outline">Lecture seule</Badge></p>
+                                <p class="mt-1 text-sm font-semibold text-foreground">{{ latestDiagnosis.description }}</p>
+                                <p class="mt-0.5 text-[11px] text-muted-foreground">Dr {{ latestDiagnosis.doctor }} · {{ formatDateTime(latestDiagnosis.recorded_at) }}</p>
+                            </div>
+
+                            <FormField as="div" label="Information médicale complémentaire" hint="(si communiquée verbalement)" :error="form.errors.diagnostic_note">
+                                <ClinicalRichTextEditor
+                                    id="diagnostic_note"
+                                    v-model="form.diagnostic_note"
+                                    :disabled="!capabilities.can_edit"
+                                    placeholder="Ne pas inventer un diagnostic : uniquement ce qui a été réellement communiqué"
+                                    min-height-class="min-h-16"
+                                    toolbar-label="Mise en forme de l’information médicale complémentaire"
+                                />
+                            </FormField>
+
+                            <FormField as="div" label="Observations / transmission infirmière" :error="form.errors.transmission_reason">
+                                <ClinicalRichTextEditor
+                                    id="transmission_reason"
+                                    v-model="form.transmission_reason"
+                                    :disabled="!capabilities.can_edit"
+                                    placeholder="État du patient, actes réalisés, réaction, surveillance, points de vigilance"
+                                    min-height-class="min-h-24"
+                                    toolbar-label="Mise en forme de la transmission infirmière"
+                                />
+                            </FormField>
+                        </section>
                     </aside>
-                </div>
+                    </template>
+                </ResizableSplit>
 
                 <footer v-if="activeCareOrder || capabilities.can_complete" :class="['flex items-start gap-2 border-t px-5 py-3 text-xs font-semibold', careOrderUnresolvedCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200' : 'border-border bg-muted/30 text-foreground']">
                     <component :is="careOrderUnresolvedCount > 0 ? CircleAlert : ArrowRight" class="mt-px h-4 w-4 shrink-0" />

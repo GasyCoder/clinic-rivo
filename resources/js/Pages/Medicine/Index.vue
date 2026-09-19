@@ -1,15 +1,18 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import QueueSkipConfirm from '@/Components/Clinical/QueueSkipConfirm.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import { Activity, ArrowRight, CircleAlert, Clock, Eye, Folder, Info, List, Play, RefreshCw, Search, Siren, Users } from 'lucide-vue-next';
+import { Activity, ArrowRight, CircleAlert, Clock, Eye, Folder, List, Play, RefreshCw, Search, Siren, Undo2, Users } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { useToastStore } from '@/stores/toast';
+import { useQueueSkipGuard } from '@/composables/useQueueSkipGuard';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
@@ -18,6 +21,8 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({ orientations: Object, counts: Object, filter: String, search: String });
 const { can } = usePermissions();
 const query = ref(props.search ?? '');
+const page = usePage();
+const toast = useToastStore();
 
 const visit = (params) => router.get('/medicine', params, { preserveState: true, preserveScroll: true, replace: true });
 const selectFilter = (filter) => visit({ ...(query.value ? { q: query.value } : {}), ...(filter !== 'all' ? { filter } : {}) });
@@ -65,57 +70,24 @@ const waitTone = (orientation) => {
 
 const isEmergency = (orientation) => orientation.episode.priority === 'EMERGENCY';
 
-/* ------------------------------------------------------------------ *
- * Sauter un patient de la file : on demande, on n'interdit pas.
- *
- * Prendre le n° 2 avant le n° 1 est parfois la bonne décision — le
- * premier est aux toilettes, son dossier n'est pas remonté, il n'est pas
- * revenu des Soins. Aucune règle du CDC n'impose l'ordre d'arrivée, et le
- * serveur ne bloque donc rien : ce garde-fou est ergonomique, il évite
- * l'oubli, pas la décision.
- * ------------------------------------------------------------------ */
+// Prendre un patient qui n'est pas le premier de la file : on demande, on
+// n'interdit pas (même garde-fou que les Soins, `useQueueSkipGuard`).
+const skipGuard = useQueueSkipGuard({
+    rows: () => props.orientations.data,
+    currentPage: () => props.orientations.current_page,
+    accept: (orientation) => router.post(`/medicine/orientations/${orientation.uuid}/accept`, {}, { preserveScroll: true }),
+});
+const requestAccept = skipGuard.request;
 
-/** Les patients encore à prendre en charge placés avant celui-ci. */
-const pendingAhead = (orientation) => {
-    const rows = props.orientations.data;
-    const index = rows.findIndex((row) => row.uuid === orientation.uuid);
-
-    return index <= 0 ? [] : rows.slice(0, index).filter((row) => row.status === 'PENDING');
-};
-
-const skipConfirm = ref(null);
-
-const goToOrientation = (orientation) => router.post(
-    `/medicine/orientations/${orientation.uuid}/accept`,
-    {},
-    { preserveScroll: true },
-);
-
-const requestAccept = (orientation) => {
-    const ahead = pendingAhead(orientation);
-    // Une page précédente contient forcément des patients arrivés avant,
-    // que cette page n'affiche pas : on ne peut pas prétendre le contraire.
-    const earlierPages = (props.orientations.current_page ?? 1) > 1;
-
-    if (ahead.length === 0 && ! earlierPages) {
-        goToOrientation(orientation);
-
-        return;
-    }
-
-    skipConfirm.value = { orientation, ahead, earlierPages };
-};
-
-const confirmSkip = () => {
-    const target = skipConfirm.value?.orientation;
-    skipConfirm.value = null;
-
-    if (target) goToOrientation(target);
-};
-
-// Passer devant une urgence n'est pas passer devant une attente ordinaire :
-// le message change de ton pour que la différence se voie.
-const skippedEmergencies = computed(() => (skipConfirm.value?.ahead ?? []).filter(isEmergency));
+// Pris par erreur : le patient retrouve sa place. Le serveur refuse dès que la
+// consultation est réellement commencée, et le dit (ADR-127).
+const canRelease = (orientation) => orientation.status === 'IN_PROGRESS'
+    && orientation.accepted_by_id === page.props.auth?.user?.id
+    && can('consultations.create');
+const releasePatient = (orientation) => router.post(`/medicine/orientations/${orientation.uuid}/release`, {}, {
+    preserveScroll: true,
+    onError: (errors) => toast.warning(errors.orientation ?? 'Le patient n’a pas pu être remis en file.', 8000),
+});
 
 // Full words, as on the patient directory: a queue cell has room for them
 // and "H"/"F" is jargon the app avoids elsewhere.
@@ -336,6 +308,7 @@ const EMPTY_STATES = {
                                 <Link v-else-if="can('consultations.create')" :href="`/medicine/orientations/${orientation.uuid}/accept`" method="post" as="button" preserve-scroll>
                                     <Button size="sm" variant="white-outline"><Eye class="h-4 w-4" />Ouvrir</Button>
                                 </Link>
+                                <Button v-if="canRelease(orientation)" type="button" size="sm" variant="white-outline" class="ms-2" title="Pris en charge par erreur ? Le patient retrouve sa place dans la file." @click="releasePatient(orientation)"><Undo2 class="h-4 w-4" />Remettre en file</Button>
                             </td>
                         </tr>
                         <tr v-if="orientations.data.length === 0">
@@ -362,56 +335,11 @@ const EMPTY_STATES = {
         </Card>
     </div>
 
-    <!-- Confirmation, jamais blocage : le médecin garde la décision, on lui
-         rappelle seulement qui attend devant. -->
-    <div v-if="skipConfirm" class="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" @click.self="skipConfirm = null">
-        <section class="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card shadow-xl" role="dialog" aria-modal="true" aria-labelledby="skip-queue-title">
-            <header class="flex items-start gap-3 border-b border-border px-5 py-4">
-                <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-full', skippedEmergencies.length ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300']">
-                    <CircleAlert class="h-5 w-5" />
-                </span>
-                <div class="min-w-0">
-                    <h2 id="skip-queue-title" class="font-heading text-base font-bold text-foreground">
-                        {{ skippedEmergencies.length ? 'Une urgence attend avant ce patient' : 'Un patient attend avant celui-ci' }}
-                    </h2>
-                    <p class="mt-0.5 text-xs text-muted-foreground">
-                        Vous allez prendre en charge {{ formatPatientName(skipConfirm.orientation.episode.patient) }}.
-                    </p>
-                </div>
-            </header>
-
-            <div class="space-y-3 px-5 py-4">
-                <ul v-if="skipConfirm.ahead.length" class="space-y-1.5">
-                    <li
-                        v-for="row in skipConfirm.ahead.slice(0, 4)"
-                        :key="row.uuid"
-                        :class="['flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm', isEmergency(row) ? 'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20' : 'border-border']"
-                    >
-                        <span class="min-w-0">
-                            <span class="block truncate font-semibold text-foreground">{{ formatPatientName(row.episode.patient) }}</span>
-                            <span class="text-xs text-muted-foreground">{{ row.episode.episode_number }}<template v-if="isEmergency(row)"> · Urgence</template></span>
-                        </span>
-                        <span :class="['shrink-0 text-sm font-bold', waitTone(row)]">{{ waitedLabel(row) }}</span>
-                    </li>
-                </ul>
-                <p v-if="skipConfirm.ahead.length > 4" class="text-xs text-muted-foreground">
-                    … et {{ skipConfirm.ahead.length - 4 }} autre{{ skipConfirm.ahead.length - 4 > 1 ? 's' : '' }} patient{{ skipConfirm.ahead.length - 4 > 1 ? 's' : '' }} avant celui-ci.
-                </p>
-                <p v-if="skipConfirm.earlierPages" class="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                    <Info class="mt-px shrink-0 h-4 w-4" />Les pages précédentes de la file contiennent d’autres patients arrivés avant, non affichés ici.
-                </p>
-                <p class="text-xs leading-5 text-muted-foreground">
-                    Prendre ce patient d’abord reste possible — dossier incomplet, patient absent, priorité clinique.
-                    Ce rappel n’empêche rien.
-                </p>
-            </div>
-
-            <footer class="flex flex-col-reverse gap-2 border-t border-border bg-muted/60 px-5 py-4 /30 sm:flex-row sm:justify-end">
-                <Button size="rg" type="button" variant="white-outline" @click="skipConfirm = null">Annuler</Button>
-                <Button size="rg" type="button" :variant="skippedEmergencies.length ? 'danger' : 'primary'" @click="confirmSkip">
-                    <Play class="me-1.5 h-4 w-4" />Prendre celui-ci quand même
-                </Button>
-            </footer>
-        </section>
-    </div>
+    <QueueSkipConfirm
+        :pending="skipGuard.pending.value"
+        :waited-label="waitedLabel"
+        :wait-tone="waitTone"
+        @confirm="skipGuard.confirm"
+        @cancel="skipGuard.cancel"
+    />
 </template>

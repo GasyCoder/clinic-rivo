@@ -12,6 +12,7 @@ const props = defineProps({
     id: { type: String, default: undefined },
     /** Tailwind min-height for the writing area, e.g. 'min-h-36'. */
     minHeightClass: { type: String, default: 'min-h-44' },
+    toolbarLabel: { type: String, default: 'Mise en forme de l’interrogatoire' },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -24,6 +25,17 @@ const decodePlainHtml = (value) => {
 
     return container.textContent ?? '';
 };
+// Un texte sans balise (repris du dossier, ancienne saisie) garde ses
+// retours à la ligne : chaque ligne devient un paragraphe, sinon un résumé de
+// plusieurs lignes s'afficherait collé en une seule phrase.
+const escapeHtml = (value) => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+const plainToParagraphs = (value) => decodePlainHtml(value)
+    .split(/\r?\n/)
+    .map((line) => (line.trim() === '' ? '<p><br></p>' : `<p>${escapeHtml(line)}</p>`))
+    .join('');
 const plainLength = computed(() => {
     if (typeof document === 'undefined') return 0;
     const container = document.createElement('div');
@@ -41,7 +53,7 @@ const syncEditor = () => {
     if (containsMarkup(props.modelValue)) {
         editor.value.innerHTML = props.modelValue;
     } else {
-        editor.value.textContent = decodePlainHtml(props.modelValue);
+        editor.value.innerHTML = props.modelValue ? plainToParagraphs(props.modelValue) : '';
     }
 };
 
@@ -74,7 +86,7 @@ onMounted(syncEditor);
 
 <template>
     <div :class="['overflow-hidden rounded border bg-card transition-shadow', disabled ? 'border-border bg-muted/35' : 'border-border focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/25']">
-        <div class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" aria-label="Mise en forme de l’interrogatoire">
+        <div class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" :aria-label="toolbarLabel">
             <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Bold class="h-4 w-4" aria-hidden="true" /></button>
             <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Italic class="h-4 w-4" aria-hidden="true" /></button>
             <button type="button" class="editor-tool" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')"><Underline class="h-4 w-4" aria-hidden="true" /></button>

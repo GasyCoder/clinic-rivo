@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { LayoutGrid, List } from 'lucide-vue-next';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import { cn } from '@/lib/cn';
@@ -25,7 +25,14 @@ const key = `rivo.view.${props.storageKey}`;
 const read = () => {
     try { return localStorage.getItem(key) ?? props.defaultView; } catch { return props.defaultView; }
 };
-const view = ref(read() === 'list' ? 'list' : 'grid');
+// The page is server-rendered: the server cannot see `localStorage`, so the
+// first render is always the default view, and the remembered one is applied
+// once the browser has the page. Reading it while rendering made the client
+// differ from the HTML it hydrates — the same fault as the sidebar order.
+const view = ref(props.defaultView === 'list' ? 'list' : 'grid');
+onMounted(() => {
+    view.value = read() === 'list' ? 'list' : 'grid';
+});
 const OPTIONS = [
     { value: 'grid', icon: LayoutGrid, label: 'Grandes icônes' },
     { value: 'list', icon: List, label: 'Liste' },

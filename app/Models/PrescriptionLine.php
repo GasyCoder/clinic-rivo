@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use App\Enums\ClinicalSuggestionSource;
 use App\Enums\AdministrationRoute;
+use App\Enums\ClinicalSuggestionSource;
 use App\Enums\PrescriptionLineReviewStatus;
 use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;

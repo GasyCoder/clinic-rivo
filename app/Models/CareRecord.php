@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,6 +29,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class CareRecord extends Model
 {
     use Auditable, HasUuid;
+
+    /** Les notes de transmission se lisent en HTML assaini ; la valeur brute sert l'éditeur. */
+    protected $appends = ['diagnostic_note_html', 'transmission_reason_html'];
+
+    public function getDiagnosticNoteHtmlAttribute(): ?string
+    {
+        return app(ClinicalRichTextSanitizer::class)->displayHtml($this->diagnostic_note);
+    }
+
+    public function getTransmissionReasonHtmlAttribute(): ?string
+    {
+        return app(ClinicalRichTextSanitizer::class)->displayHtml($this->transmission_reason);
+    }
 
     protected function casts(): array
     {

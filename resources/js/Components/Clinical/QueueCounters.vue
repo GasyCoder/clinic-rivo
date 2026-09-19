@@ -23,7 +23,7 @@ import { cn } from '@/lib/cn';
  *    est longue qu'on le regarde.
  */
 const props = defineProps({
-    /** `[{ value, label, hint?, icon, tone?, count, active?, filterable? }]` */
+    /** `[{ value, label, hint?, title?, icon, tone?, count, active?, filterable? }]` */
     tiles: { type: Array, required: true },
     class: { type: String, default: '' },
 });
@@ -80,6 +80,7 @@ const clickable = (tile) => tile.filterable !== false;
             v-for="tile in tiles"
             :key="tile.value"
             :type="clickable(tile) ? 'button' : undefined"
+            :title="tile.title"
             :class="cn(
                 'flex items-start gap-3 rounded-xl border bg-card p-4 text-start shadow-sm transition-colors',
                 tile.active ? tone(tile).active : tone(tile).idle,

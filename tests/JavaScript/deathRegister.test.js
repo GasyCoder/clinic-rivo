@@ -89,7 +89,6 @@ test('les formulaires cliniques n’habillent plus de contrôle natif', () => {
     }
 
     assert.match(orientation, /import Select from '@\/Components\/Shadcn\/Select\.vue'/);
-    assert.match(orientation, /import Textarea from '@\/Components\/Shadcn\/Textarea\.vue'/);
     assert.match(discharge, /import Select from '@\/Components\/Shadcn\/Select\.vue'/);
 });
 
@@ -107,18 +106,42 @@ test('les demandes de conduite à tenir utilisent la primitive de champ', () => 
     assert.doesNotMatch(orientation, /mb-1 block text-\[11px\] font-bold/);
 
     // Et l'erreur remonte au champ plutôt que de flotter sous lui.
-    assert.match(orientation, /<FormField label="Motif d’hospitalisation" required :error="hospitalizationForm\.errors\.reason">/);
+    assert.match(orientation, /<FormField label="Intervention envisagée" required :error="surgeryForm\.errors\.catalog_item_uuid">/);
 });
 
 /**
- * Un compte rendu d'imagerie fait une dizaine de lignes. Sur quatre rangées,
- * il fallait faire défiler un champ pour relire ce qui part au service.
+ * ADR-114 — une destination qui a son module ne se remplit plus en
+ * consultation : le médecin coche et transmet, le reste part repris du
+ * dossier et se complète dans l'espace destinataire.
  */
-test('le résumé clinique a la place de son contenu', () => {
-    for (const id of ['orientation_hosp_summary', 'orientation_referral_summary']) {
-        const field = orientation.slice(orientation.indexOf(id), orientation.indexOf(id) + 220);
-        assert.match(field, /:rows="10"/);
-    }
+test('les demandes vers un module se transmettent sans formulaire', () => {
+    // Transfert : ni établissement ni résumé à saisir ici.
+    assert.doesNotMatch(orientation, /orientation_referral_facility|orientation_referral_summary/);
+    assert.match(orientation, /espace <strong class="font-semibold text-foreground">Transferts<\/strong>/);
+
+    // Maternité / Pédiatrie : un clic, le motif repris du dossier.
+    assert.doesNotMatch(orientation, /orientation_service_motif|orientation_service_observations/);
+
+    // Chirurgie : l'intervention reste à choisir, le diagnostic est repris.
+    assert.doesNotMatch(orientation, /orientation_surgery_diagnostic|orientation_surgery_notes/);
+    assert.match(orientation, /id="orientation_surgery_item"/);
+});
+
+/**
+ * Le résumé transmis se complète dans le module Transferts, en texte riche,
+ * et garde la place de son contenu. La lettre imprime le HTML assaini, jamais
+ * les balises en clair.
+ */
+test('la demande de transfert se rédige en texte riche', () => {
+    const transfer = fs.readFileSync(new URL('../../resources/js/Pages/Transfers/Show.vue', import.meta.url), 'utf8');
+    const letter = fs.readFileSync(new URL('../../resources/js/Pages/Medicine/MedicalReferralPrint.vue', import.meta.url), 'utf8');
+
+    assert.match(transfer, /<ClinicalRichTextEditor/);
+    assert.match(transfer, /\{ key: 'clinical_summary', label: 'Résumé clinique et examens', max: 5000, height: 'min-h-56' \}/);
+    assert.doesNotMatch(transfer, /<Textarea v-model="requestForm\./);
+
+    assert.match(letter, /<ClinicalRichTextDisplay class="rx-block-value" :html="block\.html" \/>/);
+    assert.doesNotMatch(letter, /\{\{ block\.value \}\}/);
 });
 
 /**
@@ -155,4 +178,32 @@ test('la sortie médicale passe par une confirmation', () => {
     assert.match(dialog, /\$page\.props\.auth\.user\.name/);
     // Un décès se confirme dans ses propres termes.
     assert.match(dialog, /Je confirme le décès/);
+});
+
+/**
+ * ADR-113 / ADR-107 (amendements) — une destination qui a son module se
+ * transmet en un clic : le détail se complète dans l'espace Hospitalisation
+ * ou dans le registre des décès, jamais deux fois.
+ */
+test('hospitalisation et décès se transmettent sans formulaire', () => {
+    const hospital = orientation.slice(orientation.indexOf("active.type === 'HOSPITALIZATION'"), orientation.indexOf("active.type === 'REFERRAL'"));
+    assert.doesNotMatch(hospital, /hospitalizationForm\.reason/);
+    assert.match(hospital, /Transmettre la demande/);
+
+    assert.doesNotMatch(discharge, /id="death_occurred_at"/);
+    assert.doesNotMatch(discharge, /id="death_causes"/);
+    assert.match(discharge, /registre des décès/);
+});
+
+/**
+ * ADR-114 — une demande transmise vers un module ne se retransmet pas : le
+ * second clic créait un doublon. L'écran conduit au module à la place.
+ */
+test('une demande transmise ne propose plus « Transmettre la demande »', () => {
+    assert.match(orientation, /const MODULE_TYPES = \['SURGERY', 'HOSPITALIZATION', 'REFERRAL', 'MATERNITY', 'PEDIATRICS'\]/);
+    assert.match(orientation, /<div v-if="submittedToModule"/);
+    // Tous les formulaires qui transmettent suivent ce bloc dans la même chaîne.
+    assert.match(orientation, /<form v-else-if="active\.type === 'SURGERY'"/);
+    assert.match(orientation, /:href="active\.request\.module_url"/);
+    assert.doesNotMatch(orientation, /corriger en la retransmettant/);
 });

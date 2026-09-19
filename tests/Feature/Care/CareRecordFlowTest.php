@@ -8,11 +8,11 @@ use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\AllergenCategory;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\AllergenReference;
 use App\Models\BillableItem;
-use App\Enums\EpisodeOrientationStatus;
 use App\Models\CareRecord;
 use App\Models\CareRecordProcedure;
 use App\Models\CatalogItem;
@@ -31,6 +31,36 @@ use Tests\TestCase;
 class CareRecordFlowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_the_transmission_notes_are_rich_text_sanitised_and_an_empty_editor_is_an_absence(): void
+    {
+        $nurse = $this->userWithPermissions([
+            'care.view', 'care.create', 'care.update', 'care.complete',
+            'vitals.view', 'vitals.create', 'vitals.update',
+        ]);
+        [$orientation] = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareThenMedicine);
+
+        $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
+            'diagnostic_note' => '<p><br></p>',
+            'transmission_reason' => '<p>Surveiller la <strong>tension</strong></p><script>alert(1)</script><ul><li>Recontrôle</li></ul>',
+        ])->assertSessionHasNoErrors();
+
+        $record = CareRecord::query()->sole();
+
+        $this->assertNull($record->diagnostic_note, 'Un éditeur vidé n’est pas une note.');
+        $this->assertStringContainsString('<strong>tension</strong>', $record->transmission_reason);
+        $this->assertStringContainsString('<li>Recontrôle</li>', $record->transmission_reason);
+        $this->assertStringNotContainsString('script', $record->transmission_reason);
+        $this->assertStringNotContainsString('script', (string) $record->transmission_reason_html);
+    }
+
+    public function test_an_old_plain_text_transmission_keeps_its_lines_when_read(): void
+    {
+        $record = new CareRecord(['transmission_reason' => "Ligne 1\nLigne 2 & suite"]);
+
+        $this->assertSame('Ligne 1<br>Ligne 2 &amp; suite', $record->transmission_reason_html);
+        $this->assertNull((new CareRecord(['transmission_reason' => null]))->transmission_reason_html);
+    }
 
     public function test_nurse_records_vitals_context_and_append_only_performed_procedures(): void
     {

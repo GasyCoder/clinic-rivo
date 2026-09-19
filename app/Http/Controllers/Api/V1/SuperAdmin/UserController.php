@@ -10,7 +10,6 @@ use App\Actions\User\ForceDeleteUserAction;
 use App\Actions\User\UpdateUserAction;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
-use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;

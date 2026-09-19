@@ -19,10 +19,11 @@ use Illuminate\Validation\ValidationException;
  * The doctor refers the patient out — another establishment, or another
  * site of the clinic.
  *
- * Records what the receiving team has to read and nothing about what they
- * then do: there is no departure, no arrival and no acknowledgement here.
- * Whether the patient actually left is a fact the sending doctor cannot
- * observe, and a status claiming it would be fabricated.
+ * Records what the receiving team has to read. The departure is not the
+ * doctor's to claim: it is recorded later, in the Transferts workspace,
+ * by whoever sees the patient leave (« Transfert effectué », ADR-114).
+ * There is still no arrival and no acknowledgement — nobody here can
+ * observe them.
  *
  * A transfer is not a medical discharge. `MedicalDischarge` of type
  * TRANSFER remains the act that ends the medical pathway (ADR-035); this
@@ -40,6 +41,7 @@ class CreateMedicalReferralAction
     {
         return DB::transaction(function () use ($consultation, $data, $actor): MedicalReferral {
             $lockedConsultation = Consultation::query()->lockForUpdate()->findOrFail($consultation->getKey());
+            $this->recordOrientation->ensureNotAlreadySubmitted($lockedConsultation, ConsultationOrientationType::Referral);
             $medicineOrientation = EpisodeOrientation::query()
                 ->with('episode')
                 ->lockForUpdate()
@@ -53,20 +55,24 @@ class CreateMedicalReferralAction
             }
 
             $priority = ClinicalPriority::from($data['priority']);
+            // ADR-114 — la demande part en un clic : l'établissement et le
+            // motif se complètent dans le module Transferts, jamais inventés.
+            $facility = trim((string) ($data['facility'] ?? '')) ?: null;
+            $reason = trim((string) ($data['reason'] ?? '')) ?: null;
             $orientation = $this->createOrientation->execute(
                 $medicineOrientation->episode,
                 CatalogModule::Medicine,
                 CatalogModule::Transfer,
                 $actor,
-                trim($data['facility']).' — '.trim($data['reason']),
+                implode(' — ', array_filter([$facility, $reason])) ?: null,
             );
 
             $referral = MedicalReferral::query()->create([
                 'episode_id' => $medicineOrientation->episode_id,
                 'consultation_id' => $lockedConsultation->getKey(),
                 'episode_orientation_id' => $orientation->getKey(),
-                'facility' => trim($data['facility']),
-                'reason' => trim($data['reason']),
+                'facility' => $facility,
+                'reason' => $reason,
                 'diagnosis' => $data['diagnosis'] ?? null,
                 'clinical_summary' => $data['clinical_summary'] ?? null,
                 'treatments_given' => $data['treatments_given'] ?? null,

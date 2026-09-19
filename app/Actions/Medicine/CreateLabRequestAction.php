@@ -3,7 +3,6 @@
 namespace App\Actions\Medicine;
 
 use App\Actions\Episode\CreateEpisodeOrientationAction;
-use App\Actions\Medicine\ResolveConsultationStepAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ConsultationDecision;

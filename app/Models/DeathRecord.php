@@ -18,8 +18,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 #[Fillable([
     'episode_id', 'patient_id', 'medical_discharge_id',
+    'birth_place', 'address', 'father_name', 'mother_name',
+    'identity_document_number', 'identity_document_issued_on', 'identity_document_issued_place',
     'death_occurred_at', 'death_place', 'death_causes', 'observations',
-    'constated_at', 'constated_by',
+    'signed_place', 'constated_at', 'constated_by',
 ])]
 class DeathRecord extends Model
 {
@@ -29,6 +31,7 @@ class DeathRecord extends Model
     {
         return [
             'death_occurred_at' => 'datetime',
+            'identity_document_issued_on' => 'date',
             'constated_at' => 'datetime',
         ];
     }

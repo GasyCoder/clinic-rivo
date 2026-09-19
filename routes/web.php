@@ -1,8 +1,6 @@
 <?php
 
 use App\Enums\ReceptionPatientStep;
-use App\Http\Controllers\DeathRegisterController;
-use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Administration\AnalysisCatalogController;
 use App\Http\Controllers\Administration\AttendanceController;
 use App\Http\Controllers\Administration\CashRegisterController;
@@ -28,19 +26,25 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
+use App\Http\Controllers\DeathRegisterController;
 use App\Http\Controllers\DiagnosticCatalogSearchController;
 use App\Http\Controllers\EpisodeController;
 use App\Http\Controllers\EpisodeEmergencyController;
 use App\Http\Controllers\GlobalSearchController;
+use App\Http\Controllers\GuardingController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\HospitalizationController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
+use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
+use App\Http\Controllers\PatientTreatmentJournalController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PediatricsController;
 use App\Http\Controllers\Pharmacy\CareConsumableController as PharmacyCareConsumableController;
 use App\Http\Controllers\Pharmacy\DashboardController as PharmacyDashboardController;
 use App\Http\Controllers\Pharmacy\DispenseController as PharmacyDispenseController;
@@ -89,7 +93,9 @@ use App\Http\Controllers\SurgicalPreoperativeController;
 use App\Http\Controllers\SurgicalReportController;
 use App\Http\Controllers\SurgicalTeamMemberController;
 use App\Http\Controllers\SurgicalTreatmentItemController;
+use App\Http\Controllers\TransferController;
 use App\Http\Controllers\TrashController;
+use App\Http\Controllers\TreatmentJournalController;
 use App\Http\Controllers\VisitorReceptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -670,6 +676,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/reception/passages/{episode}/sortie-administrative', [EpisodeSettlementController::class, 'store'])
         ->name('reception.passages.administrative-exit.store')
         ->middleware('can:episodes.administrative_exit');
+    // ADR-116 — la « FICHE DE SORTIE » de la clinique, imprimable une fois
+    // la sortie administrative prononcée ; c'est ce papier que le service
+    // sécurité contrôle ensuite au poste de gardiennage.
+    Route::get('/reception/passages/{episode}/sortie-administrative/fiche', [EpisodeSettlementController::class, 'printExitSlip'])
+        ->name('reception.passages.administrative-exit.print')
+        ->middleware('can:episodes.settlement.view');
     Route::get('/reception/mutual-coverages/{coverage}/attachments/{attachment}', PatientMutualCoverageAttachmentController::class)
         ->name('reception.mutual-coverages.attachments.show')
         ->scopeBindings()
@@ -678,6 +690,15 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/reception/visitors', [VisitorReceptionController::class, 'store'])->name('reception.visitors.store')->middleware('can:visitors.create');
     Route::get('/reception/visitors/{visitorVisit}/attachments/{attachment}', [VisitorReceptionController::class, 'professionalAttachment'])->name('reception.visitors.attachments.show')->middleware('can:visitors.view');
     Route::post('/reception/visitors/{visitorVisit}/close', [VisitorReceptionController::class, 'close'])->name('reception.visitors.close')->middleware('can:visitors.close');
+
+    // ADR-116 — le poste de gardiennage : contrôle de sortie à la porte,
+    // séparé du registre des visiteurs ci-dessus. Le gardien ne décide
+    // jamais une sortie (Réception/Caisse l'a déjà prononcée, ADR-090) ; il
+    // la constate.
+    Route::get('/guarding', [GuardingController::class, 'index'])->name('guarding.index')->middleware('can:guarding.view');
+    Route::post('/guarding/passages/{episode}/sortie', [GuardingController::class, 'store'])
+        ->name('guarding.exits.store')
+        ->middleware('can:guarding.entries.close');
 
     // Référentiel patients: administrative management, but no creation here.
     // Deletion is always audited Soft Delete through Patient::SoftDeletable.
@@ -700,6 +721,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ]);
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
+    // ADR-118 — tous les journaux de traitement du patient, en un seul document.
+    Route::get('/patients/{patient}/journaux-de-traitement', [PatientTreatmentJournalController::class, 'show'])
+        ->name('patients.treatment-journals.show')
+        ->middleware(['can:patients.view', 'can:treatment_journal.view']);
     // Generic endpoint: an antecedent is a permanent Patient record, never a
     // Consultation field — any caller with the permission uses this one
     // route (Médecine included), never a module-specific duplicate.
@@ -712,6 +737,21 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // n'est réalisée ici, chaque section reste protégée par la permission du
     // module qui possède réellement la donnée.
     Route::get('/passages/{episode}', [EpisodeController::class, 'show'])->name('passages.show')->middleware('can:patients.view');
+    // ADR-116 — le « DOSSIER MÉDICAL » de la clinique, imprimé depuis ce qui
+    // est déjà consigné dans le passage. Même garde que la page ci-dessus :
+    // les sections plus sensibles restent gouvernées à l'intérieur par leur
+    // propre permission (vitals.view, patients.medical_history.view).
+    Route::get('/passages/{episode}/dossier-medical', [EpisodeController::class, 'printMedicalRecord'])
+        ->name('passages.medical-record.print')
+        ->middleware('can:patients.view');
+    // Le « DOSSIER MÉDICAL – TRAITEMENT » : à la fois l'écran de saisie pour
+    // Médecine/Soins et la feuille imprimable, sur la même chronologie.
+    Route::get('/passages/{episode}/journal', [TreatmentJournalController::class, 'show'])
+        ->name('passages.treatment-journal.show')
+        ->middleware('can:treatment_journal.view');
+    Route::post('/passages/{episode}/journal', [TreatmentJournalController::class, 'store'])
+        ->name('passages.treatment-journal.store')
+        ->middleware('can:treatment_journal.record');
 
     // Facturation / caisse : une seule caisse fonctionnelle par site. Les
     // prestations peuvent être facturées ici, mais seul ce module encaisse.
@@ -737,6 +777,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/care/orientations/{episodeOrientation}/record', [CareController::class, 'saveRecord'])->name('care.orientations.record.update')->middleware('can:care.view');
     Route::put('/care/orientations/{episodeOrientation}/record-and-complete', [CareController::class, 'saveAndComplete'])->name('care.orientations.record-and-complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
+    Route::post('/care/orientations/{episodeOrientation}/release', [CareController::class, 'release'])->name('care.orientations.release')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
     // Autosaved typing on the worksheet: survives a reload, discarded only
@@ -762,6 +803,29 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // précise : `laboratory_orders.view` suffit à entrer, et chaque famille
     // est ensuite filtrée par son propre droit dans le contrôleur.
     Route::get('/medicine/demandes-examens', [ParaclinicalRequestDirectoryController::class, 'index'])->name('medicine.paraclinical-requests.index')->middleware('can:paraclinical_requests.view');
+
+    // ADR-113 — Hospitalisation : patients hospitalisés et fiche de régime.
+    Route::get('/hospitalisation', [HospitalizationController::class, 'index'])->name('hospitalization.index')->middleware('can:hospitalization.view');
+    Route::get('/hospitalisation/{hospitalStay}', [HospitalizationController::class, 'show'])->name('hospitalization.show')->middleware('can:hospitalization.view');
+    Route::put('/hospitalisation/{hospitalStay}', [HospitalizationController::class, 'update'])->name('hospitalization.update')->middleware('can:hospitalization.update');
+    Route::put('/hospitalisation/{hospitalStay}/demande', [HospitalizationController::class, 'updateRequest'])->name('hospitalization.request.update')->middleware('can:hospitalization.request');
+    Route::post('/hospitalisation/{hospitalStay}/regime', [HospitalizationController::class, 'storeDiet'])->name('hospitalization.diet.store')->middleware('can:hospital_diet.record');
+    Route::put('/hospitalisation/{hospitalStay}/regime/{hospitalDietEntry}', [HospitalizationController::class, 'updateDiet'])->name('hospitalization.diet.update')->middleware('can:hospital_diet.record');
+    Route::get('/hospitalisation/{hospitalStay}/regime/impression', [HospitalizationController::class, 'printDiet'])->name('hospitalization.diet.print')->middleware('can:hospitalization.view');
+    Route::post('/hospitalisation/{hospitalStay}/sortie', [HospitalizationController::class, 'discharge'])->name('hospitalization.discharge')->middleware('can:medical_discharge.create');
+
+    // ADR-114 — Transferts : patients référés vers un autre établissement.
+    Route::get('/transferts', [TransferController::class, 'index'])->name('transfers.index')->middleware('can:transfers.view');
+    Route::get('/transferts/{medicalReferral}', [TransferController::class, 'show'])->name('transfers.show')->middleware('can:transfers.view');
+    Route::put('/transferts/{medicalReferral}', [TransferController::class, 'update'])->name('transfers.update')->middleware('can:transfers.manage');
+    Route::post('/transferts/{medicalReferral}/depart', [TransferController::class, 'depart'])->name('transfers.depart')->middleware('can:transfers.manage');
+    Route::get('/transferts/{medicalReferral}/impression', [TransferController::class, 'print'])->name('transfers.print')->middleware('can:transfers.view');
+
+    // ADR-114 — Pédiatrie : file, prise en charge, sortie médicale.
+    Route::get('/pediatrie', [PediatricsController::class, 'index'])->name('pediatrics.index')->middleware('can:pediatrics.view');
+    Route::get('/pediatrie/{episodeOrientation}', [PediatricsController::class, 'show'])->name('pediatrics.show')->middleware('can:pediatrics.view');
+    Route::post('/pediatrie/{episodeOrientation}/prise-en-charge', [PediatricsController::class, 'accept'])->name('pediatrics.accept')->middleware('can:pediatrics.manage');
+    Route::post('/pediatrie/{episodeOrientation}/sortie', [PediatricsController::class, 'discharge'])->name('pediatrics.discharge')->middleware('can:pediatrics.manage');
 
     // ADR-107 — le registre des décès. Voir le registre et signer l'acte
     // sont deux droits distincts : suivre les passages concernés n'est pas
@@ -791,6 +855,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'saveDraft'])->name('medicine.orientations.draft.update')->middleware('can:consultations.view');
     Route::delete('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'discardDraft'])->name('medicine.orientations.draft.destroy')->middleware('can:consultations.view');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/release', [MedicineController::class, 'release'])->name('medicine.orientations.release')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])
         ->name('medicine.orientations.emergency.store')
         ->middleware('can:episodes.mark_emergency');
@@ -820,6 +885,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/cancel', [MedicineController::class, 'cancelPrescription'])->name('medicine.prescriptions.cancel')->middleware('can:prescriptions.cancel');
     Route::get('/medicine/orientations/{episodeOrientation}/prescriptions/{prescription}/print', [MedicineController::class, 'printPrescription'])->name('medicine.prescriptions.print')->middleware('can:prescriptions.view');
     Route::post('/medicine/orientations/{episodeOrientation}/care-orders', [MedicineController::class, 'storeCareOrder'])->name('medicine.care-orders.store')->middleware('can:care_orders.create');
+    Route::post('/medicine/orientations/{episodeOrientation}/care-order-items/{careOrderItem}/cancel', [MedicineController::class, 'cancelCareOrderItem'])->name('medicine.care-order-items.cancel')->middleware('can:care_orders.create');
     Route::post('/medicine/orientations/{episodeOrientation}/lab-requests', [MedicineController::class, 'storeLabRequest'])->name('medicine.lab-requests.store')->middleware('can:laboratory_orders.create');
     Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests', [MedicineController::class, 'storeImagingRequest'])->name('medicine.imaging-requests.store')->middleware('can:imaging_orders.create');
     // Retrait d'une demande d'examen précise. `consultations.update` et non

@@ -27,4 +27,22 @@ enum PharmacyDispenseStatus: string
     {
         return in_array($this, [self::Ready, self::PartiallyDispensed], true);
     }
+
+    /**
+     * Les demandes que la Pharmacie a encore devant elle : ni délivrées, ni
+     * annulées. Une seule définition pour sa file et pour « ce patient a-t-il
+     * encore besoin de la Pharmacie ? » (ADR-119) — deux listes recopiées
+     * finiraient par ne plus compter les mêmes demandes.
+     *
+     * @return array<int, string>
+     */
+    public static function openValues(): array
+    {
+        return [
+            self::AwaitingInvoice->value,
+            self::AwaitingPayment->value,
+            self::Ready->value,
+            self::PartiallyDispensed->value,
+        ];
+    }
 }

@@ -29,9 +29,9 @@ class CreateExternalDispenseAction
     /**
      * @param  array<string, mixed>  $data
      * @param  Episode|null  $episode  ADR-104 — une vente prise à la
-     *   Réception appartient au passage du patient. La colonne existait
-     *   déjà nullable : rattacher ne demande aucune migration, et une
-     *   vente sans passage reste lisible telle qu'elle a été enregistrée.
+     *                                 Réception appartient au passage du patient. La colonne existait
+     *                                 déjà nullable : rattacher ne demande aucune migration, et une
+     *                                 vente sans passage reste lisible telle qu'elle a été enregistrée.
      */
     public function execute(array $data, User $actor, ?Episode $episode = null): PharmacyDispense
     {

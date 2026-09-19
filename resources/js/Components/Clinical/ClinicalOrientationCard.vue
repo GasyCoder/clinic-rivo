@@ -1,15 +1,13 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { useForm } from '@inertiajs/vue3';
+import { Link, useForm } from '@inertiajs/vue3';
 import Button from '@/Components/Shadcn/Button.vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
-import { Building2, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Clock, HeartPulse, History, Pencil, Printer, Send, Share2, UsersRound } from 'lucide-vue-next';
-import Input from '@/Components/Shadcn/Input.vue';
+import { Building2, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Clock, ExternalLink, HeartPulse, History, Pencil, Printer, Send, Share2, UsersRound } from 'lucide-vue-next';
 import Select from '@/Components/Shadcn/Select.vue';
-import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { formatDateTime } from '@/utilities/date';
 
 /**
@@ -137,8 +135,6 @@ const referralForm = useForm({
 
 const serviceForm = useForm({ destination: '', motif: '', indication: '', observations: '' });
 
-const transferChoice = ref('');
-
 /**
  * Fills the form the doctor is about to see. Runs when the destination
  * changes, never on every keystroke: re-applying the pre-fill over a field
@@ -265,15 +261,15 @@ const transmitLines = computed(() => {
             ['Priorité', priorityOptions.value.find((option) => option.value === hospitalizationForm.priority)?.label],
         ],
         REFERRAL: [
-            ['Établissement destinataire', referralForm.facility],
+            ['Établissement destinataire', referralForm.facility || 'À préciser dans l’espace Transferts'],
             ['Motif de la référence', referralForm.reason],
             ['Diagnostic', referralForm.diagnosis],
             ['Priorité', priorityOptions.value.find((option) => option.value === referralForm.priority)?.label],
         ],
         SERVICE: [
+            ['Destination', serviceForm.destination === 'MATERNITY' ? 'Maternité' : 'Pédiatrie'],
             ['Motif', serviceForm.motif],
             ['Indication', serviceForm.indication],
-            ['Observations', serviceForm.observations],
         ],
     }[pendingTransmit.value] ?? [];
 
@@ -293,13 +289,22 @@ const confirmTransmit = () => TRANSMIT_SUBMITS[pendingTransmit.value]?.();
 // `Select` attend `{ value, label }` : la forme des référentiels reste
 // celle du serveur, c'est la projection qui s'adapte à la primitive.
 const surgeryOptions = computed(() => props.surgeryCatalog.map((item) => ({ value: item.uuid, label: item.name })));
-const transferOptions = computed(() => props.transferDestinations.map((site) => ({ value: site.destination, label: site.destination })));
 
 const priorityOptions = computed(() => props.priorities.map((priority) => ({
     value: priority.value,
     label: priority.label,
     tone: priority.value === 'URGENT' ? 'warning' : 'neutral',
 })));
+
+/**
+ * ADR-114 — une demande transmise vers un service qui a son module ne se
+ * retransmet pas : repartir créait un second enregistrement (un transfert en
+ * double, une seconde demande au bloc). Elle se complète dans son module ;
+ * « Modifier » reste là pour changer de destination.
+ */
+const MODULE_TYPES = ['SURGERY', 'HOSPITALIZATION', 'REFERRAL', 'MATERNITY', 'PEDIATRICS'];
+const submittedToModule = computed(() => active.value?.status === 'SUBMITTED'
+    && MODULE_TYPES.includes(active.value?.type));
 
 const printUrl = computed(() => {
     const request = active.value?.request;
@@ -411,7 +416,21 @@ const printUrl = computed(() => {
             <template v-else-if="active">
                 <p class="mb-3 text-xs font-bold text-foreground">{{ active.form_title }}</p>
 
-                <form v-if="active.type === 'SURGERY'" class="space-y-3" @submit.prevent="openTransmitConfirmation('SURGERY')">
+                <div v-if="submittedToModule" class="space-y-3">
+                    <div class="flex flex-wrap items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                        <CircleCheck class="h-4 w-4 shrink-0" />
+                        <span class="min-w-0 flex-1">
+                            Demande transmise<template v-if="active.request?.recorded_at"> le {{ formatDateTime(active.request.recorded_at) }}</template>.
+                            <template v-if="active.request?.module_label">Elle se complète dans l’espace <strong class="font-semibold">{{ active.request.module_label }}</strong>.</template>
+                        </span>
+                        <Button v-if="active.request?.module_url" :as="Link" :href="active.request.module_url" size="sm" variant="outline">
+                            <ExternalLink class="h-4 w-4" />Ouvrir {{ active.request.module_label }}
+                        </Button>
+                    </div>
+                    <p class="text-[11px] text-muted-foreground">Pour choisir une autre destination, utilisez « Modifier » : la demande actuelle sera annulée, jamais effacée.</p>
+                </div>
+
+                <form v-else-if="active.type === 'SURGERY'" class="space-y-3" @submit.prevent="openTransmitConfirmation('SURGERY')">
                     <FormField label="Intervention envisagée" required :error="surgeryForm.errors.catalog_item_uuid">
                         <Select
                             id="orientation_surgery_item"
@@ -421,12 +440,6 @@ const printUrl = computed(() => {
                             placeholder="Sélectionner…"
                         />
                     </FormField>
-                    <FormField label="Diagnostic / hypothèse" required :error="surgeryForm.errors.diagnostic">
-                        <Textarea id="orientation_surgery_diagnostic" v-model="surgeryForm.diagnostic" :disabled="disabled" :rows="2" maxlength="2000" />
-                    </FormField>
-                    <FormField label="Indication chirurgicale">
-                        <Textarea id="orientation_surgery_indication" v-model="surgeryForm.indication" :disabled="disabled" :rows="3" maxlength="2000" />
-                    </FormField>
                     <ClinicalSegmentedChoice
                         v-model="surgeryForm.priority"
                         name="orientation_surgery_priority"
@@ -435,9 +448,12 @@ const printUrl = computed(() => {
                         :clearable="false"
                         :disabled="disabled"
                     />
-                    <FormField label="Notes">
-                        <Textarea id="orientation_surgery_notes" v-model="surgeryForm.notes" :disabled="disabled" :rows="2" maxlength="2000" />
-                    </FormField>
+                    <!-- ADR-114 — le diagnostic et l'indication partent repris du
+                         dossier : la Chirurgie les relit dans son espace. -->
+                    <p class="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+                        <CirclePlus class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>Le diagnostic / hypothèse et l’indication sont repris du dossier{{ surgeryForm.diagnostic ? '' : ' — les diagnostics posés en consultation' }} ; l’équipe <strong class="font-semibold text-foreground">Chirurgie</strong> les relit dans son espace.</span>
+                    </p>
                     <div class="flex justify-end">
                         <Button type="submit" size="sm" :disabled="disabled || surgeryForm.processing">
                             <Send class="h-4 w-4" />Transmettre la demande
@@ -445,29 +461,15 @@ const printUrl = computed(() => {
                     </div>
                 </form>
 
+                <!-- ADR-113 — l'hospitalisation a son module : le médecin coche
+                     et transmet. Motif, diagnostic, résumé et traitement partent
+                     repris du dossier, et se complètent dans l'espace
+                     Hospitalisation ; rien n'est ressaisi ici. -->
                 <form v-else-if="active.type === 'HOSPITALIZATION'" class="space-y-3" @submit.prevent="openTransmitConfirmation('HOSPITALIZATION')">
-                    <FormField label="Motif d’hospitalisation" required :error="hospitalizationForm.errors.reason">
-                        <Textarea id="orientation_hosp_reason" v-model="hospitalizationForm.reason" :disabled="disabled" :rows="2" maxlength="3000" />
-                    </FormField>
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        <FormField label="Service souhaité">
-                            <Input id="orientation_hosp_service" v-model="hospitalizationForm.requested_service" :disabled="disabled" maxlength="150" />
-                        </FormField>
-                        <FormField label="Admission souhaitée">
-                            <Input id="orientation_hosp_when" v-model="hospitalizationForm.requested_admission_at" :disabled="disabled" type="datetime-local" />
-                        </FormField>
-                    </div>
-                    <!-- Prérempli depuis le dossier : à corriger, jamais à
-                         ressaisir (§17). -->
-                    <FormField label="Diagnostic d’entrée" hint="· repris du dossier">
-                        <Textarea id="orientation_hosp_diagnosis" v-model="hospitalizationForm.admission_diagnosis" :disabled="disabled" :rows="2" maxlength="3000" />
-                    </FormField>
-                    <FormField label="Résumé clinique et examens" hint="· repris du dossier">
-                        <Textarea id="orientation_hosp_summary" v-model="hospitalizationForm.clinical_summary" :disabled="disabled" :rows="10" maxlength="5000" />
-                    </FormField>
-                    <FormField label="Traitement prévu" hint="· repris de l’ordonnance">
-                        <Textarea id="orientation_hosp_treatment" v-model="hospitalizationForm.planned_treatment" :disabled="disabled" :rows="3" maxlength="3000" />
-                    </FormField>
+                    <p class="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+                        <Building2 class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>Le patient est admis dès la transmission. Le motif, le diagnostic, le résumé et le traitement sont repris du dossier ; ils se complètent ensuite dans l’espace <strong class="font-semibold text-foreground">Hospitalisation</strong>, avec la chambre et la fiche de régime.</span>
+                    </p>
                     <ClinicalSegmentedChoice
                         v-model="hospitalizationForm.priority"
                         name="orientation_hosp_priority"
@@ -476,9 +478,6 @@ const printUrl = computed(() => {
                         :clearable="false"
                         :disabled="disabled"
                     />
-                    <FormField label="Instructions au service">
-                        <Textarea id="orientation_hosp_instructions" v-model="hospitalizationForm.instructions" :disabled="disabled" :rows="2" maxlength="3000" />
-                    </FormField>
                     <div class="flex justify-end">
                         <Button type="submit" size="sm" :disabled="disabled || hospitalizationForm.processing">
                             <Send class="h-4 w-4" />Transmettre la demande
@@ -486,32 +485,14 @@ const printUrl = computed(() => {
                     </div>
                 </form>
 
+                <!-- ADR-114 — le transfert a son module : le médecin coche et
+                     transmet. L'établissement, le résumé et le départ se
+                     complètent dans l'espace Transferts. -->
                 <form v-else-if="active.type === 'REFERRAL'" class="space-y-3" @submit.prevent="openTransmitConfirmation('REFERRAL')">
-                    <FormField label="Établissement / service destinataire" required :error="referralForm.errors.facility">
-                        <Select
-                            v-if="transferDestinations.length"
-                            id="orientation_referral_site"
-                            v-model="transferChoice"
-                            class="mb-2"
-                            :options="transferOptions"
-                            :disabled="disabled"
-                            placeholder="Autre établissement…"
-                            @update:model-value="referralForm.facility = transferChoice"
-                        />
-                        <Input id="orientation_referral_facility" v-model="referralForm.facility" :disabled="disabled" maxlength="255" placeholder="CHU, hôpital, cabinet…" />
-                    </FormField>
-                    <FormField label="Motif de la référence" required :error="referralForm.errors.reason">
-                        <Textarea id="orientation_referral_reason" v-model="referralForm.reason" :disabled="disabled" :rows="2" maxlength="3000" />
-                    </FormField>
-                    <FormField label="Diagnostic" hint="· repris du dossier">
-                        <Textarea id="orientation_referral_diagnosis" v-model="referralForm.diagnosis" :disabled="disabled" :rows="2" maxlength="3000" />
-                    </FormField>
-                    <FormField label="Résumé clinique et examens réalisés" hint="· repris du dossier">
-                        <Textarea id="orientation_referral_summary" v-model="referralForm.clinical_summary" :disabled="disabled" :rows="10" maxlength="5000" />
-                    </FormField>
-                    <FormField label="Traitements administrés ou prescrits" hint="· repris de l’ordonnance">
-                        <Textarea id="orientation_referral_treatments" v-model="referralForm.treatments_given" :disabled="disabled" :rows="3" maxlength="3000" />
-                    </FormField>
+                    <p class="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+                        <Share2 class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>Le motif, le diagnostic, le résumé et les traitements sont repris du dossier. L’établissement destinataire se précise dans l’espace <strong class="font-semibold text-foreground">Transferts</strong>, qui constate ensuite le départ du patient.</span>
+                    </p>
                     <ClinicalSegmentedChoice
                         v-model="referralForm.priority"
                         name="orientation_referral_priority"
@@ -520,26 +501,22 @@ const printUrl = computed(() => {
                         :clearable="false"
                         :disabled="disabled"
                     />
-                    <FormField label="Recommandations">
-                        <Textarea id="orientation_referral_reco" v-model="referralForm.recommendations" :disabled="disabled" :rows="2" maxlength="3000" />
-                    </FormField>
+                    <FormError :message="referralForm.errors.facility || referralForm.errors.reason" />
                     <div class="flex justify-end">
                         <Button type="submit" size="sm" :disabled="disabled || referralForm.processing">
-                            <Send class="h-4 w-4" />Transmettre et générer la lettre
+                            <Send class="h-4 w-4" />Transmettre la demande
                         </Button>
                     </div>
                 </form>
 
+                <!-- ADR-114 — Maternité et Pédiatrie ont leur espace : le médecin
+                     transmet en un clic, le motif part repris du dossier. -->
                 <form v-else-if="active.type === 'MATERNITY' || active.type === 'PEDIATRICS'" class="space-y-3" @submit.prevent="openTransmitConfirmation('SERVICE')">
-                    <FormField label="Motif" required :error="serviceReferralForm.errors.reason">
-                        <Textarea id="orientation_service_motif" v-model="serviceForm.motif" :disabled="disabled" :rows="2" maxlength="2000" />
-                    </FormField>
-                    <FormField label="Indication" hint="· reprise du dossier">
-                        <Textarea id="orientation_service_indication" v-model="serviceForm.indication" :disabled="disabled" :rows="2" maxlength="2000" />
-                    </FormField>
-                    <FormField label="Observations">
-                        <Textarea id="orientation_service_observations" v-model="serviceForm.observations" :disabled="disabled" :rows="2" maxlength="2000" />
-                    </FormField>
+                    <p class="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+                        <component :is="ICONS[active.type]" class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>Le motif et l’indication sont repris du dossier. Le patient rejoint la file <strong class="font-semibold text-foreground">{{ active.type === 'MATERNITY' ? 'Maternité' : 'Pédiatrie' }}</strong>, qui le prend en charge dans son espace.</span>
+                    </p>
+                    <FormError :message="serviceReferralForm.errors.reason || serviceReferralForm.errors.destination" />
                     <div class="flex justify-end">
                         <Button type="submit" size="sm" :disabled="disabled || serviceReferralForm.processing">
                             <Send class="h-4 w-4" />Transmettre la demande
@@ -556,9 +533,9 @@ const printUrl = computed(() => {
                     </slot>
                 </div>
 
-                <p v-if="active.status === 'SUBMITTED'" class="mt-3 flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-[11px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <p v-if="active.status === 'SUBMITTED' && !submittedToModule" class="mt-3 flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-[11px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
                     <CircleCheck class="h-4 w-4 shrink-0" />
-                    Demande transmise. Vous pouvez la corriger en la retransmettant, ou changer d’orientation tant que la consultation n’est pas clôturée.
+                    Sortie enregistrée. Vous pouvez changer d’orientation tant que la consultation n’est pas clôturée.
                 </p>
             </template>
 

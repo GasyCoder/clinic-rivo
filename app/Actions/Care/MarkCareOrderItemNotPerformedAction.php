@@ -3,7 +3,6 @@
 namespace App\Actions\Care;
 
 use App\Enums\CatalogModule;
-use App\Enums\EpisodeOrientationStatus;
 use App\Models\CareOrderItem;
 use App\Models\User;
 use App\Support\CareHandlerGuard;
@@ -37,6 +36,12 @@ class MarkCareOrderItemNotPerformedAction
             CareHandlerGuard::ensureEditable($orientation, 'care_order_item');
 
             CareHandlerGuard::ensureWorkable($orientation, $actor, 'care_order_item');
+
+            if ($locked->isCancelled()) {
+                throw ValidationException::withMessages([
+                    'care_order_item' => 'Cet acte a été retiré par le médecin.',
+                ]);
+            }
 
             if ($locked->not_performed_at !== null) {
                 throw ValidationException::withMessages([

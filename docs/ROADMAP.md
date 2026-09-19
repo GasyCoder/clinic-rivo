@@ -19,6 +19,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Configuration frontend
 - [x] Configuration base locale
 - [x] shadcn-vue comme design system par défaut (ADR-099) ; DashWind conservé en reliquat le temps des migrations
+- [x] Menu latéral fidèle au rendu serveur : l'ordre personnel et les vues liste/grille ne sont plus lus pendant le rendu, plus aucune ligne portant le libellé d'un module et le lien d'un autre (ADR-115)
+- [x] Entrées mères par module (Médecine, Réception, Référentiels) ; un seul enfant actif à la fois ; icônes revues (ADR-115)
 - [x] Marque de l'application unifiée dans la navigation : pastille d'initiales dérivées de `rivo.brand` et enseigne en majuscules, écrites une seule fois pour le bandeau latéral et la barre du haut
 - [x] Authentification locale avec comptes actifs et rôle obligatoire
 - [x] RBAC dynamique
@@ -46,6 +48,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Lien patient-personnel vers un véritable dossier Employé
 - [ ] Identification patient
 - [ ] Recherche patient
+- [x] Répertoire patients : où chacun a encore besoin d'aller — Médecine, Soins, Pharmacie en combinaisons exactes (« seulement »), comptes-filtres qui suivent la recherche, pastille par service sur chaque ligne (ADR-119)
+- [x] Besoin de Pharmacie servi comme information de routage, sans médicament, quantité, montant ni état de règlement
+- [x] Répertoire patients passé à shadcn-vue (ADR-099) : compteurs partagés avec les files, colonne « Situation actuelle » à la place de « Catégorie », recherche lancée d'elle-même
+- [x] Répertoire patients classé par onglets — Tous / Besoin en cours / En attente de règlement / Aucun passage ouvert — comptes du serveur, combinables avec les autres filtres (ADR-120)
 - [ ] Détection des doublons
 - [ ] Episode de soins
 - [x] Numéro patient annuel `SITE-YY-NNNN`
@@ -87,6 +93,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
 - [x] Créance immuable créée par une sortie non soldée, jamais effacée par une évasion
 - [x] Cartes compteur sur « Sorties & règlements » : passages à régler, sorties prononcées, sorties avec dette et reste à payer — ce dernier réservé à `billing.view`
+- [x] Fiche de sortie imprimable après la sortie administrative, distinguant sortie médicale et sortie administrative (le papier les confondait), avec QR pour le contrôle de gardiennage (ADR-116)
 - [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
 - [ ] Remboursements autorisés
 - [ ] Remises autorisées
@@ -113,6 +120,26 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Antécédents distingués personnels / familiaux, traitements actuels déclarés en consultation, lieu de naissance au dossier patient
 - [x] Clôture administrative automatique (PENDING_SETTLEMENT) d'un parcours Soins seul réellement terminé, sans sortie médicale fictive
 - [x] Page transversale « Détail du passage » en lecture seule, sécurisée section par section côté serveur
+- [x] Parcours d'un passage composé une seule fois (`EpisodePathwayTimeline`) : Réception, orientations, Pharmacie, factures, encaissements et sortie, affichés à l'identique par le détail du passage et par la frise du dossier patient (ADR-117)
+- [x] Deux demandes vers le même service numérotées (« Soins 1 », « Soins 2 ») au lieu d'un doublon apparent ; chaque demande de soins dit d'où elle vient, qui l'a faite et la suite décidée par le médecin (retour en Médecine ou sortie directe)
+- [x] Actes demandés au sein de chaque demande de soins, lus sur les actes réellement enregistrés (réalisé, à réaliser, non réalisé, retiré)
+- [x] Étape « Sortie — à prononcer par la Réception » quand le passage n'attend plus que son règlement : la réponse à « pourquoi ce passage est-il encore ouvert ? »
+- [x] L'ordonnance du prescripteur figure au parcours (« Pharmacie · Ordonnance ») avec son issue — transmise, délivrée, annulée — sans révéler l'état de règlement de la Pharmacie ; une ordonnance hors référentiel s'annonce comme telle ; facture et encaissement d'un ticket Pharmacie portent la mention « Ticket Pharmacie » (ADR-117)
+- [x] Dossier médical imprimable, reprenant identité, constantes, allergies, antécédents familiaux, hospitalisation et diagnostic déjà consignés — rien n'est ressaisi, les sections sensibles restent gardées par leur permission (ADR-116)
+- [x] Journal de traitement (« Dossier médical – Traitement ») : chronologie automatique lue depuis ce qui est déjà enregistré, complétée de lignes manuelles append-only pour ce que l'application ne sait pas encore (ADR-116)
+- [x] Tous les journaux de traitement d'un patient réunis en un seul document (couverture puis une feuille par passage, une page chacune), lisible à l'écran et enregistrable en un seul PDF par l'impression du navigateur, sous un nom de fichier explicite (ADR-118)
+- [x] Bouton « Journaux de traitement » dans l'en-tête du dossier patient, sur l'onglet Passages (avec « Journal » par passage) et dans la fenêtre d'un patient de la file Soins, réservé à `treatment_journal.view` (ADR-118)
+- [x] File Soins : « 1 passage · 2 demandes de soins » au lieu de « 2 passages » ; chaque demande dit qui l'a faite, la suite décidée et ses actes, par une règle partagée avec le parcours du passage (`CareRequestSummary`, ADR-118)
+- [x] Dossier patient passé à shadcn-vue (ADR-099) : statuts en pastilles et icônes lucide, `FormField` et `Checkbox`, plus aucune classe de la police d'icônes
+- [ ] PDF généré par le serveur (envoi par courriel, archivage sans interaction) — exigerait une bibliothèque de rendu, à décider si le besoin apparaît (ADR-118)
+- [x] Tabac et alcool lus selon l'âge (« Oui » improbable avant 10 ans, à signaler chez un mineur), âge invraisemblable signalé, « Oui » rouge / « Non » vert (ADR-126)
+- [x] Constantes lues selon l'âge — FC, tension, température du nourrisson —, table unique servie à l'écran, et toast sur une valeur critique ou improbable ; tables à valider par un médecin (ADR-125)
+- [ ] Tension et IMC de l'enfant par percentiles (âge, sexe, taille) — tables à fournir par la clinique (ADR-125)
+- [x] Fiche de soins à cinq étapes : la transmission à Médecine, facultative, rejoint « Terminer » au lieu d'avoir son propre écran (ADR-123)
+- [x] Patient pris en charge par erreur aux Soins : « Remettre en file » le replace à sa place tant qu'aucun soin n'est enregistré, audité (ADR-122)
+- [x] Patient pris en charge par erreur en Médecine : « Remettre en file » le replace à sa place tant que la consultation est vierge, audité (ADR-127)
+- [x] File Soins réduite à deux onglets — À prendre aux Soins / Orientés en attente du médecin : les patients déjà accueillis par le médecin quittent la page pour le module Patients (ADR-124)
+- [x] File Soins : prendre un patient qui n'est pas le premier demande confirmation, comme en Médecine — règle et fenêtre partagées, rien n'est bloqué (ADR-121)
 - [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
 - [x] Consommables déclarés aux Soins, notifiés à la Pharmacie, facturés séparément et sortis du stock sans attendre le règlement
 - [x] Matériel habituel configurable par acte de soins, pré-rempli comme suggestion et toujours confirmé par le soignant
@@ -124,8 +151,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Brouillon serveur étendu aux demandes de « Conduite à tenir » (chirurgie, hospitalisation, transfert), jusque-là perdues à l'actualisation (ADR-073)
 - [ ] Demande laboratoire
 - [ ] Demande chirurgie
-- [ ] Hospitalisation
-- [ ] Transfert médical
+- [x] Hospitalisation (ADR-113)
+- [x] Transfert médical : module Transferts, demande en un clic, établissement complété dans le module, « Transfert effectué » (ADR-114)
+- [ ] Arrivée et accusé de réception d'un transfert — personne ici ne les observe (ADR-114)
 - [x] Sortie médicale découplée de la sortie administrative
 - [x] Interrogatoire et Examen clinique en deux étapes distinctes du parcours, chacune son enregistrement serveur
 - [x] Intention d'orientation préparée en Prescription (sortie, hospitalisation, Maternité, Chirurgie, Pédiatrie, transfert), sans créer le workflow spécialisé
@@ -180,7 +208,12 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Parcours à six étapes terminé par une vraie Clôture : vérifier, signaler ce qui manque, valider — jamais redemander la décision
 - [x] Formulaire de la destination ouvert immédiatement après le choix, prérempli du dossier : plus aucune double saisie
 - [x] Demandes d'hospitalisation et de référence/transfert avec leur table, leur statut et leur document imprimable
-- [ ] Module Hospitalisation (admission, lit, séjour, sortie du service) — règles non définies au CDC, demande seule implémentée
+- [x] Module Hospitalisation (ADR-113) : admission automatique à la demande du médecin, séjour, chambre/lit en texte libre, sortie par la sortie médicale
+- [x] Fiche de régime par séjour : grille jour/heure en texte libre, remplie par Médecine et Soins, en-tête repris du dossier, imprimable au format papier, sans facturation
+- [ ] Gestion des lits, visites de service, forfait journalier — aucune règle définie (ADR-113)
+- [x] Module Pédiatrie simple (ADR-114) : file, prise en charge, sortie médicale rattachée à la consultation d'origine
+- [ ] Fiche pédiatrique — aucune fournie par la clinique, rien n'est inventé (ADR-114)
+- [x] Conduite à tenir vers un module transmise en un clic (Maternité, Pédiatrie, Transfert) ; Chirurgie : intervention choisie, diagnostic/hypothèse généré du dossier (ADR-114)
 - [x] Changement d'orientation traçable : annulation propre tant que la destination n'a pas pris la demande, refus explicite ensuite
 - [x] Clôture seule responsable de terminer l'orientation Médecine et de porter la sortie sur l'épisode
 - [x] Permission propre à l'espace « Demandes d'examens » (`paraclinical_requests.view`, ADR-100) : l'écran s'ouvrait uniquement avec le droit sur les analyses, refusant un compte qui n'avait que l'imagerie
@@ -197,6 +230,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Sortie pour décès ne proposant plus état du patient, traitement de sortie, conseils ni contrôle : des instructions sans destinataire, refusées aussi côté serveur (ADR-107)
 - [x] État du patient d'un décès posé par le serveur (« Décédé ») : aucune des cinq options ne convenait, et l'absence aurait été lue comme un oubli
 - [x] Sortie médicale confirmée comme une signature, dans ses propres termes pour un décès (ADR-106, ADR-107)
+- [x] Acte de constatation de décès conforme à la feuille papier de la clinique (médecin traitant, défunt, filiation, CNI, signatures), causes et observations en texte riche, sans jamais modifier le dossier patient (amendement ADR-107)
 - [ ] Volet état civil de l'acte (numéro, déclarant, officier) — absent du CDC, non inventé (ADR-107)
 - [x] Transmission d'une demande de conduite à tenir confirmée comme une signature : destination nommée, contenu relu, responsabilité nominative (ADR-106)
 - [x] Derniers contrôles natifs des formulaires cliniques passés à `Select` et `Textarea` (ADR-099) : deux listes et dix-sept zones de texte habillées à la main, aux classes déjà divergentes
@@ -259,6 +293,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] File « Consommables Soins » en shadcn (ADR-099) : compteurs partagés, fenêtre de sortie de stock par la primitive `Dialog`, tokens sémantiques
 - [x] Ce que le patient doit pour ce matériel affiché sur la file Pharmacie — montant, facture et statut, en lecture seule (ADR-103)
 - [x] Ligne jamais facturée comptée et nommée (`unbilled_lines`) : l'échec de facturation, volontairement non bloquant, n'est plus silencieux (ADR-103)
+- [x] Définition des demandes de dispensation ouvertes écrite une seule fois (`PharmacyDispenseStatus::openValues()`), partagée par la file Pharmacie et le répertoire patients (ADR-119)
 - [x] Alertes automatiques de seuil minimal et rupture
 - [x] Alertes et visibilité des lots proches de la péremption
 - [x] Dossier fournisseur façon Drive : catalogues Excel/PDF multiples, historisés, un seul actif à la fois
@@ -365,7 +400,10 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [ ] Affectations et localisations des équipements
 - [ ] Maintenance et mise hors service des équipements
 - [x] Visiteurs (saisie opérationnelle à la Réception ; rapports administratifs à venir)
-- [ ] Gardiennage
+- [x] Visiteurs : entrée de menu dédiée (`visitors.view`) — la seule existante pointait vers cette page sous `guarding.view`, un droit que Réception n'a jamais reçu (ADR-116)
+- [x] Gardiennage : poste de contrôle de sortie (`/guarding`), premier consommateur réel du catalogue `guarding.*` seedé depuis l'origine sans aucun écran (ADR-116)
+- [x] Le gardien constate une sortie déjà prononcée par la Caisse, ne la décide jamais ; un seul contrôle par passage, aucun motif exigé
+- [ ] Journal et rapports de gardiennage (`guarding.reports.*`) — catalogue seedé, écran non construit
 - [x] Rapports RH
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé

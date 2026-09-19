@@ -2,6 +2,7 @@
 
 namespace App\Services\Dashboard;
 
+use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
@@ -326,6 +327,6 @@ class SiteReportService
 
     private function moduleLabel(string $module): string
     {
-        return \App\Enums\CatalogModule::tryFrom($module)?->label() ?? $module;
+        return CatalogModule::tryFrom($module)?->label() ?? $module;
     }
 }

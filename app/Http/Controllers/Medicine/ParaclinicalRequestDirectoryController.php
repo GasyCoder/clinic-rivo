@@ -9,6 +9,7 @@ use App\Models\LabRequest;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\ImagingReportDocument;
 use App\Support\ImagingReportTemplates;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -141,7 +142,7 @@ class ParaclinicalRequestDirectoryController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Database\Eloquent\Builder<LabRequest|ImagingRequest>  $query
+     * @param  Builder<LabRequest|ImagingRequest>  $query
      * @return Collection<int, array<string, mixed>>
      */
     private function rows($query, string $kind, string $familyLabel, bool $canRecord = false, bool $canWithdraw = false): Collection

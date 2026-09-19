@@ -370,18 +370,13 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
             </div>
         </div>
 
-        <!-- Décès : le certificat exige le détail -->
-        <div v-if="form.type === 'DECEASED'" class="grid gap-3 rounded-md border border-red-100 bg-red-50/30 p-4 dark:border-red-950 dark:bg-red-950/10 md:grid-cols-2">
-            <FormField label="Date et heure du décès" required :error="form.errors.death_occurred_at">
-                <IconInput id="death_occurred_at" v-model="form.death_occurred_at" :icon="CalendarDays" type="datetime-local" :disabled="disabled" />
-            </FormField>
-            <FormField label="Lieu du décès" required :error="form.errors.death_place">
-                <Input id="death_place" v-model="form.death_place" :disabled="disabled" />
-            </FormField>
-            <FormField label="Causes constatées" required :error="form.errors.death_causes" class="md:col-span-2">
-                <Textarea id="death_causes" v-model="form.death_causes" :disabled="disabled" :rows="3" maxlength="5000" />
-            </FormField>
-        </div>
+        <!-- Décès : l'heure, le lieu et les causes s'établissent dans le
+             registre des décès, qui les exige pour l'acte (ADR-107) — pas
+             ici, où ils seraient saisis deux fois. -->
+        <p v-if="form.type === 'DECEASED'" class="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+            <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+            <span>L’heure, le lieu et les causes du décès se renseignent dans le <strong class="font-semibold text-foreground">registre des décès</strong>, avec l’acte de constatation. Le passage y apparaît dès la confirmation.</span>
+        </p>
 
         <!-- Traitement de sortie, conseils de surveillance et rendez-vous de
              contrôle s'adressent à quelqu'un qui rentre chez lui. Ce ne sont

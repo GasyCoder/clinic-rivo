@@ -6,6 +6,7 @@ use App\Actions\Medicine\RecordDeathCertificateAction;
 use App\Enums\MedicalDischargeType;
 use App\Http\Requests\Medicine\StoreDeathCertificateRequest;
 use App\Models\Episode;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -46,7 +47,7 @@ class DeathRegisterController extends Controller
 
         $episodes = $base
             ->with([
-                'patient:id,uuid,patient_number,first_name,last_name,birth_date,sex',
+                'patient:id,uuid,patient_number,first_name,last_name,birth_date,birth_date_is_approximate,declared_age,birth_place,sex,address,identity_document_number',
                 'medicalDischarge',
                 'deathRecord.constatedBy:id,name',
             ])
@@ -76,6 +77,17 @@ class DeathRegisterController extends Controller
                 'name' => trim(($episode->patient?->first_name ?? '').' '.($episode->patient?->last_name ?? '')),
                 'sex' => $episode->patient?->sex,
                 'birth_date' => $episode->patient?->birth_date,
+                'birth_date_is_approximate' => (bool) $episode->patient?->birth_date_is_approximate,
+                // Un patient sans date de naissance connue peut n'avoir
+                // qu'un âge déclaré (ADR-030) : la même règle que sur l'acte
+                // imprimé (print()) et le dossier médical, pour ne jamais
+                // afficher « non renseignée » quand le dossier sait un âge.
+                'age' => $episode->patient?->birth_date?->age ?? $episode->patient?->declared_age,
+                // Ce que le dossier sait déjà : l'acte le reprend, le médecin
+                // le corrige s'il le faut, sans toucher au dossier.
+                'birth_place' => $episode->patient?->birth_place,
+                'address' => $episode->patient?->address,
+                'identity_document_number' => $episode->patient?->identity_document_number,
             ],
             'death_occurred_at' => $episode->medicalDischarge?->death_occurred_at,
             'death_place' => $episode->medicalDischarge?->death_place,
@@ -98,6 +110,7 @@ class DeathRegisterController extends Controller
             'filter' => $filter,
             'search' => $search,
             'capabilities' => ['can_record' => $canRecord],
+            'defaultSignedPlace' => config('rivo.site.name'),
         ]);
     }
 
@@ -112,7 +125,7 @@ class DeathRegisterController extends Controller
             ->with('status', 'Acte de constatation de décès établi.');
     }
 
-    public function print(Request $request, Episode $episode): Response
+    public function print(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText): Response
     {
         abort_unless($request->user()?->can('death_records.view'), 403);
 
@@ -120,26 +133,40 @@ class DeathRegisterController extends Controller
 
         abort_unless($episode->deathRecord !== null, 404);
 
+        $record = $episode->deathRecord;
+        $patient = $episode->patient;
+
         return Inertia::render('Deaths/CertificatePrint', [
             'episode' => [
                 'uuid' => $episode->uuid,
                 'episode_number' => $episode->episode_number,
             ],
+            // Un acte signé avant l'amendement ne portait pas ces champs :
+            // il se lit sur le dossier, jamais sur une valeur inventée.
             'patient' => [
-                'patient_number' => $episode->patient?->patient_number,
-                'first_name' => $episode->patient?->first_name,
-                'last_name' => $episode->patient?->last_name,
-                'birth_date' => $episode->patient?->birth_date,
-                'birth_place' => $episode->patient?->birth_place,
-                'sex' => $episode->patient?->sex,
+                'patient_number' => $patient?->patient_number,
+                'first_name' => $patient?->first_name,
+                'last_name' => $patient?->last_name,
+                'birth_date' => $patient?->birth_date?->toDateString(),
+                'birth_date_is_approximate' => (bool) $patient?->birth_date_is_approximate,
+                'age' => $patient?->birth_date?->age ?? $patient?->declared_age,
+                'birth_place' => $record->birth_place ?? $patient?->birth_place,
+                'sex' => $patient?->sex?->value ?? $patient?->sex,
+                'address' => $record->address ?? $patient?->address,
             ],
             'record' => [
-                'death_occurred_at' => $episode->deathRecord->death_occurred_at,
-                'death_place' => $episode->deathRecord->death_place,
-                'death_causes' => $episode->deathRecord->death_causes,
-                'observations' => $episode->deathRecord->observations,
-                'constated_at' => $episode->deathRecord->constated_at,
-                'constated_by' => $episode->deathRecord->constatedBy?->name,
+                'father_name' => $record->father_name,
+                'mother_name' => $record->mother_name,
+                'identity_document_number' => $record->identity_document_number ?? $patient?->identity_document_number,
+                'identity_document_issued_on' => $record->identity_document_issued_on?->toDateString(),
+                'identity_document_issued_place' => $record->identity_document_issued_place,
+                'death_occurred_at' => $record->death_occurred_at,
+                'death_place' => $record->death_place,
+                'death_causes_html' => $richText->displayHtml($record->death_causes),
+                'observations_html' => $richText->displayHtml($record->observations),
+                'signed_place' => $record->signed_place ?? config('rivo.site.name'),
+                'constated_at' => $record->constated_at,
+                'constated_by' => $record->constatedBy?->name,
             ],
         ]);
     }

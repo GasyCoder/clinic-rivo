@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import ClinicalDocumentPrint from '@/Components/Medicine/ClinicalDocumentPrint.vue';
+import ClinicalRichTextDisplay from '@/Components/Clinical/ClinicalRichTextDisplay.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -18,23 +19,27 @@ const props = defineProps({
     episode: Object,
     patient: Object,
     referral: Object,
+    // ADR-114 — imprimée aussi depuis le module Transferts, qui y ramène.
+    backHref: { type: String, default: null },
 });
 
+// ADR-114 — les champs rédigés sont en texte riche : la lettre imprime le
+// HTML assaini par le serveur, jamais les balises en clair.
 const blocks = computed(() => [
-    { label: 'Motif de la référence', value: props.referral.reason },
-    { label: 'Diagnostic', value: props.referral.diagnosis },
-    { label: 'Résumé clinique et examens réalisés', value: props.referral.clinical_summary },
-    { label: 'Traitements administrés ou prescrits', value: props.referral.treatments_given },
-    { label: 'Recommandations', value: props.referral.recommendations },
-    { label: 'Observations', value: props.referral.notes },
-].filter((block) => Boolean(block.value)));
+    { label: 'Motif de la référence', html: props.referral.reason_html },
+    { label: 'Diagnostic', html: props.referral.diagnosis_html },
+    { label: 'Résumé clinique et examens réalisés', html: props.referral.clinical_summary_html },
+    { label: 'Traitements administrés ou prescrits', html: props.referral.treatments_given_html },
+    { label: 'Recommandations', html: props.referral.recommendations_html },
+    { label: 'Observations', html: props.referral.notes_html },
+].filter((block) => Boolean(block.html)));
 </script>
 
 <template>
     <ClinicalDocumentPrint
         :title="`Lettre de référence ${episode.episode_number}`"
         document-title="Lettre de référence"
-        :back-href="`/medicine/orientations/${orientation.uuid}/examen`"
+        :back-href="backHref ?? `/medicine/orientations/${orientation.uuid}/examen`"
         :episode="episode"
         :patient="patient"
         :author="referral.referred_by"
@@ -45,12 +50,12 @@ const blocks = computed(() => [
     >
         <div class="rx-block">
             <p class="rx-block-label">Établissement / service destinataire</p>
-            <p class="rx-block-value"><strong>{{ referral.facility }}</strong></p>
+            <p class="rx-block-value"><strong>{{ referral.facility || 'À préciser' }}</strong></p>
         </div>
 
         <div v-for="block in blocks" :key="block.label" class="rx-block">
             <p class="rx-block-label">{{ block.label }}</p>
-            <p class="rx-block-value">{{ block.value }}</p>
+            <ClinicalRichTextDisplay class="rx-block-value" :html="block.html" />
         </div>
 
         <div class="rx-block">

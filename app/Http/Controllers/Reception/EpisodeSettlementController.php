@@ -11,6 +11,7 @@ use App\Http\Requests\RecordAdministrativeExitRequest;
 use App\Models\Episode;
 use App\Models\Invoice;
 use App\Services\Reception\EpisodeAccountControl;
+use App\Support\Documents\PaperPatient;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -185,6 +186,54 @@ class EpisodeSettlementController extends Controller
                     ->sum('balance_amount')
                 : null,
         ];
+    }
+
+    /**
+     * ADR-116 — la « FICHE DE SORTIE » de la clinique, imprimée une fois la
+     * sortie administrative prononcée : ni avant (rien à signer), ni sans
+     * elle (`episodes.settlement.view` ne suffit pas à contourner
+     * l'exigence CDC §33.3 que la sortie soit réellement enregistrée).
+     *
+     * Elle porte les deux sorties distinctes du dossier — médicale
+     * (ADR-035) et administrative (ADR-090) — plutôt que de forcer la seule
+     * case « Date de sortie » du papier à choisir entre les deux : le
+     * papier ignorait cette distinction, le système ne l'invente pas pour
+     * autant côté serveur.
+     */
+    public function printExitSlip(Request $request, Episode $episode): Response
+    {
+        abort_unless($episode->administrative_exit_type !== null, 404);
+
+        $episode->load([
+            'patient.addressEntry:id,label',
+            'medicalDischarge',
+            'administrativeExitAuthor:id,name',
+            'debts' => fn ($query) => $query->latest(),
+        ]);
+
+        $debt = $episode->debts->first();
+
+        return Inertia::render('Reception/Settlements/ExitSlipPrint', [
+            'episode' => [
+                'uuid' => $episode->uuid,
+                'episode_number' => $episode->episode_number,
+                'started_at' => $episode->started_at,
+            ],
+            'patient' => PaperPatient::present($episode->patient),
+            'medical_discharge' => $episode->medicalDischarge ? [
+                'type' => $episode->medicalDischarge->type->value,
+                'type_label' => $episode->medicalDischarge->type->label(),
+                'discharged_at' => $episode->medicalDischarge->discharged_at,
+            ] : null,
+            'administrative_exit' => [
+                'type' => $episode->administrative_exit_type->value,
+                'type_label' => $episode->administrative_exit_type->label(),
+                'exited_at' => $episode->administrative_exit_at,
+                'balance_amount' => $episode->administrative_exit_balance,
+                'author' => $episode->administrativeExitAuthor?->name,
+                'debt_number' => $debt?->debt_number,
+            ],
+        ]);
     }
 
     public function store(

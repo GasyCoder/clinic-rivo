@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\BillableItem;
 use App\Models\Episode;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Support\Documents\MedicalRecordSheet;
+use App\Support\EpisodePathwayTimeline;
 use App\Support\Money;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,7 +21,7 @@ use Inertia\Response;
  */
 class EpisodeController extends Controller
 {
-    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText): Response
+    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText, EpisodePathwayTimeline $pathway): Response
     {
         $user = $request->user();
         $canViewCare = $user->can('care.view');
@@ -31,7 +33,6 @@ class EpisodeController extends Controller
 
         $episode->load([
             'patient:id,uuid,patient_number,first_name,last_name',
-            'orientations' => fn ($query) => $query->orderBy('oriented_at'),
             ...($canViewCare ? [
                 'careRecord',
                 'careRecord.procedures' => fn ($query) => $query
@@ -113,16 +114,10 @@ class EpisodeController extends Controller
                     'first_name' => $episode->patient->first_name,
                     'last_name' => $episode->patient->last_name,
                 ],
-                'orientations' => $episode->orientations->map(fn ($orientation) => [
-                    'uuid' => $orientation->uuid,
-                    'destination_module' => $orientation->destination_module->value,
-                    'destination_module_label' => $orientation->destination_module->label(),
-                    'status' => $orientation->status->value,
-                    'status_label' => $orientation->status->label(),
-                    'oriented_at' => $orientation->oriented_at,
-                    'accepted_at' => $orientation->accepted_at,
-                    'completed_at' => $orientation->completed_at,
-                ])->values(),
+                // ADR-117 : le parcours complet — Réception, services, Pharmacie,
+                // Caisse, sortie — composé une seule fois, et le même que celui
+                // que le dossier du patient résume en frise.
+                'pathway' => $pathway->forEpisode($episode, $user),
                 'care_record' => $canViewCare && $episode->careRecord ? [
                     ...($canViewVitals ? [
                         'blood_group' => $episode->careRecord->blood_group,
@@ -142,6 +137,8 @@ class EpisodeController extends Controller
                     'no_procedure_reason' => $episode->careRecord->no_procedure_reason,
                     'diagnostic_note' => $episode->careRecord->diagnostic_note,
                     'transmission_reason' => $episode->careRecord->transmission_reason,
+                    'diagnostic_note_html' => $episode->careRecord->diagnostic_note_html,
+                    'transmission_reason_html' => $episode->careRecord->transmission_reason_html,
                     'procedures' => $episode->careRecord->procedures->map(fn ($procedure) => [
                         'uuid' => $procedure->uuid,
                         'name' => $procedure->procedure_name,
@@ -216,7 +213,20 @@ class EpisodeController extends Controller
                 'can_view_diagnoses' => $canViewDiagnoses,
                 'can_view_prescriptions' => $canViewPrescriptions,
                 'can_view_billing' => $canViewBilling,
+                'can_view_treatment_journal' => $user->can('treatment_journal.view'),
             ],
         ]);
+    }
+
+    /**
+     * ADR-116 — le « DOSSIER MÉDICAL » de la clinique, imprimé depuis ce qui
+     * est déjà consigné dans le passage. Gardé par la même permission que
+     * la page « Détail du passage » elle-même : les sections plus sensibles
+     * (constantes, antécédents) restent gouvernées à l'intérieur par leur
+     * propre permission (`vitals.view`, `patients.medical_history.view`).
+     */
+    public function printMedicalRecord(Request $request, Episode $episode, MedicalRecordSheet $sheet): Response
+    {
+        return Inertia::render('Medicine/MedicalRecordPrint', $sheet->present($episode, $request->user()));
     }
 }

@@ -165,19 +165,28 @@ const isActive = (item) => {
     return depth !== -1 && depth === deepestMatch.value;
 };
 
-const isChildActive = (child) => {
-    const path = page.url.split('?')[0];
-
-    if (child.activeLinks) {
-        return child.activeLinks.some((link) => path.startsWith(link));
+/**
+ * One child lit at a time, and only inside the entry that owns the page.
+ *
+ * `startsWith` on each child independently lit « File de consultation »
+ * (/medicine) together with « Demandes d’examens » (/medicine/demandes-
+ * examens). Children compete like top-level entries: the deepest match
+ * wins, with the same segment-aware rules (menuActivation.js).
+ */
+const isChildActive = (item, child) => {
+    // The portal's site modules are addressed by query (`?module=CASH`) on
+    // one path: they match the full URL, as they always have.
+    if (isAdminPortal.value) {
+        return page.url === child.link
+            || (child.code === 'OVERVIEW' && currentPath.value === child.link.split('?')[0]);
     }
 
-    if (child.exact) {
-        return path === child.link;
-    }
+    if (!isActive(item)) return false;
 
-    return page.url === child.link
-        || (child.code === 'OVERVIEW' && path === child.link.split('?')[0]);
+    const depth = menuMatchDepth(child, currentPath.value);
+
+    return depth !== -1
+        && depth === Math.max(...item.children.map((sibling) => menuMatchDepth(sibling, currentPath.value)));
 };
 
 const closeMobile = () => {
@@ -301,7 +310,8 @@ const closeMobile = () => {
                         <li v-for="child in item.children" :key="child.code">
                             <Link
                                 :href="child.link"
-                                :class="['flex items-center gap-2.5 rounded px-3 py-2 transition-colors', isAdminPortal ? 'text-xs' : 'text-[13px]', isChildActive(child) ? 'bg-primary/10 font-bold text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
+                                :aria-current="isChildActive(item, child) ? 'page' : undefined"
+                                :class="['flex items-center gap-2.5 rounded px-3 py-2 transition-colors', isAdminPortal ? 'text-xs' : 'text-[13px]', isChildActive(item, child) ? 'bg-primary/10 font-bold text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
                                 @click="closeMobile"
                             >
                                 <component :is="child.icon" v-if="child.icon && typeof child.icon !== 'string'" class="h-4 w-4 shrink-0" />

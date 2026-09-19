@@ -32,6 +32,12 @@ export function menuMatchDepth(item, path) {
         );
     }
 
+    // A module group (Médecine, Réception…) claims exactly what one of its
+    // members claims, at that member's depth — never a bare prefix of its own.
+    if (!item.link && item.children) {
+        return item.children.reduce((best, child) => Math.max(best, menuMatchDepth(child, path)), -1);
+    }
+
     if (!item.link) {
         return -1;
     }

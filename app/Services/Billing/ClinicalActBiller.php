@@ -39,7 +39,7 @@ class ClinicalActBiller
 
     /**
      * @param  string  $idempotencyKey  dérivé de l'UUID de la ligne source :
-     *   une relance ne facture jamais deux fois le même acte.
+     *                                  une relance ne facture jamais deux fois le même acte.
      */
     public function bill(
         Episode $episode,

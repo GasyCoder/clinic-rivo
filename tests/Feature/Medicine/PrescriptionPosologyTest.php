@@ -19,6 +19,7 @@ use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\ConsultationWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -74,7 +75,7 @@ class PrescriptionPosologyTest extends TestCase
         );
 
         // Et la clôture ne réclame plus la prescription.
-        $blockers = collect(app(\App\Support\ConsultationWorkflow::class)
+        $blockers = collect(app(ConsultationWorkflow::class)
             ->blockersForClosure($consultation))->pluck('message')->implode(' ');
 
         $this->assertStringNotContainsString('Prescription :', $blockers);

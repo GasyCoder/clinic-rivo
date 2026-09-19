@@ -161,9 +161,27 @@ class Episode extends Model
         return $this->hasOne(DeathRecord::class);
     }
 
+    /** ADR-113 — les séjours hospitaliers du passage (au plus un en cours). */
+    public function hospitalStays(): HasMany
+    {
+        return $this->hasMany(HospitalStay::class);
+    }
+
     public function surgicalRequests(): HasMany
     {
         return $this->hasMany(SurgicalRequest::class);
+    }
+
+    /** ADR-116 — les lignes saisies à la main du journal de traitement. */
+    public function treatmentJournalEntries(): HasMany
+    {
+        return $this->hasMany(TreatmentJournalEntry::class);
+    }
+
+    /** ADR-116 — la sortie constatée par le gardien, au plus une. */
+    public function exitControl(): HasOne
+    {
+        return $this->hasOne(EpisodeExitControl::class);
     }
 
     /**

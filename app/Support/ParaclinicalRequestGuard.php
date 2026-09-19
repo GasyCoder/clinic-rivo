@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\CatalogItem;
 use App\Models\Consultation;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -31,7 +32,7 @@ use Illuminate\Validation\ValidationException;
 class ParaclinicalRequestGuard
 {
     /**
-     * @param  Collection<int, \App\Models\CatalogItem>  $requested  indexée par uuid
+     * @param  Collection<int, CatalogItem>  $requested  indexée par uuid
      *
      * @throws ValidationException
      */

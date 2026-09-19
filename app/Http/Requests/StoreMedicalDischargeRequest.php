@@ -74,18 +74,12 @@ class StoreMedicalDischargeRequest extends FormRequest
                 Rule::requiredIf($this->input('type') === MedicalDischargeType::Transfer->value),
                 'nullable', 'string', 'max:255',
             ],
-            'death_occurred_at' => [
-                Rule::requiredIf($this->input('type') === MedicalDischargeType::Deceased->value),
-                'nullable', 'date', 'before_or_equal:discharged_at',
-            ],
-            'death_place' => [
-                Rule::requiredIf($this->input('type') === MedicalDischargeType::Deceased->value),
-                'nullable', 'string', 'max:255',
-            ],
-            'death_causes' => [
-                Rule::requiredIf($this->input('type') === MedicalDischargeType::Deceased->value),
-                'nullable', 'string', 'max:5000',
-            ],
+            // ADR-107 (amendement) — l'heure, le lieu et les causes du décès
+            // s'établissent dans le registre des décès, qui les exige. Ils
+            // restent acceptés ici quand le médecin les connaît déjà.
+            'death_occurred_at' => ['nullable', 'date', 'before_or_equal:discharged_at'],
+            'death_place' => ['nullable', 'string', 'max:255'],
+            'death_causes' => ['nullable', 'string', 'max:5000'],
             'discharged_at' => ['required', 'date', 'before_or_equal:now'],
         ];
     }

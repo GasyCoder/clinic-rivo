@@ -34,8 +34,8 @@ class StoreMedicalReferralRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'facility' => ['required', 'string', 'max:255'],
-            'reason' => ['required', 'string', 'max:3000'],
+            'facility' => ['nullable', 'string', 'max:255'],
+            'reason' => ['nullable', 'string', 'max:3000'],
             'diagnosis' => ['nullable', 'string', 'max:3000'],
             'clinical_summary' => ['nullable', 'string', 'max:5000'],
             'treatments_given' => ['nullable', 'string', 'max:3000'],
@@ -49,8 +49,6 @@ class StoreMedicalReferralRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'facility.required' => 'Indiquez l’établissement ou le service destinataire.',
-            'reason.required' => 'Indiquez le motif de la référence.',
         ];
     }
 }

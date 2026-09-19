@@ -31,6 +31,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'priority', 'recommendations', 'notes',
     'status', 'referred_by', 'referred_at',
     'cancelled_by', 'cancelled_at', 'cancellation_reason',
+    'departed_at', 'departed_by', 'departure_notes',
 ])]
 class MedicalReferral extends Model
 {
@@ -43,6 +44,7 @@ class MedicalReferral extends Model
             'status' => MedicalRequestStatus::class,
             'referred_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'departed_at' => 'datetime',
         ];
     }
 
@@ -64,6 +66,17 @@ class MedicalReferral extends Model
     public function referredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'referred_by');
+    }
+
+    public function departedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'departed_by');
+    }
+
+    /** ADR-114 — le patient a réellement quitté la clinique. */
+    public function hasDeparted(): bool
+    {
+        return $this->departed_at !== null;
     }
 
     public function cancelledBy(): BelongsTo

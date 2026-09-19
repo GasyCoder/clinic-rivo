@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests\Care;
 
-use App\Enums\EpisodeOrientationStatus;
 use App\Models\EpisodeOrientation;
 use App\Support\CareHandlerGuard;
 use Illuminate\Foundation\Http\FormRequest;

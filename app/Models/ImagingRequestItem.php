@@ -7,11 +7,12 @@ use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /** One requested exam (ECG, échographie…), snapshotting the catalog at request time. */
 #[Fillable([
     'imaging_request_id', 'catalog_item_id', 'billable_item_id', 'catalog_item_code_snapshot', 'catalog_item_name_snapshot',
-    'result_value', 'result_notes', 'resulted_at', 'resulted_by',
+    'result_value', 'result_notes', 'report_sheet_title', 'resulted_at', 'resulted_by', 'corrected_at', 'corrected_by',
 ])]
 class ImagingRequestItem extends Model
 {
@@ -19,7 +20,7 @@ class ImagingRequestItem extends Model
 
     protected function casts(): array
     {
-        return ['resulted_at' => 'datetime'];
+        return ['resulted_at' => 'datetime', 'corrected_at' => 'datetime'];
     }
 
     public function imagingRequest(): BelongsTo
@@ -35,6 +36,17 @@ class ImagingRequestItem extends Model
     public function resultedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'resulted_by');
+    }
+
+    public function correctedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'corrected_by');
+    }
+
+    /** Les versions remplacées, de la plus ancienne à la plus récente (ADR-130). */
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(ImagingResultRevision::class)->orderBy('revision');
     }
 
     protected function auditModule(): ?string

@@ -24,6 +24,8 @@ class RolePermissionSeeder extends Seeder
             'employees.delete', 'employees.restore',
             'employees.import', 'employees.export', 'employees.print',
             'employees.patient_lookup',
+            // ADR-133 — une liste de patients est une donnée personnelle.
+            'patients.export',
             'staff_block_credits.view', 'staff_block_credits.allocate',
             // CDC §33.3 / §34.1 règle 6 — la « personne habilitée » qui
             // autorise la dérogation « dette validée ». Elle reçoit aussi
@@ -163,9 +165,9 @@ class RolePermissionSeeder extends Seeder
             // Paraclinique/orientation requests only — never the receiving
             // module's own create/manage permission (surgery.create stays
             // reserved to SURGERY; laboratory_results.create to LABORATORY).
-            'paraclinical_requests.view',
+            'paraclinical_requests.view', 'paraclinical_requests.archive',
             'laboratory_orders.create', 'laboratory_orders.view', 'laboratory_results.view',
-            'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create',
+            'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create', 'imaging_results.update', 'imaging_templates.create', 'imaging_templates.update', 'imaging_templates.archive',
             'surgery.request', 'hospitalization.request', 'maternity.request',
             'transfer.request', 'pediatrics.request',
         ],

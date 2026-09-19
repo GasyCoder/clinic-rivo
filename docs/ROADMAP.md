@@ -52,6 +52,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Besoin de Pharmacie servi comme information de routage, sans médicament, quantité, montant ni état de règlement
 - [x] Répertoire patients passé à shadcn-vue (ADR-099) : compteurs partagés avec les files, colonne « Situation actuelle » à la place de « Catégorie », recherche lancée d'elle-même
 - [x] Répertoire patients classé par onglets — Tous / Besoin en cours / En attente de règlement / Aucun passage ouvert — comptes du serveur, combinables avec les autres filtres (ADR-120)
+- [x] Répertoire patients : tri A → Z / Z → A, filtre par initiale (A–Z) et export Excel de la liste filtrée (`patients.export`, audité) (ADR-133)
+- [x] Patients normaux / VIP : VIP = passages ET montant encaissé sur une fenêtre glissante, seuils propres à chaque site réglés depuis le portail par l'API, catégorie calculée jamais stockée (ADR-133)
 - [ ] Détection des doublons
 - [ ] Episode de soins
 - [x] Numéro patient annuel `SITE-YY-NNNN`
@@ -192,6 +194,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Voie d'administration sur les lignes d'ordonnance, facultative et jamais rétro-remplie (ADR-083)
 - [x] Posologie composée avec ses unités à la saisie ; plus de « Dose 500 / Fréquence 3 » sans contexte
 - [x] Dose facultative pour un produit qui ne se dose pas (compresses, gants) : la forme du référentiel décide, jamais le libellé (ADR-110)
+- [x] Ligne d'ordonnance relue avant signature : voie incompatible avec la forme, fréquence sans unité, quantité insuffisante, allergie, enfant sans poids, doublon de principe actif, dose en mg/kg — sans jamais bloquer ni prétendre juger une dose (ADR-128)
+- [ ] Doses maximales par produit, âge et poids — à fournir par la clinique pour détecter réellement une dose trop élevée (ADR-128)
 - [x] Quantité totale déduite de la fréquence et de la durée, base du calcul écrite sous le champ, jamais imposée sur une quantité déjà corrigée (ADR-110)
 - [x] Aucune quantité suggérée quand la posologie n'en implique aucune (« si besoin », fréquence libre, durée absente)
 - [x] Écran Ordonnance passé à shadcn (ADR-099) : `Select`/`FormField` dans l'éditeur de ligne, unité attachée à la quantité, catalogue distinguant « Dans l'ordonnance » et « Épuisé », reprise de la quantité déduite en un clic (amendement ADR-110)
@@ -220,6 +224,18 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Compte rendu d'imagerie saisi depuis « Demandes d'examens » (éditeur riche) et imprimable avec l'en-tête du site (ADR-070)
 - [x] Feuilles de compte rendu de la clinique (écho abdomino-pelvienne, écho obstétricale 1er trimestre) insérables dans le compte rendu, choisies par le médecin et jamais déduites du nom de l'examen (ADR-108)
 - [ ] Feuille ECG — aucun modèle transmis, rien n'est inventé (ADR-108)
+- [x] Cinq feuilles d'échographie strictement identiques au papier : abdomino-pelvienne (deux versions : N.B. ou Prostate), pelvienne, obstétricale 1er trimestre et 2e–3e trimestre, en deux colonnes avec cases Conclusion / N.B. pleine largeur (saut `<hr>`, amendement ADR-108)
+- [x] Fenêtre de compte rendu d'imagerie refondue (shadcn) : liste de feuilles, un éditeur par case du papier, barre d'outils commune, observations repliées, compteur du plafond serveur (ADR-108)
+- [x] Feuilles d'échographie ajoutées par les médecins du site : « + » depuis la fenêtre de compte rendu, enregistre le contenu actuel, retrait par archivage, droits `imaging_templates.*` (amendement ADR-108)
+- [x] La feuille d'un examen s'ouvre d'elle-même à la première saisie (réglée par site, liste explicite par code pour les feuilles papier, jamais déduite d'un nom) ; épingle pour la régler ou la retirer (amendement ADR-108)
+- [x] Aperçu du compte rendu avant de l'enregistrer : document composé par le serveur, identique à l'impression, sans rien écrire (amendement ADR-108) ; puces des listes rétablies à l'écran et à l'impression
+- [x] Sept propositions de feuilles pour les échographies sans modèle papier (abdominale, rénale, prostatique, mammaire, thyroïdienne, scrotale, parties molles), marquées « à valider », sans aucune valeur ni norme
+- [ ] Validation médicale des propositions par la clinique, ou modèles papier réels pour les remplacer (ADR-108)
+- [x] Modifier une feuille ajoutée : renommer et remplacer son contenu, comptes rendus déjà écrits intacts (`imaging_templates.update`)
+- [x] Titre exact de la feuille dans le bandeau, figé sur le compte rendu (instantané lu côté serveur) (ADR-108)
+- [x] Compte rendu d'imagerie corrigeable après saisie : la version remplacée est conservée (auteur, date, motif), la signature d'origine ne bouge pas, « Corrigé » et historique visibles dans « Demandes d'examens » (ADR-130)
+- [x] « Demandes d'examens » : onglets ECG / Échographie / Analyses combinés avec les vues, boutons compacts (actions par examen, icônes nommées, consultation avec son icône), archivage à la main réversible (ADR-131)
+- [ ] Modifier un compte rendu depuis l'étape Paraclinique de la consultation — à décider (ADR-130)
 - [x] Une seule saisie du compte rendu d'imagerie (`ImagingReportDialog`), identique depuis la consultation et « Demandes d'examens » ; plus d'éditeur vide sous un compte rendu déjà enregistré (amendement ADR-108)
 - [x] Compte rendu d'imagerie au format de la feuille papier de la clinique (logo, N° de dossier, identité, deux colonnes, N.B., signature), identique à l'écran et à l'impression (amendement ADR-108)
 - [x] File Maternité passée à shadcn (ADR-099) : cartes, pastilles d'état et pagination par les primitives partagées ; la prise en charge devient un POST au lieu d'un bouton imbriqué dans un lien-bouton

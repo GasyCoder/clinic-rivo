@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'episode_id', 'consultation_id', 'source_orientation_id', 'lab_orientation_id',
     'requested_by', 'notes', 'requested_at',
     'cancelled_at', 'cancelled_by', 'cancel_reason',
+    'archived_at', 'archived_by',
 ])]
 class LabRequest extends Model
 {
@@ -25,7 +26,7 @@ class LabRequest extends Model
 
     protected function casts(): array
     {
-        return ['requested_at' => 'datetime', 'cancelled_at' => 'datetime'];
+        return ['requested_at' => 'datetime', 'cancelled_at' => 'datetime', 'archived_at' => 'datetime'];
     }
 
     public function episode(): BelongsTo

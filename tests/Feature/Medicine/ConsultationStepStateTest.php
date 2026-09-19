@@ -323,6 +323,29 @@ class ConsultationStepStateTest extends TestCase
         }
     }
 
+    /**
+     * ADR-129 — le dossier est une étape de lecture : ne l'avoir pas « validée »
+     * ne retient plus la clôture, alors qu'il n'y a rien à y saisir.
+     */
+    public function test_an_unvalidated_dossier_step_never_blocks_closure(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+        $consultation = $orientation->consultation()->firstOrFail();
+        $workflow = $this->app->make(ConsultationWorkflow::class);
+
+        $messages = collect($workflow->blockersForClosure($consultation))->pluck('message')->implode(' ');
+
+        // Non validée, et pourtant absente des obstacles ; les autres étapes
+        // restent exigées.
+        $this->assertSame(
+            ConsultationStepStatus::NotStarted,
+            $consultation->steps()->where('step', ConsultationStep::Dossier->value)->first()?->status ?? ConsultationStepStatus::NotStarted,
+        );
+        $this->assertStringNotContainsString('Dossier du passage', $messages);
+        $this->assertStringContainsString('Interrogatoire', $messages);
+    }
+
     public function test_a_paraclinical_only_encounter_owes_no_interview_or_clinical_exam(): void
     {
         $doctor = $this->doctor();

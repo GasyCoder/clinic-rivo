@@ -3,9 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import {
     AlertTriangle,
+    ArrowDownAZ,
     ArrowRight,
     CheckCircle2,
+    Crown,
     Eye,
+    FileSpreadsheet,
     Filter,
     FolderOpen,
     LayoutGrid,
@@ -50,6 +53,7 @@ const props = defineProps({
     needs: Object,
     segments: Object,
     summary: Object,
+    vip: Object,
 });
 
 const { can } = usePermissions();
@@ -63,6 +67,11 @@ const emergencyFilter = ref(props.filters?.emergency ?? '');
 // Le besoin filtré vient du serveur, qui le renvoie sous sa forme canonique :
 // il n'a pas de copie locale à garder synchronisée.
 const needFilter = computed(() => props.filters?.need ?? null);
+// ADR-133 : catégorie (normal / VIP), initiale du nom et ordre viennent, eux
+// aussi, du serveur.
+const segmentFilter = computed(() => props.filters?.segment ?? 'all');
+const letterFilter = computed(() => props.filters?.letter ?? null);
+const sortFilter = computed(() => props.filters?.sort ?? 'recent');
 const readStoredViewMode = () => {
     try {
         return localStorage.getItem('rivo:patients:view');
@@ -90,22 +99,50 @@ const allCurrentSelected = computed(() => currentPageUuids.value.length > 0
 let searchTimer = null;
 
 /**
+ * Les filtres de la page, tels que l'adresse les porte. L'export Excel les
+ * reprend à l'identique : il écrit ce que l'écran liste, pas autre chose.
+ */
+const directoryParams = (overrides = {}) => {
+    const need = 'need' in overrides ? overrides.need : needFilter.value;
+    const status = 'status' in overrides ? overrides.status : props.filters?.status;
+    const segment = 'segment' in overrides ? overrides.segment : segmentFilter.value;
+    const letter = 'letter' in overrides ? overrides.letter : letterFilter.value;
+    const sort = 'sort' in overrides ? overrides.sort : sortFilter.value;
+
+    return {
+        q: query.value.trim() || undefined,
+        type: typeFilter.value || undefined,
+        emergency: emergencyFilter.value || undefined,
+        need: need || undefined,
+        status: status || undefined,
+        segment: segment && segment !== 'all' ? segment : undefined,
+        letter: letter || undefined,
+        sort: sort && sort !== 'recent' ? sort : undefined,
+    };
+};
+
+const exportUrl = computed(() => {
+    const params = new URLSearchParams();
+
+    Object.entries(directoryParams()).forEach(([key, value]) => {
+        if (value !== undefined) {
+            params.set(key, value);
+        }
+    });
+
+    const queryString = params.toString();
+
+    return `/patients/export${queryString ? `?${queryString}` : ''}`;
+});
+
+/**
  * `overrides.need` change le besoin filtré ; sans lui, on garde celui de la
  * page. Les autres filtres sont les champs de la barre.
  */
 const submitFilters = (overrides = {}) => {
     clearTimeout(searchTimer);
     selectedUuids.value = [];
-    const need = 'need' in overrides ? overrides.need : needFilter.value;
-    const status = 'status' in overrides ? overrides.status : props.filters?.status;
-
-    router.get('/patients', {
-        q: query.value.trim() || undefined,
-        type: typeFilter.value || undefined,
-        emergency: emergencyFilter.value || undefined,
-        need: need || undefined,
-        status: status || undefined,
-    }, { preserveState: true, preserveScroll: true, replace: true });
+    router.get('/patients', directoryParams(overrides), { preserveState: true, preserveScroll: true, replace: true });
 };
 
 const submitSearch = () => submitFilters();
@@ -154,6 +191,12 @@ const activeFilters = computed(() => {
     if (statusLabel) {
         chips.push({ key: 'status', label: statusLabel });
     }
+    if (segmentFilter.value !== 'all') {
+        chips.push({ key: 'segment', label: segmentFilter.value === 'vip' ? 'Patients VIP' : 'Patients normaux' });
+    }
+    if (letterFilter.value) {
+        chips.push({ key: 'letter', label: `Nom commençant par ${letterFilter.value}` });
+    }
     if (query.value) {
         chips.push({ key: 'q', label: `« ${query.value} »` });
     }
@@ -168,7 +211,7 @@ const activeFilters = computed(() => {
 });
 
 const clearFilter = (key) => {
-    if (key === 'need' || key === 'status') {
+    if (key === 'need' || key === 'status' || key === 'segment' || key === 'letter') {
         submitFilters({ [key]: null });
         return;
     }
@@ -184,7 +227,7 @@ const resetFilters = () => {
     query.value = '';
     typeFilter.value = '';
     emergencyFilter.value = '';
-    submitFilters({ need: null, status: null });
+    submitFilters({ need: null, status: null, segment: 'all', letter: null });
 };
 
 const updateTypeFilter = (value) => {
@@ -202,6 +245,24 @@ const focusEmergencies = () => {
     emergencyFilter.value = 'active';
     submitFilters();
 };
+
+// ADR-133 : les compteurs viennent du serveur, chacun étant ce que donnerait un
+// clic sur sa case (les autres filtres restant appliqués).
+const categories = computed(() => [
+    { key: 'all', label: 'Tous les patients', count: props.segments?.category?.all ?? 0 },
+    { key: 'normal', label: 'Patients normaux', count: props.segments?.category?.normal ?? 0 },
+    { key: 'vip', label: 'Patients VIP', count: props.segments?.category?.vip ?? 0, icon: Crown },
+]);
+const selectCategory = (key) => submitFilters({ segment: key });
+
+const sortOptions = [
+    { value: 'recent', label: 'Plus récents d’abord' },
+    { value: 'name_asc', label: 'Nom A → Z' },
+    { value: 'name_desc', label: 'Nom Z → A' },
+];
+const updateSort = (value) => submitFilters({ sort: value });
+const LETTERS = Array.from({ length: 26 }, (_, index) => String.fromCharCode(65 + index));
+const selectLetter = (letter) => submitFilters({ letter: letter === letterFilter.value ? null : letter });
 
 const tabs = computed(() => statusTabs(props.segments, props.filters?.status ?? null));
 const selectTab = (value) => submitFilters({ status: value });
@@ -436,6 +497,13 @@ watch(
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+                <!-- ADR-133 : les filtres de la page, tous les dossiers correspondants
+                     (pas la seule page affichée). Un lien, pas une visite Inertia :
+                     c'est un fichier qui se télécharge. -->
+                <Button v-if="can('patients.export')" as="a" :href="exportUrl" variant="outline" title="Télécharger les patients affichés (tous les filtres) au format Excel">
+                    <FileSpreadsheet class="h-4 w-4" />
+                    Exporter Excel
+                </Button>
                 <Button v-if="can('cash.view')" :as="Link" href="/cash" variant="outline">
                     <WalletCards class="h-4 w-4" />
                     Caisse
@@ -446,6 +514,32 @@ watch(
                 </Button>
             </div>
         </header>
+
+        <section class="space-y-2" aria-label="Catégorie de patients">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="inline-flex flex-wrap rounded-lg border border-border bg-muted/50 p-1" role="group" aria-label="Catégorie de patients">
+                    <button
+                        v-for="category in categories"
+                        :key="category.key"
+                        type="button"
+                        :aria-pressed="segmentFilter === category.key"
+                        :class="[
+                            'inline-flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                            segmentFilter === category.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                        ]"
+                        @click="selectCategory(category.key)"
+                    >
+                        <component :is="category.icon" v-if="category.icon" class="h-4 w-4 text-amber-500" aria-hidden="true" />
+                        {{ category.label }}
+                        <span :class="['rounded-full px-2 py-0.5 text-xs tabular-nums', segmentFilter === category.key ? 'bg-primary/10' : 'bg-muted']">{{ category.count }}</span>
+                    </button>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                    <template v-if="vip?.configured">VIP : {{ vip.rule }}.</template>
+                    <template v-else>Aucun seuil VIP n’est réglé pour ce site : aucun patient n’est VIP. Le Super Administrateur les règle depuis le portail.</template>
+                </p>
+            </div>
+        </section>
 
         <section class="space-y-3" aria-labelledby="patient-needs-title">
             <div>
@@ -508,6 +602,13 @@ watch(
                             aria-label="Filtrer par situation"
                             @update:model-value="updateEmergencyFilter"
                         />
+                        <Select
+                            :model-value="sortFilter"
+                            :options="sortOptions"
+                            :icon="ArrowDownAZ"
+                            aria-label="Trier les patients"
+                            @update:model-value="updateSort"
+                        />
                     </div>
 
                     <div class="flex items-center justify-between gap-3 xl:ms-auto xl:justify-end">
@@ -534,6 +635,25 @@ watch(
                         </div>
                     </div>
                 </div>
+
+                <!-- ADR-133 : l'initiale du nom. Une lettre déjà choisie se referme. -->
+                <nav class="flex flex-wrap items-center gap-1 border-t border-border pt-4" aria-label="Filtrer par initiale du nom">
+                    <button
+                        type="button"
+                        :aria-pressed="!letterFilter"
+                        :class="['h-8 rounded-md px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', !letterFilter ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
+                        @click="letterFilter && selectLetter(letterFilter)"
+                    >Toutes</button>
+                    <button
+                        v-for="letter in LETTERS"
+                        :key="letter"
+                        type="button"
+                        :aria-pressed="letterFilter === letter"
+                        :aria-label="`Noms commençant par ${letter}`"
+                        :class="['h-8 w-8 rounded-md text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30', letterFilter === letter ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground']"
+                        @click="selectLetter(letter)"
+                    >{{ letter }}</button>
+                </nav>
 
                 <div v-if="activeFilters.length" class="flex flex-wrap items-center gap-2 border-t border-border pt-4">
                     <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
@@ -622,10 +742,13 @@ watch(
                                 <div class="flex min-w-[230px] items-center gap-3">
                                     <Avatar :initials="formatPatientInitials(patient)" :emergency="isEmergency(patient)" aria-hidden="true" />
                                     <div class="min-w-0">
-                                        <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary">
-                                            {{ formatPatientName(patient) }}
-                                        </Link>
-                                        <span v-else class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(patient) }}</span>
+                                        <span class="flex items-center gap-2">
+                                            <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary">
+                                                {{ formatPatientName(patient) }}
+                                            </Link>
+                                            <span v-else class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(patient) }}</span>
+                                            <Badge v-if="patient.is_vip" variant="warning" class="shrink-0 gap-1 px-2 py-0.5" title="Patient VIP : très fréquent et gros apport à la clinique"><Crown class="h-3 w-3" />VIP</Badge>
+                                        </span>
                                         <span class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                                             <span class="inline-flex items-center gap-1.5 font-medium"><FolderOpen class="h-3.5 w-3.5" />{{ patient.patient_number }}</span>
                                             <a v-if="patient.phone" :href="`tel:${patient.phone}`" class="inline-flex items-center gap-1.5 hover:text-primary"><Phone class="h-3.5 w-3.5" />{{ patient.phone }}</a>
@@ -689,8 +812,11 @@ watch(
                         <div class="flex min-w-0 items-center gap-3">
                             <Avatar :initials="formatPatientInitials(patient)" :emergency="isEmergency(patient)" />
                             <div class="min-w-0">
-                                <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary">{{ formatPatientName(patient) }}</Link>
-                                <span v-else class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(patient) }}</span>
+                                <span class="flex items-center gap-2">
+                                    <Link v-if="canViewPatient" :href="`/patients/${patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary">{{ formatPatientName(patient) }}</Link>
+                                    <span v-else class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(patient) }}</span>
+                                    <Badge v-if="patient.is_vip" variant="warning" class="shrink-0 gap-1 px-2 py-0.5" title="Patient VIP"><Crown class="h-3 w-3" />VIP</Badge>
+                                </span>
                                 <span class="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><FolderOpen class="h-3.5 w-3.5" />{{ patient.patient_number }}</span>
                             </div>
                         </div>

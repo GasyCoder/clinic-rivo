@@ -34,6 +34,9 @@ class DevelopmentTestAccountSeeder extends Seeder
     public const PASSWORD = 'password';
 
     private const PROVISIONING_PERMISSIONS = [
+        // ADR-133 — exporting the patient list belongs to ADMINISTRATION, not to
+        // the RECEPTION role this account carries.
+        'patients.export',
         'catalog.items.view', 'catalog.items.create', 'catalog.items.update',
         'catalog.tariffs.view', 'catalog.tariffs.create', 'catalog.tariffs.update',
         'analysis_catalog.view', 'analysis_catalog.create', 'analysis_catalog.update',

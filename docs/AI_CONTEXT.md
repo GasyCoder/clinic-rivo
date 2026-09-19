@@ -909,6 +909,27 @@ consigner. Le compte rendu est imprimable (`Medicine/ImagingReportPrint`),
 avec l'identité du patient et l'en-tête du site issu de `page.props.site` —
 impression navigateur, jamais de PDF serveur (ADR-070).
 
+**Un compte rendu d'imagerie enregistré se corrige, sans rien perdre** (ADR-130,
+complète ADR-108). La première saisie reste unique ; corriger est un autre acte
+(`CorrectImagingResultAction`, `PUT …/imaging-requests/{item}/result`,
+`imaging_results.update`, accordée à MEDICINE) qui conserve la version remplacée dans
+`imaging_result_revisions` — append-only, avec auteur, date et motif facultatif — et
+garde la signature d'origine (`resulted_at/by`) à côté de `corrected_at/by`. Refusé si
+rien n'a changé, si le texte est vide, ou avant la première saisie. Possible après la
+clôture, comme la saisie. « Demandes d'examens » offre Modifier par examen, un repère
+« Corrigé » et un historique des versions.
+
+**« Demandes d'examens » : familles, archivage, boutons compacts** (ADR-131). Chaque
+examen porte ses actions à sa ligne — « Saisir » court, puis Voir / Modifier / Imprimer en
+icônes nommées ; la colonne Actions garde consultation, archiver et retirer en icônes.
+Onglets **Tous / ECG / Échographie / Analyses** (`?type=`, plus « Non classés » s'il en
+existe — la famille d'imagerie vient du catalogue, ADR-106), combinés avec les trois vues,
+comptes servis par le serveur. **Archiver à la main** : `archived_at/by` sur `lab_requests`
+et `imaging_requests`, drapeau réversible, `paraclinical_requests.archive` (MEDICINE) ; on
+ne range que ce qui est rendu, jamais du travail à faire.
+
+
+
 L'étape Diagnostic a été retirée de l'assistant (ADR-081) : le parcours compte
 six étapes. Correction et annulation vivent dans la carte Diagnostic de
 l'examen, réservées à l'auteur de la saisie ; l'historique complet — diagnostics
@@ -980,6 +1001,20 @@ ajoutable ; allergie recoupée → rouge, hors « Tout ajouter ».
 `diagnoses` et `prescription_lines`, revérifiés par le serveur (protocole qui
 traite ce diagnostic / prescrit ce médicament). Droits `clinical_protocols.view`
 et `.manage`, accordés à `MEDICINE`.
+
+**Une ligne d'ordonnance est relue avant d'être signée** (ADR-128, complète ADR-110).
+Un enfant de 4 ans prescrit à 1000 mg d'un injectable, par voie orale, sans qu'aucune
+alerte ne se déclenche : `prescriptionChecks.js` relit désormais ce que l'application
+sait — voie incompatible avec la forme, fréquence « 2 » sans unité, quantité inférieure à
+ce que la posologie consomme (dose ÷ dosage du produit), allergie recoupée (catalogue
+rapproché par le serveur, ligne manuelle sur son nom), enfant sans poids, même principe
+actif deux fois — et, pour un enfant pesé, la dose en mg/kg. **Il ne dit jamais « dose
+trop élevée »** : aucune table de doses maximales n'existe (ni CDC ni référentiel) et il
+n'en invente pas ; il avoue qu'aucune dose maximale n'est enregistrée. Aide, jamais un
+verrou : la validation n'est pas bloquée, la fenêtre de signature annonce le nombre de
+points à relire. `prescription_safety` (âge, poids, conflits d'allergie) est servi par
+`MedicineDossierPresenter`. **À fournir par la clinique** : doses maximales par produit,
+âge et poids, pour une vraie détection.
 
 **Tout est local : aucune API d'IA, aucun service externe**, aucune donnée ne
 quitte le site — précision explicite du propriétaire, imposée par un test qui
@@ -1467,6 +1502,12 @@ attente de règlement / Aucun passage ouvert — les états du badge de la ligne
 calculés par le serveur, chacun ce que donnerait un clic ; les cartes de besoin
 suivent l'onglet. Les pastilles « Autres situations » ont été retirées (`?need=`
 accepte toujours toutes les combinaisons).
+
+Le répertoire se trie A → Z (`?sort=`), se filtre par initiale (`?letter=`) et s'exporte en Excel tel que filtré
+(`patients.export`, ADMINISTRATION, audité — ADR-133). Il distingue **Patients normaux / VIP** : VIP = au moins N
+passages ET M Ar encaissés (paiements `COMPLETED`) sur les X derniers mois. Seuils **par site**, réglés depuis
+`/super-admin/patient-vip` (`patient_vip.*`) et poussés par l'API du site ; catégorie calculée, jamais stockée ; sans
+seuil configuré, personne n'est VIP. Simple repère : aucun tarif, droit ni remise n'en dépend.
 
 **Prendre un patient qui n'est pas le premier demande confirmation, aux Soins
 comme en Médecine** (ADR-121) : « Un patient attend avant celui-ci » (ou « Une

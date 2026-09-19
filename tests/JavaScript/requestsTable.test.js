@@ -22,8 +22,12 @@ test('les demandes sont présentées en tableau, avec une colonne d’actions', 
  * L'écran ne recalcule jamais la règle : il lit le drapeau.
  */
 test('les actions sont gardées par les drapeaux du serveur, jamais recalculées', () => {
-    assert.match(page, /request\.items\.filter\(\(exam\) => exam\.can_record\)/);
+    // Chaque examen porte ses actions à sa ligne (ADR-131) : deux examens
+    // d'une même demande n'ont plus deux boutons identiques.
+    assert.match(page, /v-if="item\.can_record"/);
     assert.match(page, /v-if="request\.can_withdraw"/);
+    assert.match(page, /v-if="request\.can_archive"/);
+    assert.match(page, /v-if="request\.can_unarchive"/);
 
     // Aucune reconstruction locale de ces règles.
     assert.doesNotMatch(page, /resulted_at === null &&/);
@@ -89,8 +93,11 @@ test('la feuille de compte rendu est un rectangle, pas une colonne', () => {
     const head = dialog.slice(0, dialog.indexOf('</Dialog>'));
 
     assert.match(head, /size="wide"/);
-    assert.match(head, /grid gap-4 lg:grid-cols-3/);
-    assert.match(head, /lg:col-span-2/);
+    // Les deux colonnes de la feuille côte à côte, comme sur le papier ; la
+    // saisie libre prend toute la largeur au lieu de la partager avec un
+    // second champ (ADR-108).
+    assert.match(head, /grid divide-border lg:grid-cols-2 lg:divide-x/);
+    assert.doesNotMatch(head, /lg:grid-cols-3/);
 });
 
 /**
@@ -125,7 +132,7 @@ test('la feuille de saisie ne se ferme pas par un clic à côté', () => {
  * rien. L'URL est donc construite par le serveur, jamais devinée ici.
  */
 test('le bouton Imprimer suit l’URL fournie par le serveur', () => {
-    assert.match(page, /request\.items\.filter\(\(exam\) => exam\.print_url\)/);
+    assert.match(page, /v-if="item\.print_url"/);
     assert.match(page, /:href="item\.print_url"/);
     assert.doesNotMatch(page, /`\/medicine\/imaging-requests\/\$\{item\.uuid\}\/compte-rendu`/);
 });
@@ -152,7 +159,9 @@ test('« Voir le résultat » montre le résultat, il ne navigue pas ailleurs', 
 
 /** Ouvrir la consultation reste possible, mais comme une action distincte. */
 test('la consultation garde son propre bouton', () => {
-    assert.match(page, /v-else-if="request\.consultation_url"/);
+    // ADR-131 — avec son icône : un bouton sans icône se lisait comme un intrus.
+    assert.match(page, /v-if="request\.consultation_url"/);
+    assert.match(page, /<Stethoscope class="h-4 w-4" \/>/);
     assert.match(page, /:href="viewing\.consultation_url"/);
 });
 
@@ -163,4 +172,56 @@ test('la lecture n’interroge pas le serveur', () => {
 
     assert.match(body, /v-html="item\.report"/);
     assert.doesNotMatch(body, /router\.(get|post)|useForm/);
+});
+
+/**
+ * ADR-131 — les boutons d'une ligne restent courts : « Saisir » garde son
+ * libellé, tout le reste passe en icônes nommées au survol.
+ */
+test('les actions secondaires sont des icônes nommées, pas des libellés longs', () => {
+    for (const label of ['Ouvrir la consultation', 'Archiver cette demande', 'Sortir des archives']) {
+        assert.match(page, new RegExp(`aria-label="${label}"`));
+    }
+
+    // Dans le tableau, le libellé long d'origine ne sert plus de texte de bouton
+    // (la fenêtre de lecture, elle, a la place de garder le sien).
+    const table = page.slice(page.indexOf('<tbody'), page.indexOf('</tbody>'));
+
+    assert.doesNotMatch(table, />\s*Ouvrir la consultation\s*<\/Button>/);
+    assert.doesNotMatch(table, />\s*Saisir le résultat\s*<\/Button>/);
+});
+
+test('un filtre par famille d’examen — ECG, échographie, analyses — se combine avec la vue', () => {
+    for (const key of ['ALL', 'ECG', 'ULTRASOUND', 'LAB', 'UNCLASSIFIED']) {
+        assert.match(page, new RegExp(`key: '${key}'`));
+    }
+
+    assert.match(page, /role="tablist"/);
+    assert.match(page, /const selectType = /);
+    // Vue et famille se combinent : changer l'une garde l'autre.
+    assert.match(page, /filter: activeFilter\.value, type: activeType\.value/);
+    // Le compte vient du serveur, jamais recalculé depuis la page.
+    assert.match(page, /props\.type_counts\[key\] \?\? 0/);
+});
+
+test('« Non classés » n’apparaît que s’il existe un examen sans famille', () => {
+    assert.match(page, /tab\.key !== 'UNCLASSIFIED'/);
+    assert.match(page, /\(props\.type_counts\.UNCLASSIFIED \?\? 0\) > 0/);
+});
+
+test('archiver et sortir des archives passent par le serveur, sans suppression', () => {
+    assert.match(page, /\/medicine\/paraclinical-requests\/\$\{request\.kind\}\/\$\{request\.uuid\}\/\$\{restore \? 'unarchive' : 'archive'\}/);
+    assert.doesNotMatch(page, /router\.delete/);
+});
+
+/**
+ * Le serveur envoie `type_counts` et `report_templates` en snake_case : Vue ne
+ * fait correspondre qu'un nom identique (ou en kebab-case). Un prop déclaré
+ * `typeCounts` ne recevait jamais rien — les onglets affichaient 0 et les
+ * feuilles de la clinique n'apparaissaient pas dans la fenêtre de saisie.
+ */
+test('les props servis en snake_case sont déclarés tels quels', () => {
+    assert.match(page, /type_counts: \{ type: Object/);
+    assert.match(page, /report_templates: \{ type: Array/);
+    assert.doesNotMatch(page, /typeCounts|reportTemplates/);
 });

@@ -7633,6 +7633,194 @@ coordonnées        logo, e-mail et téléphone viennent de la configuration du
 Le numéro de passage figure à côté du N° de dossier : la feuille papier ne
 l'a pas, mais sans lui un compte rendu ne se rattache plus à sa venue.
 
+## Amendement du 2026-09-19 — quatre feuilles, strictement celles du papier
+
+Demande du propriétaire, avec les modèles Word de la clinique : les feuilles
+doivent être **strictement identiques** au papier, rubriques, mots et
+répartition en colonnes comprises. Quatre feuilles remplacent les deux
+précédentes : abdomino-pelvienne, **pelvienne** (nouvelle), obstétricale
+1er trimestre et **obstétricale 2e – 3e trimestre** (nouvelle).
+
+```text
+mise en page   le compte rendu se lit en régions séparées par un saut <hr> :
+               1re = colonne de gauche, 2e = colonne de droite, suivantes =
+               cases pleine largeur (Conclusion, N.B.)
+               ImagingReportDocument::regions() les découpe côté serveur ;
+               un texte libre n'a qu'une région et garde l'ancien flux
+filtre         `hr` rejoint la liste blanche de ClinicalRichTextSanitizer,
+               sans attribut : c'est un saut de colonne, pas de la mise en forme
+N.B.           il vit dans la feuille, à la place du papier. La case de
+               `result_notes` devient « Observations complémentaires » pour ne
+               pas doubler un « N.B. » déjà présent
+```
+
+Le papier abdomino-pelvien existe en **deux versions**, reprises chacune comme
+une feuille distincte : l'une avec un N.B. dans la colonne de droite et
+« Diamètre bipariétal » sur les reins, l'autre avec une rubrique PROSTATE à la
+place du N.B. et « Diamètre: ». La clinique n'a pas tranché entre elles ; le
+libellé « (avec prostate) » ne fait que décrire ce qui les distingue à l'œil.
+
+```text
+EMBRYON (T1)   coupée entre les deux colonnes, comme sur le papier
+```
+
+**La fenêtre de saisie suit la feuille.** Chaque case du papier a son propre
+éditeur — « Colonne de gauche », « Colonne de droite », « Pleine largeur » —
+sous une barre d'outils commune ; le `<hr>` n'est plus qu'un détail de
+stockage que le médecin ne voit ni ne peut effacer. Le choix de la feuille est
+une liste (`Select`) dont « Texte libre (sans colonnes) » est la première
+entrée : y revenir garde le texte, seules les colonnes disparaissent. Les
+observations complémentaires sont repliées tant qu'elles sont vides.
+
+Le plafond serveur passe de 5 000 à **10 000 caractères** de HTML : une feuille
+vierge en consomme déjà 1 500, et un compte rendu obstétrical détaillé
+approchait l'ancien plafond. Un compte rendu réduit à ses seuls sauts de colonne
+(`<hr>`, cases vides) est désormais refusé comme vide — `<p><br></p>` passait
+déjà, à tort.
+
+Les libellés sont repris tels quels, coquilles comprises (« Hyertrophié »,
+« Noramale », « Retraversé » en T1 mais « Retroversé » en pelvienne) :
+corriger la terminologie d'un document de la clinique n'appartient pas à
+l'implémentation. **À valider avec la clinique** avant de les rectifier.
+
+Limite connue : le bandeau bleu affiche le nom de l'examen du catalogue
+(« Échographie obstétricale du 1er trimestre »), pas le titre exact de la feuille
+choisie (« ÉCHOGRAPHIE OBSTETRICALE (1er TRIMESTRE) »). La feuille utilisée n'est
+pas enregistrée avec le compte rendu ; l'y ajouter demanderait une colonne et
+un chemin d'écriture de plus.
+
+## Amendement du 2026-09-19 — les médecins du site ajoutent leurs feuilles
+
+Demande du propriétaire : pouvoir ajouter une nouvelle feuille depuis la
+fenêtre. Le CDC ne dit pas qui peut le faire ; arbitrage explicite du
+propriétaire : **les médecins du site**, en **enregistrant le contenu actuel**.
+
+```text
+stockage     imaging_report_templates : propre à chaque site, comme les
+             protocoles (ADR-111). Les cinq feuilles papier restent dans le
+             code et ne se modifient ni ne se retirent jamais.
+droits       imaging_templates.create   accordée à MEDICINE par la migration
+             imaging_templates.archive  (ADR-064 : un site en production ne
+                                         rejoue plus RolePermissionSeeder)
+             Créer et retirer ne sont pas la même autorité.
+écran        bouton « + » à côté de la liste, actif seulement sur un texte
+             écrit ; « Retirer » n'apparaît que sur une feuille ajoutée
+règles       nom obligatoire et unique — feuilles de la clinique comprises,
+             sans tenir compte de la casse ; feuille vide refusée ; corps
+             assaini comme tout texte clinique
+retrait      archivage (Soft Delete, ADR-009), jamais suppression : les
+             comptes rendus déjà écrits gardent leur texte, le nom se libère
+```
+
+**Le texte devient le modèle tel quel.** Le serveur ne peut pas deviner ce qui
+est propre au patient (mesures, constatations, conclusion) : la fenêtre
+d'enregistrement le dit en toutes lettres, et propose la feuille à tous les
+médecins du site. Un futur besoin d'éditer une feuille déjà ajoutée (renommer,
+remplacer son contenu) n'est pas couvert : on l'archive et on la recrée.
+
+Un `watch` de la fenêtre retournait un tableau `[uuid, mode]` : Vue le
+considérait changé à chaque re-rendu, même pour le même examen, et remettait le
+compte rendu à zéro. Enregistrer une feuille recharge la page et le révélait ;
+il surveille désormais une chaîne.
+
+## Amendement du 2026-09-19 — la feuille s'ouvre d'elle-même pour son examen
+
+Demande du propriétaire : ouvrir « Saisir le résultat » d'une échographie doit
+créer directement les colonnes de la feuille qui lui correspond. Cela
+**assouplit** le premier principe de cet ADR (« le médecin choisit
+explicitement ») sans lever l'ADR-052 : la feuille est **pré-appliquée**, le
+médecin peut toujours en changer, et le lien examen → feuille est **réglé**,
+jamais déduit d'un motif dans le nom ou le code.
+
+```text
+réglage du site  imaging_exam_report_templates (catalog_item_id unique,
+                 template_key nullable). Nul = « aucune feuille d'office », un
+                 choix explicite qui l'emporte sur la liste du code.
+liste du code    ImagingReportTemplates::DEFAULT_BY_EXAM_CODE — explicite, par
+                 code du catalogue : ECHO-ABD-PEL, ECHO-PEL, ECHO-OBS-T1,
+                 ECHO-OBS-T2 et ECHO-OBS-T3. Ni ECHO-ABD, ni ECHO-OBS, ni
+                 ECHO-MAMMAIRE : aucune feuille papier n'y correspond sans
+                 ambiguïté, donc aucune n'est devinée.
+réglage          depuis la fenêtre, avec `imaging_templates.create` : épingle
+                 « Proposer cette feuille d'office pour cet examen », et case
+                 cochée à la création d'une feuille (même transaction). Le
+                 catalogue n'est jamais modifié (ADR-024).
+ouverture        en première saisie seulement, et champ vide : rien n'est
+                 écrasé. Une correction repart du texte enregistré.
+feuille retirée  n'est plus proposée : mieux vaut aucune feuille qu'une feuille
+                 disparue.
+```
+
+**Aucune feuille papier n'existe pour l'échographie mammaire** (ni pour la
+thyroïde, la prostate, la scrotale…). L'automatisme demandé exige donc que la
+clinique fournisse ces modèles, ou qu'un médecin en crée un une fois avec « + »
+en cochant « Proposer d'office » : toutes les saisies suivantes de cet examen
+s'ouvrent alors sur ses colonnes.
+
+## Amendement du 2026-09-19 — aperçu avant d'enregistrer
+
+Un compte rendu signé ne se réécrit pas en silence (ADR-130) : le médecin doit
+pouvoir relire ce qui sortira **avant** de l'enregistrer. Le bouton « Aperçu »
+de la fenêtre de saisie ouvre le document tel qu'il s'imprimera.
+
+```text
+composition   le serveur (POST …/result/preview, ImagingReportDocument::preview),
+              avec le même code que l'impression : identité du patient, titre
+              selon la famille d'imagerie, colonnes, signature du médecin
+              connecté et date du moment. Aucune copie côté navigateur — deux
+              mises en page du même document finiraient par diverger.
+écriture      aucune : ni compte rendu, ni audit, ni état de l'examen changé
+droit         imaging_results.create OU imaging_results.update : l'aperçu sert
+              à une première saisie comme à une correction
+refus         un compte rendu vide, y compris réduit à des cases vides (<hr>)
+sortie        « Retour à la saisie » ou « Enregistrer » depuis l'aperçu ;
+              l'aperçu n'est pas obligatoire, il ne remplace pas la saisie
+```
+
+Il a révélé un défaut de la feuille : le reset de l'application retire les puces
+des listes, que le papier porte. Elles sont rétablies dans le document — pour
+l'aperçu comme pour l'impression, qui les perdaient depuis l'origine.
+
+## Amendement du 2026-09-19 — propositions, titre exact et modification d'une feuille
+
+Trois demandes du propriétaire, qui n'a pas de modèle papier pour les autres
+échographies : générer les feuilles manquantes, faire porter au bandeau le titre
+exact de la feuille, et pouvoir modifier une feuille ajoutée.
+
+**Propositions du système.** Sept feuilles sont écrites faute de modèle :
+abdominale, rénale et vésicale, prostatique, mammaire, thyroïdienne, scrotale,
+parties molles. Ce sont du contenu médical rédigé par le système : elles ne
+sont donc **jamais présentées comme un papier de la clinique**.
+
+```text
+marquage      validated = false ; libellé « … (proposition) » ; groupe
+              « Propositions à valider » dans la liste ; bandeau d'avertissement
+              à l'ouverture : « à faire valider par un médecin de la clinique »
+contenu       des rubriques à compléter, jamais une valeur, une norme ni un
+              seuil (un test refuse tout chiffre). Les organes déjà présents
+              sur un papier de la clinique en reprennent les rubriques.
+usage         proposées d'office pour leur examen (ECHO-ABD, -RENAL, -PROSTATE,
+              -MAMMAIRE, -THYROIDE, -SCROTALE, -PARTIES-MOLLES) ; un site les
+              recopie en feuille à lui (« + ») pour les corriger
+sans feuille  ECHO-OBS, ECHO-MORPHO, ECHO-CARD et les ECG : trop ambigus ou
+              trop spécialisés pour qu'une trame générique soit prudente
+```
+
+**Titre exact du bandeau.** `imaging_request_items.report_sheet_title` en est un
+**instantané** : renommer ou retirer la feuille plus tard ne réécrit jamais un
+compte rendu signé. Le navigateur n'envoie qu'une clé (`sheet_key`, `FREE` pour
+la saisie libre) et **le serveur lit le titre** — il ne dicte jamais l'intitulé
+d'un document. Feuille non touchée en correction : le titre reste ; feuille
+disparue entre-temps : traitée comme non touchée. Les titres papier sont
+repris tels quels, casse comprise (« 1er TRIMESTRE », « 2ème – 3ème ») ; sans
+feuille, le bandeau garde le nom de l'examen en capitales.
+
+**Modifier une feuille ajoutée.** `imaging_templates.update` (accordée à
+MEDICINE par migration) : renommer, décrire, et remplacer le contenu par le
+texte actuel de la fenêtre si la case est cochée. Les comptes rendus déjà écrits
+ne bougent jamais ; l'audit garde l'ancienne et la nouvelle valeur. Les feuilles
+de la clinique et les propositions ne se modifient pas (elles vivent dans le code).
+
 ---
 
 # ADR-109 — Le besoin de l'arrivée n'est ni redemandé au médecin, ni refacturé
@@ -9721,3 +9909,348 @@ n'est touché. Audit : `medicine.orientation.release`, avec l'ancien état.
 Bouton « Remettre en file » dans la file Médecine, sur la ligne d'un patient pris par
 le compte connecté. Le serveur reste juge : si la consultation est commencée, un avis
 le dit. Aucune permission nouvelle.
+
+
+---
+
+# ADR-128 — Relecture d'une ligne d'ordonnance : ce que le système peut vérifier, et ce qu'il avoue ne pas pouvoir
+
+**Status:** ACCEPTED (2026-09-19 — signalement explicite du propriétaire, sur un
+enfant de 4 ans prescrit à 1000 mg sans qu'aucune alerte ne se déclenche) —
+**seuils de dose à fournir par la clinique**
+
+**Complète l'ADR-110** (une ordonnance ne réclame que ce que le produit porte) et
+**l'ADR-111** (les propositions ne s'appuient que sur ce que la clinique a écrit).
+
+## Le constat
+
+Ceftriaxone 1 g injectable, prescrit **1000 mg, voie orale, fréquence « 2 », 10 jours,
+quantité 1**, à un enfant de 4 ans. L'écran ne réagissait à rien. Il y avait pourtant
+plusieurs choses à dire, et une seule que le système ne pouvait pas dire :
+
+```text
+voie orale sur un produit injectable   incohérent, lisible dans la forme du produit
+fréquence « 2 »                        ne dit pas par quoi compter
+quantité 1 pour 2 × 10 jours           1 flacon de 1 g par prise = 20, arithmétique
+enfant de 4 ans                        la dose se rapporte au poids
+« la dose est trop élevée pour l'âge » impossible — voir ci-dessous
+```
+
+## Ce que le système ne peut pas juger
+
+« Trop élevé pour son âge » exige une **dose maximale par âge ou par poids**. Ni le CDC
+ni le référentiel Pharmacie n'en portent (constat déjà posé à l'ADR-111) : les
+médicaments n'ont que nom, DCI, forme et dosage. En écrire dans le code serait inventer
+de la médecine, et une table fausse est plus dangereuse que pas de table. **Le système
+ne dit donc jamais « dose trop élevée » : il dit qu'il ne peut pas le savoir.**
+
+## Ce qu'il relit désormais
+
+Tout se déduit de ce que l'application sait déjà — forme du produit, dosage, voie,
+posologie saisie, âge, poids, allergies. `resources/js/utilities/prescriptionChecks.js`
+porte les règles une seule fois ; l'éditeur de ligne et la fenêtre de signature lisent
+les mêmes alertes.
+
+| Niveau | Alerte |
+|---|---|
+| rouge | allergie connue recoupée (catalogue rapproché par le serveur, ligne manuelle comparée sur son nom) ; voie incompatible avec la forme — injectable donné par voie non parentérale, comprimé/sachet/sirop donné en IV/IM/SC |
+| ambre | injectable sans voie ; fréquence numérique nue (« 2 ») ; quantité inférieure à ce que la posologie consomme, calculée avec le dosage du produit (dose ÷ dosage × prises × jours) ; enfant sans poids relevé ; même principe actif deux fois |
+| info | enfant pesé : dose par kilo par prise et par jour, **suivie de l'aveu qu'aucune dose maximale n'est enregistrée** |
+
+Le rapport mg/kg est de l'arithmétique, pas un jugement : le médecin voit « 62,5 mg/kg
+par prise · 125 mg/kg/jour » et peut le comparer à sa référence. Un dosage que le
+système ne sait pas lire (« 250 mg/5 ml », « 1 % ») ne produit aucun contrôle de
+quantité : convertir ce qu'on ne comprend pas donnerait un contrôle faux.
+
+## Une aide, jamais un verrou
+
+Rien ne bloque la validation : la garde qui active « Valider » ne lit pas les alertes
+(un test le vérifie). Elles se lisent sous chaque ligne, et la fenêtre de signature
+(ADR-106) annonce « N points à relire avant de signer ». La voie incohérente n'est pas
+refusée côté serveur : certaines ampoules injectables se donnent réellement par la
+bouche, et bloquer serait pire que signaler.
+
+## Amendement du même jour — par toast, pas par bloc
+
+Les alertes occupaient la page sous chaque ligne. Elles se disent désormais par **toast** :
+rouge et ambre seulement (12 s et 9 s), une fois la saisie posée (900 ms) et **une seule
+fois par constat** — un message ne revient que s'il a disparu puis reparu. L'information
+(mg/kg) ne parle pas : elle reste lisible dans la fenêtre de signature, qui garde la liste
+complète. Chaque ligne porte seulement une pastille « N à relire » dans son en-tête, dont
+l'infobulle relit les messages. Même règle que les constantes (ADR-125).
+
+## Amendement du même jour — « poids non relevé » ne s'affirme qu'à coup sûr
+
+Le message « poids non relevé » est apparu alors que la fiche Soins portait 25 kg depuis
+13 h 56 : la page, ouverte avant la mise à jour, n'avait pas reçu le contexte
+d'ordonnance, et le code confondait « le serveur dit non relevé » (`null`) et « je ne sais
+pas » (`undefined`). Les deux sont désormais distincts : le système ne dit « non relevé »
+que si le serveur le dit ; sans contexte, il se replie sur le poids de la fiche Soins déjà
+présent dans la page, et se tait s'il n'en a aucun.
+
+## Côté serveur
+
+`MedicineDossierPresenter::prescriptionSafety()` sert `prescription_safety` — âge,
+poids relevé aux Soins (`null` quand absent, jamais zéro) et, par médicament du
+catalogue, l'allergie qu'il recoupe. Le rapprochement est celui des propositions
+(`ClinicalProtocolMatcher::allergyConflict`) : une seule règle. Servi uniquement à qui
+peut prescrire et voir le catalogue.
+
+## À décider avec la clinique
+
+Pour qu'une dose trop élevée soit **réellement** détectée, la clinique doit fournir ses
+références, par médicament : dose maximale par prise et par jour, en valeur absolue ou
+en mg/kg, éventuellement par tranche d'âge, avec la source. Elles seraient saisies dans
+l'application (comme les protocoles, ADR-111), jamais écrites dans le code, et la
+détection ne s'appliquerait qu'aux produits renseignés — les autres continueraient de
+dire « aucune dose maximale enregistrée ». Aucune table n'est inventée en attendant.
+
+Aucune permission nouvelle, aucune migration.
+
+
+---
+
+# ADR-129 — La lecture du dossier ne retient plus la clôture
+
+**Status:** ACCEPTED (2026-09-19 — signalement explicite du propriétaire)
+
+**Amende l'ADR-076** (« la clôture refuse tant qu'une étape pertinente n'est pas
+résolue ») pour la seule étape Dossier.
+
+## Le constat
+
+Le bandeau disait « 1 résultat encore attendu — cela n'empêche pas de clôturer » et
+« Clôturer la consultation » restait grisé. Le vrai obstacle, écrit en petit dans le pied
+de page, était « Dossier du passage : à valider avant la clôture ». Pas le résultat
+attendu — qui n'est pas un obstacle depuis l'ADR-105 — mais une étape que personne ne
+pensait à valider, et que rien n'expliquait au médecin.
+
+## La règle
+
+Le dossier est une **étape de lecture** (`ConsultationStep::requiresContent()` est faux
+pour lui) : il ne porte aucune saisie, et « valider » n'y enregistre que le fait de l'avoir
+lu. Un médecin qui a posé son diagnostic et choisi la suite l'a lu. Le retenir sur ce clic
+était une formalité, du même genre que l'examen déjà transmis (ADR-105).
+
+`ConsultationWorkflow::blockersForClosure()` n'inclut donc plus le Dossier. L'étape reste
+affichée et validable ; elle ne bloque plus. Les autres étapes gardent leur règle : un
+interrogatoire, un examen, une prescription non validés ou non déclarés « non nécessaires »
+retiennent toujours la clôture (ADR-076), parce qu'ils portent du contenu clinique.
+
+## À décider
+
+Si le même reproche vient pour l'Interrogatoire ou l'Examen — remplis mais jamais
+« validés » —, il faudra décider si le fait clinique (le contenu existe) doit suffire,
+comme pour le diagnostic (ADR-081). Rien n'est changé ici : c'est une règle de parcours
+clinique, pas une formalité de lecture.
+
+Aucune permission, route ni migration.
+
+
+---
+
+# ADR-130 — Corriger un compte rendu d'imagerie déjà enregistré
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-108** (le compte rendu d'imagerie) sur un point qu'elle posait comme
+définitif : « un compte rendu enregistré n'est jamais réécrit ». Le médecin doit pouvoir
+le modifier après l'avoir saisi. **Applique l'ADR-010** : on ne détruit pas une donnée
+médicale signée, on la corrige avec trace.
+
+## La règle
+
+La première saisie reste unique (`RecordImagingResultAction` refuse toujours un second
+compte rendu). **Corriger est un autre acte** (`CorrectImagingResultAction`,
+`PUT …/imaging-requests/{item}/result`, permission `imaging_results.update`) : il
+**conserve la version qu'il remplace**, puis écrit la nouvelle.
+
+```text
+imaging_request_items    resulted_at/by   signature d'origine — la date du compte rendu
+                         corrected_at/by  dernière correction
+                         result_value/notes  le texte courant
+imaging_result_revisions une ligne par version REMPLACÉE : texte, auteur et date de
+                         cette version, qui l'a remplacée, quand, motif facultatif
+```
+
+`imaging_result_revisions` est **append-only** : une version remplacée ne se modifie ni
+ne se supprime (le modèle le refuse). L'audit (`imaging.result.correct`) garde l'ancienne
+et la nouvelle valeur. Le motif est facultatif — une faute de frappe n'en demande pas —
+mais servi quand il existe.
+
+## Garde-fous
+
+```text
+rien n'a changé        refusé : pas de version fantôme
+compte rendu vide      refusé, comme à la saisie ; texte assaini comme à la saisie
+pas encore de compte   refusé : c'est « Saisir le résultat », pas une correction
+autre passage          refusé : l'examen doit appartenir à cette orientation
+sans le droit          403 — écrire un compte rendu et revenir sur un document signé
+                       ne sont pas la même autorité (même séparation qu'ADR-096)
+```
+
+La correction reste possible **après la clôture** de la consultation, comme la saisie : un
+résultat tardif ou une faute repérée ensuite ne doivent pas être impossibles à rectifier.
+Elle n'a aucun effet financier ni sur le parcours du passage.
+
+## Écran « Demandes d'examens »
+
+- Un bouton **Modifier** par examen rendu, à côté de Voir le résultat et Imprimer ; la
+  fenêtre de saisie s'ouvre préremplie du compte rendu enregistré, avec le motif facultatif
+  et un bouton grisé tant que rien n'a changé.
+- La lecture (« Voir le résultat ») offre aussi Modifier, et se relit dans les props : après
+  une correction elle montre la nouvelle version. Un repère **Corrigé** (qui, quand) apparaît
+  dans la liste et la lecture, et un **historique** replié liste les versions remplacées
+  avec leur auteur, leur date et leur motif.
+- L'impression porte toujours le compte rendu courant.
+
+## À décider
+
+L'espace Paraclinique de la consultation ne propose pas encore Modifier : la correction se
+fait depuis « Demandes d'examens ». Rien n'empêche de l'ajouter si le médecin la veut aussi
+dans le dossier.
+
+`imaging_results.update` est accordée à `MEDICINE` par la migration (ADR-064).
+
+
+---
+
+# ADR-131 — « Demandes d'examens » : familles d'examens, archivage à la main, boutons compacts
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+
+**Complète l'ADR-106** (famille d'imagerie réglée au catalogue) et **l'ADR-130** (correction
+d'un compte rendu). Aucune règle clinique ni financière n'est modifiée.
+
+## Le constat
+
+Trois défauts sur l'écran : des boutons trop longs (« Saisir le résultat » deux fois de suite
+sur une demande de deux examens, sans qu'on sache lequel est lequel) ; « Ouvrir la
+consultation » seul sans icône ; pas de moyen de ranger une demande lue — « Archivées » ne
+contenait que ce que le temps ou un retrait y mettait — ni de filtrer par famille d'examen.
+
+## Boutons
+
+Chaque **examen** porte ses actions à sa ligne : « Saisir » (court, avec son icône), puis
+Voir, Modifier et Imprimer en **icônes**, nommées au survol et pour les lecteurs d'écran
+avec le nom de l'examen. Deux examens d'une même demande ne partagent donc plus deux
+boutons identiques. Ce qui concerne toute la demande — consultation (icône stéthoscope),
+archiver, retirer — reste dans la colonne Actions, en icônes.
+
+## Familles
+
+Un filtre à onglets **Tous · ECG · Échographie · Analyses** (`?type=`) se **combine** avec
+les trois vues : changer l'une garde l'autre. Chaque compte est ce que donnerait un clic —
+les vues comptent sous la famille choisie, les familles sous la vue choisie — et vient du
+serveur. La famille d'imagerie est celle du catalogue (ADR-106), jamais déduite d'un code :
+un examen sans famille tombe dans **Non classés**, onglet visible seulement s'il en existe un.
+Une demande qui réunit plusieurs familles apparaît sous chacune.
+
+## Archiver
+
+`lab_requests` et `imaging_requests` reçoivent `archived_at/by` : **un drapeau daté et signé,
+réversible — rien n'est supprimé**, aucun résultat ni aucune facturation ne bouge. Permission
+dédiée `paraclinical_requests.archive` (accordée à MEDICINE par migration, ADR-064) : ranger
+change ce que voient les confrères, ce n'est pas la même autorité que lire.
+
+```text
+archiver     seulement une demande dont tous les résultats sont rendus et récente :
+             ranger du travail à faire le ferait disparaître, un vide muet se lit
+             « rien à faire »
+sortir       seulement ce qu'on a rangé à la main, tant que le résultat est récent :
+             un résultat ancien retourne aussitôt en archive tout seul (les 7 jours
+             de l'ADR-076/ADR-079 ne changent pas)
+```
+
+Une demande rangée à la main n'est plus « récente », même rendue hier. « Archivées »
+contient désormais : les demandes retirées, celles qu'on a rangées, et les résultats anciens.
+Audit `paraclinical_request.archive` / `.unarchive`. L'archivage n'agit que sur cet écran : la
+file du Laboratoire n'en est pas modifiée.
+
+`POST /medicine/paraclinical-requests/{lab|imaging}/{uuid}/archive|unarchive`, réservé à qui
+voit la famille concernée.
+
+
+---
+
+# ADR-132 — La sortie médicale se place en bas de page, sur toute la largeur
+
+**Status:** ACCEPTED (2026-09-19 — signalement explicite du propriétaire)
+
+**Complète l'ADR-113 et l'ADR-114** (pages Hospitalisation et Pédiatrie), sans changer aucune
+règle de sortie.
+
+Le formulaire de sortie médicale est une grille à deux colonnes (diagnostic final, état du
+patient, traitement, conseils, contrôle). Placé dans la colonne latérale de 22 à 24 rem, il
+s'écrasait et s'affichait mal, surtout sur un écran étroit.
+
+Sur les pages **Hospitalisation** et **Pédiatrie**, la carte de sortie quitte la colonne
+latérale : elle occupe désormais **toute la largeur, sous le contenu**. Le bouton « Prononcer
+la sortie » est dans l'en-tête de cette carte, à côté du titre ; il déplie le formulaire en
+dessous. Une sortie déjà prononcée s'affiche aussi pleine largeur, en quatre colonnes.
+
+`ClinicalSegmentedChoice` (segments « État du patient », etc.) ne rétrécit plus ses boutons :
+ils passent à la ligne au lieu d'être tronqués (« Amél… », « Non … ») sur un écran de 420 px.
+Le correctif profite à tous les écrans qui l'emploient.
+
+Aucune permission, route ni donnée n'est modifiée.
+
+---
+
+# ADR-133 — Répertoire patients : ordre alphabétique, export Excel et catégorie VIP paramétrée par site
+
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire ; règle
+tranchée question par question)
+
+**Complète l'ADR-119/120** (répertoire des patients). Le CDC ne définit ni
+« patient VIP » ni export du répertoire : les règles ci-dessous viennent
+toutes du propriétaire.
+
+## Ordre alphabétique et export
+
+`?sort=recent|name_asc|name_desc` (nom puis prénom) et `?letter=A..Z`
+(initiale du nom, une seule lettre ; toute autre valeur ne filtre rien). Les
+compteurs des cartes, onglets et catégories suivent la lettre comme les autres
+filtres (facettes, ADR-119).
+
+`GET /patients/export` produit un `.xlsx` de **la liste telle que filtrée**
+(mêmes paramètres que l'écran, plafond 20 000 lignes). Il exige `patients.view`
+**et** `patients.export`, accordée par défaut à `ADMINISTRATION` seulement — le
+répertoire contient des données personnelles. Chaque export est audité
+(`patient.export`, filtres et nombre de lignes). Aucun PDF, aucune donnée
+clinique.
+
+## Patient normal / Patient VIP
+
+Un patient est VIP quand, **sur une fenêtre glissante**, il cumule **les deux** :
+
+```text
+au moins N passages non annulés          (started_at dans la fenêtre)
+ET au moins M Ar encaissés               (payments COMPLETED sur ses factures,
+                                          paid_at dans la fenêtre)
+```
+
+`N`, `M` et la durée de la fenêtre (mois) sont des paramètres, **propres à
+chaque site** : chaque clinique a son volume et ses tarifs. Ils se règlent
+depuis le portail (`/super-admin/patient-vip`, `patient_vip.view` /
+`patient_vip.update`, réservées à `SUPER_ADMIN`) et sont poussés à l'API du site
+(`/api/v1/super-admin/patient-vip-settings`, idempotente, auditée
+`patient_vip.settings.update` avec l'identité UUID/nom de l'acteur central) —
+jamais de SQL depuis le portail (ADR-004, ADR-027). Une aperçu (`/preview`)
+indique combien de patients seraient VIP avant d'enregistrer.
+
+- **La catégorie est calculée, jamais stockée** : elle suit l'activité réelle,
+  aucun patient n'est « marqué » à la main, aucun historique n'est réécrit.
+- **Sans seuil configuré ou désactivé, personne n'est VIP** : aucune valeur
+  n'est inventée par défaut (le montant est le paramètre que le propriétaire a
+  voulu variable).
+- « Encaissé » = paiements `COMPLETED` uniquement ; une prise en charge
+  mutuelle/personnel ou une facture impayée n'est pas de l'argent encaissé.
+- Le seuil est inclusif (`>=`). La comparaison décimale est faite en SQL avec un
+  `CAST(... AS DECIMAL(15,2))` : PDO transmet les décimaux comme du texte et
+  SQLite ordonne les nombres avant le texte.
+- La catégorie est un simple repère (badge « VIP », filtre, compteur) : elle ne
+  change **aucun** tarif, droit ni parcours. Aucune remise n'est créée.
+
+Migration `2026_10_02_090000` : table singleton `patient_vip_settings` et les
+trois permissions (ADR-064 : un site en production ne rejoue pas les seeders).

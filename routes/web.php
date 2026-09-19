@@ -38,6 +38,7 @@ use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
 use App\Http\Controllers\Medicine\ClinicalProtocolController;
+use App\Http\Controllers\Medicine\ImagingReportTemplateController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
@@ -73,6 +74,7 @@ use App\Http\Controllers\SuperAdmin\DocumentTemplateController as SuperAdminDocu
 use App\Http\Controllers\SuperAdmin\HumanResourcesController as SuperAdminHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
 use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
+use App\Http\Controllers\SuperAdmin\PatientVipSettingsController as SuperAdminPatientVipSettingsController;
 use App\Http\Controllers\SuperAdmin\PaymentMethodController as SuperAdminPaymentMethodController;
 use App\Http\Controllers\SuperAdmin\PharmacyCatalogController as SuperAdminPharmacyCatalogController;
 use App\Http\Controllers\SuperAdmin\PharmacyProcurementController as SuperAdminPharmacyProcurementController;
@@ -219,6 +221,11 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/cash-registers/{site}/{cashRegister}/session/unlock', [SuperAdminCashRegisterController::class, 'unlock'])->name('cash-registers.session.unlock')->middleware('can:cash_registers.unlock');
         Route::post('/cash-registers/{site}/{cashRegister}/session/close', [SuperAdminCashRegisterController::class, 'close'])->name('cash-registers.session.close')->middleware('can:cash_registers.close');
         Route::put('/cash-registers/{site}/{cashRegister}/payment-methods', [SuperAdminCashRegisterController::class, 'updatePaymentMethods'])->name('cash-registers.payment-methods.update')->middleware('can:cash_registers.update');
+
+        // ADR-133 — seuils des patients VIP, réglés site par site par l'API du site.
+        Route::get('/patient-vip', [SuperAdminPatientVipSettingsController::class, 'index'])->name('patient-vip.index')->middleware('can:patient_vip.view');
+        Route::post('/patient-vip/preview', [SuperAdminPatientVipSettingsController::class, 'preview'])->name('patient-vip.preview')->middleware('can:patient_vip.view');
+        Route::put('/patient-vip', [SuperAdminPatientVipSettingsController::class, 'update'])->name('patient-vip.update')->middleware('can:patient_vip.update');
 
         // Tenders accepted at each site's cash desk. Mobile money operators
         // differ from one town to the next, so the list stays per-site and is
@@ -708,6 +715,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/points-attention', AttentionDigestController::class)->name('attention.digest');
 
     Route::get('/patients', [PatientController::class, 'index'])->name('patients.index')->middleware('can:patients.view');
+    // ADR-133 — avant `/patients/{patient}`, qui prendrait « export » pour un UUID.
+    Route::get('/patients/export', [PatientController::class, 'export'])->name('patients.export')->middleware(['can:patients.view', 'can:patients.export']);
     Route::post('/patients/bulk-delete', [PatientController::class, 'bulkDestroy'])->name('patients.bulk-destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}/edit', [PatientController::class, 'edit'])->name('patients.edit')->middleware('can:patients.update');
     Route::put('/patients/{patient}', [PatientController::class, 'update'])->name('patients.update')->middleware('can:patients.update');
@@ -891,8 +900,16 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // Retrait d'une demande d'examen précise. `consultations.update` et non
     // un droit d'annulation propre : revenir sur une demande fait partie de
     // l'écriture de la consultation (ADR-079).
+    Route::post('/medicine/paraclinical-requests/{kind}/{uuid}/archive', [ParaclinicalRequestDirectoryController::class, 'archive'])->name('medicine.paraclinical-requests.archive')->middleware('can:paraclinical_requests.archive');
+    Route::post('/medicine/paraclinical-requests/{kind}/{uuid}/unarchive', [ParaclinicalRequestDirectoryController::class, 'unarchive'])->name('medicine.paraclinical-requests.unarchive')->middleware('can:paraclinical_requests.archive');
     Route::post('/medicine/orientations/{episodeOrientation}/paraclinical-requests/cancel', [MedicineController::class, 'cancelParaclinicalRequest'])->name('medicine.paraclinical-requests.cancel')->middleware('can:consultations.update');
     Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result', [MedicineController::class, 'recordImagingResult'])->name('medicine.imaging-requests.result')->middleware('can:imaging_results.create');
+    Route::put('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result', [MedicineController::class, 'correctImagingResult'])->name('medicine.imaging-requests.result.correct')->middleware('can:imaging_results.update');
+    Route::post('/medicine/orientations/{episodeOrientation}/imaging-requests/{imagingRequestItem}/result/preview', [MedicineController::class, 'previewImagingResult'])->name('medicine.imaging-requests.result.preview');
+    Route::post('/medicine/imaging-report-templates', [ImagingReportTemplateController::class, 'store'])->name('medicine.imaging-report-templates.store')->middleware('can:imaging_templates.create');
+    Route::put('/medicine/imaging-report-templates/{imagingReportTemplate}', [ImagingReportTemplateController::class, 'update'])->name('medicine.imaging-report-templates.update')->middleware('can:imaging_templates.update');
+    Route::delete('/medicine/imaging-report-templates/{imagingReportTemplate}', [ImagingReportTemplateController::class, 'destroy'])->name('medicine.imaging-report-templates.destroy')->middleware('can:imaging_templates.archive');
+    Route::put('/medicine/imaging-request-items/{imagingRequestItem}/default-template', [ImagingReportTemplateController::class, 'setDefault'])->name('medicine.imaging-request-items.default-template')->middleware('can:imaging_templates.create');
     Route::get('/medicine/imaging-requests/{imagingRequestItem}/compte-rendu', [MedicineController::class, 'printImagingReport'])->name('medicine.imaging-reports.print')->middleware('can:imaging_orders.view');
     Route::post('/medicine/orientations/{episodeOrientation}/surgical-referrals', [MedicineController::class, 'storeSurgicalReferral'])->name('medicine.surgical-referrals.store')->middleware('can:surgery.request');
     Route::post('/medicine/orientations/{episodeOrientation}/referrals', [MedicineController::class, 'storeReferral'])->name('medicine.referrals.store');

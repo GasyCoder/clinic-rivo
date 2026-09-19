@@ -272,7 +272,7 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                 </div>
             </Card>
 
-            <!-- Colonne latérale : le séjour, puis sa sortie. -->
+            <!-- Colonne latérale : le séjour et sa demande. La sortie est en bas. -->
             <aside class="space-y-5">
                 <Card class="p-5">
                     <div class="flex items-center justify-between gap-2">
@@ -339,34 +339,42 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                         </div>
                     </form>
                 </Card>
-
-                <Card v-if="stay.discharge" class="p-5">
-                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie</h2>
-                    <dl class="mt-3 space-y-2.5 text-sm">
-                        <div><dt class="text-xs text-muted-foreground">Type</dt><dd class="text-foreground">{{ stay.discharge.type_label }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Date</dt><dd class="text-foreground">{{ formatDateTime(stay.discharged_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Prononcée par Dr {{ stay.discharged_by }}</span></dd></div>
-                        <div v-if="stay.discharge.final_diagnosis"><dt class="text-xs text-muted-foreground">Diagnostic final</dt><dd class="whitespace-pre-line text-foreground">{{ stay.discharge.final_diagnosis }}</dd></div>
-                        <div v-if="stay.discharge.patient_condition"><dt class="text-xs text-muted-foreground">État du patient</dt><dd class="text-foreground">{{ stay.discharge.patient_condition }}</dd></div>
-                    </dl>
-                </Card>
-
-                <Card v-else-if="capabilities.can_discharge" class="p-5">
-                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie d’hospitalisation</h2>
-                    <p class="mt-1 text-xs text-muted-foreground">Seule la sortie médicale termine le séjour. Le passage rejoint ensuite « Sorties & règlements ».</p>
-                    <Button v-if="!showDischarge" type="button" size="sm" variant="outline" class="mt-3 w-full" @click="showDischarge = true"><DoorOpen class="h-4 w-4" />Prononcer la sortie</Button>
-                    <div v-else class="mt-3">
-                        <ClinicalDischargeForm
-                            :form="dischargeForm"
-                            :types="dischargeTypes"
-                            :site-options="transferDestinations"
-                            :requires-diagnosis="true"
-                            @submit="submitDischarge"
-                            @cancel="showDischarge = false"
-                        />
-                        <FormError :message="dischargeForm.errors.medical_discharge" />
-                    </div>
-                </Card>
             </aside>
         </div>
+
+        <!-- La sortie, en bas et sur toute la largeur : son formulaire est une
+             grille à deux colonnes (diagnostic, état, traitement, conseils) qui
+             s'écrasait dans la colonne latérale de 22 rem. Le bouton qui
+             l'ouvre est à la même place, dans l'en-tête de la carte. -->
+        <Card v-if="stay.discharge" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie</h2>
+            <dl class="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div><dt class="text-xs text-muted-foreground">Type</dt><dd class="text-foreground">{{ stay.discharge.type_label }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Date</dt><dd class="text-foreground">{{ formatDateTime(stay.discharged_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Prononcée par Dr {{ stay.discharged_by }}</span></dd></div>
+                <div v-if="stay.discharge.final_diagnosis"><dt class="text-xs text-muted-foreground">Diagnostic final</dt><dd class="whitespace-pre-line text-foreground">{{ stay.discharge.final_diagnosis }}</dd></div>
+                <div v-if="stay.discharge.patient_condition"><dt class="text-xs text-muted-foreground">État du patient</dt><dd class="text-foreground">{{ stay.discharge.patient_condition }}</dd></div>
+            </dl>
+        </Card>
+
+        <Card v-else-if="capabilities.can_discharge" class="p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie d’hospitalisation</h2>
+                    <p class="mt-1 text-xs text-muted-foreground">Seule la sortie médicale termine le séjour. Le passage rejoint ensuite « Sorties & règlements ».</p>
+                </div>
+                <Button v-if="!showDischarge" type="button" size="sm" variant="outline" class="shrink-0" @click="showDischarge = true"><DoorOpen class="h-4 w-4" />Prononcer la sortie</Button>
+            </div>
+            <div v-if="showDischarge" class="mt-4 border-t border-border pt-4">
+                <ClinicalDischargeForm
+                    :form="dischargeForm"
+                    :types="dischargeTypes"
+                    :site-options="transferDestinations"
+                    :requires-diagnosis="true"
+                    @submit="submitDischarge"
+                    @cancel="showDischarge = false"
+                />
+                <FormError :message="dischargeForm.errors.medical_discharge" />
+            </div>
+        </Card>
     </div>
 </template>

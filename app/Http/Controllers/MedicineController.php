@@ -10,6 +10,7 @@ use App\Actions\Medicine\CancelPrescriptionAction;
 use App\Actions\Medicine\CompleteConsultationAction;
 use App\Actions\Medicine\CorrectCareRecordVitalsAction;
 use App\Actions\Medicine\CorrectDiagnosisAction;
+use App\Actions\Medicine\CorrectImagingResultAction;
 use App\Actions\Medicine\CreateCareOrderAction;
 use App\Actions\Medicine\CreateHospitalizationRequestAction;
 use App\Actions\Medicine\CreateImagingRequestAction;
@@ -40,6 +41,7 @@ use App\Enums\PrescriptionStatus;
 use App\Http\Requests\CancelCareOrderItemRequest;
 use App\Http\Requests\CancelMedicineDiagnosisRequest;
 use App\Http\Requests\CancelMedicinePrescriptionRequest;
+use App\Http\Requests\CorrectImagingResultRequest;
 use App\Http\Requests\Medicine\CancelParaclinicalRequestRequest;
 use App\Http\Requests\Medicine\CorrectCareRecordVitalsRequest;
 use App\Http\Requests\Medicine\DecideComplementaryExamsRequest;
@@ -52,6 +54,7 @@ use App\Http\Requests\Medicine\StoreHospitalizationRequestRequest;
 use App\Http\Requests\Medicine\StoreMedicalReferralRequest;
 use App\Http\Requests\Medicine\UpdateMedicineClinicalExamRequest;
 use App\Http\Requests\Medicine\UpdateMedicineInterviewRequest;
+use App\Http\Requests\PreviewImagingResultRequest;
 use App\Http\Requests\RecordImagingResultRequest;
 use App\Http\Requests\StoreCareOrderRequest;
 use App\Http\Requests\StoreImagingRequestRequest;
@@ -800,6 +803,32 @@ class MedicineController extends Controller
     }
 
     /**
+     * Le compte rendu tel qu'il s'imprimerait, avant d'être enregistré
+     * (ADR-108). Il ne crée rien : ni compte rendu, ni audit, ni changement
+     * d'état de l'examen.
+     */
+    public function previewImagingResult(
+        PreviewImagingResultRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        ImagingRequestItem $imagingRequestItem,
+        ClinicalRichTextSanitizer $richText,
+    ): JsonResponse {
+        $document = ImagingReportDocument::preview(
+            $imagingRequestItem,
+            $request->validated('result_value'),
+            $request->input('result_notes'),
+            $request->user(),
+            $richText,
+            // Feuille non touchée : le titre déjà enregistré, s'il y en a un.
+            ($request->sheetChoice() ?? ['title' => $imagingRequestItem->report_sheet_title])['title'],
+        );
+
+        abort_if($document === null, 404);
+
+        return response()->json(['document' => $document]);
+    }
+
+    /**
      * Le compte rendu d'imagerie, imprimable.
      *
      * Impression navigateur, jamais un PDF produit côté serveur : c'est la
@@ -1035,6 +1064,7 @@ class MedicineController extends Controller
             $request->validated('result_value'),
             $request->input('result_notes'),
             $request->user(),
+            $request->sheetChoice(),
         );
 
         // Retour là d'où on vient. Un résultat se saisit aussi depuis
@@ -1042,6 +1072,25 @@ class MedicineController extends Controller
         // médecin dans la consultation le déposerait sur un dossier en
         // lecture seule, sans rapport avec ce qu'il était en train de faire.
         return back()->with('status', 'Compte rendu enregistré.');
+    }
+
+    /** ADR-130 — corriger un compte rendu déjà enregistré ; l'ancienne version est conservée. */
+    public function correctImagingResult(
+        CorrectImagingResultRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        ImagingRequestItem $imagingRequestItem,
+        CorrectImagingResultAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $imagingRequestItem,
+            $request->validated('result_value'),
+            $request->input('result_notes'),
+            $request->input('reason'),
+            $request->user(),
+            $request->sheetChoice(),
+        );
+
+        return back()->with('status', 'Compte rendu corrigé. L’ancienne version est conservée.');
     }
 
     public function storeSurgicalReferral(

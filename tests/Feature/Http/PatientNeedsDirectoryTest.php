@@ -396,7 +396,7 @@ class PatientNeedsDirectoryTest extends TestCase
 
         $props = $this->actingAs($user)->get('/patients')->viewData('page')['props'];
 
-        $this->assertSame(['type', 'emergency', 'need', 'status'], array_keys($props['filters']));
+        $this->assertSame(['type', 'emergency', 'need', 'status', 'segment', 'letter', 'sort'], array_keys($props['filters']));
         $this->assertSame(1, $props['summary']['total']);
         $this->assertSame(1, $props['summary']['in_progress']);
     }

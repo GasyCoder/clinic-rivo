@@ -226,6 +226,32 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'POST', 'super-admin/payment-methods/'.$uuid.'/deactivate', [], $actor);
     }
 
+    /**
+     * ADR-133 — les seuils des patients VIP, site par site. Chaque site répond
+     * avec ses propres seuils et ce qu'ils donnent chez lui.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function patientVipSettingsForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/patient-vip-settings', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function previewPatientVipSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/patient-vip-settings/preview', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function updatePatientVipSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/patient-vip-settings', $data, $actor);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function usersForAllSites(User $actor, array $query = []): array
     {

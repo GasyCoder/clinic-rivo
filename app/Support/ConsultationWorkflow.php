@@ -203,6 +203,13 @@ class ConsultationWorkflow
             // resolving that step, and listing it here would ask the doctor
             // to validate the very action they are performing.
             ->reject(fn (array $entry): bool => $entry['step'] === ConsultationStep::Closure)
+            // ADR-129 — le dossier est une étape de lecture : il ne porte aucune
+            // saisie, et « valider » n'y enregistre que le fait de l'avoir lu.
+            // Un médecin qui a posé son diagnostic et choisi la suite l'a lu ;
+            // le retenir sur ce clic était une formalité, du même genre que
+            // l'examen déjà transmis (ADR-105). L'étape reste affichée et
+            // validable, elle ne bloque plus.
+            ->reject(fn (array $entry): bool => $entry['step'] === ConsultationStep::Dossier)
             // ADR-105 — un examen déjà transmis au Laboratoire ou à
             // l'Imagerie ne bloque pas la clôture. La demande est partie,
             // le service concerné l'a ; exiger en plus un clic de

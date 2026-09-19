@@ -38,6 +38,7 @@ use App\Services\Medicine\ClinicalProtocolMatcher;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Medicine\ClinicPracticeIndex;
+use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Services\Pharmacy\MedicineStockService;
 use Illuminate\Support\Collection;
 
@@ -73,6 +74,9 @@ class MedicineDossierPresenter
         $canViewCareOrders = $user->can('care_orders.view');
         $canViewLabRequests = $user->can('laboratory_orders.view');
         $canViewImagingRequests = $user->can('imaging_orders.view');
+        // Une seule instance pour tout l'écran : elle garde en mémoire les
+        // réglages de feuille et n'interroge la base qu'une fois (ADR-108).
+        $templateCatalog = app(ImagingReportTemplateCatalog::class);
         // Une consultation clôturée est en lecture seule partout — mais la
         // clôture est un statut, pas la présence d'une sortie médicale.
         //
@@ -515,6 +519,8 @@ class MedicineDossierPresenter
                                 'catalog_item_uuid' => $item->catalogItem?->uuid,
                                 'name' => $item->catalog_item_name_snapshot,
                                 'code' => $item->catalog_item_code_snapshot,
+                                // ADR-108 — la feuille à pré-appliquer à l'ouverture de la saisie.
+                                'default_template_key' => $templateCatalog->defaultKeyFor($item),
                                 'result_value' => $item->result_value,
                                 'result_notes' => $item->result_notes,
                                 'resulted_at' => $item->resulted_at,
@@ -608,7 +614,8 @@ class MedicineDossierPresenter
                 // ADR-108 — les feuilles de compte rendu, servies ici comme à
                 // « Demandes d'examens » : la consultation ouvre la même
                 // saisie, pas une version appauvrie.
-                'imaging_report_templates' => $user->can('imaging_results.create') ? ImagingReportTemplates::all() : [],
+                'imaging_report_templates' => $user->can('imaging_results.create') ? $templateCatalog->all() : [],
+                'imaging_report_template_rights' => $templateCatalog->rightsFor($user),
                 'administration_routes' => collect(AdministrationRoute::cases())->map(fn (AdministrationRoute $r) => [
                     'value' => $r->value, 'label' => $r->label(), 'short_label' => $r->shortLabel(),
                 ])->values(),

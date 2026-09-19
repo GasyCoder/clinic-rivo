@@ -81,15 +81,32 @@ test('le compte rendu reprend la feuille « Résultats d’échographie »', () 
     const documentView = fs.readFileSync('resources/js/Components/Medicine/ImagingReportDocument.vue', 'utf8');
     const print = fs.readFileSync('resources/js/Pages/Medicine/ImagingReportPrint.vue', 'utf8');
 
-    for (const part of ['N° DE DOSSIER', 'Nom et Prénom', 'Date de Naissance', 'Sexe (M/F)', 'Adresse', 'N.B. :', 'Fait le', 'Le médecin responsable']) {
+    for (const part of ['N° DE DOSSIER', 'Nom et Prénom', 'Date de Naissance', 'Sexe (M/F)', 'Adresse', 'Observations complémentaires :', 'Fait le', 'Le médecin responsable']) {
         assert.ok(documentView.includes(part), `la feuille a perdu « ${part} »`);
     }
 
     // Deux colonnes, comme le papier ; et le bleu s'imprime.
     assert.match(documentView, /column-count: 2/);
+    // Les feuilles de la clinique : deux cases de même hauteur, puis des
+    // cases pleine largeur (Conclusion, N.B.) découpées par le serveur.
+    assert.match(documentView, /class="rd-cols"/);
+    assert.match(documentView, /grid-template-columns: 1fr 1fr/);
+    assert.match(documentView, /wideRegions/);
     assert.match(documentView, /print-color-adjust: exact/);
 
     for (const [name, source] of [['ImagingReportPrint.vue', print], ['Requests.vue', requests]]) {
         assert.match(source, /<ImagingReportDocument/, `${name} ne dessine pas la feuille partagée`);
     }
+});
+
+/**
+ * Le reset de l'application retire les puces des listes. La feuille papier les
+ * porte : sans elles, l'aperçu et l'impression ne sont plus « strictement
+ * identiques » — vu à l'aperçu, pas par les tests de contenu.
+ */
+test('la feuille rétablit les puces que le reset retire', () => {
+    const documentView = fs.readFileSync('resources/js/Components/Medicine/ImagingReportDocument.vue', 'utf8');
+
+    assert.match(documentView, /\.rd-cell ul \{\s*list-style-type: disc;/);
+    assert.match(documentView, /\.rd-cell ul ul \{\s*list-style-type: circle;/);
 });

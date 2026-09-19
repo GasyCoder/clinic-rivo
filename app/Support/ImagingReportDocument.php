@@ -4,7 +4,9 @@ namespace App\Support;
 
 use App\Enums\ImagingModality;
 use App\Models\ImagingRequestItem;
+use App\Models\User;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use Carbon\CarbonInterface;
 
 /**
  * Le compte rendu d'imagerie tel que la clinique le remet (ADR-108).
@@ -30,15 +32,65 @@ final class ImagingReportDocument
     /** @return array<string, mixed>|null */
     public static function for(ImagingRequestItem $item, ClinicalRichTextSanitizer $richText): ?array
     {
+        if ($item->resulted_at === null) {
+            return null;
+        }
+
+        return self::compose(
+            $item,
+            $item->result_value,
+            $item->result_notes,
+            $item->resulted_at,
+            $item->loadMissing(self::RELATIONS)->resultedBy?->name,
+            $richText,
+            $item->report_sheet_title,
+        );
+    }
+
+    /**
+     * Le compte rendu tel qu'il s'imprimerait **avant** d'être enregistré.
+     *
+     * Même composition que le document définitif — le médecin relit ce que la
+     * famille emportera, pas une approximation —, avec la date du moment et le
+     * médecin connecté comme signataire. Rien n'est écrit : ni compte rendu, ni
+     * audit, ni état de l'examen.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function preview(
+        ImagingRequestItem $item,
+        string $value,
+        ?string $notes,
+        User $actor,
+        ClinicalRichTextSanitizer $richText,
+        ?string $sheetTitle = null,
+    ): ?array {
+        return self::compose($item, $value, $notes, now(), $actor->name, $richText, $sheetTitle);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function compose(
+        ImagingRequestItem $item,
+        ?string $value,
+        ?string $notes,
+        CarbonInterface $resultedAt,
+        ?string $resultedBy,
+        ClinicalRichTextSanitizer $richText,
+        ?string $sheetTitle = null,
+    ): ?array {
         $item->loadMissing(self::RELATIONS);
 
         $request = $item->imagingRequest;
         $episode = $request?->episode;
         $patient = $episode?->patient;
 
-        if ($item->resulted_at === null || $patient === null) {
+        if ($patient === null) {
             return null;
         }
+
+        $html = $richText->toSafeHtml($value);
 
         return [
             'uuid' => $item->uuid,
@@ -50,11 +102,18 @@ final class ImagingReportDocument
                 default => 'Résultats d’imagerie',
             },
             'exam' => $item->catalog_item_name_snapshot,
+            // L'intitulé de la feuille choisie, tel que le papier l'écrit ; sans
+            // feuille, le bandeau garde le nom de l'examen.
+            'sheet_title' => $sheetTitle,
             'code' => $item->catalog_item_code_snapshot,
-            'value' => $richText->toSafeHtml($item->result_value),
-            'notes' => $richText->toSafeHtml($item->result_notes),
-            'resulted_at' => $item->resulted_at,
-            'resulted_by' => $item->resultedBy?->name,
+            'value' => $html,
+            // La feuille papier est en deux colonnes suivies de cases pleine
+            // largeur : le découpage se fait ici, une fois, plutôt que dans
+            // chaque écran qui la dessine.
+            'regions' => self::regions($html),
+            'notes' => $richText->toSafeHtml($notes),
+            'resulted_at' => $resultedAt,
+            'resulted_by' => $resultedBy,
             'requested_at' => $request->requested_at,
             'requested_by' => $request->requestedBy?->name,
             'indication' => $request->notes,
@@ -70,5 +129,27 @@ final class ImagingReportDocument
                 'address' => $patient->addressEntry?->label ?? $patient->address,
             ],
         ];
+    }
+
+    /**
+     * Le compte rendu en régions, séparées par les sauts `<hr>` des feuilles
+     * de la clinique (ADR-108) : colonne de gauche, colonne de droite, puis
+     * les cases pleine largeur. Un texte sans saut — une saisie libre, ou une
+     * feuille dont le médecin a effacé les traits — n'est qu'une région.
+     *
+     * @return array<int, string>
+     */
+    public static function regions(string $html): array
+    {
+        $parts = preg_split('/<hr\s*\/?>/i', $html) ?: [$html];
+        $parts = array_map('trim', $parts);
+
+        // Un trait final ne crée pas de région vide ; une colonne vide entre
+        // deux traits reste vide : c'est la mise en page.
+        while ($parts !== [] && $parts[array_key_last($parts)] === '') {
+            array_pop($parts);
+        }
+
+        return $parts === [] ? [''] : array_values($parts);
     }
 }

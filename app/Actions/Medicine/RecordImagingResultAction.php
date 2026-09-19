@@ -19,9 +19,10 @@ class RecordImagingResultAction
 {
     public function __construct(private readonly ClinicalRichTextSanitizer $richText) {}
 
-    public function execute(ImagingRequestItem $item, string $resultValue, ?string $resultNotes, User $actor): ImagingRequestItem
+    /** @param array{title: string|null}|null $sheet  la feuille utilisée (instantané du titre), `null` : aucune information */
+    public function execute(ImagingRequestItem $item, string $resultValue, ?string $resultNotes, User $actor, ?array $sheet = null): ImagingRequestItem
     {
-        return DB::transaction(function () use ($item, $resultValue, $resultNotes, $actor): ImagingRequestItem {
+        return DB::transaction(function () use ($item, $resultValue, $resultNotes, $actor, $sheet): ImagingRequestItem {
             $locked = ImagingRequestItem::query()->lockForUpdate()->findOrFail($item->getKey());
 
             if ($locked->resulted_at !== null) {
@@ -33,7 +34,7 @@ class RecordImagingResultAction
             $report = $this->richText->sanitize($resultValue);
             $notes = $this->richText->sanitize((string) $resultNotes);
 
-            if ($report === '') {
+            if ($this->richText->isBlank($report)) {
                 throw ValidationException::withMessages([
                     'result_value' => 'Saisissez le compte rendu.',
                 ]);
@@ -42,6 +43,7 @@ class RecordImagingResultAction
             $locked->update([
                 'result_value' => $report,
                 'result_notes' => $notes !== '' ? $notes : null,
+                'report_sheet_title' => $sheet['title'] ?? null,
                 'resulted_at' => now(),
                 'resulted_by' => $actor->getKey(),
             ]);

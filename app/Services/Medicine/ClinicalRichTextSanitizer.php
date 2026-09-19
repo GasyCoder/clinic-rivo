@@ -12,8 +12,14 @@ use DOMNode;
  */
 class ClinicalRichTextSanitizer
 {
-    /** @var list<string> */
-    private const ALLOWED_TAGS = ['p', 'br', 'strong', 'em', 'u', 'mark', 'ul', 'ol', 'li'];
+    /**
+     * `hr` n'est pas de la mise en forme : c'est le saut de colonne des
+     * feuilles de compte rendu d'imagerie (ADR-108). Sans attribut, il ne
+     * peut rien porter d'autre.
+     *
+     * @var list<string>
+     */
+    private const ALLOWED_TAGS = ['p', 'br', 'strong', 'em', 'u', 'mark', 'ul', 'ol', 'li', 'hr'];
 
     /** @var list<string> */
     private const REMOVED_WITH_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'svg', 'math'];

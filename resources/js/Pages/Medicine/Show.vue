@@ -40,6 +40,7 @@ import {
     Share2,
     ShieldCheck,
     Trash2,
+    TriangleAlert,
     User,
     X,
 } from 'lucide-vue-next';
@@ -66,6 +67,7 @@ import ClinicalDiagnosisEntry from '@/Components/Clinical/ClinicalDiagnosisEntry
 import ClinicalDiagnosisList from '@/Components/Clinical/ClinicalDiagnosisList.vue';
 import ClinicalDiagnosisSuggestions from '@/Components/Clinical/ClinicalDiagnosisSuggestions.vue';
 import ClinicalPrescriptionSuggestions from '@/Components/Clinical/ClinicalPrescriptionSuggestions.vue';
+import PrescriptionAlerts from '@/Components/Clinical/PrescriptionAlerts.vue';
 import PrescriptionLineEditor from '@/Components/Clinical/PrescriptionLineEditor.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import ClinicalVitalsCorrection from '@/Components/Clinical/ClinicalVitalsCorrection.vue';
@@ -80,6 +82,7 @@ import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor
 import ImagingReportDialog from '@/Components/Clinical/ImagingReportDialog.vue';
 import { useFormDraft } from '@/composables/useFormDraft';
 import { editorFieldsFor, isUndosedForm } from '@/utilities/posology';
+import { checkDuplicates, checkLine, LEVELS, worstLevel } from '@/utilities/prescriptionChecks';
 import { useToastStore } from '@/stores/toast';
 import { formatDate, formatDateTime } from '@/utilities/date';
 
@@ -109,6 +112,7 @@ const props = defineProps({
     // le serveur à chaque affichage, jamais enregistré tant que le médecin
     // ne retient rien.
     clinical_suggestions: { type: Object, default: null },
+    prescription_safety: { type: Object, default: null },
     current_step: String,
 });
 
@@ -1571,6 +1575,87 @@ const emptyManualPrescriptionLine = () => ({
     instructions: '',
 });
 const medicineForLine = (line) => medicines.value.find((medicine) => medicine.uuid === line.medicine_uuid);
+/**
+ * ADR-128 — ce que le système relit de chaque ligne : forme et voie, quantité
+ * et posologie, allergie, poids d'un enfant, double prescription. Les alertes
+ * ne bloquent rien ; elles disent aussi ce que le système ne peut pas juger
+ * (la dose maximale, qu'aucune table n'enregistre).
+ */
+const weightKnown = computed(() => {
+    if (props.prescription_safety) {
+        return props.prescription_safety.weight_kg ?? null;
+    }
+
+    // Le contexte d'ordonnance n'est pas arrivé : la fiche Soins, déjà là, le dit aussi.
+    const recorded = props.care_record?.weight_kg;
+
+    return recorded !== null && recorded !== undefined ? Number(recorded) : undefined;
+});
+const prescriptionAlerts = computed(() => {
+    const safety = props.prescription_safety ?? {};
+    const allergyNames = (props.allergies ?? []).map((allergy) => allergy.substance)
+        .concat((interviewForm.reported_allergies ?? []).map((allergy) => allergy.substance))
+        .filter(Boolean);
+    const duplicates = checkDuplicates({ lines: prescriptionForm.lines, medicineFor: medicineForLine });
+
+    return prescriptionForm.lines.map((line, index) => [
+        ...checkLine({
+            line,
+            medicine: line.manual ? null : medicineForLine(line),
+            patient: {
+                age: safety.age ?? patient.value.age ?? null,
+                // `null` : le serveur dit « non relevé » ; `undefined` : on ne sait
+                // pas — jamais confondus (voir prescriptionChecks.js).
+                weightKg: weightKnown.value,
+                allergyConflict: safety.allergy_conflicts?.[line.medicine_uuid] ?? null,
+                allergies: allergyNames,
+            },
+        }),
+        ...(duplicates[index] ?? []),
+    ].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level)));
+});
+const prescriptionAlertCount = computed(() => prescriptionAlerts.value
+    .flat().filter((alert) => alert.level !== 'info').length);
+/** Le pire niveau d'une ligne, pour la pastille de son en-tête. */
+const lineAlertLevel = (index) => worstLevel(prescriptionAlerts.value[index] ?? []);
+const lineAlertSummary = (index) => (prescriptionAlerts.value[index] ?? []).map((alert) => alert.message).join('\n');
+
+/**
+ * Les alertes se disent par message, pas par bloc : elles occupaient la page
+ * sous chaque ligne. Un message part une fois la saisie posée (pas à chaque
+ * chiffre) et pas deux fois pour le même constat — il ne revient que s'il a
+ * disparu puis reparu. Seuls le rouge et l'ambre parlent ; le rapport mg/kg
+ * reste à lire dans la fenêtre de signature (même règle que les constantes,
+ * ADR-125).
+ */
+const announcedPrescriptionAlerts = new Set();
+let prescriptionAlertTimer = null;
+watch(prescriptionAlerts, (lines) => {
+    clearTimeout(prescriptionAlertTimer);
+    prescriptionAlertTimer = setTimeout(() => {
+        const current = new Map();
+
+        lines.forEach((alerts, index) => {
+            const key = prescriptionForm.lines[index]?._key;
+
+            alerts.filter((alert) => alert.level !== 'info').forEach((alert) => {
+                current.set(`${key}:${alert.code}:${alert.message}`, alert);
+            });
+        });
+
+        announcedPrescriptionAlerts.forEach((key) => {
+            if (!current.has(key)) announcedPrescriptionAlerts.delete(key);
+        });
+
+        current.forEach((alert, key) => {
+            if (announcedPrescriptionAlerts.has(key)) return;
+
+            announcedPrescriptionAlerts.add(key);
+            (alert.level === 'danger' ? toast.error : toast.warning)(alert.message, alert.level === 'danger' ? 12000 : 9000);
+        });
+    }, 900);
+}, { deep: true });
+onBeforeUnmount(() => clearTimeout(prescriptionAlertTimer));
 const addPrescriptionMedicine = (medicine) => {
     if (!medicine.available || selectedMedicineUuids.value.has(medicine.uuid)) return;
 
@@ -2774,7 +2859,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                                 type="button"
                                                 size="xs"
                                                 variant="white-outline"
-                                                @click="reportingImagingItem = { uuid: item.uuid, exam: item.name }"
+                                                @click="reportingImagingItem = { uuid: item.uuid, exam: item.name, default_template_key: item.default_template_key }"
                                             >
                                                 <PenLine class="h-3.5 w-3.5" aria-hidden="true" />Saisir le compte rendu
                                             </Button>
@@ -3269,6 +3354,14 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                                     <BookMarked class="h-3 w-3" aria-hidden="true" />Proposé · {{ line.suggestion_label }}
                                                 </Badge>
                                             </div>
+                                            <Badge
+                                                v-if="lineAlertLevel(index) && lineAlertLevel(index) !== 'info'"
+                                                :tone="lineAlertLevel(index) === 'danger' ? 'danger' : 'warning'"
+                                                class="shrink-0 px-2 py-0.5 text-[10px]"
+                                                :title="lineAlertSummary(index)"
+                                            >
+                                                <TriangleAlert class="h-3 w-3" aria-hidden="true" />{{ (prescriptionAlerts[index] ?? []).filter((alert) => alert.level !== 'info').length }} à relire
+                                            </Badge>
                                             <Button
                                                 type="button"
                                                 icon
@@ -3716,6 +3809,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
         :orientation-uuid="orientation.uuid"
         :subtitle="`${patient.first_name} ${patient.last_name} · Passage ${episode.episode_number}`"
         :templates="options.imaging_report_templates ?? []"
+        :template-rights="options.imaging_report_template_rights ?? {}"
         @close="reportingImagingItem = null"
         @saved="reportingImagingItem = null"
     />
@@ -3737,6 +3831,10 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
             <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {{ prescriptionForm.lines.length }} médicament{{ prescriptionForm.lines.length > 1 ? 's' : '' }} à prescrire
             </p>
+            <p v-if="prescriptionAlertCount" class="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                <TriangleAlert class="mt-px h-4 w-4 shrink-0" aria-hidden="true" />
+                {{ prescriptionAlertCount }} point{{ prescriptionAlertCount > 1 ? 's' : '' }} à relire avant de signer — rien ne bloque, mais le système l’a vu.
+            </p>
             <ul class="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border">
                 <li v-for="line in prescriptionForm.lines" :key="line._key" class="px-3 py-2.5">
                     <p class="text-sm font-semibold text-foreground">
@@ -3751,6 +3849,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     </p>
                     <p v-if="prescriptionLinePosology(line)" class="mt-0.5 text-xs text-muted-foreground">{{ prescriptionLinePosology(line) }}</p>
                     <p v-if="line.quantity" class="mt-0.5 text-[11px] text-muted-foreground">Quantité : {{ line.quantity }}</p>
+                    <PrescriptionAlerts :alerts="prescriptionAlerts[prescriptionForm.lines.indexOf(line)] ?? []" compact />
                 </li>
             </ul>
 

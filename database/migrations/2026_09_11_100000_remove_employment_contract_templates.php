@@ -51,7 +51,7 @@ return new class extends Migration
         // Deliberately irreversible: the merge mechanism and its documents
         // are retired by decision (ADR-071), not by an incident — there is
         // nothing to restore into.
-        throw new \RuntimeException(
+        throw new RuntimeException(
             'Ce retrait (ADR-071) est irréversible par migration : recréer le mécanisme demanderait une nouvelle décision.',
         );
     }

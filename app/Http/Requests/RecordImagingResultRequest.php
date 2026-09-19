@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Models\EpisodeOrientation;
 use App\Models\ImagingRequestItem;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Services\Medicine\ImagingReportTemplateCatalog;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -18,7 +19,22 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class RecordImagingResultRequest extends FormRequest
 {
+    /** Valeur de `sheet_key` pour une saisie libre, sans feuille. */
+    public const FREE_SHEET = 'FREE';
+
     public function authorize(): bool
+    {
+        return $this->itemBelongsToOrientation() && (bool) $this->user()?->can('imaging_results.create');
+    }
+
+    /**
+     * L'examen doit appartenir à cette orientation. Sans ce contrôle, un
+     * UUID valide d'un autre passage était atteignable depuis n'importe
+     * quelle consultation — le même trou que
+     * `CancelParaclinicalRequestRequest::target()` ferme déjà pour le
+     * retrait d'une demande.
+     */
+    protected function itemBelongsToOrientation(): bool
     {
         $orientation = $this->route('episodeOrientation');
         $item = $this->route('imagingRequestItem');
@@ -27,16 +43,9 @@ class RecordImagingResultRequest extends FormRequest
             return false;
         }
 
-        // L'examen doit appartenir à cette orientation. Sans ce contrôle, un
-        // UUID valide d'un autre passage était atteignable depuis n'importe
-        // quelle consultation — le même trou que
-        // `CancelParaclinicalRequestRequest::target()` ferme déjà pour le
-        // retrait d'une demande.
-        $belongs = $item->imagingRequest()
+        return $item->imagingRequest()
             ->whereHas('consultation', fn ($query) => $query->where('episode_orientation_id', $orientation->getKey()))
             ->exists();
-
-        return $belongs && (bool) $this->user()?->can('imaging_results.create');
     }
 
     protected function prepareForValidation(): void
@@ -56,8 +65,11 @@ class RecordImagingResultRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'result_value' => ['required', 'string', 'max:5000'],
-            'result_notes' => ['nullable', 'string', 'max:5000'],
+            'result_value' => ['required', 'string', 'max:10000'],
+            'result_notes' => ['nullable', 'string', 'max:10000'],
+            // La feuille choisie : `FREE` pour une saisie libre. Absente, le titre déjà
+            // enregistré ne change pas.
+            'sheet_key' => ['nullable', 'string', 'max:90'],
         ];
     }
 
@@ -66,7 +78,35 @@ class RecordImagingResultRequest extends FormRequest
     {
         return [
             'result_value.required' => 'Saisissez le compte rendu.',
-            'result_value.max' => 'Le compte rendu est trop long : 5000 caractères de mise en forme comprise.',
+            'result_value.max' => 'Le compte rendu est trop long : 10 000 caractères de mise en forme comprise.',
         ];
+    }
+
+    /**
+     * Le titre de la feuille à figer sur le compte rendu (ADR-108).
+     *
+     * `null` : la feuille n'a pas été touchée, le titre enregistré reste.
+     * `['title' => null]` : saisie libre. `['title' => '…']` : une feuille
+     * connue, dont le titre est lu **côté serveur** — le navigateur ne dicte
+     * jamais l'intitulé d'un document. Une feuille disparue entre-temps est
+     * traitée comme non touchée.
+     *
+     * @return array{title: string|null}|null
+     */
+    public function sheetChoice(): ?array
+    {
+        $key = $this->input('sheet_key');
+
+        if (! is_string($key) || $key === '') {
+            return null;
+        }
+
+        if ($key === self::FREE_SHEET) {
+            return ['title' => null];
+        }
+
+        $title = app(ImagingReportTemplateCatalog::class)->titleFor($key);
+
+        return $title === null ? null : ['title' => $title];
     }
 }

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\DocumentTemplateController;
 use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
+use App\Http\Controllers\Api\V1\SuperAdmin\PatientVipSettingsController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PaymentMethodController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PermissionController as SuperAdminPermissionController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyCatalogController;
@@ -118,6 +119,11 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/cash-registers/{cashRegisterUuid}/payment-methods', [CashRegisterController::class, 'updatePaymentMethods'])->name('cash-registers.payment-methods.update');
         Route::delete('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'destroy'])->name('cash-registers.destroy');
         Route::post('/cash-registers/{cashRegisterUuid}/restore', [CashRegisterController::class, 'restore'])->name('cash-registers.restore');
+
+        // ADR-133 — seuils des patients VIP de ce site.
+        Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');
+        Route::post('/patient-vip-settings/preview', [PatientVipSettingsController::class, 'preview'])->name('patient-vip-settings.preview');
+        Route::put('/patient-vip-settings', [PatientVipSettingsController::class, 'update'])->name('patient-vip-settings.update');
 
         Route::get('/payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
         Route::post('/payment-methods', [PaymentMethodController::class, 'store'])->name('payment-methods.store');

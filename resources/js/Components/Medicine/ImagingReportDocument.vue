@@ -40,6 +40,14 @@ const birthLabel = computed(() => {
         : 'Non renseignée';
 });
 
+/**
+ * Les feuilles de la clinique : deux colonnes, puis des cases pleine largeur
+ * (Conclusion, N.B.). Le serveur les a déjà découpées ; un texte libre n'a
+ * qu'une région et garde l'ancien flux en colonnes.
+ */
+const regions = computed(() => props.document.regions ?? [props.document.value ?? '']);
+const wideRegions = computed(() => regions.value.slice(2).filter((region) => region !== ''));
+
 const footerParts = computed(() => [
     brand.value.toLocaleUpperCase('fr'),
     legal.value.email,
@@ -91,14 +99,23 @@ const footerParts = computed(() => [
         </table>
 
         <section class="rd-exam">
-            <p class="rd-exam-title">{{ document.exam }}</p>
+            <!-- Le titre de la feuille est celui du papier, casse comprise (« 1er ») ;
+                 le nom d'un examen du catalogue, lui, se met en capitales. -->
+            <p :class="['rd-exam-title', { 'rd-upper': !document.sheet_title }]">{{ document.sheet_title || document.exam }}</p>
             <!-- Déjà assaini côté serveur (ClinicalRichTextSanitizer) : mise en
                  forme seulement, ni lien, ni média, ni script. -->
-            <div class="rd-exam-body" v-html="document.value" />
+            <div v-if="regions.length < 2" class="rd-exam-body rd-cell" v-html="document.value" />
+            <template v-else>
+                <div class="rd-cols">
+                    <div class="rd-cell" v-html="regions[0]" />
+                    <div class="rd-cell rd-cell-right" v-html="regions[1]" />
+                </div>
+                <div v-for="(region, index) in wideRegions" :key="index" class="rd-cell rd-wide" v-html="region" />
+            </template>
         </section>
 
         <section v-if="document.notes" class="rd-box">
-            <p class="rd-box-label">N.B. :</p>
+            <p class="rd-box-label">Observations complémentaires :</p>
             <div class="rd-rich" v-html="document.notes" />
         </section>
 
@@ -234,11 +251,14 @@ const footerParts = computed(() => [
     font-size: 13.5px;
     font-weight: 700;
     text-align: center;
+}
+
+.rd-upper {
     text-transform: uppercase;
 }
 
-/* Deux colonnes séparées d'un filet, comme la feuille papier. Une rubrique
-   ne se sépare jamais de ses lignes. */
+/* Saisie libre : deux colonnes séparées d'un filet, comme la feuille papier.
+   Une rubrique ne se sépare jamais de ses lignes. */
 .rd-exam-body {
     column-count: 2;
     column-gap: 0;
@@ -246,8 +266,36 @@ const footerParts = computed(() => [
     min-height: 120px;
 }
 
+/* Feuille de la clinique : la colonne de gauche et celle de droite sont
+   deux cases de même hauteur, et le contenu de chacune est celui du papier. */
+.rd-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+}
+
+.rd-cell-right {
+    border-inline-start: 1px solid #000;
+}
+
+.rd-wide {
+    border-top: 1px solid #000;
+    min-height: 64px;
+}
+
+.rd-cell {
+    padding: 6px 9px;
+}
+
+.rd-exam-body.rd-cell {
+    padding: 0;
+}
+
+.rd-cell > *,
 .rd-exam-body > * {
     margin: 0;
+}
+
+.rd-exam-body > * {
     padding-inline: 9px;
 }
 
@@ -255,32 +303,41 @@ const footerParts = computed(() => [
     padding-top: 6px;
 }
 
-.rd-exam-body p {
+.rd-cell p {
     margin: 0;
 }
 
-.rd-exam-body p:has(> strong:only-child) {
+.rd-cell p:has(> strong:only-child) {
     margin-top: 10px;
     break-after: avoid-column;
 }
 
-.rd-exam-body > p:first-child:has(> strong:only-child) {
+.rd-cell > p:first-child:has(> strong:only-child) {
     margin-top: 0;
 }
 
-.rd-exam-body ul,
-.rd-exam-body ol {
+.rd-cell ul,
+.rd-cell ol {
     margin: 0;
     padding-inline-start: 26px;
     break-inside: avoid-column;
 }
 
-.rd-exam-body ul ul {
+/* Le reset de l'application retire les puces ; la feuille papier les porte. */
+.rd-cell ul {
+    list-style-type: disc;
+}
+
+.rd-cell ol {
+    list-style-type: decimal;
+}
+
+.rd-cell ul ul {
     list-style-type: circle;
     padding-inline-start: 22px;
 }
 
-.rd-exam-body li {
+.rd-cell li {
     margin: 0;
 }
 
@@ -330,6 +387,8 @@ const footerParts = computed(() => [
     }
 
     .rd-exam,
+    .rd-cols,
+    .rd-wide,
     .rd-box,
     .rd-sign {
         break-inside: avoid;

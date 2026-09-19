@@ -289,6 +289,9 @@ class PermissionSeeder extends Seeder
         // ces deux permissions doivent pouvoir être restreintes séparément
         // du reste du dossier patient administratif (confidentialité des
         // informations médicales, CDCF client §34.1 règle 9).
+        'patients.export' => 'Exporter la liste des patients en Excel',
+        'patient_vip.view' => 'Voir les seuils des patients VIP',
+        'patient_vip.update' => 'Régler les seuils des patients VIP',
         'patients.medical_history.view' => 'Voir les antécédents et allergies',
         'patients.medical_history.manage' => 'Gérer les antécédents et allergies',
 
@@ -424,6 +427,8 @@ class PermissionSeeder extends Seeder
         // celle-ci la route refusait un compte n'ayant que l'imagerie, alors
         // que l'écran savait lui servir ses lignes.
         'paraclinical_requests.view' => 'Ouvrir l’espace Demandes d’examens',
+        // ADR-131 — ranger une demande rendue ; un drapeau réversible, rien n'est supprimé.
+        'paraclinical_requests.archive' => 'Archiver et désarchiver une demande d’examen',
 
         'laboratory_orders.create' => 'Demander des analyses depuis une consultation',
         'laboratory_orders.view' => 'Voir les demandes d’analyses',
@@ -435,6 +440,11 @@ class PermissionSeeder extends Seeder
         'imaging_orders.create' => 'Demander un examen d’imagerie depuis une consultation',
         'imaging_orders.view' => 'Voir les demandes d’imagerie',
         'imaging_results.create' => 'Saisir un compte rendu d’imagerie',
+        // ADR-130 — corriger un compte rendu déjà enregistré ; les versions remplacées sont conservées.
+        'imaging_results.update' => 'Corriger un compte rendu d’imagerie déjà enregistré',
+        'imaging_templates.create' => 'Créer une feuille de compte rendu d’imagerie',
+        'imaging_templates.update' => 'Modifier une feuille de compte rendu d’imagerie',
+        'imaging_templates.archive' => 'Retirer une feuille de compte rendu d’imagerie',
 
         'surgery.request' => 'Demander une intervention chirurgicale depuis Médecine',
         'hospitalization.request' => 'Demander une hospitalisation depuis Médecine',

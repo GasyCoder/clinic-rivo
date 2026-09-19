@@ -25,6 +25,7 @@ export const PERMISSION_CATEGORIES = {
     // Parcours patient
     reception: { label: 'Accueil – Réception', domain: 'patient' },
     patients: { label: 'Dossiers patients', domain: 'patient' },
+    patient_vip: { label: 'Seuils des patients VIP', domain: 'patient' },
     episodes: { label: 'Passages (admissions)', domain: 'patient' },
     patient_coverages: { label: 'Couvertures mutuelle du patient', domain: 'patient' },
     patient_coverage_documents: { label: 'Justificatifs de mutuelle', domain: 'patient' },

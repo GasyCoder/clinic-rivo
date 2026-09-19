@@ -41,7 +41,9 @@ const select = (value) => {
 
         <!-- flex-wrap rather than a fixed column count: three segments fit one
              row on a workstation and wrap on a phone without ever forcing a
-             horizontal scrollbar. -->
+             horizontal scrollbar. Un segment ne rétrécit jamais : il passe à la
+             ligne plutôt que de tronquer « Amélioré » en « Amél… » (il ne
+             tronque que s'il est seul plus large que son conteneur). -->
         <div :class="['flex flex-wrap gap-2', label || hint ? 'mt-2' : '']" role="radiogroup" :aria-label="label || name">
             <button
                 v-for="option in options"
@@ -51,7 +53,7 @@ const select = (value) => {
                 :aria-checked="modelValue === option.value"
                 :disabled="disabled"
                 :class="[
-                    'min-w-0 flex-1 rounded-md border px-3 py-2 text-start text-xs font-semibold transition-colors sm:flex-none',
+                    'max-w-full shrink-0 grow rounded-md border px-3 py-2 text-start text-xs font-semibold transition-colors sm:grow-0',
                     modelValue === option.value
                         ? (TONES[option.tone] ?? TONES.neutral)
                         : 'border-border bg-card text-muted-foreground hover:bg-muted/35',

@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { Archive, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, LoaderCircle, PenLine, Printer, ScanLine, Search, Trash2 } from 'lucide-vue-next';
+import { Activity, Archive, ArchiveRestore, ChevronDown, CircleCheck, CircleSlash, Clock, Eye, FileSearch, FlaskConical, HeartPulse, History, LayoutList, LoaderCircle, PenLine, Pencil, Printer, ScanLine, Search, Stethoscope, Trash2 } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -32,11 +32,15 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     requests: { type: Array, default: () => [] },
     counts: { type: Object, default: () => ({}) },
+    /** Combien de demandes par famille dans la vue affichée (ADR-131). */
+    type_counts: { type: Object, default: () => ({}) },
     filters: { type: Object, default: () => ({}) },
     /** Ce que le compte a le droit de voir ici : `{ lab, imaging }`. */
     can: { type: Object, default: () => ({ lab: true, imaging: true }) },
     /** Les feuilles de la clinique (ADR-108), servies par le serveur. */
-    reportTemplates: { type: Array, default: () => [] },
+    report_templates: { type: Array, default: () => [] },
+    /** Ce que le compte peut faire des feuilles : `{ create, archive }`. */
+    report_template_rights: { type: Object, default: () => ({}) },
 });
 
 /**
@@ -75,19 +79,58 @@ const STATUS = {
 const query = ref(props.filters.q ?? '');
 const activeFilter = computed(() => props.filters.filter ?? 'active');
 
+const activeType = computed(() => props.filters.type ?? null);
+
 const visit = (params) => router.get('/medicine/demandes-examens', params, {
     preserveState: true,
     preserveScroll: true,
     replace: true,
 });
 
-const selectFilter = (key) => visit({ filter: key, q: query.value || undefined });
+// Vue et famille se combinent : changer l'une garde l'autre.
+const params = (overrides = {}) => {
+    const next = { filter: activeFilter.value, type: activeType.value, q: query.value || undefined, ...overrides };
+
+    return Object.fromEntries(Object.entries(next).filter(([, value]) => value !== null && value !== undefined && value !== ''));
+};
+
+const selectFilter = (key) => visit(params({ filter: key }));
+const selectType = (key) => visit(params({ type: key === 'ALL' ? null : key }));
 
 let searchTimer = null;
-watch(query, (value) => {
+watch(query, () => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => visit({ filter: activeFilter.value, q: value || undefined }), 300);
+    searchTimer = setTimeout(() => visit(params()), 300);
 });
+
+/**
+ * Les familles d'examens (ADR-131). La famille d'imagerie vient du catalogue
+ * (ADR-106), jamais du libellé ; « Non classés » n'apparaît que s'il existe un
+ * examen sans famille — le ranger d'office l'aurait fait disparaître.
+ */
+const TYPE_TABS = [
+    { key: 'ALL', label: 'Tous', icon: LayoutList },
+    { key: 'ECG', label: 'ECG', icon: HeartPulse },
+    { key: 'ULTRASOUND', label: 'Échographie', icon: Activity },
+    { key: 'LAB', label: 'Analyses', icon: FlaskConical },
+    { key: 'UNCLASSIFIED', label: 'Non classés', icon: ScanLine },
+];
+
+const visibleTypeTabs = computed(() => TYPE_TABS.filter((tab) => tab.key !== 'UNCLASSIFIED'
+    || (props.type_counts.UNCLASSIFIED ?? 0) > 0
+    || activeType.value === 'UNCLASSIFIED'));
+
+const typeCount = (key) => props.type_counts[key] ?? 0;
+
+/* ── Archiver ─────────────────────────────────────────────────────────── */
+
+/**
+ * Ranger une demande lue, ou la ressortir (ADR-131). Un drapeau réversible :
+ * rien n'est supprimé, et le serveur ne range que ce qui est rendu.
+ */
+const archive = (request, restore = false) => {
+    router.post(`/medicine/paraclinical-requests/${request.kind}/${request.uuid}/${restore ? 'unarchive' : 'archive'}`, {}, { preserveScroll: true });
+};
 
 const familyIcon = (kind) => (kind === 'lab' ? FlaskConical : ScanLine);
 
@@ -106,8 +149,13 @@ const familyIcon = (kind) => (kind === 'lab' ? FlaskConical : ScanLine);
  */
 const reporting = ref(null);
 
-const openReport = (request, item) => {
-    reporting.value = { request, item };
+/**
+ * `record` : première saisie. `correct` : le compte rendu existe et le
+ * médecin le modifie (ADR-130) — l'ancienne version est conservée par le
+ * serveur, jamais écrasée.
+ */
+const openReport = (request, item, mode = 'record') => {
+    reporting.value = { request, item, mode };
 };
 
 const closeReport = () => {
@@ -121,9 +169,11 @@ const closeReport = () => {
  * qui vient de quitter l'onglet « Active ».
  */
 const reportSaved = () => {
+    const wasFirstEntry = reporting.value?.mode === 'record';
+
     closeReport();
 
-    if (activeFilter.value === 'active') {
+    if (wasFirstEntry && activeFilter.value === 'active') {
         selectFilter('recent');
     }
 };
@@ -141,16 +191,20 @@ const reportSaved = () => {
  * Le contenu est déjà dans la page, assaini côté serveur : aucune requête
  * supplémentaire.
  */
-const viewing = ref(null);
+// Retenu par identifiant, relu dans les props : après une correction faite
+// depuis cette fenêtre, la page se recharge et la fenêtre doit montrer la
+// nouvelle version — pas un exemplaire figé de l'ancienne.
+const viewingKey = ref(null);
+const viewing = computed(() => props.requests.find((request) => `${request.kind}-${request.uuid}` === viewingKey.value) ?? null);
 
 const resultedItems = (request) => request.items.filter((item) => item.resulted_at);
 
 const openResult = (request) => {
-    viewing.value = request;
+    viewingKey.value = `${request.kind}-${request.uuid}`;
 };
 
 const closeResult = () => {
-    viewing.value = null;
+    viewingKey.value = null;
 };
 
 /* ── Retrait d'une demande ─────────────────────────────────────────────── */
@@ -228,6 +282,35 @@ const submitWithdraw = () => {
             @select="selectFilter"
         />
 
+        <!-- ADR-131 — la famille d'examen, en plus de la vue : ECG, échographie
+             ou analyses. Chaque compte est ce que donnerait un clic, dans la vue
+             affichée. -->
+        <div role="tablist" aria-label="Type d’examen" class="flex flex-wrap items-center gap-1.5">
+            <button
+                v-for="tab in visibleTypeTabs"
+                :key="tab.key"
+                type="button"
+                role="tab"
+                :aria-selected="(activeType ?? 'ALL') === tab.key"
+                :class="cn(
+                    'inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    (activeType ?? 'ALL') === tab.key
+                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                        : 'border-border bg-card text-foreground hover:bg-accent',
+                )"
+                @click="selectType(tab.key)"
+            >
+                <component :is="tab.icon" class="h-4 w-4" aria-hidden="true" />
+                {{ tab.label }}
+                <span
+                    :class="cn(
+                        'rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums',
+                        (activeType ?? 'ALL') === tab.key ? 'bg-primary-foreground/20' : 'bg-muted text-muted-foreground',
+                    )"
+                >{{ typeCount(tab.key) }}</span>
+            </button>
+        </div>
+
         <!-- Un tableau : mêmes colonnes pour toutes les lignes, une colonne
              d'actions, et un défilement horizontal plutôt qu'une mise en page
              qui se replie différemment selon le contenu. -->
@@ -261,23 +344,85 @@ const submitWithdraw = () => {
                                 </p>
                             </td>
 
-                            <!-- EXAMEN -->
+                            <!-- EXAMEN : chaque examen porte ses propres
+                                 actions, à sa ligne. Deux examens dans une même
+                                 demande ne partagent plus deux boutons
+                                 identiques, impossibles à distinguer. -->
                             <td class="px-4 py-3">
                                 <p class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                                     <component :is="familyIcon(request.kind)" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                     {{ request.family_label }}
                                 </p>
-                                <!-- Un examen par ligne : c'est lui qui porte
-                                     son compte rendu, pas la demande. -->
-                                <ul class="mt-0.5 space-y-0.5">
-                                    <li v-for="item in request.items" :key="item.uuid">
-                                        <span class="font-semibold text-foreground">{{ item.exam }}</span>
-                                        <span v-if="item.resulted_at" class="ms-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
-                                            · rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par Dr {{ item.resulted_by }}</template>
-                                        </span>
+                                <ul class="mt-1 space-y-2">
+                                    <li v-for="item in request.items" :key="item.uuid" class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <span class="font-semibold text-foreground">{{ item.exam }}</span>
+                                            <p v-if="item.resulted_at" class="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                Rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par Dr {{ item.resulted_by }}</template>
+                                                <span
+                                                    v-if="item.corrected_at"
+                                                    class="ms-1.5 inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+                                                    :title="`Corrigé le ${formatDateTime(item.corrected_at)}${item.corrected_by ? ' par Dr ' + item.corrected_by : ''}`"
+                                                >
+                                                    <Pencil class="h-2.5 w-2.5" aria-hidden="true" />Corrigé
+                                                </span>
+                                            </p>
+                                        </div>
+
+                                        <!-- Court : « Saisir » avec son icône ; le reste
+                                             en icônes, nommées au survol. -->
+                                        <div class="flex shrink-0 items-center gap-1">
+                                            <Button
+                                                v-if="item.can_record"
+                                                type="button"
+                                                size="sm"
+                                                variant="warning-outline"
+                                                :title="`Saisir le résultat — ${item.exam}`"
+                                                @click="openReport(request, item)"
+                                            >
+                                                <PenLine class="h-3.5 w-3.5" />Saisir
+                                            </Button>
+                                            <template v-if="item.resulted_at">
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="primary"
+                                                    icon
+                                                    :title="`Voir le résultat — ${item.exam}`"
+                                                    :aria-label="`Voir le résultat — ${item.exam}`"
+                                                    @click="openResult(request)"
+                                                >
+                                                    <Eye class="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    v-if="item.can_correct"
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="white-outline"
+                                                    icon
+                                                    :title="`Modifier le compte rendu — ${item.exam}`"
+                                                    :aria-label="`Modifier le compte rendu — ${item.exam}`"
+                                                    @click="openReport(request, item, 'correct')"
+                                                >
+                                                    <Pencil class="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    v-if="item.print_url"
+                                                    :as="Link"
+                                                    :href="item.print_url"
+                                                    size="sm"
+                                                    variant="white-outline"
+                                                    icon
+                                                    :title="`Imprimer le compte rendu — ${item.exam}`"
+                                                    :aria-label="`Imprimer le compte rendu — ${item.exam}`"
+                                                >
+                                                    <Printer class="h-4 w-4" />
+                                                </Button>
+                                            </template>
+                                        </div>
                                     </li>
                                 </ul>
-                                <p v-if="request.notes" class="mt-0.5 line-clamp-1 text-xs text-muted-foreground" :title="request.notes">
+                                <p v-if="request.notes" class="mt-1 line-clamp-1 text-xs text-muted-foreground" :title="request.notes">
                                     {{ request.notes }}
                                 </p>
                             </td>
@@ -296,60 +441,57 @@ const submitWithdraw = () => {
                                     <component :is="STATUS[request.status].icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                     {{ STATUS[request.status].label }}
                                 </span>
+                                <p v-if="request.archived_at" class="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    <Archive class="h-3 w-3" aria-hidden="true" />Archivée le {{ formatDateTime(request.archived_at) }}
+                                </p>
                                 <p v-if="request.status === 'CANCELLED'" class="mt-1 line-clamp-1 text-xs text-muted-foreground" :title="request.cancel_reason ?? undefined">
                                     {{ request.cancel_reason ?? 'Sans motif précisé' }}
                                 </p>
                             </td>
 
-                            <!-- ACTIONS -->
+                            <!-- ACTIONS : ce qui concerne toute la demande, en
+                                 icônes — chacune a son nom au survol. -->
                             <td class="px-4 py-3">
-                                <div class="flex flex-wrap items-center justify-end gap-1.5">
+                                <div class="flex items-center justify-end gap-1.5">
                                     <Button
-                                        v-for="item in request.items.filter((exam) => exam.can_record)"
-                                        :key="`record-${item.uuid}`"
-                                        type="button"
-                                        size="sm"
-                                        variant="warning-outline"
-                                        @click="openReport(request, item)"
-                                    >
-                                        <PenLine class="h-3.5 w-3.5" />Saisir le résultat
-                                    </Button>
-
-                                    <!-- Un bouton par examen rendu : c'est
-                                         l'examen qui porte son compte rendu. -->
-                                    <Button
-                                        v-for="item in request.items.filter((exam) => exam.print_url)"
-                                        :key="`print-${item.uuid}`"
-                                        :as="Link"
-                                        :href="item.print_url"
-                                        size="sm"
-                                        variant="white-outline"
-                                        :title="`Imprimer le compte rendu — ${item.exam}`"
-                                    >
-                                        <Printer class="h-3.5 w-3.5" />Imprimer
-                                    </Button>
-
-                                    <!-- Voir le résultat le montre ici même ;
-                                         la consultation reste une action à
-                                         part, pour qui veut le dossier. -->
-                                    <Button
-                                        v-if="resultedItems(request).length"
-                                        type="button"
-                                        size="sm"
-                                        variant="primary"
-                                        @click="openResult(request)"
-                                    >
-                                        <Eye class="h-3.5 w-3.5" />Voir le résultat
-                                    </Button>
-
-                                    <Button
-                                        v-else-if="request.consultation_url"
+                                        v-if="request.consultation_url"
                                         :as="Link"
                                         :href="request.consultation_url"
                                         size="sm"
                                         variant="white-outline"
+                                        icon
+                                        title="Ouvrir la consultation"
+                                        aria-label="Ouvrir la consultation"
                                     >
-                                        Ouvrir la consultation
+                                        <Stethoscope class="h-4 w-4" />
+                                    </Button>
+
+                                    <!-- ADR-131 — ranger une demande lue ; la
+                                         ressortir de « Archivées » ensuite. Un
+                                         drapeau réversible, rien n'est supprimé. -->
+                                    <Button
+                                        v-if="request.can_archive"
+                                        type="button"
+                                        size="sm"
+                                        variant="white-outline"
+                                        icon
+                                        title="Archiver cette demande"
+                                        aria-label="Archiver cette demande"
+                                        @click="archive(request)"
+                                    >
+                                        <Archive class="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        v-if="request.can_unarchive"
+                                        type="button"
+                                        size="sm"
+                                        variant="white-outline"
+                                        icon
+                                        title="Sortir des archives"
+                                        aria-label="Sortir des archives"
+                                        @click="archive(request, true)"
+                                    >
+                                        <ArchiveRestore class="h-4 w-4" />
                                     </Button>
 
                                     <!-- Retirer, jamais supprimer : la demande
@@ -394,16 +536,18 @@ const submitWithdraw = () => {
         <!-- La feuille de compte rendu, partagée avec la consultation. Elle
              ne réécrit jamais : le serveur refuse un second compte rendu. -->
         <ImagingReportDialog
-            :item="reporting ? { uuid: reporting.item.uuid, exam: reporting.item.exam } : null"
+            :item="reporting ? { uuid: reporting.item.uuid, exam: reporting.item.exam, report_raw: reporting.item.report_raw, notes_raw: reporting.item.notes_raw, default_template_key: reporting.item.default_template_key } : null"
+            :mode="reporting?.mode ?? 'record'"
             :orientation-uuid="reporting?.request.orientation_uuid ?? ''"
             :subtitle="reporting ? `${reporting.request.patient.name} · ${reporting.request.episode_number}` : ''"
-            :templates="reportTemplates"
+            :templates="report_templates"
+            :template-rights="report_template_rights"
             @close="closeReport"
             @saved="reportSaved"
         />
 
-        <!-- Le compte rendu, lu sur place. Lecture seule : la correction
-             d'un résultat enregistré n'existe pas encore. -->
+        <!-- Le compte rendu, lu sur place. Il se corrige d'ici (ADR-130) :
+             voir, puis modifier, sans quitter la fenêtre. -->
         <Dialog
             :open="viewing !== null"
             size="wide"
@@ -422,10 +566,24 @@ const submitWithdraw = () => {
                             <p class="text-xs text-muted-foreground">
                                 Rendu le {{ formatDateTime(item.resulted_at) }}<template v-if="item.resulted_by"> par Dr {{ item.resulted_by }}</template>
                             </p>
+                            <p v-if="item.corrected_at" class="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                <Pencil class="h-3 w-3" aria-hidden="true" />Corrigé le {{ formatDateTime(item.corrected_at) }}<template v-if="item.corrected_by"> par Dr {{ item.corrected_by }}</template>
+                            </p>
                         </div>
-                        <Button v-if="item.print_url" :as="Link" :href="item.print_url" size="sm" variant="white-outline">
-                            <Printer class="h-3.5 w-3.5" />Imprimer
-                        </Button>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <Button
+                                v-if="item.can_correct"
+                                type="button"
+                                size="sm"
+                                variant="white-outline"
+                                @click="openReport(viewing, item, 'correct')"
+                            >
+                                <Pencil class="h-3.5 w-3.5" />Modifier
+                            </Button>
+                            <Button v-if="item.print_url" :as="Link" :href="item.print_url" size="sm" variant="white-outline">
+                                <Printer class="h-3.5 w-3.5" />Imprimer
+                            </Button>
+                        </div>
                     </div>
 
                     <!-- ADR-108 — un compte rendu d'imagerie se lit sur la
@@ -444,6 +602,31 @@ const submitWithdraw = () => {
                             <div class="rq-report" v-html="item.notes" />
                         </div>
                     </template>
+
+                    <!-- ADR-130 — les versions remplacées, de la plus récente à
+                         la plus ancienne. Repliées : la version courante est
+                         ce qu'on vient lire. -->
+                    <details v-if="item.revisions.length" class="group rounded-lg border border-border bg-muted/30">
+                        <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-semibold text-muted-foreground">
+                            <History class="h-3.5 w-3.5" aria-hidden="true" />
+                            Historique · {{ item.revisions.length }} version{{ item.revisions.length > 1 ? 's' : '' }} remplacée{{ item.revisions.length > 1 ? 's' : '' }}
+                            <ChevronDown class="ms-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+                        </summary>
+                        <div class="space-y-3 border-t border-border px-3 py-3">
+                            <article v-for="revision in [...item.revisions].reverse()" :key="revision.uuid" class="rounded-md border border-border bg-background p-3">
+                                <p class="text-[11px] font-semibold text-muted-foreground">
+                                    Version {{ revision.revision }} — écrite le {{ formatDateTime(revision.resulted_at) }}<template v-if="revision.resulted_by"> par Dr {{ revision.resulted_by }}</template>,
+                                    remplacée le {{ formatDateTime(revision.superseded_at) }}<template v-if="revision.superseded_by"> par Dr {{ revision.superseded_by }}</template>
+                                </p>
+                                <p v-if="revision.reason" class="mt-0.5 text-[11px] italic text-muted-foreground">Motif : {{ revision.reason }}</p>
+                                <div class="rq-report mt-2" v-html="revision.report" />
+                                <div v-if="revision.notes" class="mt-2">
+                                    <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Observations complémentaires</p>
+                                    <div class="rq-report" v-html="revision.notes" />
+                                </div>
+                            </article>
+                        </div>
+                    </details>
                 </section>
             </div>
 

@@ -13,12 +13,18 @@ const props = defineProps({
     /** Tailwind min-height for the writing area, e.g. 'min-h-36'. */
     minHeightClass: { type: String, default: 'min-h-44' },
     toolbarLabel: { type: String, default: 'Mise en forme de l’interrogatoire' },
+    /**
+     * Sans barre d'outils ni compteur : l'écran qui assemble plusieurs zones
+     * (les colonnes d'une feuille d'échographie) porte une seule barre
+     * commune plutôt que d'en répéter une par zone.
+     */
+    bare: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:modelValue']);
 const editor = ref(null);
 
-const containsMarkup = (value) => /<(?:p|div|br|strong|b|em|i|u|mark|span|ul|ol|li)\b/i.test(value);
+const containsMarkup = (value) => /<(?:p|div|br|hr|strong|b|em|i|u|mark|span|ul|ol|li)\b/i.test(value);
 const decodePlainHtml = (value) => {
     const container = document.createElement('div');
     container.innerHTML = value;
@@ -86,7 +92,7 @@ onMounted(syncEditor);
 
 <template>
     <div :class="['overflow-hidden rounded border bg-card transition-shadow', disabled ? 'border-border bg-muted/35' : 'border-border focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/25']">
-        <div class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" :aria-label="toolbarLabel">
+        <div v-if="!bare" class="flex flex-wrap items-center gap-1 border-b border-border bg-muted/35 px-2 py-1.5" role="toolbar" :aria-label="toolbarLabel">
             <button type="button" class="editor-tool" title="Gras" aria-label="Gras" :disabled="disabled" @mousedown.prevent @click="command('bold')"><Bold class="h-4 w-4" aria-hidden="true" /></button>
             <button type="button" class="editor-tool" title="Italique" aria-label="Italique" :disabled="disabled" @mousedown.prevent @click="command('italic')"><Italic class="h-4 w-4" aria-hidden="true" /></button>
             <button type="button" class="editor-tool" title="Souligné" aria-label="Souligné" :disabled="disabled" @mousedown.prevent @click="command('underline')"><Underline class="h-4 w-4" aria-hidden="true" /></button>
@@ -112,7 +118,7 @@ onMounted(syncEditor);
             @paste="pastePlainText"
         />
 
-        <div class="flex justify-end border-t border-border px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
+        <div v-if="!bare" class="flex justify-end border-t border-border px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
             {{ plainLength.toLocaleString('fr-FR') }} / {{ maxLength.toLocaleString('fr-FR') }} caractères
         </div>
     </div>
@@ -145,6 +151,8 @@ onMounted(syncEditor);
 .clinical-editor :deep(ul) { list-style: disc; margin-block: 0.35rem; padding-inline-start: 1.5rem; }
 .clinical-editor :deep(ol) { list-style: decimal; margin-block: 0.35rem; padding-inline-start: 1.5rem; }
 .clinical-editor :deep(mark) { background: rgb(254 240 138); color: inherit; }
+/* Saut de colonne d'une feuille de la clinique (ADR-108). */
+.clinical-editor :deep(hr) { border: 0; border-top: 2px dashed rgb(148 163 184); margin-block: 0.75rem; }
 
 :global(.dark) .editor-tool,
 :global(.dark) .editor-tool-wide { color: rgb(203 213 225); }

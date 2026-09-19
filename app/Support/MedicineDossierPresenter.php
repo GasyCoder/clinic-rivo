@@ -669,6 +669,10 @@ class MedicineDossierPresenter
                 'transfer_destinations' => $transferDestinations,
             ],
             'pending_reasons' => $pendingReasons,
+            'prescription_safety' => $this->prescriptionSafety(
+                $consultation,
+                $isActive && $user->can('prescriptions.create') && $canViewPharmacyAvailability && $includeMedicineCatalog,
+            ),
             'clinical_suggestions' => $this->clinicalSuggestions(
                 $consultation,
                 $isActive && $user->can('diagnoses.create'),
@@ -928,6 +932,44 @@ class MedicineDossierPresenter
      *
      * @return array<string, mixed>|null
      */
+    /**
+     * Ce que l'écran d'ordonnance doit savoir du patient pour relire une ligne
+     * (ADR-128) : âge, poids relevé aux Soins et, pour chaque médicament du
+     * catalogue, l'allergie connue qu'il recoupe.
+     *
+     * Le rapprochement est celui des propositions (`allergyConflict`) : une seule
+     * règle, jamais une seconde copie qui finirait par en contredire une autre.
+     * Rien ici ne juge une dose — le système n'en connaît aucune limite.
+     *
+     * @return array{age: ?int, weight_kg: ?float, allergy_conflicts: array<string, string>}|null
+     */
+    private function prescriptionSafety(?Consultation $consultation, bool $canPrescribe): ?array
+    {
+        if ($consultation === null || ! $canPrescribe) {
+            return null;
+        }
+
+        $context = $this->protocols->context($consultation);
+        $conflicts = [];
+
+        foreach ($this->medicineStock->availableCatalog() as $medicine) {
+            $substance = $this->protocols->allergyConflict(
+                $context['allergies'],
+                [$medicine['generic_name'] ?? null, $medicine['name'] ?? null],
+            );
+
+            if ($substance !== null) {
+                $conflicts[$medicine['uuid']] = $substance;
+            }
+        }
+
+        return [
+            'age' => $context['age'],
+            'weight_kg' => $context['weight'],
+            'allergy_conflicts' => $conflicts,
+        ];
+    }
+
     private function clinicalSuggestions(
         ?Consultation $consultation,
         bool $canDiagnose,

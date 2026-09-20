@@ -109,6 +109,20 @@ class RecordConsultationOrientationAction
             return $orientation;
         }
 
+        // ADR-149 — « Poursuite de l'hospitalisation » ne demande rien à
+        // personne : le séjour est déjà ouvert et le patient déjà dans son
+        // lit. Le fait est acquis au moment du choix, comme une sortie déjà
+        // prononcée ci-dessous — il n'y a aucun formulaire à transmettre, et
+        // en réclamer un rendait la visite impossible à clôturer (ADR-084).
+        if ($orientation->type === ConsultationOrientationType::ContinuedHospitalization) {
+            $orientation->update([
+                'status' => ConsultationOrientationStatus::Submitted,
+                'submitted_at' => now(),
+            ]);
+
+            return $orientation->fresh();
+        }
+
         if (! in_array($orientation->type, [
             ConsultationOrientationType::Discharge,
             ConsultationOrientationType::Referral,
@@ -116,7 +130,14 @@ class RecordConsultationOrientationAction
             return $orientation;
         }
 
-        $discharge = $consultation->medicalDischarge()->first();
+        // ADR-155 — la sortie se lit sur le **passage**, pas sur la seule
+        // consultation. Une sortie prononcée depuis la page du séjour porte
+        // `consultation_id` de la consultation qui a demandé l'hospitalisation
+        // (ADR-113) : une visite de service ouverte au même moment ne la
+        // trouvait donc pas, ne pouvait ni transmettre ni clôturer — et un
+        // passage n'a de toute façon qu'une sortie médicale.
+        $discharge = $consultation->medicalDischarge()->first()
+            ?? $consultation->episode()->first()?->medicalDischarge()->first();
 
         if (! $discharge) {
             return $orientation;

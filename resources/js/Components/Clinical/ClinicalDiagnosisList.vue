@@ -25,6 +25,8 @@ const props = defineProps({
     diagnoses: { type: Array, default: () => [] },
     /** L'étape où revenir après l'écriture — celle que le médecin a sous les yeux. */
     returnStep: { type: String, default: null },
+    /** Vrai pour une vraie consultation : retirer le dernier diagnostic bloque la clôture (CDC §33.1). */
+    requiredForClosure: { type: Boolean, default: false },
 });
 
 const editing = ref(null);
@@ -165,6 +167,13 @@ const submitRemove = () => removeForm
         <p class="text-xs leading-5 text-muted-foreground">
             Le diagnostic quitte la conclusion de ce passage, mais n’est pas supprimé : il reste lisible dans
             « Contexte clinique », barré, avec son auteur, sa date et la vôtre. Vous pourrez en enregistrer un autre juste après.
+        </p>
+        <p
+            v-if="requiredForClosure && diagnoses.length === 1"
+            class="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+            <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            C’est le seul diagnostic de ce passage : sans diagnostic, la consultation ne peut pas être clôturée.
         </p>
         <FormError class="mt-2" :message="removeForm.errors.diagnosis_id" />
 

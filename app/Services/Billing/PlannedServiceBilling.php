@@ -9,6 +9,7 @@ use App\Models\Episode;
 use App\Models\EpisodeServiceRequest;
 use App\Models\ImagingRequestItem;
 use App\Models\LabRequestItem;
+use App\Models\MaternityProcedure;
 
 /**
  * ADR-109 — un examen déjà demandé à la Réception n'est pas refacturé.
@@ -63,7 +64,7 @@ class PlannedServiceBilling
     }
 
     /**
-     * Les prestations déjà portées par une ligne de demande paraclinique.
+     * Les prestations déjà portées par une ligne de demande paraclinique ou un acte Maternité.
      *
      * Sans cela, deux échographies demandées successivement pointeraient
      * toutes deux la facturation de la Réception, et la seconde ne serait
@@ -83,6 +84,14 @@ class PlannedServiceBilling
             ->whereHas('imagingRequest', fn ($query) => $query->where('episode_id', $episode->getKey()))
             ->pluck('billable_item_id');
 
-        return $lab->merge($imaging)->unique()->values()->all();
+        // Un acte Maternité déjà rattaché à la facturation de la Réception la
+        // « consomme » : un second acte identique est un second acte, et il se
+        // facture (ADR-141). Un acte retiré la libère.
+        $maternity = MaternityProcedure::query()
+            ->whereNotNull('billable_item_id')
+            ->whereHas('record', fn ($query) => $query->where('episode_id', $episode->getKey()))
+            ->pluck('billable_item_id');
+
+        return $lab->merge($imaging)->merge($maternity)->unique()->values()->all();
     }
 }

@@ -19,7 +19,10 @@ use App\Http\Requests\UpdatePatientRequest;
 use App\Models\AddressEntry;
 use App\Models\BillableItem;
 use App\Models\CashSession;
+use App\Models\MaternityRecord;
 use App\Models\Patient;
+use App\Models\PatientNewbornLink;
+use App\Models\User;
 use App\Models\PaymentMethod;
 use App\Services\Audit\Auditor;
 use App\Services\Billing\BillableCatalogDirectory;
@@ -27,6 +30,8 @@ use App\Services\Patient\PatientDirectory;
 use App\Services\Patient\PatientServiceNeeds;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Support\EpisodePathwayTimeline;
+use App\Support\NewbornFiche;
+use App\Support\Reception\MotherNewborns;
 use App\Support\Money;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -98,7 +103,19 @@ class PatientController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        $patients->getCollection()->each(function (Patient $patient) use ($needs, $directory) {
+        // ADR-146 — un bébé accueilli est un patient comme un autre, mais sa ligne dit de qui il est
+        // l'enfant : sans cela, « Bébé 1 de RAKOTO » et sa mère se lisent comme deux dossiers sans rapport.
+        // Les deux repères disent la filiation d'une ligne du répertoire : `newborns.view` les gouverne
+        // (ADR-146 amendement), et deux requêtes de moins pour qui ne les reçoit pas.
+        $showFiliation = $request->user()->can('newborns.view');
+        $origins = $showFiliation ? $this->newbornOrigins($patients->getCollection()) : [];
+        // … et combien de bébés sont nés d'elle ici : la Réception le cherche à chaque arrivée d'un
+        // nouveau-né, et sans ce repère elle devrait ouvrir chaque dossier pour le savoir.
+        $children = $showFiliation ? $this->newbornChildrenCounts($patients->getCollection()) : [];
+
+        $patients->getCollection()->each(function (Patient $patient) use ($needs, $directory, $origins, $children) {
+            $patient->setAttribute('newborn_of', $origins[$patient->getKey()] ?? null);
+            $patient->setAttribute('newborn_children', $children[$patient->getKey()] ?? 0);
             $this->appendAdministrativePresentation($patient);
             $patient->setAttribute('needs', $needs->forPatient($patient->getKey()));
             $patient->setAttribute('is_vip', $directory->vip->isVip($patient->getKey()));
@@ -446,11 +463,117 @@ class PatientController extends Controller
 
         return Inertia::render('Patients/Show', [
             'patient' => $patient,
+            'family' => $this->newbornFamily($patient, $request->user()),
             'account' => $account,
             'paymentMethods' => $paymentMethods,
             'openCashSessions' => $openCashSessions,
             'billingCatalog' => $billingCatalog,
         ]);
+    }
+
+    /**
+     * ADR-144 — le lien d'un nouveau-né avec sa mère, dans les deux sens.
+     *
+     * Un patient né à la clinique dit de qui il est le bébé ; sa mère liste ses enfants. Rien de
+     * clinique ne passe : ni grossesse, ni accouchement — seulement qui est relié à qui.
+     *
+     * @return array{mother: ?array<string, mixed>, children: list<array<string, mixed>>}
+     */
+    /**
+     * De quelle mère chaque patient de la page est le nouveau-né (ADR-146).
+     *
+     * Une requête pour toute la page : le répertoire est paginé, et une lecture par ligne ferait
+     * dépendre son temps du nombre de patients affichés.
+     *
+     * @param  \Illuminate\Support\Collection<int, Patient>  $patients
+     * @return array<int, array<string, mixed>>
+     */
+    private function newbornOrigins($patients): array
+    {
+        return PatientNewbornLink::query()
+            ->whereIn('patient_id', $patients->modelKeys())
+            ->with('mother:id,uuid,patient_number,first_name,last_name')
+            ->get()
+            ->filter(fn (PatientNewbornLink $link) => $link->mother !== null)
+            ->mapWithKeys(fn (PatientNewbornLink $link) => [$link->patient_id => [
+                'uuid' => $link->mother->uuid,
+                'patient_number' => $link->mother->patient_number,
+                'name' => trim("{$link->mother->last_name} {$link->mother->first_name}"),
+                'birth_rank' => $link->birth_rank,
+            ]])
+            ->all();
+    }
+
+    /**
+     * La famille d'un patient : de qui il est le nouveau-né, et quels bébés sont nés de lui ici (ADR-146).
+     *
+     * Les bébés sont lus sur les fiches du dossier Maternité, jamais sur les seuls dossiers patients :
+     * depuis l'ADR-146 un bébé ne devient patient qu'à l'accueil, et le dossier de sa mère doit le montrer
+     * dès l'accouchement — sans quoi il n'apparaîtrait nulle part avant sa première consultation.
+     *
+     * @return array<string, mixed>
+     */
+    /**
+     * Combien de nouveau-nés sont nés de chaque patiente de la page (ADR-146).
+     *
+     * Les fiches du dossier Maternité, jamais les seuls dossiers patients : un bébé qui n'a pas encore
+     * été accueilli est né ici tout autant. Une requête pour toute la page, comme les autres repères du
+     * répertoire — une lecture par ligne ferait dépendre son temps du nombre de patients affichés.
+     *
+     * @param  \Illuminate\Support\Collection<int, Patient>  $patients
+     * @return array<int, int>
+     */
+    private function newbornChildrenCounts($patients): array
+    {
+        return MaternityRecord::query()
+            ->whereHas('episode', fn ($query) => $query->whereIn('patient_id', $patients->modelKeys()))
+            ->with('episode:id,patient_id')
+            ->get()
+            ->groupBy(fn (MaternityRecord $record) => $record->episode?->patient_id)
+            ->map(fn ($records) => $records->sum(
+                fn (MaternityRecord $record) => collect($record->newborn_data['newborns'] ?? [])
+                    ->filter(fn ($newborn) => is_array($newborn) && NewbornFiche::isFilled($newborn))
+                    ->count(),
+            ))
+            ->filter()
+            ->all();
+    }
+
+    private function newbornFamily(Patient $patient, User $user): array
+    {
+        $asNewborn = $patient->newbornLink()->with('mother:id,uuid,patient_number,first_name,last_name')->first();
+
+        // ADR-146 (amendement) — deux droits, parce que deux choses sont en jeu. `newborns.view` montre
+        // l'enfant : son nom, son rang, sa naissance — rien de clinique. `newborns.medical_record.view`
+        // ouvre son dossier, où se lisent son poids, son Apgar et le mode d'accouchement. La Réception
+        // reçoit le premier d'office ; le second reste une décision du Super Administrateur (ADR-064).
+        $canListChildren = $user->can('newborns.view');
+        $canReadRecord = $user->can('newborns.medical_record.view');
+
+        return [
+            'mother' => $canListChildren && $asNewborn?->mother ? [
+                'uuid' => $asNewborn->mother->uuid,
+                'patient_number' => $asNewborn->mother->patient_number,
+                'name' => trim("{$asNewborn->mother->last_name} {$asNewborn->mother->first_name}"),
+                'birth_rank' => $asNewborn->birth_rank,
+                'medical_record_url' => "/patients/{$asNewborn->mother->uuid}/dossier-medical",
+            ] : null,
+            'children' => ! $canListChildren ? [] : collect(MotherNewborns::for($patient))
+                ->map(fn (array $baby) => [
+                    'uuid' => $baby['patient']['uuid'] ?? null,
+                    'patient_number' => $baby['patient']['patient_number'] ?? null,
+                    'name' => $baby['name'],
+                    'birth_rank' => $baby['rank'],
+                    'born_at' => $baby['born_at'],
+                    'is_patient' => $baby['patient'] !== null,
+                    'medical_record_url' => $baby['patient']
+                        ? "/patients/{$baby['patient']['uuid']}/dossier-medical"
+                        : ($canReadRecord && $baby['episode_uuid']
+                            ? "/passages/{$baby['episode_uuid']}/nouveau-nes/{$baby['newborn_uuid']}/dossier-medical"
+                            : null),
+                ])
+                ->all(),
+        ];
     }
 
     public function edit(Request $request, Patient $patient): Response

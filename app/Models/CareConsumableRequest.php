@@ -18,7 +18,7 @@ use LogicException;
  * MedicineForm::ParapharmacyConsumable.
  */
 #[Fillable([
-    'request_number', 'episode_id', 'care_orientation_id', 'care_record_id',
+    'request_number', 'source_module', 'episode_id', 'care_orientation_id', 'care_record_id', 'maternity_record_id',
     'status', 'notes', 'requested_at', 'requested_by', 'served_at',
     'served_by', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
 ])]
@@ -58,6 +58,17 @@ class CareConsumableRequest extends Model
         return $this->belongsTo(CareRecord::class);
     }
 
+    public function maternityRecord(): BelongsTo
+    {
+        return $this->belongsTo(MaternityRecord::class);
+    }
+
+    /** Le service qui a déclaré ce matériel : Soins ou Maternité (ADR-142). */
+    public function sourceLabel(): string
+    {
+        return $this->source_module === 'MATERNITY' ? 'Maternité' : 'Soins';
+    }
+
     public function lines(): HasMany
     {
         return $this->hasMany(CareConsumableRequestLine::class);
@@ -80,6 +91,6 @@ class CareConsumableRequest extends Model
 
     protected function auditModule(): ?string
     {
-        return 'care';
+        return $this->source_module === 'MATERNITY' ? 'maternity' : 'care';
     }
 }

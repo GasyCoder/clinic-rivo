@@ -28,8 +28,8 @@ use App\Support\Money;
  * `pending_amount` is deliberately reported separately rather than folded
  * into the balance: a prestation not yet carried onto a validated invoice
  * is not yet something the patient owes, but letting a passage exit while
- * it sits there would quietly lose real money. Réception is told, and
- * decides.
+ * it sits there would quietly lose real money. Réception is told, and the
+ * exit is refused until it is invoiced (ADR-090, amendement du 2026-09-20).
  */
 class EpisodeAccountControl
 {

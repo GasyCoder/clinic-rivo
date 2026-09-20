@@ -55,6 +55,12 @@ class HospitalStay extends Model
         return $this->belongsTo(HospitalizationRequest::class);
     }
 
+    /** ADR-147 — les diagnostics posés au terme du séjour, append-only. */
+    public function diagnoses(): HasMany
+    {
+        return $this->hasMany(HospitalStayDiagnosis::class);
+    }
+
     public function episodeOrientation(): BelongsTo
     {
         return $this->belongsTo(EpisodeOrientation::class);

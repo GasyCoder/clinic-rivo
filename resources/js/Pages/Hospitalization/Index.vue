@@ -7,7 +7,7 @@ import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
-import { BedDouble, DoorOpen, FolderOpen, Search } from 'lucide-vue-next';
+import { BedDouble, FolderOpen, Search } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 
 defineOptions({ layout: AppLayout });
@@ -22,7 +22,6 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     stays: { type: Object, required: true },
     counts: { type: Object, required: true },
-    filter: { type: String, default: 'active' },
     search: { type: String, default: '' },
 });
 
@@ -34,10 +33,10 @@ const visit = (params) => router.get('/hospitalisation', params, {
     replace: true,
 });
 
-// La carte est le filtre, et le compte vient du serveur.
+// ADR-156 — un seul compte : les patients réellement au lit. Les sorties se
+// suivent à la Réception (« Sorties & règlements »), pas ici.
 const tiles = computed(() => [
-    { value: 'active', label: 'Hospitalisés', hint: 'Séjours en cours', icon: BedDouble, tone: 'primary', count: props.counts.active ?? 0, active: props.filter === 'active' },
-    { value: 'discharged', label: 'Sortis', hint: 'Séjours terminés', icon: DoorOpen, tone: 'neutral', count: props.counts.discharged ?? 0, active: props.filter === 'discharged' },
+    { value: 'active', label: 'Hospitalisés', hint: 'Séjours en cours', icon: BedDouble, tone: 'primary', count: props.counts.active ?? 0, active: true },
 ]);
 
 const PRIORITY = {
@@ -71,7 +70,7 @@ const stayDays = (stay) => {
                     </div>
                 </div>
 
-                <form class="w-full sm:w-72" @submit.prevent="visit({ q: query, filter })">
+                <form class="w-full sm:w-72" @submit.prevent="visit({ q: query })">
                     <IconInput
                         v-model="query"
                         :icon="Search"
@@ -82,7 +81,7 @@ const stayDays = (stay) => {
             </div>
         </Card>
 
-        <QueueCounters :tiles="tiles" @select="(value) => visit({ q: search, filter: value })" />
+        <QueueCounters :tiles="tiles" @select="() => visit({ q: search })" />
 
         <Card class="overflow-hidden">
             <div class="overflow-x-auto">
@@ -93,7 +92,7 @@ const stayDays = (stay) => {
                             <th scope="col" class="px-4 py-3 text-start">Patient</th>
                             <th scope="col" class="px-4 py-3 text-start">Motif</th>
                             <th scope="col" class="px-4 py-3 text-start">Service · Chambre</th>
-                            <th scope="col" class="px-4 py-3 text-start">{{ filter === 'active' ? 'Entrée' : 'Sortie' }}</th>
+                            <th scope="col" class="px-4 py-3 text-start">Entrée</th>
                             <th scope="col" class="px-4 py-3 text-end">Actions</th>
                         </tr>
                     </thead>
@@ -117,14 +116,11 @@ const stayDays = (stay) => {
                                 <span class="mt-0.5 block text-xs text-muted-foreground">{{ stay.room_bed || 'Chambre / lit non renseigné' }}</span>
                             </td>
                             <td class="px-4 py-3">
-                                <template v-if="filter === 'active'">
-                                    <span class="block text-foreground">{{ formatDateTime(stay.admitted_at) }}</span>
-                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ stayDays(stay) }} · {{ stay.diet_entries_count }} ligne{{ stay.diet_entries_count > 1 ? 's' : '' }} de régime</span>
-                                </template>
-                                <template v-else>
-                                    <span class="block text-foreground">{{ formatDateTime(stay.discharged_at) }}</span>
-                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ stay.discharge_type }} · {{ stayDays(stay) }}</span>
-                                </template>
+                                <span class="block text-foreground">{{ formatDateTime(stay.admitted_at) }}</span>
+                                <span class="mt-0.5 block text-xs text-muted-foreground">
+                                    <template v-if="stay.discharged_at">Sorti le {{ formatDateTime(stay.discharged_at) }} · {{ stay.discharge_type }}</template>
+                                    <template v-else>{{ stayDays(stay) }} · {{ stay.diet_entries_count }} ligne{{ stay.diet_entries_count > 1 ? 's' : '' }} de régime</template>
+                                </span>
                             </td>
                             <td class="px-4 py-3 text-end">
                                 <Button :as="Link" :href="`/hospitalisation/${stay.uuid}`" size="sm" variant="white-outline">
@@ -134,7 +130,7 @@ const stayDays = (stay) => {
                         </tr>
                         <tr v-if="!stays.data.length">
                             <td colspan="5" class="px-4 py-12 text-center text-sm text-muted-foreground">
-                                {{ filter === 'active' ? 'Aucun patient hospitalisé actuellement.' : 'Aucun séjour terminé.' }}
+                                {{ search ? 'Aucun séjour ne correspond à cette recherche.' : 'Aucun patient hospitalisé actuellement.' }}
                             </td>
                         </tr>
                     </tbody>

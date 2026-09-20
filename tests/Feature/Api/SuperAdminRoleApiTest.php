@@ -38,6 +38,30 @@ class SuperAdminRoleApiTest extends TestCase
         $this->seed([RoleSeeder::class, PermissionSeeder::class, RolePermissionSeeder::class, ProfessionalProfileSeeder::class]);
     }
 
+    /**
+     * ADR-150 — le socle n'est pas la seule source des droits d'un compte : une
+     * exception individuelle l'emporte (ADR-033). Un socle à zéro se lisait
+     * « personne n'y a accès », et un accès bien réel passait pour un défaut.
+     */
+    public function test_it_says_how_many_accounts_carry_individual_exceptions(): void
+    {
+        $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
+        [$withException, $plain] = User::factory()->count(2)->create(['role_id' => $role->id])->all();
+        $permission = Permission::query()->firstOrCreate(['name' => 'hospitalization.view']);
+        $withException->permissions()->attach($permission->id, ['effect' => 'allow']);
+
+        $this->withHeaders($this->headers(permissions: ['roles.view']))
+            ->getJson('/api/v1/super-admin/roles')
+            ->assertOk()
+            ->assertJsonFragment([
+                'code' => 'RECEPTION',
+                'users_count' => 2,
+                'users_with_exceptions_count' => 1,
+            ]);
+
+        $this->assertNotNull($plain->fresh());
+    }
+
     public function test_it_lists_roles_with_their_holders_and_the_permission_catalog(): void
     {
         $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();

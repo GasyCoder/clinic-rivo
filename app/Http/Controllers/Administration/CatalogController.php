@@ -104,6 +104,10 @@ class CatalogController extends Controller
             'careConsumableOptions' => $request->user()->can('catalog.items.update')
                 ? $consumables->selectableConsumables()
                 : [],
+            // ADR-142 — un acte de la Maternité peut recevoir tout produit stockable.
+            'maternityConsumableOptions' => $request->user()->can('catalog.items.update')
+                ? $consumables->configurableForMaternity()
+                : [],
             'summary' => [
                 'active' => CatalogItem::query()->count(),
                 'archived' => CatalogItem::onlyTrashed()->count(),

@@ -34,7 +34,7 @@ const counterTiles = computed(() => [
     {
         value: 'to-serve',
         label: 'À servir',
-        hint: 'Déclarés aux Soins',
+        hint: 'Déclarés aux Soins ou à la Maternité',
         icon: PackageSearch,
         tone: 'amber',
         count: (summary.value.pending ?? 0) + (summary.value.partially_served ?? 0),
@@ -86,7 +86,7 @@ const counterTiles = computed(() => [
         <PageHeader
             eyebrow="Pharmacie"
             title="Consommables Soins"
-            description="Le matériel déjà utilisé sur un patient aux Soins. Sa sortie du stock n’attend aucun règlement."
+            description="Le matériel déjà utilisé sur un patient, aux Soins ou à la Maternité. Sa sortie du stock n’attend aucun règlement."
             icon="user-check"
             tone="amber"
         >

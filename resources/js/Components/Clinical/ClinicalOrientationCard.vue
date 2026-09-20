@@ -6,7 +6,7 @@ import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoi
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
-import { Building2, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Clock, ExternalLink, HeartPulse, History, Pencil, Printer, Send, Share2, UsersRound } from 'lucide-vue-next';
+import { BedDouble, Building2, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Clock, ExternalLink, HeartPulse, History, Pencil, Printer, Send, Share2, UsersRound } from 'lucide-vue-next';
 import Select from '@/Components/Shadcn/Select.vue';
 import { formatDateTime } from '@/utilities/date';
 
@@ -38,6 +38,13 @@ const props = defineProps({
     surgeryCatalog: { type: Array, default: () => [] },
     transferDestinations: { type: Array, default: () => [] },
     isEmergency: { type: Boolean, default: false },
+    /**
+     * ADR-149 — le séjour en cours. Un patient dans un lit ne se conclut pas
+     * comme un patient qui rentre chez lui : « Sortie médicale » et
+     * « Hospitalisation » ne lui sont pas proposées (le serveur les retire),
+     * et l'écran dit où la sortie se prononce réellement.
+     */
+    hospitalStay: { type: Object, default: null },
     /** Where to come back to once the request is transmitted. */
     returnStep: { type: String, required: true },
     disabled: { type: Boolean, default: false },
@@ -65,6 +72,7 @@ const ICONS = {
     MATERNITY: HeartPulse,
     PEDIATRICS: UsersRound,
     REFERRAL: Share2,
+    CONTINUED_HOSPITALIZATION: BedDouble,
 };
 
 const defaultPriority = () => (props.isEmergency ? 'URGENT' : 'NORMAL');
@@ -381,6 +389,17 @@ const printUrl = computed(() => {
             <!-- Le choix. Rien n'est pré-sélectionné : une orientation non
                  choisie n'est pas « Poursuivre l'évaluation » par défaut. -->
             <div v-if="showPicker">
+                <div v-if="hospitalStay" class="mb-3 flex flex-wrap items-start gap-2.5 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2.5 text-[11px] text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
+                    <BedDouble class="mt-0.5 h-4 w-4 shrink-0" />
+                    <p class="min-w-0">
+                        <strong class="font-semibold">Patient hospitalisé</strong>
+                        <span v-if="hospitalStay.room_bed"> · {{ hospitalStay.room_bed }}</span>
+                        <span v-if="hospitalStay.service"> · {{ hospitalStay.service }}</span>.
+                        Sa sortie se prononce depuis
+                        <a :href="hospitalStay.url" class="font-semibold underline underline-offset-2">la page du séjour</a> :
+                        elle seule termine le séjour et la prise en charge ensemble.
+                    </p>
+                </div>
                 <p class="mb-2.5 text-xs font-bold text-foreground">La conduite à tenir est-elle déjà déterminée ?</p>
                 <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     <button

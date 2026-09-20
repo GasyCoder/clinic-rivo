@@ -22,6 +22,13 @@ enum ConsultationOrientationType: string
     case Maternity = 'MATERNITY';
     case Pediatrics = 'PEDIATRICS';
     case Referral = 'REFERRAL';
+    /**
+     * ADR-149 — la conclusion normale d'une visite de service : le patient
+     * reste dans son lit. Aucune des six autres ne convenait pendant un
+     * séjour, et la clôture en exige une transmise (ADR-084) : une visite
+     * était donc impossible à clôturer.
+     */
+    case ContinuedHospitalization = 'CONTINUED_HOSPITALIZATION';
 
     public function label(): string
     {
@@ -32,6 +39,7 @@ enum ConsultationOrientationType: string
             self::Maternity => 'Maternité',
             self::Pediatrics => 'Pédiatrie',
             self::Referral => 'Référence / Transfert',
+            self::ContinuedHospitalization => 'Poursuite de l’hospitalisation',
         };
     }
 
@@ -45,6 +53,7 @@ enum ConsultationOrientationType: string
             self::Maternity => 'Orientation Maternité',
             self::Pediatrics => 'Orientation Pédiatrie',
             self::Referral => 'Référence / Transfert',
+            self::ContinuedHospitalization => 'Poursuite de l’hospitalisation',
         };
     }
 
@@ -62,6 +71,9 @@ enum ConsultationOrientationType: string
             self::Maternity => 'maternity.request',
             self::Pediatrics => 'pediatrics.request',
             self::Referral => 'transfer.request',
+            // Rien n'est demandé à personne : le patient reste où il est.
+            // Écrire sa consultation suffit donc à le décider.
+            self::ContinuedHospitalization => 'consultations.update',
         };
     }
 
@@ -79,6 +91,9 @@ enum ConsultationOrientationType: string
             self::Maternity => CatalogModule::Maternity,
             self::Pediatrics => CatalogModule::Pediatrics,
             self::Referral => CatalogModule::Transfer,
+            // Aucune orientation nouvelle : celle du séjour est déjà ouverte,
+            // et le patient n'est transmis à personne (ADR-113).
+            self::ContinuedHospitalization => null,
         };
     }
 
@@ -97,6 +112,9 @@ enum ConsultationOrientationType: string
             self::Maternity => ConsultationDecision::MaternityReferral,
             self::Pediatrics => ConsultationDecision::PediatricsReferral,
             self::Referral => ConsultationDecision::ExternalTransfer,
+            // « Hospitalisation » dit vrai du passage : il l'est, et le reste.
+            // Aucun lecteur n'a de second vocabulaire à apprendre (§32).
+            self::ContinuedHospitalization => ConsultationDecision::Hospitalization,
         };
     }
 

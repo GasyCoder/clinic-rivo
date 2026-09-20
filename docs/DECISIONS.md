@@ -4247,6 +4247,29 @@ désormais la fonction, jamais à une page disparue.
 Inchangées : `diagnoses.create` pour enregistrer, `diagnoses.update` pour
 corriger ou annuler — et, comme avant, seul l'auteur de la saisie le peut.
 
+## Amendement du 2026-09-20 — l'exigence est maintenue, retirer le dernier diagnostic le dit
+
+Signalement du propriétaire : après avoir saisi « Angine aiguë » à l'examen clinique, « Décision & clôture »
+affichait « Aucun diagnostic encore posé » et le bouton « Clôturer » restait grisé ; il demandait de rendre le
+diagnostic **facultatif** à la clôture.
+
+Vérification faite, le diagnostic de l'examen **est** repris à la clôture : c'est le même enregistrement
+(`consultation->diagnoses`), lu par `hasActiveDiagnosis()` aux deux endroits, même après un « Pas maintenant »
+(ADR-095) — un test le fixe. Dans le cas signalé, le diagnostic avait été **annulé par son auteur** (trace
+`cancel`, quelques minutes après sa création) : il n'y avait donc plus de diagnostic actif, et le bouton grisé
+disait vrai.
+
+Le propriétaire a **choisi de garder l'exigence** : elle est du CDC §33.1 et de cet ADR, et seul un passage
+paraclinique seul en est dispensé (ADR-094). Ce qui change est de l'information, pas une règle :
+
+```text
+clôture, section 1   « Déjà consigné (à l'examen clinique ou ici) : rien à ressaisir. Il est requis pour clôturer. »
+retrait              les deux confirmations (examen, clôture) préviennent, quand c'est le dernier diagnostic
+                     d'une vraie consultation, que la clôture en dépend
+```
+
+Aucune permission, route ni règle serveur ne change.
+
 ---
 
 # ADR-082 — Un seul type de diagnostic à la saisie
@@ -5000,6 +5023,111 @@ Chaque sortie est auditée sous `episode.administrative_exit` avec l'ancien et
 le nouvel état, le type de sortie, le solde figé, le numéro de créance
 éventuel et le motif — obligatoire pour les trois types, pas seulement pour
 les dérogations (§34.1 règle 8).
+
+**Amendement du 2026-09-20 — une prestation non facturée interdit la sortie.**
+La section « Prestations non facturées » ci-dessus se contentait d'afficher le
+montant et de « laisser la Réception décider ». Cas constaté sur `A-26-0009-01` :
+une première facture (50 000 Ar) soldée, puis trois prestations ajoutées après son
+règlement (NFS, seconde échographie, injection : 70 000 Ar). Une facture payée ne se
+modifie plus (ADR-054), donc ces lignes restaient `PENDING`, le reste à payer valait
+0, et « Prononcer la sortie » restait actif : cliquer clôturait le passage et
+faisait perdre 70 000 Ar. Le propriétaire a demandé de refuser.
+
+```text
+règle      aucune sortie, de quelque type que ce soit, tant qu'une prestation est
+           PENDING ; refusée par RecordAdministrativeExitAction sous verrou
+           (guardNothingUnbilled), avant toute règle de solde
+tous types dette validée et évasion comprises : leur montant doit porter sur ce que
+           le patient doit réellement, pas sur la seule part déjà facturée. Le
+           droit debts.authorize n'y change rien
+écran      la fenêtre grise les trois types, désactive « Prononcer la sortie » et
+           propose « Facturer ces prestations » ; le serveur revérifie de toute façon
+chemin     POST /reception/passages/{episode}/facturer-prestations
+           (episodes.administrative_exit + billing.create) : relit les prestations
+           en attente côté serveur, crée la facture (CreateInvoiceAction) puis la
+           valide si le compte a billing.validate (ValidateInvoiceAction) ;
+           sinon elle reste en brouillon et le message le dit. Aucune règle
+           nouvelle : deux actions existantes composées
+après      le compte affiche le vrai reste à payer ; « payé comptant » n'est
+           plus possible tant qu'il reste dû, l'encaissement se fait à la Caisse
+           (ADR-012) — ce geste n'encaisse rien
+```
+
+**Le chiffre affiché ne doit pas contredire la situation.** Le « reste à payer » du
+CDC §33.2 ne somme que les factures ; à zéro, il s'affichait en vert alors que
+70 000 Ar attendaient d'être facturés — exact, mais trompeur. L'écran des sorties
+affiche donc le **total réellement dû** (factures + prestations non facturées),
+en rouge tant que ce total n'est pas nul, avec la part « non facturé » nommée à
+côté. C'est un affichage : le serveur ne s'en sert pas pour décider, et
+`balance_amount` garde sa définition §33.2.
+
+Divergence avec la première version de l'ADR signalée, non masquée : « laisse la
+Réception décider » est remplacé par un refus. Une clinique qui offre parfois une
+prestation devra l'annuler (`CancelBillableItemAction`) plutôt que la laisser
+`PENDING` : ce qui n'est plus dû n'est plus en attente.
+
+**Amendement du 2026-09-20 (bis) — l'évasion devient un droit accordé, comme la dette.**
+Demande du propriétaire : les deux sorties qui laissent une créance — dette validée
+et évasion — doivent dépendre d'une autorisation que le Super Administrateur
+accorde depuis les permissions. L'ADR disait qu'une évasion « est un constat et non
+une dérogation » et relevait d'`episodes.administrative_exit` seul : n'importe quel
+compte pouvant prononcer une sortie pouvait donc déclarer un patient évadé et créer
+une créance à son nom. Cette phrase est remplacée.
+
+```text
+dette validée   debts.authorize          (inchangé)
+évasion         debts.record_escape      (nouveau — « Enregistrer une sortie évadé »)
+payé comptant   episodes.administrative_exit seul (inchangé)
+```
+
+Les deux restent **affichées** dans la fenêtre, verrouillées avec le message
+« demandez à un administrateur… (permission …) » : la Réception voit qu'elles
+existent et à qui s'adresser. Le serveur refuse de toute façon
+(`AuthorizationException`, avant toute écriture). Par défaut : ADMINISTRATION, comme
+`debts.authorize` ; la Réception l'obtient par le socle de son rôle ou une exception
+individuelle auditée (ADR-022, ADR-064). Enregistrée par migration
+(`2026_10_03_090000`), à lancer sur chaque site et sur le portail.
+
+Le motif et le commentaire n'apparaissent qu'**après** le choix d'un type de sortie :
+tant qu'aucun n'est choisi, ils n'ont rien à justifier.
+
+**Amendement du 2026-09-20 (ter) — sélection multiple sur « Sorties & règlements ».**
+Demande du propriétaire. Quatre actions groupées, sur les passages cochés
+(50 au plus par geste, une sélection ne survit pas à un changement d'onglet, de page
+ou de recherche) :
+
+```text
+Sortie « payé comptant »       comptes réellement soldés seulement (0 Ar ET rien à facturer)
+Facturer les prestations       une facture par passage (créée, puis validée si billing.validate)
+Imprimer les fiches de sortie  onglet « Sorties prononcées » : un seul document, une fiche par page
+Exporter la sélection en Excel lecture seule, auditée ; colonnes financières seulement avec billing.view
+```
+
+Règles retenues, aucune nouvelle règle métier :
+
+```text
+jugement    chaque passage est traité SÉPARÉMENT par l'action qui le traite seul
+            (RecordAdministrativeExitAction, InvoicePendingPrestationsAction) ;
+            l'écran n'envoie que des UUID, le serveur rejuge tout
+partiel     un passage refusé — compte plus soldé, prestation apparue entre-temps,
+            sortie déjà prononcée — n'empêche pas les autres : ce sont des dossiers
+            indépendants, pas les lignes d'une même écriture (à la différence des
+            référentiels de l'ADR-046, où une ligne fautive annule tout). Un
+            rapport dit ce qui est passé et ce qui ne l'est pas, avec la raison
+lot         seule la sortie « payé comptant » se prononce en lot : une dette
+            validée exige un responsable identifié, une évasion un constat, et
+            debts.authorize / debts.record_escape restent des décisions
+            nominatives — jamais sur une liste
+audit       un audit par passage (actions existantes) plus une ligne de synthèse
+            (settlement.bulk_exit, settlement.bulk_invoice, settlement.export)
+droits      sortie : episodes.administrative_exit ; facturation : + billing.create ;
+            fiches et export : episodes.settlement.view
+```
+
+`InvoicePendingPrestationsAction` est extraite du geste « Facturer ces
+prestations » de la fenêtre de sortie, désormais partagé avec le lot. Le corps de la
+fiche de sortie devient `ExitSlipBody`, partagé entre l'impression d'une fiche et
+l'impression groupée : une seule mise en page.
 
 ---
 
@@ -6534,6 +6662,28 @@ Home/End), se remet d'un double-clic, et la largeur choisie reste sur le
 poste. Elle suit désormais les tokens de l'application plutôt qu'un bleu codé
 en dur, ce qui supprime au passage les deux blocs de surcharge du mode
 sombre.
+
+**Amendement du 2026-09-20 — le rail des catégories se manie, il ne se subit pas.**
+Constat du propriétaire : le rail des catégories était trop petit et difficile à
+parcourir. Il tenait dans une fenêtre fixe de 22 rem (quatre lignes visibles,
+`text-xs`), et la barre d'enregistrement en masquait le bas. Quatre-vingt-trois
+catégories dans ces conditions se parcouraient à la molette, ligne à ligne.
+
+```text
+hauteur    le rail prend la hauteur que l'écran lui laisse (calc(100vh - 9rem))
+           et défile dedans : la dernière ligne n'est plus sous la barre
+lignes     text-sm, py-2.5, compteur en Badge — assez grandes pour être visées
+domaines   repliables (chevron, nombre de catégories, repère « modifié » quand
+           replié), « Tout replier / Tout déplier » ; une recherche déplie tout,
+           puisqu'un résultat caché dans un domaine fermé n'en serait pas un
+clavier    flèches, Début et Fin passent d'une catégorie à l'autre ;
+           la catégorie ouverte déplie son domaine et reste dans la fenêtre
+largeur    30 % par défaut (minimum 22 %), toujours glissable
+```
+
+Le composant reste partagé entre le socle des rôles et les exceptions par compte
+(`PermissionCategoryNav`) : la navigation ne change pas d'allure selon ce qu'on
+règle. Aucune permission, route ni règle de résolution des droits n'est touchée.
 
 ---
 
@@ -8881,6 +9031,32 @@ un site déjà en production doit les ajouter depuis le portail sans rejouer
 ce seeder.
 
 
+## Amendement du 2026-09-20 — la feuille imprimée ne contourne plus aucun droit
+
+Question du propriétaire : quelles permissions gardent le dossier médical et celui d'un nouveau-né ? La
+vérification a trouvé une fuite. L'ADR-116 affirmait que « les sections plus sensibles restent gouvernées
+par leur propre permission » — c'était vrai des constantes et des antécédents, faux du reste :
+
+```text
+avant   un compte de Réception (patients.view seul) lisait sur la feuille imprimée le diagnostic,
+        les traitements déclarés et le motif d'hospitalisation — que la page « Détail du passage »
+        lui refuse (ADR-054)
+après   diagnostic              -> diagnoses.view
+        traitements actuels     -> medical_record.view
+        hospitalisation         -> hospitalization.view
+```
+
+Une section refusée se nomme (« Non visible avec vos droits »), jamais une case vide qui se lirait « rien
+à signaler » (ADR-077). La valeur est retirée de la charge utile, pas seulement masquée à l'écran : la
+feuille est sérialisée entière au navigateur. La Réception garde l'identité et peut toujours ouvrir la
+feuille — c'est ce qui lui permet d'imprimer la partie administrative.
+
+**Aucune permission nouvelle**, et aucun droit d'impression : imprimer est le fait du navigateur
+(ADR-070), donc un droit « imprimer » ne bloquerait rien — qui voit la page peut déjà faire Ctrl+P. Un
+interrupteur qui ne commande rien serait pire que pas d'interrupteur (ADR-101). Les routes restent
+`patients.view` pour le dossier d'un passage et d'un patient, `patients.view` **et** `maternity.view` pour
+le dossier d'un bébé pas encore patient (ADR-146).
+
 ---
 
 # ADR-117 — Le parcours d'un passage : une seule chronologie, de la Réception à la sortie
@@ -10254,3 +10430,1788 @@ indique combien de patients seraient VIP avant d'enregistrer.
 
 Migration `2026_10_02_090000` : table singleton `patient_vip_settings` et les
 trois permissions (ADR-064 : un site en production ne rejoue pas les seeders).
+
+---
+
+# ADR-134 — Soins : Infirmière, Maternité et Anesthésie sous une seule entrée, en trois onglets
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire)
+
+**Complète l'ADR-067** (profils paramédicaux et espace Maternité) et **l'ADR-048**
+(espaces Anesthésie/Chirurgie), sans modifier aucune règle métier. Aucune
+permission nouvelle, aucune route nouvelle, aucune migration.
+
+## Le constat
+
+Le menu latéral listait trois entrées séparées — Soins, Maternité, Anesthésie —
+alors que ce sont trois profils du même rôle `NURSE` (Infirmier, Sage-femme,
+Anesthésiste, ADR-033/067). Un soignant qui exerce deux de ces métiers passait
+d'un écran à l'autre par le menu, sans rien qui dise qu'ils forment une famille.
+
+## La règle
+
+```text
+Menu latéral   une entrée mère « Soins » (SIDEBAR_GROUPS, ADR-115) réunissant
+               Infirmière (/care), Maternité (/maternity), Anesthésie (/anesthesia)
+Sur l'écran    une barre d'onglets Infirmière · Maternité · Anesthésie, en tête
+               des trois pages (SoinsTabs)
+```
+
+**Chaque onglet reste une vraie page, avec sa propre adresse.** Les trois files
+ont des contrôleurs, des données et des permissions distincts ; les charger dans
+une seule page Inertia obligerait à tout calculer à chaque visite et à mélanger
+trois droits. Le bouton Précédent du navigateur, les liens partagés et les
+signets continuent de fonctionner (même principe que l'ADR-098).
+
+## Permissions : l'onglet suit le droit
+
+Un onglet n'apparaît que si le compte peut ouvrir la page qu'il désigne, et la
+page où l'on se trouve est toujours affichée :
+
+```text
+Infirmière   care.update
+Maternité    maternity.view
+Anesthésie   anesthesia.view
+```
+
+Une seule page accessible → aucune barre (un onglet seul ne servirait à rien) ;
+le menu affiche alors le lien simple, comme pour tout groupe à un seul membre
+(ADR-115). La barre n'est qu'ergonomie : chaque route revérifie sa permission
+côté serveur, et un droit `DENY` individuel reste prioritaire.
+
+## Ce qui ne change pas
+
+Les profils ne donnent toujours aucun droit (ADR-033) : `MIDWIFE` recommande
+`maternity.*`, `ANESTHETIST` recommande `anesthesia.*`, copiés explicitement en
+exceptions individuelles. `NURSE` ne reçoit toujours pas `anesthesia.*` par
+défaut. L'écran Anesthésie passe au passage à shadcn-vue (ADR-099), sans changer
+ses données.
+
+---
+
+# ADR-135 — Soins : des files qui suivent le parcours réel (Maternité, Anesthésie)
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « filtre pour
+la patiente en cours ou déjà orientée vers le médecin » en Maternité, « orienté vers
+Chirurgie ou en cours » en Anesthésie, « tout mettre en logique workflow »)
+
+**Complète l'ADR-134** (les trois espaces sous une seule entrée), **l'ADR-124** (file
+Soins à deux onglets), **l'ADR-067** (espace Maternité) et **l'ADR-048** (espace
+Anesthésie). Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+Maternité listait toutes ses orientations dans une seule liste : une patiente déjà
+terminée y restait, et rien ne disait si le médecin l'avait reprise. Terminer la prise
+en charge ne faisait **rien d'autre** : la patiente quittait la file, son passage
+restait « en soins » indéfiniment et n'atteignait jamais « Sorties & règlements » —
+le trou que l'ADR-054 a déjà comblé pour les Soins et l'ADR-114 pour la Pédiatrie.
+Anesthésie affichait toutes les demandes chirurgicales sans étape : impossible de
+distinguer le dossier à évaluer de celui déjà transmis à Chirurgie.
+
+## Règle commune
+
+Les vues sont **exclusives** : un dossier est dans une seule, la somme des comptes est
+le nombre de dossiers de la file (comme ADR-119, ADR-120, ADR-124). Les comptes viennent
+du serveur, jamais de la page paginée. La carte est le filtre ; une valeur inconnue
+retombe sur le travail à faire, jamais sur l'historique. Aucune vue n'est déduite d'un
+libellé : chacune se lit sur un fait déjà enregistré.
+
+## Maternité — quatre vues (`App\Services\Maternity\MaternityQueue`)
+
+```text
+À prendre             orientation Maternité en attente : personne ne l'a encore prise
+En cours              orientation Maternité prise en charge
+Orientées vers Médecine  Maternité terminée ET une orientation Médecine, source Maternité,
+                      encore en attente ou en cours
+Terminées             Maternité terminée, aucune suite en cours
+```
+
+**Amendement du même jour.** La première version regroupait « à prendre » et « en cours »
+sous le seul libellé « En cours » : une patiente que personne n'avait prise s'y lisait
+« En attente » à côté d'une patiente prise en charge, dans un bloc qui disait l'inverse.
+Ce sont deux états ; ils ont chacun leur vue. La vue par défaut est « À prendre » ; le n° de
+file n'y est affiché que pour elle, une patiente déjà prise n'attendant plus.
+`?filter=active` désigne désormais les seules prises en charge en cours.
+
+Dès que le médecin a terminé, la patiente retombe en « Terminées » : le dossier reste
+consultable, plus personne ne l'attend. Chaque ligne porte ce qui suit la Maternité :
+l'état chez le médecin (« En attente du médecin », « Vue par le médecin » + nom,
+« Consultation terminée ») et la césarienne demandée à Chirurgie — deux requêtes pour
+toute la page.
+
+## Fin de prise en charge à deux issues
+
+`CompleteMaternityOrientationAction` demande à la sage-femme ce qui vient ensuite :
+
+```text
+Terminer                     la Maternité a fini ; si plus aucun service n'a la patiente,
+                             le passage passe en PENDING_SETTLEMENT (règle de l'ADR-054)
+Terminer et orienter vers    une orientation Médecine, source Maternité, s'ouvre sur le même
+Médecine                     passage — via l'unique CreateEpisodeOrientationAction ; le
+                             passage reste en soins ; message facultatif pour le médecin
+```
+
+L'issue est choisie explicitement (`orient_to_medicine`), jamais devinée. Une orientation
+Médecine **déjà active** est réutilisée (`active_key`) : la patiente n'arrive jamais deux
+fois dans la file du médecin ; une orientation Médecine **terminée** n'empêche pas d'en
+ouvrir une nouvelle — la sage-femme demande explicitement que le médecin revoie la
+patiente (même logique que l'ordre de soins, ADR-055). Un passage dont une césarienne ou
+une consultation reste ouverte n'est jamais déclaré en attente de règlement, et un statut
+déjà avancé par la Réception n'est jamais ramené en arrière.
+
+**Hypothèses signalées.** L'orientation Maternité → Médecine est une règle demandée par le
+propriétaire ; le CDC ne la décrit pas. Elle réutilise `maternity.complete` (aucun droit
+n'est ajouté) : une sage-femme à qui `maternity.complete` est refusé (DENY) ne peut donc
+ni terminer ni orienter.
+
+## Anesthésie — quatre étapes (`App\Enums\AnesthesiaCaseStage`)
+
+Le dossier d'anesthésie est porté par la demande chirurgicale : la file suit le dossier de
+l'évaluation au bloc, sur des faits que la Chirurgie et l'anesthésie enregistrent déjà.
+
+```text
+À évaluer               évaluation pré-anesthésique pas validée, pas encore au bloc
+Transmis à Chirurgie    évaluation validée, Chirurgie pas encore au bloc
+Au bloc                 Chirurgie au bloc, dossier anesthésique pas validé
+Terminés                intervention terminée, ou dossier anesthésique validé
+```
+
+Une demande annulée est masquée de la file. Chaque ligne affiche son étape et ce qu'elle
+ajoute (brouillon en cours, date de validation…). La règle SQL (`constrain`) et la règle
+ligne à ligne (`of`) sont testées l'une contre l'autre pour ne pas diverger.
+
+## Présentation
+
+Les trois pages partagent `SoinsWorkspaceHeader` (icône, eyebrow, titre, description,
+recherche/actions) sous la barre `SoinsTabs`, écrits en shadcn-vue (ADR-099). Les états
+vides disent quelle vue est vide et ce qui y apparaîtra.
+
+## Ce qui ne change pas
+
+Aucune règle de prise en charge, de permission ni de facturation. La Maternité n'encaisse
+rien (ADR-012) ; la césarienne reste une `SurgicalRequest` et n'est jamais une
+intervention créée par Maternité (ADR-067).
+
+---
+
+# ADR-136 — Dossier Maternité adapté à l'acte demandé, et liste d'actes du propriétaire
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : formulaires Maternité
+« plus intelligents et interactifs, pour répondre au besoin et à la rapidité de travail », avec
+la liste des actes Maternité de la clinique)
+
+**Complète l'ADR-067** (espace Maternité), **l'ADR-068** (actes Maternité à la Réception),
+**l'ADR-073** (saisie conservée côté serveur) et **l'ADR-135** (files Maternité). Aucune
+permission nouvelle.
+
+## Ce que le CDC ne dit pas, et qui n'est donc pas inventé
+
+Le CDC ne décrit aucun contenu clinique de la Maternité, ni par acte ni en général. Le
+document Google transmis ne contient que la liste des actes. Aucun champ propre à un acte
+(type et lot d'un DIU, score d'un accouchement…) n'est donc ajouté : le propriétaire a choisi
+d'adapter le dossier **sans nouveau champ**. Si des champs par acte sont voulus, les sages-femmes
+doivent en fournir la liste.
+
+## La liste des actes, rapprochée du catalogue
+
+Vingt libellés transmis, seize actes Maternité déjà au catalogue :
+
+```text
+déjà présents         Accouchement simple / gémellaire, Consultation prénatale, Insertion / Retrait
+                      DIU, Insertion / Retrait Implanon, Césariennes simple / gémellaire,
+                      Pansement ombilical, Pèse bébé, Soins bébé, Autres
+renommés              « Doppler »        -> « Utilisation Echo Doppler »
+                      « Photothérapie »  -> « Utilisation Photothérapie »
+ajoutés               Utilisation Aspirateur bébé (MAT-BABY-ASPIRATOR), IEC (MAT-IEC),
+                      Nursie (MAT-NURSIE)
+déplacé               Syana Press / Dépôt Provera : FP-INJECTABLE quittait le module Planning
+                      familial (aucun espace de travail : il n'était proposé nulle part) et
+                      rejoint la Maternité, sans changer de code — le code est l'identité stable
+                      (ADR-024). Le libellé « Contraceptif injectable (Sayana Press / Depo-Provera) »
+                      est conservé.
+```
+
+Les trois actes ajoutés sont sélectionnables à la Réception et facturables comme les autres
+actes Maternité (choix du propriétaire) ; aucun tarif n'est créé, le Super Admin les fixe.
+**« Nursie » n'a pas de définition** : sa description dit qu'elle est « à préciser par la
+Maternité », et aucun profil de section ne lui est attaché. « IEC » est l'acronyme
+Information, Éducation, Communication.
+
+**Sites existants.** Le catalogue est écrit par le Super Admin (ADR-024) : aucune migration ne
+crée de ligne. `2026_10_04_100000_move_injectable_contraceptive_to_maternity` ne fait que déplacer
+`FP-INJECTABLE` et renommer les deux libellés encore à leur ancien nom ; un choix d'administrateur
+est laissé intact. Nursie, IEC et Utilisation Aspirateur bébé se créent depuis Désignations &
+tarifs, sur chaque site (le seeder local les crée). Le seeder n'écrase aucun libellé personnalisé.
+
+## Le dossier s'adapte à l'acte demandé — sans rien interdire
+
+`App\Support\MaternityActProfile` dit, **par code d'acte** (jamais par libellé, ADR-052), quelles
+sections du dossier l'acte attend :
+
+```text
+Consultation prénatale (+ suivi)   contexte, grossesse & prénatal
+Utilisation Echo Doppler           grossesse & prénatal
+Accouchement simple / gémellaire   contexte, travail, accouchement, nouveau-né
+Soins bébé, Pèse bébé, Pansement ombilical, Aspirateur bébé, Photothérapie   nouveau-né
+tout autre acte (DIU, Implanon, injectable, IEC, Nursie, Autres…)   actes seulement
+```
+
+La section « Actes & transmission » est toujours mise en avant dès qu'un acte est demandé. C'est
+une **aide de navigation, jamais une règle** : toute section que le compte a le droit d'écrire
+reste atteignable ; la seule marque visible est un point ambre « attendue par les actes demandés »
+sur un onglet non renseigné. Le dossier s'ouvre sur la première section attendue et
+vide ; sans acte demandé, comme avant.
+
+Un accouchement gémellaire ouvre **deux fiches de nouveau-né vides** (un simple : une). Jamais
+remplies : aucune donnée n'est déduite d'un acte.
+
+## Actes demandés en un clic
+
+`plannedProcedures` relit `episode_service_requests` du module Maternité — ce que la Réception a
+réellement demandé —, avec `done` (déjà enregistré) et la quantité. « Enregistrer » poste vers
+l'endpoint existant, sans nouveau chemin d'écriture ; les césariennes n'y figurent jamais (elles
+partent à Chirurgie, ADR-067). Le formulaire d'acte remplace la liste déroulante par des boutons :
+vingt libellés se lisent d'un coup.
+
+**« Autres » exige sa précision.** Le catalogue le décrit « Autre acte de maternité, à préciser » ;
+sans description, l'acte ne dit rien à la sage-femme suivante. Refusé côté serveur
+(`RecordMaternityProcedureAction`, `requires_note` servi au catalogue) ; l'écran le dit avant l'envoi.
+Comme aux Soins (ADR-032), et pour cette seule ligne : les autres actes gardent une précision
+facultative.
+
+## Saisie conservée
+
+`maternity_record_drafts` applique l'ADR-073 : la saisie survit à une actualisation, côté serveur,
+rattachée au passage **et** à son auteur (une collègue ne récupère jamais la saisie non validée
+d'une autre). Trois sections — `record`, `procedure`, `cesarean` —, jamais auditées, supprimées dès
+l'enregistrement réel, l'annulation explicite (« Effacer le brouillon ») ou la fin de la prise en
+charge. Refusée dès que la prise en charge n'est plus en cours. La route est exclue de
+`ConvertEmptyStringsToNull` : un champ vide revient chaîne vide, pas `null`.
+
+## Observation, non traitée ici
+
+Un acte enregistré par la sage-femme **au-delà** de ce que la Réception a demandé ne crée aucun
+élément facturable — contrairement aux Soins (ADR-054). Le CDC ne définit pas cette facturation ;
+elle n'est pas inventée. À trancher si la clinique veut facturer les actes ajoutés en Maternité.
+
+---
+
+# ADR-137 — Repères rappelés sous les champs du dossier Maternité
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : un poids de bébé
+de 10 kg doit produire un message d'information ; d'autres champs « à titre d'info ») —
+**seuils à faire valider par une sage-femme ou un médecin de la clinique**
+
+**Complète l'ADR-136** (dossier adapté à l'acte demandé) et **applique aux champs Maternité le
+principe des ADR-125/126** (repères de constantes). Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+Les champs du dossier n'avaient aucune intelligence : seules des bornes de validité côté
+serveur (poids de naissance entre 100 et 8 000 g, Apgar 0-10…) refusaient une saisie **à
+l'enregistrement**, avec une erreur brute. Un « 10 » saisi pour 10 kg, ou « 78 », n'était signalé
+qu'au moment de sauvegarder — sans dire que le poids se saisit en grammes.
+
+## La règle : une aide, jamais un verrou
+
+Un message s'affiche sous le champ pendant la saisie et dit ce qui mérite un second regard.
+Rien n'empêche d'enregistrer (hors les bornes de validité, qui existaient déjà et sont désormais
+lues dans la même table). Trois niveaux : `info` (à titre d'information), `warning` (à
+recontrôler), `danger` (à signaler). Un champ vide ne dit rien : une absence n'est ni normale ni
+anormale (ADR-077).
+
+Les seuils s'écrivent **une seule fois**, dans `App\Support\MaternityReference`, et arrivent à
+l'écran par la page (`maternityReference`) : Vue n'en recopie aucun (`utilities/maternityChecks.js`
+ne fait que lire une valeur et une référence). `UpdateMaternityRecordRequest` lit les mêmes bornes :
+un repère affiché et une borne refusée sont le même chiffre.
+
+## Les repères
+
+```text
+poids de naissance   unité en grammes rappelée (« 3200 pour 3,2 kg ») sous 100 g ; conversion
+                     « 3 200 g = 3,2 kg » ; < 2 500 faible, < 1 500 très faible, < 1 000
+                     extrêmement faible ; ≥ 4 000 macrosomie possible, ≥ 5 000 à vérifier ;
+                     > 8 000 g : refus annoncé avant l'envoi
+Apgar                0-3 bas, 4-6 modérément bas, 7-10 rassurant
+terme (SA)           < 28 grande prématurité, < 37 prématurité, 37-41 à terme, ≥ 42 dépassé
+hauteur utérine      comparée au terme entre 20 et 36 SA (règle de McDonald, ± 3 cm) ;
+                     aucun message hors de cette fenêtre, ni sans terme
+rythme fœtal         110-160 bpm ; < 110 / > 160 à recontrôler ; < 100 / > 180 à signaler
+dilatation           10 cm : « dilatation complète »
+parité / gestité     la parité ne peut pas dépasser la gestité
+dates                dernières règles dans le futur ou de plus de 10 mois ; début du travail
+                     ou accouchement dans le futur ; travail postérieur à l'accouchement
+nouveau-nés          « N nouveau-nés attendus d'après l'acte demandé » (ADR-136)
+```
+
+## Deux propositions calculées, jamais appliquées d'office
+
+À partir des dernières règles :
+
+```text
+terme estimé (Naegele)   dernières règles + 280 jours, proposé sous le champ « Terme estimé »
+âge de la grossesse      en SA, proposé sous le champ « Terme (semaines) »
+```
+
+Un bouton « Utiliser » reprend la valeur — **seulement si le champ est vide** : jamais par-dessus
+une saisie. Rien n'est enregistré sans que la sage-femme le décide.
+
+## Ce que le dossier ne fait pas, et le dit
+
+Aucun seuil n'est propre au sexe, à la parité ou à une grossesse gémellaire (les poids y sont
+plus bas) : ces nuances exigent des tables que ni le CDC ni l'application ne portent. Un poids
+bas y est donc signalé comme partout ailleurs, à titre d'information. Aucune alerte n'est un
+diagnostic. Pas de message contextuel (toast) : les repères restent sous leur champ.
+
+Sources : OMS (poids de naissance, prématurité), AAP/ACOG (Apgar), ACOG/NICE (rythme fœtal),
+règles de McDonald et de Naegele. **À faire confirmer par la clinique.**
+
+---
+
+# ADR-138 — Les actes Maternité s'enregistrent dans un panier
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « mettez sous forme
+panier ces actes ; il faut rester toujours UI et UX »)
+
+**Amende l'ADR-136** (formulaire d'acte à l'unité). Aucune permission nouvelle, aucune migration
+de schéma.
+
+## Le constat
+
+Le formulaire enregistrait **un acte à la fois** : choisir un bouton, régler la quantité et la
+précision, enregistrer, recommencer. Une prise en charge qui enchaîne trois actes (soins bébé,
+pansement ombilical, IEC) demandait trois passages complets, sans jamais voir l'ensemble.
+
+## Le panier
+
+L'onglet « Actes & transmission » se lit en deux colonnes :
+
+```text
+Actes disponibles   les boutons du catalogue, avec un filtre (accents ignorés) ;
+                    un clic ajoute l'acte, un second le retire
+Panier d'actes      une ligne par acte : quantité (− / + / saisie) et précision ;
+                    « Vider », et « Enregistrer N actes » en pied
+```
+
+- Un acte **n'entre qu'une fois** : la quantité porte les répétitions (comme les prestations de la
+  Réception). Les boutons − / + ne descendent jamais sous 1.
+- Les actes demandés à la Réception s'y ajoutent d'un clic (« Ajouter les N actes demandés »). Le
+  bandeau « Demandé à la Réception » garde son enregistrement direct en un clic pour les actes qui
+  n'exigent rien ; « Autres » y passe par le panier, où sa précision se saisit.
+- **« Autres » exige sa précision** (ADR-136) : la ligne est marquée « Précision obligatoire », le
+  bouton d'enregistrement dit combien d'actes restent à préciser.
+
+## Tout, ou rien
+
+`POST /maternity/orientations/{o}/procedures/batch` (`maternity.procedures.manage`) passe chaque
+ligne par l'Action à l'unité, **inchangée** (prise en charge active, césarienne refusée, « Autres »
+à préciser) — dans une seule transaction. Une ligne refusée annule tout, et le refus est rattaché à
+sa ligne (`procedures.N.notes`, avec le nom de l'acte) : la sage-femme la corrige dans son panier.
+Même schéma que la livraison de stock de la Pharmacie (ADR-098). Le panier est borné (30 lignes) et
+refuse un acte en double. L'endpoint à l'unité reste, pour l'enregistrement direct d'un acte demandé.
+
+## Saisie conservée
+
+Le panier est une section du brouillon (`basket`, ADR-136) : il survit à une actualisation. Un
+panier enregistré **retire sa seule section** du brouillon (`MaternityRecordDraft::forgetSection`) :
+il ne ressort jamais remettre dans le panier ce qui vient d'être enregistré, et le dossier encore en
+saisie est conservé. Un brouillon réduit à rien est supprimé. Un acte retiré du catalogue depuis
+n'est pas restauré dans le panier — il ne pourrait pas partir.
+
+## Ce qui ne change pas
+
+Aucune règle d'enregistrement d'un acte, aucun acte ajouté ou retiré du catalogue. Un acte
+enregistré au-delà de la demande de la Réception n'est toujours pas facturé (observation de
+l'ADR-136).
+
+---
+
+# ADR-139 — Soins bébé par nouveau-né, soins mère uniques
+
+**Status:** ACCEPTED (2026-09-20 — question du propriétaire : avec plusieurs nouveau-nés, les
+champs « Soins mère » et « Soins bébé » sont-ils uniques ou propres à chacun ?)
+
+**Amende l'ADR-067** (dossier Maternité) sur un point. Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+Le dossier portait deux notes uniques pour tout le passage : `maternal_care_notes` et
+`baby_care_notes`. Pour la mère, c'est juste — il n'y en a qu'une. Pour le bébé, non : avec des
+jumeaux, les soins diffèrent (l'un sous photothérapie, l'autre non), et une seule note les mêlait.
+
+## La règle
+
+```text
+Soins mère    une seule note pour le passage (maternal_care_notes), inchangée
+Soins bébé    une note PAR nouveau-né : newborn_data.newborns[i].care_notes
+```
+
+Le champ vit dans le JSON `newborn_data` déjà existant, à côté du sexe, du poids et de l'Apgar :
+aucune colonne, et retirer un nouveau-né retire ses soins avec lui. Un enfant unique garde le libellé
+« Soins bébé » ; avec plusieurs, chaque fiche dit « Soins — nouveau-né N ».
+
+## Ce qui est conservé
+
+`baby_care_notes` **n'est ni supprimée ni migrée** : rattacher après coup une note commune à un bébé
+précis, sur un dossier de jumeaux, reviendrait à inventer une donnée (ADR-074). Elle reste servie et
+affichée — « Soins bébé — note générale » — **seulement si elle existe déjà**, et jamais effacée en
+silence ; un dossier neuf ne la propose pas. Un nouveau-né enregistré avant ce champ le reçoit vide.
+La règle serveur (`baby_care_notes` interdit sans `maternity.newborn.manage`) est inchangée, et
+`care_notes` suit la même permission que le reste de `newborn_data`.
+
+---
+
+# ADR-140 — Corriger ou retirer un acte Maternité enregistré
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire, avec deux arbitrages) —
+**amende l'ADR-138** (un acte enregistré était définitif)
+
+Aucune permission nouvelle : `maternity.procedures.manage`, déjà exigée pour enregistrer un acte.
+
+## La règle
+
+Chaque acte de « Actes réalisés » porte, quand le compte peut le modifier, une icône **crayon**
+(corriger) et une icône **corbeille** (retirer).
+
+```text
+corriger   la quantité et la précision, sur place — jamais l'acte : pour changer d'acte,
+           on le retire et on en ajoute un autre. « Autres » garde sa description obligatoire.
+retirer    fenêtre de confirmation, puis l'acte quitte la liste (choix du propriétaire) ;
+           Soft Delete avec auteur et motif (ADR-009) : rien n'est détruit, l'audit garde
+           la trace. L'acte demandé à la Réception redevient « à enregistrer ».
+```
+
+Une correction est attribuée à son auteur (`edited_by`, `edited_at`, « corrigé par X ») sans
+changer l'auteur d'origine ; l'ancienne et la nouvelle valeur sont à l'audit (`Auditable`).
+
+## Qui peut modifier quoi (arbitrage du propriétaire)
+
+**Tout le personnel Maternité du passage** (permission `maternity.procedures.manage`) peut corriger ou
+retirer l'acte d'une collègue, **sauf ceux enregistrés par un médecin**, qui restent intacts pour lui.
+L'auteur d'un acte le modifie toujours : un médecin garde la main sur les siens.
+
+Le verrou lit un **instantané** : `performed_by_role` fige le rôle de l'auteur **à l'enregistrement**.
+Un compte qui change de rôle ensuite ne déverrouille ni ne verrouille rien d'ancien. Les actes déjà
+enregistrés reçoivent le rôle actuel de leur auteur — la seule information disponible. Un acte
+verrouillé reste visible, avec un cadenas « Médecin » : on le dit, on ne le masque pas.
+
+Le rôle n'est ici qu'une **classification de l'auteur**, jamais une autorisation : la permission
+`maternity.procedures.manage` reste exigée pour tout geste. Aujourd'hui le rôle Médecine n'a que
+`maternity.request` : un médecin n'enregistre d'actes Maternité que si ce droit lui est accordé à titre
+individuel — la règle protège ce cas-là.
+
+## Garde-fous côté serveur
+
+Revérifiés sur la ligne verrouillée (`ModifyMaternityProcedureAction`), jamais seulement à l'écran :
+la prise en charge doit être en cours et le passage ouvert ; l'acte doit appartenir à ce passage
+(sinon 404, quel que soit l'identifiant envoyé) ; un acte verrouillé refuse la correction comme le
+retrait. `can_modify` et `locked_by_physician` sont servis à l'écran, qui ne montre que les gestes
+permis.
+
+## Hors périmètre
+
+Aucune restauration d'un acte retiré n'est proposée (il reste à l'audit) ; ajouter à nouveau l'acte
+suffit. ~~Un acte retiré n'est pas refacturé ni défacturé : les actes ajoutés en Maternité ne créent
+aucun élément facturable (observation de l'ADR-136).~~ **Amendé par l'ADR-141** : un acte Maternité
+alimente désormais le compte du patient, et le retirer défacture ce que la Maternité avait elle-même
+porté.
+
+---
+
+# ADR-141 — Un acte Maternité enregistré alimente le compte du patient
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « ces actes [doivent être]
+facturés, basculer vers la Pharmacie, et le patient paie à la Caisse »)
+
+**Amende l'ADR-136 et l'ADR-140**, qui constataient que les actes Maternité ne créaient aucun élément
+facturable. Constat vérifié avant de coder : seuls les actes **sélectionnés par la Réception** étaient
+facturés (ADR-068) ; un acte enregistré par une sage-femme — insertion d'implant, soins bébé,
+consultation de suivi — ne produisait rien, et le patient repartait sans que la clinique ait compté
+ce qu'elle avait fait.
+
+## La règle
+
+Elle est celle de l'acte Soins (ADR-054) et de l'examen paraclinique (ADR-105, ADR-109), écrite par
+les mêmes classes (`ClinicalActBiller`, `PlannedServiceBilling`) : aucune règle nouvelle.
+
+```text
+tarif           résolu côté serveur (RecordBillableItemAction) — jamais saisi ni vu de la sage-femme
+échec financier tarif absent, contexte du passage non résolu, politique Personnel non classifiée :
+                l'acte est enregistré quand même ; la Réception régularise (ADR-054)
+encaissement    exclusivement Réception / Caisse (ADR-012) ; la Maternité n'encaisse rien
+```
+
+## Deux origines, dont dépend la suite
+
+`maternity_procedures.billable_item_id` et `billing_origin` disent **qui** a porté l'acte au compte :
+
+```text
+OWN      la Maternité l'a facturé à l'enregistrement (clé d'idempotence maternity_procedure:{uuid})
+PLANNED  la Réception l'avait déjà facturé à l'arrivée : l'acte s'y rattache, jamais un doublon
+```
+
+Un acte redemandé après un premier déjà rattaché est un second acte, et il se facture
+(`PlannedServiceBilling::alreadyLinkedIds` compte désormais les actes Maternité ; un acte retiré
+libère la facturation de la Réception).
+
+## Corriger ou retirer un acte facturé (amende ADR-140)
+
+```text
+retirer      OWN + en attente  -> la facturation est annulée (CancelBillableItemAction)
+             PLANNED           -> jamais touchée : c'est celle de la Réception
+             déjà sur facture  -> jamais détricotée ici : seule la Réception/Caisse corrige un montant facturé
+quantité     OWN + en attente  -> annulée puis refaite à la nouvelle quantité
+             sinon             -> refusée, avec un message qui renvoie vers la Réception
+précision    corrigeable librement : aucun effet financier
+```
+
+## Rien de rétroactif, rien de silencieux
+
+Les actes enregistrés avant ce circuit n'ont aucun élément facturable et n'en reçoivent pas : les
+facturer maintenant serait inventer une décision que personne n'a prise. L'écran signale l'état de
+chaque acte **sans montant** (ADR-036) : « À la Caisse », « Facturé à l'arrivée », « Sur facture »,
+« Non facturable » — et, pour un acte que personne n'a pu chiffrer, « Non facturé — à régulariser par
+la Réception » en alerte (ADR-103 : l'échec non bloquant ne doit jamais être muet). Les nouveaux
+actes du référentiel n'ont pas de tarif tant que le Super Admin n'en configure pas : ils s'enregistrent
+et se signalent « non facturés » jusque-là.
+
+Aucune permission nouvelle.
+
+---
+
+# ADR-142 — Le matériel utilisé en Maternité rejoint le circuit des consommables Soins
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire, question par question)
+
+**Complète l'ADR-072** (consommables Soins ⇄ Pharmacie) sans le dupliquer : la Maternité utilise la
+même demande, la même file Pharmacie, la même sortie de stock FEFO, la même facturation à la
+Caisse. Seule la **provenance** se distingue (`care_consumable_requests.source_module`, `CARE` par
+défaut ou `MATERNITY`, et `maternity_record_id`). `care_orientation_id` désigne l'orientation du
+service demandeur — Soins ou Maternité — sans changer de nom : c'est le lien que la file, la
+facturation et la sortie de stock lisent déjà. Le service se lit sur l'orientation, jamais sur une
+valeur envoyée.
+
+## Ce que la Maternité peut déclarer, et pourquoi ce n'est pas « tout le stock »
+
+L'ADR-072 réservait les Soins à la parapharmacie : « les Soins ne donnent jamais un médicament ». La
+Maternité, elle, **pose** de vrais produits — DIU, implant, injectable contraceptif — qui ne sont pas
+de la parapharmacie. Elle n'a pas pour autant accès à tout le stock :
+
+```text
+Soins       parapharmacie seulement (inchangé)
+Maternité   parapharmacie, PLUS les produits que l'administration a explicitement configurés
+            comme matériel habituel d'un acte de la Maternité
+```
+
+`CareConsumableDirectory::eligibleMedicines(CatalogModule)` porte cette règle **une seule fois**,
+lue par la déclaration, le catalogue de l'écran et la configuration. Configurer un produit pour un
+acte Maternité (`care_act_consumables`, `catalog.items.update`, ADR-024) accepte tout produit actif et
+stockable de la Pharmacie ; le même écran pour un acte de Soins reste limité à la parapharmacie.
+**Rien n'est pré-configuré** (choix du propriétaire) : tant que DIU, implant et Sayana Press n'existent
+pas en Pharmacie et ne sont pas associés à leur acte, seule la parapharmacie est déclarable.
+
+## Un seul geste
+
+Le matériel part dans le **même envoi** que le panier d'actes (`procedures/batch`, `consumables[]`,
+`consumable_notes`) : comme pour l'ADR-072, un second formulaire ferait perdre le matériel dès qu'on
+valide sans l'avoir envoyé. Tout ou rien : une ligne de matériel refusée n'enregistre ni acte, ni
+facturation, ni demande. Le matériel peut aussi partir seul (consommables du bébé). Le matériel
+habituel d'un acte est **suggéré** quand l'acte entre au panier — jamais une règle : la sage-femme
+confirme, corrige ou retire, et retirer un acte ne retire que ce qu'il avait apporté et que personne
+n'a corrigé.
+
+## Ce qui ne change pas
+
+Sortie de stock par la Pharmacie sans attendre le règlement (amendement de l'ADR-049 posé par
+l'ADR-072 : le produit est déjà posé sur la patiente), FEFO sans jamais entamer une quantité
+réservée, annulation avec motif tant qu'aucun lot n'a bougé (jamais de suppression, ADR-010),
+facturation séparée de l'acte, prix invisible au poste de soins, jamais de paiement à la Pharmacie
+(ADR-013). La file Pharmacie affiche l'origine de chaque demande (Soins / Maternité) et la sortie de
+stock la porte dans sa destination et son motif.
+
+## Permissions
+
+Aucune nouvelle : `care_consumables.view/request/cancel` (déjà dans le socle `NURSE`, donc pour
+`MIDWIFE`) et `care_consumables.serve` (Pharmacie). Le champ n'est pas ignoré en silence : sans
+`care_consumables.request`, l'envoi de matériel est refusé (403) et l'écran ne propose ni catalogue ni
+suggestion. Audit : `maternity.consumables.request`.
+
+## À faire par la clinique
+
+Créer en Pharmacie les produits concernés (DIU, implant, Sayana Press / Dépo-Provera…), leur donner
+un prix de vente, puis les associer à leur acte depuis Administration › Catalogue (icône « Matériel
+habituel »). Configurer aussi un tarif pour les actes Maternité récemment ajoutés.
+
+---
+
+# ADR-143 — La Maternité est une section du dossier médical, bébés compris
+
+**Status:** ACCEPTED (2026-09-20 — arbitrage du propriétaire : un seul dossier médical, pas un
+dossier Maternité séparé) — **première étape** ; la seconde (le bébé comme patient) reste à décider
+
+**Complète l'ADR-116** (dossier médical imprimable) et **l'ADR-067** (espace Maternité).
+
+## Le constat
+
+Le dossier médical de la clinique (`/passages/{uuid}/dossier-medical`) ne relisait rien de la
+Maternité : grossesse, travail, accouchement, actes et nouveau-nés n'existaient que dans
+`maternity_records`, visibles seulement de l'écran Maternité. Deux réponses étaient possibles :
+fondre la Maternité dans le dossier médical, ou créer un dossier Maternité à part.
+
+## La règle : un dossier, pas deux
+
+Le dossier médical n'a aucune donnée propre : il **relit** ce qui est consigné ailleurs (ADR-116).
+Un second dossier obligerait à recopier identité, allergies et constantes — deux copies qui finissent
+par se contredire (même défaut que l'ADR-098 corrige ailleurs). La Maternité devient donc une
+**section** de la feuille existante, `App\Support\Documents\MaternitySheetSection`, qui relit
+`maternity_records` et ses actes sans rien dupliquer.
+
+```text
+absente    le passage n'a aucun dossier Maternité : la section n'existe pas (`maternity` = null)
+restreinte le dossier existe, le compte n'a pas `maternity.view` : elle se nomme restreinte,
+           sans rien laisser filtrer — jamais servie vide, qui se lirait « rien consigné »
+servie     grossesse, prénatal, travail, accouchement, soins de la mère, actes réalisés,
+           observations, transmission, et un bloc par bébé
+```
+
+`maternity.view` est le droit qui garde déjà l'écran Maternité, lequel sert les mêmes données : la
+feuille imprimée n'est pas un moyen de le contourner (ADR-054). Aucune permission nouvelle.
+
+## Les bébés
+
+Chaque nouveau-né a son bloc (sexe, poids de naissance, Apgar, état, soins), numéroté quand ils sont
+plusieurs : avec des jumeaux, chacun a son état et ses soins (ADR-139). Une fiche de bébé **jamais
+remplie** — ouverte d'office pour des jumeaux (ADR-136) — n'est pas listée : ce n'est pas un
+nouveau-né consigné. Un Apgar à 0 est une valeur, pas une absence. L'ancienne note commune
+`baby_care_notes` reste affichée seulement si elle existe (ADR-139).
+
+**Tant qu'un bébé n'est pas un patient à part entière, son suivi se lit ici, dans le dossier de sa
+mère** : il n'a ni numéro, ni passage, ni allergies, ni facture à son nom.
+
+## Une case vide reste vide
+
+`null` pour tout ce que personne n'a rempli — jamais « Non », jamais « Normal » (ADR-077). Les libellés
+(Voie basse, Rompues, Féminin…) sont servis par le serveur : l'écran de la feuille ne recopie aucun code.
+
+## Hors périmètre — étape 2, à décider avec la clinique
+
+**Réalisé par l'ADR-144.** Faire du bébé un **patient relié à sa mère** (geste « Créer le dossier du
+nouveau-né » à l'accouchement) était la cible probable dès qu'un bébé passe en Pédiatrie, est hospitalisé ou revient en
+consultation. Le CDC n'en dit rien et rien n'est inventé : la numérotation, le patient à qui facturer
+les soins du bébé, le lien avec la Pédiatrie et la reprise des bébés déjà saisis en JSON restent à
+trancher avant toute implémentation.
+
+---
+
+# ADR-144 — Le nouveau-né devient un patient relié à sa mère
+
+**Status:** ACCEPTED (2026-09-20 — arbitrage du propriétaire sur la numérotation et la facturation ;
+les autres règles ont été laissées à mon jugement métier et sont signalées ci-dessous comme telles)
+
+**Réalise la seconde étape de l'ADR-143.** Jusqu'ici un bébé n'était qu'une ligne dans le dossier de sa
+mère : ni numéro, ni passage, ni allergies, ni dossier à son nom. Dès qu'il passe en Pédiatrie, est
+hospitalisé ou revient en consultation, il en faut un.
+
+## Décidé par le propriétaire
+
+```text
+numéro         dérivé de celui de la mère : A-26-0009 -> A-26-0009-B1, -B2…
+facturation    les soins du bébé restent sur le compte de la mère
+```
+
+Le préfixe `B` distingue un bébé d'un passage (`A-26-0009-01`). Le rang est celui de la naissance, pour
+que des jumeaux se lisent dans leur ordre ; s'il est déjà pris — le second jumeau a eu son dossier en
+premier —, le plus petit rang libre est choisi, et un numéro n'est jamais réutilisé, y compris celui d'un
+dossier archivé. Les passages du bébé se numérotent alors à partir du sien : `A-26-0009-B1-01`.
+
+Rien n'est facturé au nom du bébé : aucune règle de facturation ne change. Ses actes et son matériel
+consignés en Maternité continuent d'alimenter le compte de la mère (ADR-141, ADR-142).
+
+## Décidé selon la logique métier — à valider
+
+**Création explicite, jamais automatique.** Un bouton « Créer le dossier du nouveau-né » sur la fiche du
+bébé, dans le dossier Maternité. Créer un patient à chaque accouchement fabriquerait des identités que
+personne n'a validées, et le nom du bébé n'est souvent pas encore connu. Le geste exige la permission
+`maternity.newborn.manage` — celle qui garde déjà la fiche du bébé ; aucune permission nouvelle. Une
+permission dédiée reste possible si la clinique veut séparer les deux droits.
+
+**La fiche est celle qui est enregistrée.** Le serveur relit le dossier enregistré, jamais l'écran : le
+bouton est désactivé tant que le dossier a des modifications non enregistrées. Possible pendant la prise
+en charge **ou juste après** (orientation terminée), tant que le passage est ouvert : les bébés déjà
+consignés avant cette fonction peuvent ainsi avoir leur dossier.
+
+**Ce que le dossier reçoit.**
+
+```text
+date de naissance   celle de l'accouchement consigné — refusé s'il n'est pas renseigné :
+                    la naissance n'est jamais devinée, ni remplacée par « aujourd'hui »
+sexe                celui de la fiche, M ou F — refusé sinon, avec un message qui le dit :
+                    le dossier patient n'a pas d'état « indéterminé » et le code lit ce champ
+                    partout. Un bébé de sexe indéterminé ne peut donc pas encore devenir patient.
+nom                 saisi par la sage-femme, proposé depuis le nom de la mère : le bébé ne porte pas
+                    toujours celui de sa mère. Le prénom est facultatif (le bébé n'est pas toujours
+                    prénommé) ; l'identité se corrige ensuite depuis le dossier patient.
+```
+
+**Aucun passage n'est ouvert.** Un dossier n'entre dans aucune file tant que le bébé n'a besoin d'aucun
+service ; la Réception lui ouvre un passage le moment venu, comme pour tout patient.
+
+**Pas de reprise en masse des bébés existants.** Ils restent dans le dossier de leur mère, et chacun
+peut recevoir son dossier par le même geste. Les migrer d'office créerait des patients sans identité
+validée. Aucune donnée n'est réécrite.
+
+## Comment le lien tient
+
+`patient_newborn_links` relie le patient à sa mère, au dossier Maternité et à la fiche du bébé. Il vit
+dans sa propre table : l'identité permanente du patient ne change pas. Les fiches de bébés forment un
+tableau JSON **sans identifiant propre**, et une position change dès qu'une fiche est retirée : le
+serveur donne donc à un bébé un `uuid` **au moment où un patient en dépend**, jamais avant. Enregistrer un
+dossier ne change rien tant que personne n'en a besoin.
+
+```text
+idempotent   unique(dossier Maternité, uuid du bébé) : un double clic retrouve le dossier
+             déjà créé — jamais un second patient pour le même enfant
+jumeaux      la détection de doublons n'est PAS utilisée : même nom, même date de naissance,
+             elle les bloquerait. L'unicité du lien est ici la garde, et elle est exacte.
+```
+
+**À l'enregistrement du dossier Maternité** (`SaveMaternityRecordAction`) : un `uuid` que le dossier ne
+connaît pas est retiré — un navigateur n'invente pas d'identité —, et **retirer la fiche d'un bébé qui a
+déjà son dossier est refusé**, avec un message qui le dit. L'écran reprend l'identité donnée par le
+serveur sans écraser une saisie en cours, et masque « Retirer » pour un bébé relié.
+
+## Ce que chaque écran lit
+
+```text
+dossier Maternité   « Dossier M-26-7003-B1 » sur la fiche, lien vers le patient (droit patients.view)
+dossier patient     l'en-tête dit « Nouveau-né de … » chez le bébé, « Enfants nés à la clinique » chez
+                    la mère — rien de clinique n'y passe, seulement qui est relié à qui
+détail du passage   la page que l'on ouvre en premier depuis un dossier : un bloc « Nouveau-nés » qui dit
+                    combien de fiches le dossier Maternité porte, lesquelles ont déjà leur dossier patient
+                    (lien) et lesquelles n'ont jamais été renseignées, avec un accès au dossier Maternité
+                    pour créer les autres. Gardé par `maternity.view` ; absent sans dossier Maternité.
+dossier médical     chez le bébé, une section « Naissance » : date et heure, rang, poids, Apgar, état,
+                    soins, lus chez sa mère. Rien de ce qui est à la mère ne passe : ni grossesse, ni
+                    travail, ni mode d'accouchement. Gardée par `maternity.view` (sinon « non visible »).
+                    Chez la mère, chaque bloc de bébé porte le numéro de son dossier.
+```
+
+## Hors périmètre
+
+Facturation au nom du bébé pour ses **propres** passages futurs : ils suivent le parcours normal de la
+Réception (mode financier choisi à l'arrivée), sans règle propre au bébé. Un sexe indéterminé, l'adoption,
+la reconnaissance tardive et la correction d'un lien créé par erreur ne sont pas définis par le CDC et ne
+sont pas inventés : un lien n'est jamais supprimé, et sa correction exigera son propre mécanisme tracé.
+
+
+---
+
+# ADR-145 — Le dossier médical d'un patient se lit sans passage ; un seul composant pour les bébés
+
+**Status:** ACCEPTED (2026-09-20 — signalement explicite du propriétaire : « je n'ai pas trouvé le dossier de
+bébé comme modèle dossier médical… il faut plus logique, fusionner ce qui est répétitif, UI/UX pro avec shadcn »)
+
+**Complète l'ADR-144** (le nouveau-né devient un patient) et **l'ADR-143** (Maternité = section du dossier
+médical). Aucune permission nouvelle, aucune migration.
+
+## Le constat
+
+Le dossier du bébé existait, mais personne ne le trouvait, pour quatre raisons cumulées :
+
+```text
+aucun dossier créé      la fiche du bébé vide, le geste de création jamais fait
+bouton grisé            « Créer le dossier » vivait dans un <fieldset disabled> : dès la fin de la prise en
+                        charge, tout le formulaire — bouton compris — est désactivé
+trois endroits          un bloc à la Maternité, un autre au détail du passage, des lignes au dossier patient,
+                        chacun réécrit à la main
+pas de dossier médical  le modèle papier « DOSSIER MÉDICAL » n'existait que par passage : un bébé n'a aucun
+                        passage
+```
+
+## Le dossier médical se lit par patient
+
+`GET /patients/{patient}/dossier-medical` (`patients.medical-record.print`, `patients.view`) sert le même
+document que `/passages/{episode}/dossier-medical`, sans passage : `MedicalRecordSheet::presentForPatient()`.
+La payload rend `episode` nullable ; les constantes, l’hospitalisation et le diagnostic d'un passage s'y
+affichent vides plutôt que devinés. Toute section reste gardée par sa permission (ADR-054, ADR-116).
+
+Pour un bébé, la feuille porte un bloc **« Naissance — à la clinique »** (`MaternitySheetSection::birth()`) :
+mère, date et heure, rang, sexe, poids, Apgar, état, soins du bébé. **Rien de clinique de la mère n'y figure**
+(grossesse, travail, accouchement) : c'est son dossier, pas celui de l'enfant ; sans `maternity.view` la section
+dit « Non visible avec vos droits ».
+
+## Onglets Mère · Bébé 1 · Bébé 2
+
+`MaternitySheetSection::dossiers()` sert la famille : la mère (dossier du passage) et chaque bébé dont le dossier
+existe. Un onglet de bébé dont le dossier n'est pas encore créé est inactif et le dit. L'onglet courant est marqué
+(`aria-current`), le bouton de retour suit d'où l'on vient (`back`). Les onglets ne s'impriment jamais : ils
+passent par un slot écran de `PaperSheet`.
+
+## Un seul composant, hors du formulaire verrouillé
+
+`Components/Clinical/NewbornDossiers.vue` remplace les trois blocs écrits à la main : liste des bébés (sexe,
+poids, numéro ou « dossier non créé »), **Dossier médical**, **Dossier patient**, et fenêtre de création. Il est
+alimenté par `MaternitySheetSection::forPassage()` et utilisé par la Maternité, le détail du passage ; le dossier
+patient garde ses lignes « Nouveau-né de… » / « Enfants nés à la clinique » avec leur lien de dossier médical et
+un bouton **Dossier médical** dans l'en-tête.
+
+À la Maternité il est placé **avant** le `<fieldset :disabled="readOnly">` : un dossier terminé est en lecture
+seule, mais créer le dossier d'un bébé ne modifie pas la fiche de la mère. Tant que la fiche a des modifications
+non enregistrées, la création se dit bloquée (le serveur relit l'enregistré, jamais l'écran).
+
+## Le sexe se choisit à la création
+
+`patients.sex` est obligatoire (M/F) et le CDC ne définit aucun « indéterminé » : il n'est pas inventé. Une fiche
+sans sexe **n'est donc plus refusée** ; la fenêtre le demande (`Select`, obligatoire) et le serveur l'**écrit dans
+la fiche** pour que les deux ne divergent pas. Si la fiche porte déjà un sexe, la fenêtre l'affiche en lecture
+seule et le serveur l'emporte. L'erreur porte la clé `sex`. L'écran de la fiche reprend le sexe écrit, sinon un
+enregistrement ultérieur l'effacerait. Une fiche entièrement vide ne bloque plus non plus : seuls la date
+d'accouchement et le nom sont exigés, comme avant.
+
+## Hors périmètre
+
+Les soins du bébé restent sur le compte de la mère (ADR-144). Aucun passage n'est ouvert pour lui : ouvrir un
+passage au bébé, pour une consultation propre, se fait par la Réception comme pour tout patient.
+
+## Amendement du 2026-09-20 — le dossier médical d'un bébé est une feuille de nouveau-né
+
+Signalement du propriétaire : le dossier du bébé reprenait la feuille d'un adulte — situation maritale,
+nombre d'enfants, profession, adresse, téléphone, tabac, traitements actuels, antécédents familiaux — toutes
+cases sans objet pour un nouveau-né, alors que ses circonstances de naissance n'y figuraient presque pas.
+
+**Ce qui change.** Quand le patient est un nouveau-né de la clinique (`birth` servi), la feuille est composée
+pour lui, dans l'ordre d'un dossier de naissance :
+
+```text
+identité               nom, né(e) le (date et heure), sexe, lieu de naissance (la clinique et son site,
+                       jamais ressaisi), naissance unique ou multiple (« nº 1 sur 2 »)
+mère                   personne à joindre : nom, N° de dossier, téléphone, adresse — le bébé n'a ni
+                       téléphone ni adresse à lui
+naissance et           mode d'accouchement, terme (semaines), complications
+accouchement           (gardés par maternity.view, sinon « non visible avec vos droits »)
+état à la naissance    poids, Apgar, état, soins du bébé
+suivi                  allergies, diagnostic ; poids/taille et hospitalisation seulement s'il a eu un passage
+```
+
+Les rubriques d'un adulte n'existent plus dans la feuille d'un bébé (`v-if="!birth"`) ; la feuille de sa mère
+reste inchangée.
+
+**Amende l'ADR-144**, qui écrivait « ni grossesse, ni travail, **ni mode d'accouchement** » : le mode
+d'accouchement, le terme et les complications de l'accouchement décrivent la **naissance de l'enfant** et sont
+lus par tout dossier de naissance ; ils sont donc servis. Restent chez la mère, et ne passent pas : gestité et
+parité, facteurs de risque, contexte obstétrical, surveillance du travail, délivrance, soins de la mère. Ce
+partage est un choix de lecture, pas une règle du CDC (qui ne décrit aucun dossier de nouveau-né) : à faire
+valider par les sages-femmes. Aucune permission nouvelle.
+
+---
+
+# ADR-146 — Le nouveau-né vit dans le dossier de sa mère, et devient patient à l'accueil
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire, qui revient sur la création à
+l'accouchement : « il faut le bébé rajouter direct dans la dossier de sa mère […] quand arriver à la
+prochaine jour pour consulter le bébé la réception interroger l'accouchement chez nous ou externe »)
+
+**Amende l'ADR-144** sur *quand* et *par qui* le bébé devient patient, et **complète l'ADR-145** (le dossier
+médical d'un nouveau-né).
+
+## Ce qui était faux
+
+L'ADR-144 créait le patient **à l'accouchement**, par un bouton de la Maternité. C'était mon choix, pas
+celui du propriétaire — il l'a laissé à mon jugement, et il était mauvais : un dossier patient était ouvert
+pour un enfant dont personne n'avait encore besoin, et son nom n'est souvent pas connu ce jour-là.
+
+## L'ordre réel
+
+```text
+accouchement   le bébé est consigné dans le dossier Maternité de sa mère — et c'est tout
+                il a son nom (facultatif), son dossier médical, et aucun dossier patient
+le jour de sa  la Réception demande : « accouchement chez nous ou ailleurs ? »
+consultation     chez nous  -> elle cherche la mère, voit ses bébés, en choisit un : il devient
+                              patient à cet instant, et repart dans le parcours d'arrivée
+                 ailleurs   -> enregistrement habituel d'un nouveau patient
+```
+
+## Le bébé a son dossier avant d'être patient
+
+Une fiche de nouveau-né reçoit son identité (`uuid`) **dès l'enregistrement du dossier Maternité**, et non
+plus au moment où un patient en dépend : c'est elle que la Réception retrouve, et elle doit exister avant.
+Une fiche jamais remplie n'en reçoit pas — ce n'est pas un bébé consigné, et elle n'apparaît nulle part.
+La migration `2026_10_07_090000` donne la leur aux fiches déjà enregistrées, sans rien toucher d'autre.
+
+`GET /passages/{episode}/nouveau-nes/{uuid}/dossier-medical` (`patients.view` **et** `maternity.view`) sert
+son dossier médical, lu depuis sa fiche : même feuille de nouveau-né que s'il était patient (ADR-145), avec
+« Pas encore patient — le dossier patient s'ouvre à l'accueil, avec son numéro » à la place du numéro. Dès
+qu'il est patient, cette adresse redirige vers son dossier patient : il n'y a **qu'un** dossier par bébé.
+
+Les onglets Mère · Bébé 1 · Bébé 2 relient donc toute la famille, que les bébés soient patients ou non.
+
+## Le nom se saisit à la Maternité
+
+`newborn_data.newborns[].first_name` et `.last_name`, facultatifs. `App\Support\NewbornFiche::displayName()`
+décide une fois pour toutes comment on nomme un bébé, pour que la Maternité, le dossier médical et la
+Réception ne l'écrivent pas chacun à leur manière :
+
+```text
+prénom saisi        « RASOA Faly »          (nom saisi, à défaut celui de la mère)
+nom seul            « Bébé 2 — ANDRIANINA »
+rien                « Bébé 2 de RAKOTO »    jamais un prénom inventé
+```
+
+## Ce que la Réception voit, et ce qu'elle ne voit pas
+
+`GET /reception/newborns?mother={uuid}` (`episodes.create`) liste les bébés consignés d'une mère : nom, rang,
+sexe, date de naissance, et le dossier patient s'il existe déjà. **Rien de clinique** — ni poids, ni Apgar, ni
+soins : un poste de Réception n'a pas `maternity.view`, et ces données ne lui servent pas à reconnaître
+l'enfant. Un test le vérifie.
+
+`POST /reception/newborns/{record}/{newbornUuid}/patient` (`episodes.create` **et** `patients.create`) en fait
+un patient. Les règles de l'ADR-144 sont inchangées : numéro dérivé de celui de la mère, naissance jamais
+devinée (refus si l'accouchement n'est pas consigné), sexe M ou F exigé (donné ici si la fiche ne le porte
+pas, et alors écrit sur la fiche), unicité (dossier Maternité, bébé) contre le doublon, jumeaux acceptés.
+Aucun passage n'est ouvert : c'est l'arrivée en cours qui le fait.
+
+La création **ne dépend plus d'aucun passage** : le bébé revient des jours plus tard, celui de sa mère est
+clos, et cela n'empêche rien — c'était la limite de l'ADR-144, qui exigeait un passage ouvert.
+
+## Ce qui disparaît
+
+Le bouton « Créer le dossier » de la Maternité, sa route
+(`/maternity/orientations/{o}/newborns/{index}/patient`) et la fenêtre de saisie du composant partagé. La
+sage-femme consigne le bébé ; elle n'ouvre pas de dossier patient. `maternity.newborn.manage` reste le droit
+de la fiche du bébé ; le droit d'en faire un patient est celui de l'accueil.
+
+## Ce qui ne change pas
+
+Les soins du bébé consignés en Maternité restent sur le compte de la mère (ADR-144). Un bébé qui a son
+dossier patient ne peut toujours pas être retiré du dossier Maternité. La feuille de nouveau-né est celle de
+l'ADR-145. Aucune permission nouvelle.
+
+## Amendement du 2026-09-20 — les dossiers ouverts à l'accouchement retournent à la fiche
+
+Constat du propriétaire : les bébés créés par l'ancien geste de la Maternité étaient toujours dans
+`/patients`, alors qu'ils n'avaient jamais servi — ni passage, ni facture, ni la moindre ligne à leur nom.
+
+```text
+jamais servi   le nom rejoint la fiche du dossier Maternité, le dossier patient est retiré et son
+               numéro redevient libre : le bébé retourne chez sa mère, et redeviendra patient à
+               l'accueil avec son -B1 (migration 2026_10_08_090000)
+a déjà servi   il reste patient : un passage, une facture ou une allergie ne se détruisent pas
+               (ADR-010, même raisonnement que l'ADR-062 pour un compte jamais utilisé)
+```
+
+Le nom devait être déplacé, pas seulement le dossier : l'ancien geste ne l'écrivait que sur le patient,
+et le retirer l'aurait effacé. Une fiche que la sage-femme a nommée depuis garde le sien. La migration
+vérifie chaque table qui désigne un patient — la base refuse de toute façon (`RESTRICT`), mais un refus
+brut ne dirait pas laquelle — et `visitor_visits`, dont le `SET NULL` effacerait le lien en silence.
+Le retour est audité (`maternity.newborn.patient.revert`) : sans cela l'audit dirait qu'un dossier a été
+ouvert, jamais ce qu'il est devenu. Aucun retour arrière : rouvrir ces dossiers recréerait des patients
+que personne n'a demandés, avec des numéros qu'un autre bébé a pu recevoir depuis.
+
+**Un bébé accueilli reste dans le répertoire**, comme tout patient : il a son numéro et ses passages, et
+on le cherche par son nom. Sa ligne dit seulement de qui il est l'enfant — « Nouveau-né de RAKOTO Vola »,
+qui mène au dossier de sa mère —, sinon lui et elle se lisent comme deux dossiers sans rapport. Le masquer
+aurait rendu introuvable, par son nom, l'enfant de six mois qui revient en consultation.
+
+## Amendement du 2026-09-20 (bis) — le dossier de la mère montre ses bébés, le répertoire dit lesquelles ont accouché ici
+
+Constat du propriétaire : depuis que le bébé n'est plus patient d'office, le dossier de sa mère ne le montrait
+plus — `family.children` ne lisait que les dossiers patients, et un bébé consigné à la Maternité n'en a pas
+avant son premier accueil. Il n'apparaissait donc nulle part dans le dossier permanent de sa mère.
+
+```text
+dossier de la mère   une carte « Nouveau-nés nés à la clinique » : nom, date de naissance, « Pas encore
+                     patient » ou son numéro, et son dossier médical
+répertoire           « 1 bébé né ici » sur la ligne de la mère — ce que la Réception cherche à chaque
+                     arrivée d'un nouveau-né, sans ouvrir chaque dossier
+```
+
+Les bébés sont lus sur les **fiches** (`MotherNewborns::for()`, la même liste que l'arborescence de la
+Réception), jamais sur les seuls dossiers patients : une seule définition de « les bébés d'une mère ». Une
+fiche ouverte d'office pour des jumeaux et jamais remplie n'en est pas un — elle n'est ni comptée, ni listée.
+
+**Ce qui exige `maternity.view`, et ce qui ne l'exige pas.** Le nom, le rang et la date de naissance d'un
+bébé sont son identité, pas une donnée clinique : ils sont servis avec `patients.view`, comme la Réception
+les voit déjà dans son arborescence sans ce droit. Le **dossier médical** d'un bébé pas encore patient se lit
+sur la fiche du dossier Maternité : sans `maternity.view`, le bébé est nommé mais son dossier n'est pas
+proposé — un lien qui mène à un refus vaut moins qu'une absence de lien. Le dossier d'un bébé déjà patient
+reste ouvert à `patients.view` : c'est un dossier patient comme un autre.
+
+
+## Amendement du 2026-09-20 (ter) — le nouveau-né a ses propres droits
+
+Le paragraphe ci-dessus faisait reposer la lecture du dossier d'un bébé sur `maternity.view`. Constat du
+propriétaire : **la Réception ne pouvait donc pas ouvrir le dossier d'un nouveau-né depuis celui de sa
+mère** — le bouton n'était même pas affiché. La cause n'est pas un oubli d'attribution : `maternity.view`
+est le droit de l'**espace Maternité**, qu'aucun socle de rôle ne porte et que seul le profil sage-femme
+reçoit en exception individuelle (ADR-067). Ni Médecine, ni Soins, ni la Réception ne le détiennent.
+
+Le raccourci était faux : lire la naissance d'un enfant n'est pas travailler dans le dossier obstétrical de
+sa mère. Trois droits nomment désormais les trois gestes réels, identité et clinique séparées :
+
+```text
+newborns.view                  l'enfant : nom, rang, sexe, date de naissance, s'il est patient
+newborns.medical_record.view   son dossier : naissance, poids, Apgar, état, soins, mode d'accouchement
+newborns.patient.create        en faire un patient, à l'accueil
+```
+
+Chacun est réellement vérifié par le code (ADR-101) — route, projection serveur et lien affiché : une
+permission que rien ne contrôle est un interrupteur qui ne commande rien.
+
+```text
+newborns.view                  carte « Nouveau-nés » du dossier de la mère, « Nouveau-né de … » et
+                               « N bébés nés ici » au répertoire, arborescence de la Réception,
+                               bloc « Nouveau-nés » du détail du passage et du dossier Maternité
+newborns.medical_record.view   route /passages/{passage}/nouveau-nes/{bébé}/dossier-medical,
+                               bloc « Naissance » de la feuille, poids affiché à côté de l'identité,
+                               et le lien lui-même — jamais proposé à qui recevrait un refus
+newborns.patient.create        POST /reception/newborns/{dossier}/{bébé}/patient
+```
+
+`maternity.view` garde exactement ce qui lui appartient : l'espace Maternité et la section Maternité du
+dossier de la **mère** — grossesse, travail, accouchement. Rien n'y est retiré.
+
+**Socle de départ, et ce qui reste une décision.** `RECEPTION` reçoit `newborns.view` et
+`newborns.patient.create` — elle accueille l'enfant et doit le retrouver chez sa mère. `MEDICINE` et
+`NURSE` reçoivent `newborns.view` et `newborns.medical_record.view` : le médecin qui reçoit un nouveau-né
+lit sa naissance, et c'est un élargissement volontaire, signalé plutôt que silencieux — aujourd'hui aucun
+des deux ne pouvait ouvrir cette feuille.
+
+`newborns.medical_record.view` n'est **pas** accordée à `RECEPTION` (arbitrage explicite du propriétaire,
+2026-09-20) : le poids, l'Apgar et le mode d'accouchement sont cliniques. Le Super Administrateur la coche
+dans « Rôles & permissions » › catégorie **Nouveau-nés** s'il le décide, et cette décision est alors tracée
+(ADR-064) au lieu d'être prise une fois pour tous les sites.
+
+**Sans le droit, jamais un vide muet.** Sans `newborns.view`, la carte, les repères du répertoire et le
+bloc du passage ne sont pas servis du tout — jamais servis vides, qui se liraient « cette patiente n'a pas
+accouché ici ». Sans `newborns.medical_record.view`, le bébé reste nommé — son identité n'est pas clinique
+— mais son dossier n'est pas proposé, et la feuille ouverte par un autre chemin écrit le droit qui manque.
+Le dossier d'un bébé **déjà patient** reste ouvert à `patients.view` : c'est un dossier patient comme un
+autre.
+
+La migration `2026_10_09_090000_create_newborn_permissions` enregistre les trois droits et ces
+attributions — un site en production ne rejoue plus `RolePermissionSeeder` (ADR-064). Elle recopie aussi
+`newborns.view` et `newborns.medical_record.view` sur les comptes qui détenaient déjà `maternity.view` en
+exception `ALLOW`, pour ne rien retirer à une sage-femme. Un `DENY` n'est jamais recopié : refuser l'espace
+Maternité n'a jamais voulu dire refuser la naissance d'un enfant.
+
+---
+
+# ADR-147 — Diagnostic de sortie porté par le séjour, et Réception en lecture sur l'Hospitalisation
+
+**Status:** ACCEPTED (2026-09-20 — deux constats du propriétaire sur le même écran ;
+arbitrage explicite sur le domicile du diagnostic)
+
+**Complète l'ADR-113** (module Hospitalisation) sans modifier une seule de ses règles
+d'admission ou de sortie.
+
+## Le défaut : la sortie était impossible
+
+Sur le séjour `48d1a300`, le formulaire affichait « Aucun diagnostic posé : ajoutez-le
+dans « 1 · Diagnostic » ci-dessus » et laissait « Confirmer la sortie médicale » grisé.
+Deux erreurs dans cette seule phrase :
+
+```text
+le passage AVAIT 2 diagnostics actifs   la page ne les servait pas au formulaire
+« 1 · Diagnostic ci-dessus »            cet écran n'existe qu'en consultation
+```
+
+`ClinicalDischargeForm` exige un diagnostic coché (`requires-diagnosis`, ADR-113 : un
+séjour n'est jamais un passage paraclinique seul), la page ne lui passait aucun
+`diagnoses`, et aucun moyen d'en poser un depuis là. **Aucune sortie d'hospitalisation
+n'était donc prononçable.**
+
+## Ce que la sortie reçoit désormais
+
+`HospitalizationController::diagnoses()` sert les diagnostics **déjà consignés** — ceux
+des consultations du passage et ceux du séjour — avec leur origine, leur auteur et leur
+date. Ils arrivent cochés d'office : rien n'est ressaisi (§17). Un diagnostic annulé par
+son auteur (ADR-035) n'en est plus un et n'est pas servi. La liste n'est servie qu'avec
+`diagnoses.view` — la feuille n'ouvre pas ce que le reste de l'application garde.
+
+L'invite du formulaire devient un `prop` (`diagnosisHint`) : partagé par la consultation
+et le séjour, il ne peut plus renvoyer à l'écran de l'autre.
+
+## Le diagnostic conclu au terme du séjour appartient au séjour
+
+Un `Diagnosis` appartient à une `Consultation` (ADR-035), et celle qui a demandé
+l'hospitalisation est le plus souvent **close** bien avant la sortie — sur le cas signalé,
+clôturée le 19/09 à 15:22 alors que le séjour courait encore. L'ADR-076 refuse alors toute
+écriture ordinaire, et l'ADR-096 n'ouvre la réouverture que pour **corriger** une
+rencontre conclue.
+
+Or ce que le médecin conclut après plusieurs jours de séjour n'est pas une correction de
+cette consultation : c'est un fait clinique du séjour. Trois issues ont été posées au
+propriétaire ; il a retenu celle qui n'amende aucune décision existante :
+
+```text
+hospital_stay_diagnoses   le diagnostic de sortie, sur le séjour
+                          append-only, avec son auteur et sa date
+la consultation close     jamais réécrite — l'ADR-076 reste intacte
+```
+
+`RecordHospitalStayDiagnosisAction` exige le même droit que le diagnostic d'une
+consultation (`diagnoses.create`) : conclure un séjour n'est pas une autre autorité que
+conclure une rencontre. Même règle de catalogue que l'ADR-035 — une entrée du référentiel
+avec ses instantanés (code, libellé), ou un libellé saisi, jamais les deux à vide — et le
+même refus du doublon. Le modèle refuse la mise à jour et la suppression : une erreur se
+corrige par une nouvelle ligne (ADR-010, ADR-035).
+
+**Un séjour terminé n'en accepte plus.** Sa sortie est prononcée, donc sa conclusion est
+signée ; la FormRequest et l'Action le refusent toutes les deux — l'interface n'est jamais
+la seule garde.
+
+## La Réception lit le module, et n'y écrit rien
+
+`hospitalization.view` rejoint le socle `RECEPTION` : elle ouvre le détail, le dossier du
+passage et l'impression de la fiche de régime — ce que l'accueil a réellement à faire.
+Elle reçoit 403 sur tout le reste, sans exception :
+
+```text
+lit       /hospitalisation, le détail, /regime/impression
+refusé    sortie (medical_discharge.create), service et chambre (hospitalization.update),
+          fiche de régime (hospital_diet.record), demande (hospitalization.request),
+          diagnostic (diagnoses.create)
+```
+
+Rien n'a eu à être verrouillé pour cela : l'écran calculait déjà ses capacités droit par
+droit et chaque route porte la sienne. Sans `diagnoses.view`, la liste des diagnostics
+n'est pas servie du tout — jamais servie vide, qui se lirait « aucun diagnostic posé ».
+
+Un poste d'accueil qui doit faire davantage le reçoit du Super Administrateur depuis
+« Rôles & permissions » (ADR-064) ou par exception individuelle auditée (ADR-022) : le
+module suit alors le droit accordé, sans autre changement de code.
+
+La migration `2026_10_10_090000_create_hospital_stay_diagnoses` crée la table et accorde
+`hospitalization.view` à `RECEPTION` — un site en production ne rejoue plus
+`RolePermissionSeeder` (ADR-064).
+
+## Hors périmètre
+
+Aucun diagnostic de séjour n'est repris par les propositions de l'ADR-111 : elles
+apprennent des consultations, et étendre leur source est une décision distincte. Un
+diagnostic de sortie posé par erreur ne s'annule pas encore — il se corrige par une
+nouvelle ligne ; une annulation tracée comme celle de l'ADR-035 reste à décider.
+
+---
+
+# ADR-148 — Visite de service : une vraie rencontre pendant le séjour
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « pendant
+l'hospitalisation un patient peut voir une consultation encore, des examens, ordonnance…
+comment peut tout faire ça dans la page d'hospitalisation ? », arbitrage sur la forme)
+
+**Construit** ce que l'ADR-113 avait explicitement laissé hors périmètre (« visites de
+service, prescriptions propres au séjour ») et **complète l'ADR-147**.
+
+## Le trou
+
+Un patient hospitalisé est examiné chaque jour, prescrit, envoyé au laboratoire. Rien de
+tout cela n'était possible : le séjour ne portait qu'une fiche de régime, et la
+consultation qui a demandé l'hospitalisation est le plus souvent close (ADR-076) — donc en
+lecture seule. Le médecin n'avait aucun endroit où travailler.
+
+## Une visite **est** une consultation
+
+Trois formes ont été posées au propriétaire ; il a retenu la rencontre réelle, et c'est
+aussi la seule qui n'invente rien :
+
+```text
+diagnostic, ordonnance (réservation FEFO), analyses, imagerie, ordre de soins,
+facturation, brouillon serveur, droits  →  tout existe déjà, rattaché à une Consultation
+```
+
+`StartHospitalVisitAction` n'écrit donc aucun circuit nouveau : elle enchaîne
+`CreateEpisodeOrientationAction` (`HOSPITALIZATION → MEDICINE`) puis
+`AcceptMedicineOrientationAction`, exactement comme la Maternité qui renvoie au médecin
+(ADR-135), et redirige vers l'assistant existant. Aucune table, aucun écran dupliqué.
+
+**Le patient n'apparaît jamais dans la file d'attente.** L'orientation est prise en charge
+d'emblée (`IN_PROGRESS`, `accepted_by`) : il est dans un lit, pas dans la salle d'attente.
+
+**Il reste hospitalisé.** `AcceptMedicineOrientationAction` remet le passage « en soins » —
+juste pour une arrivée ordinaire, faux ici : le statut médical est rétabli à
+`HOSPITALIZED`, qui n'appartient qu'à la sortie médicale (ADR-113). Une visite ne fait pas
+descendre du lit. Le `refresh()` qui précède n'est pas cosmétique : l'instance en mémoire
+portait encore l'ancienne valeur, donc la réécrire n'aurait produit aucun UPDATE.
+
+**Jamais deux visites ouvertes.** L'`active_key` d'`EpisodeOrientation` rend l'ouverture
+idempotente : rouvrir retrouve la visite en cours au lieu d'en créer une seconde. L'écran
+propose alors « Reprendre la visite en cours ».
+
+**Un séjour terminé n'en ouvre plus** : sa sortie est prononcée, donc sa conclusion est
+signée — refusé par l'Action, jamais seulement par l'écran.
+
+## Permissions
+
+Aucune nouvelle. Ouvrir une visite relève de `consultations.create` — la même autorité que
+prendre un patient en charge en Médecine —, la liste de `consultations.view`. La Réception
+(ADR-147) lit le séjour et n'ouvre aucune visite ; sans `consultations.view` la liste n'est
+pas servie du tout, jamais servie vide.
+
+## Le bloc de sortie est regroupé par sujet
+
+Même écran, second constat du propriétaire : la sortie s'étalait sur une colonne unique où
+le regard ne rattachait plus une case à sa question — « Contrôle » occupait à lui seul une
+rangée pleine largeur, et la moitié droite restait vide. Le formulaire, partagé par la
+consultation, la Pédiatrie et l'Hospitalisation, tient désormais en trois sections
+encadrées :
+
+```text
+1 · Décision                    type de sortie et sa date, jamais séparés
+2 · Conclusion médicale         diagnostic final et état du patient
+3 · Consignes remises au patient  traitement, conseils et contrôle sur une rangée
+```
+
+Aucun champ n'est retiré, aucune valeur envoyée au serveur ne change, aucune règle de
+validation ni de complétude n'est touchée : c'est une mise en page (ADR-099).
+
+## Hors périmètre
+
+Le tour de salle en lot (plusieurs patients d'affilée), la prescription permanente d'un
+séjour reconduite chaque jour et la gestion des lits restent non définis par le CDC et ne
+sont pas inventés.
+
+---
+
+# ADR-149 — Une visite de service se conclut « poursuite de l'hospitalisation »
+
+**Status:** ACCEPTED (2026-09-20 — signalement explicite du propriétaire : « quand arriver
+dans l'étape Décision & clôture, comment peut faire ? le patient déjà en hospitalisation,
+donc on clique quoi pour Conduite à tenir ? »)
+
+**Complète l'ADR-148** (la visite de service) et **l'ADR-084** (la conduite à tenir).
+
+## Le cul-de-sac
+
+Une visite ouverte depuis le séjour atteignait « Décision & clôture » et n'avait aucune
+issue. La clôture exige une conduite à tenir **transmise** (ADR-084), et les six
+destinations proposées étaient toutes fausses pour un patient déjà au lit — deux
+dangereusement :
+
+```text
+Hospitalisation   ouvrirait un SECOND séjour sur le même passage
+Sortie médicale   prononcerait une sortie sans terminer le séjour, qui resterait
+                  ACTIVE avec un passage médicalement sorti
+Chirurgie, Maternité, Pédiatrie, Référence   possibles, mais rares
+Poursuivre l'évaluation                      ne transmet rien, donc ne clôture pas
+```
+
+La visite était donc impossible à clôturer. C'est le symétrique du défaut corrigé par
+l'ADR-147 : un écran qui réclame une décision dont aucune option n'est juste.
+
+## Une septième conduite, qui dit ce qui se passe vraiment
+
+`ConsultationOrientationType::ContinuedHospitalization` — « Poursuite de
+l'hospitalisation » — est la conclusion normale d'un tour de salle : le patient reste dans
+son lit.
+
+Elle est **transmise au moment du choix**, sans formulaire. Ce n'est pas un raccourci :
+elle ne demande rien à personne, le séjour est déjà ouvert et le patient déjà admis. Le
+fait est acquis, exactement comme une sortie déjà prononcée que `attachPronouncedDischarge`
+rattache depuis l'origine plutôt que de réclamer une demande qui existe déjà.
+
+```text
+destinationModule   null — aucune orientation nouvelle, celle du séjour est ouverte
+permission          consultations.update — écrire sa consultation suffit à le décider,
+                    rien n'est demandé à un autre service
+legacyDecision      ConsultationDecision::Hospitalization — il l'est, et le reste ;
+                    aucun lecteur n'a de second vocabulaire à apprendre (§32)
+```
+
+## Ce que l'écran propose, et ce qu'il retire
+
+`MedicineDossierPresenter::orientationApplies()` décide **côté serveur**, jamais dans Vue :
+
+```text
+patient hospitalisé    ni « Hospitalisation », ni « Sortie médicale »
+                       + « Poursuite de l'hospitalisation »
+patient non hospitalisé  les six d'origine ; « Poursuite » n'y veut rien dire
+```
+
+Retirer « Sortie médicale » n'enlève aucune possibilité : elle se prononce depuis la page
+du séjour, et **elle seule** y termine le séjour et la prise en charge ensemble
+(`DischargeHospitalStayAction`, ADR-113). L'écran le dit en toutes lettres, avec le lien —
+une option retirée sans explication se lit comme une fonction manquante.
+
+## Le patient hospitalisé se signale partout
+
+`hospital_stay` est servi à la consultation (avec `hospitalization.view`) : un repère
+« Hospitalisé · chambre » dans l'en-tête condensé, et un bandeau dans la carte de conduite
+à tenir. On ne conclut pas une rencontre de la même façon selon que le patient rentre chez
+lui ou reste au lit ; l'écran ne doit pas laisser l'oublier.
+
+## Ce qui ne change pas
+
+Aucune permission nouvelle. La clôture continue d'exiger un diagnostic (CDC §33.1,
+ADR-081) et une conduite à tenir transmise (ADR-084) ; seule s'ajoute celle qui manquait.
+Le séjour, le lit et le statut `HOSPITALIZED` ne sont pas touchés par la clôture d'une
+visite — seule la sortie médicale les termine (ADR-113).
+
+---
+
+# ADR-150 — Un socle de rôle ne dit pas à lui seul ce qu'un compte peut faire
+
+**Status:** ACCEPTED (2026-09-20 — signalement du propriétaire : « pourquoi le rôle
+RECEPTION a toujours la permission d'éditer et le bouton prononcer la sortie ? »)
+
+**Complète l'ADR-101** (l'écran « Rôles & permissions ») sans modifier une seule règle de
+résolution des droits.
+
+## Ce qui a été constaté, et ce que c'était réellement
+
+L'écran montrait « Socle du rôle Réception / Caisse · Demande d'hospitalisation **0/3** »,
+aucune case cochée — et le compte connecté voyait pourtant le module, les crayons de la
+fiche de régime et « Prononcer la sortie ».
+
+Vérification faite en base : **le socle n'y était pour rien.**
+
+```text
+socle RECEPTION           aucune permission hospitalization.* ni medical_discharge.*
+compte user@rivo.test     122 ALLOW et 166 DENY individuels, dont hospitalization.view,
+                          hospitalization.update, hospital_diet.record,
+                          medical_discharge.create
+```
+
+C'est le compte de développement de l'ADR-086, créé une fois avec les permissions de tous
+les rôles opérationnels pour qu'une seule connexion parcoure tout le circuit. La
+résolution a fonctionné exactement comme l'ADR-033 la définit :
+
+```text
+DENY individuel  >  ALLOW individuel  >  socle du rôle
+```
+
+Un `ALLOW` nominatif l'emporte donc sur un socle vide. Rien n'était cassé.
+
+L'audit montre par ailleurs que le socle `RECEPTION` a été réenregistré quatre fois
+depuis le portail le même jour (`role.permissions.update`, rôle 6). Chaque
+enregistrement remplace le socle entier (`sync`, ADR-064) : le `hospitalization.view`
+que la migration de l'ADR-147 avait accordé a été retiré par l'un d'eux. C'est une
+décision d'administration, pas un défaut — elle n'est pas rétablie ici.
+
+## Le vrai défaut était de présentation
+
+L'écran laissait lire « socle à 0 » comme « personne n'y a accès ». Il ne disait nulle
+part que, parmi les comptes du rôle, certains portent des exceptions qui l'emportent —
+et un accès parfaitement réglementaire passait donc pour un bug.
+
+`users_with_exceptions_count` accompagne désormais chaque rôle, et l'éditeur de socle
+l'affiche :
+
+> **1 compte** de ce rôle porte des exceptions individuelles, qui l'emportent sur ce
+> socle. Un droit décoché ici peut donc rester ouvert pour lui — vérifiez dans
+> « Exceptions par compte ».
+
+C'est la même règle que partout ailleurs dans ce dossier : ce qu'un écran ne dit pas se
+lit comme une absence (ADR-102 pour un chiffre manquant, ADR-103 pour une facturation
+avalée, ADR-149 pour une option retirée). Un compteur, pas une interdiction : régler le
+socle reste libre, et l'écran rappelle seulement qu'il n'est pas seul à décider.
+
+## Ce qui ne change pas
+
+Aucune permission, aucune route, aucune règle de résolution. Le compteur est calculé par
+une seule requête agrégée avec les comptes déjà servis — le temps de l'écran ne dépend
+pas du nombre de comptes du site.
+
+**Pour retirer réellement ces droits au compte de test**, c'est « Exceptions par compte »
+qu'il faut ouvrir, pas le socle. Un vrai compte de Réception, lui, n'a que son socle.
+
+---
+
+# ADR-151 — Un droit se cherche sous le nom que l'écran lui donne
+
+**Status:** ACCEPTED (2026-09-20 — signalement du propriétaire : « je ne vois pas cette
+permission dans la catégorie ; normalement on peut retirer ce droit au rôle Réception »)
+
+**Complète l'ADR-101** (le catalogue des permissions) et **l'ADR-150**. Aucune règle de
+résolution des droits, aucune route, aucune migration de schéma.
+
+## Le constat
+
+Le bouton « Prononcer la sortie » d'un séjour est gouverné par
+`medical_discharge.create` — libellé « Prononcer une sortie médicale », catégorie
+« Sortie médicale ». Chercher « hospitalisation » dans le catalogue ne le trouvait donc
+**jamais**. Depuis le portail, on voyait le droit à l'œuvre sans pouvoir le retirer.
+
+Ce n'était pas un droit caché : c'était un droit nommé d'après le module qui l'a créé,
+pas d'après les écrans où il agit. Trois permissions sont dans ce cas depuis que leur
+portée s'est étendue (ADR-113, ADR-114, ADR-147, ADR-148) :
+
+```text
+medical_discharge.create   consultation, sortie d'hospitalisation, pédiatrie
+consultations.create       file Médecine, et visite de service (ADR-148)
+diagnoses.create           consultation, et sortie d'hospitalisation (ADR-147)
+```
+
+## Le libellé nomme les modules, le nom ne bouge pas
+
+Seuls les **libellés** changent — le `name` est ce que le code écrit en clair
+(`can:medical_discharge.create`) et ne change jamais (ADR-101). Le libellé, lui, est la
+phrase que lit la personne qui coche la case : il doit dire où le droit agit réellement.
+
+La catégorie suit la même règle : « Sortie médicale (consultation, hospitalisation,
+pédiatrie) ». Le rail se cherche sur le libellé **et** le code (ADR-101), donc
+« hospitalisation » y ramène désormais la catégorie comme le droit.
+
+La migration `2026_10_11_090000` applique les trois libellés sur un site déjà installé —
+un site en production ne rejoue plus `PermissionSeeder` (ADR-064). Elle n'a pas de
+retour arrière : rétablir des libellés qui ne décrivaient qu'un module sur trois
+remettrait le droit hors de portée de la recherche.
+
+## Ce que cela ne résout pas, et qui reste vrai
+
+Dans le cas signalé, le droit ne venait **toujours pas** du socle `RECEPTION` — qui n'a
+ni `medical_discharge.*` ni `hospitalization.*` — mais des exceptions individuelles du
+compte de développement (ADR-150). Le retirer se fait dans « Exceptions par compte ».
+Nommer correctement le droit ne change pas qui le détient ; cela rend seulement possible
+de le chercher, et donc de le retirer là où il est réellement accordé.
+
+---
+
+# ADR-152 — Le droit décide, jamais le rôle ; la cohérence du dossier décide du reste
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « la Réception
+peut voir hospitalisation, sortie… si on donne le droit ! ne fixe pas en dur »)
+
+**Complète l'ADR-149** et confirme l'ADR-007 sur le module Hospitalisation.
+
+## Ce que la vérification a établi
+
+Aucun rôle n'est codé en dur dans le module : ni dans le contrôleur, ni dans les Actions,
+ni dans les FormRequests, ni dans le presenter. Chaque capacité servie à l'écran est un
+`$user->can(...)`, et chaque route porte sa permission.
+
+Un compte de Réception à qui l'on accorde `hospitalization.update`,
+`hospital_diet.record`, `diagnoses.create`, `consultations.create` et
+`medical_discharge.create` fait donc **exactement** ce que ces droits disent — chambre et
+lit, fiche de régime, diagnostic de sortie, visite de service et sortie médicale
+comprises. Un test le prouve en accordant ce socle au rôle `RECEPTION` et en exécutant les
+cinq gestes ; il échoue si quiconque code un rôle en dur à l'avenir.
+
+## Ce qui reste refusé, et pourquoi ce n'est pas une question de droit
+
+L'ADR-149 retire « Sortie médicale » de la conduite à tenir d'une consultation pendant un
+séjour. Ce filtrage était **la seule protection** — c'est-à-dire aucune : l'interface
+n'est jamais une garde (ADR-093, ADR-107). Prononcée depuis une consultation, la sortie
+créait une `MedicalDischarge` sans terminer le séjour, qui restait `ACTIVE` avec un
+passage médicalement sorti.
+
+`RecordMedicalDischargeAction` refuse désormais tant qu'un séjour est actif, avec le
+message qui dit où aller :
+
+> Ce patient est hospitalisé : sa sortie se prononce depuis la page du séjour, qui seule
+> termine le séjour et la prise en charge ensemble.
+
+Ce refus n'est pas une restriction de droit et ne regarde ni le rôle ni les permissions :
+il vaut pour un médecin comme pour un poste d'accueil à qui tout aurait été accordé.
+C'est une règle de cohérence du dossier, du même ordre que « un seul séjour actif par
+passage » (`active_key`) ou « une seule sortie médicale par passage » — deux refus qui
+existaient déjà juste au-dessus dans la même Action.
+
+`DischargeHospitalStayAction` n'est pas concernée : elle écrit sa `MedicalDischarge`
+directement et termine les deux ensemble. Le chemin légitime reste ouvert, exactement
+comme avant.
+
+## La règle, en une ligne
+
+```text
+qui peut faire quoi      les permissions, toujours, et elles seules
+ce qui reste impossible  ce qui laisserait le dossier incohérent, pour tout le monde
+```
+
+---
+
+# ADR-153 — Un droit refusé au compte se voit sur la case du socle
+
+**Status:** ACCEPTED (2026-09-20 — constat du propriétaire : « déjà coché
+`hospitalization.view`, enregistré le socle, mais rien ne s'affiche dans le compte
+Réception »)
+
+**Complète l'ADR-150**. Aucune règle de résolution des droits, aucune permission, aucune
+route, aucune migration.
+
+## Ce qui s'est réellement passé
+
+L'enregistrement du socle avait parfaitement fonctionné :
+
+```text
+socle RECEPTION            hospitalization.view  ✓ accordé
+compte user@rivo.test      hospitalization.view  ✗ DENY individuel
+```
+
+`DENY individuel > ALLOW individuel > socle du rôle` (ADR-033) : le refus nominatif
+l'emporte, et l'entrée de menu reste absente. Rien n'était cassé — mais rien, à l'écran,
+ne permettait de le comprendre. La case était cochée, le socle enregistré, et l'effet
+nul.
+
+Le piège tient à un détail de l'écran « Exceptions par compte » : il a **trois** états —
+*Selon le rôle* (aucune ligne), *Autorisé*, *Interdit*. « Interdit » n'est pas
+« retirer l'exception » : c'est un refus actif, qui bat le socle. Un nettoyage fait avec
+« Tout interdire » au lieu de « Revenir au socle du rôle » produit exactement ce
+résultat.
+
+## Le repère
+
+L'ADR-150 avait ajouté, en tête de l'éditeur, « N comptes de ce rôle portent des
+exceptions individuelles ». C'était vrai mais trop vague : cela ne disait pas **quel**
+droit, ni **pour qui**.
+
+Chaque case du socle porte désormais son propre repère quand des comptes du rôle la
+refusent :
+
+> ⚠ **Refusé à 1 compte** — *le cocher ici ne l'ouvrira pas pour lui.*
+
+Il est calculé dans le navigateur, à partir des comptes et de leurs exceptions que
+l'écran reçoit déjà (`users`, `permission_overrides`) : aucune requête, aucun champ
+nouveau au serveur. Le repère ne compte que les comptes **du rôle réglé** — un refus
+porté par un compte d'un autre rôle ne dit rien de celui-ci.
+
+C'est la même règle que partout dans ce dossier : ce qu'un écran tait se lit comme une
+absence d'effet, et fait conclure au défaut (ADR-102, ADR-103, ADR-149, ADR-150).
+
+## Ce que cela ne fait pas
+
+Le repère n'interdit rien et ne modifie aucune exception : régler le socle reste libre,
+et lever un refus nominatif se fait là où il a été posé — « Exceptions par compte »,
+en remettant le droit à **« Selon le rôle »**, jamais à « Autorisé », pour que le socle
+redevienne la source.
+
+---
+
+# ADR-154 — Un refus dit ce qui manque, et où le régler
+
+**Status:** ACCEPTED (2026-09-20 — signalement du propriétaire, après trois échanges sur
+le même 403)
+
+**Complète l'ADR-153**. Aucune permission, aucune route, aucune règle de résolution.
+
+## Le constat
+
+`403 · Cette action n'est pas autorisée.` Rien d'autre. Le droit était pourtant coché au
+socle du rôle : impossible, depuis cet écran, de comprendre que le compte portait un
+`DENY` nominatif qui l'emporte (ADR-033). Le refus était exact et se lisait comme un
+défaut de l'application — trois messages pour l'établir.
+
+## Le message
+
+`RequiredAbilities` lit les capacités que la **route réellement appariée** exige par son
+`can:` — jamais devinées d'après l'URL — et ne garde que celles qui manquent au compte.
+Deux messages, parce que les deux cas ne se règlent pas au même endroit :
+
+```text
+droit non accordé      « Il vous manque le droit « … » (nom). Il s'accorde dans
+                       Rôles & permissions : au socle du rôle, ou en exception. »
+refus nominatif        « Ce droit vous est refusé personnellement : … Le refus
+                       individuel l'emporte sur le socle du rôle, même coché. Il se
+                       lève dans Exceptions par compte, en remettant le droit sur
+                       « Selon le rôle ». »
+```
+
+Le second est tout l'intérêt : cocher la case du socle sur un droit refusé
+personnellement ne produit rien, et c'est exactement le piège rencontré.
+
+Nommer la permission n'expose rien. L'application le fait déjà partout — « Non visible
+avec vos droits (`maternity.view`) » (ADR-116, ADR-145) — et le destinataire est un
+professionnel authentifié de la clinique.
+
+## `map()`, et non `render()`
+
+Le handler convertit l'`AuthorizationException` en `HttpException` **avant** de consulter
+les callbacks de rendu : un `$exceptions->render(AuthorizationException …)` n'est donc
+jamais appelé, et l'a été silencieusement pendant la mise au point. `mapException()`
+s'exécute en premier (`Handler::render()`, première ligne) : c'est le seul point où
+l'exception est encore reconnaissable.
+
+## Portée
+
+Le message vaut pour **toutes** les routes gardées par `can:` — Pharmacie, Caisse,
+Laboratoire, portail — pas seulement l'Hospitalisation. Aucune autorisation n'est
+assouplie : ce qui était refusé l'est toujours, il est seulement dit pourquoi.
+
+---
+
+# ADR-155 — Une visite de service ouverte retient la sortie d'hospitalisation
+
+**Status:** ACCEPTED (2026-09-20 — signalement du propriétaire : « j'ai déjà
+prononcé la sortie, mais Visites de service reste toujours En cours »)
+
+**Complète l'ADR-148** (la visite de service) et **l'ADR-113** (la sortie
+termine le séjour). Aucune permission, aucune route, aucune migration.
+
+## Le constat
+
+Sur le séjour signalé, la sortie était prononcée à 21:28 et la visite de
+20:08 affichait toujours « En cours ». Ce n'était pas un défaut d'affichage :
+
+```text
+DischargeHospitalStayAction  termine l'orientation DU SÉJOUR
+la visite de service         orientation HOSPITALIZATION → MEDICINE, intacte
+```
+
+Une visite **est** une consultation (ADR-148), et seule sa clôture termine son
+orientation Médecine (ADR-084). Le passage gardait donc une orientation active,
+n'atteignait jamais `PENDING_SETTLEMENT`, et ne rejoignait pas « Sorties &
+règlements » — le trou que l'ADR-114 et l'ADR-135 ont déjà bouché ailleurs.
+
+## La règle : on refuse, on ne clôture pas à la place
+
+`DischargeHospitalStayAction` refuse tant qu'une visite est ouverte, et nomme
+la suite : clôturez-la — conduite à tenir « Poursuite de l'hospitalisation »
+(ADR-149) — puis prononcez la sortie. L'écran le dit **avant** le clic et
+propose « Clôturer la visite en cours » ; le serveur refuse de toute façon,
+l'interface n'est jamais la seule garde.
+
+Clôturer la visite d'office aurait été plus court et faux : la clôture exige un
+diagnostic et une conduite à tenir transmise (ADR-084), et l'ADR-076 interdit
+de résoudre une consultation « en effet de bord d'un enregistrement ». Une
+rencontre se conclut par son médecin, pas par un bouton d'un autre écran.
+
+C'est le même genre de garde que l'ADR-152 : une règle de **cohérence du
+dossier**, pas un droit — elle vaut pour un médecin comme pour un compte à qui
+tout a été accordé.
+
+## Le chemin de sortie pour les séjours déjà bloqués
+
+Une visite laissée ouverte par une sortie déjà prononcée ne pouvait plus se
+clôturer : le patient n'étant plus hospitalisé, « Poursuite de
+l'hospitalisation » n'est plus proposée, et « Sortie médicale » restait
+`SELECTED` — `attachPronouncedDischarge` ne lisait la sortie que sur **sa**
+consultation, alors qu'une sortie prononcée depuis le séjour porte
+`consultation_id` de la consultation qui a demandé l'hospitalisation (ADR-113).
+Impasse complète : ni transmettre, ni clôturer.
+
+La sortie se lit donc désormais sur le **passage**. Rien n'est fabriqué : un
+passage n'a qu'une sortie médicale, et l'orientation est rattachée au fait déjà
+enregistré — exactement ce que l'ADR-107 avait posé pour le même cul-de-sac.
+
+## Ce qui ne change pas
+
+La sortie reste prononcée depuis la page du séjour, qui seule termine séjour et
+prise en charge ensemble (ADR-113, ADR-152). Une visite reste une consultation
+ordinaire, avec ses obstacles de clôture inchangés.
+
+---
+
+# ADR-156 — Une seule sortie médicale, prononcée dans la consultation
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « nous
+devons avoir une seule sortie […] on n'a pas besoin d'onglet sortie dans la
+page du module Hospitalisation »)
+
+**Renverse l'ADR-149** (« Sortie médicale » retirée de la conduite à tenir d'un
+patient hospitalisé) et **l'ADR-152** (le serveur refusait une sortie prononcée
+depuis une consultation tant que le séjour tournait). **Retire** le formulaire
+de sortie du séjour ajouté par l'ADR-113, et avec lui la garde de l'ADR-155.
+Ces divergences sont signalées, jamais masquées (ADR-020).
+
+## Pourquoi ces décisions tombent
+
+L'invariant qu'elles protégeaient était juste : **jamais un passage
+médicalement sorti dont le lit reste occupé**. La réponse était mauvaise — un
+**second formulaire de sortie**, sur un autre écran que celui où le médecin
+travaille. Trois défauts en ont découlé, tous constatés par le propriétaire :
+
+```text
+deux endroits pour un seul acte   la consultation refusait, le séjour imposait
+visite « En cours » après sortie  la sortie du séjour ne terminait pas la visite
+cul-de-sac à la clôture           « indiquez la suite » avec la sortie affichée
+                                  juste en dessous, déjà prononcée et datée
+```
+
+## La règle
+
+Il n'y a qu'une sortie médicale, et le médecin la prononce **là où il
+travaille** : dans sa consultation, à « Décision & clôture », conduite à tenir
+« Sortie médicale » — hospitalisé ou non. `RecordMedicalDischargeAction`
+**termine le séjour dans la même transaction** (statut, date, auteur,
+`active_key` libérée, orientation du séjour complétée) au lieu de refuser.
+L'invariant est donc tenu par construction, et non par un renvoi vers un autre
+écran.
+
+```text
+visite de service   examen, ordonnance, analyses
+                    → « Poursuite de l'hospitalisation » : le patient reste
+                    → « Sortie médicale » : le séjour se termine avec elle
+clôture             termine la rencontre et porte le statut médical (ADR-084)
+Réception           la sortie administrative, à /reception/sorties (ADR-090)
+```
+
+`orientationApplies()` ne retire plus qu'**une** destination à un patient
+hospitalisé : « Hospitalisation », qui ouvrirait un second séjour sur le même
+passage.
+
+## Ce qui est retiré
+
+```text
+DischargeHospitalStayAction, DischargeHospitalStayRequest
+HospitalizationController::discharge(), POST /hospitalisation/{stay}/sortie
+le formulaire de sortie de Hospitalization/Show.vue
+la garde ADR-155 (« une visite ouverte retient la sortie ») — sans objet :
+    la sortie EST prononcée dans la visite
+```
+
+La page du séjour garde ce qui lui appartient : le dossier, la fiche de régime,
+les visites, les diagnostics du séjour (ADR-147, désormais leur propre carte) et
+la sortie **en lecture** une fois prononcée. Elle dit où se prononce la sortie et
+mène à la visite plutôt que d'en proposer une seconde saisie.
+
+## La consultation qui a demandé l'hospitalisation ne sort pas le patient
+
+Sa conduite à tenir est « Hospitalisation », déjà transmise, et l'ADR-084 refuse
+de la retirer dès que le service a pris la demande. Le message le dit. La sortie
+se prononce donc dans une **visite de service** — ce qui est exact : ce n'est pas
+la même rencontre.
+
+## Le module liste les hospitalisés ; les sorties sont centralisées
+
+L'onglet « Sortis » de `/hospitalisation` était une **seconde liste des
+sorties**, pour des séjours que plus personne n'a à traiter : les sorties se
+suivent à la Réception (« Sorties & règlements », ADR-090). Il est retiré ; la
+page ne compte plus que les patients réellement au lit. Une **recherche nommée**
+y retrouve toujours un séjour terminé — sa fiche de régime et son dossier
+restent consultables.
+
+Retirer la liste sans la remplacer aurait fait **perdre** ces séjours. Chaque
+ligne de « Sorties & règlements » porte donc désormais le passage par un lit :
+pastille « Hospitalisé » / « Hospitalisation », service et chambre, et le lien
+vers le séjour. Le **fait** est du parcours, de même nature qu'une orientation,
+et suit donc la file (ADR-117) ; le **lien** n'est proposé qu'avec
+`hospitalization.view` — un lien qui mène à un refus vaut moins qu'une absence
+de lien (ADR-146).
+
+## Sorti du lit, pas encore clôturé : visible, et la raison avec
+
+Un passage dont le séjour est terminé mais dont la visite reste ouverte n'est
+pas réglable — un service a encore le patient (ADR-054, ADR-084). Il n'avait
+pourtant sa place nulle part : absent d'« À régler », absent d'Hospitalisation
+depuis que ce module ne liste que les lits occupés. Perdu de vue, donc.
+
+« Sorties & règlements » reçoit une troisième vue, **« Sortie médicale
+prononcée · Service pas encore clôturé »** : ces passages s'y affichent, en
+lecture seule, avec « En attente de clôture par le service » et le lien vers le
+passage. Aucune règle n'est assouplie — ils ne deviennent réglables qu'à la
+clôture, et rejoignent alors « À régler » d'eux-mêmes.
+
+## Une sortie prononcée n'est pas redemandée
+
+« Conduite à tenir : indiquez la suite de la prise en charge » s'affichait
+au-dessus d'une sortie datée et signée, et le bouton « Clôturer » restait gris.
+L'obstacle était formellement vrai — aucune conduite à tenir enregistrée — mais
+il faisait **ressaisir un fait déjà consigné**, ce que ce dossier refuse partout
+ailleurs (§17, ADR-084).
+
+Une sortie prononcée sur le passage **est** la conduite à tenir de la rencontre,
+exactement comme `attachPronouncedDischarge` le pose déjà à la sélection
+(ADR-107). `CompleteConsultationAction` la rattache donc elle-même à la clôture
+— `DISCHARGE` (ou `REFERRAL` pour un transfert), `SUBMITTED`, liée à la sortie
+réelle — et l'obstacle disparaît. Rien n'est fabriqué : un passage n'a qu'une
+sortie médicale, et aucune autre destination ne peut conclure un passage déjà
+médicalement sorti. Les étapes du parcours, elles, restent à résoudre comme
+d'habitude (ADR-076).
+
+## Dossiers hérités
+
+Une visite laissée ouverte par une sortie prononcée sous l'ancien mécanisme se
+conclut désormais : `attachPronouncedDischarge` lit la sortie sur le **passage**
+et non sur la seule consultation (ADR-155, conservée sur ce point). Aucune
+donnée n'est réécrite.

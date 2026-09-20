@@ -16,6 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * ADR-072 — configures the material usually consumed by a nursing act.
+ * ADR-142 — same for a Maternity act, with any stockable Pharmacy product.
  *
  * Catalogue configuration, so it requires `catalog.items.update` (ADR-024)
  * and is audited. It never touches stock, price, or any declaration already
@@ -35,27 +36,43 @@ class SyncCareActConsumablesAction
         return DB::transaction(function () use ($item, $lines, $actor): CatalogItem {
             $item = CatalogItem::query()->lockForUpdate()->findOrFail($item->getKey());
 
-            if ($item->type !== CatalogItemType::Service || $item->module !== CatalogModule::Care) {
+            $isMaternity = $item->module === CatalogModule::Maternity;
+
+            if ($item->type !== CatalogItemType::Service || ! ($isMaternity || $item->module === CatalogModule::Care)) {
                 throw ValidationException::withMessages([
-                    'catalog_item' => 'Seul un acte de soins peut recevoir du matériel habituel.',
+                    'catalog_item' => 'Seul un acte de soins ou de la Maternité peut recevoir du matériel habituel.',
                 ]);
             }
 
             $submitted = collect($lines)->keyBy('medicine_uuid');
-            $medicines = Medicine::query()
+            // Les Soins ne reçoivent que de la parapharmacie. La Maternité pose de
+            // vrais produits (DIU, implant, injectable) : tout produit actif et
+            // stockable de la Pharmacie peut être configuré pour un de ses actes —
+            // c'est cette décision d'administration qui les rend déclarables
+            // (ADR-142), jamais un choix libre de la sage-femme.
+            $medicines = ($isMaternity
+                ? Medicine::query()
+                    ->where('active', true)
+                    ->whereHas('catalogItem', fn ($query) => $query
+                        ->where('type', CatalogItemType::Medicine->value)
+                        ->where('module', CatalogModule::Pharmacy->value)
+                        ->where('stockable', true))
+                : Medicine::query()
+                    ->where('active', true)
+                    ->where('form', MedicineForm::ParapharmacyConsumable->value)
+                    ->whereHas('catalogItem', fn ($query) => $query
+                        ->where('type', CatalogItemType::Medicine->value)
+                        ->where('module', CatalogModule::Pharmacy->value)
+                        ->where('stockable', true)))
                 ->whereIn('uuid', $submitted->keys())
-                ->where('active', true)
-                ->where('form', MedicineForm::ParapharmacyConsumable->value)
-                ->whereHas('catalogItem', fn ($query) => $query
-                    ->where('type', CatalogItemType::Medicine->value)
-                    ->where('module', CatalogModule::Pharmacy->value)
-                    ->where('stockable', true))
                 ->get()
                 ->keyBy('uuid');
 
             if ($medicines->count() !== $submitted->count()) {
                 throw ValidationException::withMessages([
-                    'consumables' => 'Seuls les consommables de parapharmacie actifs peuvent être associés à un acte de soins.',
+                    'consumables' => $isMaternity
+                        ? 'Seuls les produits actifs et stockables de la Pharmacie peuvent être associés à un acte de la Maternité.'
+                        : 'Seuls les consommables de parapharmacie actifs peuvent être associés à un acte de soins.',
                 ]);
             }
 

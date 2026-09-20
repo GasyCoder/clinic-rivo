@@ -1,5 +1,9 @@
 <?php
 
+use App\Support\RequiredAbilities;
+use Illuminate\Auth\Access\AuthorizationException;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+
 use App\Http\Middleware\AuthenticateRivoSiteApi;
 use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\EnsureApiIdempotency;
@@ -30,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->convertEmptyStringsToNull(except: [
             fn (Request $request) => $request->is('care/orientations/*/draft'),
             fn (Request $request) => $request->is('medicine/orientations/*/draft'),
+            fn (Request $request) => $request->is('maternity/orientations/*/draft'),
         ]);
 
         $middleware->alias([
@@ -43,6 +48,32 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo('/login');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // ADR-154 — un refus doit dire ce qui manque.
         //
+        // « Cette action n'est pas autorisée. » ne permettait pas de savoir
+        // quel droit accorder, ni où : un droit coché au socle du rôle mais
+        // refusé nominativement sur le compte (DENY > socle, ADR-033) se
+        // lisait comme un défaut de l'application.
+        //
+        // `map()` et non `render()` : le handler convertit l'AuthorizationException
+        // en HttpException **avant** de consulter les callbacks de rendu, qui
+        // ne la voient donc jamais. `mapException()` s'exécute en premier.
+        $exceptions->map(function (AuthorizationException $exception) {
+            $request = request();
+            $user = $request->user();
+            $abilities = RequiredAbilities::forRoute($request->route());
+
+            if (! $user || $abilities === []) {
+                return $exception;
+            }
+
+            $missing = array_values(array_filter($abilities, fn (string $ability) => $user->cannot($ability)));
+
+            if ($missing === []) {
+                return $exception;
+            }
+
+            return new AccessDeniedHttpException(RequiredAbilities::explain($user, $missing), $exception);
+        });
     })
     ->create();

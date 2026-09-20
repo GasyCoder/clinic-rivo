@@ -329,6 +329,7 @@ class PermissionSeeder extends Seeder
         // dérogation : elle relève d'episodes.administrative_exit.
         'debts.view' => 'Voir les créances patients',
         'debts.authorize' => 'Autoriser une sortie avec dette validée',
+        'debts.record_escape' => 'Enregistrer une sortie évadé',
         'cash.view' => 'Voir la caisse',
         'cash.open' => 'Ouvrir la caisse',
         'cash.close' => 'Clôturer la caisse',
@@ -357,14 +358,14 @@ class PermissionSeeder extends Seeder
         // possède désormais son workflow séparé décrit par ADR-048.
         'medical_record.view' => 'Voir le dossier médical du passage',
         'consultations.view' => 'Voir les consultations',
-        'consultations.create' => 'Créer une consultation',
+        'consultations.create' => 'Ouvrir une consultation : prendre un patient en charge (file Médecine) ou ouvrir une visite de service (hospitalisation)',
         'consultations.update' => 'Modifier une consultation',
         'consultations.reopen' => 'Rouvrir une consultation clôturée pour la compléter',
         'consultations.delete' => 'Supprimer une consultation',
         'consultations.restore' => 'Restaurer une consultation',
 
         'diagnoses.view' => 'Voir les diagnostics',
-        'diagnoses.create' => 'Créer un diagnostic',
+        'diagnoses.create' => 'Poser un diagnostic (consultation, et sortie d’hospitalisation)',
         'diagnoses.update' => 'Modifier un diagnostic',
         'diagnostic_catalog.view' => 'Voir le référentiel central des diagnostics',
         'diagnostic_catalog.manage' => 'Créer, modifier, activer et désactiver les diagnostics du référentiel',
@@ -380,7 +381,7 @@ class PermissionSeeder extends Seeder
         'prescriptions.create' => 'Créer une prescription',
         'prescriptions.update' => 'Modifier une prescription',
         'prescriptions.cancel' => 'Annuler une prescription',
-        'medical_discharge.create' => 'Prononcer une sortie médicale',
+        'medical_discharge.create' => 'Prononcer une sortie médicale (consultation, sortie d’hospitalisation, pédiatrie)',
         'death_records.view' => 'Consulter le registre des décès',
         'death_records.create' => 'Établir un acte de constatation de décès',
         'clinical_protocols.view' => 'Consulter les protocoles thérapeutiques',
@@ -470,6 +471,13 @@ class PermissionSeeder extends Seeder
         'maternity.delivery.manage' => 'Renseigner l’accouchement ou demander une césarienne',
         'maternity.newborn.manage' => 'Renseigner les nouveau-nés et leurs soins',
         'maternity.procedures.manage' => 'Enregistrer les actes du catalogue Maternité',
+        // ADR-146 (amendement) — le nouveau-né vit dans le dossier de sa mère bien avant d'être
+        // patient. Le lire n'est donc pas « travailler en Maternité » : la Réception l'accueille,
+        // Médecine le soigne, et `maternity.view` — réservée au profil sage-femme — leur fermait
+        // l'accès. Ces trois droits nomment les trois gestes réels, identité et clinique séparées.
+        'newborns.view' => 'Voir les nouveau-nés d’une mère : nom, rang, sexe et date de naissance',
+        'newborns.medical_record.view' => 'Ouvrir le dossier médical d’un nouveau-né : naissance, poids, Apgar, état et soins',
+        'newborns.patient.create' => 'Ouvrir le dossier patient d’un nouveau-né à l’accueil',
         'transfer.request' => 'Demander un transfert/référence depuis Médecine',
         'pediatrics.request' => 'Demander une orientation Pédiatrie depuis Médecine',
 

@@ -94,6 +94,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Paiements partiels
 - [x] Sorties & règlements : file des passages en attente de règlement, contrôle du compte (§33.2) et sortie administrative payé comptant / dette validée / évadé (ADR-090)
 - [x] Créance immuable créée par une sortie non soldée, jamais effacée par une évasion
+- [x] Sortie refusée tant qu'une prestation n'est portée sur aucune facture (tous types), avec « Facturer ces prestations » dans la fenêtre : plus aucun montant ne se perd à la sortie (ADR-090, amendement du 2026-09-20)
+- [x] Sélection multiple sur « Sorties & règlements » : sortie « payé comptant » en lot (comptes soldés), facturation en lot, fiches de sortie groupées (un PDF, une fiche par page) et export Excel de la sélection ; chaque passage jugé séparément, rapport des refus (ADR-090, amendement du 2026-09-20 ter)
 - [x] Cartes compteur sur « Sorties & règlements » : passages à régler, sorties prononcées, sorties avec dette et reste à payer — ce dernier réservé à `billing.view`
 - [x] Fiche de sortie imprimable après la sortie administrative, distinguant sortie médicale et sortie administrative (le papier les confondait), avec QR pour le contrôle de gardiennage (ADR-116)
 - [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
@@ -116,6 +118,46 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Constantes
 - [ ] Soins
 - [x] Fiche de soins NURSE par passage (constantes, IMC, actes et transmission)
+- [x] Soins réunit Infirmière, Maternité et Anesthésie : une entrée mère dans le menu et une barre d'onglets sur chacune des trois pages, chaque onglet gardant son adresse et sa permission (ADR-134)
+- [x] File Maternité en quatre vues exclusives — À prendre / En cours / Orientées vers Médecine / Terminées — comptes du serveur, badges de suivi (médecin, césarienne) sur chaque ligne (ADR-135)
+- [x] Fin de prise en charge Maternité à deux issues (terminer, ou terminer et orienter vers Médecine avec message) ; un passage sans service restant passe en attente de règlement, comme après les Soins (ADR-135)
+- [x] File Anesthésie en quatre étapes exclusives — À évaluer / Transmis à Chirurgie / Au bloc / Terminés — lues sur les faits existants de la demande chirurgicale, demandes annulées masquées (ADR-135)
+- [x] En-tête partagé des trois espaces Soins (`SoinsWorkspaceHeader`), tableaux et états vides en shadcn-vue (ADR-135)
+- [x] Liste d'actes Maternité de la clinique rapprochée du catalogue : Utilisation Aspirateur bébé, IEC et Nursie ajoutés, Syana Press / Dépôt Provera déplacé du Planning familial, Doppler et Photothérapie renommés (ADR-136)
+- [x] Dossier Maternité adapté à l'acte demandé à la Réception : sections attendues signalées et ouvertes d'office, deux fiches de nouveau-né vides pour un accouchement gémellaire, rien n'est verrouillé ni ajouté comme champ (ADR-136)
+- [x] Actes demandés à la Réception enregistrables en un clic ; choix des actes en boutons ; « Autres » exige sa précision (ADR-136)
+- [x] Acte Maternité corrigeable (quantité, précision) ou retirable (crayon, corbeille) par le personnel, sauf l'acte d'un médecin qui reste intact ; retrait tracé, l'acte quitte la liste (ADR-140)
+- [x] Acte Maternité enregistré facturé au tarif serveur, rattaché à la facturation de la Réception quand elle existe déjà ; retirer ou changer la quantité défacture ce que la Maternité avait porté, jamais une facture (ADR-141)
+- [x] État de facturation de chaque acte affiché sans montant — « À la Caisse », « Sur facture », « Non facturé — à régulariser » (ADR-141, ADR-103)
+- [x] Matériel utilisé en Maternité transmis à la Pharmacie par le circuit des consommables Soins, dans le même geste que les actes, avec matériel habituel suggéré et origine Soins/Maternité dans la file (ADR-142)
+- [x] Matériel habituel configurable pour les actes Maternité avec tout produit stockable (DIU, implant, injectable), les Soins restant limités à la parapharmacie (ADR-142)
+- [ ] Créer en Pharmacie DIU / implant / Sayana Press, les prix de vente, et les associer aux actes Maternité — configuration de la clinique (ADR-142)
+- [x] Dossier médical : la Maternité en est une section (grossesse, prénatal, travail, accouchement, actes) et chaque bébé y a son bloc, gardée par `maternity.view` ; un dossier, pas deux (ADR-143)
+- [x] Le bébé devient un patient relié à sa mère par un geste explicite : numéro dérivé (A-26-0009-B1), naissance jamais devinée, jumeaux acceptés, geste idempotent, aucun passage ouvert, soins du bébé sur le compte de la mère (ADR-144)
+- [x] Lien mère–bébé lu dans les deux sens (dossier Maternité, dossier patient, dossier médical) sans rien de clinique de la mère chez le bébé ; retirer la fiche d'un bébé relié est refusé (ADR-144)
+- [x] Dossier médical lisible par patient, sans passage (`/patients/{patient}/dossier-medical`) : le modèle papier existe enfin pour un bébé, avec un bloc « Naissance » et rien de clinique de la mère (ADR-145)
+- [x] Onglets Mère · Bébé 1 · Bébé 2 sur le dossier médical, et un seul composant `NewbornDossiers` (Maternité, détail du passage) au lieu de trois blocs écrits à la main, hors du formulaire verrouillé (ADR-145)
+- [x] Sexe du bébé choisi dans la fenêtre de création quand la fiche ne le porte pas, puis écrit dans la fiche (ADR-145)
+- [x] Le bébé vit dans le dossier de sa mère et ne devient patient qu'à l'accueil : la Réception demande « accouchement chez nous ou ailleurs ? », cherche la mère, choisit le bébé dans son arborescence (ADR-146)
+- [x] Nom et prénom du bébé saisis dans sa fiche Maternité (facultatifs) ; un bébé non prénommé se dit « Bébé 2 de RAKOTO », jamais un prénom inventé (ADR-146)
+- [x] Dossier médical d'un bébé lisible dès sa fiche, avant tout dossier patient (`/passages/{episode}/nouveau-nes/{uuid}/dossier-medical`), qui redirige vers son dossier patient dès qu'il en a un (ADR-146)
+- [x] Geste de création retiré de la Maternité : la sage-femme consigne le bébé, l'accueil ouvre son dossier patient (ADR-146)
+- [x] Dossiers de bébés ouverts par l'ancien geste et jamais utilisés rendus à la fiche de leur mère, nom compris, numéro libéré ; ceux qui ont servi restent patients (ADR-146, amendement du 2026-09-20)
+- [x] Ligne « Nouveau-né de RAKOTO Vola » dans le répertoire, qui mène au dossier de la mère : un bébé accueilli reste un patient qu'on cherche par son nom (ADR-146)
+- [x] Carte « Nouveau-nés nés à la clinique » dans le dossier de la mère, lue sur les fiches : un bébé y figure dès l'accouchement, avant tout dossier patient (ADR-146, amendement du 2026-09-20 bis)
+- [x] Repère « 1 bébé né ici » sur la ligne d'une mère dans le répertoire, ce que la Réception cherche à chaque arrivée d'un nouveau-né (ADR-146)
+- [x] Droits propres au nouveau-né — `newborns.view`, `newborns.medical_record.view`, `newborns.patient.create` — à la place de `maternity.view`, que ni la Réception ni Médecine ne détiennent (ADR-146, amendement du 2026-09-20 ter)
+- [x] Catégorie « Nouveau-nés » dans « Rôles & permissions » : le droit d'ouvrir le dossier d'un bébé se coche depuis le portail, il n'est pas accordé d'office à la Réception (ADR-064)
+- [x] Dossier médical d'un bébé composé comme une feuille de nouveau-né — identité, mère à joindre, naissance et accouchement, état à la naissance — sans situation maritale, profession, adresse, tabac ni antécédents d'adulte (ADR-145, amendement du 2026-09-20)
+- [ ] Validation par les sages-femmes du partage mère / bébé des données d'accouchement (mode, terme, complications côté bébé ; gestité, travail, délivrance côté mère) — le CDC ne décrit aucun dossier de nouveau-né (ADR-145)
+- [ ] Bébé de sexe indéterminé comme patient, correction d'un lien créé par erreur, facturation propre au bébé pour ses futurs passages — règles non définies par le CDC (ADR-144)
+- [x] Soins bébé notés par nouveau-né (jumeaux : chacun ses soins), soins mère uniques ; ancienne note commune conservée si elle existe (ADR-139)
+- [x] Actes Maternité enregistrés dans un panier : ajout d'un clic, quantité et précision par ligne, enregistrement de tout le panier d'un geste (tout ou rien), actes demandés ajoutables en bloc (ADR-138)
+- [x] Saisie du dossier Maternité conservée côté serveur par compte, restaurée après une actualisation (ADR-136, comme ADR-073)
+- [x] Repères sous les champs du dossier Maternité : poids de naissance (unité, conversion kg, faible/élevé), Apgar, terme, hauteur utérine, rythme fœtal, parité, dates ; terme estimé et âge de la grossesse proposés depuis les dernières règles, jamais appliqués d'office (ADR-137)
+- [ ] Validation des seuils Maternité par une sage-femme ou un médecin de la clinique (ADR-137)
+- [ ] Champs cliniques propres à chaque acte Maternité — à fournir par les sages-femmes, rien n'est inventé (ADR-136)
+- [ ] Facturation d'un acte ajouté en Maternité au-delà de la demande de la Réception — règle à définir (ADR-136)
 - [x] Référentiel initial des actes infirmiers fourni par le client, sans tarifs inventés
 - [x] Projection partagée des constantes et alertes (CareRecordReadModel) entre Soins, Médecine et Chirurgie/Anesthésie
 - [x] Antécédents patient exposés via un point d'entrée générique, consultables et ajoutables depuis Médecine
@@ -128,6 +170,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Étape « Sortie — à prononcer par la Réception » quand le passage n'attend plus que son règlement : la réponse à « pourquoi ce passage est-il encore ouvert ? »
 - [x] L'ordonnance du prescripteur figure au parcours (« Pharmacie · Ordonnance ») avec son issue — transmise, délivrée, annulée — sans révéler l'état de règlement de la Pharmacie ; une ordonnance hors référentiel s'annonce comme telle ; facture et encaissement d'un ticket Pharmacie portent la mention « Ticket Pharmacie » (ADR-117)
 - [x] Dossier médical imprimable, reprenant identité, constantes, allergies, antécédents familiaux, hospitalisation et diagnostic déjà consignés — rien n'est ressaisi, les sections sensibles restent gardées par leur permission (ADR-116)
+- [x] Fuite corrigée : le diagnostic, les traitements et le motif d'hospitalisation de la feuille imprimée sont gardés par `diagnoses.view`, `medical_record.view` et `hospitalization.view` — la Réception les lisait avec `patients.view` seul (ADR-116, amendement du 2026-09-20)
 - [x] Journal de traitement (« Dossier médical – Traitement ») : chronologie automatique lue depuis ce qui est déjà enregistré, complétée de lignes manuelles append-only pour ce que l'application ne sait pas encore (ADR-116)
 - [x] Tous les journaux de traitement d'un patient réunis en un seul document (couverture puis une feuille par passage, une page chacune), lisible à l'écran et enregistrable en un seul PDF par l'impression du navigateur, sous un nom de fichier explicite (ADR-118)
 - [x] Bouton « Journaux de traitement » dans l'en-tête du dossier patient, sur l'onglet Passages (avec « Journal » par passage) et dans la fenêtre d'un patient de la file Soins, réservé à `treatment_journal.view` (ADR-118)
@@ -187,6 +230,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Diagnostic conclu dans l'Examen clinique quand il peut l'être ; « Pas maintenant » diffère sans rien bloquer (ADR-080)
 - [x] Étape Diagnostic retirée de l'assistant (six étapes) : correction et annulation dans l'examen, historique complet — annulés compris — dans « Contexte clinique » (ADR-081)
 - [x] Clôture vérifiant directement l'existence d'un diagnostic actif, au lieu de l'état d'un écran
+- [x] Diagnostic déjà posé à l'examen rappelé à la clôture (« rien à ressaisir ») ; retirer le dernier diagnostic d'une vraie consultation prévient que la clôture en dépend — l'exigence du CDC §33.1 est maintenue (ADR-081, amendement du 2026-09-20)
 - [x] Diagnostic final facultatif pour un passage venu seulement pour un examen (ECG, écho, analyse) : la conclusion de l'examen en tient lieu, et le résultat n'est souvent pas revenu à la clôture (ADR-094)
 - [x] « Le diagnostic peut-il être posé maintenant ? » posée à Décision & clôture, seule étape que tout patient atteint ; un report est nommé comme tel dans les blocages au lieu de passer pour un oubli (ADR-095)
 - [x] « Oui » sans diagnostic ouvre la saisie au lieu d'échouer : le refus serveur renvoyait à un champ que « Pas maintenant » gardait replié (ADR-095)
@@ -214,7 +258,24 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Demandes d'hospitalisation et de référence/transfert avec leur table, leur statut et leur document imprimable
 - [x] Module Hospitalisation (ADR-113) : admission automatique à la demande du médecin, séjour, chambre/lit en texte libre, sortie par la sortie médicale
 - [x] Fiche de régime par séjour : grille jour/heure en texte libre, remplie par Médecine et Soins, en-tête repris du dossier, imprimable au format papier, sans facturation
-- [ ] Gestion des lits, visites de service, forfait journalier — aucune règle définie (ADR-113)
+- [x] Sortie d'hospitalisation alimentée par les diagnostics déjà consignés (passage et séjour), cochés d'office : la sortie était impossible, le formulaire n'en recevait aucun (ADR-147)
+- [x] Diagnostic conclu au terme du séjour enregistré sur le séjour (`hospital_stay_diagnoses`), append-only : la consultation qui a demandé l'hospitalisation est close et n'est jamais réécrite (ADR-147, ADR-076)
+- [x] Réception en lecture sur l'Hospitalisation (`hospitalization.view`) : détail, dossier et impression de la fiche ; sortie, séjour, régime, demande et diagnostic restent refusés (ADR-147)
+- [ ] Annulation tracée d'un diagnostic de sortie, et reprise de ces diagnostics par les propositions de l'ADR-111 — à décider (ADR-147)
+- [x] Visite de service : chaque visite ouvre une vraie consultation rattachée au séjour (diagnostic, ordonnance, analyses, imagerie, ordre de soins), sans dupliquer un seul circuit ; le patient n'entre jamais dans la file d'attente et reste hospitalisé (ADR-148)
+- [x] Bloc de sortie regroupé en trois sections encadrées — Décision / Conclusion médicale / Consignes — au lieu d'une colonne étalée dont la moitié restait vide (ADR-148, ADR-099)
+- [x] Conduite à tenir « Poursuite de l'hospitalisation » : une visite de service se clôture enfin — « Sortie médicale » et « Hospitalisation » sont retirées pour un patient au lit (second séjour, sortie sans fin de séjour), et l'écran dit où la sortie se prononce (ADR-149)
+- [x] Repère « Hospitalisé · chambre » dans l'en-tête de la consultation et dans la carte de conduite à tenir (ADR-149)
+- [x] Aucun rôle codé en dur sur l'Hospitalisation : un compte de Réception à qui l'on accorde les droits fait tout ce qu'ils permettent — séjour, régime, diagnostic, visite et sortie ; un test le prouve et interdit toute régression (ADR-152)
+- [x] Sortie médicale refusée **côté serveur** depuis une consultation tant qu'un séjour est actif : l'écran le retirait déjà, mais l'interface n'est jamais la seule garde — règle de cohérence, jamais de droit (ADR-152)
+- [x] Une sortie déjà prononcée n'est plus redemandée : la clôture la rattache comme conduite à tenir (DISCHARGE/SUBMITTED), le bouton « Clôturer » ne reste plus gris au-dessus d'un fait daté et signé (ADR-156, ADR-107)
+- [x] Vue « Sortie médicale prononcée · service pas encore clôturé » à la Réception : un passage sorti du lit mais dont la consultation reste ouverte n'était visible nulle part (ADR-156)
+- [x] Toutes les sorties se suivent à « Sorties & règlements » : chaque ligne dit si le passage est passé par un lit (service, chambre, lien vers le séjour avec `hospitalization.view`) — retirer la liste des séjours terminés sans la remplacer les aurait perdus (ADR-156)
+- [x] `/hospitalisation` ne liste plus que les patients au lit : l'onglet « Sortis » doublait « Sorties & règlements » ; une recherche nommée retrouve un séjour terminé (ADR-156)
+- [x] Une seule sortie médicale, prononcée dans la consultation (« Décision & clôture » › Sortie médicale) : elle termine le séjour dans la même transaction, et le second formulaire du module Hospitalisation est retiré (ADR-156, renverse ADR-149/152)
+- [x] ~~Une visite de service ouverte retient la sortie d'hospitalisation~~ — sans objet (ADR-156) : la sortie est prononcée dans la visite : elle restait « En cours » après la sortie, gardait une orientation Médecine active et empêchait le passage d'atteindre « Sorties & règlements » (ADR-155)
+- [x] Une visite laissée ouverte par une sortie déjà prononcée se clôture enfin : la sortie se lit sur le passage, plus seulement sur sa consultation (ADR-155, ADR-107)
+- [ ] Gestion des lits, tour de salle en lot, prescription permanente reconduite, forfait journalier — aucune règle définie (ADR-113, ADR-148)
 - [x] Module Pédiatrie simple (ADR-114) : file, prise en charge, sortie médicale rattachée à la consultation d'origine
 - [ ] Fiche pédiatrique — aucune fournie par la clinique, rien n'est inventé (ADR-114)
 - [x] Conduite à tenir vers un module transmise en un clic (Maternité, Pédiatrie, Transfert) ; Chirurgie : intervention choisie, diagnostic/hypothèse généré du dossier (ADR-114)
@@ -493,6 +554,11 @@ admin.rivo.mg
 - [x] Usage réel de chaque permission calculé depuis le code (`PermissionUsageScanner`) : « vérifiée par l'application » ou « pas encore vérifiée », jamais une liste tenue à la main
 - [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte
 - [x] Choix du rôle et du compte en fenêtre cherchable, colonne de gauche rendue aux catégories et filtre propre au rail (ADR-101)
+- [x] Les droits qui agissent dans plusieurs modules le disent dans leur libellé et leur catégorie : chercher « hospitalisation » trouve enfin `medical_discharge.create`, qui gouverne « Prononcer la sortie » d'un séjour (ADR-151)
+- [x] Un 403 nomme le droit manquant et où l'accorder ; s'il s'agit d'un refus nominatif, il le dit et renvoie vers « Exceptions par compte » — vaut pour toutes les routes gardées par `can:` (ADR-154)
+- [x] Chaque case du socle porte « Refusé à N comptes » quand des comptes du rôle la refusent individuellement : cocher un droit sans effet visible ne se lit plus comme un défaut (ADR-153, ADR-033)
+- [x] L'éditeur de socle signale les comptes du rôle qui portent des exceptions individuelles : un socle à zéro ne se lit plus « personne n'y a accès » alors qu'un ALLOW nominatif l'emporte (ADR-150, ADR-033)
+- [x] Rail des catégories de permissions refondu (shadcn) : hauteur qui suit l'écran, lignes plus grandes, domaines repliables, navigation au clavier, largeur 30 % par défaut (ADR-101, amendement du 2026-09-20)
 - [x] Écran « Rôles & permissions » à quatre sections annoncées par portée (socle du rôle / exception d'un compte / rôles du site / catalogue), avec compteurs et phrase de portée avant le clic
 - [x] Référentiel des rôles administrable depuis le portail (ADR-100) : créer, renommer, archiver avec motif (refusé si des comptes le portent) et restaurer, par site via l'API — le code d'un rôle reste son identité et ne change jamais
 - [x] Écrans « Utilisateurs » et « Rôles & permissions » séparés (ADR-100) : les comptes d'un côté, le socle des rôles et les exceptions individuelles de l'autre, sans changer la résolution DENY > ALLOW > socle

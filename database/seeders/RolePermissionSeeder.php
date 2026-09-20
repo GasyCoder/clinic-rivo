@@ -34,7 +34,7 @@ class RolePermissionSeeder extends Seeder
             // rôle ne posséderait les deux droits et la dérogation serait
             // impossible par défaut. Elle n'encaisse toujours rien —
             // aucune permission payments.*/cash.* ici (ADR-012).
-            'debts.view', 'debts.authorize',
+            'debts.view', 'debts.authorize', 'debts.record_escape',
             'episodes.settlement.view', 'episodes.administrative_exit',
             'patient_staff_links.view', 'patient_staff_links.create', 'patient_staff_links.end',
             'address_entries.view', 'address_entries.create', 'address_entries.update',
@@ -101,6 +101,17 @@ class RolePermissionSeeder extends Seeder
             'visitors.view', 'visitors.create', 'visitors.close',
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
             'patients.medical_history.view', 'patients.medical_history.manage',
+            // ADR-146 — « accouchement chez nous ou ailleurs ? » : l'accueil
+            // retrouve le bébé dans l'arborescence de sa mère et lui ouvre son
+            // dossier patient. Pas `newborns.medical_record.view` : poids,
+            // Apgar et mode d'accouchement sont cliniques, et le Super
+            // Administrateur les accorde depuis le portail s'il le décide
+            // (ADR-064).
+            'newborns.view', 'newborns.patient.create',
+            // ADR-147 — l'accueil lit le module Hospitalisation : détail, dossier
+            // et impression de la fiche. Aucune écriture : ni `hospitalization.update`,
+            // ni `hospital_diet.record`, ni `medical_discharge.create`.
+            'hospitalization.view',
             // ADR-104 — le rayon Pharmacie du panier d'arrivée. Lecture du
             // référentiel et de la disponibilité, plus la création de la
             // vente : exactement la paire que l'ADR-036 accorde déjà à
@@ -109,11 +120,14 @@ class RolePermissionSeeder extends Seeder
             'medicines.view', 'stock.availability.view', 'pharmacy.counter_sales.create',
             'episodes.view', 'episodes.create', 'episodes.update', 'episodes.mark_emergency', 'episodes.cancel',
             // CDC §33.3 — Réception contrôle le compte et prononce la
-            // sortie : payé comptant et évadé (un constat, pas une
-            // dérogation). Pas `debts.authorize` : renoncer à encaisser un
-            // solde est la dérogation de §34.1 règle 6, réservée à une
-            // personne habilitée — ADMINISTRATION par défaut, ou un chef de
-            // poste Réception par exception individuelle auditée (ADR-022).
+            // sortie payé comptant. Ni `debts.authorize` (renoncer à encaisser
+            // un solde : la dérogation de §34.1 règle 6) ni
+            // `debts.record_escape` (déclarer un patient évadé et créer une
+            // créance, ADR-090 amendement du 2026-09-20) : les deux engagent
+            // la clinique sur un montant et sont accordées par le Super
+            // Administrateur — ADMINISTRATION par défaut, ou un chef de poste
+            // Réception par son socle de rôle ou une exception individuelle
+            // auditée (ADR-022, ADR-064).
             'episodes.settlement.view', 'episodes.administrative_exit', 'debts.view',
             'billing.view', 'billing.create', 'billing.validate',
             'billing.print',
@@ -170,6 +184,10 @@ class RolePermissionSeeder extends Seeder
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create', 'imaging_results.update', 'imaging_templates.create', 'imaging_templates.update', 'imaging_templates.archive',
             'surgery.request', 'hospitalization.request', 'maternity.request',
             'transfer.request', 'pediatrics.request',
+            // ADR-146 — le médecin qui reçoit un nouveau-né lit sa naissance.
+            // Toujours pas `maternity.view` : le dossier obstétrical de la
+            // mère reste au profil sage-femme (ADR-067).
+            'newborns.view', 'newborns.medical_record.view',
         ],
         // Shared baseline for every paramedical profile. Anesthesia belongs
         // only to accounts explicitly assigned those permissions (normally
@@ -192,6 +210,9 @@ class RolePermissionSeeder extends Seeder
             'transfers.view', 'transfers.manage',
             // ADR-116 — journal de traitement du passage.
             'treatment_journal.view', 'treatment_journal.record',
+            // ADR-146 — la sage-femme renseigne la fiche du bébé ; toute
+            // infirmière qui le prend en charge ensuite lit sa naissance.
+            'newborns.view', 'newborns.medical_record.view',
         ],
         // SURGERY is the surgeon/operating-team baseline. Access to the
         // separate Anesthesia workspace is granted explicitly per account;

@@ -4,10 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\BillableItem;
 use App\Models\Episode;
+use App\Models\Patient;
+use App\Models\PatientNewbornLink;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
+use App\Support\Documents\MaternitySheetSection;
 use App\Support\Documents\MedicalRecordSheet;
 use App\Support\EpisodePathwayTimeline;
 use App\Support\Money;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -21,7 +25,7 @@ use Inertia\Response;
  */
 class EpisodeController extends Controller
 {
-    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText, EpisodePathwayTimeline $pathway): Response
+    public function show(Request $request, Episode $episode, ClinicalRichTextSanitizer $richText, EpisodePathwayTimeline $pathway, MaternitySheetSection $maternity): Response
     {
         $user = $request->user();
         $canViewCare = $user->can('care.view');
@@ -206,6 +210,8 @@ class EpisodeController extends Controller
                 ] : null,
             ],
             'billing' => $billing,
+            // ADR-144 : les bébés du dossier Maternité de ce passage, et l'accès à leur dossier patient.
+            'maternityBabies' => $maternity->forPassage($episode, $user),
             'capabilities' => [
                 'can_view_care' => $canViewCare,
                 'can_view_vitals' => $canViewVitals,
@@ -228,5 +234,34 @@ class EpisodeController extends Controller
     public function printMedicalRecord(Request $request, Episode $episode, MedicalRecordSheet $sheet): Response
     {
         return Inertia::render('Medicine/MedicalRecordPrint', $sheet->present($episode, $request->user()));
+    }
+
+    /** ADR-145 — le même dossier médical, pour un patient qui n'a peut-être encore aucun passage. */
+    public function printPatientMedicalRecord(Request $request, Patient $patient, MedicalRecordSheet $sheet): Response
+    {
+        return Inertia::render('Medicine/MedicalRecordPrint', $sheet->presentForPatient($patient, $request->user()));
+    }
+
+    /**
+     * ADR-146 — le dossier médical d'un bébé qui n'est pas encore patient, lu depuis sa fiche chez sa mère.
+     *
+     * S'il est devenu patient entre-temps, on va à son dossier patient : il n'y a qu'un dossier par bébé, et
+     * un lien ancien ne doit pas montrer une version périmée.
+     */
+    public function printNewbornMedicalRecord(Request $request, Episode $episode, string $newbornUuid, MedicalRecordSheet $sheet): Response|RedirectResponse
+    {
+        $record = $episode->maternityRecord()->firstOrFail();
+
+        $link = PatientNewbornLink::query()
+            ->where('maternity_record_id', $record->getKey())
+            ->where('newborn_uuid', $newbornUuid)
+            ->with('patient:id,uuid')
+            ->first();
+
+        if ($link?->patient) {
+            return redirect("/patients/{$link->patient->uuid}/dossier-medical");
+        }
+
+        return Inertia::render('Medicine/MedicalRecordPrint', $sheet->presentForNewborn($episode, $record, $newbornUuid, $request->user()));
     }
 }

@@ -30,6 +30,8 @@ const props = defineProps({
     stepLabel: { type: String, default: null },
     stepPosition: { type: Number, default: null },
     stepTotal: { type: Number, default: null },
+    /** ADR-149 — le séjour en cours : un patient dans un lit se signale partout. */
+    hospitalStay: { type: Object, default: null },
 });
 
 // Remonter, et non « déplier » : l'en-tête complet vit en haut du document.
@@ -71,6 +73,11 @@ const toneFor = (severity) => (severity === 'danger'
                     {{ patient.patient_number }}
                     <span class="text-border" aria-hidden="true">·</span>
                     <span class="font-medium text-foreground">{{ episode.episode_number }}</span>
+                    <span
+                        v-if="hospitalStay"
+                        class="ms-1 inline-flex items-center gap-1 rounded-full bg-sky-100 px-1.5 py-px text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+                        :title="hospitalStay.room_bed ? `Hospitalisé · ${hospitalStay.room_bed}` : 'Patient hospitalisé'"
+                    >Hospitalisé<span v-if="hospitalStay.room_bed"> · {{ hospitalStay.room_bed }}</span></span>
                 </p>
             </div>
         </div>

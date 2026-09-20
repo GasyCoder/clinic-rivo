@@ -37,6 +37,12 @@ const props = defineProps({
     // une échographie ou une analyse. Le serveur décide ; ce drapeau ne fait
     // que reproduire sa réponse à l'écran.
     requiresDiagnosis: { type: Boolean, default: true },
+    /**
+     * Où poser un diagnostic quand il n'y en a aucun. Le formulaire sert la
+     * consultation comme le séjour hospitalier (ADR-147), et l'un ne renvoie
+     * pas à l'écran de l'autre.
+     */
+    diagnosisHint: { type: String, default: 'Aucun diagnostic posé : ajoutez-le dans « 1 · Diagnostic » ci-dessus, il apparaîtra ici déjà coché.' },
     disabled: { type: Boolean, default: false },
     cancellable: { type: Boolean, default: true },
 });
@@ -261,17 +267,22 @@ const destinationOptions = computed(() => [
 ]);
 
 const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foreground';
+// Une section encadrée par sujet : la sortie tenait sur une colonne unique et
+// très étalée, où le regard ne rattachait plus une case à sa question.
+const sectionClass = 'rounded-lg border border-border bg-card/60 p-4';
+const legendClass = 'mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground';
 </script>
 
 <template>
-    <form class="space-y-5" @submit.prevent="canSubmit && openConfirmation()">
+    <form class="space-y-4" @submit.prevent="canSubmit && openConfirmation()">
         <div class="flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
             <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             <p><strong>Acte médical définitif.</strong> La Réception / Caisse conserve la responsabilité de la sortie administrative.</p>
         </div>
 
-        <!-- Type de sortie -->
-        <div>
+        <!-- 1 · La décision : son type et sa date, jamais séparés -->
+        <section :class="sectionClass">
+            <p :class="legendClass">1 · Décision</p>
             <p :class="labelClass">Type de sortie <span class="text-red-500">*</span></p>
             <div class="flex flex-wrap gap-2">
                 <label
@@ -291,17 +302,17 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
                 </label>
             </div>
             <FormError class="mt-1.5" :message="form.errors.type" />
-        </div>
 
-        <!-- Date : maintenant par défaut -->
-        <div class="flex flex-wrap items-center gap-2 text-xs">
+            <!-- Date : maintenant par défaut -->
+            <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs">
             <CalendarDays class="h-4 w-4 text-muted-foreground" />
             <span class="text-muted-foreground">Décision datée du</span>
             <strong class="text-foreground">{{ formatHuman(form.discharged_at) }}</strong>
             <button v-if="!editingDate" type="button" class="font-semibold text-primary hover:underline disabled:opacity-50" :disabled="disabled" @click="editingDate = true">Changer</button>
             <IconInput v-else id="discharged_at" v-model="form.discharged_at" class="w-56" :icon="CalendarDays" type="datetime-local" :disabled="disabled" />
-            <FormError class="w-full" :message="form.errors.discharged_at" />
-        </div>
+                <FormError class="w-full" :message="form.errors.discharged_at" />
+            </div>
+        </section>
 
         <!-- Transfert -->
         <FormField
@@ -321,7 +332,9 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
             <Input v-if="destinationChoice === 'OTHER'" v-model="destinationOther" class="mt-2" :disabled="disabled" placeholder="Nom de l’établissement" />
         </FormField>
 
-        <div class="grid gap-5 lg:grid-cols-2">
+        <section :class="sectionClass">
+            <p :class="legendClass">2 · Conclusion médicale</p>
+            <div class="grid gap-5 lg:grid-cols-2">
             <!-- Diagnostic final : cochés d'office -->
             <div>
                 <p :class="labelClass">Diagnostic final <span v-if="requiresDiagnosis" class="text-red-500">*</span><span v-else class="font-normal text-muted-foreground"> · facultatif</span></p>
@@ -340,7 +353,7 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
                     </button>
                 </div>
                 <p v-else-if="requiresDiagnosis" class="rounded-md border border-dashed border-amber-300 bg-amber-50/50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                    Aucun diagnostic posé : ajoutez-le dans « 1 · Diagnostic » ci-dessus, il apparaîtra ici déjà coché.
+                    {{ diagnosisHint }}
                 </p>
                 <!-- Passage paraclinique seul : le compte rendu de l'examen
                      tient lieu de conclusion, et le résultat n'est souvent
@@ -348,6 +361,7 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
                 <p v-else class="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
                     Passage venu uniquement pour un examen : le diagnostic n’est pas exigé. Vous pouvez en poser un dans « 1 · Diagnostic » si vous le souhaitez.
                 </p>
+                <slot name="diagnosis-actions" />
                 <FormError :message="form.errors.final_diagnosis" />
             </div>
 
@@ -368,7 +382,8 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
                 <p :class="labelClass">État du patient à la sortie</p>
                 <p class="text-xs text-muted-foreground">Décédé — porté au dossier par le type de sortie.</p>
             </div>
-        </div>
+            </div>
+        </section>
 
         <!-- Décès : l'heure, le lieu et les causes s'établissent dans le
              registre des décès, qui les exige pour l'acte (ADR-107) — pas
@@ -382,7 +397,9 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
              contrôle s'adressent à quelqu'un qui rentre chez lui. Ce ne sont
              pas des cases à laisser vides : ce sont des instructions qui
              n'ont pas de destinataire (ADR-107). -->
-        <div v-if="!isDeceased" class="grid gap-5 lg:grid-cols-2">
+        <section v-if="!isDeceased" :class="sectionClass">
+            <p :class="legendClass">3 · Consignes remises au patient</p>
+            <div class="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
             <!-- Traitement de sortie : l'ordonnance, cochée d'office -->
             <div>
                 <p :class="labelClass">Traitement de sortie <span class="font-normal text-muted-foreground">· repris de l’ordonnance</span></p>
@@ -420,10 +437,10 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
                     </button>
                 </div>
             </div>
-        </div>
 
-        <!-- Contrôle -->
-        <div v-if="!isDeceased">
+            <!-- Contrôle : une consigne de sortie comme les autres, pas une
+                 rangée à elle seule. -->
+            <div>
             <p :class="labelClass">Contrôle</p>
             <div class="flex flex-wrap items-center gap-1.5">
                 <button
@@ -440,7 +457,9 @@ const labelClass = 'mb-1.5 flex h-6 items-center text-sm font-medium text-foregr
                 <span v-if="form.follow_up_at" class="ms-1 text-[11px] text-muted-foreground">→ {{ formatHuman(form.follow_up_at) }}</span>
             </div>
             <FormError :message="form.errors.follow_up_at" />
-        </div>
+            </div>
+            </div>
+        </section>
 
         <!-- Précision : facultative -->
         <div>

@@ -182,6 +182,17 @@ export const SIDEBAR_GROUPS = [
         labels: { medicine: 'File de consultation' },
     },
     {
+        // Le module Soins : la file des infirmières, la Maternité et l'Anesthésie
+        // se retrouvent sous une seule entrée, et sur chaque page sous trois onglets
+        // (`SoinsTabs`). Trois routes, une seule famille : /care, /maternity et
+        // /anesthesia sont les espaces d'une même équipe soignante.
+        key: 'care-space',
+        text: 'Soins',
+        icon: Bandage,
+        members: ['care', 'maternity', 'anesthesia'],
+        labels: { care: 'Infirmière', maternity: 'Maternité', anesthesia: 'Anesthésie' },
+    },
+    {
         key: 'reception-space',
         text: 'Réception',
         icon: ClipboardList,

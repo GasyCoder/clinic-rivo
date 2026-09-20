@@ -109,3 +109,19 @@ test('chaque obstacle de la clôture mène à sa sous-étape', () => {
     assert.match(page, /v-else-if="blocker\.closure_section"/);
     assert.match(page, /@click="closureSubStep = blocker\.closure_section"/);
 });
+
+/**
+ * ADR-081 : un diagnostic est requis pour clôturer. Retirer le dernier le dit avant
+ * le clic — aux deux endroits où l'on peut le faire — plutôt que sur un bouton grisé.
+ */
+test('retirer le dernier diagnostic prévient que la clôture en dépend', () => {
+    const show = page;
+    const list = fs.readFileSync('resources/js/Components/Clinical/ClinicalDiagnosisList.vue', 'utf8');
+
+    assert.match(show, /cancellingLastRequiredDiagnosis/);
+    assert.match(show, /le seul diagnostic de ce passage/);
+    assert.match(show, /:required-for-closure="requiresFinalDiagnosis"/);
+    assert.match(show, /rien à ressaisir/);
+    assert.match(list, /requiredForClosure: \{ type: Boolean/);
+    assert.match(list, /requiredForClosure && diagnoses\.length === 1/);
+});

@@ -439,14 +439,32 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'description' => 'Soins courants réalisés au nouveau-né.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
         ],
         [
-            'code' => 'MAT-DOPPLER', 'name' => 'Doppler',
+            'code' => 'MAT-DOPPLER', 'name' => 'Utilisation Echo Doppler',
             'module' => CatalogModule::Maternity, 'unit' => 'examen', 'amount' => null,
             'description' => 'Surveillance Doppler en maternité.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
         ],
         [
-            'code' => 'MAT-PHOTOTHERAPY', 'name' => 'Photothérapie',
+            'code' => 'MAT-PHOTOTHERAPY', 'name' => 'Utilisation Photothérapie',
             'module' => CatalogModule::Maternity, 'unit' => 'séance', 'amount' => null,
             'description' => 'Séance de photothérapie du nouveau-né.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        // ADR-136 — actes de la liste Maternité transmise par le propriétaire.
+        // Les descriptions restent neutres : le CDC ne définit aucun de ces actes,
+        // et « Nursie » n'a pas encore reçu sa définition.
+        [
+            'code' => 'MAT-BABY-ASPIRATOR', 'name' => 'Utilisation Aspirateur bébé',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Utilisation de l’aspirateur pour bébé.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-IEC', 'name' => 'IEC',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Information, Éducation, Communication.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
+        ],
+        [
+            'code' => 'MAT-NURSIE', 'name' => 'Nursie',
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
+            'description' => 'Acte « Nursie » — définition à préciser par la Maternité.', 'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
         ],
         [
             'code' => 'MAT-OTHER', 'name' => 'Autres',
@@ -455,10 +473,14 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'routing_mode' => null, 'billable' => false,
         ],
         [
+            // ADR-136 : « Syana Press / Dépôt Provera » figure dans la liste des
+            // actes Maternité du propriétaire. Il quitte le module Planning
+            // familial, qui n'a aucun espace de travail, sans changer de code :
+            // le code est l'identité stable (ADR-024).
             'code' => 'FP-INJECTABLE', 'name' => 'Contraceptif injectable (Sayana Press / Depo-Provera)',
-            'module' => CatalogModule::FamilyPlanning, 'unit' => 'acte', 'amount' => null,
+            'module' => CatalogModule::Maternity, 'unit' => 'acte', 'amount' => null,
             'description' => 'Administration d’un contraceptif injectable trimestriel.',
-            'reception_selectable' => false, 'routing_mode' => null,
+            'reception_selectable' => true, 'routing_mode' => ReceptionRoutingMode::MaternityDirect,
         ],
         [
             'code' => 'FP-PILPLAN', 'name' => 'Pilplan',
@@ -557,6 +579,7 @@ class ClinicalServiceCatalogSeeder extends Seeder
                         $this->applyLegacyCareLabel($existing, $service);
                         $this->applyInitialReceptionRouteIfUnset($existing, $service);
                         $this->applyAcceptedRoutingCorrection($existing, $service, $actor);
+                        $this->applyAcceptedModuleCorrection($existing, $service, $actor);
                         $this->applyClinicianOrderableIfUnset($existing, $service, $actor);
 
                         $item = $existing;
@@ -728,6 +751,9 @@ class ClinicalServiceCatalogSeeder extends Seeder
             'PANSEMENT-C' => 'Pansement complexe',
             'INJECTION-IM' => 'Injection intramusculaire',
             'PERFUSION' => 'Pose de perfusion',
+            // ADR-136 : les noms de la liste Maternité du propriétaire.
+            'MAT-DOPPLER' => 'Doppler',
+            'MAT-PHOTOTHERAPY' => 'Photothérapie',
         ];
 
         if (($legacyLabels[$item->code] ?? null) !== $item->name) {
@@ -777,6 +803,30 @@ class ClinicalServiceCatalogSeeder extends Seeder
 
         $item->forceFill([
             'reception_routing_mode' => ReceptionRoutingMode::MedicineDirect,
+            'updated_by' => $actor->id,
+        ])->save();
+    }
+
+    /**
+     * ADR-136 : l'injectable contraceptif est passé du Planning familial à la
+     * Maternité. Seule cette ligne précise est déplacée, et seulement si elle
+     * est encore dans le module d'origine : un module choisi depuis par un
+     * administrateur n'est jamais écrasé.
+     *
+     * @param  array{code: string, module: CatalogModule}  $service
+     */
+    private function applyAcceptedModuleCorrection(CatalogItem $item, array $service, User $actor): void
+    {
+        if ($service['code'] !== 'FP-INJECTABLE'
+            || $service['module'] !== CatalogModule::Maternity
+            || $item->module !== CatalogModule::FamilyPlanning) {
+            return;
+        }
+
+        $item->forceFill([
+            'module' => CatalogModule::Maternity,
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::MaternityDirect,
             'updated_by' => $actor->id,
         ])->save();
     }

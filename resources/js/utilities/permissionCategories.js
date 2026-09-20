@@ -44,11 +44,15 @@ export const PERMISSION_CATEGORIES = {
     diagnostic_catalog: { label: 'Liste des diagnostics', domain: 'clinical' },
     prescriptions: { label: 'Ordonnances', domain: 'clinical' },
     medical_orders: { label: 'Ordres médicaux', domain: 'clinical' },
-    medical_discharge: { label: 'Sortie médicale', domain: 'clinical' },
+    // ADR-151 — la catégorie nomme les modules où le droit agit : le rail se
+    // cherche aussi par ce que l'écran appelle le bouton (« sortie
+    // d'hospitalisation »), pas seulement par le nom du module d'origine.
+    medical_discharge: { label: 'Sortie médicale (consultation, hospitalisation, pédiatrie)', domain: 'clinical' },
     hospitalization: { label: 'Demande d’hospitalisation', domain: 'clinical' },
     transfer: { label: 'Référence et transfert', domain: 'clinical' },
     pediatrics: { label: 'Orientation Pédiatrie', domain: 'clinical' },
     maternity: { label: 'Maternité', domain: 'clinical' },
+    newborns: { label: 'Nouveau-nés (dossier chez sa mère)', domain: 'clinical' },
     surgery: { label: 'Chirurgie (Bloc opératoire)', domain: 'clinical' },
     anesthesia: { label: 'Anesthésie', domain: 'clinical' },
     paraclinical_requests: { label: 'Espace Demandes d’examens', domain: 'clinical' },
@@ -69,6 +73,7 @@ export const PERMISSION_CATEGORIES = {
     billing: { label: 'Factures', domain: 'finance' },
     payments: { label: 'Encaissements', domain: 'finance' },
     receipts: { label: 'Reçus de paiement', domain: 'finance' },
+    debts: { label: 'Créances et sorties avec dette', domain: 'finance' },
     cash: { label: 'Session de caisse (ouverture / clôture)', domain: 'finance' },
     cash_registers: { label: 'Postes de caisse', domain: 'finance' },
     payment_methods: { label: 'Modes de paiement', domain: 'finance' },

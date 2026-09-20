@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { activeMenuKeys, menuMatchDepth, pathCovers } from '../../resources/js/utilities/menuActivation.js';
 import { normalizeOrder } from '../../resources/js/composables/useSidebarOrder.js';
 import { CLINIC_WORKSPACES } from '../../resources/js/utilities/clinicWorkspaces.js';
@@ -279,7 +280,8 @@ test('une page Médecine n’allume qu’une entrée, et qu’un seul enfant', (
 
     // Les autres modules gardent leur propre page.
     assert.deepEqual(activeMenuKeys(rows, '/deces').map((index) => rows[index].key), ['deaths']);
-    assert.deepEqual(activeMenuKeys(rows, '/care').map((index) => rows[index].key), ['care']);
+    // Les Soins ont désormais leur propre groupe (un seul membre ici : lien simple).
+    assert.deepEqual(activeMenuKeys(rows, '/care').map((index) => rows[index].key), ['care-space']);
 });
 
 test('un groupe réduit à un seul membre devient un lien simple', () => {
@@ -314,4 +316,73 @@ test('l’ordre personnel n’est jamais lu pendant le rendu', async () => {
 
     assert.doesNotMatch(source, /watch\(storageKey, load, \{ immediate: true \}\)/);
     assert.match(source, /onMounted\(load\)/);
+});
+
+/* ── Le module Soins : Infirmière, Maternité, Anesthésie ────────────── */
+
+const SOINS_PERMISSIONS = new Set(['care.update', 'care.view', 'maternity.view', 'anesthesia.view', 'patients.view']);
+const canSoins = (permission) => SOINS_PERMISSIONS.has(permission);
+const soinsRows = (can = canSoins) => visibleMenu(buildClinicMenu({ roleCode: 'NURSE', can }), can)
+    .filter((row) => !row.heading && row.key);
+
+test('les Soins réunissent la file infirmière, la Maternité et l’Anesthésie sous une seule entrée', () => {
+    const rows = soinsRows();
+    const soins = rows.find((row) => row.key === 'care-space');
+
+    assert.equal(soins.text, 'Soins');
+    assert.deepEqual(soins.children.map((child) => child.label), ['Infirmière', 'Maternité', 'Anesthésie']);
+    assert.deepEqual(soins.children.map((child) => child.link), ['/care', '/maternity', '/anesthesia']);
+
+    // Aucun des trois n'apparaît en plus à la racine.
+    for (const key of ['care', 'maternity', 'anesthesia']) {
+        assert.equal(rows.some((row) => row.key === key), false, `${key} dupliqué à la racine`);
+    }
+});
+
+test('une page des Soins n’allume que l’entrée Soins et son bon onglet', () => {
+    const rows = soinsRows();
+    const soins = rows.find((row) => row.key === 'care-space');
+
+    for (const [path, child] of [
+        ['/care', 'care'],
+        ['/care/orientations/abc', 'care'],
+        ['/maternity', 'maternity'],
+        ['/maternity/orientations/abc', 'maternity'],
+        ['/anesthesia', 'anesthesia'],
+        ['/anesthesia/abc', 'anesthesia'],
+    ]) {
+        assert.deepEqual(activeMenuKeys(rows, path).map((index) => rows[index].key), ['care-space'], path);
+
+        const depths = soins.children.map((entry) => menuMatchDepth(entry, path));
+        const deepest = Math.max(...depths);
+        const lit = soins.children.filter((entry, index) => depths[index] === deepest).map((entry) => entry.code);
+        assert.deepEqual(lit, [child], `${path} allume ${lit.join(', ')}`);
+    }
+});
+
+test('un compte sans droit Maternité ni Anesthésie ne voit que la file infirmière', () => {
+    const can = (permission) => ['care.update', 'patients.view'].includes(permission);
+    const soins = soinsRows(can).find((row) => row.key === 'care-space');
+
+    assert.equal(soins.children, undefined, 'une liste déroulante d’une seule entrée');
+    assert.equal(soins.link, '/care');
+});
+
+test('les onglets des Soins suivent les droits de chaque espace', () => {
+    const tabs = fs.readFileSync('resources/js/Components/Care/SoinsTabs.vue', 'utf8');
+
+    assert.match(tabs, /\{ key: 'care', label: 'Infirmière', href: '\/care'[^}]*permission: 'care\.update' \}/);
+    assert.match(tabs, /\{ key: 'maternity', label: 'Maternité', href: '\/maternity'[^}]*permission: 'maternity\.view' \}/);
+    assert.match(tabs, /\{ key: 'anesthesia', label: 'Anesthésie', href: '\/anesthesia'[^}]*permission: 'anesthesia\.view' \}/);
+    // L'onglet courant est toujours affiché ; une barre à un seul onglet disparaît.
+    assert.match(tabs, /tab\.key === props\.current \|\| can\(tab\.permission\)/);
+    assert.match(tabs, /v-if="tabs\.length > 1"/);
+
+    for (const [file, current] of [
+        ['resources/js/Pages/Care/Index.vue', 'care'],
+        ['resources/js/Pages/Maternity/Index.vue', 'maternity'],
+        ['resources/js/Pages/Anesthesia/Index.vue', 'anesthesia'],
+    ]) {
+        assert.match(fs.readFileSync(file, 'utf8'), new RegExp(`<SoinsTabs current="${current}" />`), `${file} sans onglets`);
+    }
 });

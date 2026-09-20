@@ -22,6 +22,7 @@ const props = defineProps({
     summary: Object,
     pendingMedicines: { type: Array, default: () => [] },
     careConsumableOptions: { type: Array, default: () => [] },
+    maternityConsumableOptions: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -42,7 +43,8 @@ const careConsumableSearch = ref('');
 const careConsumableProcessing = ref(false);
 const careConsumableError = ref('');
 
-const isCareAct = (item) => item.type === 'SERVICE' && item.module === 'CARE';
+const isCareAct = (item) => item.type === 'SERVICE' && ['CARE', 'MATERNITY'].includes(item.module);
+const isMaternityAct = (item) => item.type === 'SERVICE' && item.module === 'MATERNITY';
 const openCareConsumables = (item) => {
     careConsumableTarget.value = item;
     careConsumableError.value = '';
@@ -57,7 +59,11 @@ const availableCareConsumables = computed(() => {
     const chosen = new Set(careConsumableLines.value.map((line) => line.medicine_uuid));
     const term = careConsumableSearch.value.trim().toLowerCase();
 
-    return props.careConsumableOptions.filter((option) => {
+    // Un acte de la Maternité pose de vrais produits (DIU, implant, injectable) : tout
+    // produit stockable peut lui être associé, là où les Soins n'ont que de la parapharmacie.
+    const options = isMaternityAct(careConsumableTarget.value ?? {}) ? props.maternityConsumableOptions : props.careConsumableOptions;
+
+    return options.filter((option) => {
         if (chosen.has(option.medicine_uuid)) return false;
 
         return !term || `${option.name} ${option.code}`.toLowerCase().includes(term);
@@ -713,7 +719,7 @@ const formatDateTime = (value) => value
                             </div>
                         </div>
                         <p v-else class="rounded border border-dashed border-gray-200 px-4 py-6 text-center text-[11px] leading-5 text-slate-400 dark:border-gray-800">
-                            Aucun matériel proposé pour l’instant. Les Soins pourront toujours en ajouter à la main.
+                            Aucun matériel proposé pour l’instant. Le personnel pourra toujours en ajouter à la main (parapharmacie).
                         </p>
                         <FormError class="mt-2" :message="careConsumableError" />
                     </div>
@@ -731,7 +737,7 @@ const formatDateTime = (value) => value
                             </button>
                             <div v-if="availableCareConsumables.length === 0" class="px-4 py-7 text-center">
                                 <Icon class="text-xl text-slate-300" name="search" />
-                                <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careConsumableSearch ? 'Aucun consommable trouvé' : (careConsumableOptions.length ? 'Tous les consommables sont déjà proposés' : 'Aucun consommable de parapharmacie n’est configuré en Pharmacie') }}</p>
+                                <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careConsumableSearch ? 'Aucun consommable trouvé' : ((isMaternityAct(careConsumableTarget ?? {}) ? maternityConsumableOptions : careConsumableOptions).length ? 'Tous les produits sont déjà proposés' : 'Aucun produit stockable n’est configuré en Pharmacie') }}</p>
                             </div>
                         </div>
                     </div>

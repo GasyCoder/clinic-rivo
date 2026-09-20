@@ -10,6 +10,8 @@ import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
+import SoinsTabs from '@/Components/Care/SoinsTabs.vue';
+import SoinsWorkspaceHeader from '@/Components/Care/SoinsWorkspaceHeader.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { useQueueSkipGuard } from '@/composables/useQueueSkipGuard';
 import { itemQuantity } from '@/utilities/episodePathway';
@@ -287,21 +289,19 @@ const selectCounter = (value) => {
     <Head title="Soins" />
 
     <div class="mx-auto w-full max-w-screen-2xl space-y-5">
-        <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex items-start gap-3">
-                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
-                    <UserRoundCheck class="h-6 w-6" />
-                </span>
-                <div>
-                    <h1 class="font-heading text-2xl font-bold -tracking-snug text-foreground">Soins</h1>
-                    <p class="mt-1 text-sm text-muted-foreground">File d’évaluation et d’orientation des patients.</p>
-                </div>
-            </div>
-            <Button v-if="can('patients.view')" :as="Link" href="/patients" size="rg" variant="white-outline">
-                <UsersRound class="h-5 w-5" />
+        <SoinsTabs current="care" />
+
+        <SoinsWorkspaceHeader
+            :icon="UserRoundCheck"
+            title="Soins"
+            eyebrow="Workspace paramédical"
+            description="File d’évaluation et d’orientation des patients."
+        >
+            <Button v-if="can('patients.view')" :as="Link" href="/patients" variant="outline">
+                <UsersRound class="h-4 w-4" />
                 Dossiers patients
             </Button>
-        </header>
+        </SoinsWorkspaceHeader>
 
         <div class="-mb-2 overflow-x-auto" role="tablist" aria-label="Files des Soins">
             <div class="flex min-w-max gap-1 border-b border-border">

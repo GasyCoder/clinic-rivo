@@ -356,6 +356,7 @@ const codeHint = 'Majuscules, sans accent ni espace : lettres, chiffres et « _ 
             <RoleBaselineEditor
                 v-if="tab === 'baselines'"
                 :roles="editableRoles"
+                :users="users"
                 :permission-catalog="permissionCatalog"
                 :site-name="selectedSite.site.name"
                 :processing="baselineForm.processing"

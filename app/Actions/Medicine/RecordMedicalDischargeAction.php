@@ -3,6 +3,7 @@
 namespace App\Actions\Medicine;
 
 use App\Enums\CatalogModule;
+use App\Enums\HospitalStayStatus;
 use App\Enums\ConsultationOrientationType;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeMedicalStatus;
@@ -10,6 +11,7 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalDischargeType;
 use App\Models\Diagnosis;
 use App\Models\EpisodeOrientation;
+use App\Models\HospitalStay;
 use App\Models\MedicalDischarge;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +45,18 @@ class RecordMedicalDischargeAction
                     'medical_discharge' => 'Une sortie médicale a déjà été prononcée pour ce passage.',
                 ]);
             }
+
+            // ADR-156 — il n'y a qu'une sortie médicale, et c'est le médecin
+            // qui la prononce dans sa consultation, hospitalisé ou non.
+            // L'ADR-152 la refusait ici pour ne pas laisser le séjour ACTIF
+            // avec un passage médicalement sorti : c'était le bon invariant,
+            // mais la mauvaise réponse — la sortie **termine** désormais le
+            // séjour au lieu d'être renvoyée à un second formulaire.
+            $stay = HospitalStay::query()
+                ->where('episode_id', $locked->episode_id)
+                ->where('status', HospitalStayStatus::Active->value)
+                ->lockForUpdate()
+                ->first();
 
             $type = MedicalDischargeType::from($data['type']);
             $latestFinal = $locked->consultation->diagnoses()
@@ -97,6 +111,26 @@ class RecordMedicalDischargeAction
                 'discharged_at' => $data['discharged_at'] ?? now(),
                 'created_by' => $actor->getKey(),
             ]);
+
+            // ADR-156 — le séjour se termine avec la sortie qui le conclut,
+            // dans la même transaction : jamais un passage médicalement sorti
+            // dont le lit reste occupé. L'orientation du séjour est complétée
+            // ici ; celle de la consultation l'est par la clôture (ADR-084).
+            if ($stay) {
+                $stay->update([
+                    'status' => HospitalStayStatus::Discharged,
+                    'discharged_at' => $discharge->discharged_at,
+                    'discharged_by' => $actor->getKey(),
+                    'medical_discharge_id' => $discharge->getKey(),
+                    'active_key' => null,
+                ]);
+
+                $stayOrientation = $stay->episodeOrientation()->first();
+
+                if ($stayOrientation?->status === EpisodeOrientationStatus::InProgress) {
+                    $stayOrientation->complete($actor);
+                }
+            }
 
             // Recording the discharge no longer ends the encounter (ADR-084).
             // The Médecine orientation and the episode statuses move at the

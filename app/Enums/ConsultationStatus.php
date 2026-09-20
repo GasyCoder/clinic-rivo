@@ -40,4 +40,18 @@ enum ConsultationStatus: string
     {
         return in_array($this, [self::Draft, self::InProgress], true);
     }
+
+    /**
+     * Les mêmes cas, pour une requête : une seule définition de « encore
+     * ouverte », que le filtre SQL ne peut pas déduire de `isEditable()`.
+     *
+     * @return list<string>
+     */
+    public static function editableValues(): array
+    {
+        return array_values(array_map(
+            static fn (self $case): string => $case->value,
+            array_filter(self::cases(), static fn (self $case): bool => $case->isEditable()),
+        ));
+    }
 }

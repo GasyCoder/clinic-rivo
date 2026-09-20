@@ -102,6 +102,8 @@ const props = defineProps({
     patient_profile: { type: Object, default: () => ({}) },
     previous_consultations: { type: Array, default: () => [] },
     medical_discharge: Object,
+    // ADR-149 — le séjour en cours, quand le patient est dans un lit.
+    hospital_stay: { type: Object, default: null },
     // La conduite à tenir : ce qui est décidé, ce qui est transmis,
     // et de quoi préremplir les demandes (ADR-084).
     consultation_orientation: Object,
@@ -1476,6 +1478,15 @@ const addManualDiagnosis = () => {
 
 const diagnosisCancellationForm = useForm({ diagnosis_id: null });
 const diagnosisToCancel = ref(null);
+/**
+ * Retirer le dernier diagnostic d'une vraie consultation ramène la clôture à
+ * « impossible » (CDC §33.1, ADR-081). L'exigence est maintenue ; le retrait,
+ * lui, doit le dire avant le clic plutôt que le faire découvrir sur un bouton
+ * grisé une étape plus loin.
+ */
+const cancellingLastRequiredDiagnosis = computed(() => Boolean(diagnosisToCancel.value)
+    && requiresFinalDiagnosis.value
+    && activeDiagnoses.value.length === 1);
 const openDiagnosisCancellation = (diagnosis) => {
     diagnosisCancellationForm.clearErrors();
     diagnosisToCancel.value = diagnosis;
@@ -2078,6 +2089,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                         :step-label="currentStepLabel"
                         :step-position="currentStepPosition"
                         :step-total="relevantWizardSteps.length"
+                        :hospital-stay="hospital_stay"
                         @expand="scrollToHeader"
                     >
                         <template #actions>
@@ -3489,11 +3501,18 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                  ici. Les endpoints existaient, l'écran ne les
                                  appelait plus : une faute de frappe restait
                                  dans le dossier sans rien pour la rectifier. -->
+                            <!-- Un seul diagnostic par passage : celui de l'examen
+                                 clinique est celui d'ici, jamais un second à
+                                 ressaisir. -->
+                            <p v-if="activeDiagnoses.length" class="mt-1 text-[11px] leading-4 text-muted-foreground">
+                                Déjà consigné (à l’examen clinique ou ici) : rien à ressaisir. Il est requis pour clôturer.
+                            </p>
                             <ClinicalDiagnosisList
                                 v-if="activeDiagnoses.length"
                                 class="mt-3"
                                 :orientation-uuid="orientation.uuid"
                                 :diagnoses="activeDiagnoses"
+                                :required-for-closure="requiresFinalDiagnosis"
                                 return-step="cloture"
                             />
                             <p v-else class="mt-1 text-[11px] leading-4 text-muted-foreground">Aucun diagnostic encore posé : consignez la conclusion clinique de ce passage.</p>
@@ -3571,6 +3590,7 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                                 :surgery-catalog="options.surgery_catalog ?? []"
                                 :transfer-destinations="otherSiteOptions"
                                 :is-emergency="isEmergency"
+                                :hospital-stay="hospital_stay"
                                 return-step="cloture"
                                 :disabled="!capabilities.can_update_consultation"
                             >
@@ -4168,6 +4188,10 @@ const hasEmergencyContact = computed(() => Object.values(episode.value.emergency
                     <div class="flex items-start gap-2.5 text-xs leading-5 text-muted-foreground">
                         <Info class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
                         <p>La saisie restera consultable dans l’historique des rectifications avec sa trace d’annulation.</p>
+                    </div>
+                    <div v-if="cancellingLastRequiredDiagnosis" class="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                        <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <p>C’est le seul diagnostic de ce passage : sans diagnostic, la consultation ne peut pas être clôturée. Vous pourrez en enregistrer un autre juste après.</p>
                     </div>
                     <FormError :message="diagnosisCancellationForm.errors.diagnosis_id" />
                 </div>

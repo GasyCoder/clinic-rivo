@@ -63,6 +63,16 @@ class RecordAdministrativeExitAction
             );
         }
 
+        // ADR-090 (amendement du 2026-09-20) — déclarer un patient évadé crée
+        // une créance à son nom : comme la dette validée, c'est un droit que le
+        // Super Administrateur accorde, pas une conséquence du droit de
+        // prononcer une sortie ordinaire.
+        if ($type === AdministrativeExitType::Escaped && ! $actor->can('debts.record_escape')) {
+            throw new AuthorizationException(
+                'Une sortie « évadé » doit être enregistrée par une personne habilitée (permission debts.record_escape).',
+            );
+        }
+
         return DB::transaction(function () use ($episode, $data, $actor, $type): Episode {
             /** @var Episode $locked */
             $locked = Episode::query()->lockForUpdate()->findOrFail($episode->getKey());
@@ -72,6 +82,7 @@ class RecordAdministrativeExitAction
             $account = $this->accounts->summarize($locked);
             $balanceMinor = Money::toMinor($account['balance_amount']);
 
+            $this->guardNothingUnbilled($account);
             $this->guardExitAgainstBalance($type, $balanceMinor, $account['balance_amount']);
 
             // Le motif, composé ici plutôt que tapé — mais seulement quand
@@ -194,6 +205,49 @@ class RecordAdministrativeExitAction
                     : '',
             ),
         };
+    }
+
+    /**
+     * ADR-090 (amendement du 2026-09-20) — aucune sortie, quel qu'en soit le
+     * type, tant qu'une prestation attend encore d'être portée sur une facture.
+     *
+     * Le reste à payer ne compte que les factures : une prestation `PENDING`
+     * n'y figure pas, et « payé comptant » sur un compte à zéro laissait
+     * partir le passage avec cet argent définitivement perdu — le cas
+     * constaté : 70 000 Ar (NFS, seconde échographie, injection) ajoutés
+     * après le règlement de la première facture. La première version de
+     * l'ADR se contentait de le signaler ; le propriétaire a demandé de
+     * refuser, la facturation étant à un clic.
+     *
+     * Vaut aussi pour la dette validée et l'évasion : leur montant doit
+     * porter sur ce que le patient doit réellement, pas sur la seule part
+     * déjà facturée.
+     *
+     * Rechecké ici sous verrou : l'écran a pu afficher un compte propre juste
+     * avant qu'un service ajoute un acte.
+     *
+     * @param  array<string, mixed>  $account
+     */
+    private function guardNothingUnbilled(array $account): void
+    {
+        $count = (int) $account['pending_count'];
+
+        if ($count === 0) {
+            return;
+        }
+
+        $amount = number_format((float) $account['pending_amount'], 0, ',', ' ');
+
+        throw ValidationException::withMessages([
+            'exit_type' => sprintf(
+                '%d prestation%s (%s Ar) n’%s pas encore été portée%s sur une facture. Facturez-les avant la sortie : sinon ce montant ne serait jamais réclamé.',
+                $count,
+                $count > 1 ? 's' : '',
+                $amount,
+                $count > 1 ? 'ont' : 'a',
+                $count > 1 ? 's' : '',
+            ),
+        ]);
     }
 
     private function guardExitAgainstBalance(

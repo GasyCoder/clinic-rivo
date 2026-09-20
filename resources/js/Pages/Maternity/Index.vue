@@ -1,20 +1,22 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Baby, CircleCheck, FileText, HeartPulse, Search, UserCheck } from 'lucide-vue-next';
+import { Baby, CircleCheck, FileText, HeartPulse, Scissors, Search, Stethoscope, UserCheck } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import SoinsTabs from '@/Components/Care/SoinsTabs.vue';
+import SoinsWorkspaceHeader from '@/Components/Care/SoinsWorkspaceHeader.vue';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     orientations: { type: Object, default: () => ({ data: [], links: [] }) },
     counts: { type: Object, default: () => ({}) },
-    filter: { type: String, default: 'active' },
+    filter: { type: String, default: 'waiting' },
     search: { type: String, default: '' },
 });
 
@@ -33,25 +35,50 @@ const formatDate = (value) => (value
     : '—');
 
 /**
- * Les deux cartes étaient écrites à la main ici : elles rejoignent le
- * composant partagé pour qu'une file ne change pas d'allure selon le
- * service. Le compte reste celui du serveur — recalculé depuis la page
- * affichée, il mentirait dès la deuxième.
+ * Les vues de la file, en cartes (ADR-135). Elles suivent le parcours réel
+ * d'une patiente et sont exclusives : la somme des comptes est le nombre de
+ * dossiers. « À prendre » reste la vue par défaut — le travail à faire —, les
+ * deux autres disent où sont allées celles qui ont quitté la Maternité.
+ *
+ * Le compte reste celui du serveur : recalculé depuis la page affichée, il
+ * mentirait dès la deuxième.
  */
 const counterTiles = computed(() => [
     {
-        value: 'active',
-        label: 'À prendre en charge',
-        hint: 'Patientes en attente',
+        value: 'waiting',
+        label: 'À prendre',
+        hint: 'Personne ne les a encore prises',
+        title: 'Orientées vers la Maternité, en attente d’une sage-femme',
         icon: Baby,
+        tone: 'amber',
+        count: props.counts.waiting,
+        active: props.filter === 'waiting',
+    },
+    {
+        value: 'active',
+        label: 'En cours',
+        hint: 'Prises en charge',
+        title: 'Prises en charge par la Maternité, pas encore terminées',
+        icon: HeartPulse,
         tone: 'red',
         count: props.counts.active,
         active: props.filter === 'active',
     },
     {
+        value: 'doctor',
+        label: 'Orientées vers Médecine',
+        hint: 'Le médecin a encore la patiente',
+        title: 'Terminées à la Maternité, orientées vers Médecine et pas encore terminées par le médecin',
+        icon: Stethoscope,
+        tone: 'sky',
+        count: props.counts.doctor,
+        active: props.filter === 'doctor',
+    },
+    {
         value: 'completed',
-        label: 'Prises en charge terminées',
+        label: 'Terminées',
         hint: 'Dossiers clos',
+        title: 'Prise en charge terminée, sans suite en cours',
         icon: CircleCheck,
         tone: 'emerald',
         count: props.counts.completed,
@@ -59,7 +86,21 @@ const counterTiles = computed(() => [
     },
 ]);
 
+/** Ce que dit la vue vide : chaque vue a son propre « rien à signaler ». */
+const EMPTY = {
+    waiting: { title: 'Aucune patiente à prendre en charge', hint: 'La file est vide : la Réception et la Médecine n’ont orienté personne vers la Maternité.' },
+    active: { title: 'Aucune prise en charge en cours', hint: 'Les patientes que vous ou une collègue avez prises en charge apparaissent ici jusqu’à la fin de la prise en charge.' },
+    doctor: { title: 'Aucune patiente chez le médecin', hint: 'Les patientes orientées vers Médecine à la fin de la prise en charge apparaissent ici, jusqu’à ce que le médecin ait terminé.' },
+    completed: { title: 'Aucune prise en charge terminée', hint: 'Les dossiers clos apparaissent ici, sans suite en cours.' },
+};
+const empty = computed(() => EMPTY[props.filter] ?? EMPTY.waiting);
+
 /** Le ton du statut, pas ses classes : le `Badge` porte déjà le vocabulaire. */
+const medicineTone = (medicine) => ({
+    PENDING: 'warning',
+    IN_PROGRESS: 'info',
+}[medicine.status] ?? 'success');
+
 const statusTone = (status) => ({
     PENDING: 'warning',
     IN_PROGRESS: 'info',
@@ -90,18 +131,16 @@ const pages = computed(() => props.orientations.links ?? []);
 <template>
     <Head title="Maternité" />
 
-    <div class="w-full space-y-5">
-        <header class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div class="flex items-start gap-3">
-                <span class="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
-                    <HeartPulse class="h-5 w-5" />
-                </span>
-                <div>
-                    <p class="text-xs font-bold uppercase tracking-wide text-rose-600 dark:text-rose-300">Workspace paramédical spécialisé</p>
-                    <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">Maternité</h1>
-                    <p class="mt-1 text-sm text-muted-foreground">Orientations, suivi obstétrical, accouchement et nouveau-né sur le même passage.</p>
-                </div>
-            </div>
+    <div class="mx-auto w-full max-w-screen-2xl space-y-5">
+        <SoinsTabs current="maternity" />
+
+        <SoinsWorkspaceHeader
+            :icon="HeartPulse"
+            tone="rose"
+            eyebrow="Workspace paramédical spécialisé"
+            title="Maternité"
+            description="Orientations, suivi obstétrical, accouchement et nouveau-né sur le même passage."
+        >
             <div class="w-full lg:w-96">
                 <IconInput
                     v-model="q"
@@ -112,9 +151,9 @@ const pages = computed(() => props.orientations.links ?? []);
                     @keyup.enter="visit()"
                 />
             </div>
-        </header>
+        </SoinsWorkspaceHeader>
 
-        <QueueCounters class="lg:grid-cols-2" :tiles="counterTiles" @select="visit" />
+        <QueueCounters class="lg:grid-cols-4" :tiles="counterTiles" @select="visit" />
 
         <Card class="overflow-hidden">
             <div class="divide-y divide-border">
@@ -144,9 +183,22 @@ const pages = computed(() => props.orientations.links ?? []);
                     </div>
 
                     <div class="text-xs text-muted-foreground">
-                        <Badge :tone="statusTone(orientation.status)">{{ orientation.status_label }}</Badge>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <Badge :tone="statusTone(orientation.status)">{{ orientation.status_label }}</Badge>
+                            <!-- La suite d'une patiente n'est jamais devinée : c'est
+                                 une vraie orientation Médecine ou une vraie demande
+                                 chirurgicale sur le même passage (ADR-135). -->
+                            <Badge v-if="orientation.follow_up?.medicine" :tone="medicineTone(orientation.follow_up.medicine)">
+                                <Stethoscope class="h-3.5 w-3.5" />{{ orientation.follow_up.medicine.label }}
+                            </Badge>
+                            <Badge v-if="orientation.follow_up?.cesarean" tone="warning">
+                                <Scissors class="h-3.5 w-3.5" />{{ orientation.follow_up.cesarean.label }}
+                            </Badge>
+                        </div>
                         <p class="mt-1.5">Orientée le {{ formatDate(orientation.oriented_at) }}</p>
+                        <p v-if="orientation.status === 'COMPLETED' && orientation.completed_at" class="mt-1">Terminée le {{ formatDate(orientation.completed_at) }}</p>
                         <p v-if="orientation.accepted_by" class="mt-1">Prise par {{ orientation.accepted_by }}</p>
+                        <p v-if="orientation.follow_up?.medicine?.doctor" class="mt-1">Médecin : {{ orientation.follow_up.medicine.doctor }}</p>
                     </div>
 
                     <div>
@@ -177,10 +229,8 @@ const pages = computed(() => props.orientations.links ?? []);
                     <span class="mx-auto grid h-11 w-11 place-items-center rounded-full bg-muted text-muted-foreground">
                         <HeartPulse class="h-5 w-5" />
                     </span>
-                    <p class="mt-3 text-sm font-semibold text-foreground">Aucune orientation Maternité dans cette vue</p>
-                    <p class="mt-1 text-xs text-muted-foreground">
-                        Changez de filtre ci-dessus, ou la Réception et la Médecine n’ont encore orienté personne.
-                    </p>
+                    <p class="mt-3 text-sm font-semibold text-foreground">{{ empty.title }}</p>
+                    <p class="mt-1 text-xs text-muted-foreground">{{ empty.hint }}</p>
                 </div>
             </div>
 

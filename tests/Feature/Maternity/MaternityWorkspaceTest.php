@@ -70,11 +70,12 @@ class MaternityWorkspaceTest extends TestCase
         $this->actingAs($midwife)->get('/maternity')->assertOk();
 
         // La file elle-même : compteurs servis par le serveur, filtre par
-        // défaut sur le travail en cours, jamais sur l'historique.
+        // défaut sur le travail à prendre, jamais sur l'historique.
         $this->actingAs($midwife)->get('/maternity')
             ->assertInertia(fn ($page) => $page
                 ->component('Maternity/Index')
-                ->where('filter', 'active')
+                ->where('filter', 'waiting')
+                ->has('counts.waiting')
                 ->has('counts.active')
                 ->has('counts.completed')
                 ->has('orientations.data'));

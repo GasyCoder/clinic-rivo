@@ -611,6 +611,42 @@ class ComplementaryExamDecisionTest extends TestCase
         $this->assertStringContainsString('différé par le médecin', $blockers());
     }
 
+    /**
+     * Un diagnostic saisi à l'examen clinique est le même que celui de « Décision & clôture » :
+     * il est servi à l'écran de clôture, ne réclame rien de plus, et un report antérieur
+     * (« Pas maintenant ») ne le rend ni invisible ni bloquant.
+     */
+    public function test_a_diagnosis_recorded_at_the_exam_is_carried_to_the_closure_step(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->medicineConsultation($doctor);
+
+        $this->actingAs($doctor)
+            ->post($this->diagnosisTimingUrl($orientation), ['ready' => false])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($doctor)
+            ->post("/medicine/orientations/{$orientation->uuid}/diagnoses", [
+                'type' => 'FINAL',
+                'description' => 'Angine aiguë',
+                'manual_code' => null,
+                'return_step' => 'examen',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $props = $this->actingAs($doctor)
+            ->get("/medicine/orientations/{$orientation->uuid}/cloture")
+            ->viewData('page')['props']['consultation'];
+
+        $this->assertSame(['Angine aiguë'], collect($props['diagnoses'])->where('cancelled', false)->pluck('description')->all());
+        $this->assertStringNotContainsString(
+            'Diagnostic',
+            collect($props['closure_blockers'])->pluck('message')->implode(' '),
+        );
+        $this->assertNull(app(\App\Support\ConsultationWorkflow::class)->diagnosisNote($orientation->consultation()->firstOrFail()));
+    }
+
     /** Nothing is pre-selected here either. */
     public function test_the_diagnosis_readiness_starts_undecided(): void
     {
@@ -793,7 +829,7 @@ class ComplementaryExamDecisionTest extends TestCase
 
         if (! $readOnly) {
             $permissions = [...$permissions, 'consultations.create', 'consultations.update',
-                'laboratory_orders.create', 'imaging_orders.create', 'diagnoses.view', 'prescriptions.view'];
+                'laboratory_orders.create', 'imaging_orders.create', 'diagnoses.view', 'diagnoses.create', 'prescriptions.view'];
         }
 
         foreach ($permissions as $name) {

@@ -29,6 +29,7 @@ use App\Models\EpisodeOrientation;
 use App\Models\EpisodeServiceRequest;
 use App\Models\ImagingRequest;
 use App\Models\ImagingRequestItem;
+use App\Models\HospitalStay;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
 use App\Models\User;
@@ -62,6 +63,12 @@ class MedicineDossierPresenter
         bool $includeMedicineCatalog = false,
     ): array {
         $episode = $orientation->episode;
+        // ADR-149 — le patient est-il dans un lit ? Cela change la conduite à
+        // tenir qu'on peut lui proposer, et l'écran doit le dire en tête.
+        $stay = HospitalStay::query()
+            ->where('episode_id', $episode->getKey())
+            ->where('status', HospitalStayStatus::Active->value)
+            ->first();
         $patient = $episode->patient;
         $consultation = $orientation->consultation;
         $clinicalExamination = $consultation?->clinicalExamination;
@@ -587,6 +594,16 @@ class MedicineDossierPresenter
                 'discharged_at' => $episode->medicalDischarge->discharged_at,
                 'created_by' => $episode->medicalDischarge->creator?->name,
             ] : null,
+            // ADR-149 — le séjour en cours, s'il y en a un. L'écran le dit en
+            // tête : on ne décide pas la suite d'une rencontre de la même
+            // façon selon que le patient rentre chez lui ou reste au lit.
+            'hospital_stay' => $stay && $user->can('hospitalization.view') ? [
+                'uuid' => $stay->uuid,
+                'url' => "/hospitalisation/{$stay->uuid}",
+                'service' => $stay->service,
+                'room_bed' => $stay->room_bed,
+                'admitted_at' => $stay->admitted_at,
+            ] : null,
             // La conduite à tenir : ce qui a été décidé, ce qu'il reste à
             // transmettre, et de quoi préremplir la demande sans rien
             // redemander au médecin (ADR-084).
@@ -605,6 +622,7 @@ class MedicineDossierPresenter
                 // Seules les destinations réellement autorisées au compte.
                 // Le serveur revérifie de toute façon à l'écriture.
                 'orientation_types' => collect(ConsultationOrientationType::cases())
+                    ->filter(fn (ConsultationOrientationType $type): bool => $this->orientationApplies($type, $stay))
                     ->filter(fn (ConsultationOrientationType $type): bool => $user->can($type->permission()))
                     ->map(fn (ConsultationOrientationType $type) => [
                         'value' => $type->value,
@@ -1231,4 +1249,25 @@ class MedicineDossierPresenter
 
         return $text !== '' ? $text : null;
     }
+
+    /**
+     * ADR-149 — la conduite à tenir dépend de là où le patient se trouve.
+     *
+     * Hospitalisé, une visite se conclut par « Poursuite de l'hospitalisation »
+     * (il reste au lit) ou par « Sortie médicale » — celle-ci termine aussi le
+     * séjour depuis l'ADR-156, si bien que le patient ne peut plus être sorti
+     * sans que son lit le soit. Seule « Hospitalisation » reste retirée : elle
+     * ouvrirait un **second séjour** sur le même passage.
+     *
+     * Non hospitalisé, « Poursuite de l'hospitalisation » ne veut rien dire.
+     */
+    private function orientationApplies(ConsultationOrientationType $type, ?HospitalStay $stay): bool
+    {
+        if ($stay === null) {
+            return $type !== ConsultationOrientationType::ContinuedHospitalization;
+        }
+
+        return $type !== ConsultationOrientationType::Hospitalization;
+    }
+
 }

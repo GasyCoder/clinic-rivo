@@ -68,6 +68,11 @@ const printSheet = () => window.print();
             </div>
         </div>
 
+        <!-- Écran seulement : des onglets pour passer d'un dossier à l'autre (ADR-145). -->
+        <div v-if="$slots.tabs" class="ps-actions">
+            <slot name="tabs" />
+        </div>
+
         <article class="ps-sheet rounded-lg border border-border shadow-sm">
             <header class="ps-head">
                 <div class="ps-band" />

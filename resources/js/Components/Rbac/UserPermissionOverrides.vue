@@ -438,15 +438,15 @@ const save = () => emit('save', {
         <ResizableSplit
             v-else
             storage-key="rivo:super-admin:overrides-split"
-            :default-ratio="0.26"
-            :min-ratio="0.18"
+            :default-ratio="0.3"
+            :min-ratio="0.22"
             :max-ratio="0.45"
             start-label="panneau du compte et des catégories"
             end-label="panneau des exceptions"
         >
             <template #start>
-            <div class="space-y-4 pe-1 sticky top-4">
-                <Card class="overflow-hidden">
+            <div class="sticky top-4 flex max-h-[calc(100vh-9rem)] min-h-[26rem] flex-col gap-4 pe-1">
+                <Card class="shrink-0 overflow-hidden">
                     <p class="border-b border-border px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Compte réglé</p>
                     <div class="p-3">
                         <div class="flex items-start gap-2.5">
@@ -472,9 +472,10 @@ const save = () => emit('save', {
                     </div>
                 </Card>
 
-                <div>
-                    <p class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Catégories</p>
+                <div class="flex min-h-0 flex-1 flex-col">
+                    <p class="mb-1.5 shrink-0 text-xs font-bold uppercase tracking-wider text-muted-foreground">Catégories</p>
                     <PermissionCategoryNav
+                        class="min-h-0 flex-1"
                         :groups="navGroups"
                         :model-value="scopedToCategory ? selectedCategory : ''"
                         marked-title="Catégorie modifiée"

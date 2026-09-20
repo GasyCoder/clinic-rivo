@@ -61,6 +61,7 @@ use App\Http\Controllers\Pharmacy\SupplierController;
 use App\Http\Controllers\Pharmacy\SupplierInvoiceController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
+use App\Http\Controllers\Reception\ReceptionNewbornController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
@@ -644,6 +645,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/patients/search', [ReceptionController::class, 'searchPatients'])
         ->name('reception.patients.search')
         ->middleware('can:episodes.create');
+    // ADR-146 — « accouchement chez nous » : les bébés d'une mère, puis le bébé devenu patient d'un clic.
+    Route::get('/reception/newborns', [ReceptionNewbornController::class, 'index'])
+        ->name('reception.newborns.index')
+        ->middleware(['can:episodes.create', 'can:newborns.view']);
+    Route::post('/reception/newborns/{maternityRecord}/{newbornUuid}/patient', [ReceptionNewbornController::class, 'store'])
+        ->whereUuid('newbornUuid')
+        ->name('reception.newborns.patient.store')
+        ->middleware(['can:episodes.create', 'can:newborns.patient.create']);
     Route::post('/reception/estimates', ReceptionEstimateController::class)
         ->name('reception.estimates.store')
         ->middleware('can:episodes.create');
@@ -683,6 +692,27 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/reception/passages/{episode}/sortie-administrative', [EpisodeSettlementController::class, 'store'])
         ->name('reception.passages.administrative-exit.store')
         ->middleware('can:episodes.administrative_exit');
+    // ADR-090 (amendement du 2026-09-20) — la sortie est refusée tant qu'une
+    // prestation n'est portée sur aucune facture : ce geste la facture d'ici.
+    Route::post('/reception/passages/{episode}/facturer-prestations', [EpisodeSettlementController::class, 'invoicePending'])
+        ->name('reception.passages.invoice-pending')
+        ->middleware(['can:episodes.administrative_exit', 'can:billing.create']);
+    // Sélection multiple de « Sorties & règlements ». Chaque passage est jugé
+    // séparément par l'action qui le juge seul ; seule la sortie « payé
+    // comptant » se prononce en lot (dette validée et évasion exigent un
+    // responsable ou un constat, qui ne se décident pas sur une liste).
+    Route::post('/reception/sorties/sortie-groupee', [EpisodeSettlementController::class, 'bulkPaidCashExit'])
+        ->name('reception.settlements.bulk-exit')
+        ->middleware('can:episodes.administrative_exit');
+    Route::post('/reception/sorties/facturation-groupee', [EpisodeSettlementController::class, 'bulkInvoice'])
+        ->name('reception.settlements.bulk-invoice')
+        ->middleware(['can:episodes.administrative_exit', 'can:billing.create']);
+    Route::get('/reception/sorties/fiches', [EpisodeSettlementController::class, 'printExitSlips'])
+        ->name('reception.settlements.bulk-slips')
+        ->middleware('can:episodes.settlement.view');
+    Route::get('/reception/sorties/export', [EpisodeSettlementController::class, 'exportSelection'])
+        ->name('reception.settlements.export')
+        ->middleware('can:episodes.settlement.view');
     // ADR-116 — la « FICHE DE SORTIE » de la clinique, imprimable une fois
     // la sortie administrative prononcée ; c'est ce papier que le service
     // sécurité contrôle ensuite au poste de gardiennage.
@@ -731,6 +761,11 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::delete('/patients/{patient}', [PatientController::class, 'destroy'])->name('patients.destroy')->middleware('can:patients.delete');
     Route::get('/patients/{patient}', [PatientController::class, 'show'])->name('patients.show')->middleware('can:patients.view');
     // ADR-118 — tous les journaux de traitement du patient, en un seul document.
+    // ADR-145 — le dossier médical d'un patient, sans passage requis : un nouveau-né que la Réception
+    // n'a pas encore accueilli en aurait sinon aucun. Même garde et même modèle que celui d'un passage.
+    Route::get('/patients/{patient}/dossier-medical', [EpisodeController::class, 'printPatientMedicalRecord'])
+        ->name('patients.medical-record.print')
+        ->middleware('can:patients.view');
     Route::get('/patients/{patient}/journaux-de-traitement', [PatientTreatmentJournalController::class, 'show'])
         ->name('patients.treatment-journals.show')
         ->middleware(['can:patients.view', 'can:treatment_journal.view']);
@@ -753,6 +788,14 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/passages/{episode}/dossier-medical', [EpisodeController::class, 'printMedicalRecord'])
         ->name('passages.medical-record.print')
         ->middleware('can:patients.view');
+    // ADR-146 — le dossier d'un bébé qui n'est pas encore patient, lu depuis sa fiche chez sa mère.
+    // `newborns.medical_record.view` et non `maternity.view` : lire la naissance d'un enfant n'est pas
+    // travailler dans le dossier obstétrical de sa mère, et ce second droit — réservé au profil
+    // sage-femme (ADR-067) — fermait la feuille à Médecine comme à la Réception.
+    Route::get('/passages/{episode}/nouveau-nes/{newbornUuid}/dossier-medical', [EpisodeController::class, 'printNewbornMedicalRecord'])
+        ->whereUuid('newbornUuid')
+        ->name('passages.newborns.medical-record.print')
+        ->middleware(['can:patients.view', 'can:newborns.medical_record.view']);
     // Le « DOSSIER MÉDICAL – TRAITEMENT » : à la fois l'écran de saisie pour
     // Médecine/Soins et la feuille imprimable, sur la même chronologie.
     Route::get('/passages/{episode}/journal', [TreatmentJournalController::class, 'show'])
@@ -803,7 +846,13 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/maternity/orientations/{episodeOrientation}', [MaternityController::class, 'show'])->name('maternity.orientations.show')->middleware('can:maternity.view');
     Route::post('/maternity/orientations/{episodeOrientation}/accept', [MaternityController::class, 'accept'])->name('maternity.orientations.accept')->middleware('can:maternity.update');
     Route::put('/maternity/orientations/{episodeOrientation}/record', [MaternityController::class, 'save'])->name('maternity.orientations.record.update')->middleware('can:maternity.view');
+    Route::put('/maternity/orientations/{episodeOrientation}/draft', [MaternityController::class, 'saveDraft'])->name('maternity.orientations.draft.update')->middleware('can:maternity.view');
+    Route::delete('/maternity/orientations/{episodeOrientation}/draft', [MaternityController::class, 'discardDraft'])->name('maternity.orientations.draft.destroy')->middleware('can:maternity.view');
     Route::post('/maternity/orientations/{episodeOrientation}/procedures', [MaternityController::class, 'procedure'])->name('maternity.orientations.procedures.store')->middleware('can:maternity.procedures.manage');
+    Route::put('/maternity/orientations/{episodeOrientation}/procedures/{procedure}', [MaternityController::class, 'updateProcedure'])->name('maternity.orientations.procedures.update')->middleware('can:maternity.procedures.manage');
+    Route::delete('/maternity/orientations/{episodeOrientation}/procedures/{procedure}', [MaternityController::class, 'removeProcedure'])->name('maternity.orientations.procedures.destroy')->middleware('can:maternity.procedures.manage');
+    Route::post('/maternity/orientations/{episodeOrientation}/procedures/batch', [MaternityController::class, 'procedures'])->name('maternity.orientations.procedures.batch')->middleware('can:maternity.procedures.manage');
+    Route::post('/maternity/orientations/{episodeOrientation}/consumables/{careConsumableRequest}/cancel', [MaternityController::class, 'cancelConsumables'])->name('maternity.consumables.cancel')->middleware('can:care_consumables.cancel');
     Route::post('/maternity/orientations/{episodeOrientation}/cesarean', [MaternityController::class, 'cesarean'])->name('maternity.orientations.cesarean.store')->middleware('can:maternity.delivery.manage');
     Route::post('/maternity/orientations/{episodeOrientation}/complete', [MaternityController::class, 'complete'])->name('maternity.orientations.complete')->middleware('can:maternity.complete');
 
@@ -818,10 +867,16 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/hospitalisation/{hospitalStay}', [HospitalizationController::class, 'show'])->name('hospitalization.show')->middleware('can:hospitalization.view');
     Route::put('/hospitalisation/{hospitalStay}', [HospitalizationController::class, 'update'])->name('hospitalization.update')->middleware('can:hospitalization.update');
     Route::put('/hospitalisation/{hospitalStay}/demande', [HospitalizationController::class, 'updateRequest'])->name('hospitalization.request.update')->middleware('can:hospitalization.request');
+    // ADR-148 — la visite de service : une vraie rencontre pendant le séjour,
+    // qui réutilise l'assistant Médecine plutôt que d'en dupliquer le circuit.
+    Route::post('/hospitalisation/{hospitalStay}/visites', [HospitalizationController::class, 'openVisit'])->name('hospitalization.visits.store')->middleware('can:consultations.create');
+    // ADR-147 — le diagnostic conclu au terme du séjour : même droit que celui
+    // d'une consultation, mais enregistré sur le séjour (la consultation qui a
+    // demandé l'hospitalisation est le plus souvent close, ADR-076).
+    Route::post('/hospitalisation/{hospitalStay}/diagnostics', [HospitalizationController::class, 'storeDiagnosis'])->name('hospitalization.diagnoses.store')->middleware('can:diagnoses.create');
     Route::post('/hospitalisation/{hospitalStay}/regime', [HospitalizationController::class, 'storeDiet'])->name('hospitalization.diet.store')->middleware('can:hospital_diet.record');
     Route::put('/hospitalisation/{hospitalStay}/regime/{hospitalDietEntry}', [HospitalizationController::class, 'updateDiet'])->name('hospitalization.diet.update')->middleware('can:hospital_diet.record');
     Route::get('/hospitalisation/{hospitalStay}/regime/impression', [HospitalizationController::class, 'printDiet'])->name('hospitalization.diet.print')->middleware('can:hospitalization.view');
-    Route::post('/hospitalisation/{hospitalStay}/sortie', [HospitalizationController::class, 'discharge'])->name('hospitalization.discharge')->middleware('can:medical_discharge.create');
 
     // ADR-114 — Transferts : patients référés vers un autre établissement.
     Route::get('/transferts', [TransferController::class, 'index'])->name('transfers.index')->middleware('can:transfers.view');

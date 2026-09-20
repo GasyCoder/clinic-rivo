@@ -152,10 +152,16 @@ test('la demande de transfert se rédige en texte riche', () => {
 test('une sortie pour décès ne propose rien qui s’adresse à un vivant', () => {
     assert.match(discharge, /const isDeceased = computed\(\(\) => props\.form\.type === 'DECEASED'\)/);
 
-    // Les quatre blocs disparaissent, ils ne sont pas seulement vidés.
+    // Les blocs disparaissent, ils ne sont pas seulement vidés. La règle porte
+    // sur la garde `!isDeceased`, jamais sur la mise en page qui l'entoure
+    // (ADR-148 a regroupé la sortie en sections encadrées).
     assert.match(discharge, /<div v-if="!isDeceased">\n\s*<ClinicalSegmentedChoice/);
-    assert.match(discharge, /<div v-if="!isDeceased" class="grid gap-5 lg:grid-cols-2">/);
-    assert.match(discharge, /<div v-if="!isDeceased">\n\s*<p :class="labelClass">Contrôle<\/p>/);
+    // Traitement, conseils et contrôle : une seule section, une seule garde.
+    assert.match(discharge, /<section v-if="!isDeceased" :class="sectionClass">/);
+    const consignes = discharge.slice(discharge.indexOf('<section v-if="!isDeceased"'));
+    for (const label of ['Traitement de sortie', 'Conseils et surveillance', 'Contrôle']) {
+        assert.ok(consignes.includes(label), `${label} doit vivre sous la garde !isDeceased`);
+    }
 
     // L'état n'est pas absent : il est affiché comme un fait acquis.
     assert.match(discharge, /Décédé — porté au dossier par le type de sortie\./);

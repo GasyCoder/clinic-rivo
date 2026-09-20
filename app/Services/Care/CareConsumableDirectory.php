@@ -9,10 +9,12 @@ use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Enums\MedicineStockReservationStatus;
 use App\Models\CareConsumableRequest;
+use App\Models\CareActConsumable;
 use App\Models\CareConsumableRequestLine;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,23 +36,75 @@ use Illuminate\Support\Collection;
 class CareConsumableDirectory
 {
     /**
-     * Consumables a nurse may declare: parapharmacy only — never a
-     * medicine, which is what makes the client's "Soins ne donne jamais un
-     * médicament" rule structural rather than cosmetic.
+     * Les produits qu'un service peut déclarer comme utilisés sur le patient.
      *
-     * @return Collection<int, array<string, mixed>>
+     * ```text
+     * Soins       parapharmacie seulement — jamais un médicament, ce qui rend la
+     *             règle « les Soins ne donnent jamais un médicament » structurelle
+     * Maternité   la parapharmacie, PLUS les produits que l'administration a
+     *             explicitement configurés comme matériel habituel d'un acte de
+     *             la Maternité (DIU, implant, injectable contraceptif…)
+     * ```
+     *
+     * La Maternité pose réellement ces produits — c'est la sage-femme qui insère
+     * le DIU —, mais elle ne les choisit pas librement dans tout le stock : la
+     * liste est une décision du référentiel, jamais une déduction (ADR-142).
+     *
+     * @return Builder<Medicine>
      */
-    public function selectableConsumables(): Collection
+    public static function eligibleMedicines(CatalogModule $service = CatalogModule::Care): Builder
     {
-        $today = CarbonImmutable::today();
-
         return Medicine::query()
             ->where('active', true)
-            ->where('form', MedicineForm::ParapharmacyConsumable->value)
+            ->where(function (Builder $query) use ($service): void {
+                $query->where('form', MedicineForm::ParapharmacyConsumable->value);
+
+                if ($service === CatalogModule::Maternity) {
+                    $query->orWhereIn('id', CareActConsumable::query()
+                        ->whereHas('catalogItem', fn ($item) => $item->where('module', CatalogModule::Maternity->value))
+                        ->select('medicine_id'));
+                }
+            })
             ->whereHas('catalogItem', fn ($query) => $query
                 ->where('type', CatalogItemType::Medicine->value)
                 ->where('module', CatalogModule::Pharmacy->value)
-                ->where('stockable', true))
+                ->where('stockable', true));
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function selectableConsumables(CatalogModule $service = CatalogModule::Care): Collection
+    {
+        return $this->presentSelectable(self::eligibleMedicines($service));
+    }
+
+    /**
+     * Tout produit actif et stockable de la Pharmacie : ce que l'administration
+     * peut associer à un acte de la Maternité (ADR-142). Réservé à l'écran de
+     * configuration du référentiel — jamais au poste de soins.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function configurableForMaternity(): Collection
+    {
+        return $this->presentSelectable(Medicine::query()
+            ->where('active', true)
+            ->whereHas('catalogItem', fn ($query) => $query
+                ->where('type', CatalogItemType::Medicine->value)
+                ->where('module', CatalogModule::Pharmacy->value)
+                ->where('stockable', true)));
+    }
+
+    /**
+     * @param  Builder<Medicine>  $medicines
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function presentSelectable(Builder $medicines): Collection
+    {
+        $today = CarbonImmutable::today();
+
+        return $medicines
             ->with([
                 'catalogItem:id,uuid,code,name,unit',
                 'lots' => fn ($query) => $query
@@ -82,6 +136,7 @@ class CareConsumableDirectory
                     'code' => $medicine->catalogItem->code,
                     'name' => $medicine->catalogItem->name,
                     'unit' => $medicine->catalogItem->unit,
+                    'form' => $medicine->form?->value,
                     'available_quantity' => $available,
                     'available' => $available > 0,
                 ];
@@ -202,6 +257,8 @@ class CareConsumableDirectory
         return $requests->map(fn (CareConsumableRequest $request) => [
             'uuid' => $request->uuid,
             'request_number' => $request->request_number,
+            'source_module' => $request->source_module,
+            'source_label' => $request->sourceLabel(),
             'status' => $request->status->value,
             'status_label' => $request->status->label(),
             'can_be_served' => $request->status->canBeServed(),

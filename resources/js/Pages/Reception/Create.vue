@@ -6,6 +6,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     ArrowRight,
+    Baby,
     Briefcase,
     Building2,
     CalendarDays,
@@ -55,6 +56,7 @@ import CardBody from '@/Components/UI/CardBody.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
+import NewbornPicker from '@/Components/Reception/NewbornPicker.vue';
 import { financialModeLabel } from '@/utilities/financialMode';
 import { formatMoney } from '@/utilities/money';
 import {
@@ -590,6 +592,21 @@ const chooseAnotherPatient = () => {
     arrivalErrors.value = {};
     resetEpisodeContact();
 };
+// ADR-146 — un nouveau-né né chez nous : la Réception l'a choisi dans le dossier de sa mère, il est devenu
+// patient, et il repart comme n'importe quel patient existant.
+const chooseNewbornMode = () => {
+    patientMode.value = 'newborn';
+    selectedPatient.value = null;
+    duplicates.value = [];
+    arrivalErrors.value = {};
+    resetEpisodeContact();
+};
+const newbornSelected = (patient) => {
+    patientMode.value = 'search';
+    selectedPatient.value = patient;
+    duplicates.value = [];
+    arrivalErrors.value = {};
+};
 const chooseNewPatient = () => {
     patientMode.value = 'create';
     selectedPatient.value = null;
@@ -1085,7 +1102,14 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                 <div class="mt-5 inline-flex rounded-md border border-border bg-card p-1">
                     <button type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'search' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseExistingPatient"><Search class="h-4 w-4" />Patient existant</button>
                     <button v-if="capabilities.can_create_patient" type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'create' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseNewPatient"><UserRoundPlus class="h-4 w-4" />Nouveau Patient</button>
+                    <button v-if="capabilities.can_create_patient" type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'newborn' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseNewbornMode"><Baby class="h-4 w-4" />Nouveau-né</button>
                 </div>
+
+                <!-- ADR-146 — « accouchement chez nous ou externe ? » : chez nous, le bébé se choisit dans le dossier
+                     de sa mère ; ailleurs, c'est un nouveau patient comme les autres. -->
+                <section v-if="patientMode === 'newborn'" class="mt-5 w-full">
+                    <NewbornPicker :request="requestJson" @select="newbornSelected" @external="chooseNewPatient" />
+                </section>
 
                 <section v-if="patientMode === 'search'" class="mt-5 w-full">
                     <div class="rounded-md border border-border bg-muted/25 p-4 sm:p-5">
@@ -1231,7 +1255,9 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <section v-if="patientMode === 'create' || selectedPatient" class="mt-5 w-full overflow-hidden rounded-md border border-border">
+                <!-- ADR-146 : tant que la Réception choisit le bébé chez sa mère, rien d'autre n'est demandé —
+                     un formulaire de nouveau patient sous l'arborescence ferait saisir ce qu'on vient d'y trouver. -->
+                <section v-if="patientMode === 'create' || (patientMode !== 'newborn' && selectedPatient)" class="mt-5 w-full overflow-hidden rounded-md border border-border">
                     <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><UsersRound class="h-4 w-4" /></span>
                         <div><h3 class="text-sm font-bold text-foreground">Personne à contacter pour ce passage <span class="font-normal text-muted-foreground">(facultatif)</span></h3><p class="mt-1 text-xs text-muted-foreground">Ces coordonnées appartiennent uniquement au nouvel Episode et peuvent changer à chaque passage.</p></div>
@@ -1256,7 +1282,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                 <FormError v-if="arrivalMessage && !duplicates.length" class="mt-4 w-full">{{ arrivalMessage }}</FormError>
                 <div class="mt-6 flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                     <Button size="lg" variant="white-outline" @click="returnFromPatientStep"><ArrowLeft class="h-4 w-4" />{{ patientBackLabel }}</Button>
-                    <Button v-if="patientMode === 'create' || selectedPatient" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer l’Episode' }}<ArrowRight class="h-4 w-4" /></Button>
+                    <Button v-if="patientMode === 'create' || (patientMode !== 'newborn' && selectedPatient)" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer l’Episode' }}<ArrowRight class="h-4 w-4" /></Button>
                 </div>
             </CardBody>
 

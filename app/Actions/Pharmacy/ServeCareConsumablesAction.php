@@ -83,7 +83,8 @@ class ServeCareConsumablesAction
 
             $servedAt = now();
             $destination = sprintf(
-                'Soins — patient %s',
+                '%s — patient %s',
+                $request->sourceLabel(),
                 $request->episode?->patient?->patient_number ?? $request->episode?->episode_number ?? 'interne',
             );
 
@@ -117,7 +118,7 @@ class ServeCareConsumablesAction
                         'source_key' => sprintf('care_consumable:%s:%d', $line->uuid, ++$movementSequence),
                         'origin' => sprintf('Stock Pharmacie — %s', config('rivo.site.name') ?: config('rivo.site.code')),
                         'destination' => $destination,
-                        'reason' => "Consommables Soins {$request->request_number}",
+                        'reason' => "Consommables {$request->sourceLabel()} {$request->request_number}",
                         'occurred_at' => $servedAt,
                         'performed_by' => $actor->getKey(),
                     ]);

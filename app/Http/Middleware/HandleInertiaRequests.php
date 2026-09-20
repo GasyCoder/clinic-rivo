@@ -79,6 +79,8 @@ class HandleInertiaRequests extends Middleware
                 // change — only a message that isn't a plain success sets it.
                 'status_type' => fn () => $request->session()->get('status_type'),
                 'duplicates' => fn () => $request->session()->get('duplicates'),
+                // Rapport d'une action groupée : ce qui est passé, ce qui ne l'est pas, et pourquoi.
+                'bulk_report' => fn () => $request->session()->get('bulk_report'),
                 'print_ticket_url' => fn () => $request->session()->get('print_ticket_url'),
             ],
         ];

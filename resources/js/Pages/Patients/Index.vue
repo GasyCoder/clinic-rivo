@@ -6,6 +6,7 @@ import {
     ArrowDownAZ,
     ArrowRight,
     CheckCircle2,
+    Baby,
     Crown,
     Eye,
     FileSpreadsheet,
@@ -500,7 +501,7 @@ watch(
                 <!-- ADR-133 : les filtres de la page, tous les dossiers correspondants
                      (pas la seule page affichée). Un lien, pas une visite Inertia :
                      c'est un fichier qui se télécharge. -->
-                <Button v-if="can('patients.export')" as="a" :href="exportUrl" variant="outline" title="Télécharger les patients affichés (tous les filtres) au format Excel">
+                <Button v-if="can('patients.export')" as="a" :href="exportUrl" variant="success" title="Télécharger les patients affichés (tous les filtres) au format Excel">
                     <FileSpreadsheet class="h-4 w-4" />
                     Exporter Excel
                 </Button>
@@ -754,6 +755,18 @@ watch(
                                             <a v-if="patient.phone" :href="`tel:${patient.phone}`" class="inline-flex items-center gap-1.5 hover:text-primary"><Phone class="h-3.5 w-3.5" />{{ patient.phone }}</a>
                                             <span v-else class="inline-flex items-center gap-1.5 italic"><Phone class="h-3.5 w-3.5" />Non renseigné</span>
                                             <Badge v-if="hasSpecialType(patient)" variant="outline" class="px-1.5 py-0 text-[10px]" :title="patient.patient_type_label">{{ patientTypeLabel(patient) }}</Badge>
+                                            <!-- ADR-146 : de qui ce bébé est l'enfant — sans quoi lui et sa mère
+                                                 se lisent comme deux dossiers sans rapport. -->
+                                            <Link
+                                                v-if="patient.newborn_of && canViewPatient"
+                                                :href="`/patients/${patient.newborn_of.uuid}`"
+                                                class="inline-flex items-center gap-1.5 hover:text-primary"
+                                                :title="`Ouvrir le dossier de sa mère (${patient.newborn_of.patient_number})`"
+                                            ><Baby class="h-3.5 w-3.5" />Nouveau-né de {{ patient.newborn_of.name }}</Link>
+                                            <span v-else-if="patient.newborn_of" class="inline-flex items-center gap-1.5"><Baby class="h-3.5 w-3.5" />Nouveau-né de {{ patient.newborn_of.name }}</span>
+                                            <!-- ADR-146 : une mère dont un bébé est né ici — ce que la Réception
+                                                 cherche à chaque arrivée d'un nouveau-né. -->
+                                            <Badge v-if="patient.newborn_children" variant="outline" class="gap-1 px-1.5 py-0 text-[10px]" :title="`Accouchement à la clinique : ${patient.newborn_children} nouveau-né${patient.newborn_children > 1 ? 's' : ''} dans son dossier`"><Baby class="h-3 w-3" />{{ patient.newborn_children }} bébé{{ patient.newborn_children > 1 ? 's' : '' }} né{{ patient.newborn_children > 1 ? 's' : '' }} ici</Badge>
                                         </span>
                                     </div>
                                 </div>
@@ -818,6 +831,8 @@ watch(
                                     <Badge v-if="patient.is_vip" variant="warning" class="shrink-0 gap-1 px-2 py-0.5" title="Patient VIP"><Crown class="h-3 w-3" />VIP</Badge>
                                 </span>
                                 <span class="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><FolderOpen class="h-3.5 w-3.5" />{{ patient.patient_number }}</span>
+                                <span v-if="patient.newborn_of" class="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground"><Baby class="h-3.5 w-3.5 shrink-0" />Nouveau-né de {{ patient.newborn_of.name }}</span>
+                                <span v-if="patient.newborn_children" class="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground"><Baby class="h-3.5 w-3.5 shrink-0" />{{ patient.newborn_children }} bébé{{ patient.newborn_children > 1 ? 's' : '' }} né{{ patient.newborn_children > 1 ? 's' : '' }} ici</span>
                             </div>
                         </div>
                         <CheckBox v-if="canDeletePatient" :id="`patient-grid-${patient.uuid}`" :model-value="selectedUuids.includes(patient.uuid)" :aria-label="`Sélectionner ${formatPatientName(patient)}`" @update:model-value="togglePatient(patient.uuid, $event)" />

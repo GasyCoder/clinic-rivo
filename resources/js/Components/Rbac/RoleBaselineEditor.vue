@@ -45,6 +45,12 @@ import { cn } from '@/lib/cn';
 const props = defineProps({
     roles: { type: Array, default: () => [] },
     permissionCatalog: { type: Array, default: () => [] },
+    /**
+     * ADR-153 — les comptes du site, avec leurs exceptions. Un `DENY` nominatif
+     * l'emporte sur ce socle (ADR-033) : cocher un droit ici ne l'ouvre pas
+     * pour eux, et l'écran doit le dire sur la case elle-même.
+     */
+    users: { type: Array, default: () => [] },
     siteName: { type: String, default: '' },
     processing: { type: Boolean, default: false },
     errors: { type: Object, default: () => ({}) },
@@ -53,6 +59,29 @@ const props = defineProps({
 const emit = defineEmits(['save', 'close', 'update:dirty']);
 
 const selectedRoleCode = ref(props.roles[0]?.code ?? '');
+
+/**
+ * Pour le rôle réglé : combien de ses comptes refusent ou s'accordent chaque
+ * droit à titre individuel. Le constat qui l'a motivé : un socle enregistré
+ * avec « Consulter les patients hospitalisés » n'ouvrait rien pour le compte
+ * connecté, parce qu'il portait un `DENY` nominatif — invisible ici.
+ */
+const overridesByPermission = computed(() => {
+    const map = new Map();
+
+    for (const user of props.users) {
+        if (user.role?.code !== selectedRoleCode.value) continue;
+
+        for (const override of user.permission_overrides ?? []) {
+            const entry = map.get(override.permission_id) ?? { allow: 0, deny: 0 };
+            if (override.effect === 'deny') entry.deny += 1;
+            if (override.effect === 'allow') entry.allow += 1;
+            map.set(override.permission_id, entry);
+        }
+    }
+
+    return map;
+});
 const draftIds = ref(new Set());
 const search = ref('');
 const filter = ref('all');
@@ -336,18 +365,18 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
              droite. Le choix appartient au poste, et il y reste. -->
         <ResizableSplit
             storage-key="rivo:super-admin:baseline-split"
-            :default-ratio="0.26"
-            :min-ratio="0.18"
+            :default-ratio="0.3"
+            :min-ratio="0.22"
             :max-ratio="0.45"
             start-label="panneau du rôle et des catégories"
             end-label="panneau du socle"
         >
             <template #start>
-            <div class="space-y-4 pe-1 sticky top-4">
+            <div class="sticky top-4 flex max-h-[calc(100vh-9rem)] min-h-[26rem] flex-col gap-4 pe-1">
                 <!-- Le rôle réglé, en clair, et une seule commande pour en
                      changer : la liste complète ne monopolise plus la
                      colonne pour un choix qu'on ne fait qu'une fois. -->
-                <Card class="overflow-hidden">
+                <Card class="shrink-0 overflow-hidden">
                     <p class="border-b border-border px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rôle réglé</p>
                     <div class="p-3">
                         <div class="flex items-start gap-2.5">
@@ -367,6 +396,22 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                                 </span>
                             </span>
                         </div>
+                        <!-- ADR-150 — ce socle n'est pas la seule source des
+                             droits de ces comptes : une exception individuelle
+                             l'emporte sur lui (ADR-033). Sans ce rappel, un
+                             socle à zéro se lit « personne n'y a accès », et un
+                             accès bien réel passe pour un défaut. -->
+                        <p
+                            v-if="selectedRole?.users_with_exceptions_count"
+                            class="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-2 text-[11px] leading-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"
+                        >
+                            <TriangleAlert class="mt-px h-3.5 w-3.5 shrink-0" />
+                            <span>
+                                <strong class="font-semibold">{{ selectedRole.users_with_exceptions_count }} compte{{ selectedRole.users_with_exceptions_count > 1 ? 's' : '' }}</strong>
+                                de ce rôle {{ selectedRole.users_with_exceptions_count > 1 ? 'portent' : 'porte' }} des exceptions individuelles,
+                                qui l’emportent sur ce socle. Un droit décoché ici peut donc rester ouvert pour {{ selectedRole.users_with_exceptions_count > 1 ? 'eux' : 'lui' }} — vérifiez dans « Exceptions par compte ».
+                            </span>
+                        </p>
                         <Button type="button" variant="outline" size="sm" class="mt-3 w-full" @click="openSwitcher">
                             <ArrowLeftRight class="h-4 w-4" />Changer de rôle
                             <span class="ms-auto text-[11px] font-normal text-muted-foreground">{{ roles.length }}</span>
@@ -374,9 +419,10 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                     </div>
                 </Card>
 
-                <div>
-                    <p class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Catégories</p>
+                <div class="flex min-h-0 flex-1 flex-col">
+                    <p class="mb-1.5 shrink-0 text-xs font-bold uppercase tracking-wider text-muted-foreground">Catégories</p>
                     <PermissionCategoryNav
+                        class="min-h-0 flex-1"
                         :groups="navGroups"
                         :model-value="scopedToCategory ? selectedCategory : ''"
                         marked-title="Catégorie modifiée"
@@ -484,6 +530,18 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                                             <TriangleAlert v-if="isSensitivePermission(permission)" class="h-3 w-3 shrink-0 text-amber-500" aria-label="Permission sensible" />
                                         </span>
                                         <span class="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground" :title="permission.name">{{ permission.name }}</span>
+                                        <!-- ADR-153 — un DENY nominatif l'emporte sur ce socle
+                                             (ADR-033). Sans ce repère, cocher la case paraissait
+                                             sans effet : le droit était bien accordé au rôle, et
+                                             refusé au compte. -->
+                                        <span
+                                            v-if="overridesByPermission.get(permission.id)?.deny"
+                                            class="mt-1 inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-px text-[10px] font-semibold text-destructive"
+                                            :title="`Ce droit est refusé individuellement à ${overridesByPermission.get(permission.id).deny} compte(s) de ce rôle : le cocher ici ne l’ouvrira pas pour ${overridesByPermission.get(permission.id).deny > 1 ? 'eux' : 'lui'}.`"
+                                        >
+                                            <TriangleAlert class="h-3 w-3" />
+                                            Refusé à {{ overridesByPermission.get(permission.id).deny }} compte{{ overridesByPermission.get(permission.id).deny > 1 ? 's' : '' }}
+                                        </span>
                                     </span>
                                 </label>
                             </div>

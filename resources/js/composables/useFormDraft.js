@@ -64,6 +64,11 @@ export function useFormDraft({ endpoint, forms, initial = null, enabled = true, 
             if (form.isDirty) payload[name] = form.data();
         });
 
+        // Rien n'est modifié : un minuteur déjà armé quand le formulaire vient d'être
+        // enregistré ou vidé n'a plus rien à garder. L'envoyer serait un 422
+        // (« payload obligatoire ») pour rien.
+        if (Object.keys(payload).length === 0) return;
+
         saving.value = true;
 
         try {

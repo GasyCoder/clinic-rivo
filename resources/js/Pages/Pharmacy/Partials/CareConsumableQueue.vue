@@ -41,6 +41,7 @@ const requests = computed(() => {
 
     return (props.careConsumables.requests ?? []).filter((request) => [
         request.request_number,
+        request.source_label,
         request.episode?.patient_name,
         request.episode?.patient_number,
         request.episode?.episode_number,
@@ -175,6 +176,8 @@ const confirmServe = () => {
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="font-mono text-xs font-bold text-foreground">{{ request.request_number }}</span>
                             <Badge :tone="statusTone(request.status)">{{ request.status_label }}</Badge>
+                            <!-- ADR-142 : le même circuit sert les Soins et la Maternité — l'origine se lit d'un coup d'œil. -->
+                            <Badge variant="outline">{{ request.source_label }}</Badge>
                         </div>
                         <p class="mt-1.5 truncate text-sm font-bold text-foreground">
                             {{ request.episode?.patient_name || 'Patient interne' }}
@@ -264,7 +267,7 @@ const confirmServe = () => {
                         ? 'Aucune demande ouverte ne porte ce patient, ce passage ou ce matériel.'
                         : (tab === 'partial'
                             ? 'Toutes les demandes ouvertes attendent encore leur première sortie de stock.'
-                            : 'Les Soins n’ont déclaré aucun consommable à sortir du stock.')"
+                            : 'Les Soins et la Maternité n’ont déclaré aucun matériel à sortir du stock.')"
                 >
                     <Button v-if="tab === 'partial'" type="button" variant="outline" size="sm" @click="$emit('change-tab', 'to-serve')">
                         Voir toutes les demandes à servir
@@ -295,6 +298,7 @@ const confirmServe = () => {
                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span class="font-mono text-xs font-bold text-foreground">{{ request.request_number }}</span>
                         <Badge :tone="statusTone(request.status)">{{ request.status_label }}</Badge>
+                        <Badge variant="outline">{{ request.source_label }}</Badge>
                         <span class="text-sm font-semibold text-foreground">{{ request.episode?.patient_name || 'Patient interne' }}</span>
                         <span class="font-mono text-[11px] text-muted-foreground">
                             {{ request.episode?.patient_number }} · passage {{ request.episode?.episode_number || '—' }}
@@ -317,7 +321,7 @@ const confirmServe = () => {
                 v-else
                 icon="check-circle"
                 :title="searching ? 'Aucune demande ne correspond' : 'Tout est facturé'"
-                description="Chaque consommable déclaré aux Soins a été porté au compte de son passage."
+                description="Chaque matériel déclaré aux Soins ou à la Maternité a été porté au compte de son passage."
             >
                 <Button type="button" variant="outline" size="sm" @click="$emit('change-tab', 'to-serve')">
                     Revenir aux demandes à servir

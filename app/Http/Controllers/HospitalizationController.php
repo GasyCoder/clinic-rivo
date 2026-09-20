@@ -2,17 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Hospitalization\DischargeHospitalStayAction;
 use App\Actions\Hospitalization\RecordHospitalDietEntryAction;
+use App\Actions\Hospitalization\RecordHospitalStayDiagnosisAction;
+use App\Actions\Hospitalization\StartHospitalVisitAction;
 use App\Actions\Hospitalization\UpdateHospitalizationRequestAction;
 use App\Enums\EpisodeStatus;
 use App\Enums\HospitalStayStatus;
-use App\Enums\MedicalDischargeType;
-use App\Http\Requests\Hospitalization\DischargeHospitalStayRequest;
 use App\Http\Requests\Hospitalization\StoreHospitalDietEntryRequest;
+use App\Http\Requests\Hospitalization\StoreHospitalStayDiagnosisRequest;
 use App\Http\Requests\Hospitalization\UpdateHospitalizationRequestRequest;
 use App\Http\Requests\Hospitalization\UpdateHospitalStayRequest;
 use App\Models\HospitalDietEntry;
+use App\Enums\CatalogModule;
+use App\Models\Consultation;
+use App\Models\Diagnosis;
 use App\Models\HospitalStay;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,19 +36,21 @@ class HospitalizationController extends Controller
     public function index(Request $request): Response
     {
         $search = trim((string) $request->query('q', ''));
-        $filter = in_array($request->query('filter'), ['active', 'discharged'], true)
-            ? $request->query('filter')
-            : 'active';
 
+        // ADR-156 — le module liste les patients **hospitalisés**. Les sorties
+        // appartiennent à la Réception (« Sorties & règlements », ADR-090) : un
+        // onglet « Sortis » ici en faisait une seconde liste des sorties, pour
+        // un séjour que plus personne n'a à traiter. Une recherche nommée
+        // retrouve tout de même un séjour terminé — sa fiche de régime et son
+        // dossier restent consultables.
         $base = HospitalStay::query()->where('status', '!=', HospitalStayStatus::Cancelled->value);
 
         $counts = [
             'active' => (clone $base)->where('status', HospitalStayStatus::Active->value)->count(),
-            'discharged' => (clone $base)->where('status', HospitalStayStatus::Discharged->value)->count(),
         ];
 
         $stays = $base
-            ->where('status', $filter === 'active' ? HospitalStayStatus::Active->value : HospitalStayStatus::Discharged->value)
+            ->when($search === '', fn ($query) => $query->where('status', HospitalStayStatus::Active->value))
             ->with([
                 'episode.patient:id,uuid,patient_number,first_name,last_name,sex,birth_date,declared_age',
                 'hospitalizationRequest:id,reason,priority,requested_by',
@@ -59,7 +64,7 @@ class HospitalizationController extends Controller
                     ->where('patient_number', 'like', "%{$search}%")
                     ->orWhere('first_name', 'like', "%{$search}%")
                     ->orWhere('last_name', 'like', "%{$search}%"))))
-            ->orderByDesc($filter === 'active' ? 'admitted_at' : 'discharged_at')
+            ->orderByDesc('admitted_at')
             ->paginate(20)
             ->withQueryString();
 
@@ -81,7 +86,6 @@ class HospitalizationController extends Controller
         return Inertia::render('Hospitalization/Index', [
             'stays' => $stays,
             'counts' => $counts,
-            'filter' => $filter,
             'search' => $search,
         ]);
     }
@@ -94,10 +98,15 @@ class HospitalizationController extends Controller
 
         return Inertia::render('Hospitalization/Show', [
             'stay' => $this->stay($hospitalStay),
-            'dischargeTypes' => collect(MedicalDischargeType::cases())
-                ->map(fn (MedicalDischargeType $type) => ['value' => $type->value, 'label' => $type->label()])
-                ->values(),
-            'transferDestinations' => $this->transferDestinations(),
+            // ADR-147 — ce que le dossier a déjà conclu, plus ce que le séjour
+            // a conclu : le médecin ne ressaisit rien pour prononcer la sortie.
+            'diagnoses' => $user->can('diagnoses.view')
+                ? $this->diagnoses($hospitalStay)
+                : [],
+            // ADR-148 — les visites de service déjà faites pendant le séjour.
+            'visits' => $user->can('consultations.view')
+                ? $this->visits($hospitalStay)
+                : [],
             'capabilities' => [
                 'can_record_diet' => $user->can('hospital_diet.record')
                     && $hospitalStay->episode->status === EpisodeStatus::Open,
@@ -105,6 +114,11 @@ class HospitalizationController extends Controller
                 'can_update_stay' => $user->can('hospitalization.update') && $hospitalStay->isActive(),
                 'can_edit_request' => $user->can('hospitalization.request') && $hospitalStay->isActive(),
                 'can_discharge' => $user->can('medical_discharge.create') && $hospitalStay->isActive(),
+                'can_add_diagnosis' => $user->can('diagnoses.create') && $hospitalStay->isActive(),
+                // ADR-148 — ouvrir une visite de service : la même autorité que
+                // prendre un patient en charge en Médecine.
+                'can_open_visit' => $user->can('consultations.create') && $hospitalStay->isActive(),
+                'can_view_visits' => $user->can('consultations.view'),
             ],
         ]);
     }
@@ -135,6 +149,48 @@ class HospitalizationController extends Controller
         return back()->with('status', 'Demande d’hospitalisation complétée.');
     }
 
+    /**
+     * ADR-148 — ouvrir une visite de service.
+     *
+     * Elle réutilise l'assistant Médecine tel quel : le médecin y retrouve
+     * diagnostic, ordonnance, examens et ordre de soins, avec leurs droits et
+     * leur facturation d'aujourd'hui. Aucun circuit n'est dupliqué.
+     */
+    public function openVisit(
+        Request $request,
+        HospitalStay $hospitalStay,
+        StartHospitalVisitAction $action,
+    ): RedirectResponse {
+        abort_unless($request->user()->can('consultations.create'), 403);
+
+        $orientation = $action->execute($hospitalStay, $request->user());
+
+        return redirect("/medicine/orientations/{$orientation->uuid}/dossier")
+            ->with('status', 'Visite de service ouverte.');
+    }
+
+    /**
+     * ADR-147 — le diagnostic conclu au terme du séjour.
+     *
+     * Il rejoint le séjour, jamais la consultation qui a demandé
+     * l'hospitalisation : elle est le plus souvent close (ADR-076).
+     */
+    public function storeDiagnosis(
+        StoreHospitalStayDiagnosisRequest $request,
+        HospitalStay $hospitalStay,
+        RecordHospitalStayDiagnosisAction $action,
+    ): RedirectResponse {
+        $action->execute(
+            $hospitalStay,
+            $request->validated('description'),
+            $request->user(),
+            $request->validated('diagnostic_catalog_uuid'),
+            $request->validated('notes'),
+        );
+
+        return back()->with('status', 'Diagnostic ajouté au séjour.');
+    }
+
     public function storeDiet(
         StoreHospitalDietEntryRequest $request,
         HospitalStay $hospitalStay,
@@ -154,24 +210,6 @@ class HospitalizationController extends Controller
         $action->execute($hospitalStay, $request->validated(), $request->user(), $hospitalDietEntry);
 
         return back()->with('status', 'Ligne de la fiche de régime corrigée.');
-    }
-
-    public function discharge(
-        DischargeHospitalStayRequest $request,
-        HospitalStay $hospitalStay,
-        DischargeHospitalStayAction $action,
-    ): RedirectResponse {
-        $discharge = $action->execute($hospitalStay, $request->validated(), $request->user());
-
-        // Un décès prononcé ici mène au registre, comme depuis une
-        // consultation (ADR-107).
-        if ($discharge->type === MedicalDischargeType::Deceased && $request->user()->can('death_records.view')) {
-            return redirect()->route('deaths.index')
-                ->with('status', 'Décès prononcé. Établissez l’acte de constatation.');
-        }
-
-        return redirect()->route('hospitalization.show', $hospitalStay)
-            ->with('status', 'Sortie d’hospitalisation prononcée. Le passage rejoint « Sorties & règlements ».');
     }
 
     public function printDiet(HospitalStay $hospitalStay): Response
@@ -256,6 +294,81 @@ class HospitalizationController extends Controller
         ];
     }
 
+    /**
+     * Les diagnostics que la sortie peut cocher : ceux du passage et ceux du séjour.
+     *
+     * Les deux sont des faits cliniques déjà consignés ; le formulaire les coche
+     * d'office et le médecin décide lesquels portent la conclusion. Un diagnostic
+     * annulé par son auteur (ADR-035) n'en est plus un et n'est pas servi.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function diagnoses(HospitalStay $stay): array
+    {
+        $fromConsultations = Diagnosis::query()
+            ->whereHas('consultation', fn ($query) => $query->where('episode_id', $stay->episode_id))
+            ->whereDoesntHave('cancellation')
+            ->with('recordedBy:id,name')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Diagnosis $diagnosis): array => [
+                'id' => 'consultation:'.$diagnosis->getKey(),
+                'description' => $diagnosis->description,
+                'origin' => 'CONSULTATION',
+                'recorded_by' => $diagnosis->recordedBy?->name,
+                'recorded_at' => $diagnosis->created_at,
+            ]);
+
+        $fromStay = $stay->diagnoses()
+            ->with('recordedBy:id,name')
+            ->orderBy('id')
+            ->get()
+            ->map(fn ($diagnosis): array => [
+                'id' => 'stay:'.$diagnosis->uuid,
+                'description' => $diagnosis->description,
+                'origin' => 'STAY',
+                'recorded_by' => $diagnosis->recordedBy?->name,
+                'recorded_at' => $diagnosis->created_at,
+            ]);
+
+        return $fromConsultations->concat($fromStay)->values()->all();
+    }
+
+    /**
+     * Les visites de service du séjour, la plus récente d'abord.
+     *
+     * Ce sont de vraies consultations : la liste ne recopie donc rien de leur
+     * contenu, elle mène à l'assistant qui le porte déjà.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function visits(HospitalStay $stay): array
+    {
+        return Consultation::query()
+            ->where('episode_id', $stay->episode_id)
+            ->whereHas('orientation', fn ($query) => $query
+                ->where('destination_module', CatalogModule::Medicine->value)
+                ->where('source_module', CatalogModule::Hospitalization->value))
+            ->with(['orientation:id,uuid,status', 'doctor:id,name'])
+            ->withCount(['diagnoses', 'prescriptions'])
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (Consultation $visit): array => [
+                'uuid' => $visit->uuid,
+                'url' => "/medicine/orientations/{$visit->orientation->uuid}/dossier",
+                'status' => $visit->status?->value,
+                'is_open' => $visit->isEditable(),
+                'doctor' => $visit->doctor?->name,
+                'consulted_at' => $visit->consulted_at,
+                'completed_at' => $visit->completed_at,
+                'chief_complaint' => $visit->chief_complaint,
+                'diagnoses_count' => $visit->diagnoses_count,
+                'prescriptions_count' => $visit->prescriptions_count,
+            ])
+            ->values()
+            ->all();
+    }
+
     /** @return array<string, mixed> */
     private function patient(HospitalStay $stay): array
     {
@@ -270,19 +383,5 @@ class HospitalizationController extends Controller
             'sex' => $patient?->sex?->value ?? $patient?->sex,
             'age' => $patient?->birth_date?->age ?? $patient?->declared_age,
         ];
-    }
-
-    /** Les autres sites, comme destinations de transfert (même source que Médecine). */
-    private function transferDestinations(): array
-    {
-        return collect(config('rivo.clinics', []))
-            ->filter(fn (array $site) => strtoupper((string) ($site['code'] ?? '')) !== strtoupper((string) config('rivo.site.code')))
-            ->map(fn (array $site) => [
-                'code' => $site['code'],
-                'name' => $site['name'],
-                'destination' => 'Clinique Saint Georges — '.$site['name'],
-            ])
-            ->values()
-            ->all();
     }
 }

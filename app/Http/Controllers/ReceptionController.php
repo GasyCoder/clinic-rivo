@@ -15,6 +15,7 @@ use App\Models\Episode;
 use App\Models\MutualOrganization;
 use App\Models\PartnerOrganization;
 use App\Models\Patient;
+use App\Support\Reception\PatientSearchPayload;
 use App\Models\VisitorVisit;
 use App\Services\Reception\ReceptionEstimateService;
 use App\Services\Reception\ReceptionFinancialPreviewService;
@@ -397,21 +398,6 @@ class ReceptionController extends Controller
     /** @return array<string, mixed> */
     private function patientSearchPayload(Patient $patient): array
     {
-        return [
-            'uuid' => $patient->uuid,
-            'patient_number' => $patient->patient_number,
-            'patient_type' => $patient->patient_type->value,
-            'civility' => $patient->civility?->value,
-            'civility_label' => $patient->civility?->label(),
-            'first_name' => $patient->first_name,
-            'last_name' => $patient->last_name,
-            'birth_date' => $patient->birth_date?->toDateString(),
-            'birth_date_is_approximate' => $patient->birth_date_is_approximate,
-            'declared_age' => $patient->declared_age,
-            'age' => $patient->birth_date?->age ?? $patient->declared_age,
-            'sex' => $patient->sex->value,
-            'phone' => $patient->phone,
-            'email' => $patient->email,
-        ];
+        return PatientSearchPayload::make($patient);
     }
 }

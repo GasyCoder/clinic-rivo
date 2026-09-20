@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -10,7 +10,7 @@ import Textarea from '@/Components/Shadcn/Textarea.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import ClinicalDischargeForm from '@/Components/Clinical/ClinicalDischargeForm.vue';
+import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import {
     ArrowLeft,
     BedDouble,
@@ -20,6 +20,8 @@ import {
     Pencil,
     Plus,
     Printer,
+    ClipboardList,
+    Stethoscope,
     Utensils,
     X,
 } from 'lucide-vue-next';
@@ -37,9 +39,11 @@ defineOptions({ layout: AppLayout });
  */
 const props = defineProps({
     stay: { type: Object, required: true },
-    dischargeTypes: { type: Array, default: () => [] },
-    transferDestinations: { type: Array, default: () => [] },
     capabilities: { type: Object, required: true },
+    /** ADR-147 — ceux du passage et ceux du séjour, déjà consignés. */
+    diagnoses: { type: Array, default: () => [] },
+    /** ADR-148 — les visites de service déjà faites pendant le séjour. */
+    visits: { type: Array, default: () => [] },
 });
 
 const isActive = computed(() => props.stay.status === 'ACTIVE');
@@ -133,29 +137,69 @@ const saveRequest = () => requestForm.put(`/hospitalisation/${props.stay.uuid}/d
 const requestIncomplete = computed(() => !props.stay.request.reason || !props.stay.request.admission_diagnosis);
 
 // ── Sortie médicale ─────────────────────────────────────────────────────────
-// Le même formulaire que la consultation, avec sa propre confirmation signée
-// (ADR-107) : un seul façonnage de la sortie médicale dans l'application.
-const toLocalDateTimeInput = (value = new Date()) => {
-    const date = new Date(value);
+// ── Visite de service (ADR-148) ─────────────────────────────────────────────
+// Une visite est une vraie consultation : l'assistant Médecine la porte déjà.
+// Ouvrir ici, c'est seulement y entrer — aucun circuit n'est dupliqué.
+const visitForm = useForm({});
+const openVisit = () => visitForm.post(`/hospitalisation/${props.stay.uuid}/visites`);
+const openVisitInProgress = computed(() => props.visits.find((visit) => visit.is_open) ?? null);
 
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-};
-const showDischarge = ref(false);
-const dischargeForm = useForm({
-    type: 'NORMAL',
-    final_diagnosis: props.stay.request.admission_diagnosis ?? '',
-    patient_condition: '',
-    discharge_prescription: '',
-    recommendations: '',
-    follow_up_at: '',
-    observations: '',
-    transfer_destination: '',
-    death_occurred_at: '',
-    death_place: '',
-    death_causes: '',
-    discharged_at: toLocalDateTimeInput(),
+// ── Diagnostic du séjour (ADR-147) ──────────────────────────────────────────
+// Le médecin conclut au terme du séjour : ce diagnostic est enregistré sur le
+// séjour, jamais dans la consultation qui a demandé l'hospitalisation — elle
+// est le plus souvent close (ADR-076). Le serveur revérifie de toute façon.
+const addingDiagnosis = ref(false);
+const diagnosisSearch = ref('');
+const diagnosisResults = ref([]);
+const diagnosisForm = useForm({ diagnostic_catalog_uuid: null, description: '', notes: '' });
+let searchTimer = null;
+
+watch(diagnosisSearch, (term) => {
+    clearTimeout(searchTimer);
+    const query = term.trim();
+
+    if (query.length < 2) {
+        diagnosisResults.value = [];
+
+        return;
+    }
+
+    searchTimer = setTimeout(async () => {
+        try {
+            const response = await fetch(`/diagnostic-catalog/search?q=${encodeURIComponent(query)}`, {
+                headers: { Accept: 'application/json' },
+            });
+            diagnosisResults.value = response.ok ? (await response.json()).data ?? [] : [];
+        } catch {
+            // Le catalogue est une aide de saisie : son indisponibilité ne doit
+            // jamais empêcher de poser un diagnostic à la main.
+            diagnosisResults.value = [];
+        }
+    }, 300);
 });
-const submitDischarge = () => dischargeForm.post(`/hospitalisation/${props.stay.uuid}/sortie`, { preserveScroll: true });
+
+const resetDiagnosis = () => {
+    diagnosisForm.reset();
+    diagnosisForm.clearErrors();
+    diagnosisSearch.value = '';
+    diagnosisResults.value = [];
+    addingDiagnosis.value = false;
+};
+
+const addDiagnosis = (catalogUuid = null, description = null) => {
+    diagnosisForm.diagnostic_catalog_uuid = catalogUuid;
+    diagnosisForm.description = catalogUuid ? '' : (description ?? diagnosisSearch.value).trim();
+
+    if (!catalogUuid && !diagnosisForm.description) {
+        return;
+    }
+
+    diagnosisForm.post(`/hospitalisation/${props.stay.uuid}/diagnostics`, {
+        preserveScroll: true,
+        onSuccess: resetDiagnosis,
+    });
+};
+
 
 const smokerLabel = computed(() => (props.stay.smoker === null ? 'Non renseigné' : (props.stay.smoker ? 'Oui' : 'Non')));
 const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.allergies.join(', ') : 'Aucune allergie connue au dossier'));
@@ -190,7 +234,19 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
             </div>
         </Card>
 
-        <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <!-- Deux panneaux que l'on redimensionne à la barre : la fiche de régime,
+             qui demande de la largeur (quatre colonnes de repas), et le séjour. Le
+             rapport est une préférence d'affichage, conservée sur le poste et jamais
+             envoyée au serveur ; sous 54 rem de large, les panneaux s'empilent. -->
+        <ResizableSplit
+            storage-key="rivo:hospitalization:split"
+            :default-ratio="0.72"
+            :min-ratio="0.5"
+            :max-ratio="0.82"
+            start-label="panneau Fiche de régime"
+            end-label="panneau Séjour"
+        >
+            <template #start>
             <!-- Fiche de régime -->
             <Card class="min-w-0 overflow-hidden">
                 <div class="flex items-center gap-3 border-b border-border px-5 py-3.5">
@@ -271,8 +327,10 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                     <FormError v-for="(message, key) in { ...newEntry.errors, ...editEntry.errors }" :key="key" :message="message" />
                 </div>
             </Card>
+            </template>
 
             <!-- Colonne latérale : le séjour et sa demande. La sortie est en bas. -->
+            <template #end>
             <aside class="space-y-5">
                 <Card class="p-5">
                     <div class="flex items-center justify-between gap-2">
@@ -340,7 +398,53 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                     </form>
                 </Card>
             </aside>
-        </div>
+            </template>
+        </ResizableSplit>
+
+        <!-- ADR-148 — ce que le séjour a produit : chaque visite est une
+             consultation complète (diagnostic, ordonnance, examens, soins). -->
+        <Card v-if="capabilities.can_view_visits || capabilities.can_open_visit" class="p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ClipboardList class="h-4 w-4 text-muted-foreground" />Visites de service</h2>
+                    <p class="mt-1 text-xs text-muted-foreground">Examiner, prescrire, demander une analyse ou un soin : chaque visite ouvre une consultation rattachée au séjour.</p>
+                </div>
+                <Button
+                    v-if="capabilities.can_open_visit && !openVisitInProgress"
+                    type="button"
+                    size="sm"
+                    class="shrink-0"
+                    :disabled="visitForm.processing"
+                    @click="openVisit"
+                >
+                    <Plus class="h-4 w-4" />Nouvelle visite
+                </Button>
+                <Button v-else-if="openVisitInProgress" :as="Link" :href="openVisitInProgress.url" size="sm" variant="outline" class="shrink-0">
+                    <Stethoscope class="h-4 w-4" />Reprendre la visite en cours
+                </Button>
+            </div>
+            <FormError class="mt-2" :message="visitForm.errors.visit" />
+            <ul v-if="visits.length" class="mt-4 space-y-2">
+                <li v-for="visit in visits" :key="visit.uuid">
+                    <Link
+                        :href="visit.url"
+                        class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2.5 text-xs transition-colors hover:bg-accent"
+                    >
+                        <Badge :variant="visit.is_open ? 'warning' : 'outline'">{{ visit.is_open ? 'En cours' : 'Terminée' }}</Badge>
+                        <span class="font-semibold text-foreground">{{ formatDateTime(visit.consulted_at) }}</span>
+                        <span v-if="visit.doctor" class="text-muted-foreground">Dr {{ visit.doctor }}</span>
+                        <span v-if="visit.chief_complaint" class="min-w-0 truncate text-muted-foreground">· {{ visit.chief_complaint }}</span>
+                        <span class="ms-auto text-muted-foreground">
+                            {{ visit.diagnoses_count }} diagnostic{{ visit.diagnoses_count > 1 ? 's' : '' }}
+                            · {{ visit.prescriptions_count }} ordonnance{{ visit.prescriptions_count > 1 ? 's' : '' }}
+                        </span>
+                    </Link>
+                </li>
+            </ul>
+            <p v-else class="mt-4 rounded-md border border-dashed border-border bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
+                Aucune visite enregistrée pour ce séjour.
+            </p>
+        </Card>
 
         <!-- La sortie, en bas et sur toute la largeur : son formulaire est une
              grille à deux colonnes (diagnostic, état, traitement, conseils) qui
@@ -356,25 +460,96 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
             </dl>
         </Card>
 
-        <Card v-else-if="capabilities.can_discharge" class="p-5">
+        <!-- ADR-147 — ce que le séjour a conclu, et ce que le dossier avait
+             déjà consigné. La sortie n'est plus ici (ADR-156) : ces
+             diagnostics restent la trace clinique du séjour lui-même. -->
+        <Card v-if="diagnoses.length || capabilities.can_add_diagnosis" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Stethoscope class="h-4 w-4 text-muted-foreground" />Diagnostics
+            </h2>
+            <ul v-if="diagnoses.length" class="mt-3 space-y-2">
+                <li
+                    v-for="diagnosis in diagnoses"
+                    :key="diagnosis.uuid"
+                    class="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2"
+                >
+                    <span class="text-sm text-foreground">{{ diagnosis.description }}</span>
+                    <span class="text-xs text-muted-foreground">
+                        {{ diagnosis.recorded_by }}<span v-if="diagnosis.recorded_at"> · {{ formatDateTime(diagnosis.recorded_at) }}</span>
+                    </span>
+                </li>
+            </ul>
+            <p v-else class="mt-3 text-xs text-muted-foreground">Aucun diagnostic consigné pour ce passage.</p>
+            <div v-if="capabilities.can_add_diagnosis" class="mt-3">
+                <Button v-if="!addingDiagnosis" type="button" size="xs" variant="outline" @click="addingDiagnosis = true">
+                    <Plus class="h-3.5 w-3.5" />Ajouter un diagnostic
+                </Button>
+                <div v-else class="rounded-md border border-border bg-muted/30 p-2.5">
+                    <Input
+                        v-model="diagnosisSearch"
+                        placeholder="Rechercher au catalogue, ou saisir un libellé"
+                        autofocus
+                        @keydown.enter.prevent="addDiagnosis()"
+                    />
+                    <ul v-if="diagnosisResults.length" class="mt-1.5 space-y-1">
+                        <li v-for="result in diagnosisResults" :key="result.uuid">
+                            <button
+                                type="button"
+                                class="flex w-full items-start gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-start text-xs hover:bg-accent"
+                                @click="addDiagnosis(result.uuid)"
+                            >
+                                <Stethoscope class="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span><span class="font-semibold">{{ result.name }}</span>
+                                    <span v-if="result.code" class="text-muted-foreground"> · {{ result.code }}</span></span>
+                            </button>
+                        </li>
+                    </ul>
+                    <p v-else-if="diagnosisSearch.trim().length >= 2" class="mt-1.5 text-[11px] text-muted-foreground">
+                        Aucun diagnostic du catalogue : « Ajouter » l’enregistre tel quel.
+                    </p>
+                    <FormError :message="diagnosisForm.errors.description || diagnosisForm.errors.diagnostic_catalog_uuid" />
+                    <div class="mt-2 flex justify-end gap-2">
+                        <Button type="button" size="xs" variant="ghost" @click="resetDiagnosis">Annuler</Button>
+                        <Button type="button" size="xs" :disabled="diagnosisForm.processing || !diagnosisSearch.trim()" @click="addDiagnosis()">
+                            <Check class="h-3.5 w-3.5" />Ajouter
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </Card>
+
+        <!-- ADR-156 — il n'y a qu'une sortie médicale, prononcée par le
+             médecin dans sa consultation (elle termine le séjour). Le second
+             formulaire qui vivait ici n'était qu'un doublon : deux endroits
+             pour un seul acte, et une visite ouverte à côté. -->
+        <Card v-else class="p-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
                     <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie d’hospitalisation</h2>
-                    <p class="mt-1 text-xs text-muted-foreground">Seule la sortie médicale termine le séjour. Le passage rejoint ensuite « Sorties & règlements ».</p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Elle se prononce dans la visite de service, à l’étape « Décision &amp; clôture » :
+                        conduite à tenir « Sortie médicale ». Elle termine le séjour, puis le passage
+                        rejoint « Sorties &amp; règlements ».
+                    </p>
                 </div>
-                <Button v-if="!showDischarge" type="button" size="sm" variant="outline" class="shrink-0" @click="showDischarge = true"><DoorOpen class="h-4 w-4" />Prononcer la sortie</Button>
+                <Button
+                    v-if="openVisitInProgress"
+                    :as="Link"
+                    :href="openVisitInProgress.url"
+                    size="sm"
+                    variant="warning"
+                    class="shrink-0"
+                ><Stethoscope class="h-4 w-4" />Reprendre la visite</Button>
+                <Button
+                    v-else-if="capabilities.can_open_visit"
+                    type="button"
+                    size="sm"
+                    variant="warning"
+                    class="shrink-0"
+                    :disabled="visitForm.processing"
+                    @click="openVisit"
+                ><Stethoscope class="h-4 w-4" />Ouvrir une visite</Button>
             </div>
-            <div v-if="showDischarge" class="mt-4 border-t border-border pt-4">
-                <ClinicalDischargeForm
-                    :form="dischargeForm"
-                    :types="dischargeTypes"
-                    :site-options="transferDestinations"
-                    :requires-diagnosis="true"
-                    @submit="submitDischarge"
-                    @cancel="showDischarge = false"
-                />
-                <FormError :message="dischargeForm.errors.medical_discharge" />
-            </div>
-        </Card>
+                </Card>
     </div>
 </template>

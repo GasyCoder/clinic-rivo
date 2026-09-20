@@ -145,7 +145,7 @@ const allergyLabel = computed(() => (props.allergies.length ? props.allergies.jo
                     <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie médicale</h2>
                     <p class="mt-1 text-xs text-muted-foreground">Elle termine la prise en charge Pédiatrie. Le passage rejoint ensuite « Sorties & règlements ».</p>
                 </div>
-                <Button v-if="!showDischarge" type="button" size="sm" variant="outline" class="shrink-0" @click="showDischarge = true"><DoorOpen class="h-4 w-4" />Prononcer la sortie</Button>
+                <Button v-if="!showDischarge" type="button" size="sm" variant="warning" class="shrink-0" @click="showDischarge = true"><DoorOpen class="h-4 w-4" />Prononcer la sortie</Button>
             </div>
             <div v-if="showDischarge" class="mt-4 border-t border-border pt-4">
                 <ClinicalDischargeForm

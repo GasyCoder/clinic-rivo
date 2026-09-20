@@ -6,17 +6,16 @@ use App\Actions\Billing\AttachBillableItemToUnpaidInvoiceAction;
 use App\Actions\Billing\RecordBillableItemAction;
 use App\Enums\BillableItemStatus;
 use App\Enums\CareConsumableRequestStatus;
-use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
-use App\Enums\MedicineForm;
 use App\Models\CareConsumableRequest;
 use App\Models\CareConsumableRequestLine;
 use App\Models\CareRecord;
 use App\Models\EpisodeOrientation;
 use App\Models\Invoice;
 use App\Models\Medicine;
+use App\Services\Care\CareConsumableDirectory;
 use App\Models\User;
 use App\Services\Audit\Auditor;
 use App\Services\Finance\FinancialNumberGenerator;
@@ -26,7 +25,8 @@ use Illuminate\Validation\ValidationException;
 /**
  * ADR-072 — Soins declares the consumables it actually used on the patient
  * and Pharmacy is notified so the stock exit is recorded by the module that
- * owns the stock.
+ * owns the stock. ADR-142 — la Maternité utilise le même circuit, avec une liste
+ * de produits élargie au matériel configuré pour ses actes.
  *
  * Two hard limits are enforced here, not in Vue:
  *  - only MedicineForm::ParapharmacyConsumable products are accepted, which
@@ -61,15 +61,15 @@ class RequestCareConsumablesAction
                 ]);
             }
 
+            // Le service demandeur se lit sur l'orientation, jamais sur une valeur
+            // envoyée : un compte ne se fait pas passer pour l'autre service.
+            $service = $orientation->destination_module === CatalogModule::Maternity
+                ? CatalogModule::Maternity
+                : CatalogModule::Care;
+
             $submitted = collect($data['lines'])->keyBy('medicine_uuid');
-            $medicines = Medicine::query()
+            $medicines = CareConsumableDirectory::eligibleMedicines($service)
                 ->whereIn('uuid', $submitted->keys())
-                ->where('active', true)
-                ->where('form', MedicineForm::ParapharmacyConsumable->value)
-                ->whereHas('catalogItem', fn ($query) => $query
-                    ->where('type', CatalogItemType::Medicine->value)
-                    ->where('module', CatalogModule::Pharmacy->value)
-                    ->where('stockable', true))
                 ->with('catalogItem:id,uuid,code,name,unit,billable')
                 ->orderBy('id')
                 ->lockForUpdate()
@@ -78,15 +78,25 @@ class RequestCareConsumablesAction
 
             if ($medicines->count() !== $submitted->count()) {
                 throw ValidationException::withMessages([
-                    'lines' => 'Seuls les consommables de parapharmacie actifs peuvent être déclarés par les Soins. Un médicament ou une ordonnance relèvent exclusivement de la Médecine et de la Pharmacie.',
+                    'lines' => $service === CatalogModule::Maternity
+                        ? 'Seuls les consommables de parapharmacie et le matériel configuré pour un acte de la Maternité peuvent être déclarés. Une ordonnance relève exclusivement de la Médecine et de la Pharmacie.'
+                        : 'Seuls les consommables de parapharmacie actifs peuvent être déclarés par les Soins. Un médicament ou une ordonnance relèvent exclusivement de la Médecine et de la Pharmacie.',
                 ]);
             }
 
             $request = CareConsumableRequest::query()->create([
                 'request_number' => $this->numbers->careConsumableRequest(),
+                'source_module' => $service->value,
                 'episode_id' => $episode->getKey(),
+                // L'orientation du service demandeur — Soins ou Maternité : c'est le
+                // lien que la file, la facturation et la sortie de stock lisent.
                 'care_orientation_id' => $orientation->getKey(),
-                'care_record_id' => $record?->getKey() ?? $episode->careRecord?->getKey(),
+                'care_record_id' => $service === CatalogModule::Care
+                    ? ($record?->getKey() ?? $episode->careRecord?->getKey())
+                    : null,
+                'maternity_record_id' => $service === CatalogModule::Maternity
+                    ? $episode->maternityRecord?->getKey()
+                    : null,
                 'status' => CareConsumableRequestStatus::Pending,
                 'notes' => filled($data['notes'] ?? null) ? trim((string) $data['notes']) : null,
                 'requested_at' => now(),
@@ -108,14 +118,14 @@ class RequestCareConsumablesAction
             }
 
             $this->auditor->record(
-                'care.consumables.request',
+                $service === CatalogModule::Maternity ? 'maternity.consumables.request' : 'care.consumables.request',
                 entity: $request,
                 newValues: [
                     'request_number' => $request->request_number,
                     'episode_uuid' => $episode->uuid,
                     'lines' => $request->lines()->count(),
                 ],
-                module: 'care',
+                module: $service === CatalogModule::Maternity ? 'maternity' : 'care',
                 actor: $actor,
             );
 

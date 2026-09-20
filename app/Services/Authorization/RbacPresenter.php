@@ -66,7 +66,7 @@ class RbacPresenter
     }
 
     /** @return array<string, mixed> */
-    public function role(Role $role, ?int $holders = null): array
+    public function role(Role $role, ?int $holders = null, ?int $holdersWithExceptions = null): array
     {
         return [
             'id' => $role->id,
@@ -83,6 +83,12 @@ class RbacPresenter
             // Un rôle encore porté ne s'archive pas : le compte perdrait son
             // socle entier. Le compte est donné ici pour le dire avant le clic.
             'users_count' => $holders ?? $role->users()->count(),
+            // ADR-150 — ce socle n'est pas la seule source des droits de ses
+            // comptes : une exception individuelle l'emporte (ADR-033). Sans
+            // ce compteur, un socle à 0 se lit « personne n'y a accès », et
+            // un accès bien réel passe pour un défaut.
+            'users_with_exceptions_count' => $holdersWithExceptions
+                ?? $role->users()->whereHas('permissions')->count(),
             'permissions' => $role->permissions->pluck('name')->sort()->values(),
             'profiles' => $role->professionalProfiles->map(fn (ProfessionalProfile $profile) => [
                 'id' => $profile->id,

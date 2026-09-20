@@ -1,106 +1,210 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
+import { CircleCheck, ClipboardList, Eye, Scissors, Search, ShieldCheck, Syringe } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
-import Button from '@/Components/UI/Button.vue';
-import Card from '@/Components/UI/Card.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import QueueCounters from '@/Components/Clinical/QueueCounters.vue';
+import SoinsTabs from '@/Components/Care/SoinsTabs.vue';
+import SoinsWorkspaceHeader from '@/Components/Care/SoinsWorkspaceHeader.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { formatDateTime } from '@/utilities/date';
 import { formatPatientInitials, formatPatientName } from '@/utilities/patient';
 
 defineOptions({ layout: AppLayout });
 
-const props = defineProps({ surgicalRequests: Object, search: String });
+/**
+ * L'espace Anesthésie du module Soins (ADR-048, ADR-135).
+ *
+ * Le dossier d'anesthésie est porté par la demande chirurgicale : la file suit
+ * donc le dossier de l'évaluation pré-anesthésique jusqu'au bloc puis à la fin.
+ * Les quatre étapes sont exclusives — la somme des comptes est le nombre de
+ * dossiers — et lues sur des faits que la Chirurgie et l'anesthésie
+ * enregistrent déjà, jamais sur un drapeau de plus.
+ */
+const props = defineProps({
+    surgicalRequests: Object,
+    search: String,
+    stage: { type: String, default: 'assess' },
+    counts: { type: Object, default: () => ({}) },
+});
 const { can } = usePermissions();
 const query = ref(props.search ?? '');
 let debounceTimer = null;
 
-const runSearch = (value) => router.get('/anesthesia', value ? { q: value } : {}, {
-    preserveState: true,
-    preserveScroll: true,
-    replace: true,
-});
+const visit = (stage = props.stage, value = query.value) => router.get(
+    '/anesthesia',
+    { stage: stage === 'assess' ? undefined : stage, q: value || undefined },
+    { preserveState: true, preserveScroll: true, replace: true },
+);
+
 watch(query, (value) => {
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => runSearch(value), 350);
+    debounceTimer = setTimeout(() => visit(props.stage, value), 350);
 });
 const submitSearch = () => {
     clearTimeout(debounceTimer);
-    runSearch(query.value);
+    visit();
 };
 
-const assessmentState = (request) => {
-    if (request.anesthesia_record?.assessment_validated_at) return { label: 'Évaluation validée', style: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300', icon: 'check-circle' };
-    if (request.anesthesia_record) return { label: 'Brouillon en cours', style: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300', icon: 'edit' };
-    return { label: 'À commencer', style: 'bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300', icon: 'clock' };
+/** Le compte vient du serveur : recalculé depuis la page affichée, il mentirait dès la deuxième. */
+const counterTiles = computed(() => [
+    {
+        value: 'assess',
+        label: 'À évaluer',
+        hint: 'Évaluation à faire ou en cours',
+        title: 'Évaluation pré-anesthésique pas encore validée, intervention pas encore au bloc',
+        icon: ClipboardList,
+        tone: 'amber',
+        count: props.counts.assess,
+        active: props.stage === 'assess',
+    },
+    {
+        value: 'cleared',
+        label: 'Transmis à Chirurgie',
+        hint: 'Évaluation validée, avant le bloc',
+        title: 'Évaluation validée : le dossier est prêt pour Chirurgie, qui n’est pas encore au bloc',
+        icon: Scissors,
+        tone: 'sky',
+        count: props.counts.cleared,
+        active: props.stage === 'cleared',
+    },
+    {
+        value: 'intra',
+        label: 'Au bloc',
+        hint: 'Conduite anesthésique en cours',
+        title: 'La Chirurgie est au bloc et le dossier anesthésique n’est pas encore validé',
+        icon: Syringe,
+        tone: 'primary',
+        count: props.counts.intra,
+        active: props.stage === 'intra',
+    },
+    {
+        value: 'done',
+        label: 'Terminés',
+        hint: 'Intervention ou dossier terminé',
+        title: 'Intervention terminée, ou dossier anesthésique validé',
+        icon: CircleCheck,
+        tone: 'emerald',
+        count: props.counts.done,
+        active: props.stage === 'done',
+    },
+]);
+
+const EMPTY = {
+    assess: { title: 'Aucun dossier à évaluer', hint: 'Les demandes chirurgicales dont l’évaluation pré-anesthésique reste à faire apparaissent ici.' },
+    cleared: { title: 'Aucun dossier transmis à Chirurgie', hint: 'Un dossier apparaît ici dès que son évaluation pré-anesthésique est validée, tant que Chirurgie n’est pas au bloc.' },
+    intra: { title: 'Aucune intervention au bloc', hint: 'Les dossiers dont la Chirurgie est au bloc apparaissent ici.' },
+    done: { title: 'Aucun dossier terminé', hint: 'Les interventions terminées et les dossiers anesthésiques validés apparaissent ici.' },
 };
+const empty = computed(() => (props.search
+    ? { title: 'Aucun dossier ne correspond à la recherche', hint: 'Modifiez la recherche ou changez d’étape ci-dessus.' }
+    : (EMPTY[props.stage] ?? EMPTY.assess)));
+
+const STAGE_TONES = { assess: 'warning', cleared: 'info', intra: 'primary', done: 'success' };
+
+/** Ce que la ligne ajoute à l'étape : l'état de l'évaluation, ou de l'intervention. */
+const detail = (request) => {
+    const record = request.anesthesia_record;
+
+    if (request.stage === 'assess') return record ? 'Brouillon en cours' : 'À commencer';
+    if (request.stage === 'cleared') return `Validée le ${formatDateTime(record?.assessment_validated_at) ?? '—'}`;
+    if (request.stage === 'intra') return 'Chirurgie au bloc';
+
+    return record?.validated_at ? `Dossier validé le ${formatDateTime(record.validated_at)}` : 'Intervention terminée';
+};
+
+const pages = computed(() => props.surgicalRequests.links ?? []);
 </script>
 
 <template>
     <Head title="Anesthésie" />
 
-    <div class="mx-auto w-full max-w-[1500px] space-y-5">
-        <header class="flex items-start gap-3">
-            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300"><Icon class="text-2xl" name="shield-check" /></span>
-            <div>
-                <h1 class="font-heading text-2xl font-bold -tracking-snug text-slate-700 dark:text-white">Anesthésie</h1>
-                <p class="mt-0.5 max-w-3xl text-sm leading-5 text-slate-400">
-                    {{ surgicalRequests.total }} dossier{{ surgicalRequests.total > 1 ? 's' : '' }} · Consultation pré-anesthésique, examens et conduite anesthésique.
-                </p>
-            </div>
-        </header>
+    <div class="mx-auto w-full max-w-screen-2xl space-y-5">
+        <SoinsTabs current="anesthesia" />
+
+        <SoinsWorkspaceHeader
+            :icon="ShieldCheck"
+            tone="violet"
+            eyebrow="Workspace paramédical spécialisé"
+            title="Anesthésie"
+            description="Consultation pré-anesthésique, examens et conduite anesthésique, de l’évaluation au bloc."
+        >
+            <form class="w-full lg:w-96" role="search" @submit.prevent="submitSearch">
+                <IconInput v-model="query" :icon="Search" type="search" placeholder="Patient, passage ou intervention…" autocomplete="off" aria-label="Rechercher un dossier d’anesthésie" />
+            </form>
+        </SoinsWorkspaceHeader>
+
+        <QueueCounters :tiles="counterTiles" @select="visit($event)" />
 
         <Card class="overflow-hidden shadow-sm">
-            <div class="border-b border-gray-200 p-4 dark:border-gray-900 sm:px-5">
-                <form class="relative w-full sm:max-w-md" role="search" @submit.prevent="submitSearch">
-                    <Input v-model="query" icon="start" type="search" placeholder="Patient, passage ou intervention" autocomplete="off" />
-                    <button type="submit" class="absolute inset-y-0 start-0 flex w-9 items-center justify-center text-slate-400" aria-label="Rechercher"><Icon class="text-lg" name="search" /></button>
-                </form>
-            </div>
-
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[960px] border-collapse">
-                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40">
-                        <tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Patient</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Intervention</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Programmation</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Anesthésiste</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Évaluation</th><th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-slate-400">Actions</th></tr>
+                    <thead class="bg-muted/50">
+                        <tr>
+                            <th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Patient</th>
+                            <th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intervention</th>
+                            <th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Programmation</th>
+                            <th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Anesthésiste</th>
+                            <th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Étape</th>
+                            <th class="px-4 py-2.5 text-end text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Actions</th>
+                        </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                        <tr v-for="request in surgicalRequests.data" :key="request.uuid" class="transition-colors hover:bg-violet-50/40 dark:hover:bg-violet-950/10">
+                    <tbody class="divide-y divide-border">
+                        <tr v-for="request in surgicalRequests.data" :key="request.uuid" class="transition-colors hover:bg-muted/40">
                             <td class="px-4 py-3">
                                 <div class="flex min-w-[220px] items-center gap-3">
                                     <Avatar rounded size="sm" variant="primary-pale" :text="formatPatientInitials(request.episode.patient)" />
                                     <div class="min-w-0">
-                                        <Link v-if="can('patients.view')" :href="`/patients/${request.episode.patient.uuid}`" class="block truncate text-sm font-bold text-slate-700 hover:text-primary-600 dark:text-white">{{ formatPatientName(request.episode.patient) }}</Link>
-                                        <span v-else class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ formatPatientName(request.episode.patient) }}</span>
-                                        <small class="text-slate-400">{{ request.episode.episode_number }}</small>
+                                        <Link v-if="can('patients.view')" :href="`/patients/${request.episode.patient.uuid}`" class="block truncate text-sm font-bold text-foreground hover:text-primary">{{ formatPatientName(request.episode.patient) }}</Link>
+                                        <span v-else class="block truncate text-sm font-bold text-foreground">{{ formatPatientName(request.episode.patient) }}</span>
+                                        <small class="text-muted-foreground">{{ request.episode.episode_number }}</small>
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-4 py-3 text-sm font-medium text-slate-600 dark:text-slate-200">{{ request.procedure_name }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-500">{{ formatDateTime(request.scheduled_at) ?? 'Non programmée' }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-500">{{ request.anesthesia_record?.anesthetist?.name ?? 'Non affecté' }}</td>
-                            <td class="px-4 py-3"><span :class="['inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-bold', assessmentState(request).style]"><Icon :name="assessmentState(request).icon" />{{ assessmentState(request).label }}</span></td>
-                            <td class="px-4 py-3 text-end"><Button :as="Link" :href="`/anesthesia/${request.uuid}`" size="rg" variant="white-outline" :aria-label="`Ouvrir l’évaluation ${request.procedure_name}`" title="Ouvrir l’évaluation"><Icon class="text-lg" name="eye" /></Button></td>
+                            <td class="px-4 py-3 text-sm font-medium text-foreground">{{ request.procedure_name }}</td>
+                            <td class="px-4 py-3 text-sm text-muted-foreground">{{ formatDateTime(request.scheduled_at) ?? 'Non programmée' }}</td>
+                            <td class="px-4 py-3 text-sm text-muted-foreground">{{ request.anesthesia_record?.anesthetist?.name ?? 'Non affecté' }}</td>
+                            <td class="px-4 py-3">
+                                <Badge :tone="STAGE_TONES[request.stage] ?? 'neutral'">{{ request.stage_label }}</Badge>
+                                <p class="mt-1 text-[11px] text-muted-foreground">{{ detail(request) }}</p>
+                            </td>
+                            <td class="px-4 py-3 text-end">
+                                <Button :as="Link" :href="`/anesthesia/${request.uuid}`" size="sm" variant="outline" :aria-label="`Ouvrir le dossier ${request.procedure_name}`" title="Ouvrir le dossier">
+                                    <Eye class="h-4 w-4" />Ouvrir
+                                </Button>
+                            </td>
                         </tr>
                         <tr v-if="surgicalRequests.data.length === 0">
                             <td colspan="6" class="px-5 py-12 text-center">
-                                <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-violet-50 text-violet-400 dark:bg-violet-950/40">
-                                    <Icon class="text-xl" name="shield-check" />
+                                <span class="mx-auto grid h-11 w-11 place-items-center rounded-full bg-violet-50 text-violet-500 dark:bg-violet-950/40">
+                                    <ShieldCheck class="h-5 w-5" />
                                 </span>
-                                <p class="mt-3 text-sm font-medium text-slate-600 dark:text-slate-200">Aucun dossier d’anesthésie</p>
-                                <p class="mt-1 text-xs text-slate-400">Modifiez la recherche pour retrouver un dossier chirurgical.</p>
+                                <p class="mt-3 text-sm font-semibold text-foreground">{{ empty.title }}</p>
+                                <p class="mx-auto mt-1 max-w-md text-xs text-muted-foreground">{{ empty.hint }}</p>
                             </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
-            <div v-if="surgicalRequests.last_page > 1" class="flex items-center justify-between gap-3 border-t border-gray-200 p-4 dark:border-gray-900">
-                <span class="text-xs text-slate-400">Page {{ surgicalRequests.current_page }} sur {{ surgicalRequests.last_page }}</span>
-                <div class="flex gap-1"><template v-for="(link, index) in surgicalRequests.links" :key="index"><Link v-if="link.url" :href="link.url" preserve-state :class="['rounded px-3 py-1.5 text-sm', link.active ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-gray-100 dark:hover:bg-gray-900']" v-html="link.label" /><span v-else class="px-3 py-1.5 text-sm text-slate-300" v-html="link.label" /></template></div>
-            </div>
+            <nav v-if="pages.length > 3" class="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4" aria-label="Pagination">
+                <span class="text-xs text-muted-foreground">Page {{ surgicalRequests.current_page }} sur {{ surgicalRequests.last_page }}</span>
+                <div class="flex flex-wrap gap-1">
+                    <template v-for="link in pages" :key="link.label">
+                        <Button v-if="link.url" :as="Link" :href="link.url" size="sm" :variant="link.active ? 'primary' : 'outline'" :aria-current="link.active ? 'page' : undefined" preserve-state preserve-scroll>
+                            <span v-html="link.label" />
+                        </Button>
+                        <Button v-else type="button" size="sm" variant="outline" disabled>
+                            <span v-html="link.label" />
+                        </Button>
+                    </template>
+                </div>
+            </nav>
         </Card>
     </div>
 </template>

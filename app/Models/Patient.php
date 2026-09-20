@@ -65,6 +65,18 @@ class Patient extends Model
         return $this->hasMany(Episode::class);
     }
 
+    /** ADR-144 — ce patient est un nouveau-né créé depuis le dossier Maternité de sa mère. */
+    public function newbornLink(): HasOne
+    {
+        return $this->hasOne(PatientNewbornLink::class);
+    }
+
+    /** ADR-144 — les enfants nés à la clinique dont ce patient est la mère. */
+    public function newbornChildren(): HasMany
+    {
+        return $this->hasMany(PatientNewbornLink::class, 'mother_patient_id')->orderBy('birth_rank');
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);

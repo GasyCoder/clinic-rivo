@@ -155,7 +155,7 @@ const submit = () => {
 <template>
     <Head title="Patients VIP" />
 
-    <div class="mx-auto w-full max-w-5xl space-y-5 pb-8">
+    <div class="w-full space-y-5 pb-8">
         <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div class="flex items-start gap-3">
                 <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">

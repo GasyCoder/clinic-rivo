@@ -2,11 +2,13 @@
 
 namespace App\Actions\Medicine;
 
+use App\Enums\ConsultationOrientationType;
 use App\Enums\ConsultationStatus;
 use App\Enums\ConsultationStep;
 use App\Enums\ConsultationStepStatus;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\MedicalDischargeType;
 use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
 use App\Models\User;
@@ -26,7 +28,10 @@ use Illuminate\Validation\ValidationException;
  */
 class CompleteConsultationAction
 {
-    public function __construct(private readonly ConsultationWorkflow $workflow) {}
+    public function __construct(
+        private readonly ConsultationWorkflow $workflow,
+        private readonly RecordConsultationOrientationAction $recordOrientation,
+    ) {}
 
     public function execute(Consultation $consultation, User $actor): Consultation
     {
@@ -48,7 +53,15 @@ class CompleteConsultationAction
                 ]);
             }
 
-            $blockers = $this->workflow->closureBlockerMessages($locked);
+            // ADR-156 — une sortie déjà prononcée sur le passage EST la
+            // conduite à tenir de cette rencontre : la redemander par un clic
+            // revenait à faire ressaisir un fait daté et signé, affiché juste
+            // au-dessus (ADR-107, même raisonnement qu'`attachPronouncedDischarge`).
+            // Elle n'est jamais fabriquée : on rattache ce qui existe, et rien
+            // d'autre ne pourrait conclure un passage médicalement sorti.
+            $this->attachPronouncedDischarge($locked, $actor);
+
+            $blockers = $this->workflow->closureBlockerMessages($locked->fresh());
 
             if ($blockers !== []) {
                 throw ValidationException::withMessages([
@@ -79,6 +92,36 @@ class CompleteConsultationAction
 
             return $locked->fresh(['steps']);
         });
+    }
+
+    /**
+     * Rattache la sortie déjà prononcée du passage comme conduite à tenir,
+     * quand la consultation n'en porte aucune.
+     *
+     * Le cas : une sortie prononcée sous l'ancien second formulaire du séjour,
+     * ou dans une autre rencontre du même passage. Un passage n'a qu'une
+     * sortie médicale — aucune autre destination ne peut conclure celle-ci.
+     */
+    private function attachPronouncedDischarge(Consultation $consultation, User $actor): void
+    {
+        if ($this->workflow->activeOrientation($consultation)) {
+            return;
+        }
+
+        $discharge = $consultation->episode()->first()?->medicalDischarge()->first();
+
+        if (! $discharge) {
+            return;
+        }
+
+        $this->recordOrientation->select(
+            $consultation,
+            $discharge->type === MedicalDischargeType::Transfer
+                ? ConsultationOrientationType::Referral
+                : ConsultationOrientationType::Discharge,
+            null,
+            $actor,
+        );
     }
 
     /**

@@ -7,6 +7,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     ArrowRight,
+    Baby,
     Ban,
     Banknote,
     CalendarDays,
@@ -67,6 +68,8 @@ defineOptions({ layout: AppLayout });
 
 const props = defineProps({
     patient: Object,
+    /** ADR-144 — de qui ce patient est le bébé, et ses propres enfants nés à la clinique. */
+    family: { type: Object, default: () => ({ mother: null, children: [] }) },
     account: Object,
     paymentMethods: Array,
     openCashSessions: { type: Array, default: () => [] },
@@ -636,6 +639,21 @@ const administrativeFields = computed(() => [
                             <span v-if="patient.civility">{{ civilityLabels[patient.civility] }}</span>
                             {{ formatPatientName(patient) }}
                         </h1>
+                        <!-- ADR-144 : le lien avec la mère se lit dans l'en-tête, dans les deux sens. -->
+                        <p v-if="family.mother" class="mt-1 text-xs font-medium text-muted-foreground">
+                            Nouveau-né{{ family.mother.birth_rank > 1 ? ` n° ${family.mother.birth_rank}` : '' }} de
+                            <Link :href="`/patients/${family.mother.uuid}`" class="font-semibold text-primary hover:underline">{{ family.mother.name }}</Link>
+                            <span class="font-mono"> · {{ family.mother.patient_number }}</span>
+                            <Link :href="family.mother.medical_record_url" class="ms-2 font-semibold text-primary hover:underline">Son dossier médical</Link>
+                        </p>
+                        <p v-if="family.children.length" class="mt-1 text-xs font-medium text-muted-foreground">
+                            Enfant{{ family.children.length > 1 ? 's' : '' }} né{{ family.children.length > 1 ? 's' : '' }} à la clinique :
+                            <template v-for="(child, index) in family.children" :key="child.birth_rank">
+                                <Link v-if="child.uuid" :href="`/patients/${child.uuid}`" class="font-semibold text-primary hover:underline">{{ child.name }} <span class="font-mono">({{ child.patient_number }})</span></Link>
+                                <span v-else class="font-semibold text-foreground">{{ child.name }}</span>
+                                <Link v-if="child.medical_record_url" :href="child.medical_record_url" class="text-muted-foreground hover:text-primary hover:underline">· dossier médical</Link><span v-if="index < family.children.length - 1">, </span>
+                            </template>
+                        </p>
                         <!-- Le même badge qu'au répertoire des patients : ce
                              dossier doit dire au premier coup d'œil ce que la
                              liste disait déjà, jamais rien de plus discret. -->
@@ -665,6 +683,8 @@ const administrativeFields = computed(() => [
                     <!-- Tous les « Dossier médical – Traitement » du patient, un
                          par passage, réunis en un seul document que l'on peut
                          relire à l'écran puis enregistrer en un seul PDF. -->
+                    <!-- ADR-145 : le dossier médical d'un patient, sans passage requis — un nouveau-né n'en a pas encore. -->
+                    <Button :as="Link" :href="`/patients/${patient.uuid}/dossier-medical`" variant="outline"><FileText class="h-4 w-4" />Dossier médical</Button>
                     <Button v-if="canOpenJournals" :as="Link" :href="journalsUrl" variant="outline" title="Voir tous les journaux de traitement et les télécharger en un seul PDF"><NotebookText class="h-4 w-4" />Journaux de traitement</Button>
                     <Button v-if="can('patients.update') && patient.patient_type !== 'STAFF'" :as="Link" :href="`/patients/${patient.uuid}/edit`" variant="outline"><Pencil class="h-4 w-4" />Modifier</Button>
                     <Button v-if="can('cash.view')" :as="Link" href="/cash" variant="outline"><WalletCards class="h-4 w-4" />Caisse</Button>
@@ -1009,6 +1029,33 @@ const administrativeFields = computed(() => [
                             <Eye class="h-4 w-4 shrink-0 text-muted-foreground" />
                         </button>
                     </div>
+                </Card>
+
+                <!-- ADR-146 : ses bébés nés ici, qu'ils soient déjà patients ou non. Un bébé consigné à la
+                     Maternité n'a pas de dossier patient avant son premier accueil : sans cette carte, il
+                     n'apparaîtrait nulle part dans le dossier de sa mère. -->
+                <Card v-if="family.children.length" class="overflow-hidden">
+                    <div class="flex items-start gap-3 border-b border-border px-5 py-4">
+                        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Baby class="h-4 w-4" /></span>
+                        <div>
+                            <h2 class="text-sm font-bold text-foreground">Nouveau-né{{ family.children.length > 1 ? 's' : '' }} né{{ family.children.length > 1 ? 's' : '' }} à la clinique</h2>
+                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">Un bébé devient patient à l’accueil ; ses soins restent sur le compte de sa mère.</p>
+                        </div>
+                    </div>
+                    <ul class="divide-y divide-border">
+                        <li v-for="child in family.children" :key="child.birth_rank" class="px-5 py-3.5">
+                            <p class="text-sm font-semibold text-foreground">{{ child.name }}</p>
+                            <p class="mt-0.5 text-xs text-muted-foreground">
+                                <span v-if="child.patient_number" class="font-mono">{{ child.patient_number }}</span>
+                                <span v-else>Pas encore patient</span>
+                                <template v-if="child.born_at"> · né(e) le {{ formatDateTime(child.born_at) }}</template>
+                            </p>
+                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                <Button v-if="child.medical_record_url" :as="Link" :href="child.medical_record_url" size="xs" variant="outline"><FileText class="h-3.5 w-3.5" />Dossier médical</Button>
+                                <Button v-if="child.uuid" :as="Link" :href="`/patients/${child.uuid}`" size="xs" variant="ghost"><UserRound class="h-3.5 w-3.5" />Dossier patient</Button>
+                            </div>
+                        </li>
+                    </ul>
                 </Card>
 
                 <Card v-if="patient.patient_type === 'STAFF' && can('patient_staff_links.view')" class="p-5">

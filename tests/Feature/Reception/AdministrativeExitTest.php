@@ -4,10 +4,12 @@ namespace Tests\Feature\Reception;
 
 use App\Actions\Reception\RecordAdministrativeExitAction;
 use App\Enums\AdministrativeExitType;
+use App\Enums\BillableItemStatus;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeStatus;
 use App\Enums\InvoiceStatus;
 use App\Models\AuditLog;
+use App\Models\BillableItem;
 use App\Models\Episode;
 use App\Models\Invoice;
 use App\Models\Patient;
@@ -82,6 +84,27 @@ class AdministrativeExitTest extends TestCase
             'total_amount' => $total,
             'paid_amount' => $paid,
             'balance_amount' => bcsub($total, $paid, 2),
+            'created_by' => $actor->id,
+        ]);
+    }
+
+    /** Une prestation transmise par un service et pas encore portée sur une facture. */
+    private function pendingItem(Episode $episode, User $actor, string $amount = '15000.00', string $label = 'Numération formule sanguine (NFS)'): BillableItem
+    {
+        return BillableItem::create([
+            'episode_id' => $episode->id,
+            'source_module' => 'LABORATORY',
+            'description' => $label,
+            'quantity' => '1.00',
+            'unit_price' => $amount,
+            'total_amount' => $amount,
+            'gross_amount' => $amount,
+            'coverage_amount' => '0.00',
+            'staff_covered_amount' => '0.00',
+            'staff_block_credit_used' => '0.00',
+            'patient_amount' => $amount,
+            'currency' => 'MGA',
+            'status' => BillableItemStatus::Pending,
             'created_by' => $actor->id,
         ]);
     }
@@ -178,7 +201,7 @@ class AdministrativeExitTest extends TestCase
 
     public function test_the_generated_reason_for_an_escape_states_what_remains_due(): void
     {
-        $actor = $this->receptionist();
+        $actor = $this->receptionist(['debts.record_escape']);
         $episode = $this->episode($actor);
         $this->invoice($episode, $actor, '50000.00', '20000.00');
 
@@ -295,7 +318,7 @@ class AdministrativeExitTest extends TestCase
     public function test_an_escape_keeps_the_receivable_and_names_no_responsible_payer(): void
     {
         // §34.2 rule 9 — une évasion ne doit jamais supprimer la créance.
-        $actor = $this->receptionist();
+        $actor = $this->receptionist(['debts.record_escape']);
         $episode = $this->episode($actor);
         $this->invoice($episode, $actor, '40000.00', '5000.00');
 
@@ -320,7 +343,7 @@ class AdministrativeExitTest extends TestCase
 
     public function test_a_receivable_can_never_be_deleted(): void
     {
-        $actor = $this->receptionist();
+        $actor = $this->receptionist(['debts.record_escape']);
         $episode = $this->episode($actor);
         $this->invoice($episode, $actor, '40000.00', '5000.00');
         $this->actingAs($actor);
@@ -485,5 +508,198 @@ class AdministrativeExitTest extends TestCase
                 'reason' => 'Sortie autorisée.',
             ])
             ->assertSessionHasErrors(['responsible_name', 'responsible_phone']);
+    }
+
+    /* ── ADR-090 (amendement du 2026-09-20) : rien ne part sans être facturé ── */
+
+    /**
+     * Le cas constaté : une première facture soldée, puis des prestations
+     * ajoutées après son règlement. « Reste à payer = 0 » était vrai de la
+     * facture, faux du compte du patient — et « payé comptant » laissait partir
+     * 70 000 Ar qui ne seraient jamais réclamés.
+     */
+    public function test_no_exit_is_recorded_while_a_prestation_is_still_unbilled(): void
+    {
+        // Même avec le droit de dérogation : ce n'est pas un défaut d'habilitation.
+        $actor = $this->receptionist(['debts.authorize', 'debts.record_escape']);
+
+        foreach (AdministrativeExitType::cases() as $type) {
+            $episode = $this->episode($actor);
+            $this->invoice($episode, $actor, '50000.00', '50000.00');
+            $this->pendingItem($episode, $actor, '15000.00');
+            $this->pendingItem($episode, $actor, '55000.00', 'Échographie et injection');
+
+            $this->actingAs($actor);
+
+            try {
+                $this->exit($actor, $episode, [
+                    'exit_type' => $type->value,
+                    'reason' => 'Test',
+                    'responsible_name' => 'Rakoto',
+                ]);
+                $this->fail("La sortie {$type->value} aurait dû être refusée.");
+            } catch (ValidationException $exception) {
+                $this->assertStringContainsString('2 prestations (70 000 Ar)', $exception->errors()['exit_type'][0]);
+            }
+
+            $episode->refresh();
+            $this->assertSame(EpisodeStatus::Open, $episode->status);
+            $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->administrative_status);
+        }
+
+        $this->assertSame(0, PatientDebt::query()->count());
+    }
+
+    public function test_the_refusal_names_a_single_prestation_in_the_singular(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '10000.00', '10000.00');
+        $this->pendingItem($episode, $actor, '5000.00', 'Injection IM');
+
+        $this->actingAs($actor);
+
+        try {
+            $this->exit($actor, $episode, ['exit_type' => AdministrativeExitType::PaidCash->value, 'reason' => 'Test']);
+            $this->fail('Refus attendu.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('1 prestation (5 000 Ar) n’a pas encore été portée sur une facture', $exception->errors()['exit_type'][0]);
+        }
+    }
+
+    /** Facturer lève le refus : l'écran affiche alors le vrai reste à payer. */
+    public function test_invoicing_the_pending_prestations_lifts_the_refusal_and_reveals_the_real_balance(): void
+    {
+        $actor = $this->receptionist(['billing.create', 'billing.validate']);
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '50000.00', '50000.00');
+        $item = $this->pendingItem($episode, $actor, '15000.00');
+
+        $this->actingAs($actor)
+            ->post("/reception/passages/{$episode->uuid}/facturer-prestations")
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('status');
+
+        $this->assertSame(BillableItemStatus::Invoiced, $item->fresh()->status);
+
+        $invoice = Invoice::query()->where('episode_id', $episode->id)->where('total_amount', '15000.00')->firstOrFail();
+        $this->assertSame(InvoiceStatus::Validated, $invoice->status);
+
+        // Plus rien d'en attente : la sortie n'est plus refusée pour ce motif,
+        // mais le compte n'est plus soldé — « payé comptant » l'est désormais
+        // pour la bonne raison.
+        try {
+            $this->exit($actor, $episode, ['exit_type' => AdministrativeExitType::PaidCash->value, 'reason' => 'Test']);
+            $this->fail('Le solde de 15 000 Ar aurait dû interdire « payé comptant ».');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('reste à payer', $exception->errors()['exit_type'][0]);
+            $this->assertStringNotContainsString('portée', $exception->errors()['exit_type'][0]);
+        }
+    }
+
+    public function test_without_billing_validate_the_invoice_stays_a_draft(): void
+    {
+        $actor = $this->receptionist(['billing.create']);
+        $episode = $this->episode($actor);
+        $this->pendingItem($episode, $actor, '15000.00');
+
+        $this->actingAs($actor)
+            ->post("/reception/passages/{$episode->uuid}/facturer-prestations")
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            InvoiceStatus::Draft,
+            Invoice::query()->where('episode_id', $episode->id)->firstOrFail()->status,
+        );
+    }
+
+    public function test_the_invoicing_endpoint_needs_billing_create(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $item = $this->pendingItem($episode, $actor);
+
+        $this->actingAs($actor)
+            ->post("/reception/passages/{$episode->uuid}/facturer-prestations")
+            ->assertForbidden();
+
+        $this->assertSame(BillableItemStatus::Pending, $item->fresh()->status);
+    }
+
+    public function test_the_invoicing_endpoint_refuses_a_passage_that_is_no_longer_pending_settlement(): void
+    {
+        $actor = $this->receptionist(['billing.create']);
+        $episode = $this->episode($actor, EpisodeAdministrativeStatus::InCare);
+        $this->pendingItem($episode, $actor);
+
+        $this->actingAs($actor)
+            ->post("/reception/passages/{$episode->uuid}/facturer-prestations")
+            ->assertSessionHasErrors('exit_type');
+
+        $this->assertSame(0, Invoice::query()->where('episode_id', $episode->id)->count());
+    }
+
+    public function test_the_board_offers_the_invoicing_action_only_to_billing_create(): void
+    {
+        $with = $this->receptionist(['billing.create']);
+        $without = $this->userWithPermissions(['episodes.settlement.view', 'episodes.administrative_exit', 'billing.view'], 'RECEPTION_LIMITED');
+
+        $this->assertTrue($this->actingAs($with)->get('/reception/sorties')
+            ->assertOk()->viewData('page')['props']['capabilities']['can_invoice']);
+        $this->assertFalse($this->actingAs($without)->get('/reception/sorties')
+            ->assertOk()->viewData('page')['props']['capabilities']['can_invoice']);
+    }
+
+    /**
+     * ADR-090 (amendement du 2026-09-20) — déclarer un patient évadé crée une
+     * créance à son nom : comme la dette validée, c'est un droit que le Super
+     * Administrateur accorde, pas une conséquence du droit de prononcer une
+     * sortie ordinaire.
+     */
+    public function test_an_escape_requires_its_own_permission(): void
+    {
+        $actor = $this->receptionist(); // peut prononcer une sortie, pas déclarer une évasion
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '8000.00', '0.00');
+
+        $this->actingAs($actor);
+
+        try {
+            $this->exit($actor, $episode, [
+                'exit_type' => AdministrativeExitType::Escaped->value,
+                'reason' => 'Parti sans payer.',
+                'left_at_estimate' => now()->subHour()->format('Y-m-d H:i:s'),
+            ]);
+            $this->fail('Le droit debts.record_escape aurait dû être exigé.');
+        } catch (AuthorizationException $exception) {
+            $this->assertStringContainsString('debts.record_escape', $exception->getMessage());
+        }
+
+        $episode->refresh();
+        $this->assertSame(EpisodeStatus::Open, $episode->status);
+        $this->assertSame(0, PatientDebt::query()->count());
+    }
+
+    public function test_paid_cash_is_unaffected_by_the_escape_permission(): void
+    {
+        $actor = $this->receptionist();
+        $episode = $this->episode($actor);
+        $this->invoice($episode, $actor, '8000.00', '8000.00');
+
+        $this->actingAs($actor);
+        $exited = $this->exit($actor, $episode, ['exit_type' => AdministrativeExitType::PaidCash->value, 'reason' => 'Soldé.']);
+
+        $this->assertSame(EpisodeAdministrativeStatus::DischargedPaid, $exited->administrative_status);
+    }
+
+    public function test_the_board_tells_the_screen_who_may_record_an_escape(): void
+    {
+        $with = $this->receptionist(['debts.record_escape']);
+        $without = $this->userWithPermissions(['episodes.settlement.view', 'episodes.administrative_exit', 'billing.view'], 'RECEPTION_NO_ESCAPE');
+
+        $this->assertTrue($this->actingAs($with)->get('/reception/sorties')
+            ->assertOk()->viewData('page')['props']['capabilities']['can_record_escape']);
+        $this->assertFalse($this->actingAs($without)->get('/reception/sorties')
+            ->assertOk()->viewData('page')['props']['capabilities']['can_record_escape']);
     }
 }

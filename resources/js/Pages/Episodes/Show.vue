@@ -7,6 +7,7 @@ import EpisodePathwayList from '@/Components/Clinical/EpisodePathwayList.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import ShadcnButton from '@/Components/Shadcn/Button.vue';
+import NewbornDossiers from '@/Components/Clinical/NewbornDossiers.vue';
 import { FileText, NotebookPen } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -17,6 +18,8 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     episode: { type: Object, required: true },
     billing: { type: Object, default: null },
+    /** ADR-144 — les bébés du dossier Maternité de ce passage ; `null` sans dossier Maternité ni droit `newborns.view`. */
+    maternityBabies: { type: Object, default: null },
     capabilities: { type: Object, default: () => ({}) },
 });
 
@@ -160,6 +163,9 @@ const vitalsRows = computed(() => {
         </section>
 
         <div class="space-y-4 xl:order-1 xl:col-span-2">
+        <!-- ADR-145 : le même composant partout — état, liens et création du dossier de chaque bébé. -->
+        <NewbornDossiers v-if="maternityBabies" :babies="maternityBabies" />
+
         <section v-if="capabilities.can_view_care && episode.care_record" class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-900">
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-slate-500 dark:bg-gray-900 dark:text-slate-300"><Icon class="text-lg" name="user-check" /></span>

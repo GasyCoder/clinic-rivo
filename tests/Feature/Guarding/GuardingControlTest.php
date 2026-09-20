@@ -42,7 +42,7 @@ class GuardingControlTest extends TestCase
     {
         $role = Role::query()->create(['code' => 'RECEPTION-'.uniqid(), 'name' => 'RECEPTION']);
 
-        foreach (['episodes.settlement.view', 'episodes.administrative_exit'] as $name) {
+        foreach (['episodes.settlement.view', 'episodes.administrative_exit', 'debts.record_escape'] as $name) {
             $permission = Permission::query()->firstOrCreate(['name' => $name]);
             $role->permissions()->attach($permission);
         }

@@ -163,18 +163,18 @@ test('les deux écrans partagent le même rail de catégories', () => {
  * ligne sans jamais dire où l'on en est.
  */
 test('le domaine reste en tête pendant le défilement', () => {
-    assert.match(nav, /class="sticky top-0 z-10 border-b border-t border-border bg-muted px-3 py-1\.5 text-\[10px\] font-bold uppercase tracking-wider text-muted-foreground first:border-t-0"/);
+    assert.match(nav, /sticky top-0 z-10 flex w-full items-center gap-2 border-b border-t border-border bg-muted px-3 py-2/);
 });
 
 /** Une ligne par catégorie, séparée de la suivante, et un compteur en colonne. */
 test('les catégories se lisent comme une liste', () => {
     assert.match(nav, /border-b border-border\/50/);
-    assert.match(nav, /rounded px-1\.5 py-0\.5 text-\[10px\] font-semibold tabular-nums/);
+    assert.match(nav, /<Badge[\s\S]*?tabular-nums/);
 });
 
 /** Même repère d'état actif que le menu latéral de l'application. */
 test('la catégorie ouverte porte un rail, pas seulement une couleur', () => {
-    assert.match(nav, /absolute inset-y-1 start-0 w-0\.5 rounded-e-full bg-primary/);
+    assert.match(nav, /absolute inset-y-1 start-0 w-1 rounded-e-full bg-primary/);
     assert.match(nav, /aria-current="page"|:aria-current=/);
 });
 
@@ -216,7 +216,7 @@ test('le rôle et le compte se choisissent dans une fenêtre cherchable', () => 
         assert.match(source, /const switching = ref\(false\)/, `${name} : pas d’état de fenêtre`);
         assert.match(source, /aria-label="Rechercher un (rôle|compte)"/, `${name} : pas de recherche`);
         // La colonne suit le défilement : les catégories restent atteignables.
-        assert.match(source, /space-y-4 pe-1 sticky top-4/, `${name} : rail non collant`);
+        assert.match(source, /sticky top-4 flex max-h-\[calc\(100vh-9rem\)\] min-h-\[26rem\] flex-col gap-4 pe-1/, `${name} : rail non collant`);
     }
 
     // Plus de liste complète empilée dans la colonne.
@@ -264,4 +264,52 @@ test('les deux panneaux se redimensionnent à la barre', () => {
     // Elle suit le thème de l'application (ADR-099), plus un bleu codé en dur.
     assert.match(split, /background-color: hsl\(var\(--primary\)\)/);
     assert.doesNotMatch(split, /rgb\(59 130 246\)/);
+});
+
+/**
+ * Le rail était une petite fenêtre fixe (22 rem) où l'on faisait défiler
+ * quatre lignes à la fois, masquée en bas par la barre d'enregistrement. Il
+ * prend désormais la hauteur que l'écran lui laisse.
+ */
+test('le rail des catégories suit la hauteur de l’écran', () => {
+    assert.doesNotMatch(nav, /max-h-\[22rem\]|max-h-\[26rem\]/);
+    assert.match(nav, /min-h-\[12rem\] flex-1 overflow-y-auto/);
+
+    const overrides = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
+
+    for (const source of [editor, overrides]) {
+        assert.match(source, /<div class="flex min-h-0 flex-1 flex-col">/);
+        assert.match(source, /class="min-h-0 flex-1"/);
+        assert.match(source, /<Card class="shrink-0 overflow-hidden">/);
+    }
+});
+
+/** Sept domaines : les replier permet de survoler au lieu de lire quarante lignes. */
+test('les domaines du rail se replient, et une recherche les déplie', () => {
+    assert.match(nav, /:aria-expanded="isOpen\(group\)"/);
+    assert.match(nav, /const isOpen = \(group\) => filtering\.value \|\| ! collapsed\.value\[group\.key\]/);
+    assert.match(nav, /Tout replier/);
+    assert.match(nav, /Tout déplier/);
+});
+
+/** Un changement venu d'ailleurs ne doit pas sélectionner une ligne hors de vue. */
+test('la catégorie ouverte déplie son domaine et reste visible', () => {
+    assert.match(nav, /scrollIntoView\(\{ block: 'nearest' \}\)/);
+    assert.match(nav, /collapsed\.value = \{ \.\.\.collapsed\.value, \[owner\.key\]: false \}/);
+});
+
+/** Le rail n'est pas réservé à la souris. */
+test('les flèches parcourent les catégories', () => {
+    assert.match(nav, /\['ArrowDown', 'ArrowUp', 'Home', 'End'\]/);
+    assert.match(nav, /data-category/);
+    assert.match(nav, /@keydown="onKeydown"/);
+});
+
+/** ADR-099 : ni champ natif habillé à la main, ni police d'icônes. */
+test('le rail est écrit avec les primitives shadcn', () => {
+    for (const primitive of ['Badge', 'Button', 'IconInput']) {
+        assert.match(nav, new RegExp(`import ${primitive} from '@/Components/Shadcn/${primitive}\\.vue'`));
+    }
+
+    assert.doesNotMatch(nav, /class="[^"]*\b(ni ni-|nk-)/);
 });

@@ -41,7 +41,11 @@ class MedicalRecordPrintTest extends TestCase
 
     public function test_the_sheet_reads_from_what_is_already_recorded(): void
     {
-        $doctor = $this->userWithPermissions(['patients.view', 'vitals.view', 'patients.medical_history.view']);
+        $doctor = $this->userWithPermissions([
+            'patients.view', 'vitals.view', 'patients.medical_history.view',
+            // Le diagnostic, les traitements et l'hospitalisation sont gardés par leur propre droit.
+            'diagnoses.view', 'medical_record.view', 'hospitalization.view',
+        ]);
 
         $patient = Patient::create([
             'patient_number' => fake()->unique()->bothify('M-26-####'),
@@ -152,6 +156,56 @@ class MedicalRecordPrintTest extends TestCase
         $this->assertNull($props['vitals']);
         $this->assertFalse($props['history_visible']);
         $this->assertSame([], $props['allergies']);
+    }
+
+    /**
+     * Une feuille imprimée n'est pas un moyen de contourner un droit (ADR-116, amendement du 2026-09-20).
+     *
+     * Le défaut constaté : un compte de Réception, qui n'a que `patients.view`, lisait ici le diagnostic
+     * et les traitements déclarés — que la page « Détail du passage » lui refuse (ADR-054).
+     */
+    public function test_the_diagnosis_and_the_treatments_are_never_read_without_their_own_permission(): void
+    {
+        $reception = $this->userWithPermissions(['patients.view'], 'RECEPTION-TEST');
+        $doctor = $this->userWithPermissions(['patients.view', 'diagnoses.view', 'medical_record.view', 'hospitalization.view'], 'MEDECIN-TEST');
+
+        $patient = Patient::create([
+            'patient_number' => fake()->unique()->bothify('M-26-####'),
+            'first_name' => 'Hanta', 'last_name' => 'Ravelo', 'birth_date' => '1990-01-01', 'sex' => 'F',
+        ]);
+        $episode = Episode::create([
+            'patient_id' => $patient->id, 'episode_number' => $patient->patient_number.'-01',
+            'status' => 'OPEN', 'started_at' => now(), 'created_by' => $doctor->id,
+        ]);
+        $consultation = Consultation::create([
+            'episode_id' => $episode->id, 'doctor_id' => $doctor->id, 'reason' => 'Motif', 'consulted_at' => now(),
+        ]);
+        Diagnosis::create([
+            'consultation_id' => $consultation->id, 'type' => 'FINAL',
+            'description' => 'Sérologie positive', 'is_manual' => true, 'recorded_by' => $doctor->id,
+        ]);
+        $consultation->currentTreatments()->create(['medication_name' => 'Trithérapie', 'position' => 1]);
+
+        $hidden = $this->actingAs($reception)->get("/passages/{$episode->uuid}/dossier-medical")
+            ->assertOk()->viewData('page')['props'];
+
+        $this->assertFalse($hidden['diagnosis_visible']);
+        $this->assertNull($hidden['diagnosis']);
+        $this->assertFalse($hidden['record_visible']);
+        $this->assertSame([], collect($hidden['current_treatments'])->all());
+        $this->assertFalse($hidden['stay_visible']);
+        $this->assertNull($hidden['hospitalization']);
+        // Rien ne doit rester dans la charge utile : la feuille est sérialisée entière au navigateur.
+        $this->assertStringNotContainsString('Sérologie positive', json_encode($hidden));
+        $this->assertStringNotContainsString('Trithérapie', json_encode($hidden));
+
+        // Le médecin, lui, lit la feuille complète.
+        $full = $this->actingAs($doctor)->get("/passages/{$episode->uuid}/dossier-medical")
+            ->viewData('page')['props'];
+
+        $this->assertTrue($full['diagnosis_visible']);
+        $this->assertSame('Sérologie positive', $full['diagnosis']);
+        $this->assertSame(['Trithérapie'], collect($full['current_treatments'])->all());
     }
 
     public function test_the_sheet_requires_the_same_permission_as_the_passage_detail_page(): void

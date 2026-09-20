@@ -46,6 +46,12 @@ class RoleController extends Controller
         $roles = Role::query()
             ->withTrashed()
             ->withCount('users')
+            // ADR-150 — combien de ses comptes portent une exception
+            // individuelle. Le socle ne dit pas tout : un ALLOW nominatif
+            // l'emporte sur lui (ADR-033), et un écran qui ne le signale pas
+            // se lit comme la seule source des droits.
+            ->withCount(['users as users_with_exceptions_count' => fn ($query) => $query
+                ->whereHas('permissions')])
             ->with([
                 'permissions:id,name',
                 'professionalProfiles' => fn ($query) => $query
@@ -55,7 +61,7 @@ class RoleController extends Controller
             ])
             ->orderBy('name')
             ->get()
-            ->map(fn (Role $role) => $this->presenter->role($role, $role->users_count));
+            ->map(fn (Role $role) => $this->presenter->role($role, $role->users_count, $role->users_with_exceptions_count));
 
         // Les exceptions individuelles vivent sur cet écran (décision du
         // propriétaire) : on sert donc les comptes du site, mais sans le

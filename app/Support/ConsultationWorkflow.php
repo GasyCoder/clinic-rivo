@@ -146,6 +146,22 @@ class ConsultationWorkflow
         $orientation = $this->activeOrientation($consultation);
 
         if (! $orientation) {
+            // ADR-156 — la sortie peut déjà être prononcée sur le passage :
+            // elle EST alors la conduite à tenir de cette rencontre (ADR-107),
+            // et la clôture la rattache. Exiger un clic revenait à faire
+            // ressaisir un fait daté et signé, affiché juste au-dessus.
+            $discharge = $consultation->relationLoaded('episode')
+                ? $consultation->episode?->medicalDischarge
+                : $consultation->episode()->first()?->medicalDischarge()->first();
+
+            // Ce n'est plus un obstacle : la clôture la rattache elle-même
+            // (`CompleteConsultationAction::attachPronouncedDischarge`). Le
+            // message qui demandait « choisissez Sortie médicale » faisait
+            // ressaisir un fait daté et signé, affiché juste au-dessus.
+            if ($discharge) {
+                return null;
+            }
+
             // ADR-098 — decided in one place only, the last step.
             return 'Conduite à tenir : indiquez la suite de la prise en charge (étape Décision & clôture).';
         }

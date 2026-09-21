@@ -9,6 +9,7 @@ use App\Enums\EpisodePriority;
 use App\Models\CareOrder;
 use App\Models\CareOrderItem;
 use App\Models\EpisodeOrientation;
+use App\Models\HospitalStay;
 use App\Models\User;
 use App\Services\Audit\Auditor;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,8 @@ class CancelCareOrderItemAction
      */
     public const DEFAULT_REASON = 'Retiré par le médecin pendant la consultation.';
 
+    public const STAY_REASON = 'Retiré par le médecin pendant l’hospitalisation.';
+
     public function __construct(private readonly Auditor $auditor) {}
 
     public function execute(
@@ -43,18 +46,10 @@ class CancelCareOrderItemAction
         ?string $reason,
         User $actor,
     ): CareOrderItem {
-        $reason = trim((string) $reason) ?: self::DEFAULT_REASON;
-
-        return DB::transaction(function () use ($medicineOrientation, $item, $reason, $actor): CareOrderItem {
-            $locked = CareOrderItem::query()
-                ->with(['careOrder.consultation', 'careOrder.careOrientation.acceptedBy:id,name', 'careRecordProcedures'])
-                ->lockForUpdate()
-                ->findOrFail($item->getKey());
-
-            $careOrder = $locked->careOrder;
+        return $this->run($item, trim((string) $reason) ?: self::DEFAULT_REASON, $actor, function (CareOrder $careOrder) use ($medicineOrientation): void {
             $consultation = $careOrder->consultation;
 
-            if ($consultation->episode_orientation_id !== $medicineOrientation->getKey()) {
+            if ($consultation?->episode_orientation_id !== $medicineOrientation->getKey()) {
                 throw ValidationException::withMessages([
                     'care_order_item' => 'Cet acte n’a pas été demandé depuis cette consultation.',
                 ]);
@@ -65,6 +60,42 @@ class CancelCareOrderItemAction
                     'care_order_item' => 'La consultation est clôturée : la demande ne peut plus être modifiée.',
                 ]);
             }
+        });
+    }
+
+    /**
+     * ADR-162 — retirer un acte demandé depuis le séjour, tant que le patient
+     * est au lit. Le reste de la règle (acte non réalisé, demande en cours,
+     * file refermée si plus rien n'y reste) est celui d'une consultation.
+     */
+    public function executeForStay(HospitalStay $stay, CareOrderItem $item, User $actor): CareOrderItem
+    {
+        return $this->run($item, self::STAY_REASON, $actor, function (CareOrder $careOrder) use ($stay): void {
+            if ($careOrder->hospital_stay_id !== $stay->getKey()) {
+                throw ValidationException::withMessages([
+                    'care_order_item' => 'Cet acte n’a pas été demandé depuis ce séjour.',
+                ]);
+            }
+
+            if (! $stay->fresh()->isActive()) {
+                throw ValidationException::withMessages([
+                    'care_order_item' => 'Le séjour est terminé : la demande ne peut plus être modifiée.',
+                ]);
+            }
+        });
+    }
+
+    /** @param  \Closure(CareOrder): void  $ensureOwner */
+    private function run(CareOrderItem $item, string $reason, User $actor, \Closure $ensureOwner): CareOrderItem
+    {
+        return DB::transaction(function () use ($item, $reason, $actor, $ensureOwner): CareOrderItem {
+            $locked = CareOrderItem::query()
+                ->with(['careOrder.consultation', 'careOrder.careOrientation.acceptedBy:id,name', 'careRecordProcedures'])
+                ->lockForUpdate()
+                ->findOrFail($item->getKey());
+
+            $careOrder = $locked->careOrder;
+            $ensureOwner($careOrder);
 
             if ($locked->isCancelled()) {
                 throw ValidationException::withMessages([
@@ -132,8 +163,10 @@ class CancelCareOrderItemAction
         $locked = EpisodeOrientation::query()->with('episode')->lockForUpdate()->findOrFail($careOrientation->getKey());
 
         if ($locked->status !== EpisodeOrientationStatus::Pending
-            || $locked->source_module !== CatalogModule::Medicine
-            || $locked->reason !== CreateCareOrderAction::ORIENTATION_REASON
+            || ! in_array([$locked->source_module, $locked->reason], [
+                [CatalogModule::Medicine, CreateCareOrderAction::ORIENTATION_REASON],
+                [CatalogModule::Hospitalization, CreateCareOrderAction::STAY_ORIENTATION_REASON],
+            ], true)
             || $locked->episode->priority === EpisodePriority::Emergency) {
             return;
         }

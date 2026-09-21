@@ -129,12 +129,12 @@ final class EpisodePathwayTimeline
         // droit — c'est son ordonnance, pas le stock ni la caisse de la Pharmacie.
         $prescriptions = $canSeePrescriptions
             ? Prescription::query()
-                ->whereHas('consultation', fn ($query) => $query->whereIn('episode_id', $ids))
-                ->with(['consultation:id,episode_id', 'lines:id,prescription_id'])
+                ->whereIn('episode_id', $ids)
+                ->with(['lines:id,prescription_id'])
                 ->orderBy('prescribed_at')
                 ->orderBy('id')
                 ->get()
-                ->groupBy(fn (Prescription $prescription) => $prescription->consultation->episode_id)
+                ->groupBy(fn (Prescription $prescription) => $prescription->episode_id)
             : collect();
 
         $dispenses = $canSeePharmacy || $canSeePrescriptions
@@ -292,7 +292,14 @@ final class EpisodePathwayTimeline
                 'at' => $orientation->oriented_at,
                 'accepted_at' => $orientation->accepted_at,
                 'completed_at' => $orientation->completed_at,
-                'notes' => $requesters->isEmpty() ? [] : ['Demandé par '.$requesters->implode(', ')],
+                'notes' => array_values(array_filter([
+                    $requesters->isEmpty() ? null : 'Demandé par '.$requesters->implode(', '),
+                    // ADR-166 — un patient attendu en Médecine terminé aux Soins :
+                    // la Réception lit ici pourquoi la consultation n'a pas eu lieu.
+                    $orientation->completion_reason
+                        ? 'Terminé aux Soins, sans passer en Médecine — motif : '.$orientation->completion_reason
+                        : null,
+                ])),
                 'follow_up' => $orders->isEmpty() ? null : CareRequestSummary::followUp($orders),
                 'items' => $orders->isNotEmpty() && $withItems ? CareRequestSummary::items($orders) : [],
             ]);

@@ -148,6 +148,10 @@ class RolePermissionSeeder extends Seeder
             'death_records.view', 'death_records.create',
             // ADR-113 — le séjour hospitalier et sa fiche de régime.
             'hospitalization.view', 'hospitalization.update', 'hospital_diet.record',
+            // ADR-165 — la liste des hospitalisés, exportée en Excel.
+            'hospitalization.export',
+            // ADR-162 — les Soins lisent la note du médecin au lit du patient.
+            'hospital_notes.view',
             // ADR-114 — transferts et file Pédiatrie.
             'transfers.view', 'transfers.manage', 'pediatrics.view', 'pediatrics.manage',
             // ADR-116 — journal de traitement du passage.
@@ -184,6 +188,8 @@ class RolePermissionSeeder extends Seeder
             'imaging_orders.create', 'imaging_orders.view', 'imaging_results.create', 'imaging_results.update', 'imaging_templates.create', 'imaging_templates.update', 'imaging_templates.archive',
             'surgery.request', 'hospitalization.request', 'maternity.request',
             'transfer.request', 'pediatrics.request',
+            // ADR-162 — la note quotidienne du séjour.
+            'hospital_notes.view', 'hospital_notes.create',
             // ADR-146 — le médecin qui reçoit un nouveau-né lit sa naissance.
             // Toujours pas `maternity.view` : le dossier obstétrical de la
             // mère reste au profil sage-femme (ADR-067).
@@ -206,6 +212,8 @@ class RolePermissionSeeder extends Seeder
             'care_consumables.cancel',
             // ADR-113 — la fiche de régime se remplit au lit du patient.
             'hospitalization.view', 'hospitalization.update', 'hospital_diet.record',
+            // ADR-165 — la liste des hospitalisés, exportée en Excel.
+            'hospitalization.export',
             // ADR-114 — les Soins accompagnent le départ d'un patient transféré.
             'transfers.view', 'transfers.manage',
             // ADR-116 — journal de traitement du passage.

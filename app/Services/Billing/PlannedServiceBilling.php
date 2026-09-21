@@ -76,12 +76,15 @@ class PlannedServiceBilling
     {
         $lab = LabRequestItem::query()
             ->whereNotNull('billable_item_id')
-            ->whereHas('labRequest', fn ($query) => $query->where('episode_id', $episode->getKey()))
+            // ADR-163 — une demande retirée libère ce qu'elle avait rattaché,
+            // comme un acte Maternité retiré : l'examen redemandé ensuite
+            // reprend la prestation de la Réception au lieu d'en créer une seconde.
+            ->whereHas('labRequest', fn ($query) => $query->where('episode_id', $episode->getKey())->whereNull('cancelled_at'))
             ->pluck('billable_item_id');
 
         $imaging = ImagingRequestItem::query()
             ->whereNotNull('billable_item_id')
-            ->whereHas('imagingRequest', fn ($query) => $query->where('episode_id', $episode->getKey()))
+            ->whereHas('imagingRequest', fn ($query) => $query->where('episode_id', $episode->getKey())->whereNull('cancelled_at'))
             ->pluck('billable_item_id');
 
         // Un acte Maternité déjà rattaché à la facturation de la Réception la

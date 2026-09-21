@@ -3,6 +3,7 @@
 namespace App\Actions\Medicine;
 
 use App\Actions\Hospitalization\CancelHospitalStayAction;
+use App\Actions\Surgery\WithdrawSurgicalRequestAction;
 use App\Enums\ClinicalPriority;
 use App\Enums\ConsultationOrientationStatus;
 use App\Enums\ConsultationOrientationType;
@@ -33,7 +34,10 @@ use Illuminate\Validation\ValidationException;
  */
 class RecordConsultationOrientationAction
 {
-    public function __construct(private readonly CancelHospitalStayAction $cancelStay) {}
+    public function __construct(
+        private readonly CancelHospitalStayAction $cancelStay,
+        private readonly WithdrawSurgicalRequestAction $withdrawSurgery,
+    ) {}
 
     /**
      * The doctor states where this patient is heading. Re-selecting the same
@@ -182,9 +186,9 @@ class RecordConsultationOrientationAction
      * committing to a destination. Same withdrawal rules as a change — an
      * already-transmitted request is not undone by an interface toggle.
      */
-    public function clear(Consultation $consultation, User $actor): void
+    public function clear(Consultation $consultation, User $actor, ?string $reason = null): void
     {
-        DB::transaction(function () use ($consultation, $actor): void {
+        DB::transaction(function () use ($consultation, $actor, $reason): void {
             $locked = $this->lockEditable($consultation);
             $active = $this->activeOrientation($locked);
 
@@ -192,7 +196,7 @@ class RecordConsultationOrientationAction
                 return;
             }
 
-            $this->withdraw($active, 'Orientation retirée : poursuite de l’évaluation.', $actor);
+            $this->withdraw($active, $reason ?? 'Orientation retirée : poursuite de l’évaluation.', $actor);
             $locked->update(['decision' => null]);
         });
     }
@@ -240,8 +244,12 @@ class RecordConsultationOrientationAction
             ]);
         }
 
-        $surgicalRequest?->update(['status' => SurgicalRequestStatus::Cancelled]);
-        if ($episodeOrientation?->status === EpisodeOrientationStatus::Pending) {
+        // ADR-163 — la demande au bloc est retirée par la règle unique du
+        // bloc, qui ne libère l'orientation du passage que si plus aucune
+        // autre demande ne l'utilise (celle du séjour, par exemple).
+        if ($surgicalRequest) {
+            $this->withdrawSurgery->execute($surgicalRequest, $reason, $actor);
+        } elseif ($episodeOrientation?->status === EpisodeOrientationStatus::Pending) {
             $episodeOrientation->cancel($actor);
         }
 

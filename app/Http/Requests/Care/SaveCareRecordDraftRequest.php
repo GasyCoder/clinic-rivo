@@ -22,6 +22,7 @@ class SaveCareRecordDraftRequest extends FormRequest
         'allergy_note', 'allergy_uuids', 'allergen_reference_uuids',
         'new_allergies', 'diagnostic_note', 'transmission_reason',
         'no_procedure_reason', 'procedures', 'consumables', 'consumable_notes',
+        'care_outcome', 'care_finish_reason',
     ];
 
     public function authorize(): bool

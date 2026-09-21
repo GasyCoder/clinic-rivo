@@ -7,13 +7,16 @@ use App\Enums\CareCompletionMode;
 use App\Enums\CareOrderStatus;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeAdministrativeStatus;
-use App\Enums\EpisodeOrientationStatus;
+use App\Enums\HospitalStayStatus;
 use App\Models\CareOrder;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\HospitalStay;
 use App\Models\User;
+use App\Services\Audit\Auditor;
 use App\Support\CareHandlerGuard;
 use App\Support\CareWorkflow;
+use App\Support\EpisodeSettlement;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -23,14 +26,29 @@ class CompleteCareAndOrientToMedicineAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly CareWorkflow $careWorkflow,
+        private readonly Auditor $auditor,
     ) {}
 
+    /**
+     * ADR-166 — la suite des Soins est décidée par l'infirmier, pas imposée
+     * par la désignation d'arrivée :
+     *
+     *   `$destination` null            suivre le parcours prévu (ADR-030)
+     *   CareCompletionMode::Medicine   transmettre au médecin, même un patient
+     *                                  prévu aux Soins seuls
+     *   CareCompletionMode::Finish     terminer aux Soins, même un patient
+     *                                  attendu en Médecine — avec un motif
+     *
+     * L'ordre de soins d'un médecin garde sa propre suite (ADR-055) : c'est
+     * le médecin qui décide, l'infirmier ne la change pas.
+     */
     public function execute(
         EpisodeOrientation $orientation,
         User $actor,
-        bool $orientUnknownNeedToMedicine = false,
+        ?CareCompletionMode $destination = null,
+        ?string $finishReason = null,
     ): EpisodeOrientation {
-        return DB::transaction(function () use ($orientation, $actor, $orientUnknownNeedToMedicine): EpisodeOrientation {
+        return DB::transaction(function () use ($orientation, $actor, $destination, $finishReason): EpisodeOrientation {
             $locked = EpisodeOrientation::query()
                 ->with(['episode.serviceRequests', 'episode.careRecord.procedures'])
                 ->lockForUpdate()
@@ -52,74 +70,77 @@ class CompleteCareAndOrientToMedicineAction
                 return $this->completeCareOrderPathway($locked, $activeCareOrder, $actor);
             }
 
-            $completionMode = $this->careWorkflow->completionMode($locked->episode);
-            $isUnknownNeed = $completionMode === CareCompletionMode::Choice;
+            $planned = $this->careWorkflow->completionMode($locked->episode);
+            $medicineInvolved = $this->careWorkflow->medicineAlreadyInvolved($locked->episode, forUpdate: true);
+            $toMedicine = $destination === CareCompletionMode::Medicine
+                || ($destination === null && $planned === CareCompletionMode::Medicine);
             $procedureCount = $locked->episode->careRecord?->procedures->count() ?? 0;
-            $noProcedureReason = $locked->episode->careRecord?->no_procedure_reason;
 
-            if ($orientUnknownNeedToMedicine && ! $isUnknownNeed) {
+            // Terminer aux Soins un patient que le médecin attend supprime une
+            // consultation prévue : le motif dit pourquoi, et reste au dossier.
+            // Quand Médecine a déjà le patient (urgence), rien n'est supprimé.
+            $skipsPlannedMedicine = ! $toMedicine
+                && $planned === CareCompletionMode::Medicine
+                && ! $medicineInvolved;
+            $reason = trim((string) $finishReason);
+
+            if ($skipsPlannedMedicine && $reason === '') {
                 throw ValidationException::withMessages([
-                    'orientation' => 'Ce parcours possède déjà une destination clinique définie.',
+                    'care_finish_reason' => 'Indiquez pourquoi le patient ne passe pas en Médecine.',
                 ]);
             }
 
-            if ($completionMode === CareCompletionMode::Finish && $procedureCount === 0) {
+            if (! $toMedicine && $planned === CareCompletionMode::Finish && $procedureCount === 0) {
                 throw ValidationException::withMessages([
                     'procedures' => 'Enregistrez au moins un acte réellement réalisé avant de terminer les soins.',
                 ]);
             }
 
-            if ($isUnknownNeed
-                && ! $orientUnknownNeedToMedicine
+            if (! $toMedicine
+                && $planned === CareCompletionMode::Choice
                 && $procedureCount === 0
-                && blank($noProcedureReason)) {
+                && blank($locked->episode->careRecord?->no_procedure_reason)) {
                 throw ValidationException::withMessages([
                     'no_procedure_reason' => 'Indiquez pourquoi aucun acte n’a été réalisé, ou orientez le patient vers Médecine.',
                 ]);
             }
 
-            $locked->complete($actor);
+            $locked->complete($actor, $skipsPlannedMedicine ? $reason : null);
 
-            if (($completionMode === CareCompletionMode::Medicine
-                || ($isUnknownNeed && $orientUnknownNeedToMedicine))
-                && ! $this->medicineAlreadyInvolved($locked->episode)) {
-                $this->createOrientation->execute(
-                    $locked->episode,
-                    CatalogModule::Care,
-                    CatalogModule::Medicine,
-                    $actor,
-                    $isUnknownNeed
-                        ? 'Orientation explicite après évaluation d’un besoin initialement inconnu.'
-                        : 'Orientation vers Médecine selon le parcours planifié.',
-                );
-            } elseif ($completionMode === CareCompletionMode::Finish) {
+            if ($toMedicine) {
+                if (! $medicineInvolved) {
+                    $this->createOrientation->execute(
+                        $locked->episode,
+                        CatalogModule::Care,
+                        CatalogModule::Medicine,
+                        $actor,
+                        match ($planned) {
+                            CareCompletionMode::Medicine => 'Orientation vers Médecine selon le parcours planifié.',
+                            CareCompletionMode::Choice => 'Orientation explicite après évaluation d’un besoin initialement inconnu.',
+                            CareCompletionMode::Finish => 'Orientation vers Médecine décidée aux Soins, hors du parcours prévu.',
+                        },
+                    );
+                }
+            } elseif ($planned === CareCompletionMode::Finish) {
                 $this->settleAdministrativelyIfPathwayComplete($locked->episode);
+            } elseif ($skipsPlannedMedicine) {
+                // Même règle que l'ADR-054, sous sa forme générale : le passage
+                // rejoint « Sorties & règlements » dès qu'aucun service n'a
+                // plus le patient.
+                EpisodeSettlement::advanceWhenNoServiceLeft($locked->episode->refresh());
+            }
+
+            if ($skipsPlannedMedicine) {
+                $this->auditor->record(
+                    'care.orientation.finish_at_care',
+                    entity: $locked,
+                    oldValues: ['planned' => $planned->value],
+                    newValues: ['outcome' => CareCompletionMode::Finish->value, 'reason' => $reason],
+                );
             }
 
             return $locked->fresh(['episode.patient']);
         });
-    }
-
-    /**
-     * Soins hands a patient to Médecine once per arrival pathway.
-     *
-     * A Médecine orientation that is waiting, in progress or already
-     * completed means Médecine has this patient: the Emergency pathway opens
-     * both services in parallel, and a doctor may have closed the
-     * consultation before Soins finished. Handing the patient over again
-     * would open a second consultation for the same visit. Only a withdrawn
-     * (CANCELLED) orientation does not count. A doctor's CareOrder asking for
-     * the patient back is a different, explicit request and does not go
-     * through this check.
-     */
-    private function medicineAlreadyInvolved(Episode $episode): bool
-    {
-        return EpisodeOrientation::query()
-            ->where('episode_id', $episode->getKey())
-            ->where('destination_module', CatalogModule::Medicine->value)
-            ->where('status', '!=', EpisodeOrientationStatus::Cancelled->value)
-            ->lockForUpdate()
-            ->exists();
     }
 
     /** Explicit convenience entry point for an initially unknown need. */
@@ -127,7 +148,7 @@ class CompleteCareAndOrientToMedicineAction
         EpisodeOrientation $orientation,
         User $actor,
     ): EpisodeOrientation {
-        return $this->execute($orientation, $actor, orientUnknownNeedToMedicine: true);
+        return $this->execute($orientation, $actor, CareCompletionMode::Medicine);
     }
 
     /**
@@ -152,6 +173,15 @@ class CompleteCareAndOrientToMedicineAction
             ->exists();
 
         if ($hasActiveMedicineOrientation) {
+            return;
+        }
+
+        // ADR-162 — des soins demandés depuis le séjour se terminent, le
+        // patient reste au lit : le passage n'attend pas encore sa sortie.
+        if (HospitalStay::query()
+            ->where('episode_id', $episode->getKey())
+            ->where('status', HospitalStayStatus::Active->value)
+            ->exists()) {
             return;
         }
 

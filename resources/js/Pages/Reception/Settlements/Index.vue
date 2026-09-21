@@ -13,6 +13,7 @@ import FormError from '@/Components/UI/FormError.vue';
 import FormLabel from '@/Components/UI/FormLabel.vue';
 import { Banknote, BedDouble, CircleAlert, CircleCheck, DoorOpen, FilePlus2, FileSpreadsheet, Lock, Printer, Search, ShieldCheck, Stethoscope, Wallet, X } from 'lucide-vue-next';
 import { lucideIcon } from '@/lib/icons';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
 import { formatDate, formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -381,9 +382,13 @@ const counterTiles = computed(() => [
                 </p>
 
                 <form class="flex w-full items-center gap-2 lg:w-auto" @submit.prevent="submitSearch">
-                    <div class="relative w-full lg:w-80">
-                        <Input v-model="search" icon="start" placeholder="Patient, n° dossier, n° passage, téléphone" aria-label="Rechercher un passage" />
-                        <span class="pointer-events-none absolute inset-y-0 start-0 flex w-10 items-center justify-center text-muted-foreground"><Search class="h-4 w-4" /></span>
+                    <div class="w-full lg:w-80">
+                        <IconInput
+                            v-model="search"
+                            :icon="Search"
+                            placeholder="Patient, n° dossier, n° passage, téléphone"
+                            aria-label="Rechercher un passage"
+                        />
                     </div>
                     <Button size="sm" type="submit" variant="white-outline">Rechercher</Button>
                 </form>

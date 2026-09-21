@@ -3,6 +3,7 @@
 namespace App\Actions\Episode;
 
 use App\Actions\Reception\CreateReceptionLabRequestAction;
+use App\Actions\Reception\CreateReceptionSurgicalRequestAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
@@ -35,6 +36,7 @@ class PlanEpisodeRoutingAction
     public function __construct(
         private readonly CreateEpisodeOrientationAction $createOrientation,
         private readonly CreateReceptionLabRequestAction $createReceptionLabRequest,
+        private readonly CreateReceptionSurgicalRequestAction $createReceptionSurgicalRequest,
         private readonly CatalogTariffResolver $tariffs,
         private readonly StaffFinancialAllocationService $staffFinancials,
     ) {}
@@ -375,6 +377,13 @@ class PlanEpisodeRoutingAction
 
             if ($destination === CatalogModule::Laboratory) {
                 $this->createReceptionLabRequest->execute($episode, $requests, $orientation, $actor);
+            }
+
+            // ADR-159 — même principe pour le bloc : l'orientation seule ne dit
+            // pas ce qu'on vient opérer. La demande accompagne l'orientation,
+            // et c'est le bloc qui la programme ensuite.
+            if ($destination === CatalogModule::Surgery) {
+                $this->createReceptionSurgicalRequest->execute($episode, $requests);
             }
         }
     }

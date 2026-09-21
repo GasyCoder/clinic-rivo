@@ -15,6 +15,7 @@ import ConduiteAnesthesique from '@/Components/Surgery/ConduiteAnesthesique.vue'
 import ConsultationPreAnesthesique from '@/Components/Surgery/ConsultationPreAnesthesique.vue';
 import EnTeteDossierChirurgical from '@/Components/Surgery/EnTeteDossierChirurgical.vue';
 import EntreeBloc from '@/Components/Surgery/EntreeBloc.vue';
+import HospitalStayBanner from '@/Components/Surgery/HospitalStayBanner.vue';
 import ExamenParaclinique from '@/Components/Surgery/ExamenParaclinique.vue';
 import SortieBloc from '@/Components/Surgery/SortieBloc.vue';
 import ValidationPreoperatoire from '@/Components/Surgery/ValidationPreoperatoire.vue';
@@ -27,6 +28,8 @@ const props = defineProps({
     workspace: { type: String, default: 'surgery' },
     surgicalRequest: Object,
     careSummary: { type: Object, default: null },
+    /** ADR-160 — le séjour actif du patient, s'il est hospitalisé. */
+    hospitalStay: { type: Object, default: null },
     users: Array,
     teamFunctions: Array,
     procedures: { type: Array, default: () => [] },
@@ -255,6 +258,8 @@ const submitDischarge = () => dischargeForm.post(`${base.value}/discharge`, {
                 <Button :as="Link" :href="workspaceMeta.returnUrl" size="rg" variant="white-outline"><Icon class="text-lg" name="arrow-left" /><span class="ms-2">{{ workspaceMeta.returnLabel }}</span></Button>
             </template>
         </EnTeteDossierChirurgical>
+
+        <HospitalStayBanner v-if="hospitalStay" :stay="hospitalStay" />
 
         <nav class="overflow-x-auto rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm dark:border-gray-900 dark:bg-gray-950 print:hidden" :aria-label="`Étapes ${workspaceMeta.label}`">
             <ol :class="['flex items-center', tabs.length > 3 ? 'min-w-[780px]' : 'min-w-[520px]', 'lg:min-w-0']" role="tablist">

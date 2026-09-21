@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'reported_antecedents', 'reported_habitual_treatments',
     'interviewed_by', 'interviewed_at', 'clinical_exam', 'decision',
     'decision_notes', 'consulted_at', 'completed_at', 'completed_by',
+    'cancelled_at', 'cancelled_by', 'cancellation_reason',
 ])]
 class Consultation extends Model
 {
@@ -43,6 +44,7 @@ class Consultation extends Model
             'consulted_at' => 'datetime',
             'interviewed_at' => 'datetime',
             'completed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 
@@ -75,6 +77,12 @@ class Consultation extends Model
     public function completedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'completed_by');
+    }
+
+    /** ADR-163 — qui a annulé une visite de service ouverte par erreur. */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function interviewedBy(): BelongsTo

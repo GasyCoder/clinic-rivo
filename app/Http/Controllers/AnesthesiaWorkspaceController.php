@@ -7,6 +7,7 @@ use App\Models\SurgicalRequest;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Surgery\SurgicalCaseWorkspace;
 use App\Support\SurgeryReferenceData;
+use App\Support\SurgicalStayContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -79,6 +80,8 @@ class AnesthesiaWorkspaceController extends Controller
             'workspace' => 'anesthesia',
             'surgicalRequest' => $workspace->loadForAnesthesia($surgicalRequest),
             'careSummary' => $careRecordReadModel->present($careRecord, $request->user()),
+            // ADR-160 — le même séjour que la Chirurgie : un seul dossier (ADR-048).
+            'hospitalStay' => SurgicalStayContext::for($surgicalRequest, $request->user()),
             'users' => [],
             'teamFunctions' => [],
             'procedures' => [],

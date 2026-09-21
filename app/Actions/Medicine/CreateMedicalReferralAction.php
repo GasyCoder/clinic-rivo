@@ -10,8 +10,10 @@ use App\Enums\EpisodeOrientationStatus;
 use App\Enums\MedicalRequestStatus;
 use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
+use App\Models\HospitalStay;
 use App\Models\MedicalReferral;
 use App\Models\User;
+use App\Support\Hospitalization\StayOrderContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -96,6 +98,64 @@ class CreateMedicalReferralAction
             );
 
             return $referral->fresh(['referredBy:id,name']);
+        });
+    }
+
+    /**
+     * ADR-162 — la demande de transfert d'un patient hospitalisé, depuis le
+     * séjour. Il reste au lit jusqu'au départ, constaté dans le module
+     * Transferts, qui termine alors le séjour (ADR-161). Une seule demande en
+     * cours par séjour : un double clic n'envoie pas deux ambulances.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function executeForStay(HospitalStay $stay, array $data, User $actor): MedicalReferral
+    {
+        return DB::transaction(function () use ($stay, $data, $actor): MedicalReferral {
+            $context = StayOrderContext::lock($stay, 'referral');
+
+            $pending = MedicalReferral::query()
+                ->where('hospital_stay_id', $context->stay->getKey())
+                ->where('status', MedicalRequestStatus::Requested->value)
+                ->whereNull('departed_at')
+                ->exists();
+
+            if ($pending) {
+                throw ValidationException::withMessages([
+                    'referral' => 'Un transfert est déjà demandé pour ce séjour : complétez-le dans le module Transferts.',
+                ]);
+            }
+
+            $priority = ClinicalPriority::from($data['priority']);
+            $facility = trim((string) ($data['facility'] ?? '')) ?: null;
+            $reason = trim((string) ($data['reason'] ?? '')) ?: null;
+            $orientation = $this->createOrientation->execute(
+                $context->episode,
+                CatalogModule::Hospitalization,
+                CatalogModule::Transfer,
+                $actor,
+                implode(' — ', array_filter([$facility, $reason])) ?: null,
+            );
+            $request = $context->stay->hospitalizationRequest()->first();
+
+            return MedicalReferral::query()->create([
+                'episode_id' => $context->episode->getKey(),
+                'hospital_stay_id' => $context->stay->getKey(),
+                'consultation_id' => null,
+                'episode_orientation_id' => $orientation->getKey(),
+                'facility' => $facility,
+                'reason' => $reason,
+                // Repris du séjour, jamais ressaisi (§17) ; une absence reste absente.
+                'diagnosis' => $data['diagnosis'] ?? $request?->admission_diagnosis,
+                'clinical_summary' => $data['clinical_summary'] ?? $request?->clinical_summary,
+                'treatments_given' => $data['treatments_given'] ?? null,
+                'priority' => $priority,
+                'recommendations' => $data['recommendations'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'status' => MedicalRequestStatus::Requested,
+                'referred_by' => $actor->getKey(),
+                'referred_at' => now(),
+            ])->fresh(['referredBy:id,name']);
         });
     }
 }

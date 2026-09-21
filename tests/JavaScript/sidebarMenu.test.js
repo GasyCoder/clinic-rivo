@@ -241,6 +241,8 @@ test('deux modules ne partagent jamais la même icône', async () => {
 const MEDICINE_PERMISSIONS = new Set([
     'consultations.view', 'paraclinical_requests.view', 'clinical_protocols.view',
     'laboratory_orders.view', 'patients.view', 'care.update', 'death_records.view',
+    // ADR-157 — `care.update` sert à corriger une fiche, pas à ouvrir la file :
+    // un compte Médecine ne voit donc pas l'entrée Soins.
 ]);
 const canMedicine = (permission) => MEDICINE_PERMISSIONS.has(permission);
 const medicineRows = () => visibleMenu(buildClinicMenu({ roleCode: 'MEDICINE', can: canMedicine }), canMedicine)
@@ -280,8 +282,10 @@ test('une page Médecine n’allume qu’une entrée, et qu’un seul enfant', (
 
     // Les autres modules gardent leur propre page.
     assert.deepEqual(activeMenuKeys(rows, '/deces').map((index) => rows[index].key), ['deaths']);
-    // Les Soins ont désormais leur propre groupe (un seul membre ici : lien simple).
-    assert.deepEqual(activeMenuKeys(rows, '/care').map((index) => rows[index].key), ['care-space']);
+    // ADR-157 — un compte Médecine n'a pas `care.create` : l'entrée Soins ne
+    // lui est pas proposée, et /care ne peut donc rien allumer chez lui.
+    assert.equal(rows.some((row) => row.key === 'care-space'), false);
+    assert.deepEqual(activeMenuKeys(rows, '/care'), []);
 });
 
 test('un groupe réduit à un seul membre devient un lien simple', () => {
@@ -320,7 +324,7 @@ test('l’ordre personnel n’est jamais lu pendant le rendu', async () => {
 
 /* ── Le module Soins : Infirmière, Maternité, Anesthésie ────────────── */
 
-const SOINS_PERMISSIONS = new Set(['care.update', 'care.view', 'maternity.view', 'anesthesia.view', 'patients.view']);
+const SOINS_PERMISSIONS = new Set(['care.create', 'care.update', 'care.view', 'maternity.view', 'anesthesia.view', 'patients.view']);
 const canSoins = (permission) => SOINS_PERMISSIONS.has(permission);
 const soinsRows = (can = canSoins) => visibleMenu(buildClinicMenu({ roleCode: 'NURSE', can }), can)
     .filter((row) => !row.heading && row.key);
@@ -361,7 +365,8 @@ test('une page des Soins n’allume que l’entrée Soins et son bon onglet', ()
 });
 
 test('un compte sans droit Maternité ni Anesthésie ne voit que la file infirmière', () => {
-    const can = (permission) => ['care.update', 'patients.view'].includes(permission);
+    // ADR-157 — c'est `care.create` qui ouvre la file, pas `care.update`.
+    const can = (permission) => ['care.create', 'patients.view'].includes(permission);
     const soins = soinsRows(can).find((row) => row.key === 'care-space');
 
     assert.equal(soins.children, undefined, 'une liste déroulante d’une seule entrée');
@@ -371,12 +376,17 @@ test('un compte sans droit Maternité ni Anesthésie ne voit que la file infirmi
 test('les onglets des Soins suivent les droits de chaque espace', () => {
     const tabs = fs.readFileSync('resources/js/Components/Care/SoinsTabs.vue', 'utf8');
 
-    assert.match(tabs, /\{ key: 'care', label: 'Infirmière', href: '\/care'[^}]*permission: 'care\.update' \}/);
+    // ADR-157 — la file des infirmières s'ouvre avec `care.create`, jamais
+    // avec `care.update`, que Médecine détient pour corriger une fiche.
+    assert.match(tabs, /\{ key: 'care', label: 'Infirmière', href: '\/care'[^}]*permission: 'care\.create' \}/);
     assert.match(tabs, /\{ key: 'maternity', label: 'Maternité', href: '\/maternity'[^}]*permission: 'maternity\.view' \}/);
     assert.match(tabs, /\{ key: 'anesthesia', label: 'Anesthésie', href: '\/anesthesia'[^}]*permission: 'anesthesia\.view' \}/);
-    // L'onglet courant est toujours affiché ; une barre à un seul onglet disparaît.
-    assert.match(tabs, /tab\.key === props\.current \|\| can\(tab\.permission\)/);
-    assert.match(tabs, /v-if="tabs\.length > 1"/);
+    // ADR-158 — les trois profils sont toujours là : celui dont le compte n'a
+    // pas le droit est verrouillé et nomme ce droit, jamais masqué.
+    assert.match(tabs, /open: tab\.key === props\.current \|\| can\(tab\.permission\)/);
+    assert.ok(!/v-if="tabs\.length > 1"/.test(tabs), 'la barre ne disparaît plus');
+    assert.match(tabs, /aria-disabled="true"/);
+    assert.match(tabs, /demandez le droit « \$\{tab\.permission\} »/);
 
     for (const [file, current] of [
         ['resources/js/Pages/Care/Index.vue', 'care'],

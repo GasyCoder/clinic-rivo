@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\AnalysisCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CashRegisterController;
 use App\Http\Controllers\Api\V1\SuperAdmin\CatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\DocumentTemplateController;
+use App\Http\Controllers\Api\V1\SuperAdmin\HospitalBedController;
 use App\Http\Controllers\Api\V1\SuperAdmin\HumanResourcesController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MedicineStockController;
 use App\Http\Controllers\Api\V1\SuperAdmin\MutualOrganizationController;
@@ -119,6 +120,23 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/cash-registers/{cashRegisterUuid}/payment-methods', [CashRegisterController::class, 'updatePaymentMethods'])->name('cash-registers.payment-methods.update');
         Route::delete('/cash-registers/{cashRegisterUuid}', [CashRegisterController::class, 'destroy'])->name('cash-registers.destroy');
         Route::post('/cash-registers/{cashRegisterUuid}/restore', [CashRegisterController::class, 'restore'])->name('cash-registers.restore');
+
+        // ADR-164 — services, chambres et lits de ce site.
+        Route::get('/hospital-beds', [HospitalBedController::class, 'index'])->name('hospital-beds.index');
+        Route::post('/hospital-beds/services', [HospitalBedController::class, 'storeService'])->name('hospital-beds.services.store');
+        Route::put('/hospital-beds/services/{serviceUuid}', [HospitalBedController::class, 'updateService'])->name('hospital-beds.services.update');
+        Route::delete('/hospital-beds/services/{serviceUuid}', [HospitalBedController::class, 'archiveService'])->name('hospital-beds.services.archive');
+        Route::post('/hospital-beds/services/{serviceUuid}/restore', [HospitalBedController::class, 'restoreService'])->name('hospital-beds.services.restore');
+        Route::post('/hospital-beds/services/{serviceUuid}/rooms', [HospitalBedController::class, 'storeRoom'])->name('hospital-beds.rooms.store');
+        Route::put('/hospital-beds/rooms/{roomUuid}', [HospitalBedController::class, 'updateRoom'])->name('hospital-beds.rooms.update');
+        Route::post('/hospital-beds/rooms/{roomUuid}/beds', [HospitalBedController::class, 'addBeds'])->name('hospital-beds.rooms.beds.store');
+        Route::delete('/hospital-beds/rooms/{roomUuid}', [HospitalBedController::class, 'archiveRoom'])->name('hospital-beds.rooms.archive');
+        Route::post('/hospital-beds/rooms/{roomUuid}/restore', [HospitalBedController::class, 'restoreRoom'])->name('hospital-beds.rooms.restore');
+        Route::put('/hospital-beds/beds/{bedUuid}', [HospitalBedController::class, 'updateBed'])->name('hospital-beds.beds.update');
+        Route::post('/hospital-beds/beds/{bedUuid}/out-of-service', [HospitalBedController::class, 'outOfService'])->name('hospital-beds.beds.out-of-service');
+        Route::post('/hospital-beds/beds/{bedUuid}/in-service', [HospitalBedController::class, 'inService'])->name('hospital-beds.beds.in-service');
+        Route::delete('/hospital-beds/beds/{bedUuid}', [HospitalBedController::class, 'archiveBed'])->name('hospital-beds.beds.archive');
+        Route::post('/hospital-beds/beds/{bedUuid}/restore', [HospitalBedController::class, 'restoreBed'])->name('hospital-beds.beds.restore');
 
         // ADR-133 — seuils des patients VIP de ce site.
         Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');

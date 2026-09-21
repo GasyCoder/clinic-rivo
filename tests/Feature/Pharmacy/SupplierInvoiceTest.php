@@ -211,12 +211,24 @@ class SupplierInvoiceTest extends TestCase
             'lines' => $lines,
         ])->assertRedirect();
 
+        // Le doublon remontait en violation de contrainte : une 500 pour le
+        // pharmacien, et une pile d'appels dans le log. C'est un message sous
+        // le champ (ADR-163).
         $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/invoices", [
             'invoice_number' => 'FAC-DUP',
             'invoice_date' => now()->toDateString(),
             'lines' => $lines,
-        ]);
+        ])->assertSessionHasErrors('invoice_number');
 
         $this->assertSame(1, SupplierInvoice::query()->where('invoice_number', 'FAC-DUP')->count());
+
+        // Une facture archivée garde son numéro : il n'est pas libre, il est rangé.
+        SupplierInvoice::query()->where('invoice_number', 'FAC-DUP')->sole()->delete();
+
+        $this->actingAs($this->pharmacist)->post("/pharmacy/suppliers/{$supplier->uuid}/invoices", [
+            'invoice_number' => 'FAC-DUP',
+            'invoice_date' => now()->toDateString(),
+            'lines' => $lines,
+        ])->assertSessionHasErrors('invoice_number');
     }
 }

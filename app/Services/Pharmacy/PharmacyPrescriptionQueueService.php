@@ -27,7 +27,7 @@ class PharmacyPrescriptionQueueService
             ->whereHas('lines.stockReservations', fn ($query) => $query
                 ->where('status', MedicineStockReservationStatus::Reserved->value))
             ->with([
-                'consultation.episode.patient:id,uuid,patient_number,first_name,last_name',
+                'episode.patient:id,uuid,patient_number,first_name,last_name',
                 'prescribedBy:id,uuid,name',
                 'lines' => fn ($query) => $query
                     ->whereHas('stockReservations', fn ($reservationQuery) => $reservationQuery
@@ -43,7 +43,7 @@ class PharmacyPrescriptionQueueService
             ->orderBy('id')
             ->get()
             ->map(function (Prescription $prescription) use ($includeLots, $includeExpiration): array {
-                $episode = $prescription->consultation?->episode;
+                $episode = $prescription->episode;
                 $patient = $episode?->patient;
 
                 $lines = $prescription->lines->map(function (PrescriptionLine $line) use ($includeLots, $includeExpiration): array {
@@ -150,6 +150,8 @@ class PharmacyPrescriptionQueueService
                     'type' => $dispense->type->value,
                     'type_label' => $dispense->type === PharmacyDispenseType::Internal ? 'Patient interne' : 'Client comptoir',
                     'status' => $dispense->status->value,
+                    // ADR-162 — délivrance au service : sans attente du règlement.
+                    'is_ward_dispense' => $dispense->isWardDispense(),
                     'status_label' => $dispense->status->label(),
                     'requested_at' => $dispense->requested_at?->toIso8601String(),
                     'customer_name' => $dispense->type === PharmacyDispenseType::Internal

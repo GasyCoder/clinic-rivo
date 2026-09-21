@@ -9,6 +9,7 @@ use App\Enums\CatalogModule;
 use App\Enums\ClinicalPriority;
 use App\Enums\ConsultationOrientationType;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\SurgicalRequestOrigin;
 use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\EpisodeOrientation;
@@ -87,7 +88,7 @@ class CreateSurgicalReferralAction
                     "Priorité : {$priority}",
                     $notes ?: null,
                 ]))),
-            ]);
+            ], SurgicalRequestOrigin::Medicine);
 
             // The conduite à tenir now has a record of its own, pointing at
             // the request it produced (ADR-084). `decision` keeps being

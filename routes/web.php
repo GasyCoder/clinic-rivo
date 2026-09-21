@@ -34,6 +34,8 @@ use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\GuardingController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\HospitalizationController;
+use App\Http\Controllers\HospitalStayOrderController;
+use App\Http\Controllers\HospitalStaySelectionController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
@@ -61,17 +63,18 @@ use App\Http\Controllers\Pharmacy\SupplierController;
 use App\Http\Controllers\Pharmacy\SupplierInvoiceController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
-use App\Http\Controllers\Reception\ReceptionNewbornController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
+use App\Http\Controllers\Reception\ReceptionNewbornController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
 use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
 use App\Http\Controllers\SuperAdmin\DocumentTemplateController as SuperAdminDocumentTemplateController;
+use App\Http\Controllers\SuperAdmin\HospitalBedController as SuperAdminHospitalBedController;
 use App\Http\Controllers\SuperAdmin\HumanResourcesController as SuperAdminHumanResourcesController;
 use App\Http\Controllers\SuperAdmin\MedicineStockController as SuperAdminMedicineStockController;
 use App\Http\Controllers\SuperAdmin\MutualOrganizationController as SuperAdminMutualOrganizationController;
@@ -240,6 +243,23 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::post('/cash-registers/{site}/{cashRegister}/deactivate', [SuperAdminCashRegisterController::class, 'deactivate'])->name('cash-registers.deactivate')->middleware('can:cash_registers.deactivate');
         Route::delete('/cash-registers/{site}/{cashRegister}', [SuperAdminCashRegisterController::class, 'destroy'])->name('cash-registers.destroy')->middleware('can:cash_registers.archive');
         Route::post('/cash-registers/{site}/{cashRegister}/restore', [SuperAdminCashRegisterController::class, 'restore'])->name('cash-registers.restore')->middleware(['can:trash.restore', 'can:cash_registers.restore']);
+
+        // ADR-164 — services, chambres et lits de chaque site, par l'API du site.
+        Route::get('/hospital-beds', [SuperAdminHospitalBedController::class, 'index'])->name('hospital-beds.index')->middleware('can:hospital_beds.view');
+        Route::post('/hospital-beds/{site}/services', [SuperAdminHospitalBedController::class, 'storeService'])->name('hospital-beds.services.store')->middleware('can:hospital_beds.create');
+        Route::put('/hospital-beds/{site}/services/{service}', [SuperAdminHospitalBedController::class, 'updateService'])->whereUuid('service')->name('hospital-beds.services.update')->middleware('can:hospital_beds.update');
+        Route::delete('/hospital-beds/{site}/services/{service}', [SuperAdminHospitalBedController::class, 'archiveService'])->whereUuid('service')->name('hospital-beds.services.archive')->middleware('can:hospital_beds.archive');
+        Route::post('/hospital-beds/{site}/services/{service}/restore', [SuperAdminHospitalBedController::class, 'restoreService'])->whereUuid('service')->name('hospital-beds.services.restore')->middleware('can:hospital_beds.restore');
+        Route::post('/hospital-beds/{site}/services/{service}/rooms', [SuperAdminHospitalBedController::class, 'storeRoom'])->whereUuid('service')->name('hospital-beds.rooms.store')->middleware('can:hospital_beds.create');
+        Route::put('/hospital-beds/{site}/rooms/{room}', [SuperAdminHospitalBedController::class, 'updateRoom'])->whereUuid('room')->name('hospital-beds.rooms.update')->middleware('can:hospital_beds.update');
+        Route::post('/hospital-beds/{site}/rooms/{room}/beds', [SuperAdminHospitalBedController::class, 'addBeds'])->whereUuid('room')->name('hospital-beds.rooms.beds.store')->middleware('can:hospital_beds.create');
+        Route::delete('/hospital-beds/{site}/rooms/{room}', [SuperAdminHospitalBedController::class, 'archiveRoom'])->whereUuid('room')->name('hospital-beds.rooms.archive')->middleware('can:hospital_beds.archive');
+        Route::post('/hospital-beds/{site}/rooms/{room}/restore', [SuperAdminHospitalBedController::class, 'restoreRoom'])->whereUuid('room')->name('hospital-beds.rooms.restore')->middleware('can:hospital_beds.restore');
+        Route::put('/hospital-beds/{site}/beds/{bed}', [SuperAdminHospitalBedController::class, 'updateBed'])->whereUuid('bed')->name('hospital-beds.beds.update')->middleware('can:hospital_beds.update');
+        Route::post('/hospital-beds/{site}/beds/{bed}/out-of-service', [SuperAdminHospitalBedController::class, 'outOfService'])->whereUuid('bed')->name('hospital-beds.beds.out-of-service')->middleware('can:hospital_beds.update');
+        Route::post('/hospital-beds/{site}/beds/{bed}/in-service', [SuperAdminHospitalBedController::class, 'inService'])->whereUuid('bed')->name('hospital-beds.beds.in-service')->middleware('can:hospital_beds.update');
+        Route::delete('/hospital-beds/{site}/beds/{bed}', [SuperAdminHospitalBedController::class, 'archiveBed'])->whereUuid('bed')->name('hospital-beds.beds.archive')->middleware('can:hospital_beds.archive');
+        Route::post('/hospital-beds/{site}/beds/{bed}/restore', [SuperAdminHospitalBedController::class, 'restoreBed'])->whereUuid('bed')->name('hospital-beds.beds.restore')->middleware('can:hospital_beds.restore');
         Route::get('/workspaces/tariffs', [SuperAdminCatalogController::class, 'index'])->name('tariffs.index')->middleware(['can:catalog.items.view', 'can:catalog.tariffs.view']);
         Route::get('/workspaces/tariffs/export', [SuperAdminCatalogController::class, 'export'])->name('tariffs.export')->middleware('can:catalog.tariffs.export');
         Route::get('/workspaces/tariffs/import-template', [SuperAdminCatalogController::class, 'template'])->name('tariffs.import-template')->middleware('can:catalog.tariffs.import');
@@ -824,7 +844,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // ADR-030 — operational queues are isolated by destination and opened
     // from the route configured on each selected designation. Unknown needs
     // start in Soins; an emergency receives both queues at admission.
-    Route::get('/care', [CareController::class, 'index'])->name('care.index')->middleware('can:care.view');
+    // ADR-157 — la file Soins est l'espace de travail de ceux qui FONT les
+    // soins : `care.create`, le droit d'ouvrir une fiche. `care.view` sert la
+    // projection en lecture (Médecine, Chirurgie) et `care.update` la
+    // correction d'une fiche depuis la consultation (ADR-093) — ni l'un ni
+    // l'autre n'est un droit d'entrer dans la file.
+    Route::get('/care', [CareController::class, 'index'])->name('care.index')->middleware('can:care.create');
     Route::get('/care/orientations/{episodeOrientation}', [CareController::class, 'show'])->name('care.orientations.show')->middleware('can:care.view');
     Route::put('/care/orientations/{episodeOrientation}/record', [CareController::class, 'saveRecord'])->name('care.orientations.record.update')->middleware('can:care.view');
     Route::put('/care/orientations/{episodeOrientation}/record-and-complete', [CareController::class, 'saveAndComplete'])->name('care.orientations.record-and-complete')->middleware('can:care.complete');
@@ -864,12 +889,55 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
 
     // ADR-113 — Hospitalisation : patients hospitalisés et fiche de régime.
     Route::get('/hospitalisation', [HospitalizationController::class, 'index'])->name('hospitalization.index')->middleware('can:hospitalization.view');
+    // ADR-165 — actions groupées sur les patients cochés, toutes en lecture.
+    // Déclarées avant `/hospitalisation/{hospitalStay}` : « selection » n'est pas un séjour.
+    Route::get('/hospitalisation/selection/regimes', [HospitalStaySelectionController::class, 'dietSheets'])
+        ->name('hospitalization.selection.diet-sheets')
+        ->middleware('can:hospitalization.view');
+    Route::get('/hospitalisation/selection/dossiers-medicaux', [HospitalStaySelectionController::class, 'medicalRecords'])
+        ->name('hospitalization.selection.medical-records')
+        ->middleware(['can:hospitalization.view', 'can:patients.view']);
+    Route::get('/hospitalisation/selection/tour-de-salle', [HospitalStaySelectionController::class, 'wardRound'])
+        ->name('hospitalization.selection.ward-round')
+        ->middleware('can:hospitalization.view');
+    Route::get('/hospitalisation/selection/export', [HospitalStaySelectionController::class, 'export'])
+        ->name('hospitalization.selection.export')
+        ->middleware(['can:hospitalization.view', 'can:hospitalization.export']);
     Route::get('/hospitalisation/{hospitalStay}', [HospitalizationController::class, 'show'])->name('hospitalization.show')->middleware('can:hospitalization.view');
     Route::put('/hospitalisation/{hospitalStay}', [HospitalizationController::class, 'update'])->name('hospitalization.update')->middleware('can:hospitalization.update');
     Route::put('/hospitalisation/{hospitalStay}/demande', [HospitalizationController::class, 'updateRequest'])->name('hospitalization.request.update')->middleware('can:hospitalization.request');
-    // ADR-148 — la visite de service : une vraie rencontre pendant le séjour,
-    // qui réutilise l'assistant Médecine plutôt que d'en dupliquer le circuit.
-    Route::post('/hospitalisation/{hospitalStay}/visites', [HospitalizationController::class, 'openVisit'])->name('hospitalization.visits.store')->middleware('can:consultations.create');
+    // ADR-162 — le séjour est le poste de travail du patient hospitalisé :
+    // ordonnance, examens, soins, transfert, note du jour et sortie s'y font,
+    // chacun par l'action qui porte déjà sa règle. Plus de visite de service :
+    // les anciennes restent lisibles depuis la page du séjour.
+    Route::post('/hospitalisation/{hospitalStay}/notes', [HospitalStayOrderController::class, 'storeNote'])->name('hospitalization.notes.store')->middleware('can:hospital_notes.create');
+    Route::post('/hospitalisation/{hospitalStay}/ordonnances', [HospitalStayOrderController::class, 'storePrescription'])->name('hospitalization.prescriptions.store')->middleware('can:prescriptions.create');
+    Route::post('/hospitalisation/{hospitalStay}/ordonnances/{prescription}/annuler', [HospitalStayOrderController::class, 'cancelPrescription'])->name('hospitalization.prescriptions.cancel')->middleware('can:prescriptions.cancel');
+    Route::get('/hospitalisation/{hospitalStay}/ordonnances/{prescription}/impression', [HospitalStayOrderController::class, 'printPrescription'])->name('hospitalization.prescriptions.print')->middleware('can:prescriptions.view');
+    Route::post('/hospitalisation/{hospitalStay}/analyses', [HospitalStayOrderController::class, 'storeLabRequest'])->name('hospitalization.lab-requests.store')->middleware('can:laboratory_orders.create');
+    Route::post('/hospitalisation/{hospitalStay}/analyses/{labRequest}/retirer', [HospitalStayOrderController::class, 'cancelLabRequest'])->name('hospitalization.lab-requests.cancel')->middleware('can:laboratory_orders.create');
+    Route::post('/hospitalisation/{hospitalStay}/imagerie', [HospitalStayOrderController::class, 'storeImagingRequest'])->name('hospitalization.imaging-requests.store')->middleware('can:imaging_orders.create');
+    Route::post('/hospitalisation/{hospitalStay}/imagerie/{imagingRequest}/retirer', [HospitalStayOrderController::class, 'cancelImagingRequest'])->name('hospitalization.imaging-requests.cancel')->middleware('can:imaging_orders.create');
+    Route::post('/hospitalisation/{hospitalStay}/soins', [HospitalStayOrderController::class, 'storeCareOrder'])->name('hospitalization.care-orders.store')->middleware('can:care_orders.create');
+    Route::post('/hospitalisation/{hospitalStay}/soins/{careOrderItem}/retirer', [HospitalStayOrderController::class, 'cancelCareOrderItem'])->name('hospitalization.care-orders.cancel')->middleware('can:care_orders.create');
+    Route::post('/hospitalisation/{hospitalStay}/transfert', [HospitalStayOrderController::class, 'storeReferral'])->name('hospitalization.referral.store')->middleware('can:transfer.request');
+    Route::post('/hospitalisation/{hospitalStay}/transfert/{medicalReferral}/annuler', [HospitalStayOrderController::class, 'cancelReferral'])->name('hospitalization.referral.cancel')->middleware('can:transfer.request');
+    Route::post('/hospitalisation/{hospitalStay}/sortie', [HospitalStayOrderController::class, 'discharge'])->name('hospitalization.discharge')->middleware('can:medical_discharge.create');
+    // ADR-160 — le patient au lit descend au bloc sans quitter son séjour.
+    // `surgery.request` : la même autorité qu'en consultation, jamais un droit
+    // propre à l'hospitalisation.
+    Route::post('/hospitalisation/{hospitalStay}/bloc', [HospitalizationController::class, 'requestSurgery'])->name('hospitalization.surgery.store')->middleware('can:surgery.request');
+    // ADR-163 — revenir sur un geste du séjour, sans rien effacer : le bloc tant
+    // qu'il n'a pas programmé, une visite de service restée ouverte ; et clôturer
+    // d'ici une consultation du passage quand plus rien ne manque.
+    Route::post('/hospitalisation/{hospitalStay}/bloc/{surgicalRequest}/annuler', [HospitalizationController::class, 'cancelSurgery'])->name('hospitalization.surgery.cancel')->middleware('can:surgery.request');
+    Route::post('/hospitalisation/{hospitalStay}/visites/{episodeOrientation}/annuler', [HospitalizationController::class, 'cancelVisit'])->name('hospitalization.visits.cancel')->middleware('can:consultations.create');
+    Route::post('/hospitalisation/{hospitalStay}/consultations/{episodeOrientation}/cloturer', [HospitalizationController::class, 'closeConsultation'])->name('hospitalization.consultations.close')->middleware('can:consultations.update');
+    // ADR-161 — mutation interne (service, lit, niveau de soins) et surveillance
+    // répétée des constantes. Les droits sont ceux qui existent déjà.
+    Route::post('/hospitalisation/{hospitalStay}/mouvements', [HospitalizationController::class, 'move'])->name('hospitalization.movements.store')->middleware('can:hospitalization.update');
+    Route::post('/hospitalisation/{hospitalStay}/surveillance', [HospitalizationController::class, 'storeReading'])->name('hospitalization.vitals.store')->middleware('can:vitals.create');
+    Route::put('/hospitalisation/{hospitalStay}/surveillance/{vitalSignReading}', [HospitalizationController::class, 'updateReading'])->name('hospitalization.vitals.update')->middleware('can:vitals.update');
     // ADR-147 — le diagnostic conclu au terme du séjour : même droit que celui
     // d'une consultation, mais enregistré sur le séjour (la consultation qui a
     // demandé l'hospitalisation est le plus souvent close, ADR-076).
@@ -988,8 +1056,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // one seeded permission (PermissionSeeder) — see SurgeryController's
     // own doc comment for why this is split across several controllers.
     Route::get('/surgery', [SurgeryController::class, 'index'])->name('surgery.index')->middleware('can:surgery.view');
-    Route::get('/surgery/create', [SurgeryController::class, 'create'])->name('surgery.create.form')->middleware('can:surgery.create');
-    Route::post('/surgery', [SurgeryController::class, 'store'])->name('surgery.store')->middleware('can:surgery.create');
+    // ADR-159 — le bloc ne crée plus ses propres demandes : elles naissent à la
+    // Réception (besoin annoncé à l'arrivée) ou en consultation (conduite à
+    // tenir, ADR-084). L'URL reste valide et mène à la file, jamais à une page
+    // disparue — même principe que l'ADR-081 et l'ADR-084.
+    Route::get('/surgery/create', fn () => redirect()->route('surgery.index'))
+        ->name('surgery.create.form')->middleware('can:surgery.view');
     Route::get('/surgery/{surgicalRequest}', [SurgeryController::class, 'show'])->name('surgery.show')->middleware('can:surgery.view');
     Route::put('/surgery/{surgicalRequest}', [SurgeryController::class, 'update'])->name('surgery.update')->middleware('can:surgery.update');
     Route::post('/surgery/{surgicalRequest}/schedule', [SurgeryController::class, 'schedule'])->name('surgery.schedule')->middleware('can:surgery.schedule');

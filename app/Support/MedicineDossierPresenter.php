@@ -27,9 +27,9 @@ use App\Models\Consultation;
 use App\Models\ConsultationOrientation;
 use App\Models\EpisodeOrientation;
 use App\Models\EpisodeServiceRequest;
+use App\Models\HospitalStay;
 use App\Models\ImagingRequest;
 use App\Models\ImagingRequestItem;
-use App\Models\HospitalStay;
 use App\Models\LabRequest;
 use App\Models\LabRequestItem;
 use App\Models\User;
@@ -41,6 +41,7 @@ use App\Services\Medicine\ClinicPracticeAdvisor;
 use App\Services\Medicine\ClinicPracticeIndex;
 use App\Services\Medicine\ImagingReportTemplateCatalog;
 use App\Services\Pharmacy\MedicineStockService;
+use App\Support\Medicine\PrescriptionSuggestions;
 use Illuminate\Support\Collection;
 
 class MedicineDossierPresenter
@@ -54,6 +55,7 @@ class MedicineDossierPresenter
         private readonly PlannedServiceBilling $plannedBilling,
         private readonly ClinicalProtocolMatcher $protocols,
         private readonly ClinicPracticeAdvisor $practice,
+        private readonly PrescriptionSuggestions $prescriptionSuggestions,
     ) {}
 
     /** @return array<string, mixed> */
@@ -112,14 +114,7 @@ class MedicineDossierPresenter
             CatalogModule::Transfer->value => CatalogModule::Transfer->label(),
             CatalogModule::Pediatrics->value => CatalogModule::Pediatrics->label(),
         ];
-        $transferDestinations = collect(config('rivo.clinics', []))
-            ->filter(fn (array $site) => strtoupper((string) ($site['code'] ?? '')) !== strtoupper((string) config('rivo.site.code')))
-            ->map(fn (array $site) => [
-                'code' => $site['code'],
-                'name' => $site['name'],
-                'destination' => 'Clinique Saint Georges — '.$site['name'],
-            ])
-            ->values();
+        $transferDestinations = collect(ClinicSites::others());
 
         // Whether "Continuer la prise en charge" is a genuine option rather
         // than an escape hatch from a real decision (item 12): only true
@@ -641,10 +636,16 @@ class MedicineDossierPresenter
                     ['value' => DiagnosisType::Hypothesis->value, 'label' => 'Hypothèse diagnostique'],
                     ['value' => DiagnosisType::Final->value, 'label' => 'Diagnostic final'],
                 ],
-                'discharge_types' => collect(MedicalDischargeType::cases())->map(fn ($type) => [
-                    'value' => $type->value,
-                    'label' => $type->label(),
-                ])->values(),
+                // ADR-161 — un patient au lit est transféré par la conduite
+                // « Référence / transfert », et son séjour se termine au départ :
+                // la sortie « Transfert » ne lui est pas proposée (le serveur la
+                // refuse de toute façon).
+                'discharge_types' => collect(MedicalDischargeType::cases())
+                    ->reject(fn (MedicalDischargeType $type): bool => $stay !== null && $type === MedicalDischargeType::Transfer)
+                    ->map(fn ($type) => [
+                        'value' => $type->value,
+                        'label' => $type->label(),
+                    ])->values(),
                 'medicines' => $canViewPharmacyAvailability && $includeMedicineCatalog
                     ? $this->medicineStock->availableCatalog()
                     : [],
@@ -1018,42 +1019,10 @@ class MedicineDossierPresenter
             )]
             : [];
 
-        $groups = [];
-        $excluded = [];
-
-        if ($canPrescribe) {
-            $protocolPrescription = $this->protocols->suggestPrescription($consultation, $context);
-            $covered = array_column($protocolPrescription['protocols'], 'diagnostic_catalog_id');
-            $excluded = $protocolPrescription['excluded'];
-            $groups = [
-                ...array_map(function (array $group): array {
-                    unset($group['diagnostic_catalog_id']);
-
-                    return $group;
-                }, $protocolPrescription['protocols']),
-                ...$this->practice->suggestPrescription(
-                    $consultation,
-                    $context,
-                    array_values(array_diff($context['diagnosis_catalog_ids'], $covered)),
-                ),
-            ];
-        }
-
-        if ($groups !== []) {
-            $stock = $this->medicineStock->availableCatalog()->keyBy('uuid');
-
-            $groups = array_map(fn (array $group): array => [
-                ...$group,
-                'lines' => array_map(fn (array $line): array => [
-                    ...$line,
-                    'available_quantity' => $stock->get($line['medicine_uuid'])['available_quantity'] ?? 0,
-                    'available' => (bool) ($stock->get($line['medicine_uuid'])['available'] ?? false),
-                    'unit' => $stock->get($line['medicine_uuid'])['unit'] ?? null,
-                ], $group['lines']),
-            ], $groups);
-        }
-
-        $prescription = ['groups' => $groups, 'excluded' => $excluded];
+        // ADR-163 — la même composition que le séjour : une seule écriture.
+        $prescription = $canPrescribe
+            ? $this->prescriptionSuggestions->for($context, $consultation)
+            : ['groups' => [], 'excluded' => []];
 
         return [
             'protocol_count' => $this->protocols->activeProtocolCount(),
@@ -1253,11 +1222,10 @@ class MedicineDossierPresenter
     /**
      * ADR-149 — la conduite à tenir dépend de là où le patient se trouve.
      *
-     * Hospitalisé, une visite se conclut par « Poursuite de l'hospitalisation »
-     * (il reste au lit) ou par « Sortie médicale » — celle-ci termine aussi le
-     * séjour depuis l'ADR-156, si bien que le patient ne peut plus être sorti
-     * sans que son lit le soit. Seule « Hospitalisation » reste retirée : elle
-     * ouvrirait un **second séjour** sur le même passage.
+     * Hospitalisé, une visite encore ouverte se conclut par « Poursuite de
+     * l'hospitalisation » : depuis l'ADR-162, la sortie d'un patient au lit se
+     * prononce sur la page du séjour, et « Hospitalisation » ouvrirait un
+     * **second séjour** sur le même passage.
      *
      * Non hospitalisé, « Poursuite de l'hospitalisation » ne veut rien dire.
      */
@@ -1267,7 +1235,12 @@ class MedicineDossierPresenter
             return $type !== ConsultationOrientationType::ContinuedHospitalization;
         }
 
-        return $type !== ConsultationOrientationType::Hospitalization;
+        // ADR-162 — pour un patient au lit, la sortie se prononce sur la page
+        // du séjour, et là seulement ; « Hospitalisation » ouvrirait un
+        // second séjour.
+        return ! in_array($type, [
+            ConsultationOrientationType::Hospitalization,
+            ConsultationOrientationType::Discharge,
+        ], true);
     }
-
 }

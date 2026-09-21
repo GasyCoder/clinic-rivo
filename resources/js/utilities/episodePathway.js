@@ -80,6 +80,7 @@ const STATES = {
 const FOLLOW_UP_SHORT = {
     RETURN_TO_MEDICINE: 'retour Médecine',
     DIRECT_EXIT: 'sortie directe',
+    STAY_IN_BED: 'reste hospitalisé',
 };
 
 export const stepIcon = (step) => TYPE_ICONS[step.type] ?? MODULE_ICONS[step.module] ?? CircleDot;

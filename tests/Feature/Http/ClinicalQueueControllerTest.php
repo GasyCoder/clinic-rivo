@@ -52,7 +52,7 @@ class ClinicalQueueControllerTest extends TestCase
 
     public function test_normal_patient_is_hidden_from_medicine_until_care_completes_the_handoff(): void
     {
-        $nurse = $this->user('NURSE', ['care.view', 'care.update', 'care.complete']);
+        $nurse = $this->user('NURSE', ['care.view', 'care.create', 'care.update', 'care.complete']);
         $doctor = $this->user('MEDICINE', ['consultations.view', 'consultations.create']);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $service = $this->service($nurse, ReceptionRoutingMode::CareThenMedicine);
@@ -92,7 +92,7 @@ class ClinicalQueueControllerTest extends TestCase
 
     public function test_emergency_patient_is_visible_in_both_queues_immediately(): void
     {
-        $nurse = $this->user('NURSE', ['care.view']);
+        $nurse = $this->user('NURSE', ['care.view', 'care.create']);
         $doctor = $this->user('MEDICINE', ['consultations.view']);
         $episode = $this->app->make(CreateEpisodeAction::class)
             ->execute($this->patient(), EpisodePriority::Emergency);
@@ -111,7 +111,7 @@ class ClinicalQueueControllerTest extends TestCase
 
     public function test_care_queue_supports_the_priority_filter(): void
     {
-        $nurse = $this->user('NURSE', ['care.view']);
+        $nurse = $this->user('NURSE', ['care.view', 'care.create']);
         $emergency = $this->app->make(CreateEpisodeAction::class)
             ->execute($this->patient('M-000001'), EpisodePriority::Emergency);
         $normal = $this->app->make(CreateEpisodeAction::class)
@@ -141,7 +141,7 @@ class ClinicalQueueControllerTest extends TestCase
 
     public function test_care_queue_numbers_normal_patients_by_arrival_and_skips_fresh_emergencies(): void
     {
-        $nurse = $this->user('NURSE', ['care.view']);
+        $nurse = $this->user('NURSE', ['care.view', 'care.create']);
 
         $normalFirst = $this->app->make(CreateEpisodeAction::class)->execute($this->patient('M-000001'));
         $this->app->make(PlanEpisodeRoutingAction::class)->execute($normalFirst, [[
@@ -181,7 +181,7 @@ class ClinicalQueueControllerTest extends TestCase
 
     public function test_an_emergency_episode_joins_the_numbered_queue_once_medecine_completes_its_first_consultation(): void
     {
-        $nurse = $this->user('NURSE', ['care.view']);
+        $nurse = $this->user('NURSE', ['care.view', 'care.create']);
         $doctor = $this->user('MEDICINE', [
             'consultations.view', 'consultations.create', 'diagnoses.create', 'medical_discharge.create',
         ]);
@@ -294,7 +294,7 @@ class ClinicalQueueControllerTest extends TestCase
 
     public function test_queue_keeps_a_mutual_designation_visible_when_its_tariff_is_not_configured(): void
     {
-        $nurse = $this->user('NURSE', ['care.view']);
+        $nurse = $this->user('NURSE', ['care.view', 'care.create']);
         $patient = $this->patient();
         $patient->update(['patient_type' => PatientType::Mutual]);
         $organization = MutualOrganization::query()->create([

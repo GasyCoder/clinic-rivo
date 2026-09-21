@@ -1,16 +1,27 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
+import VitalSignsStrip from '@/Components/Clinical/VitalSignsStrip.vue';
+import StayNotes from '@/Components/Hospitalization/StayNotes.vue';
+import StayPrescriptions from '@/Components/Hospitalization/StayPrescriptions.vue';
+import StayExams from '@/Components/Hospitalization/StayExams.vue';
+import StayCareOrders from '@/Components/Hospitalization/StayCareOrders.vue';
+import StayExit from '@/Components/Hospitalization/StayExit.vue';
+import StayOpenConsultations from '@/Components/Hospitalization/StayOpenConsultations.vue';
+import StayDiagnosisAdd from '@/Components/Hospitalization/StayDiagnosisAdd.vue';
+import StayExitContext from '@/Components/Hospitalization/StayExitContext.vue';
+import BedPicker from '@/Components/Hospitalization/BedPicker.vue';
 import {
     ArrowLeft,
     BedDouble,
@@ -20,33 +31,132 @@ import {
     Pencil,
     Plus,
     Printer,
-    ClipboardList,
+    Scissors,
+    Search,
+    ArrowRightLeft,
+    Activity,
+    Ambulance,
     Stethoscope,
+    Undo2,
     Utensils,
     X,
+    LayoutDashboard,
+    Lock,
+    NotebookPen,
+    Pill,
+    FlaskConical,
+    HandHeart,
 } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
+import { doctorName } from '@/utilities/doctorName';
 
 defineOptions({ layout: AppLayout });
 
 /**
- * ADR-113 — le séjour d'un patient hospitalisé.
+ * ADR-113 / ADR-162 — le séjour d'un patient hospitalisé, et son poste de travail.
  *
- * Au centre, la fiche de régime, tenue jour par jour par la Médecine et les
- * Soins, en texte libre et sans aucun montant. Sur le côté, le séjour et la
- * sortie médicale, qui seule le termine (CDC §33.1). Ce que le dossier sait
- * déjà — N° de dossier, allergies, tabac, motif — n'est jamais ressaisi.
+ * Tout ce qui concerne le patient au lit se fait ici : note du jour,
+ * ordonnances, examens, soins, surveillance, régime, bloc, transfert et
+ * sortie. Aucune consultation n'est rouverte ; chaque geste passe par
+ * l'action serveur qui porte déjà sa règle. Ce que le dossier sait déjà —
+ * constantes, allergies, diagnostics, motif — n'est jamais ressaisi.
  */
 const props = defineProps({
     stay: { type: Object, required: true },
     capabilities: { type: Object, required: true },
     /** ADR-147 — ceux du passage et ceux du séjour, déjà consignés. */
     diagnoses: { type: Array, default: () => [] },
-    /** ADR-148 — les visites de service déjà faites pendant le séjour. */
-    visits: { type: Array, default: () => [] },
+    /** ADR-163 — les consultations du passage encore ouvertes, et ce qui manque pour les clôturer. */
+    openConsultations: { type: Array, default: () => [] },
+    /** ADR-160 — ce que le séjour a envoyé au bloc, et où en est chaque demande. */
+    surgeries: { type: Array, default: () => [] },
+    /** ADR-160 — le référentiel des interventions, servi seulement à qui peut transférer. */
+    surgeryProcedures: { type: Array, default: () => [] },
+    /** ADR-161 — où le patient a été, à quel niveau de soins, depuis quand. */
+    movements: { type: Array, default: () => [] },
+    /** ADR-161 — la surveillance répétée, repères de la fiche Soins compris. */
+    vitalReadings: { type: Array, default: () => [] },
+    careLevels: { type: Array, default: () => [] },
+    /** ADR-164 — le site a configuré ses lits : on en choisit un libre. */
+    bedsConfigured: { type: Boolean, default: false },
+    freeBeds: { type: Array, default: () => [] },
+    // ADR-162 — le poste de travail du séjour. `null` : section non servie,
+    // faute du droit qui possède la donnée (jamais servie vide).
+    careRecord: { type: Object, default: null },
+    notes: { type: Array, default: null },
+    prescriptions: { type: Array, default: null },
+    /** ADR-163 — l'ordonnance proposée pour les diagnostics du passage (ADR-111). */
+    prescriptionSuggestions: { type: Object, default: null },
+    labRequests: { type: Array, default: null },
+    imagingRequests: { type: Array, default: null },
+    careOrders: { type: Array, default: null },
+    referral: { type: Object, default: null },
+    orderOptions: { type: Object, default: () => ({}) },
+    orderCapabilities: { type: Object, default: () => ({}) },
 });
 
+// ── Onglets (ADR-162) ───────────────────────────────────────────────────────
+// Un onglet par geste du médecin au lit. L'onglet ouvert voyage dans l'adresse
+// (#examens) pour qu'un enregistrement ramène au même endroit ; il n'est lu
+// qu'une fois la page montée — jamais pendant le rendu serveur.
+const TABS = computed(() => [
+    { key: 'apercu', label: 'Vue d’ensemble', icon: LayoutDashboard, show: true },
+    { key: 'notes', label: 'Notes du jour', icon: NotebookPen, show: props.notes !== null || props.orderCapabilities.can_write_note },
+    { key: 'ordonnances', label: 'Ordonnances', icon: Pill, show: props.prescriptions !== null || props.orderCapabilities.can_prescribe, count: activePrescriptions.value.length },
+    { key: 'examens', label: 'Examens', icon: FlaskConical, show: props.labRequests !== null || props.imagingRequests !== null, count: pendingExams.value },
+    { key: 'soins', label: 'Soins', icon: HandHeart, show: props.careOrders !== null || props.orderCapabilities.can_request_care },
+    { key: 'surveillance', label: 'Surveillance', icon: Activity, show: props.capabilities.can_view_vitals, count: props.vitalReadings.length },
+    { key: 'regime', label: 'Régime', icon: Utensils, show: true },
+    { key: 'bloc', label: 'Bloc', icon: Scissors, show: props.surgeries.length > 0 || props.capabilities.can_request_surgery },
+    { key: 'sortie', label: 'Sortie', icon: DoorOpen, show: true },
+].filter((tab) => tab.show));
+const activeTab = ref('apercu');
+const selectTab = (key) => {
+    activeTab.value = key;
+    try { window.history.replaceState(window.history.state, '', `#${key}`); } catch { /* adresse inchangée */ }
+};
+onMounted(() => {
+    const key = window.location.hash.replace('#', '');
+    if (TABS.value.some((tab) => tab.key === key)) activeTab.value = key;
+});
+
+const activePrescriptions = computed(() => (props.prescriptions ?? []).filter((prescription) => prescription.status === 'ACTIVE'));
+const pendingExams = computed(() => [...(props.labRequests ?? []), ...(props.imagingRequests ?? [])]
+    .flatMap((request) => (request.status === 'CANCELLED' ? [] : request.items))
+    .filter((item) => !item.resulted_at).length);
+/** Le traitement de sortie se coche parmi ce que le séjour prescrit déjà. */
+const activePrescriptionLines = computed(() => activePrescriptions.value
+    .flatMap((prescription) => prescription.lines)
+    .map((line) => [line.name, line.posology].filter(Boolean).join(' — ')));
+const careBloodPressure = computed(() => (props.careRecord?.blood_pressure_systolic && props.careRecord?.blood_pressure_diastolic
+    ? `${props.careRecord.blood_pressure_systolic}/${props.careRecord.blood_pressure_diastolic}`
+    : null));
+const latestReading = computed(() => props.vitalReadings[0] ?? null);
+/** ADR-128 — ce que la relecture d'ordonnance sait du patient. */
+const patientSafety = computed(() => ({
+    age: props.stay.patient.age ?? null,
+    weightKg: props.careRecord?.weight_kg ? Number(props.careRecord.weight_kg) : null,
+    allergies: props.stay.allergies ?? [],
+}));
+const patientLabel = computed(() => `${props.stay.patient.name} · ${props.stay.episode.episode_number}`);
+
 const isActive = computed(() => props.stay.status === 'ACTIVE');
+
+// ADR-160 — un passage au bloc qui n'a ni fini ni été annulé retient encore le patient.
+const openSurgeries = computed(() => props.surgeries
+    .filter((surgery) => !['COMPLETED', 'DISCHARGED', 'CANCELLED'].includes(surgery.status)).length);
+
+// La colonne de repères de la Sortie mène à l'onglet qui porte ce qui reste
+// à relire ; les consultations ouvertes sont déjà en tête de cet onglet.
+const exitNavigate = (key) => {
+    if (key === 'consultations') {
+        document.getElementById('stay-open-consultations')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        return;
+    }
+
+    selectTab(key);
+};
 
 /** Les quatre colonnes « Régime » de la feuille papier, dans son ordre. */
 const MEALS = [
@@ -112,6 +222,97 @@ const saveRoom = () => roomForm.put(`/hospitalisation/${props.stay.uuid}`, {
     onSuccess: () => { editingRoom.value = false; },
 });
 
+// ── Mutation interne (ADR-161) ──────────────────────────────────────────────
+// Changer de service, de lit ou de niveau de soins ferme l'emplacement en
+// cours et en ouvre un autre : rien ne s'écrase. Le crayon ci-dessus corrige
+// l'emplacement actuel (une faute, la chambre à compléter) sans rien déplacer.
+const moveOpen = ref(false);
+const moveForm = useForm({ service: '', room_bed: '', care_level: 'STANDARD', reason: '' });
+const openMove = () => {
+    moveForm.clearErrors();
+    moveForm.service = props.stay.service ?? '';
+    moveForm.room_bed = props.stay.room_bed ?? '';
+    moveForm.care_level = props.stay.care_level ?? 'STANDARD';
+    moveForm.reason = '';
+    moveOpen.value = true;
+};
+const submitMove = () => moveForm.post(`/hospitalisation/${props.stay.uuid}/mouvements`, {
+    preserveScroll: true,
+    onSuccess: () => { moveOpen.value = false; },
+});
+// ── Lit du référentiel (ADR-164) ────────────────────────────────────────────
+// « Attribuer » ou « Corriger » installe le patient sans mutation (ADR-161) ;
+// « Changer de lit » ferme l'emplacement et en ouvre un autre. Le service et
+// le niveau de soins suivent le lit choisi ; le serveur refuse un lit occupé.
+const bedDialog = ref(null); // null | 'assign' | 'move'
+const bedForm = useForm({ hospital_bed_uuid: '', reason: '' });
+const openBedDialog = (mode) => {
+    bedForm.reset();
+    bedForm.clearErrors();
+    bedDialog.value = mode;
+};
+const chosenBed = computed(() => {
+    for (const service of props.freeBeds) {
+        for (const room of service.rooms) {
+            const bed = room.beds.find((candidate) => candidate.uuid === bedForm.hospital_bed_uuid);
+            if (bed) return { service, room, bed };
+        }
+    }
+
+    return null;
+});
+const submitBed = () => {
+    const done = { preserveScroll: true, onSuccess: () => { bedDialog.value = null; } };
+
+    if (bedDialog.value === 'move') {
+        bedForm.transform((data) => ({ hospital_bed_uuid: data.hospital_bed_uuid, reason: data.reason }))
+            .post(`/hospitalisation/${props.stay.uuid}/mouvements`, done);
+    } else {
+        bedForm.transform((data) => ({ hospital_bed_uuid: data.hospital_bed_uuid }))
+            .put(`/hospitalisation/${props.stay.uuid}`, done);
+    }
+};
+const needsBed = computed(() => props.bedsConfigured && props.stay.status === 'ACTIVE' && !props.stay.bed_uuid);
+
+const CARE_LEVEL_VARIANT = { STANDARD: 'outline', CONTINUOUS: 'warning', INTENSIVE: 'destructive' };
+const careLevelVariant = (level) => CARE_LEVEL_VARIANT[level] ?? 'outline';
+const pastMovements = computed(() => props.movements.filter((movement) => !movement.is_current).slice().reverse());
+
+// ── Surveillance (ADR-161) ──────────────────────────────────────────────────
+// Un relevé par passage de l'infirmier ou du médecin, jamais écrasé. Les
+// repères sont ceux de la fiche Soins, calculés par le serveur selon l'âge.
+const VITAL_FIELDS = ['blood_pressure_systolic', 'blood_pressure_diastolic', 'heart_rate', 'spo2', 'temperature_celsius'];
+const emptyReading = () => ({ measured_at: '', blood_pressure_systolic: '', blood_pressure_diastolic: '', heart_rate: '', spo2: '', temperature_celsius: '', notes: '' });
+const readingForm = useForm(emptyReading());
+const readingHasValue = computed(() => VITAL_FIELDS.some((field) => String(readingForm[field] ?? '').trim() !== ''));
+const submitReading = () => readingForm.post(`/hospitalisation/${props.stay.uuid}/surveillance`, {
+    preserveScroll: true,
+    onSuccess: () => readingForm.reset(),
+});
+const correctingReading = ref(null);
+const correctionForm = useForm(emptyReading());
+const toInputDateTime = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+const openCorrection = (reading) => {
+    correctionForm.clearErrors();
+    correctionForm.measured_at = toInputDateTime(reading.measured_at);
+    VITAL_FIELDS.forEach((field) => { correctionForm[field] = reading[field] ?? ''; });
+    correctionForm.notes = reading.notes ?? '';
+    correctingReading.value = reading;
+};
+const submitCorrection = () => correctionForm.put(`/hospitalisation/${props.stay.uuid}/surveillance/${correctingReading.value.uuid}`, {
+    preserveScroll: true,
+    onSuccess: () => { correctingReading.value = null; },
+});
+const alertVariant = (tone) => (tone === 'danger' ? 'destructive' : 'warning');
+const bloodPressure = (reading) => (reading.blood_pressure_systolic && reading.blood_pressure_diastolic
+    ? `${reading.blood_pressure_systolic}/${reading.blood_pressure_diastolic}`
+    : '—');
+
 // ── Demande d'hospitalisation ───────────────────────────────────────────────
 // Elle part en un clic depuis la consultation, reprise du dossier ; c'est ici
 // que le médecin la complète (ADR-113, amendement).
@@ -136,71 +337,62 @@ const saveRequest = () => requestForm.put(`/hospitalisation/${props.stay.uuid}/d
 });
 const requestIncomplete = computed(() => !props.stay.request.reason || !props.stay.request.admission_diagnosis);
 
-// ── Sortie médicale ─────────────────────────────────────────────────────────
-// ── Visite de service (ADR-148) ─────────────────────────────────────────────
-// Une visite est une vraie consultation : l'assistant Médecine la porte déjà.
-// Ouvrir ici, c'est seulement y entrer — aucun circuit n'est dupliqué.
-const visitForm = useForm({});
-const openVisit = () => visitForm.post(`/hospitalisation/${props.stay.uuid}/visites`);
-const openVisitInProgress = computed(() => props.visits.find((visit) => visit.is_open) ?? null);
+// ── Transfert au bloc (ADR-160) ─────────────────────────────────────────────
+// Le patient descend au bloc et garde son lit : la demande naît du séjour, le
+// séjour n'est ni terminé ni annulé. L'intervention se choisit, jamais ne se
+// devine (ADR-114) ; le serveur revérifie tout.
+const surgeryOpen = ref(false);
+const procedureQuery = ref('');
+const surgeryForm = useForm({ catalog_item_uuid: '', indication: '', priority: 'NORMAL', notes: '' });
 
-// ── Diagnostic du séjour (ADR-147) ──────────────────────────────────────────
-// Le médecin conclut au terme du séjour : ce diagnostic est enregistré sur le
-// séjour, jamais dans la consultation qui a demandé l'hospitalisation — elle
-// est le plus souvent close (ADR-076). Le serveur revérifie de toute façon.
-const addingDiagnosis = ref(false);
-const diagnosisSearch = ref('');
-const diagnosisResults = ref([]);
-const diagnosisForm = useForm({ diagnostic_catalog_uuid: null, description: '', notes: '' });
-let searchTimer = null;
+const SURGERY_STATUS = {
+    PENDING: { label: 'À programmer', variant: 'warning' },
+    SCHEDULED: { label: 'Programmée', variant: 'secondary' },
+    PREOPERATIVE_VALIDATED: { label: 'Bilan préop. validé', variant: 'secondary' },
+    IN_PROGRESS: { label: 'Au bloc', variant: 'warning' },
+    COMPLETED: { label: 'Opéré', variant: 'success' },
+    DISCHARGED: { label: 'Sorti du bloc', variant: 'outline' },
+    CANCELLED: { label: 'Annulée', variant: 'outline' },
+};
+const surgeryStatus = (status) => SURGERY_STATUS[status] ?? { label: status, variant: 'outline' };
 
-watch(diagnosisSearch, (term) => {
-    clearTimeout(searchTimer);
-    const query = term.trim();
+const fold = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const filteredProcedures = computed(() => {
+    const query = fold(procedureQuery.value.trim());
 
-    if (query.length < 2) {
-        diagnosisResults.value = [];
+    return query === ''
+        ? props.surgeryProcedures
+        : props.surgeryProcedures.filter((procedure) => fold(procedure.name).includes(query) || fold(procedure.code).includes(query));
+});
+const selectedProcedure = computed(() => props.surgeryProcedures.find((procedure) => procedure.uuid === surgeryForm.catalog_item_uuid) ?? null);
 
-        return;
-    }
-
-    searchTimer = setTimeout(async () => {
-        try {
-            const response = await fetch(`/diagnostic-catalog/search?q=${encodeURIComponent(query)}`, {
-                headers: { Accept: 'application/json' },
-            });
-            diagnosisResults.value = response.ok ? (await response.json()).data ?? [] : [];
-        } catch {
-            // Le catalogue est une aide de saisie : son indisponibilité ne doit
-            // jamais empêcher de poser un diagnostic à la main.
-            diagnosisResults.value = [];
-        }
-    }, 300);
+const openSurgery = () => {
+    surgeryForm.reset();
+    surgeryForm.clearErrors();
+    procedureQuery.value = '';
+    surgeryOpen.value = true;
+};
+const submitSurgery = () => surgeryForm.post(`/hospitalisation/${props.stay.uuid}/bloc`, {
+    preserveScroll: true,
+    onSuccess: () => { surgeryOpen.value = false; },
 });
 
-const resetDiagnosis = () => {
-    diagnosisForm.reset();
-    diagnosisForm.clearErrors();
-    diagnosisSearch.value = '';
-    diagnosisResults.value = [];
-    addingDiagnosis.value = false;
+// ── Annuler un transfert au bloc (ADR-163) ──────────────────────────────────
+// Tant que le bloc ne l'a pas programmé. Le patient n'a jamais quitté son lit :
+// il n'y a rien à « faire revenir », seulement une demande à retirer.
+const cancellingSurgery = ref(null);
+const surgeryCancelForm = useForm({ reason: '' });
+const openSurgeryCancel = (surgery) => {
+    surgeryCancelForm.reset();
+    surgeryCancelForm.clearErrors();
+    cancellingSurgery.value = surgery;
 };
+const submitSurgeryCancel = () => surgeryCancelForm.post(`/hospitalisation/${props.stay.uuid}/bloc/${cancellingSurgery.value.uuid}/annuler`, {
+    preserveScroll: true,
+    onSuccess: () => { cancellingSurgery.value = null; },
+});
 
-const addDiagnosis = (catalogUuid = null, description = null) => {
-    diagnosisForm.diagnostic_catalog_uuid = catalogUuid;
-    diagnosisForm.description = catalogUuid ? '' : (description ?? diagnosisSearch.value).trim();
-
-    if (!catalogUuid && !diagnosisForm.description) {
-        return;
-    }
-
-    diagnosisForm.post(`/hospitalisation/${props.stay.uuid}/diagnostics`, {
-        preserveScroll: true,
-        onSuccess: resetDiagnosis,
-    });
-};
-
-
+// ── Diagnostic du séjour (ADR-147) ──────────────────────────────────────────
 const smokerLabel = computed(() => (props.stay.smoker === null ? 'Non renseigné' : (props.stay.smoker ? 'Oui' : 'Non')));
 const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.allergies.join(', ') : 'Aucune allergie connue au dossier'));
 </script>
@@ -234,20 +426,304 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
             </div>
         </Card>
 
-        <!-- Deux panneaux que l'on redimensionne à la barre : la fiche de régime,
-             qui demande de la largeur (quatre colonnes de repas), et le séjour. Le
-             rapport est une préférence d'affichage, conservée sur le poste et jamais
-             envoyée au serveur ; sous 54 rem de large, les panneaux s'empilent. -->
-        <ResizableSplit
-            storage-key="rivo:hospitalization:split"
-            :default-ratio="0.72"
-            :min-ratio="0.5"
-            :max-ratio="0.82"
-            start-label="panneau Fiche de régime"
-            end-label="panneau Séjour"
-        >
-            <template #start>
-            <!-- Fiche de régime -->
+        <!-- ADR-162 — un onglet par geste du médecin au lit. -->
+        <nav class="flex gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1" aria-label="Sections du séjour">
+            <button
+                v-for="tab in TABS"
+                :key="tab.key"
+                type="button"
+                :aria-current="activeTab === tab.key ? 'page' : undefined"
+                :class="['flex shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors', activeTab === tab.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground']"
+                @click="selectTab(tab.key)"
+            >
+                <component :is="tab.icon" class="h-4 w-4" />{{ tab.label }}
+                <span v-if="tab.count" :class="['rounded-full px-1.5 text-[10px] tabular-nums', activeTab === tab.key ? 'bg-primary-foreground/20' : 'bg-muted']">{{ tab.count }}</span>
+            </button>
+        </nav>
+
+        <!-- Vue d'ensemble : ce que le dossier sait déjà, jamais ressaisi. -->
+        <template v-if="activeTab === 'apercu'">
+            <StayOpenConsultations :stay-uuid="stay.uuid" :consultations="openConsultations" :stay-ended="!isActive" />
+            <VitalSignsStrip
+                v-if="careRecord"
+                :care-record="careRecord"
+                :blood-pressure="careBloodPressure"
+                :allergies="stay.allergies"
+            />
+            <Card v-if="latestReading" class="p-4">
+                <p class="text-xs text-muted-foreground">Dernier relevé de surveillance · <span class="font-semibold text-foreground">{{ formatDateTime(latestReading.measured_at) }}</span></p>
+                <p class="mt-1 text-sm text-foreground">
+                    TA {{ bloodPressure(latestReading) }} · FC {{ latestReading.heart_rate ?? '—' }} · SpO₂ {{ latestReading.spo2 ?? '—' }} · T° {{ latestReading.temperature_celsius ?? '—' }}
+                </p>
+                <Button type="button" size="xs" variant="ghost" class="mt-1 px-0" @click="selectTab('surveillance')">Voir la surveillance</Button>
+            </Card>
+            <div class="grid gap-5 lg:grid-cols-2">
+                <Card class="p-5">
+                    <div class="flex items-center justify-between gap-2">
+                        <h2 class="text-sm font-semibold text-foreground">Séjour</h2>
+                        <Button v-if="capabilities.can_update_stay && bedsConfigured && stay.bed_uuid" type="button" size="icon-xs" variant="ghost" class="text-muted-foreground" title="Corriger le lit (erreur de saisie)" aria-label="Corriger le lit actuel" @click="openBedDialog('assign')"><Pencil class="h-3.5 w-3.5" /></Button>
+                        <Button v-else-if="capabilities.can_update_stay && !bedsConfigured && !editingRoom" type="button" size="icon-xs" variant="ghost" class="text-muted-foreground" title="Corriger l’emplacement actuel" aria-label="Corriger le service et la chambre actuels" @click="editingRoom = true"><Pencil class="h-3.5 w-3.5" /></Button>
+                    </div>
+                    <!-- ADR-164 — un patient au lit sans lit attribué se voit, et s'installe d'un geste. -->
+                    <div v-if="needsBed" class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100" role="status">
+                        <p class="flex items-center gap-2 font-semibold"><BedDouble class="h-4 w-4" aria-hidden="true" />Lit à attribuer</p>
+                        <p class="mt-0.5 text-xs">Le patient est admis mais n’occupe encore aucun lit du site<template v-if="stay.room_bed"> (noté à la main : {{ stay.room_bed }})</template>.</p>
+                        <Button v-if="capabilities.can_update_stay" type="button" size="sm" class="mt-2" @click="openBedDialog('assign')"><BedDouble class="h-4 w-4" />Attribuer un lit</Button>
+                    </div>
+                    <dl v-if="!editingRoom || bedsConfigured" class="mt-3 space-y-2.5 text-sm">
+                        <div><dt class="text-xs text-muted-foreground">Service</dt><dd class="text-foreground">{{ stay.service || 'Non précisé' }}</dd></div>
+                        <div v-if="!needsBed"><dt class="text-xs text-muted-foreground">Chambre / lit</dt><dd class="text-foreground">{{ stay.room_bed || 'Non renseigné' }}</dd></div>
+                        <div v-if="stay.care_level_label"><dt class="text-xs text-muted-foreground">Niveau de soins</dt><dd><Badge :variant="careLevelVariant(stay.care_level)">{{ stay.care_level_label }}</Badge></dd></div>
+                        <div><dt class="text-xs text-muted-foreground">Entrée</dt><dd class="text-foreground">{{ formatDateTime(stay.admitted_at) }}<span v-if="stay.request.requested_by" class="block text-xs text-muted-foreground">Demandée par {{ doctorName(stay.request.requested_by) }}</span></dd></div>
+                    </dl>
+                    <form v-if="editingRoom && !bedsConfigured" class="mt-3 space-y-3" @submit.prevent="saveRoom">
+                        <FormField label="Service" :error="roomForm.errors.service">
+                            <Input v-model="roomForm.service" placeholder="Ex. : Médecine interne" maxlength="150" />
+                        </FormField>
+                        <FormField label="Chambre / lit" :error="roomForm.errors.room_bed">
+                            <Input v-model="roomForm.room_bed" placeholder="Ex. : Chambre 3, lit B" maxlength="100" />
+                        </FormField>
+                        <div class="flex justify-end gap-2">
+                            <Button type="button" size="sm" variant="ghost" @click="editingRoom = false; roomForm.reset()">Annuler</Button>
+                            <Button type="submit" size="sm" :disabled="roomForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
+                        </div>
+                    </form>
+                    <!-- ADR-164 — sans lit configuré, la saisie libre continue ; l'écran dit pourquoi, et où les lits se créent. -->
+                    <p v-if="!bedsConfigured && isActive && !editingRoom" class="mt-3 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                        Les lits de ce site ne sont pas encore configurés : la chambre se note à la main. Ils se créent depuis le portail
+                        Super Administration (« Services, chambres et lits ») ; « Attribuer un lit » apparaîtra alors ici.
+                    </p>
+                    <Button v-if="capabilities.can_move && bedsConfigured && stay.bed_uuid" type="button" size="sm" variant="white-outline" class="mt-4 w-full" @click="openBedDialog('move')">
+                        <ArrowRightLeft class="h-4 w-4" />Changer de lit
+                    </Button>
+                    <Button v-else-if="capabilities.can_move && !bedsConfigured && !editingRoom" type="button" size="sm" variant="white-outline" class="mt-4 w-full" @click="openMove">
+                        <ArrowRightLeft class="h-4 w-4" />Changer de service / lit
+                    </Button>
+                    <!-- ADR-161 — les emplacements précédents, jamais écrasés. -->
+                    <div v-if="pastMovements.length" class="mt-4 border-t border-border pt-3">
+                        <p class="text-xs font-semibold text-muted-foreground">Emplacements précédents</p>
+                        <ol class="mt-2 space-y-2">
+                            <li v-for="movement in pastMovements" :key="movement.uuid" class="text-xs">
+                                <p class="font-medium text-foreground">
+                                    {{ movement.service || 'Service non précisé' }}<template v-if="movement.room_bed"> · {{ movement.room_bed }}</template>
+                                </p>
+                                <p class="text-muted-foreground">
+                                    {{ movement.care_level_label }} · {{ formatDateTime(movement.started_at) }} → {{ formatDateTime(movement.ended_at) }}
+                                </p>
+                            </li>
+                        </ol>
+                    </div>
+                </Card>
+                <Card class="p-5">
+                    <div class="flex items-center justify-between gap-2">
+                        <h2 class="text-sm font-semibold text-foreground">Demande d’hospitalisation</h2>
+                        <Button v-if="capabilities.can_edit_request && !editingRequest" type="button" size="sm" variant="outline" @click="editingRequest = true"><Pencil class="h-3.5 w-3.5" />{{ requestIncomplete ? 'Compléter' : 'Modifier' }}</Button>
+                    </div>
+                    <p v-if="requestIncomplete && !editingRequest" class="mt-2 text-xs text-amber-700 dark:text-amber-300">Motif ou diagnostic d’entrée encore à préciser.</p>
+                    <dl v-if="!editingRequest" class="mt-3 space-y-2.5 text-sm">
+                        <div><dt class="text-xs text-muted-foreground">Motif</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.reason || '—' }}</dd></div>
+                        <div><dt class="text-xs text-muted-foreground">Diagnostic d’entrée</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.admission_diagnosis || '—' }}</dd></div>
+                        <div v-if="stay.request.clinical_summary"><dt class="text-xs text-muted-foreground">Résumé clinique et examens</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.clinical_summary }}</dd></div>
+                        <div v-if="stay.request.planned_treatment"><dt class="text-xs text-muted-foreground">Traitement prévu</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.planned_treatment }}</dd></div>
+                        <div><dt class="text-xs text-muted-foreground">Priorité</dt><dd class="text-foreground">{{ priorityLabel(stay.request.priority) }}</dd></div>
+                        <div v-if="stay.request.instructions"><dt class="text-xs text-muted-foreground">Consignes</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.instructions }}</dd></div>
+                    </dl>
+                    <form v-else class="mt-3 space-y-3" @submit.prevent="saveRequest">
+                        <FormField label="Motif d’hospitalisation" :error="requestForm.errors.reason">
+                            <Textarea v-model="requestForm.reason" :rows="2" maxlength="3000" />
+                        </FormField>
+                        <FormField label="Diagnostic d’entrée" :error="requestForm.errors.admission_diagnosis">
+                            <Textarea v-model="requestForm.admission_diagnosis" :rows="2" maxlength="3000" />
+                        </FormField>
+                        <FormField label="Résumé clinique et examens" :error="requestForm.errors.clinical_summary">
+                            <Textarea v-model="requestForm.clinical_summary" :rows="5" maxlength="5000" />
+                        </FormField>
+                        <FormField label="Traitement prévu" :error="requestForm.errors.planned_treatment">
+                            <Textarea v-model="requestForm.planned_treatment" :rows="3" maxlength="3000" />
+                        </FormField>
+                        <FormField label="Priorité" :error="requestForm.errors.priority">
+                            <Select v-model="requestForm.priority" :options="PRIORITIES" aria-label="Priorité" />
+                        </FormField>
+                        <FormField label="Consignes au service" :error="requestForm.errors.instructions">
+                            <Textarea v-model="requestForm.instructions" :rows="2" maxlength="3000" />
+                        </FormField>
+                        <FormError :message="requestForm.errors.hospitalization_request" />
+                        <div class="flex justify-end gap-2">
+                            <Button type="button" size="sm" variant="ghost" @click="editingRequest = false; requestForm.reset()">Annuler</Button>
+                            <Button type="submit" size="sm" :disabled="requestForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
+                        </div>
+                    </form>
+                </Card>
+            </div>
+        <!-- ADR-147 — ce que le séjour a conclu, et ce que le dossier avait
+             déjà consigné. La sortie n'est plus ici (ADR-156) : ces
+             diagnostics restent la trace clinique du séjour lui-même. -->
+        <Card v-if="diagnoses.length || capabilities.can_add_diagnosis" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Stethoscope class="h-4 w-4 text-muted-foreground" />Diagnostics
+            </h2>
+            <ul v-if="diagnoses.length" class="mt-3 space-y-2">
+                <li
+                    v-for="diagnosis in diagnoses"
+                    :key="diagnosis.id"
+                    class="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2"
+                >
+                    <span class="text-sm text-foreground">{{ diagnosis.description }}</span>
+                    <span class="text-xs text-muted-foreground">
+                        {{ diagnosis.recorded_by }}<span v-if="diagnosis.recorded_at"> · {{ formatDateTime(diagnosis.recorded_at) }}</span>
+                    </span>
+                </li>
+            </ul>
+            <p v-else class="mt-3 text-xs text-muted-foreground">Aucun diagnostic consigné pour ce passage.</p>
+            <StayDiagnosisAdd v-if="capabilities.can_add_diagnosis" :stay-uuid="stay.uuid" class="mt-3" />
+        </Card>
+        <!-- ADR-161 — un transfert se termine au départ du patient, sans
+             sortie médicale : le séjour dit où il est parti, et quand. -->
+        <Card v-if="!stay.discharge && stay.end_reason === 'TRANSFER' && stay.transfer" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Ambulance class="h-4 w-4 text-muted-foreground" />Transféré</h2>
+            <dl class="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div><dt class="text-xs text-muted-foreground">Vers</dt><dd class="text-foreground">{{ stay.transfer.facility || 'Établissement non précisé' }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Départ</dt><dd class="text-foreground">{{ formatDateTime(stay.transfer.departed_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Constaté par {{ stay.discharged_by }}</span></dd></div>
+            </dl>
+        </Card>
+        <Card v-if="stay.discharge" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie</h2>
+            <dl class="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div><dt class="text-xs text-muted-foreground">Type</dt><dd class="text-foreground">{{ stay.discharge.type_label }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Date</dt><dd class="text-foreground">{{ formatDateTime(stay.discharged_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Prononcée par {{ doctorName(stay.discharged_by) }}</span></dd></div>
+                <div v-if="stay.discharge.final_diagnosis"><dt class="text-xs text-muted-foreground">Diagnostic final</dt><dd class="whitespace-pre-line text-foreground">{{ stay.discharge.final_diagnosis }}</dd></div>
+                <div v-if="stay.discharge.patient_condition"><dt class="text-xs text-muted-foreground">État du patient</dt><dd class="text-foreground">{{ stay.discharge.patient_condition }}</dd></div>
+            </dl>
+        </Card>
+        </template>
+
+        <StayNotes v-else-if="activeTab === 'notes'" :stay-uuid="stay.uuid" :notes="notes" :can-write="orderCapabilities.can_write_note" />
+
+        <StayPrescriptions
+            v-else-if="activeTab === 'ordonnances'"
+            :stay-uuid="stay.uuid"
+            :prescriptions="prescriptions"
+            :medicines="orderOptions.medicines ?? []"
+            :routes="orderOptions.administration_routes ?? []"
+            :can-prescribe="orderCapabilities.can_prescribe"
+            :patient="patientSafety"
+            :suggestions="prescriptionSuggestions"
+        />
+
+        <StayExams
+            v-else-if="activeTab === 'examens'"
+            :stay-uuid="stay.uuid"
+            :lab-requests="labRequests"
+            :imaging-requests="imagingRequests"
+            :lab-catalog="orderOptions.lab_catalog ?? []"
+            :imaging-catalog="orderOptions.imaging_catalog ?? []"
+            :can-request-lab="orderCapabilities.can_request_lab"
+            :can-request-imaging="orderCapabilities.can_request_imaging"
+            :orientation-uuid="orderOptions.stay_orientation_uuid ?? ''"
+            :templates="orderOptions.imaging_report_templates ?? []"
+            :template-rights="orderOptions.imaging_report_template_rights ?? {}"
+            :patient-label="patientLabel"
+        />
+
+        <StayCareOrders
+            v-else-if="activeTab === 'soins'"
+            :stay-uuid="stay.uuid"
+            :care-orders="careOrders"
+            :catalog="orderOptions.care_order_catalog ?? []"
+            :can-request="orderCapabilities.can_request_care"
+        />
+
+        <template v-else-if="activeTab === 'surveillance'">
+        <!-- ADR-161 — la surveillance répétée. La fiche Soins reste le relevé de
+             triage ; chaque passage au lit ajoute une ligne, jamais écrasée. -->
+        <Card v-if="capabilities.can_view_vitals" class="p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Activity class="h-4 w-4 text-muted-foreground" />Surveillance</h2>
+                    <p class="mt-1 text-xs text-muted-foreground">Chaque relevé est daté et signé. Les repères sont ceux de la fiche Soins, lus selon l’âge — une aide, jamais un diagnostic.</p>
+                </div>
+            </div>
+
+            <!-- ADR-161 — sans le droit d'ajouter, l'écran dit qui relève et ce
+                 qui manque : un cadre vide sans un mot se lit « inutile ici ». -->
+            <p v-if="capabilities.vitals_record_block" class="mt-3 flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>{{ capabilities.vitals_record_block }}</span>
+            </p>
+
+            <form v-else class="mt-4 grid gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-3 lg:grid-cols-7" @submit.prevent="submitReading">
+                <FormField label="TA systolique" hint="mmHg" :error="readingForm.errors.blood_pressure_systolic">
+                    <Input v-model="readingForm.blood_pressure_systolic" type="number" inputmode="numeric" placeholder="120" />
+                </FormField>
+                <FormField label="TA diastolique" hint="mmHg" :error="readingForm.errors.blood_pressure_diastolic">
+                    <Input v-model="readingForm.blood_pressure_diastolic" type="number" inputmode="numeric" placeholder="80" />
+                </FormField>
+                <FormField label="FC" hint="btt/mn" :error="readingForm.errors.heart_rate">
+                    <Input v-model="readingForm.heart_rate" type="number" inputmode="numeric" />
+                </FormField>
+                <FormField label="SpO₂" hint="%" :error="readingForm.errors.spo2">
+                    <Input v-model="readingForm.spo2" type="number" inputmode="numeric" />
+                </FormField>
+                <FormField label="Température" hint="°C" :error="readingForm.errors.temperature_celsius">
+                    <Input v-model="readingForm.temperature_celsius" type="number" step="0.1" inputmode="decimal" />
+                </FormField>
+                <FormField label="Mesuré le" hint="(maintenant si vide)" :error="readingForm.errors.measured_at">
+                    <Input v-model="readingForm.measured_at" type="datetime-local" />
+                </FormField>
+                <div class="flex items-end">
+                    <Button type="submit" size="sm" class="w-full" :disabled="readingForm.processing || !readingHasValue"><Plus class="h-4 w-4" />Ajouter</Button>
+                </div>
+                <FormField label="Observation" class="sm:col-span-3 lg:col-span-7" :error="readingForm.errors.notes">
+                    <Input v-model="readingForm.notes" maxlength="1000" placeholder="Facultatif" />
+                </FormField>
+            </form>
+
+            <div v-if="vitalReadings.length" class="mt-4 overflow-x-auto rounded-lg border border-border">
+                <table class="w-full min-w-[720px] text-sm">
+                    <caption class="sr-only">Relevés de surveillance du séjour</caption>
+                    <thead class="bg-muted/40 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                            <th class="px-3 py-2 text-start">Mesuré le</th>
+                            <th class="px-3 py-2 text-start">TA</th>
+                            <th class="px-3 py-2 text-start">FC</th>
+                            <th class="px-3 py-2 text-start">SpO₂</th>
+                            <th class="px-3 py-2 text-start">T°</th>
+                            <th class="px-3 py-2 text-start">Repères</th>
+                            <th class="px-3 py-2 text-start">Par</th>
+                            <th class="px-3 py-2 text-end"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-border">
+                        <tr v-for="reading in vitalReadings" :key="reading.uuid" class="align-top">
+                            <td class="px-3 py-2 whitespace-nowrap text-foreground">{{ formatDateTime(reading.measured_at) }}</td>
+                            <td class="px-3 py-2">{{ bloodPressure(reading) }}</td>
+                            <td class="px-3 py-2">{{ reading.heart_rate ?? '—' }}</td>
+                            <td class="px-3 py-2">{{ reading.spo2 != null ? reading.spo2 + ' %' : '—' }}</td>
+                            <td class="px-3 py-2">{{ reading.temperature_celsius != null ? reading.temperature_celsius + ' °C' : '—' }}</td>
+                            <td class="px-3 py-2">
+                                <div class="flex flex-wrap gap-1">
+                                    <Badge v-for="alert in reading.alerts" :key="alert.label" :variant="alertVariant(alert.tone)" :title="alert.message ?? alert.label">{{ alert.label }}</Badge>
+                                </div>
+                                <p v-if="reading.notes" class="mt-1 text-xs text-muted-foreground">{{ reading.notes }}</p>
+                            </td>
+                            <td class="px-3 py-2 text-xs text-muted-foreground">
+                                {{ reading.measured_by }}
+                                <span v-if="reading.updated_by" class="block">corrigé par {{ reading.updated_by }}</span>
+                            </td>
+                            <td class="px-3 py-2 text-end">
+                                <Button v-if="capabilities.can_correct_vitals" type="button" size="icon-xs" variant="ghost" class="text-muted-foreground" title="Corriger ce relevé" aria-label="Corriger ce relevé" @click="openCorrection(reading)"><Pencil class="h-3.5 w-3.5" /></Button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p v-else class="mt-4 rounded-md border border-dashed border-border bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
+                Aucun relevé pendant ce séjour. Le relevé d’arrivée reste dans la fiche Soins du passage.
+            </p>
+        </Card>
+        </template>
+
+        <template v-else-if="activeTab === 'regime'">
             <Card class="min-w-0 overflow-hidden">
                 <div class="flex items-center gap-3 border-b border-border px-5 py-3.5">
                     <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary"><Utensils class="h-4 w-4" /></span>
@@ -327,229 +803,250 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                     <FormError v-for="(message, key) in { ...newEntry.errors, ...editEntry.errors }" :key="key" :message="message" />
                 </div>
             </Card>
-            </template>
+        </template>
 
-            <!-- Colonne latérale : le séjour et sa demande. La sortie est en bas. -->
-            <template #end>
-            <aside class="space-y-5">
-                <Card class="p-5">
-                    <div class="flex items-center justify-between gap-2">
-                        <h2 class="text-sm font-semibold text-foreground">Séjour</h2>
-                        <Button v-if="capabilities.can_update_stay && !editingRoom" type="button" size="icon-xs" variant="ghost" class="text-muted-foreground" title="Modifier" aria-label="Modifier le service et la chambre" @click="editingRoom = true"><Pencil class="h-3.5 w-3.5" /></Button>
-                    </div>
-                    <dl v-if="!editingRoom" class="mt-3 space-y-2.5 text-sm">
-                        <div><dt class="text-xs text-muted-foreground">Service</dt><dd class="text-foreground">{{ stay.service || 'Non précisé' }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Chambre / lit</dt><dd class="text-foreground">{{ stay.room_bed || 'Non renseigné' }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Entrée</dt><dd class="text-foreground">{{ formatDateTime(stay.admitted_at) }}<span v-if="stay.request.requested_by" class="block text-xs text-muted-foreground">Demandée par Dr {{ stay.request.requested_by }}</span></dd></div>
-                    </dl>
-                    <form v-else class="mt-3 space-y-3" @submit.prevent="saveRoom">
-                        <FormField label="Service" :error="roomForm.errors.service">
-                            <Input v-model="roomForm.service" placeholder="Ex. : Médecine interne" maxlength="150" />
-                        </FormField>
-                        <FormField label="Chambre / lit" :error="roomForm.errors.room_bed">
-                            <Input v-model="roomForm.room_bed" placeholder="Ex. : Chambre 3, lit B" maxlength="100" />
-                        </FormField>
-                        <div class="flex justify-end gap-2">
-                            <Button type="button" size="sm" variant="ghost" @click="editingRoom = false; roomForm.reset()">Annuler</Button>
-                            <Button type="submit" size="sm" :disabled="roomForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
-                        </div>
-                    </form>
-                </Card>
-
-                <!-- La demande : partie en un clic de la consultation, complétée ici. -->
-                <Card class="p-5">
-                    <div class="flex items-center justify-between gap-2">
-                        <h2 class="text-sm font-semibold text-foreground">Demande d’hospitalisation</h2>
-                        <Button v-if="capabilities.can_edit_request && !editingRequest" type="button" size="sm" variant="outline" @click="editingRequest = true"><Pencil class="h-3.5 w-3.5" />{{ requestIncomplete ? 'Compléter' : 'Modifier' }}</Button>
-                    </div>
-                    <p v-if="requestIncomplete && !editingRequest" class="mt-2 text-xs text-amber-700 dark:text-amber-300">Motif ou diagnostic d’entrée encore à préciser.</p>
-                    <dl v-if="!editingRequest" class="mt-3 space-y-2.5 text-sm">
-                        <div><dt class="text-xs text-muted-foreground">Motif</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.reason || '—' }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Diagnostic d’entrée</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.admission_diagnosis || '—' }}</dd></div>
-                        <div v-if="stay.request.clinical_summary"><dt class="text-xs text-muted-foreground">Résumé clinique et examens</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.clinical_summary }}</dd></div>
-                        <div v-if="stay.request.planned_treatment"><dt class="text-xs text-muted-foreground">Traitement prévu</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.planned_treatment }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Priorité</dt><dd class="text-foreground">{{ priorityLabel(stay.request.priority) }}</dd></div>
-                        <div v-if="stay.request.instructions"><dt class="text-xs text-muted-foreground">Consignes</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.instructions }}</dd></div>
-                    </dl>
-                    <form v-else class="mt-3 space-y-3" @submit.prevent="saveRequest">
-                        <FormField label="Motif d’hospitalisation" :error="requestForm.errors.reason">
-                            <Textarea v-model="requestForm.reason" :rows="2" maxlength="3000" />
-                        </FormField>
-                        <FormField label="Diagnostic d’entrée" :error="requestForm.errors.admission_diagnosis">
-                            <Textarea v-model="requestForm.admission_diagnosis" :rows="2" maxlength="3000" />
-                        </FormField>
-                        <FormField label="Résumé clinique et examens" :error="requestForm.errors.clinical_summary">
-                            <Textarea v-model="requestForm.clinical_summary" :rows="5" maxlength="5000" />
-                        </FormField>
-                        <FormField label="Traitement prévu" :error="requestForm.errors.planned_treatment">
-                            <Textarea v-model="requestForm.planned_treatment" :rows="3" maxlength="3000" />
-                        </FormField>
-                        <FormField label="Priorité" :error="requestForm.errors.priority">
-                            <Select v-model="requestForm.priority" :options="PRIORITIES" aria-label="Priorité" />
-                        </FormField>
-                        <FormField label="Consignes au service" :error="requestForm.errors.instructions">
-                            <Textarea v-model="requestForm.instructions" :rows="2" maxlength="3000" />
-                        </FormField>
-                        <FormError :message="requestForm.errors.hospitalization_request" />
-                        <div class="flex justify-end gap-2">
-                            <Button type="button" size="sm" variant="ghost" @click="editingRequest = false; requestForm.reset()">Annuler</Button>
-                            <Button type="submit" size="sm" :disabled="requestForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
-                        </div>
-                    </form>
-                </Card>
-            </aside>
-            </template>
-        </ResizableSplit>
-
-        <!-- ADR-148 — ce que le séjour a produit : chaque visite est une
-             consultation complète (diagnostic, ordonnance, examens, soins). -->
-        <Card v-if="capabilities.can_view_visits || capabilities.can_open_visit" class="p-5">
+        <template v-else-if="activeTab === 'bloc'">
+        <!-- ADR-160 — le patient au lit descend au bloc et garde son lit. La
+             demande naît ici ; le bloc la programme, et elle se suit ici. -->
+        <Card v-if="surgeries.length || capabilities.can_request_surgery" class="p-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><ClipboardList class="h-4 w-4 text-muted-foreground" />Visites de service</h2>
-                    <p class="mt-1 text-xs text-muted-foreground">Examiner, prescrire, demander une analyse ou un soin : chaque visite ouvre une consultation rattachée au séjour.</p>
+                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Scissors class="h-4 w-4 text-muted-foreground" />Bloc opératoire</h2>
+                    <p class="mt-1 text-xs text-muted-foreground">Le patient descend au bloc et <strong class="font-semibold text-foreground">garde son lit</strong> : ses constantes, allergies et actes des Soins suivent le dossier.</p>
                 </div>
-                <Button
-                    v-if="capabilities.can_open_visit && !openVisitInProgress"
-                    type="button"
-                    size="sm"
-                    class="shrink-0"
-                    :disabled="visitForm.processing"
-                    @click="openVisit"
-                >
-                    <Plus class="h-4 w-4" />Nouvelle visite
-                </Button>
-                <Button v-else-if="openVisitInProgress" :as="Link" :href="openVisitInProgress.url" size="sm" variant="outline" class="shrink-0">
-                    <Stethoscope class="h-4 w-4" />Reprendre la visite en cours
+                <Button v-if="capabilities.can_request_surgery" type="button" size="sm" class="shrink-0" @click="openSurgery">
+                    <Scissors class="h-4 w-4" />Transférer au bloc
                 </Button>
             </div>
-            <FormError class="mt-2" :message="visitForm.errors.visit" />
-            <ul v-if="visits.length" class="mt-4 space-y-2">
-                <li v-for="visit in visits" :key="visit.uuid">
-                    <Link
-                        :href="visit.url"
-                        class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2.5 text-xs transition-colors hover:bg-accent"
-                    >
-                        <Badge :variant="visit.is_open ? 'warning' : 'outline'">{{ visit.is_open ? 'En cours' : 'Terminée' }}</Badge>
-                        <span class="font-semibold text-foreground">{{ formatDateTime(visit.consulted_at) }}</span>
-                        <span v-if="visit.doctor" class="text-muted-foreground">Dr {{ visit.doctor }}</span>
-                        <span v-if="visit.chief_complaint" class="min-w-0 truncate text-muted-foreground">· {{ visit.chief_complaint }}</span>
-                        <span class="ms-auto text-muted-foreground">
-                            {{ visit.diagnoses_count }} diagnostic{{ visit.diagnoses_count > 1 ? 's' : '' }}
-                            · {{ visit.prescriptions_count }} ordonnance{{ visit.prescriptions_count > 1 ? 's' : '' }}
+            <ul v-if="surgeries.length" class="mt-4 space-y-2">
+                <li
+                    v-for="surgery in surgeries"
+                    :key="surgery.uuid"
+                    :class="['rounded-md border border-border bg-card px-3 py-2.5 text-xs', surgery.status === 'CANCELLED' ? 'opacity-70' : '']"
+                >
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <Badge :variant="surgeryStatus(surgery.status).variant">{{ surgeryStatus(surgery.status).label }}</Badge>
+                        <Link v-if="surgery.url" :href="surgery.url" :class="['font-semibold text-foreground hover:underline', surgery.status === 'CANCELLED' ? 'line-through' : '']">{{ surgery.procedure_name }}</Link>
+                        <span v-else :class="['font-semibold text-foreground', surgery.status === 'CANCELLED' ? 'line-through' : '']">{{ surgery.procedure_name }}</span>
+                        <span v-if="surgery.origin_label" class="text-muted-foreground">· {{ surgery.origin_label }}</span>
+                        <span v-if="surgery.surgeon" class="text-muted-foreground">· {{ doctorName(surgery.surgeon) }}</span>
+                        <span class="ms-auto flex items-center gap-2 text-muted-foreground">
+                            {{ surgery.scheduled_at ? 'Programmée le ' + formatDateTime(surgery.scheduled_at) : 'Demandée le ' + formatDateTime(surgery.created_at) }}
+                            <Button v-if="surgery.can_cancel" type="button" size="xs" variant="outline" class="text-destructive" @click="openSurgeryCancel(surgery)">
+                                <Undo2 class="h-3.5 w-3.5" aria-hidden="true" />Annuler
+                            </Button>
                         </span>
-                    </Link>
+                    </div>
+                    <p v-if="surgery.status === 'CANCELLED' && surgery.cancelled_at" class="mt-1.5 text-muted-foreground">
+                        Annulée<template v-if="surgery.cancelled_by"> par {{ surgery.cancelled_by }}</template> le {{ formatDateTime(surgery.cancelled_at) }}<template v-if="surgery.cancellation_reason"> — {{ surgery.cancellation_reason }}</template>
+                    </p>
+                    <p v-else-if="['SCHEDULED', 'PREOPERATIVE_VALIDATED'].includes(surgery.status)" class="mt-1.5 text-muted-foreground">
+                        Le bloc l’a programmée : elle lui appartient désormais. Pour y renoncer, voyez avec l’équipe du bloc.
+                    </p>
                 </li>
             </ul>
             <p v-else class="mt-4 rounded-md border border-dashed border-border bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
-                Aucune visite enregistrée pour ce séjour.
+                Aucun passage au bloc pour ce séjour.
             </p>
         </Card>
+        </template>
 
-        <!-- La sortie, en bas et sur toute la largeur : son formulaire est une
-             grille à deux colonnes (diagnostic, état, traitement, conseils) qui
-             s'écrasait dans la colonne latérale de 22 rem. Le bouton qui
-             l'ouvre est à la même place, dans l'en-tête de la carte. -->
+        <template v-else-if="activeTab === 'sortie'">
+        <StayOpenConsultations id="stay-open-consultations" :stay-uuid="stay.uuid" :consultations="openConsultations" :stay-ended="!isActive" />
+        <!-- ADR-161 — un transfert se termine au départ du patient, sans
+             sortie médicale : le séjour dit où il est parti, et quand. -->
+        <Card v-if="!stay.discharge && stay.end_reason === 'TRANSFER' && stay.transfer" class="p-5">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><Ambulance class="h-4 w-4 text-muted-foreground" />Transféré</h2>
+            <dl class="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div><dt class="text-xs text-muted-foreground">Vers</dt><dd class="text-foreground">{{ stay.transfer.facility || 'Établissement non précisé' }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Départ</dt><dd class="text-foreground">{{ formatDateTime(stay.transfer.departed_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Constaté par {{ stay.discharged_by }}</span></dd></div>
+            </dl>
+        </Card>
         <Card v-if="stay.discharge" class="p-5">
             <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie</h2>
             <dl class="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                 <div><dt class="text-xs text-muted-foreground">Type</dt><dd class="text-foreground">{{ stay.discharge.type_label }}</dd></div>
-                <div><dt class="text-xs text-muted-foreground">Date</dt><dd class="text-foreground">{{ formatDateTime(stay.discharged_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Prononcée par Dr {{ stay.discharged_by }}</span></dd></div>
+                <div><dt class="text-xs text-muted-foreground">Date</dt><dd class="text-foreground">{{ formatDateTime(stay.discharged_at) }}<span v-if="stay.discharged_by" class="block text-xs text-muted-foreground">Prononcée par {{ doctorName(stay.discharged_by) }}</span></dd></div>
                 <div v-if="stay.discharge.final_diagnosis"><dt class="text-xs text-muted-foreground">Diagnostic final</dt><dd class="whitespace-pre-line text-foreground">{{ stay.discharge.final_diagnosis }}</dd></div>
                 <div v-if="stay.discharge.patient_condition"><dt class="text-xs text-muted-foreground">État du patient</dt><dd class="text-foreground">{{ stay.discharge.patient_condition }}</dd></div>
             </dl>
         </Card>
+            <!-- ADR-162 — le formulaire garde sa largeur (ADR-132) ; les repères
+                 du séjour se lisent à côté, sans quitter l'étape. -->
+            <div v-if="stay.status === 'ACTIVE'" class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+                <StayExit
+                    class="min-w-0"
+                    :stay-uuid="stay.uuid"
+                    :types="orderOptions.discharge_types ?? []"
+                    :diagnoses="diagnoses.map((diagnosis) => ({ id: diagnosis.id, description: diagnosis.description }))"
+                    :prescription-lines="activePrescriptionLines"
+                    :can-discharge="capabilities.can_discharge"
+                    :can-add-diagnosis="capabilities.can_add_diagnosis"
+                    :can-request-transfer="orderCapabilities.can_request_transfer"
+                    :transfer-destinations="orderOptions.transfer_destinations ?? []"
+                    :referral="referral"
+                />
+                <StayExitContext
+                    class="xl:sticky xl:top-4 xl:self-start"
+                    :stay="stay"
+                    :readings="capabilities.can_view_vitals ? vitalReadings : null"
+                    :active-prescriptions="prescriptions === null ? null : activePrescriptions.length"
+                    :pending-exams="labRequests === null && imagingRequests === null ? null : pendingExams"
+                    :open-surgeries="openSurgeries"
+                    :open-consultations="openConsultations.length"
+                    @navigate="exitNavigate"
+                />
+            </div>
+        </template>
 
-        <!-- ADR-147 — ce que le séjour a conclu, et ce que le dossier avait
-             déjà consigné. La sortie n'est plus ici (ADR-156) : ces
-             diagnostics restent la trace clinique du séjour lui-même. -->
-        <Card v-if="diagnoses.length || capabilities.can_add_diagnosis" class="p-5">
-            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Stethoscope class="h-4 w-4 text-muted-foreground" />Diagnostics
-            </h2>
-            <ul v-if="diagnoses.length" class="mt-3 space-y-2">
-                <li
-                    v-for="diagnosis in diagnoses"
-                    :key="diagnosis.uuid"
-                    class="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2"
-                >
-                    <span class="text-sm text-foreground">{{ diagnosis.description }}</span>
-                    <span class="text-xs text-muted-foreground">
-                        {{ diagnosis.recorded_by }}<span v-if="diagnosis.recorded_at"> · {{ formatDateTime(diagnosis.recorded_at) }}</span>
-                    </span>
-                </li>
-            </ul>
-            <p v-else class="mt-3 text-xs text-muted-foreground">Aucun diagnostic consigné pour ce passage.</p>
-            <div v-if="capabilities.can_add_diagnosis" class="mt-3">
-                <Button v-if="!addingDiagnosis" type="button" size="xs" variant="outline" @click="addingDiagnosis = true">
-                    <Plus class="h-3.5 w-3.5" />Ajouter un diagnostic
+        <!-- ADR-164 — la mutation en saisie libre n'existe que sans lit configuré. -->
+        <Dialog v-if="!bedsConfigured" v-model:open="moveOpen" title="Changer de service / lit" description="L’emplacement actuel est fermé, un nouveau s’ouvre : le séjour continue et l’historique est conservé." size="lg">
+            <form id="stay-move" class="grid gap-4 sm:grid-cols-2" @submit.prevent="submitMove">
+                <FormField label="Service" :error="moveForm.errors.service">
+                    <Input v-model="moveForm.service" placeholder="Ex. : Réanimation" maxlength="150" />
+                </FormField>
+                <FormField label="Chambre / lit" :error="moveForm.errors.room_bed">
+                    <Input v-model="moveForm.room_bed" placeholder="Ex. : Box 2" maxlength="100" />
+                </FormField>
+                <FormField as="div" label="Niveau de soins" required class="sm:col-span-2" :error="moveForm.errors.care_level">
+                    <Select v-model="moveForm.care_level" :options="careLevels" aria-label="Niveau de soins" />
+                </FormField>
+                <FormField label="Motif" class="sm:col-span-2" :error="moveForm.errors.reason">
+                    <Textarea v-model="moveForm.reason" rows="2" placeholder="Ex. : aggravation, choc septique" />
+                </FormField>
+            </form>
+            <template #footer>
+                <Button type="button" variant="white-outline" :disabled="moveForm.processing" @click="moveOpen = false">Annuler</Button>
+                <Button type="submit" form="stay-move" :disabled="moveForm.processing"><ArrowRightLeft class="h-4 w-4" />Déplacer le patient</Button>
+            </template>
+        </Dialog>
+
+        <Dialog
+            :open="bedDialog !== null"
+            :title="bedDialog === 'move' ? 'Changer de lit' : (stay.bed_uuid ? 'Corriger le lit' : 'Attribuer un lit')"
+            :description="bedDialog === 'move'
+                ? 'L’emplacement actuel est fermé, un nouveau s’ouvre : le séjour continue et l’historique est conservé. Le lit quitté redevient libre.'
+                : (stay.bed_uuid ? 'Pour une erreur de saisie : l’emplacement actuel est corrigé, sans mouvement. L’ancienne valeur reste à l’audit.' : 'Le patient est installé dans ce lit depuis son admission ; le service et le niveau de soins suivent le lit.')"
+            size="lg"
+            @update:open="(value) => { if (!value) bedDialog = null; }"
+        >
+            <form id="stay-bed" class="space-y-4" @submit.prevent="submitBed">
+                <p v-if="stay.bed_uuid" class="text-sm text-muted-foreground">Actuellement : <span class="font-medium text-foreground">{{ stay.service }} · {{ stay.room_bed }}</span></p>
+                <BedPicker v-model="bedForm.hospital_bed_uuid" :services="freeBeds" />
+                <p v-if="chosenBed" class="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                    <Check class="me-1 inline h-4 w-4 text-primary" aria-hidden="true" />{{ chosenBed.service.name }} · {{ chosenBed.room.name }} · {{ chosenBed.bed.label }}
+                    <span class="text-muted-foreground"> — {{ chosenBed.service.care_level_label }}</span>
+                </p>
+                <FormField v-if="bedDialog === 'move'" label="Motif" :error="bedForm.errors.reason">
+                    <Textarea v-model="bedForm.reason" rows="2" placeholder="Ex. : aggravation, rapprochement du poste de soins" />
+                </FormField>
+                <FormError :message="bedForm.errors.hospital_bed_uuid ?? bedForm.errors.service ?? bedForm.errors.room_bed" />
+            </form>
+            <template #footer>
+                <Button type="button" variant="white-outline" :disabled="bedForm.processing" @click="bedDialog = null">Annuler</Button>
+                <Button type="submit" form="stay-bed" :disabled="bedForm.processing || !bedForm.hospital_bed_uuid">
+                    <template v-if="bedDialog === 'move'"><ArrowRightLeft class="h-4 w-4" />Déplacer le patient</template>
+                    <template v-else><BedDouble class="h-4 w-4" />Installer dans ce lit</template>
                 </Button>
-                <div v-else class="rounded-md border border-border bg-muted/30 p-2.5">
-                    <Input
-                        v-model="diagnosisSearch"
-                        placeholder="Rechercher au catalogue, ou saisir un libellé"
-                        autofocus
-                        @keydown.enter.prevent="addDiagnosis()"
-                    />
-                    <ul v-if="diagnosisResults.length" class="mt-1.5 space-y-1">
-                        <li v-for="result in diagnosisResults" :key="result.uuid">
-                            <button
-                                type="button"
-                                class="flex w-full items-start gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-start text-xs hover:bg-accent"
-                                @click="addDiagnosis(result.uuid)"
-                            >
-                                <Stethoscope class="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span><span class="font-semibold">{{ result.name }}</span>
-                                    <span v-if="result.code" class="text-muted-foreground"> · {{ result.code }}</span></span>
-                            </button>
-                        </li>
-                    </ul>
-                    <p v-else-if="diagnosisSearch.trim().length >= 2" class="mt-1.5 text-[11px] text-muted-foreground">
-                        Aucun diagnostic du catalogue : « Ajouter » l’enregistre tel quel.
-                    </p>
-                    <FormError :message="diagnosisForm.errors.description || diagnosisForm.errors.diagnostic_catalog_uuid" />
-                    <div class="mt-2 flex justify-end gap-2">
-                        <Button type="button" size="xs" variant="ghost" @click="resetDiagnosis">Annuler</Button>
-                        <Button type="button" size="xs" :disabled="diagnosisForm.processing || !diagnosisSearch.trim()" @click="addDiagnosis()">
-                            <Check class="h-3.5 w-3.5" />Ajouter
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        </Card>
+            </template>
+        </Dialog>
 
-        <!-- ADR-156 — il n'y a qu'une sortie médicale, prononcée par le
-             médecin dans sa consultation (elle termine le séjour). Le second
-             formulaire qui vivait ici n'était qu'un doublon : deux endroits
-             pour un seul acte, et une visite ouverte à côté. -->
-        <Card v-else class="p-5">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground"><DoorOpen class="h-4 w-4 text-muted-foreground" />Sortie d’hospitalisation</h2>
-                    <p class="mt-1 text-xs text-muted-foreground">
-                        Elle se prononce dans la visite de service, à l’étape « Décision &amp; clôture » :
-                        conduite à tenir « Sortie médicale ». Elle termine le séjour, puis le passage
-                        rejoint « Sorties &amp; règlements ».
-                    </p>
+        <Dialog :open="correctingReading !== null" title="Corriger un relevé" description="La valeur remplacée reste à l’audit, avec l’auteur de la correction." size="lg" @update:open="(value) => { if (!value) correctingReading = null; }">
+            <form id="reading-correction" class="grid gap-3 sm:grid-cols-3" @submit.prevent="submitCorrection">
+                <FormField label="TA systolique" :error="correctionForm.errors.blood_pressure_systolic"><Input v-model="correctionForm.blood_pressure_systolic" type="number" /></FormField>
+                <FormField label="TA diastolique" :error="correctionForm.errors.blood_pressure_diastolic"><Input v-model="correctionForm.blood_pressure_diastolic" type="number" /></FormField>
+                <FormField label="FC" :error="correctionForm.errors.heart_rate"><Input v-model="correctionForm.heart_rate" type="number" /></FormField>
+                <FormField label="SpO₂" :error="correctionForm.errors.spo2"><Input v-model="correctionForm.spo2" type="number" /></FormField>
+                <FormField label="Température" :error="correctionForm.errors.temperature_celsius"><Input v-model="correctionForm.temperature_celsius" type="number" step="0.1" /></FormField>
+                <FormField label="Mesuré le" :error="correctionForm.errors.measured_at"><Input v-model="correctionForm.measured_at" type="datetime-local" /></FormField>
+                <FormField label="Observation" class="sm:col-span-3" :error="correctionForm.errors.notes"><Input v-model="correctionForm.notes" maxlength="1000" /></FormField>
+            </form>
+            <template #footer>
+                <Button type="button" variant="white-outline" :disabled="correctionForm.processing" @click="correctingReading = null">Annuler</Button>
+                <Button type="submit" form="reading-correction" :disabled="correctionForm.processing"><Check class="h-4 w-4" />Enregistrer la correction</Button>
+            </template>
+        </Dialog>
+
+        <!-- ADR-163 — annuler un transfert au bloc : la demande reste en base,
+             annulée, avec son auteur et son motif ; le séjour continue. -->
+        <Dialog
+            :open="cancellingSurgery !== null"
+            title="Annuler le transfert au bloc"
+            description="Le bloc ne l’a pas encore programmé : la demande est retirée, sans être effacée. Le patient reste dans son lit."
+            size="md"
+            :dismissible="false"
+            @update:open="(value) => { if (!value) cancellingSurgery = null; }"
+        >
+            <form id="surgery-cancel" class="space-y-3" @submit.prevent="submitSurgeryCancel">
+                <p class="text-sm text-foreground">Intervention : <strong class="font-semibold">{{ cancellingSurgery?.procedure_name }}</strong></p>
+                <p v-if="cancellingSurgery?.origin === 'MEDICINE'" class="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Demandée depuis une consultation : sa conduite à tenir « Chirurgie » est annulée avec elle.
+                </p>
+                <FormField label="Motif (facultatif)" :error="surgeryCancelForm.errors.reason">
+                    <Textarea v-model="surgeryCancelForm.reason" :rows="2" maxlength="500" placeholder="Ex. : amélioration clinique, demandé par erreur" />
+                </FormField>
+                <FormError :message="surgeryCancelForm.errors.surgical_request" />
+            </form>
+            <template #footer>
+                <Button type="button" variant="white-outline" :disabled="surgeryCancelForm.processing" @click="cancellingSurgery = null">Garder la demande</Button>
+                <Button type="submit" form="surgery-cancel" variant="destructive" :disabled="surgeryCancelForm.processing"><Undo2 class="h-4 w-4" />Annuler le transfert</Button>
+            </template>
+        </Dialog>
+
+        <!-- Transférer au bloc est un acte signé (ADR-106) : l'intervention est
+             nommée, la responsabilité aussi, et la fenêtre ne se ferme pas au
+             clic extérieur. -->
+        <Dialog
+            v-model:open="surgeryOpen"
+            title="Transférer au bloc opératoire"
+            description="La demande part au bloc, qui la programme. Le séjour continue : le patient garde son lit."
+            size="lg"
+            :dismissible="false"
+        >
+            <form id="surgery-transfer" class="space-y-4" @submit.prevent="submitSurgery">
+                <FormField as="div" label="Intervention envisagée" required :error="surgeryForm.errors.catalog_item_uuid">
+                    <IconInput v-model="procedureQuery" :icon="Search" type="search" placeholder="Chercher une intervention" aria-label="Chercher une intervention" autocomplete="off" />
+                    <div class="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border" role="radiogroup" aria-label="Interventions">
+                        <button
+                            v-for="procedure in filteredProcedures"
+                            :key="procedure.uuid"
+                            type="button"
+                            role="radio"
+                            :aria-checked="surgeryForm.catalog_item_uuid === procedure.uuid"
+                            :class="[
+                                'flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-start text-sm last:border-b-0',
+                                surgeryForm.catalog_item_uuid === procedure.uuid ? 'bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent',
+                            ]"
+                            @click="surgeryForm.catalog_item_uuid = procedure.uuid"
+                        >
+                            <span class="min-w-0 truncate">{{ procedure.name }}</span>
+                            <Check v-if="surgeryForm.catalog_item_uuid === procedure.uuid" class="h-4 w-4 shrink-0" />
+                        </button>
+                        <p v-if="!filteredProcedures.length" class="px-3 py-4 text-center text-xs text-muted-foreground">Aucune intervention ne correspond.</p>
+                    </div>
+                </FormField>
+                <div class="grid gap-4 sm:grid-cols-[1fr_12rem]">
+                    <FormField label="Indication" :error="surgeryForm.errors.indication">
+                        <Textarea v-model="surgeryForm.indication" rows="2" placeholder="Ce qui justifie le passage au bloc" />
+                    </FormField>
+                    <FormField label="Priorité" required :error="surgeryForm.errors.priority">
+                        <Select v-model="surgeryForm.priority" :options="PRIORITIES" aria-label="Priorité" />
+                    </FormField>
                 </div>
-                <Button
-                    v-if="openVisitInProgress"
-                    :as="Link"
-                    :href="openVisitInProgress.url"
-                    size="sm"
-                    variant="warning"
-                    class="shrink-0"
-                ><Stethoscope class="h-4 w-4" />Reprendre la visite</Button>
-                <Button
-                    v-else-if="capabilities.can_open_visit"
-                    type="button"
-                    size="sm"
-                    variant="warning"
-                    class="shrink-0"
-                    :disabled="visitForm.processing"
-                    @click="openVisit"
-                ><Stethoscope class="h-4 w-4" />Ouvrir une visite</Button>
-            </div>
-                </Card>
+                <FormField label="Note pour l’équipe du bloc" :error="surgeryForm.errors.notes">
+                    <Textarea v-model="surgeryForm.notes" rows="2" />
+                </FormField>
+                <p class="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Repris du séjour, sans ressaisie : service, chambre et diagnostic d’entrée.
+                    Demandé sous la responsabilité de <strong class="font-semibold text-foreground">{{ $page.props.auth.user.name }}</strong>.
+                </p>
+            </form>
+            <template #footer>
+                <Button type="button" variant="white-outline" :disabled="surgeryForm.processing" @click="surgeryOpen = false">Annuler</Button>
+                <Button type="submit" form="surgery-transfer" :disabled="surgeryForm.processing || !selectedProcedure">
+                    <Scissors class="h-4 w-4" />Transférer au bloc
+                </Button>
+            </template>
+        </Dialog>
     </div>
 </template>

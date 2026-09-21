@@ -236,8 +236,8 @@ class CatalogController extends Controller
             ->where('catalog_review_status', PrescriptionLineReviewStatus::Pending->value)
             ->with([
                 'prescription.prescribedBy:id,name',
-                'prescription.consultation.episode:id,episode_number,patient_id',
-                'prescription.consultation.episode.patient:id,patient_number',
+                'prescription.episode:id,episode_number,patient_id',
+                'prescription.episode.patient:id,patient_number',
             ])
             ->latest('created_at')
             ->get()
@@ -251,8 +251,8 @@ class CatalogController extends Controller
                 'instructions' => $line->instructions,
                 'prescribed_at' => $line->prescription->prescribed_at ?? $line->created_at,
                 'prescribed_by' => $line->prescription->prescribedBy?->name,
-                'episode_number' => $line->prescription->consultation?->episode?->episode_number,
-                'patient_number' => $line->prescription->consultation?->episode?->patient?->patient_number,
+                'episode_number' => $line->prescription->episode?->episode_number,
+                'patient_number' => $line->prescription->episode?->patient?->patient_number,
             ])
             ->values()
             ->all();

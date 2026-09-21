@@ -15,6 +15,7 @@ use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
+use App\Http\Requests\Care\CompleteCareOrientationRequest;
 use App\Http\Requests\Care\SaveCareRecordDraftRequest;
 use App\Http\Requests\MarkCareOrderItemNotPerformedRequest;
 use App\Http\Requests\UpdateCareRecordRequest;
@@ -32,6 +33,7 @@ use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
 use App\Support\CareHandlerGuard;
 use App\Support\CareRequestSummary;
+use App\Support\CareWorkflow;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\HeartRateAssessment;
 use App\Support\OxygenSaturationAssessment;
@@ -219,6 +221,7 @@ class CareController extends Controller
         TemperatureAssessment $temperatureAssessment,
         CareRecordReadModel $careRecordReadModel,
         CareConsumableDirectory $consumables,
+        CareWorkflow $careWorkflow,
     ): Response {
         $episodeOrientation->load([
             'episode.patient',
@@ -281,6 +284,11 @@ class CareController extends Controller
         return Inertia::render('Care/Show', [
             'orientation' => $presenter->present($episodeOrientation),
             'hasActiveMedicineOrientation' => $hasActiveMedicineOrientation,
+            // ADR-166 — la règle même de l'action de fin des Soins : Médecine a
+            // déjà ce patient, donc ni « transmettre » ni « terminer aux Soins »
+            // n'a de choix à proposer.
+            'medicineAlreadyInvolved' => $careWorkflow->medicineAlreadyInvolved($episodeOrientation->episode),
+            'completionReason' => $episodeOrientation->completion_reason,
             'latestDiagnosis' => $latestDiagnosis ? [
                 'description' => $latestDiagnosis->description,
                 'doctor' => $latestDiagnosis->consultation->doctor?->name ?? $latestDiagnosis->recordedBy?->name,
@@ -425,7 +433,12 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
         SaveCareRecordAction $action,
     ): RedirectResponse {
-        $action->execute($episodeOrientation, $request->validated(), $request->user());
+        $action->execute(
+            $episodeOrientation,
+            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_finish_reason']),
+            $request->user(),
+            $request->destination(),
+        );
 
         return redirect()->route('care.orientations.show', $episodeOrientation)
             ->with('status', 'Fiche de soins enregistrée.');
@@ -436,20 +449,15 @@ class CareController extends Controller
         EpisodeOrientation $episodeOrientation,
         SaveAndCompleteCareAction $action,
     ): RedirectResponse {
-        $orientToMedicine = $request->boolean('orient_to_medicine');
-        $action->execute(
+        $completed = $action->execute(
             $episodeOrientation,
-            $request->safe()->except('orient_to_medicine'),
+            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_finish_reason']),
             $request->user(),
-            $orientToMedicine,
+            $request->destination(),
+            $request->validated('care_finish_reason'),
         );
 
-        return redirect()->route('care.index')->with(
-            'status',
-            $orientToMedicine
-                ? 'Actes enregistrés. Le patient est maintenant en attente en Médecine.'
-                : 'Actes enregistrés et prise en charge terminée.',
-        );
+        return redirect()->route('care.index')->with('status', $this->completionMessage($completed, saved: true));
     }
 
     public function markCareOrderItemNotPerformed(
@@ -550,23 +558,40 @@ class CareController extends Controller
     }
 
     public function complete(
-        Request $request,
+        CompleteCareOrientationRequest $request,
         EpisodeOrientation $episodeOrientation,
         CompleteCareAndOrientToMedicineAction $action,
     ): RedirectResponse {
-        $completed = $action->execute($episodeOrientation, $request->user());
+        $completed = $action->execute(
+            $episodeOrientation,
+            $request->user(),
+            $request->destination(),
+            $request->validated('care_finish_reason'),
+        );
 
-        $sentToMedicine = $completed->episode->orientations()
+        return back()->with('status', $this->completionMessage($completed, saved: false));
+    }
+
+    /**
+     * Ce que devient le patient, dit par ce qui a réellement été enregistré :
+     * une orientation Médecine active, ou la fin aux Soins.
+     */
+    private function completionMessage(EpisodeOrientation $completed, bool $saved): string
+    {
+        $prefix = $saved ? 'Actes enregistrés' : 'Soins terminés';
+
+        $waitingForDoctor = $completed->episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
+            ->whereIn('status', [EpisodeOrientationStatus::Pending->value, EpisodeOrientationStatus::InProgress->value])
             ->exists();
 
-        if ($sentToMedicine) {
-            return back()->with('status', 'Soins terminés. Le patient est maintenant en attente en Médecine.');
+        if ($waitingForDoctor) {
+            return $prefix.'. Le patient est maintenant en attente en Médecine.';
         }
 
-        return back()
-            ->with('status', 'Soins terminés. Aucune consultation médicale n’est prévue pour ce parcours.')
-            ->with('status_type', 'warning');
+        return $completed->completion_reason
+            ? $prefix.'. Le patient est terminé aux Soins, sans passer en Médecine.'
+            : $prefix.' et prise en charge terminée.';
     }
 
     public function completeAndOrient(

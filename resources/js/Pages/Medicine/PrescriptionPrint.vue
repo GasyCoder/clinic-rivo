@@ -14,6 +14,8 @@ const props = defineProps({
     episode: Object,
     patient: Object,
     prescription: Object,
+    /** ADR-162 — une ordonnance du séjour ramène au séjour. */
+    backHref: { type: String, default: null },
 });
 
 const page = usePage();
@@ -45,7 +47,7 @@ const printDocument = () => window.print();
 
     <div class="rx-page mx-auto w-full max-w-3xl space-y-3">
         <div class="rx-actions flex flex-wrap items-center justify-between gap-3">
-            <Button :as="Link" :href="`/medicine/orientations/${orientation.uuid}/ordonnance`" size="rg" variant="outline">
+            <Button :as="Link" :href="backHref ?? `/medicine/orientations/${orientation.uuid}/ordonnance`" size="rg" variant="outline">
                 <ArrowLeft class="h-4 w-4" />
                 <span>Retour à l’ordonnance</span>
             </Button>

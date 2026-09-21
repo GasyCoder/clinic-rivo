@@ -10,7 +10,6 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\ConsultationOrientationStatus;
 use App\Enums\ConsultationOrientationType;
-use App\Support\ConsultationWorkflow;
 use App\Enums\ConsultationStatus;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeMedicalStatus;
@@ -26,7 +25,9 @@ use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\ConsultationWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -117,6 +118,7 @@ class HospitalizationFlowTest extends TestCase
         $this->assertSame('Chambre 3, lit B', $stay->fresh()->room_bed);
     }
 
+    /** ADR-162 — la sortie d'un patient au lit se prononce sur la page du séjour, et le termine. */
     public function test_only_the_doctors_medical_discharge_ends_the_stay(): void
     {
         $doctor = $this->doctor();
@@ -126,21 +128,15 @@ class HospitalizationFlowTest extends TestCase
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
 
-        // ADR-156 — la sortie se prononce dans la visite, et termine le séjour.
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites");
-        $visit = $episode->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole();
-
-        $this->actingAs($nurse)->post("/medicine/orientations/{$visit->uuid}/discharge", $this->discharge())
+        $this->actingAs($nurse)->post("/hospitalisation/{$stay->uuid}/sortie", $this->discharge())
             ->assertForbidden();
 
         // A hospital stay is never a paraclinical-only visit: the final
         // diagnosis is required (ADR-094).
-        $this->actingAs($doctor)->post("/medicine/orientations/{$visit->uuid}/discharge", $this->discharge(['final_diagnosis' => '']))
+        $this->dischargeFromStay($stay, $doctor, ['final_diagnosis' => ''])
             ->assertSessionHasErrors('final_diagnosis');
 
-        $this->actingAs($doctor)->post("/medicine/orientations/{$visit->uuid}/discharge", $this->discharge())
-            ->assertSessionHasNoErrors();
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         $stay->refresh();
         $this->assertSame(HospitalStayStatus::Discharged, $stay->status);
@@ -151,9 +147,7 @@ class HospitalizationFlowTest extends TestCase
         $this->assertSame($stay->medical_discharge_id, $discharge->id);
         $this->assertSame('Gastro-entérite guérie', $discharge->final_diagnosis);
 
-        // La visite reste ouverte : seule sa clôture termine la rencontre
-        // (ADR-084), et c'est elle qui porte la sortie sur le passage.
-        $this->completeConsultation($visit);
+        // Plus aucun service n'a le patient : la suite est à la Réception.
         $episode->refresh();
         $this->assertSame(EpisodeMedicalStatus::MedicallyDischarged, $episode->medical_status);
         $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->administrative_status);
@@ -171,12 +165,10 @@ class HospitalizationFlowTest extends TestCase
         $doctor = $this->doctor(['death_records.view']);
         [$episode, $orientation] = $this->consultation($doctor);
         $this->requestHospitalization($doctor, $orientation);
-        // La consultation qui a demandé l'hospitalisation a conclu par elle :
-        // la sortie se prononce dans une visite du séjour (ADR-084, ADR-156).
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
 
-        $this->dischargeFromWardRound($stay, $doctor, [
+        $this->dischargeFromStay($stay, $doctor, [
             'type' => 'DECEASED',
             'patient_condition' => '',
             'discharge_prescription' => null,
@@ -188,10 +180,6 @@ class HospitalizationFlowTest extends TestCase
         ])->assertRedirect(route('deaths.index'));
 
         $this->assertSame(HospitalStayStatus::Discharged, $stay->fresh()->status);
-
-        // Le statut médical du passage suit la clôture de la visite (ADR-084).
-        $this->completeConsultation($episode->fresh()->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole());
         $this->assertSame(EpisodeMedicalStatus::Deceased, $episode->fresh()->medical_status);
     }
 
@@ -317,7 +305,7 @@ class HospitalizationFlowTest extends TestCase
         ]);
 
         $props = $this->actingAs($agent)->get("/hospitalisation/{$stay->uuid}")->viewData('page')['props'];
-        foreach (['can_update_stay', 'can_add_diet', 'can_add_diagnosis', 'can_open_visit', 'can_discharge'] as $capability) {
+        foreach (['can_update_stay', 'can_add_diet', 'can_add_diagnosis', 'can_discharge'] as $capability) {
             $this->assertTrue($props['capabilities'][$capability], "{$capability} doit suivre le droit accordé, jamais le rôle.");
         }
 
@@ -326,13 +314,9 @@ class HospitalizationFlowTest extends TestCase
             'served_on' => now()->toDateString(), 'served_time' => '08:00', 'tea_bread' => 'Thé',
         ])->assertSessionHasNoErrors();
         $this->actingAs($agent)->post("/hospitalisation/{$stay->uuid}/diagnostics", ['description' => 'Apyrexie'])->assertSessionHasNoErrors();
-        $this->actingAs($agent)->post("/hospitalisation/{$stay->uuid}/visites")->assertRedirect();
 
-        // ADR-156 — la sortie se prononce dans la visite, et termine le séjour.
-        $visit = $stay->episode->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole();
-        $this->actingAs($agent)->post("/medicine/orientations/{$visit->uuid}/discharge", $this->discharge())
-            ->assertSessionHasNoErrors();
+        // ADR-162 — la sortie se prononce sur la page du séjour, et le termine.
+        $this->dischargeFromStay($stay, $agent)->assertSessionHasNoErrors();
 
         $this->assertSame(HospitalStayStatus::Discharged, $stay->fresh()->status);
         $this->assertSame('Ch. 4', $stay->fresh()->room_bed);
@@ -340,13 +324,8 @@ class HospitalizationFlowTest extends TestCase
 
     // ── ADR-156 : une seule sortie, prononcée dans la visite ─────────────
 
-    /**
-     * Le défaut signalé : deux endroits pour un seul acte. La sortie prononcée
-     * depuis la page du séjour laissait la visite « En cours » — orientation
-     * Médecine active, passage jamais en attente de règlement. Elle se
-     * prononce désormais là où le médecin travaille, et termine le séjour.
-     */
-    public function test_a_discharge_from_a_ward_round_ends_the_stay(): void
+    /** ADR-162 — une seule sortie, prononcée sur la page du séjour : le lit est rendu. */
+    public function test_a_discharge_from_the_stay_ends_it(): void
     {
         $doctor = $this->doctor();
         [$episode, $orientation] = $this->consultation($doctor);
@@ -354,22 +333,14 @@ class HospitalizationFlowTest extends TestCase
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
 
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         $stay->refresh();
         $this->assertSame(HospitalStayStatus::Discharged, $stay->status);
         $this->assertNull($stay->active_key);
         $this->assertSame(MedicalDischarge::query()->sole()->id, $stay->medical_discharge_id);
-        // Le lit est rendu : jamais un passage sorti dont le séjour reste actif.
+        $this->assertNull(MedicalDischarge::query()->sole()->consultation_id);
         $this->assertSame(EpisodeOrientationStatus::Completed, $stay->episodeOrientation->status);
-        // La visite se clôture ensuite normalement : la sortie prononcée EST
-        // sa conduite à tenir transmise (ADR-084, ADR-107).
-        $visit = $episode->fresh()->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole();
-        $this->completeConsultation($visit);
-
-        $this->assertSame(ConsultationStatus::Completed, $visit->consultation()->firstOrFail()->status);
-        // Le statut médical et l'attente de règlement suivent la clôture (ADR-084).
         $this->assertSame(EpisodeMedicalStatus::MedicallyDischarged, $episode->fresh()->medical_status);
         $this->assertSame(EpisodeAdministrativeStatus::PendingSettlement, $episode->fresh()->administrative_status);
     }
@@ -387,9 +358,7 @@ class HospitalizationFlowTest extends TestCase
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
-        $this->completeConsultation($episode->fresh()->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole());
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         $agent = $this->userWith('RECEPTION', [
             'patients.view', 'episodes.settlement.view', 'hospitalization.view',
@@ -414,24 +383,23 @@ class HospitalizationFlowTest extends TestCase
     }
 
     /**
-     * Le patient sorti du lit dont le médecin n'a pas encore clôturé n'est pas
-     * réglable (ADR-054/084) — mais il ne doit pas disparaître de la Réception
-     * pour autant : il est dans « Sortie médicale prononcée », avec la raison.
+     * Le patient sorti du lit dont la consultation d'admission reste ouverte
+     * n'est pas réglable (ADR-054/084) — mais il ne disparaît pas de la
+     * Réception : il est dans « Sortie médicale prononcée », avec la raison.
      */
     public function test_a_medically_discharged_passage_stays_visible_before_its_closure(): void
     {
         $doctor = $this->doctor();
         [$episode, $orientation] = $this->consultation($doctor);
         $this->requestHospitalization($doctor, $orientation);
-        $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         $agent = $this->userWith('RECEPTION', [
             'patients.view', 'episodes.settlement.view', 'hospitalization.view',
         ]);
 
-        // La visite est encore ouverte : rien à régler, et rien de perdu.
+        // La consultation est encore ouverte : rien à régler, et rien de perdu.
         $props = $this->actingAs($agent)->get('/reception/sorties?tab=pending')->viewData('page')['props'];
         $this->assertNull(collect($props['episodes']['data'])->firstWhere('uuid', $episode->uuid));
         $this->assertSame(1, $props['counts']['in_care']);
@@ -440,8 +408,7 @@ class HospitalizationFlowTest extends TestCase
         $this->assertNotNull(collect($props['episodes']['data'])->firstWhere('uuid', $episode->uuid));
 
         // Clôturée, il rejoint « À régler » et quitte cette vue.
-        $this->completeConsultation($episode->fresh()->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole());
+        $this->completeConsultation($orientation);
 
         $props = $this->actingAs($agent)->get('/reception/sorties?tab=pending')->viewData('page')['props'];
         $this->assertNotNull(collect($props['episodes']['data'])->firstWhere('uuid', $episode->uuid));
@@ -460,7 +427,7 @@ class HospitalizationFlowTest extends TestCase
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         // L'état hérité : une seconde rencontre ouverte sans conduite à tenir,
         // sur un passage dont la sortie est déjà prononcée.
@@ -486,18 +453,6 @@ class HospitalizationFlowTest extends TestCase
         $this->assertSame($episode->fresh()->medicalDischarge->id, $orientationRow->medical_discharge_id);
     }
 
-    /** Le séjour n'a plus de formulaire de sortie à lui : un seul acte. */
-    public function test_the_stay_has_no_discharge_form_of_its_own(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->consultation($doctor);
-        $this->requestHospitalization($doctor, $orientation);
-        $stay = HospitalStay::query()->sole();
-
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/sortie", $this->discharge())
-            ->assertNotFound();
-    }
-
     /**
      * Le séjour déjà bloqué avant l'ADR-155 : sortie prononcée, une visite
      * restée ouverte à côté. Elle était inclôturable — « Sortie médicale »
@@ -512,7 +467,7 @@ class HospitalizationFlowTest extends TestCase
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         // L'état hérité, reconstruit par les vraies actions : une seconde
         // visite laissée ouverte à côté d'une sortie déjà prononcée.
@@ -540,88 +495,37 @@ class HospitalizationFlowTest extends TestCase
     // ── ADR-148 : la visite de service ───────────────────────────────────
 
     /**
-     * Un patient hospitalisé continue d'être examiné et prescrit. La visite est
-     * une vraie consultation : l'assistant Médecine existant la porte, et aucun
-     * circuit n'est dupliqué.
+     * ADR-163 — le séjour n'a plus de carte « Visites de service » : plus aucune
+     * ne s'ouvre, et une visite close se relit sur la page du passage. Seule
+     * une visite **restée ouverte** paraît ici, parce qu'elle retient le
+     * passage tant qu'elle n'est pas conclue.
      */
-    public function test_a_ward_round_opens_a_real_consultation_on_the_stay(): void
+    public function test_the_stay_only_shows_a_ward_round_left_open(): void
     {
         $doctor = $this->doctor();
         [$episode, $orientation] = $this->consultation($doctor);
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites")->assertRedirect();
-
-        $visit = $episode->fresh()->orientations()
-            ->where('destination_module', CatalogModule::Medicine->value)
-            ->where('source_module', CatalogModule::Hospitalization->value)
-            ->sole();
-
-        // Prise en charge d'emblée : le patient est dans un lit, jamais « à prendre ».
-        $this->assertSame(EpisodeOrientationStatus::InProgress, $visit->status);
-        $this->assertSame($doctor->id, $visit->accepted_by);
-        $this->assertNotNull($visit->consultation()->first());
-
-        // Il reste hospitalisé : une visite ne le fait pas descendre du lit.
-        $this->assertSame(EpisodeMedicalStatus::Hospitalized, $episode->fresh()->medical_status);
-    }
-
-    /** Une visite déjà ouverte est retrouvée, jamais doublée (`active_key`). */
-    public function test_opening_a_second_ward_round_reuses_the_open_one(): void
-    {
-        $doctor = $this->doctor();
-        [$episode, $orientation] = $this->consultation($doctor);
-        $this->requestHospitalization($doctor, $orientation);
-        $this->completeConsultation($orientation);
-        $stay = HospitalStay::query()->sole();
-
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites");
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites");
-
-        $this->assertSame(1, $episode->fresh()->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)
-            ->count());
-    }
-
-    /** La page liste ce que le séjour a produit, et le droit qui l'ouvre. */
-    public function test_the_stay_lists_its_ward_rounds(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->consultation($doctor);
-        $this->requestHospitalization($doctor, $orientation);
-        $this->completeConsultation($orientation);
-        $stay = HospitalStay::query()->sole();
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites");
+        $visit = $this->legacyWardRound($episode, $doctor);
 
         $props = $this->actingAs($doctor)->get("/hospitalisation/{$stay->uuid}")->viewData('page')['props'];
 
-        $this->assertCount(1, $props['visits']);
-        $this->assertTrue($props['visits'][0]['is_open']);
-        $this->assertTrue($props['capabilities']['can_open_visit']);
+        $this->assertArrayNotHasKey('visits', $props);
+        $this->assertArrayNotHasKey('can_open_visit', $props['capabilities']);
+        $this->assertCount(1, $props['openConsultations']);
+        $this->assertSame('VISIT', $props['openConsultations'][0]['kind']);
+        $this->assertTrue($props['openConsultations'][0]['can_cancel']);
 
-        // La Réception lit le séjour, elle n'ouvre aucune visite (ADR-147).
+        // Clôturée, elle quitte la page du séjour : son dossier vit dans le passage.
+        $this->closeWardRound($visit);
+        $props = $this->actingAs($doctor)->get("/hospitalisation/{$stay->uuid}")->viewData('page')['props'];
+        $this->assertSame([], $props['openConsultations']);
+
+        // La Réception lit le séjour, pas les consultations (ADR-147).
         $agent = $this->userWith('RECEPTION', ['patients.view', 'hospitalization.view']);
         $agentProps = $this->actingAs($agent)->get("/hospitalisation/{$stay->uuid}")->viewData('page')['props'];
-        $this->assertFalse($agentProps['capabilities']['can_open_visit']);
-        $this->assertSame([], $agentProps['visits']);
-        $this->actingAs($agent)->post("/hospitalisation/{$stay->uuid}/visites")->assertForbidden();
-    }
-
-    /** Un séjour terminé n'ouvre plus de visite : sa sortie est prononcée. */
-    public function test_a_finished_stay_opens_no_ward_round(): void
-    {
-        $doctor = $this->doctor();
-        [, $orientation] = $this->consultation($doctor);
-        $this->requestHospitalization($doctor, $orientation);
-        $this->completeConsultation($orientation);
-        $stay = HospitalStay::query()->sole();
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
-
-        $this->actingAs($doctor)
-            ->post("/hospitalisation/{$stay->uuid}/visites")
-            ->assertSessionHasErrors('visit');
+        $this->assertSame([], $agentProps['openConsultations']);
     }
 
     /**
@@ -637,9 +541,7 @@ class HospitalizationFlowTest extends TestCase
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites");
-        $visit = $stay->episode->orientations()
-            ->where('source_module', CatalogModule::Hospitalization->value)->sole();
+        $visit = $this->legacyWardRound($stay->episode, $doctor);
 
         $props = $this->actingAs($doctor)->get("/medicine/orientations/{$visit->uuid}/cloture")->viewData('page')['props'];
         $types = collect($props['options']['orientation_types'])->pluck('value')->all();
@@ -647,8 +549,8 @@ class HospitalizationFlowTest extends TestCase
         // Ouvrir un second séjour, ou sortir sans terminer le séjour : jamais.
         // « Hospitalisation » ouvrirait un second séjour sur le même passage.
         $this->assertNotContains('HOSPITALIZATION', $types);
-        // ADR-156 — « Sortie médicale » est proposée : elle termine le séjour.
-        $this->assertContains('DISCHARGE', $types);
+        // ADR-162 — la sortie d'un patient au lit se prononce sur la page du séjour.
+        $this->assertNotContains('DISCHARGE', $types);
         $this->assertContains('CONTINUED_HOSPITALIZATION', $types);
 
         // Et l'écran sait dire que le patient est dans un lit.
@@ -668,8 +570,7 @@ class HospitalizationFlowTest extends TestCase
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/visites");
-        $visit = $episode->orientations()->where('source_module', CatalogModule::Hospitalization->value)->sole();
+        $visit = $this->legacyWardRound($episode, $doctor);
 
         $this->actingAs($doctor)->post("/medicine/orientations/{$visit->uuid}/orientation", [
             'type' => 'CONTINUED_HOSPITALIZATION',
@@ -758,6 +659,34 @@ class HospitalizationFlowTest extends TestCase
         $this->assertSame(['CONSULTATION', 'STAY'], collect($props['diagnoses'])->pluck('origin')->all());
     }
 
+    /**
+     * La sortie reprend ce qui est déjà consigné et accepte ce qu'on ajoute ;
+     * son diagnostic final est la liste cochée, une ligne par diagnostic.
+     * Chaque ligne est un diagnostic : aucune ligne déjà connue n'est
+     * recopiée, et jamais la liste entière comme un diagnostic de plus.
+     */
+    public function test_the_discharge_keeps_known_diagnoses_and_records_only_the_new_one(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+        $this->requestHospitalization($doctor, $orientation);
+        $this->completeConsultation($orientation);
+        $stay = HospitalStay::query()->sole();
+        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/diagnostics", ['description' => 'Hypothermie possible'])->assertSessionHasNoErrors();
+        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/diagnostics", ['description' => 'Insuffisance pondérale'])->assertSessionHasNoErrors();
+
+        $this->dischargeFromStay($stay, $doctor, [
+            'final_diagnosis' => "Hypothermie possible\nInsuffisance pondérale\nDéshydratation corrigée",
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            ['Hypothermie possible', 'Insuffisance pondérale', 'Déshydratation corrigée'],
+            $stay->fresh()->diagnoses()->orderBy('id')->pluck('description')->all(),
+        );
+        // La sortie garde la liste telle que le médecin l'a signée.
+        $this->assertSame("Hypothermie possible\nInsuffisance pondérale\nDéshydratation corrigée", $stay->fresh()->medicalDischarge->final_diagnosis);
+    }
+
     /** Append-only, comme tout diagnostic (ADR-035). */
     public function test_a_discharge_diagnosis_is_never_rewritten_nor_removed(): void
     {
@@ -780,7 +709,7 @@ class HospitalizationFlowTest extends TestCase
         $this->requestHospitalization($doctor, $orientation);
         $this->completeConsultation($orientation);
         $stay = HospitalStay::query()->sole();
-        $this->dischargeFromWardRound($stay, $doctor)->assertSessionHasNoErrors();
+        $this->dischargeFromStay($stay, $doctor)->assertSessionHasNoErrors();
 
         $this->actingAs($doctor)
             ->post("/hospitalisation/{$stay->uuid}/diagnostics", ['description' => 'Trop tard'])
@@ -830,20 +759,27 @@ class HospitalizationFlowTest extends TestCase
      *
      * @param  array<string, mixed>  $overrides
      */
-    private function dischargeFromWardRound(HospitalStay $stay, User $actor, array $overrides = []): \Illuminate\Testing\TestResponse
+    /** ADR-162 — la sortie d'un patient au lit, sur la page du séjour. */
+    private function dischargeFromStay(HospitalStay $stay, User $actor, array $overrides = []): TestResponse
     {
-        $this->actingAs($actor)->post("/hospitalisation/{$stay->uuid}/visites");
+        return $this->actingAs($actor)->post("/hospitalisation/{$stay->uuid}/sortie", $this->discharge($overrides));
+    }
 
-        // `active_key` : une consultation Médecine déjà ouverte est reprise
-        // plutôt que doublée — la visite est alors celle-là (ADR-148).
-        $visit = $stay->episode->orientations()
-            ->where('destination_module', CatalogModule::Medicine->value)
-            ->where('status', EpisodeOrientationStatus::InProgress->value)
-            ->latest('id')
-            ->firstOrFail();
+    /**
+     * Une visite de service ouverte avant l'ADR-162, reconstruite par les
+     * vraies actions : plus aucune ne s'ouvre depuis le séjour.
+     */
+    private function legacyWardRound(Episode $episode, User $doctor): EpisodeOrientation
+    {
+        $visit = app(CreateEpisodeOrientationAction::class)->execute(
+            $episode->fresh(), CatalogModule::Hospitalization, CatalogModule::Medicine, $doctor, 'Visite de service.',
+        );
 
-        return $this->actingAs($actor)
-            ->post("/medicine/orientations/{$visit->uuid}/discharge", $this->discharge($overrides));
+        $visit = app(AcceptMedicineOrientationAction::class)->execute($visit, $doctor);
+        // L'ancienne ouverture rétablissait le patient « hospitalisé » (ADR-148).
+        $episode->fresh()->update(['medical_status' => EpisodeMedicalStatus::Hospitalized]);
+
+        return $visit;
     }
 
     /**

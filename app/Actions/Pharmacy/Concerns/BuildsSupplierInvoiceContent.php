@@ -6,6 +6,7 @@ use App\Models\GoodsReceipt;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\PurchaseOrder;
+use App\Models\SupplierInvoice;
 use App\Support\Money;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -17,6 +18,38 @@ use Illuminate\Validation\ValidationException;
  */
 trait BuildsSupplierInvoiceContent
 {
+    /**
+     * Deux factures d'un même fournisseur ne peuvent pas porter le même numéro
+     * — la base l'impose (`unique(medicine_supplier_id, invoice_number)`).
+     *
+     * Sans ce contrôle, le doublon remontait en violation de contrainte : une
+     * erreur 500 pour le pharmacien, et une pile d'appels dans `laravel.log`
+     * au lieu d'un message sous le champ. L'index couvre aussi les factures
+     * archivées, ce que le message doit dire : le numéro n'est pas libre, il
+     * est simplement rangé.
+     */
+    private function guardInvoiceNumber(MedicineSupplier $supplier, string $number, ?SupplierInvoice $current = null): string
+    {
+        $number = trim($number);
+
+        $existing = SupplierInvoice::query()
+            ->withTrashed()
+            ->where('medicine_supplier_id', $supplier->getKey())
+            ->where('invoice_number', $number)
+            ->when($current !== null, fn ($query) => $query->whereKeyNot($current->getKey()))
+            ->first();
+
+        if ($existing) {
+            throw ValidationException::withMessages([
+                'invoice_number' => $existing->trashed()
+                    ? "Une facture archivée de {$supplier->name} porte déjà le numéro {$number} : restaurez-la depuis la Corbeille."
+                    : "Une facture de {$supplier->name} porte déjà le numéro {$number}.",
+            ]);
+        }
+
+        return $number;
+    }
+
     /**
      * @param  array<string, mixed>  $data
      * @return array{0: ?PurchaseOrder, 1: ?GoodsReceipt}

@@ -52,9 +52,10 @@ class RecordSupplierInvoiceAction
             return DB::transaction(function () use ($supplier, $data, $actor, $attachmentPath): SupplierInvoice {
                 [$purchaseOrder, $goodsReceipt] = $this->resolveLinks($supplier, $data);
                 [$lines, $total] = $this->resolveContent($data);
+                $invoiceNumber = $this->guardInvoiceNumber($supplier, $data['invoice_number']);
 
                 $invoice = SupplierInvoice::query()->create([
-                    'invoice_number' => trim($data['invoice_number']),
+                    'invoice_number' => $invoiceNumber,
                     'medicine_supplier_id' => $supplier->getKey(),
                     'purchase_order_id' => $purchaseOrder?->getKey(),
                     'goods_receipt_id' => $goodsReceipt?->getKey(),

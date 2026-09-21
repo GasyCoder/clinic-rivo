@@ -6,6 +6,7 @@ use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Surgery\CreateSurgicalRequestAction;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\SurgicalRequestOrigin;
 use App\Models\CatalogItem;
 use App\Models\EpisodeOrientation;
 use App\Models\SurgicalRequest;
@@ -53,7 +54,7 @@ class RequestCesareanFromMaternityAction
                 'procedure_name' => $type === 'TWIN' ? 'Opération césarienne gémellaire' : 'Opération césarienne simple',
                 'procedure_details' => trim($indication),
                 'notes' => "Demande créée depuis Maternité ({$maternityReference->code}).",
-            ]);
+            ], SurgicalRequestOrigin::Maternity);
         });
     }
 }

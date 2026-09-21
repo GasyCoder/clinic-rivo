@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\CatalogItem;
 use App\Models\Consultation;
+use App\Models\HospitalStay;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -37,12 +38,12 @@ class ParaclinicalRequestGuard
      * @throws ValidationException
      */
     public static function ensureNoActiveDuplicate(
-        Consultation $consultation,
+        Consultation|HospitalStay $owner,
         Collection $requested,
         string $relation,
         string $errorKey,
     ): void {
-        $alreadyActive = $consultation->{$relation}()
+        $alreadyActive = $owner->{$relation}()
             ->whereNull('cancelled_at')
             ->with('items')
             ->get()
@@ -62,14 +63,19 @@ class ParaclinicalRequestGuard
             return;
         }
 
+        // ADR-162 — la même règle pour une demande du séjour.
+        $scope = $owner instanceof HospitalStay ? 'ce séjour' : 'cette consultation';
+
         throw ValidationException::withMessages([
             $errorKey => $duplicates->count() === 1
                 ? sprintf(
-                    '« %s » a déjà été demandé pour cette consultation et reste en attente. Annulez la demande existante avant d’en créer une autre.',
+                    '« %s » a déjà été demandé pour %s et reste en attente. Annulez la demande existante avant d’en créer une autre.',
                     $duplicates->first(),
+                    $scope,
                 )
                 : sprintf(
-                    'Ces examens ont déjà été demandés pour cette consultation et restent en attente : %s.',
+                    'Ces examens ont déjà été demandés pour %s et restent en attente : %s.',
+                    $scope,
                     $duplicates->join(', ', ' et '),
                 ),
         ]);

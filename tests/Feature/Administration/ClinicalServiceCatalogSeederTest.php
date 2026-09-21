@@ -21,7 +21,8 @@ class ClinicalServiceCatalogSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const EXPECTED_CATALOG_ITEMS = 86;
+    // +11 actes du récapitulatif « Revenus » de la clinique (2026-09-20).
+    private const EXPECTED_CATALOG_ITEMS = 97;
 
     protected function setUp(): void
     {
@@ -89,9 +90,24 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             'reception_selectable' => true,
             'reception_routing_mode' => ReceptionRoutingMode::LaboratoryDirect->value,
         ]);
-        $this->assertSame(33, CatalogItem::query()->where('reception_selectable', true)->count());
+        // ADR-159 — les actes du bloc rejoignent la sélection de la Réception,
+        // sauf « Autres » (sans nom ni prix) et la césarienne (Maternité,
+        // ADR-067). La consultation chirurgicale et la petite chirurgie restent
+        // hors sélection : un module SURGERY ne signifie pas « bloc » (ADR-052).
+        $this->assertSame(70, CatalogItem::query()->where('reception_selectable', true)->count());
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'SURG-HERNIE-INGUINALE',
+            'reception_selectable' => true,
+            'reception_routing_mode' => ReceptionRoutingMode::SurgeryDirect->value,
+        ]);
+        $this->assertDatabaseHas('catalog_items', [
+            'code' => 'SURG-CESARIENNE',
+            'reception_selectable' => false,
+            'reception_routing_mode' => null,
+        ]);
         $this->assertSame(20, CatalogItem::query()->where('module', 'CARE')->count());
-        $this->assertSame(30, CatalogItem::query()->where('module', 'SURGERY')->count());
+        // Récapitulatif « Revenus » de la clinique (2026-09-20) : 30 + 11 actes.
+        $this->assertSame(41, CatalogItem::query()->where('module', 'SURGERY')->count());
         // ADR-136 : 16 actes + Nursie, IEC, Aspirateur bébé + l'injectable contraceptif.
         $this->assertSame(20, CatalogItem::query()->where('module', 'MATERNITY')->count());
         $this->assertSame(1, CatalogItem::query()->where('module', 'FAMILY_PLANNING')->count());
@@ -111,7 +127,7 @@ class ClinicalServiceCatalogSeederTest extends TestCase
             'code' => 'SURG-APPENDICITE',
             'name' => 'Appendicite',
             'module' => 'SURGERY',
-            'reception_selectable' => false,
+            'reception_selectable' => true,
         ]);
         $this->assertDatabaseHas('catalog_items', [
             'code' => 'SURG-OTHER',

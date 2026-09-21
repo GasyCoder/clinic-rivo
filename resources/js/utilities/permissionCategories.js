@@ -48,7 +48,10 @@ export const PERMISSION_CATEGORIES = {
     // cherche aussi par ce que l'écran appelle le bouton (« sortie
     // d'hospitalisation »), pas seulement par le nom du module d'origine.
     medical_discharge: { label: 'Sortie médicale (consultation, hospitalisation, pédiatrie)', domain: 'clinical' },
-    hospitalization: { label: 'Demande d’hospitalisation', domain: 'clinical' },
+    hospitalization: { label: 'Hospitalisation (demande, séjour, export)', domain: 'clinical' },
+    // ADR-162 — la note quotidienne du séjour, écrite par le médecin, lue par les Soins.
+    hospital_notes: { label: 'Notes quotidiennes du séjour', domain: 'clinical' },
+    hospital_beds: { label: 'Services, chambres et lits', domain: 'clinical' },
     transfer: { label: 'Référence et transfert', domain: 'clinical' },
     pediatrics: { label: 'Orientation Pédiatrie', domain: 'clinical' },
     maternity: { label: 'Maternité', domain: 'clinical' },

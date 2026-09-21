@@ -10,6 +10,7 @@ use App\Enums\MedicalRequestStatus;
 use App\Http\Requests\Transfer\ConfirmTransferDepartureRequest;
 use App\Http\Requests\Transfer\UpdateMedicalReferralRequest;
 use App\Models\MedicalReferral;
+use App\Support\ClinicSites;
 use App\Support\MedicalReferralDocument;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -202,10 +203,6 @@ class TransferController extends Controller
     /** Les autres sites de la clinique, proposés comme destinations. */
     private function destinations(): array
     {
-        return collect(config('rivo.clinics', []))
-            ->filter(fn (array $site) => strtoupper((string) ($site['code'] ?? '')) !== strtoupper((string) config('rivo.site.code')))
-            ->map(fn (array $site) => 'Clinique Saint Georges — '.$site['name'])
-            ->values()
-            ->all();
+        return array_column(ClinicSites::others(), 'destination');
     }
 }

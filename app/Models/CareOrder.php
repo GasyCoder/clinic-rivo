@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * RÉALISÉ) and any BillableItem that may follow (FACTURATION).
  */
 #[Fillable([
-    'episode_id', 'consultation_id', 'source_orientation_id', 'care_orientation_id',
+    'episode_id', 'hospital_stay_id', 'consultation_id', 'source_orientation_id', 'care_orientation_id',
     'requested_by', 'instructions', 'requires_return_to_medicine', 'status',
     'ordered_at', 'completed_at',
 ])]
@@ -98,5 +98,11 @@ class CareOrder extends Model
     protected function auditModule(): ?string
     {
         return 'clinical_flow';
+    }
+
+    /** ADR-162 — la demande faite depuis le séjour, sans consultation. */
+    public function hospitalStay(): BelongsTo
+    {
+        return $this->belongsTo(HospitalStay::class);
     }
 }

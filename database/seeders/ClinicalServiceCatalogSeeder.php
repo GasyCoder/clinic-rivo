@@ -648,8 +648,14 @@ class ClinicalServiceCatalogSeeder extends Seeder
                 'description' => $procedure['code'] === 'SURG-OTHER'
                     ? 'Autre intervention chirurgicale, à préciser obligatoirement dans le dossier.'
                     : 'Intervention chirurgicale issue du référentiel validé par la clinique.',
-                'reception_selectable' => false,
-                'routing_mode' => null,
+                // ADR-159 — l'acte du bloc peut être la raison de la venue :
+                // la Réception l'inscrit alors à l'arrivée. Deux exceptions,
+                // qui ne sont pas des oublis : « Autres » n'a ni prix ni nom,
+                // et la césarienne passe par la Maternité (ADR-067/068).
+                'reception_selectable' => ! in_array($procedure['code'], ['SURG-OTHER', 'SURG-CESARIENNE'], true),
+                'routing_mode' => in_array($procedure['code'], ['SURG-OTHER', 'SURG-CESARIENNE'], true)
+                    ? null
+                    : ReceptionRoutingMode::SurgeryDirect,
                 'billable' => $procedure['code'] !== 'SURG-OTHER',
             ];
         }, SurgeryReferenceData::procedures());

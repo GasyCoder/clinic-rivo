@@ -6,6 +6,7 @@ use App\Actions\Billing\CreateInvoiceAction;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
+use App\Enums\BillableItemStatus;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
@@ -102,6 +103,36 @@ class PlannedParaclinicalBillingTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $this->assertSame(2, $this->billedCount($episode->id), 'Un second examen demandé est un second acte.');
+    }
+
+    /**
+     * ADR-163 — retirer la demande ne retire pas ce que la Réception a facturé
+     * (le patient est venu pour cet examen), et la libère : l'examen redemandé
+     * ensuite la reprend au lieu d'être facturé une seconde fois.
+     */
+    public function test_a_withdrawn_request_frees_the_reception_billing_without_cancelling_it(): void
+    {
+        $exam = $this->imagingItem('ECHO-OBS', 'Échographie obstétricale');
+        [$episode, $orientation] = $this->arrivalFor($exam);
+        $receptionBilling = BillableItem::query()->where('episode_id', $episode->id)->sole();
+
+        $this->actingAs($this->doctor)->post("/medicine/orientations/{$orientation->uuid}/imaging-requests", [
+            'items' => [['catalog_item_uuid' => $exam->uuid]],
+        ])->assertSessionHasNoErrors();
+        $request = $orientation->consultation()->firstOrFail()->imagingRequests()->sole();
+
+        $this->actingAs($this->doctor)->post("/medicine/orientations/{$orientation->uuid}/paraclinical-requests/cancel", [
+            'kind' => 'imaging',
+            'uuid' => $request->uuid,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertNotSame(BillableItemStatus::Cancelled, $receptionBilling->fresh()->status);
+
+        $this->actingAs($this->doctor)->post("/medicine/orientations/{$orientation->uuid}/imaging-requests", [
+            'items' => [['catalog_item_uuid' => $exam->uuid]],
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(1, $this->billedCount($episode->id), 'L’examen redemandé reprend la prestation de la Réception.');
     }
 
     /** Un examen que la Réception n'a pas planifié se facture normalement. */

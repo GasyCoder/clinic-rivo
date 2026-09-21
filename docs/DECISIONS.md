@@ -4669,6 +4669,23 @@ médicaments. Une facture **déjà encaissée** est conservée avec ses paiement
 et signalée : supprimer un encaissement réel n'est pas un ménage de données
 (ADR-010, ADR-012). La commande refuse hors `local`/`testing`.
 
+## Amendement du 2026-09-21 — des médicaments d'essai reviennent (ADR-163)
+
+Demande du propriétaire, après un `migrate:fresh` : la recherche de médicament
+d'une ordonnance ne trouvait plus rien à essayer. `DevelopmentMedicineStockSeeder`
+rejoint de nouveau `DevelopmentSeeder` — **divergence signalée** avec la
+décision du 2026-09-17 ci-dessus, que le propriétaire revoit lui-même.
+`DevelopmentProcurementSeeder` reste à la demande.
+
+Le seeder change aussi de nature : il **réinitialisait** stock, prix et fiche à
+chaque passage (et restaurait un médicament archivé), ce qui, rejoué dans
+`migrate:fresh --seed` puis `db:seed`, aurait écrasé des délivrances réelles.
+Il ne crée plus que ce qui manque : un médicament déjà présent — modifié,
+archivé, entamé — n'est jamais retouché. Vingt produits s'ajoutent aux
+dix-huit d'origine pour essayer l'hospitalisation, la Maternité et les Soins
+(injectables, solutés, contraception, petit matériel), tous fictifs.
+`rivo:pharmacy-reset` reste le moyen de repartir de zéro.
+
 ## Garde-fou production
 
 Tous ces seeders refusent de s'exécuter hors `local`/`testing`
@@ -8495,7 +8512,8 @@ sont dépliées ; les demandes terminées ou retirées se replient sous
 
 **Status:** ACCEPTED (2026-09-18 — exigence explicite du propriétaire, qui
 fournit la « Fiche de régime » papier de la clinique et tranche les règles
-ci-dessous)
+ci-dessous) ; la chambre / le lit en texte libre est **remplacé par le
+référentiel des lits de l'ADR-164** dès qu'un site a configuré ses lits
 
 **Complète l'ADR-084**, qui s'arrêtait à la demande d'hospitalisation
 (`REQUESTED` / `CANCELLED`) faute de règles d'admission et de sortie, et
@@ -11600,6 +11618,8 @@ nouvelle ligne ; une annulation tracée comme celle de l'ADR-035 reste à décid
 **Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « pendant
 l'hospitalisation un patient peut voir une consultation encore, des examens, ordonnance…
 comment peut tout faire ça dans la page d'hospitalisation ? », arbitrage sur la forme)
+; **la visite de service est retirée par l'ADR-162** (2026-09-21) : tout se fait
+sur la page du séjour, les visites déjà ouvertes restent lisibles.
 
 **Construit** ce que l'ADR-113 avait explicitement laissé hors périmètre (« visites de
 service, prescriptions propres au séjour ») et **complète l'ADR-147**.
@@ -12097,6 +12117,8 @@ ordinaire, avec ses obstacles de clôture inchangés.
 **Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « nous
 devons avoir une seule sortie […] on n'a pas besoin d'onglet sortie dans la
 page du module Hospitalisation »)
+; **renversée par l'ADR-162** (2026-09-21) sur le lieu de la sortie : pour un
+patient hospitalisé, elle se prononce sur la page du séjour, et là seulement.
 
 **Renverse l'ADR-149** (« Sortie médicale » retirée de la conduite à tenir d'un
 patient hospitalisé) et **l'ADR-152** (le serveur refusait une sortie prononcée
@@ -12215,3 +12237,1157 @@ Une visite laissée ouverte par une sortie prononcée sous l'ancien mécanisme s
 conclut désormais : `attachPronouncedDischarge` lit la sortie sur le **passage**
 et non sur la seule consultation (ADR-155, conservée sur ce point). Aucune
 donnée n'est réécrite.
+
+---
+
+# ADR-157 — La file Soins appartient à qui fait les soins
+
+**Status:** ACCEPTED (2026-09-20 — signalement du propriétaire : « un compte de
+rôle Médecine peut voir Soins `/care` sans les trois profils ! pourquoi ? »)
+
+**Complète l'ADR-093** (le médecin corrige les constantes et la fiche Soins) et
+l'ADR-134 (les trois espaces sous une entrée). Aucune permission nouvelle,
+aucune migration.
+
+## Le constat
+
+`care.update` servait **deux choses différentes** :
+
+```text
+corriger une fiche depuis la consultation   accordé à MEDICINE (ADR-093)
+ouvrir la file des infirmières              la route, le menu et les onglets
+```
+
+Donner au médecin le droit de rectifier une température lui ouvrait donc
+l'espace de travail d'un autre métier. C'est le défaut que l'ADR-100 avait déjà
+corrigé pour « Demandes d'examens » : un écran qui n'a pas de droit à lui finit
+adossé au droit d'un voisin.
+
+## La règle
+
+L'espace de travail est celui de **ceux qui font les soins** :
+
+```text
+care.create   ouvrir la file /care, l'entrée de menu, l'onglet « Infirmière »
+care.update   corriger une fiche existante — depuis la consultation comprise
+care.view     la projection en lecture des dossiers Médecine et Chirurgie
+```
+
+`care.create` est le droit d'**ouvrir une fiche**, donc de soigner. La frontière
+n'est pas inventée pour l'occasion : l'ADR-093 l'avait déjà posée en refusant
+explicitement `care.create` à Médecine — « une fiche que personne n'a remplie ne
+se signe pas depuis une consultation ». Elle devient seulement la règle
+d'entrée de l'espace.
+
+Rien n'est retiré au médecin : il continue de lire la fiche dans son dossier et
+de la corriger par le lien de sa consultation (ADR-092, ADR-093). Il ne prend
+simplement plus de patient dans une file qui n'est pas la sienne.
+
+Un site qui veut l'inverse coche `care.create` au socle du rôle depuis le
+portail (ADR-064) ou en exception individuelle (ADR-022) : la règle reste
+dynamique, aucun rôle n'est codé en dur (ADR-152).
+
+---
+
+# ADR-158 — Les trois profils Soins sont montrés, verrouillés plutôt que masqués
+
+**Status:** ACCEPTED (2026-09-20 — signalement du propriétaire : « si on donne
+les droits il peut voir Soins avec trois profils […] mais là Médecine voit une
+ancienne mise à jour »)
+
+**Amende l'ADR-134** sur un point : « une seule page accessible → aucune
+barre ». Aucune permission nouvelle, aucune route, aucune migration.
+
+## Le constat
+
+Un compte sans `maternity.view` ni `anesthesia.view` ouvrait `/care` et n'y
+voyait **aucune** barre d'onglets : l'ADR-134 la masquait faute de second
+espace accessible. L'écran se lisait alors comme une version antérieure du
+module — « où sont les trois profils ? » —, alors que rien n'était cassé.
+
+Masquer une capacité ne dit pas qu'elle n'existe pas : cela laisse croire
+qu'elle n'existe plus.
+
+## La règle
+
+Les trois onglets — Infirmière, Maternité, Anesthésie — sont **toujours
+affichés**. Celui dont le compte n'a pas le droit est montré verrouillé
+(cadenas, `aria-disabled`), avec la permission qui l'ouvre :
+
+> Espace non accessible — demandez le droit « maternity.view » à un
+> administrateur.
+
+C'est le parti pris que ce dossier tient déjà ailleurs : les types de sortie
+verrouillés mais visibles de l'ADR-090, et le refus qui nomme le droit manquant
+de l'ADR-154. Un espace masqué est indistinguable d'un espace supprimé ; un
+espace verrouillé dit à qui s'adresser.
+
+Rien n'est ouvert pour autant : le lien n'existe pas, et chaque route revérifie
+sa permission côté serveur (ADR-134, ADR-152).
+
+## Ce que cela ne change pas
+
+Le **menu latéral** continue de ne proposer que les espaces réellement
+accessibles (ADR-115) : une entrée de menu est une promesse de navigation, un
+onglet est la carte du module où l'on se trouve déjà. Un compte Médecine sans
+`care.create` ne voit donc toujours pas l'entrée « Soins » (ADR-157) — c'est
+une fois dans le module que ses trois profils se montrent.
+
+---
+
+# ADR-159 — La demande du bloc naît à la Réception ou en consultation, jamais au bloc
+
+**Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « l'action
+chirurgien dépend : 1 - choix fait par Réception selon besoin du patient, 2 - choix
+par médecin pendant consultation et conduite à tenir »)
+
+**Complète l'ADR-068** (une prestation sélectionnée à la Réception crée son
+orientation *et* sa demande opérationnelle) et **l'ADR-084** (la conduite à tenir
+du médecin). **Amende l'ADR-048**, qui laissait le bloc ouvrir ses propres
+dossiers.
+
+## Ce que le CDC dit, et ce qu'il ne dit pas
+
+Le CDC officiel (§16) décrit le déroulé d'une intervention — demande,
+programmation, préopératoire, bloc, compte rendu, suivi — et pose que « la
+Chirurgie génère des prestations facturables, sans encaissement ». **Il ne dit
+nulle part d'où vient la demande.** Les deux chemins ci-dessous sont donc la
+décision du propriétaire, signalée comme telle et non déduite du CDC.
+
+## Le troisième chemin, qui n'aurait pas dû exister
+
+`/surgery/create` permettait au bloc de choisir un patient dans la liste des
+passages ouverts et de lui ouvrir un dossier. C'était un troisième point
+d'entrée, parallèle aux deux vrais :
+
+```text
+Réception   le patient vient pour cet acte : c'est la raison de sa venue
+Médecine    le médecin le décide en consultation (conduite à tenir, ADR-084)
+bloc        ← retiré : personne n'y décide qu'un patient doit être opéré
+```
+
+Le bloc **exécute** une décision prise ailleurs. Lui laisser créer la demande
+produisait un dossier sans décision clinique derrière lui, invisible du parcours
+du passage et sans orientation : le patient était au bloc sans que rien, dans son
+dossier, ne dise pourquoi.
+
+Retiré : `SurgeryController::create()` et `store()`, `POST /surgery`,
+`StoreSurgicalRequestRequest`, `Surgery/Create.vue` et le bouton « Nouvelle
+demande ». `GET /surgery/create` **reste une URL valide** et redirige vers la
+file — un signet mène là où le travail se fait désormais, jamais à une page
+disparue (même principe qu'ADR-081, ADR-084 et ADR-104).
+
+## La Réception inscrit un acte du bloc comme elle inscrit une analyse
+
+`ReceptionRoutingMode::SurgeryDirect` rejoint `LaboratoryDirect` et
+`MaternityDirect`. Le mécanisme est celui, déjà éprouvé, de l'ADR-068 :
+l'orientation `RECEPTION → SURGERY` situe le patient dans le parcours, et
+`CreateReceptionSurgicalRequestAction` crée la demande qui dit **ce qu'on vient
+opérer** — une orientation seule ne le dirait pas.
+
+```text
+statut       PENDING : le bloc reçoit un dossier à programmer
+chirurgien   jamais choisi à l'accueil
+date         jamais posée à l'accueil
+libellé      instantané pris à l'arrivée (ADR-024) — une correction ultérieure
+             du catalogue ne réécrit pas la demande
+idempotence  (épisode, acte, demande non annulée) : une confirmation rejouée
+             n'ouvre jamais deux fois le même dossier au bloc
+```
+
+**Trente-sept actes** du référentiel deviennent `reception_selectable` avec ce
+parcours. Trois en sont écartés : **« Autres »**, qui n'a ni nom ni prix et ne
+peut donc pas être choisi par un accueil, et **la césarienne**, qui reste soumise
+au workflow Maternité → Chirurgie (ADR-067). La migration
+`2026_10_13_090000` liste les codes **explicitement**, depuis le référentiel des
+interventions, plutôt que de prendre tout le module : `CONSULT-CHIR` et
+`PETITE-CHIR` appartiennent au même module sans être des actes opératoires, et
+une première version qui filtrait par module les avait envoyés au bloc — la faute
+exacte que l'ADR-052 interdit. Un site déjà en production reçoit la sélection par
+cette migration, `ClinicalServiceCatalogSeeder` ne devant plus être rejoué
+(ADR-064).
+
+**Un acte sans tarif reste sélectionnable**, et c'est voulu : l'ADR-031 précise
+l'exigence « avec un tarif actif » de l'ADR-028 — « l'absence de prix peut
+empêcher la facture, jamais le parcours clinique ». Les actes du bloc arrivent
+sans prix (ADR-024 : le tarif appartient au Super Admin) ; la demande et
+l'orientation partent, la facturation attend. Configurer ces prix reste à faire,
+et rien n'en invente.
+
+## Le module ne décide pas le parcours
+
+Une garde « un acte du module SURGERY proposé à la Réception doit être routé vers
+le bloc » a été écrite, puis **retirée avant d'être retenue** : elle contredit
+l'ADR-052 — « `CatalogModule::SURGERY` ne signifie jamais `BLOCK_CREDIT` : une
+consultation de chirurgien ou un contrôle postopératoire peut être une prestation
+ordinaire ». `CONSULT-CHIR` et `PETITE-CHIR` restent donc hors sélection, et rien
+n'interdit de les router un jour vers la Médecine.
+
+La garde inverse, elle, demeure et suffit : `SURGERY_DIRECT` est réservé au module
+`SURGERY` (`directDestination()`), comme `LABORATORY_DIRECT` au Laboratoire.
+
+## D'où vient chaque demande, écrit sur la demande
+
+`surgical_requests.origin` (`SurgicalRequestOrigin`) porte le chemin réel :
+
+```text
+RECEPTION   acte annoncé à l'arrivée
+MEDICINE    conduite à tenir d'une consultation (ADR-084)
+MATERNITY   césarienne décidée en Maternité (ADR-067)
+```
+
+Le propriétaire en a nommé deux ; la troisième existe déjà et n'est pas retirée —
+une césarienne ne passe pas par une consultation, et supprimer ce chemin
+casserait l'ADR-067.
+
+**Nullable, et jamais rétro-rempli.** Une demande enregistrée avant cette colonne
+ne portait aucune origine ; la déduire d'une date ou d'un auteur inventerait un
+fait (ADR-083). L'écran affiche « Non renseignée » plutôt qu'un tiret muet qui se
+lirait « aucune origine ». Le libellé et sa phrase d'explication sont servis par
+le serveur : l'écran ne recopie pas un vocabulaire d'enum.
+
+L'état vide de la file nomme les deux chemins au lieu d'un « aucune demande » qui
+laisserait chercher le bouton retiré.
+
+## Ce qui ne change pas
+
+La programmation, le bilan préopératoire, l'équipe, l'intervention, l'anesthésie,
+le compte rendu, les complications et la sortie du bloc sont inchangés (ADR-048).
+Corriger l'intervention prévue reste possible au bloc (`PUT /surgery/{demande}`,
+`surgery.update`) : le bloc ne crée pas une demande, il corrige celle qu'il a
+reçue — les trois garanties du catalogue (instantané du libellé, « Autres » à
+préciser, module respecté) valent désormais sur ce chemin, et y sont testées. La
+Chirurgie n'encaisse toujours rien (ADR-012, ADR-016).
+
+## Signalé, non tranché
+
+`surgery.create` ne commande plus rien : aucune route ne la vérifie, et le
+catalogue des permissions l'affichera « pas encore vérifiée » (ADR-101). Elle
+reste au socle `SURGERY` — la retirer d'office changerait un socle sans que
+personne ne l'ait demandé. Le Super Administrateur la décoche depuis le portail
+s'il le décide (ADR-064) ; elle n'est pas supprimée du catalogue, ce que
+l'ADR-101 refuserait tant qu'un rôle l'accorde.
+
+Le tableau `Prévu / Réel / Écart / Dette NP` du récapitulatif de la clinique
+reste non alimenté : il exige des prestations facturables Chirurgie, que cette
+décision ne crée pas (ADR-048 — aucun `Ar0` fabriqué).
+
+Aucune permission nouvelle.
+
+---
+
+# ADR-160 — Le patient hospitalisé descend au bloc, et garde son lit
+
+**Status:** ACCEPTED (2026-09-21 — exigence explicite du propriétaire : « un patient à
+l'hospitalisation peut être transféré au bloc […] basculer vers bloc, le patient direct
+là-bas, mais toutes ses constantes cliniques et son passage suivent ») ; le transfert
+s'annule tant que le bloc ne l'a pas programmé, et le piège de la consultation d'origine
+est fermé par l'**ADR-163**.
+
+**Complète l'ADR-113** (le séjour), **l'ADR-148** (la visite de service) et **l'ADR-159**
+(d'où vient une demande du bloc). Le CDC ne dit rien du passage d'un patient hospitalisé
+au bloc — il connaît le statut « Hospitalisé » (§32) et les droits de la Chirurgie (§16),
+jamais leur rencontre : la règle ci-dessous est la décision du propriétaire.
+
+## Ce que la vérification a trouvé
+
+Le chemin existait déjà, par une visite de service : conduite à tenir « Chirurgie ».
+Vérifié en test, il fonctionne **si** la consultation qui a demandé l'hospitalisation est
+close. Mais si elle est encore ouverte — cas courant —, la visite réutilise cette
+consultation (`active_key`, ADR-148), et une consultation ne porte **qu'une** conduite à
+tenir (ADR-084) : choisir « Chirurgie » y remplace « Hospitalisation », ce qui annule la
+demande **et le séjour** tant que la fiche de régime est vide (ADR-113). Constaté :
+
+```text
+séjour après   CANCELLED     le patient perdait son lit
+passage        IN_CARE       plus hospitalisé
+```
+
+Ce n'est pas un défaut de ces règles — chacune est juste pour ce qu'elle décrit —, c'est
+le mauvais outil : descendre au bloc n'est pas changer d'avis sur l'hospitalisation.
+
+## La règle
+
+La décision se prend **sur le séjour**, et ne le touche pas :
+
+```text
+Hospitalisation › « Transférer au bloc »   POST /hospitalisation/{séjour}/bloc
+séjour           reste ACTIVE — le lit attend le patient
+passage          reste HOSPITALIZED
+orientation      HOSPITALIZATION → SURGERY, à côté de celle du séjour
+demande          SurgicalRequest PENDING, origine HOSPITALIZATION (4e origine de l'ADR-159)
+```
+
+`RequestSurgeryFromStayAction` n'appelle aucune consultation. L'intervention est
+**choisie**, jamais devinée — aucune demande « sans intervention » n'arrive au bloc
+(ADR-114). Ce que le séjour sait déjà part sans ressaisie (§17, ADR-084) : service,
+chambre / lit, diagnostic d'entrée ; une valeur absente reste absente. Une même
+intervention encore ouverte au bloc n'est pas redoublée : un second clic retrouve la
+demande. Un séjour terminé ou un passage clos n'envoie plus personne.
+
+Le transfert est un acte signé (ADR-106) : la fenêtre nomme l'intervention et le
+responsable, et ne se ferme pas au clic extérieur.
+
+## Les constantes et le passage suivent — par le dossier, pas par une copie
+
+Rien n'est recopié vers le bloc. Chirurgie et Anesthésie lisent déjà la fiche Soins du
+passage — constantes, allergies, actes — en lecture seule (`CareRecordReadModel`,
+ADR-048). Ce qui leur manquait, c'était de **savoir qu'un lit attend** :
+`SurgicalStayContext::for()` sert le séjour actif (service, chambre, date d'admission) aux
+deux espaces, qui travaillent sur le même dossier et le lisent donc au même endroit. La
+fiche du bloc porte un bandeau « Patient hospitalisé — il remonte à son lit après le
+bloc », la file une pastille « Hospitalisé · chambre ». Le lien vers le séjour n'est servi
+qu'avec `hospitalization.view` (ADR-146). Le séjour terminé, le bandeau disparaît.
+
+En retour, la page du séjour porte une carte **« Bloc opératoire »** : chaque demande du
+passage, son origine et où elle en est (À programmer, Programmée, Au bloc, Opéré…), avec
+le lien vers le dossier du bloc seulement pour qui peut l'ouvrir (`surgery.view`).
+
+## Permissions
+
+Aucune nouvelle. Descendre un patient au bloc est une décision médicale : c'est
+`surgery.request`, la même autorité qu'en consultation, jamais un droit propre à
+l'hospitalisation. Aucun rôle n'est codé en dur (ADR-152).
+
+## Signalé, non tranché
+
+- **« Les paramètres selon les modèles (captures) »** : aucune capture n'accompagnait la
+  demande. Les formulaires du bloc et de l'anesthésie restent ceux de l'ADR-048 (cinq et
+  trois étapes, référentiels des interventions et de l'anesthésie). Aucun champ n'est
+  inventé ; les modèles papier de la clinique sont attendus pour aller plus loin.
+- Le **retour au lit** n'est pas un geste : le séjour n'a jamais cessé, il n'y a rien à
+  rouvrir. La sortie du bloc (ADR-048) ne termine pas le séjour ; seule la sortie médicale
+  le fait (ADR-156).
+- Le piège de la consultation d'origine restée ouverte n'est **pas** modifié : changer sa
+  conduite à tenir reste « changer d'avis » (ADR-084, ADR-113). Le transfert depuis le
+  séjour le contourne ; à décider s'il faut en plus refuser, depuis une consultation, de
+  remplacer une hospitalisation déjà admise. **Traité par l'ADR-163** : dès que le patient
+  a réellement séjourné, le séjour ne s'annule plus par ce chemin.
+
+---
+
+# ADR-161 — Séjour hospitalier, lot 1 : départ en transfert, emplacements, surveillance
+
+**Status:** ACCEPTED (2026-09-21 — spécification du workflow d'hospitalisation, arbitrages
+explicites du propriétaire : lot 1 = les défauts ; le séjour se termine **au départ** en
+cas de transfert ; la clinique dispose d'une **réanimation / surveillance continue**
+internes ; la note quotidienne courte est retenue pour le lot 2)
+
+**Complète l'ADR-113**, **l'ADR-114** et **l'ADR-156**. Le CDC ne décrit pas le parcours
+d'hospitalisation (il connaît seulement le statut « Hospitalisé », §32) : les règles
+ci-dessous viennent de la spécification validée par le propriétaire.
+
+## Quatre défauts vérifiés, corrigés
+
+```text
+1  « Transfert effectué » laissait le séjour ACTIVE      le patient restait « au lit »,
+                                                         le passage n'atteignait jamais
+                                                         « Sorties & règlements »
+2  deux circuits de transfert, deux résultats           la sortie « Transfert » terminait le
+                                                         séjour à la décision ; le module
+                                                         Transferts ne le terminait jamais
+3  service et lit écrasés                               aucun historique des emplacements
+4  une seule fiche de constantes par passage            aucune surveillance répétée au lit
+```
+
+## Transfert : le séjour se termine au départ
+
+Le patient reste au lit, suivi, jusqu'au départ de l'ambulance. `ConfirmTransferDepartureAction`
+termine donc le séjour actif : statut `DISCHARGED`, `end_reason = TRANSFER`, date du départ,
+auteur du constat, lien vers le transfert (`medical_referral_id`), orientation du séjour
+complétée, emplacement fermé. Le passage peut alors rejoindre « Sorties & règlements »
+selon la règle de l'ADR-054.
+
+Un seul circuit subsiste pour un patient hospitalisé : la conduite **« Référence /
+transfert »**. La sortie médicale de type « Transfert » ne lui est plus proposée, et
+`RecordMedicalDischargeAction` la refuse tant qu'un séjour est actif — elle terminait le
+séjour alors que le patient attendait encore. **Amende l'ADR-156** sur ce seul type ; les
+autres sorties (domicile, contre avis, refus, décès) terminent toujours le séjour avec
+elles. Hors séjour, la sortie « Transfert » est inchangée (ADR-114).
+
+## Le séjour dit comment il s'est terminé
+
+`hospital_stays.end_reason` (`HospitalStayEndReason`) : domicile, transfert, à la demande
+du patient, refus de la décision médicale, décès. Il est lu sur la sortie médicale quand
+il y en a une, posé par le départ constaté sinon. La migration le reprend pour les séjours
+déjà terminés, depuis leur sortie réelle ; rien n'est deviné.
+
+## Emplacements : un historique, plus rien ne s'écrase
+
+`hospital_stay_movements` : une ligne par emplacement (service, chambre/lit, niveau de
+soins, début, fin, motif, auteur). L'admission ouvre le premier ; « Changer de service /
+lit » ferme l'emplacement en cours et en ouvre un autre ; toute fin de séjour (sortie,
+départ, annulation) ferme le dernier. Jamais supprimé. Le service et le lit du séjour
+restent tenus à jour pour les écrans qui les lisent déjà.
+
+Deux gestes, volontairement distincts :
+
+```text
+Corriger (crayon)          compléter la chambre à l'admission, rectifier une faute :
+                           l'emplacement en cours est corrigé, l'ancienne valeur à l'audit
+Changer de service / lit   un vrai déplacement : nouvel emplacement, motif, historique
+```
+
+Une mutation qui ne change rien est refusée. `hospitalization.update`, droit existant.
+
+**Niveau de soins** (`HospitalCareLevel`) : hospitalisation standard, surveillance
+continue, réanimation. La clinique dispose des deux derniers en interne (confirmé) : une
+**aggravation se traite par une mutation**, le séjour continue ; le transfert externe
+reste possible quand le niveau requis dépasse la clinique. Les noms de services restent du
+texte libre ; aucun référentiel de lits n'est créé (à décider, lot ultérieur). La liste des
+hospitalisés signale un patient en surveillance continue ou en réanimation.
+
+## Surveillance répétée
+
+`vital_sign_readings` : un relevé daté et signé à chaque passage au lit (TA, FC, SpO₂,
+température, observation). `care_records` reste le relevé de triage du passage. Les bornes
+sont celles de la fiche Soins (`VitalSignRules`, ADR-093) et les repères ceux de l'ADR-125,
+calculés par le serveur selon l'âge au passage : aucun seuil n'est recopié à l'écran. Un
+relevé s'ajoute seulement pendant un séjour en cours (`vitals.create`) et se corrige tant
+que le passage est ouvert (`vitals.update`) — l'auteur d'origine est gardé, l'auteur de la
+correction ajouté, l'ancienne valeur à l'audit. Jamais supprimé.
+
+Les paramètres restent ceux de la fiche Soins. Fréquence respiratoire, diurèse, douleur et
+glycémie ne sont **pas** ajoutés : ils attendent la feuille de surveillance de la clinique.
+
+### Amendement du 2026-09-21 — l'onglet dit qui relève, et ce qui manque
+
+Signalement du propriétaire : « je ne comprends pas l'étape Surveillance ? est-ce qu'elle
+est réalisée par un autre processus ou remplie manuellement ? comment remplir ? »
+
+Rien n'était cassé. Un relevé est **saisi à la main**, au lit du patient : aucun autre
+circuit ne l'alimente, et la fiche Soins d'arrivée n'y est jamais recopiée — c'est le
+relevé de triage du passage, pas un relevé du séjour. Le compte connecté était un médecin
+(`MEDICINE`), dont le socle porte `vitals.view` et `vitals.update` (ADR-093) mais **pas**
+`vitals.create`, réservé au socle `NURSE`. L'onglet s'ouvrait donc en lecture, sans
+formulaire.
+
+Le défaut était que l'écran **n'en disait rien** : un cadre vide et une phrase qui ne
+parle que du passé (« Aucun relevé pendant ce séjour ») se lisent « cette étape ne sert à
+rien ici ». C'est exactement ce que ce dossier refuse ailleurs — l'onglet verrouillé qui
+nomme son droit (ADR-158), le refus qui dit où l'accorder (ADR-154), le chiffre absent qui
+n'est jamais un zéro (ADR-102).
+
+```text
+peut relever          le formulaire, comme avant
+ne peut pas           « Les relevés sont pris au lit du patient par l'équipe soignante.
+                        Ajouter un relevé demande le droit « vitals.create », qui
+                        s'accorde dans Rôles & permissions. »
+séjour terminé        « La surveillance est close. Les relevés déjà pris restent lisibles. »
+```
+
+La phrase est composée par le serveur (`HospitalizationController::vitalsRecordBlock()`),
+où vit le nom de la permission ; `null` quand le relevé est possible. Aucune autorisation
+n'est assouplie : qui ne pouvait pas relever ne le peut toujours pas.
+
+**Signalé, non tranché.** Faut-il que `MEDICINE` relève lui-même pendant un séjour ? Un
+médecin qui examine un patient au lit prend sa tension, et le socle actuel le lui refuse.
+Ce n'est pas un défaut de code : `vitals.create` se coche au socle du rôle depuis le
+portail (ADR-064), sans déploiement. La décision appartient au propriétaire ; rien n'est
+changé d'office.
+
+## Permissions
+
+Aucune nouvelle : `hospitalization.update`, `vitals.view`, `vitals.create`,
+`vitals.update`, `transfers.manage` gouvernent déjà ces gestes. Aucun rôle codé en dur.
+
+## Retenu pour le lot 2, non construit ici
+
+Note d'évolution quotidienne courte (S/O/A/P) portée par le séjour, la visite complète
+restant réservée aux prescriptions et demandes (choix du propriétaire) ; plan de prise en
+charge ; médecin référent du séjour. Restent à décider : traitement hospitalier et sa
+délivrance sans attendre le paiement (amenderait l'ADR-049), référentiel des lits,
+évasion pendant le séjour, compte rendu d'hospitalisation, facturation du séjour.
+
+---
+
+# ADR-162 — Le séjour est le poste de travail du patient hospitalisé
+
+**Status:** ACCEPTED (2026-09-21 — proposition du propriétaire : « si on met tout dans la
+page du séjour […] ne pas aller au parcours du médecin car ce parcours déjà clôturé » ;
+trois arbitrages explicites : tout sur la page du séjour, la sortie uniquement là,
+délivrance au service sans attendre le paiement) ; ses trois points « non tranchés » sont
+traités par l'**ADR-163**.
+
+**Retire la visite de service de l'ADR-148**, **renverse l'ADR-156** sur le lieu de la
+sortie d'un patient hospitalisé, **amende l'ADR-049** pour la délivrance au service, et
+**réalise la note quotidienne** retenue pour le lot 2 de l'ADR-161. Le CDC ne décrit pas le
+séjour (§32 connaît seulement le statut « Hospitalisé ») : ces règles sont celles du
+propriétaire.
+
+## Le constat
+
+Un patient au lit est examiné chaque jour, prescrit, envoyé au laboratoire, puis sort. La
+visite de service (ADR-148) faisait tout cela en rouvrant l'assistant Médecine — six étapes,
+une conduite à tenir à transmettre, une clôture — pour trois lignes du jour. Pire, la
+consultation qui a demandé l'hospitalisation est le plus souvent close (ADR-076) : le
+médecin passait donc d'un écran à l'autre, et l'ADR-156 plaçait la sortie dans une
+consultation alors que tout le reste du séjour vivait ailleurs.
+
+## La règle : une page, des onglets, les mêmes actions
+
+`/hospitalisation/{séjour}` porte un onglet par geste :
+
+```text
+Vue d'ensemble   dossier, constantes du passage, dernier relevé, séjour, demande, diagnostics
+Notes du jour    S/O/A/P, courte, datée et signée
+Ordonnances      prescription, impression, retrait avec motif
+Examens          analyses et imagerie, compte rendu d'imagerie
+Soins            actes demandés à l'équipe infirmière, retrait d'un acte non réalisé
+Surveillance     relevés répétés (ADR-161)
+Régime           fiche de régime (ADR-113)
+Bloc             passages au bloc (ADR-160), anciennes visites en lecture
+Sortie           sortie médicale, demande de transfert
+```
+
+**Rien n'est recopié.** Chaque geste appelle l'action qui porte déjà sa règle, par une
+variante « depuis le séjour » (`executeForStay`) qui partage la même écriture privée :
+réservation FEFO et ligne manuelle (ADR-036/037), facturation à la demande et rattachement
+au besoin de l'arrivée (ADR-105/109), refus du doublon, orientation vers le service
+(source `HOSPITALIZATION`), retrait d'un acte de soins (ADR-112). Les demandes portent
+`hospital_stay_id` et un `consultation_id` désormais **nullable** ; les ordonnances portent
+en plus `episode_id`, rempli depuis la consultation pour les anciennes. Les
+FormRequests héritent de celles de la consultation : mêmes bornes, mêmes messages.
+`StayOrderContext::lock()` exige, sous verrou, un séjour en cours, un passage ouvert et
+l'orientation du séjour prise en charge.
+
+Un soin demandé depuis le séjour ne décide aucun retour en Médecine : le patient reste au
+lit. Le parcours le dit (« Le patient reste hospitalisé après les soins »), et la fin des
+Soins ne fait jamais passer en attente de règlement un passage dont le séjour est actif.
+
+## La note du jour
+
+`hospital_stay_notes` : subjectif, objectif, analyse, plan — au moins une rubrique, datée
+et signée par le serveur. **Append-only** : le modèle refuse la mise à jour et la
+suppression, une erreur se corrige par une nouvelle note (ADR-010).
+
+```text
+hospital_notes.view     lire les notes          MEDICINE, NURSE
+hospital_notes.create   écrire la note du jour  MEDICINE
+```
+
+Enregistrées par migration (ADR-064). La Réception, qui lit le séjour (ADR-147), ne lit
+pas les notes : la section se nomme « non visible avec vos droits », jamais servie vide.
+
+## La sortie : sur la page du séjour, et là seulement
+
+`DischargeHospitalStayAction` (`POST /hospitalisation/{séjour}/sortie`,
+`medical_discharge.create`) écrit la même `MedicalDischarge` que la consultation — mêmes
+types, mêmes règles de décès (`MedicalDischargeAttributes`, ADR-107) — avec un
+`consultation_id` nul : elle n'appartient à aucune rencontre. Le diagnostic final est
+**toujours exigé** (un séjour n'est jamais un passage paraclinique seul, ADR-094) ; s'il
+est nouveau, il est aussi consigné sur le séjour (ADR-147). Dans la même transaction : le
+séjour se termine (motif de fin, emplacement fermé, orientation complétée), le statut
+médical est porté, et le passage passe en attente de règlement si plus aucun service n'a
+le patient (ADR-054).
+
+`RecordMedicalDischargeAction` **refuse** désormais une sortie prononcée depuis une
+consultation tant qu'un séjour est actif, et nomme l'endroit. C'est l'inverse de
+l'ADR-156, et c'est voulu : un seul acte, un seul endroit — celui où tout le séjour vit.
+« Sortie médicale » et « Hospitalisation » ne sont plus proposées à la conduite à tenir
+d'un patient hospitalisé. Le transfert reste une **demande** (ADR-161) : il part de
+l'onglet Sortie, et le séjour se termine au départ constaté dans Transferts.
+
+## Délivrance au service : l'ADR-049 amendé pour ce seul cas
+
+Une ordonnance du séjour crée une dispensation `hospital_stay_id` renseigné. Préparée,
+elle passe **Prête** au lieu d'attendre le règlement, et se délivre dès qu'une facture non
+annulée existe. Le patient est au lit : le médicament ne peut pas attendre la Caisse.
+
+```text
+dispensation ordinaire (ADR-049)   facture réglée ou couverte, PUIS délivrance
+dispensation au service (ADR-162)  facture préparée, délivrance, règlement ensuite
+```
+
+L'argent n'est pas perdu : la facture existe et rejoint « Sorties & règlements », où
+aucune sortie administrative n'est possible tant qu'il reste dû ou non facturé (ADR-090).
+Annuler un paiement ne remet pas une dispensation au service « en attente de
+règlement ». La Pharmacie n'encaisse toujours rien (ADR-013).
+
+## Ce que deviennent les visites
+
+`StartHospitalVisitAction` et `POST /hospitalisation/{séjour}/visites` sont retirés. Les
+visites déjà ouvertes restent listées, en lecture, avec leur lien vers la consultation ;
+une visite encore ouverte se clôture normalement dans l'assistant.
+
+## Amendement du 2026-09-21 — ajouter un diagnostic depuis la sortie, et les repères à côté
+
+Demande du propriétaire : « nous devons toujours avoir la possibilité d'ajouter un
+diagnostic final lors de la sortie d'hospitalisation — on garde ce qui est déjà fait,
+mais on peut en rajouter un autre en cas de besoin », et une étape mieux lisible, avec
+les autres informations dans une colonne latérale.
+
+**Ajouter sans quitter l'étape.** Les diagnostics déjà consignés (passage et séjour,
+ADR-147) restent cochés d'office. Ce qui manque s'ajoute désormais dans la section
+« Conclusion médicale » elle-même — « Ajouter un autre diagnostic » — au lieu de renvoyer
+vers « Vue d'ensemble › Diagnostics ». Le diagnostic est enregistré **sur le séjour**, par
+la même route et le même droit (`diagnoses.create`), et arrive coché : le formulaire
+partagé coche déjà tout diagnostic apparu sur la page. La saisie en cours de la sortie
+n'est pas perdue — une soumission Inertia garde l'état de la page. Le champ d'ajout est
+écrit une seule fois (`StayDiagnosisAdd`), employé par la Vue d'ensemble et par la sortie.
+
+**Défaut corrigé au passage, révélé par cette demande.** Le formulaire compose le
+diagnostic final des diagnostics cochés, **une ligne par diagnostic**.
+`DischargeHospitalStayAction` comparait pourtant la liste entière à chaque diagnostic
+connu — jamais égale dès qu'il y en a deux — et enregistrait donc la liste comme un
+diagnostic de plus (« Hypothermie possible⏎Insuffisance pondérale⏎… »). Chaque ligne est
+désormais lue pour elle-même : une ligne déjà connue n'est jamais recopiée, une ligne
+nouvelle rejoint le séjour seule. La sortie garde la liste telle que le médecin l'a
+signée. Aucune ligne concaténée n'existait en base : rien n'a eu à être réparé.
+
+**Les repères à côté du formulaire.** L'ADR-132 avait sorti le formulaire d'une colonne
+étroite où il s'écrasait ; il garde donc sa largeur, et c'est une colonne de repères
+(`StayExitContext`, 20 rem, à droite à partir de 1280 px, dessous en deçà) qui se lit à
+côté :
+
+```text
+Le séjour           entré le, jour de séjour, service · chambre, niveau de soins,
+                    motif (replié à quatre lignes, « Lire tout le motif »)
+Allergies           celles du dossier permanent, en rouge quand il y en a
+Dernier relevé      TA, FC, SpO₂, T° et leurs repères (ADR-161, ADR-125)
+Avant de conclure   ordonnances actives, examens sans résultat, passages au bloc non
+                    terminés, consultations encore ouvertes — chaque point à relire
+                    mène à l'onglet qui le porte
+```
+
+Rien n'y est ressaisi ni recalculé : tout vient de la page. Une section dont le compte
+n'a pas le droit n'est pas servie — elle se tait plutôt que d'afficher un zéro qui se
+lirait « rien en cours » (ADR-102). Le formulaire, plus étroit à côté de la colonne, ne
+passe ses consignes sur trois colonnes qu'à partir de 1536 px (`narrow`) ; en deçà, deux.
+Le libellé « Traitement de sortie » ne porte plus sa précision sur la même ligne — elle
+se cassait en quatre — mais dessous.
+
+Aucune permission, route ni règle de sortie ne change.
+
+## Amendement du 2026-09-21 — le transfert propose les autres sites de la clinique
+
+Demande du propriétaire : « pour le transfert vers un autre établissement, il faut
+toujours proposer la liste des autres cliniques Saint Georges — si Ambondromamy est
+actif, Mampikony et Boriziny sélectionnables — mais on peut saisir un autre
+établissement à la main ».
+
+Le champ « Établissement » de l'onglet Sortie était une saisie libre. Il devient une
+liste : « À préciser plus tard » (le champ reste facultatif, ADR-114), les **autres**
+sites de la clinique, et « Autre établissement… » qui ouvre la saisie libre — exigée
+alors, sans quoi la demande ne part pas. C'est le motif que le formulaire de sortie
+employait déjà (« Autre établissement »), repris à l'identique.
+
+Les sites viennent de la configuration (`rivo.clinics`), jamais d'une base — chaque site
+a la sienne (ADR-001, ADR-025) — et le site courant n'y figure jamais. La liste était
+calculée **deux fois** (module Transferts, consultation) ; `App\Support\ClinicSites`
+la porte désormais une seule fois pour les trois écrans, séjour compris. Le libellé qui
+part sur la demande et la lettre est inchangé (« Clinique Saint Georges — Mampikony »).
+La liste n'est servie qu'à qui peut demander un transfert (`transfer.request`).
+
+Aucune règle de transfert ne change : le séjour se termine toujours au départ constaté
+(ADR-161), et l'établissement se précise encore dans le module Transferts.
+
+## Signalé, non tranché — traité par l'ADR-163
+
+```text
+retirer une analyse ou une imagerie   pas encore depuis le séjour (l'ADR-079 le permet
+                                       seulement depuis une consultation)
+propositions de l'ADR-111             ne s'appliquent pas encore aux ordonnances du séjour
+consultation d'origine encore ouverte le passage n'atteint « Sorties & règlements »
+                                       qu'une fois elle aussi clôturée (ADR-084)
+```
+
+Aucune règle de facturation nouvelle ; aucun rôle codé en dur (ADR-152).
+
+---
+
+# ADR-163 — Revenir sur un geste du séjour, et les limites de l'ADR-162
+
+**Status:** ACCEPTED (2026-09-21 — exigence explicite du propriétaire : « si patient mis à
+la chirurgie on peut toujours revenir ou annuler l'action, et comme ça pour la visite de
+service », « traitez ces limites non traitées » ; arbitrage : le transfert au bloc
+s'annule **tant que le bloc ne l'a pas programmé**)
+
+**Complète l'ADR-160 et l'ADR-162**, **amende l'ADR-113** (garde d'annulation du séjour)
+et **l'ADR-086** (données Pharmacie d'essai). Le CDC ne décrit ni l'annulation d'une
+demande chirurgicale ni celle d'une visite : les règles viennent du propriétaire et des
+décisions existantes (ADR-084, ADR-079, ADR-127).
+
+## Le principe : annuler, jamais effacer
+
+Chaque geste revient en arrière **par un changement d'état tracé**, jamais par une
+suppression (ADR-010) : la ligne reste, avec qui l'a annulée, quand, et le motif —
+facultatif (« ouverte par erreur » se suffit ; l'exiger pousserait au remplissage). Rien
+de ce qui a déjà été fait par un autre service n'est défait en silence.
+
+```text
+transfert au bloc     annulable tant que « À programmer » ; programmé → il appartient au bloc
+visite de service     annulable tant qu'elle n'a rien produit qui doive survivre
+examen du séjour      retirable tant qu'aucun résultat n'est saisi (règle de l'ADR-079)
+transfert externe     annulable tant que le patient n'est pas parti
+```
+
+## Transfert au bloc
+
+`WithdrawSurgicalRequestAction` porte **la** règle, désormais partagée par la
+consultation qui change de conduite à tenir (ADR-084) et par le séjour
+(`CancelSurgeryFromStayAction`, `POST /hospitalisation/{séjour}/bloc/{demande}/annuler`,
+`surgery.request` — retirer est la même autorité que demander). Refusé dès que le bloc a
+programmé, avec un message qui renvoie vers l'équipe du bloc.
+
+Le patient n'a jamais quitté son lit (ADR-160) : il n'y a rien à « faire revenir ».
+`surgical_requests` reçoit `cancelled_at`, `cancelled_by`, `cancellation_reason`.
+L'orientation du passage vers le bloc, commune à toutes ses demandes (`active_key` =
+passage + destination), n'est annulée que si plus aucune demande ne l'utilise — le
+chemin de la consultation l'annulait jusqu'ici même si le séjour avait envoyé une autre
+intervention.
+
+Deux origines se retirent d'ici : le séjour lui-même, et la conduite à tenir d'une
+consultation du passage (une visite de service d'avant l'ADR-162) — sa conduite
+« Chirurgie » est alors annulée avec la demande, et une consultation encore ouverte perd
+sa décision. Une demande née à la Réception ou en Maternité se retire là où elle a été
+faite.
+
+## Visite de service
+
+`CancelHospitalVisitAction` (`POST /hospitalisation/{séjour}/visites/{orientation}/annuler`,
+`consultations.create`) : la consultation passe **« Annulée »** (le statut existait sans
+usage ; `consultations` reçoit `cancelled_at`, `cancelled_by`, `cancellation_reason`), son
+orientation est annulée, le brouillon est écarté. Ce qui y a été écrit reste lisible.
+
+Elle ne s'annule que tant qu'elle n'a rien produit dont un autre service ou le dossier
+dépende — `blockers()` les nomme, à l'écran comme dans le refus :
+
+```text
+un diagnostic actif           une ordonnance active        un examen en cours
+des soins demandés            une sortie prononcée         une demande déjà prise en charge
+```
+
+Une conduite à tenir encore retirable (une demande au bloc « À programmer ») part avec
+elle. Sinon, la visite se clôture (« Poursuite de l'hospitalisation », ADR-149). Seul le
+médecin qui l'a ouverte l'annule (même règle que l'ADR-127). Le patient reste hospitalisé.
+
+Une consultation n'a pas d'UUID : une visite se désigne par celui de son orientation,
+comme dans l'assistant Médecine — la liste des visites s'appuyait jusqu'ici sur une clé `null`.
+
+`EpisodeOrientation::cancelTakenUp()` est la seule sortie d'un état « pris en charge »
+vers « annulé », réservée aux gestes qui ont d'abord vérifié, sous verrou, que rien de
+durable n'a été produit (annulation du séjour, de la visite).
+
+## Les trois limites de l'ADR-162
+
+**Retirer un examen depuis le séjour.** `CancelParaclinicalRequestAction::executeForStay()`,
+même règle qu'en consultation. Au passage, un défaut réel : retirer **une** demande en
+consultation la sortait de la file du Laboratoire **sans annuler ce qu'elle avait porté au
+compte du patient** — seul le « Non » en bloc appliquait l'ADR-105. `ParaclinicalBillingRelease`
+porte désormais la règle pour les trois chemins, en n'annulant que ce que la demande a
+**elle-même** facturé (sa clé d'idempotence) : la prestation que la Réception avait facturée
+à l'arrivée (ADR-109) n'est jamais annulée par le médecin, et une demande retirée la
+**libère** pour un examen redemandé ensuite (`PlannedServiceBilling`), comme un acte
+Maternité retiré (ADR-141).
+
+**Propositions d'ordonnance au séjour.** L'ordonnance des protocoles et de la pratique de
+la clinique (ADR-111) est proposée sur la page du séjour pour les diagnostics **du
+passage** — posés en consultation ou conclus sur le séjour (ADR-147).
+`ClinicalProtocolMatcher::stayContext()` lit ce contexte ; `PrescriptionSuggestions`
+compose la proposition **une seule fois** pour la consultation et le séjour. L'origine
+d'une ligne retenue est revérifiée par le serveur contre ces diagnostics ; une origine
+forgée est refusée. Aucun diagnostic n'est proposé sur le séjour : on ne lit pas de texte
+libre, on traite ce qui est posé.
+
+**Consultations restées ouvertes.** La page du séjour liste, en tête de « Vue d'ensemble »
+et de « Sortie », les consultations du passage encore ouvertes (celle qui a demandé
+l'hospitalisation, une visite), avec ce qui manque pour les clôturer
+(`ConsultationWorkflow::closureBlockerMessages()`), et les **clôture d'un clic** quand
+plus rien ne manque (`POST /hospitalisation/{séjour}/consultations/{orientation}/cloturer`,
+`consultations.update`, par `CompleteConsultationAction` — la règle de clôture n'est pas
+assouplie, ADR-076). Rien n'est clôturé à la place du médecin.
+
+## La garde d'annulation du séjour
+
+L'ADR-113 n'autorisait plus l'annulation du séjour une fois la fiche de régime commencée.
+Depuis l'ADR-162, une note du jour, une ordonnance, un examen, une demande de soins, un
+relevé, un diagnostic du séjour, un changement de lit, un passage au bloc ou un transfert
+disent la même chose : le patient a réellement séjourné. `CancelHospitalStayAction::activity()`
+les nomme, et le séjour ne s'annule plus — il se termine par une sortie médicale. Cela ferme
+le piège signalé par l'ADR-160 (changer la conduite à tenir de la consultation d'origine).
+Une demande retirée depuis compte encore : elle prouve que le séjour a eu lieu.
+
+## Transfert externe
+
+`CancelStayReferralAction` (`POST /hospitalisation/{séjour}/transfert/{demande}/annuler`,
+`transfer.request`) : tant que le patient n'est pas parti, la demande est annulée et son
+orientation aussi ; le séjour continue et un nouveau transfert redevient possible.
+
+## Passage libéré
+
+Retirer une visite, une demande au bloc ou un transfert peut laisser un passage sans plus
+aucun service qui ait le patient : `EpisodeSettlement::advanceWhenNoServiceLeft()`
+applique alors la règle de l'ADR-054 (« Sorties & règlements »). Un patient encore au lit
+n'est jamais concerné.
+
+## Données Pharmacie d'essai
+
+Voir l'amendement de l'ADR-086 : 38 médicaments fictifs rechargés par `migrate:fresh --seed`,
+créés une seule fois, jamais réécrits.
+
+## Amendement du même jour — plus de carte « Visites de service »
+
+Question du propriétaire : tout se faisant désormais sur la page du séjour, la
+carte « Visites de service » a-t-elle encore un objet ? Non. Plus aucune visite
+ne s'ouvre (ADR-162), et une visite close ou annulée se relit avec le reste du
+dossier sur la page du passage (`/passages/{uuid}`, ADR-054) : la carte ne
+faisait que doubler cette lecture.
+
+Elle est retirée. Ce qui ne pouvait pas disparaître avec elle est une visite
+**restée ouverte** : tant qu'elle l'est, un service a encore le patient et le
+passage n'atteint pas « Sorties & règlements » (ADR-084). Elle paraît donc là
+où elle compte — « Consultations encore ouvertes » —, qui porte désormais les
+deux issues : la clôturer, ou l'annuler tant qu'elle n'a rien produit. Le
+`prop` `visits` et le composant `StayServiceVisits` disparaissent ; l'action,
+la route et la règle d'annulation ne changent pas.
+
+## Signalé, non tranché
+
+```text
+déprogrammer une intervention   aucun geste du bloc ne l'annule une fois programmée
+                                (CDC §16 : aucune permission surgery.cancel)
+orientation vers le bloc        jamais prise en charge ni terminée par le module
+                                Chirurgie : un passage passé par le bloc n'atteint
+                                « Sorties & règlements » qu'une fois elle annulée
+plan de prise en charge,        retenus pour le lot 2 de l'ADR-161, sans règle
+médecin référent                définie à ce jour
+```
+
+Aucune permission nouvelle ; aucun rôle codé en dur (ADR-152).
+
+---
+
+# ADR-164 — Services, chambres et lits : un référentiel par site, une occupation qui se lit
+
+**Status:** ACCEPTED (2026-09-21 — exigence explicite du propriétaire : « gérer la
+chambre déjà occupée, le lit déjà occupé par un autre patient, la gestion chambre, lit
+avec quantité dans le Super Admin » ; quatre arbitrages : Service › Chambre avec
+quantité de lits, attribution **après** l'admission, états Libre / Occupé / Hors
+service, niveau de soins porté par le service)
+
+**Amende l'ADR-113** (« chambre / lit : texte libre facultatif, sans gestion
+d'occupation des lits ») et **complète l'ADR-161** (historique des emplacements). Le CDC
+ne décrit ni lits ni chambres (§32 connaît seulement le statut « Hospitalisé ») : les
+règles ci-dessous sont celles du propriétaire.
+
+## Le constat
+
+Le service et la chambre / le lit d'un séjour étaient du texte libre. Rien n'empêchait
+d'écrire « Chambre 12 · Lit 1 » pour deux patients à la fois, et personne ne pouvait
+répondre à « quels lits sont libres ? » sans parcourir chaque séjour.
+
+## Le référentiel appartient au site, et se règle depuis le portail
+
+```text
+hospital_services   nom, niveau de soins (standard / surveillance continue / réanimation)
+hospital_rooms      nom, dans un service
+hospital_beds       libellé, dans une chambre ; hors service avec motif et auteur
+```
+
+Chaque site a le sien, dans sa base (ADR-001). Le Super Administrateur le règle depuis
+`admin.rivo.mg` › **Services, chambres et lits** (`/super-admin/hospital-beds`), site par
+site, **uniquement par l'API du site** (`/api/v1/super-admin/hospital-beds*`,
+authentifiée, idempotente, acteur distant UUID/nom à l'audit — ADR-004, ADR-042). Aucune
+connexion SQL depuis le portail.
+
+**Créer une chambre, c'est donner son nombre de lits** : « Chambre 12, 3 lits » crée
+Lit 1, Lit 2, Lit 3. On peut ensuite renommer un lit, en ajouter (la numérotation
+reprend après le plus haut, archivés compris, pour ne jamais réutiliser un libellé), le
+mettre hors service ou l'archiver. Trente lits au plus par chambre — une borne de saisie,
+pas une règle clinique.
+
+Les noms se comparent sans accents, espaces ni majuscules. Un nom porté par un élément
+archivé ne se recrée pas : il se restaure (même règle que les adresses, ADR-042).
+
+## Occupé : jamais saisi, toujours lu
+
+```text
+Libre         aucun séjour en cours sur ce lit, et en service
+Occupé        un séjour ACTIVE le porte
+Hors service  décision manuelle, avec motif (panne, travaux, désinfection…)
+```
+
+L'occupation n'est **jamais** une case que quelqu'un coche : elle se lit sur les séjours.
+`hospital_stays.bed_active_key` vaut `BED_{id}` tant que le séjour est actif, `null`
+ensuite ; son **index unique** interdit en base que deux séjours en cours occupent le même
+lit — même à deux clics simultanés. Le lit est en plus verrouillé avant d'être relu
+(`HospitalBedAllocator::lockFree()`), et un lit pris renvoie un message qui nomme
+l'occupant plutôt qu'une erreur brute. Toute fin de séjour — sortie médicale, départ en
+transfert, annulation — libère le lit sans geste supplémentaire (le modèle efface la clé).
+
+Refusés tant qu'un patient y est : mettre un lit hors service, archiver un lit, une
+chambre ou un service. Le message dit d'installer d'abord le patient ailleurs.
+
+## Le patient est installé après l'admission
+
+L'admission reste automatique à la transmission de la demande (ADR-113) : le séjour
+s'ouvre **« lit à attribuer »**. Sur la page du séjour, « Attribuer un lit » propose les
+seuls lits libres et en service, regroupés par service et chambre
+(`CorrectHospitalStayLocationAction`) ; « Changer de lit » déplace le patient et ouvre un
+nouvel emplacement dans l'historique de l'ADR-161 (`MoveHospitalStayAction`). Première
+attribution et correction ne créent pas de mouvement : ce n'est pas un déplacement.
+
+`/hospitalisation` porte un onglet **Plan des lits** (par service, chaque lit libre,
+occupé — avec le patient — ou hors service) et signale les séjours sans lit. Droits
+inchangés : `hospitalization.view` pour lire, `hospitalization.update` pour installer ou
+déplacer.
+
+## Le niveau de soins suit le service
+
+Un lit de réanimation dit « réanimation » : l'emplacement reprend le niveau de soins du
+service au moment où le patient y est installé. Changer le niveau d'un service ne réécrit
+pas les emplacements déjà ouverts — il vaut pour les installations suivantes.
+
+## L'historique n'est jamais réécrit
+
+`hospital_stays.service` / `room_bed` et ceux des emplacements restent l'**instantané**
+lu par tous les écrans existants (liste, dossier, fiche de régime, dossier médical,
+Sorties & règlements, bloc). `hospital_bed_id` s'y ajoute. Renommer un lit plus tard ne
+change pas ce qu'un séjour terminé affiche.
+
+## Transition : texte libre jusqu'au premier lit
+
+Un site qui n'a encore configuré **aucun** lit garde le texte libre de l'ADR-113 —
+sinon plus personne ne pourrait noter où est le patient le jour du déploiement. Dès le
+premier lit configuré, le texte libre est refusé côté serveur (`prohibited`) : on choisit
+un lit. Les séjours en cours saisis en texte libre gardent leur texte et reçoivent un lit
+quand on les installe.
+
+Rien ne disparaît en silence pendant cette transition (constat du propriétaire le jour même :
+« je ne trouve pas ces mises à jour à l'écran »). L'onglet **Plan des lits** reste affiché
+sans lit configuré et dit où les lits se créent ; la page du séjour dit pourquoi la chambre
+se note encore à la main. Un onglet absent se lit « fonction inexistante » (ADR-158).
+
+## Ce que le portail voit, et ce qu'il ne voit pas
+
+Le portail voit l'occupation de chaque lit — numéro de passage et date d'admission —
+**jamais le nom du patient** : il gère des lits, pas des dossiers. Le nom n'est servi
+qu'aux écrans de la clinique, à qui peut lire le séjour.
+
+## Permissions
+
+```text
+hospital_beds.view / create / update / archive / restore
+```
+
+Enregistrées par migration (`2026_10_18_090000_create_hospital_beds_referential`,
+ADR-064), accordées au seul `SUPER_ADMIN` du portail (ADR-027) ; l'API du site
+revérifie la permission transmise. **La migration se joue aussi sur la base du portail** :
+c'est elle qui accorde ces droits au Super Administrateur. Sans elle, l'écran répond
+403 « Il vous manque le droit hospital_beds.view » (constaté en local le jour même). Chaque écriture est auditée (`Auditable` sur les trois
+modèles, identité externe du Super Administrateur).
+
+## Hors périmètre
+
+Aucune facturation à la nuitée ou au lit (ADR-113 : aucun forfait journalier défini),
+aucune réservation d'un lit pour une admission future, aucun nettoyage automatique après
+une sortie : « Hors service » sert à dire qu'un lit ne peut pas être donné.
+
+---
+
+# ADR-165 — Liste des hospitalisés : sélection multiple, en lecture seulement
+
+**Status:** ACCEPTED (2026-09-21 — exigence explicite du propriétaire : « mettre les icônes, et
+la sélection multiple, toujours en shadcn » ; deux arbitrages : les quatre actions ci-dessous, et
+un droit dédié `hospitalization.export` accordé à Médecine et Soins)
+
+**Complète l'ADR-113, l'ADR-161 et l'ADR-164** (liste des hospitalisés) et reprend le schéma de
+sélection de l'ADR-090 (amendement ter). Le CDC ne décrit aucune action groupée sur les séjours :
+les règles ci-dessous sont celles du propriétaire.
+
+## Ce qu'une sélection permet, et ce qu'elle ne permet jamais
+
+Cocher des patients dans `/hospitalisation` ouvre une barre d'actions. Toutes **lisent** ; aucune
+n'écrit dans un dossier :
+
+```text
+Tour de salle       une feuille, une ligne par patient : lit, motif, séjour, allergies,
+                    dernier relevé, et une colonne « Notes de visite » laissée vide
+Fiches de régime    une fiche par patient, une par page — la même que l'impression unitaire
+Dossiers médicaux   le dossier médical de chaque passage, un par page — la même feuille
+Exporter en Excel   la liste sélectionnée, auditée
+```
+
+**Jamais en lot** : sortie médicale, transfert, descente au bloc, changement de lit, saisie de la
+fiche de régime. Chacune est une décision clinique sur un patient précis, prise sur la page de son
+séjour (ADR-161, ADR-162, ADR-164). À la différence de « Sorties & règlements » (ADR-090), aucune
+écriture n'est proposée ici, pas même la plus simple.
+
+## Les règles de la sélection
+
+```text
+envoi          l'écran n'envoie que des UUID de séjours (uuids[]), 50 au plus
+relecture      le serveur relit tout : un séjour annulé est écarté, un séjour terminé
+               reste imprimable (sa fiche de régime et son dossier restent consultables)
+ordre          service, puis chambre / lit, puis date d'entrée — l'ordre d'une visite
+remise à zéro  la sélection ne survit ni à un changement de page ni à une recherche
+```
+
+## Aucune feuille n'est recopiée
+
+La fiche de régime est désormais composée par `App\Support\Hospitalization\DietSheet`, lue par
+l'impression unitaire **et** par l'impression groupée ; son corps (`DietSheetBody`) est un seul
+composant. Les dossiers médicaux groupés affichent `MedicalRecordPrint` lui-même, une fois par
+passage : deux mises en page du même document finiraient par diverger. Le dernier relevé du tour
+de salle vient de `HospitalStaySurveillance::latestReading()`, avec les repères déjà calculés par
+le serveur (ADR-125). Dans un document groupé, seule la première feuille porte la barre d'actions
+et un saut de page sépare les suivantes.
+
+## Chaque feuille garde son droit
+
+```text
+ouvrir une impression groupée   hospitalization.view
+dossiers médicaux               + patients.view — et, dans chaque feuille, les gardes
+                                par section de l'ADR-116 (diagnostic, traitements,
+                                hospitalisation, constantes) restent intactes
+dernier relevé du tour de salle vitals.view — sans ce droit la colonne est retirée,
+                                jamais affichée vide (une case vide se lirait « aucun relevé »)
+exporter                        hospitalization.export
+```
+
+Imprimer n'a pas de droit propre : c'est le fait du navigateur, et un droit « imprimer » ne
+bloquerait rien (ADR-070, ADR-116). L'export, lui, produit un fichier qui sort de l'application :
+il est audité (`hospitalization.export`, nombre de lignes et numéros de passage).
+
+## Le tour de salle passe seul en paysage
+
+Huit colonnes, dont un motif en texte libre, ne tiennent pas dans un A4 portrait. Une page nommée
+CSS (`@page wardround`) a d'abord été écrite : Chromium l'ignore sur un élément imbriqué dans les
+conteneurs flex de la mise en page, et la feuille sortait en portrait (vérifié en générant le PDF).
+La règle `@page { size: A4 landscape }` est donc injectée au montage de la page et retirée en la
+quittant — le même idiome que la facture et le reçu. Rien n'est lu pendant le rendu serveur, et les
+autres feuilles repassent en portrait après une navigation sans rechargement.
+
+## Permission
+
+```text
+hospitalization.export   Exporter en Excel la liste des patients hospitalisés
+```
+
+Enregistrée par migration (`2026_10_19_090000_create_hospitalization_export_permission`,
+ADR-064), accordée aux rôles `MEDICINE` et `NURSE`. **Pas à `RECEPTION`**, qui lit le module
+(ADR-147) : une liste de patients hospitalisés est une extraction de données personnelles, et le
+Super Administrateur l'accorde depuis « Rôles & permissions » s'il le décide. La migration se joue
+sur chaque site et sur le portail, dont l'éditeur de socle doit lister le droit.
+
+## L'écran
+
+Shadcn-vue seulement (ADR-099) : une icône par en-tête de colonne, initiales du patient, pastille
+« Urgence », niveau de soins, onglets « Patients hospitalisés » et « Plan des lits » avec leurs
+icônes, actions de ligne en icônes nommées (fiche de régime, dossier médical) à côté de « Ouvrir ».
+La barre de sélection dit combien de patients sont cochés et se replie sur plusieurs lignes sur un
+téléphone ; le tableau défile dans son cadre, jamais la page.
+
+## Hors périmètre
+
+Aucune sélection sur le « Plan des lits », aucune action groupée qui écrive, aucun PDF généré par
+le serveur (ADR-118).
+
+---
+
+# ADR-166 — La suite des Soins se choisit à l'étape Terminer
+
+**Status:** ACCEPTED (2026-09-21 — exigence explicite du propriétaire : « à l'étape Terminer,
+pouvoir terminer le patient aux Soins même si son besoin est une consultation, et envoyer au
+médecin un patient venu seulement pour un soin — un système flexible » ; trois arbitrages : la
+consultation prévue reste facturée, un motif est obligatoire, l'ordre de soins du médecin garde
+sa suite)
+
+**Amende l'ADR-030** (un parcours `CARE_THEN_MEDICINE` part toujours en Médecine, un parcours
+`CARE_ONLY` s'arrête toujours aux Soins), **l'ADR-032** (la transmission n'existe que pour un
+parcours qui continue vers Médecine) et **l'ADR-123** (la colonne de transmission suit ce même
+parcours). Le CDC ne décrit aucune règle de routage entre Soins et Médecine (§12, §32) : la
+règle ci-dessous est celle du propriétaire.
+
+## Le constat
+
+La désignation choisie à l'arrivée décidait seule de la suite. Un patient venu pour une
+« Consultation de médecine générale » partait en Médecine même quand le soin avait suffi, et un
+patient venu pour une injection ne pouvait pas être montré au médecin sans détour, alors que
+c'est l'infirmier qui a le patient sous les yeux.
+
+## La règle
+
+La désignation **propose** la suite, l'infirmier la **décide** :
+
+```text
+parcours prévu        pré-sélection        l'infirmier peut choisir
+CARE_THEN_MEDICINE    Transmettre          Terminer aux Soins — motif obligatoire
+CARE_ONLY             Terminer aux Soins   Transmettre au médecin — sans motif
+besoin inconnu        aucune               l'un ou l'autre (règles de l'ADR-032)
+```
+
+`CompleteCareAndOrientToMedicineAction` reçoit la suite choisie (`care_outcome` :
+`MEDICINE` ou `FINISH`, absente = suivre le parcours) et revérifie tout sous verrou :
+
+```text
+Terminer aux Soins un patient attendu en Médecine   motif exigé (care_finish_reason)
+Terminer aux Soins un parcours Soins seuls          au moins un acte (ADR-032, inchangé)
+Terminer aux Soins un besoin inconnu                un acte ou le motif « aucun acte » (ADR-032)
+Transmettre au médecin                              rien d'exigé ; la transmission s'ouvre
+```
+
+Envoyer au médecin un patient prévu aux Soins seuls ouvre la transmission : la requête et
+`SaveCareRecordAction` l'acceptent dès que la suite choisie est Médecine
+(`CareWorkflow::expectsMedicalTransmission($episode, $chosen)`). L'orientation Médecine créée le
+dit : « Orientation vers Médecine décidée aux Soins, hors du parcours prévu ».
+
+## Là où il n'y a rien à choisir
+
+```text
+ordre de soins d'un médecin   sa suite (retour ou sortie directe) reste celle du médecin (ADR-055)
+Médecine a déjà le patient    urgence, consultation en cours ou close : une seule prise en charge
+                              Médecine par passage (ADR-085). Terminer le travail Soins ne retire
+                              rien au médecin et n'exige aucun motif
+```
+
+`CareWorkflow::medicineAlreadyInvolved()` porte ce second cas une seule fois : l'action et
+l'écran le lisent tous deux.
+
+## Le motif, et ce qu'il devient
+
+`episode_orientations.completion_reason` (nullable, migration
+`2026_10_20_090000_add_completion_reason_to_episode_orientations`) garde le motif d'une fin qui
+s'écarte du parcours prévu ; une fin ordinaire le laisse vide. Il est audité
+(`care.orientation.finish_at_care`, parcours prévu et motif), relu sur la fiche Soins une fois
+terminée, et affiché dans le parcours du passage (ADR-117) : c'est là que la Réception voit, à la
+sortie, pourquoi la consultation n'a pas eu lieu.
+
+**La consultation prévue reste facturée** (arbitrage du propriétaire). Rien n'est annulé ni
+recalculé par les Soins : seule la Réception/Caisse touche un montant facturé (ADR-012), et
+l'infirmier ne voit aucun montant (ADR-036).
+
+Plus aucun service n'a le patient : le passage rejoint « Sorties & règlements » par la règle
+générale de l'ADR-054 (`EpisodeSettlement::advanceWhenNoServiceLeft`).
+
+## L'écran
+
+L'étape Terminer s'ouvre sur « Suite après les soins » : deux cartes radio — « Transmettre au
+médecin », « Terminer aux Soins » —, la suite prévue cochée et marquée « Prévu à l'arrivée ».
+Choisir de terminer aux Soins un patient attendu en Médecine fait apparaître le motif ; le bouton
+reste grisé tant qu'il manque. La colonne de transmission suit la suite choisie. Shadcn-vue
+seulement (ADR-099).
+
+Changer seulement la suite ne crée jamais de fiche vide : sans rien à enregistrer, l'écran
+termine par `POST /care/orientations/{o}/complete` avec la seule suite et son motif ; sinon il
+enregistre et termine en une transaction. Le choix et le motif survivent à une actualisation (le
+brouillon de l'ADR-073 les accepte).
+
+`orient_to_medicine`, lu par les appelants antérieurs, garde son sens : vrai = Médecine, faux =
+suivre le parcours — jamais « terminer ».
+
+## Permissions
+
+Aucune nouvelle : `care.complete`, comme toute fin de prise en charge Soins. Aucun rôle n'est
+codé en dur (ADR-152).
+
+## Signalé, non tranché
+
+```text
+acte prérempli par l'accueil   envoyé au médecin sans l'avoir réalisé, l'infirmier retire la
+                               ligne dans « Actes » ; sinon elle s'enregistre comme réalisée
+                               (comportement antérieur, inchangé)
+besoin inconnu terminé aux     le passage reste « en soins » : l'ADR-054 ne fait avancer que le
+Soins sans Médecine            parcours Soins seuls. Inchangé ici — à décider
+```

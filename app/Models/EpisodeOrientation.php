@@ -24,7 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 #[Fillable([
     'episode_id', 'source_module', 'destination_module', 'status', 'active_key',
     'reason', 'oriented_by', 'accepted_by', 'completed_by', 'oriented_at',
-    'accepted_at', 'completed_at',
+    'accepted_at', 'completed_at', 'completion_reason',
 ])]
 class EpisodeOrientation extends Model
 {
@@ -88,7 +88,12 @@ class EpisodeOrientation extends Model
         $this->save();
     }
 
-    public function complete(User $actor): void
+    /**
+     * `$reason` ne sert qu'à une fin qui s'écarte du parcours prévu — un
+     * patient attendu en Médecine terminé aux Soins (ADR-166). Une fin
+     * ordinaire n'a rien à justifier et laisse la colonne vide.
+     */
+    public function complete(User $actor, ?string $reason = null): void
     {
         if ($this->status !== EpisodeOrientationStatus::InProgress) {
             throw new InvalidEpisodeOrientationTransitionException(
@@ -101,6 +106,7 @@ class EpisodeOrientation extends Model
         $this->status = EpisodeOrientationStatus::Completed;
         $this->completed_by = $actor->getKey();
         $this->completed_at = now();
+        $this->completion_reason = $reason;
         $this->active_key = null;
         $this->save();
     }
@@ -118,6 +124,33 @@ class EpisodeOrientation extends Model
     public function cancel(User $actor): void
     {
         if ($this->status !== EpisodeOrientationStatus::Pending) {
+            throw new InvalidEpisodeOrientationTransitionException(
+                $this,
+                EpisodeOrientationStatus::Cancelled->value,
+                $this->status->value,
+            );
+        }
+
+        $this->status = EpisodeOrientationStatus::Cancelled;
+        $this->completed_by = $actor->getKey();
+        $this->completed_at = now();
+        $this->active_key = null;
+        $this->save();
+    }
+
+    /**
+     * Withdraws an orientation that was taken up at once, before its work
+     * produced anything that must survive (ADR-113, ADR-163).
+     *
+     * Two flows take an orientation up at creation — the automatic admission
+     * of a stay, and the ward round opened from it — so `cancel()`, which only
+     * accepts PENDING, can never undo them. This method is reserved to the
+     * actions that have first checked, under lock, that nothing lasting was
+     * recorded: it is not a general way out of IN_PROGRESS.
+     */
+    public function cancelTakenUp(User $actor): void
+    {
+        if ($this->status !== EpisodeOrientationStatus::InProgress) {
             throw new InvalidEpisodeOrientationTransitionException(
                 $this,
                 EpisodeOrientationStatus::Cancelled->value,

@@ -144,6 +144,30 @@ class PortalSiteApiClient
             ->all();
     }
 
+    /**
+     * ADR-164 — services, chambres et lits de chaque site, avec leur occupation.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function hospitalBedsForAllSites(User $actor, array $query = []): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/hospital-beds', $query, $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-164 — une commande sur le référentiel des lits d'un site. Le chemin est
+     * relatif à `super-admin/hospital-beds` ; le site revérifie chaque droit.
+     *
+     * @return array<string, mixed>
+     */
+    public function hospitalBedCommand(string $siteCode, string $method, string $path, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), $method, 'super-admin/hospital-beds/'.ltrim($path, '/'), $payload, $actor);
+    }
+
     /** @return array<string, mixed> */
     public function createCashRegister(string $siteCode, string $name, User $actor): array
     {

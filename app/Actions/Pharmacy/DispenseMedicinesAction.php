@@ -41,11 +41,19 @@ class DispenseMedicinesAction
                 ->lockForUpdate()
                 ->findOrFail($dispense->getKey());
 
-            if (! $dispense->status->canDispense()
-                || ! $dispense->invoice
-                || ! in_array($dispense->invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Covered], true)) {
+            // ADR-162 (amende l'ADR-049 pour ce seul cas) — la délivrance au
+            // service d'un patient hospitalisé exige une facture préparée, pas
+            // réglée : le traitement ne peut pas attendre la Caisse.
+            $settled = $dispense->invoice
+                && ($dispense->isWardDispense()
+                    ? $dispense->invoice->status !== InvoiceStatus::Cancelled
+                    : in_array($dispense->invoice->status, [InvoiceStatus::Paid, InvoiceStatus::Covered], true));
+
+            if (! $dispense->status->canDispense() || ! $settled) {
                 throw ValidationException::withMessages([
-                    'dispense' => 'La délivrance exige une facture intégralement réglée ou prise en charge.',
+                    'dispense' => $dispense->isWardDispense()
+                        ? 'La délivrance au service exige une facture préparée.'
+                        : 'La délivrance exige une facture intégralement réglée ou prise en charge.',
                 ]);
             }
 

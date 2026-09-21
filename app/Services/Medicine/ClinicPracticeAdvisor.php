@@ -104,12 +104,27 @@ class ClinicPracticeAdvisor
      */
     public function suggestPrescription(Consultation $consultation, array $context, array $catalogIds): array
     {
+        return $this->prescriptionFor($context, $catalogIds, $consultation);
+    }
+
+    /**
+     * ADR-163 — la même proposition sans consultation : celle du séjour.
+     *
+     * `$self` est la consultation à retirer de sa propre preuve ; une
+     * ordonnance du séjour n'entre pas dans l'index (il apprend des
+     * consultations conclues), elle n'a donc rien à retirer.
+     *
+     * @param  array<int, int>  $catalogIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function prescriptionFor(array $context, array $catalogIds, ?Consultation $self = null): array
+    {
         if ($catalogIds === []) {
             return [];
         }
 
         $index = $this->index->index();
-        $own = $this->ownLines($consultation);
+        $own = $self ? $this->ownLines($self) : [];
         $groups = [];
 
         foreach ($catalogIds as $catalogId) {
@@ -119,7 +134,7 @@ class ClinicPracticeAdvisor
                 continue;
             }
 
-            $includesSelf = in_array($consultation->id, $entry['consultation_ids'], true);
+            $includesSelf = $self !== null && in_array($self->id, $entry['consultation_ids'], true);
             $cases = $entry['prescribed_cases'] - ($includesSelf && $own !== [] ? 1 : 0);
 
             if ($cases < ClinicPracticeIndex::MIN_CASES) {
@@ -224,10 +239,23 @@ class ClinicPracticeAdvisor
      */
     public function supportsMedicine(Consultation $consultation, int $medicineId): bool
     {
-        $catalogIds = $consultation->diagnoses()
-            ->whereNotNull('diagnostic_catalog_id')
-            ->whereDoesntHave('cancellation')
-            ->pluck('diagnostic_catalog_id');
+        return $this->supportsMedicineFor(
+            $consultation->diagnoses()
+                ->whereNotNull('diagnostic_catalog_id')
+                ->whereDoesntHave('cancellation')
+                ->pluck('diagnostic_catalog_id')
+                ->all(),
+            $medicineId,
+        );
+    }
+
+    /**
+     * La même vérification pour une liste de diagnostics — ceux du séjour (ADR-163).
+     *
+     * @param  array<int, int>  $catalogIds
+     */
+    public function supportsMedicineFor(array $catalogIds, int $medicineId): bool
+    {
         $index = $this->index->index();
 
         foreach ($catalogIds as $catalogId) {

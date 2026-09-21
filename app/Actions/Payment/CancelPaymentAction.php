@@ -108,7 +108,9 @@ class CancelPaymentAction
                     : InvoiceStatus::PartiallyPaid,
             ])->save();
 
-            if ($dispense) {
+            // ADR-162 — une délivrance au service n'a jamais attendu le
+            // règlement : annuler un paiement ne la fait pas repasser en attente.
+            if ($dispense && ! $dispense->isWardDispense()) {
                 $dispense->update(['status' => PharmacyDispenseStatus::AwaitingPayment]);
             }
 

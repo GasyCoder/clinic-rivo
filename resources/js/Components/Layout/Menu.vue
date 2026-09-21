@@ -4,6 +4,7 @@ import { Link, usePage } from '@inertiajs/vue3';
 import {
     Activity,
     ArrowUpDown,
+    BedDouble,
     Briefcase,
     Building2,
     Check,
@@ -121,6 +122,7 @@ const adminMenu = computed(() => [
     { icon: Pill, text: 'Stock médicaments', link: '/super-admin/stock', permission: 'stock.view' },
     { icon: Building2, text: 'Fournisseurs pharmacie', link: '/super-admin/pharmacy-suppliers', permission: 'medicine_suppliers.view' },
     { icon: MapPin, text: 'Adresses & localités', link: '/super-admin/addresses', permission: 'address_entries.view' },
+    { icon: BedDouble, text: 'Services, chambres & lits', link: '/super-admin/hospital-beds', permission: 'hospital_beds.view' },
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },
     { heading: 'Organisation' },
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },

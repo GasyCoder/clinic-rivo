@@ -12,6 +12,8 @@ use App\Enums\CatalogModule;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
+use App\Enums\SurgicalRequestOrigin;
+use App\Enums\SurgicalRequestStatus;
 use App\Models\CareRecord;
 use App\Models\CatalogItem;
 use App\Models\CatalogTariff;
@@ -20,6 +22,7 @@ use App\Models\LabRequest;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\SurgicalRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -240,6 +243,42 @@ class EpisodeRoutingPlanTest extends TestCase
         $this->assertDatabaseCount('lab_requests', 0);
     }
 
+    public function test_a_reception_surgical_act_opens_the_block_and_creates_its_request(): void
+    {
+        $act = $this->service('SURG-HERNIE-INGUINALE', ReceptionRoutingMode::SurgeryDirect);
+        $episode = $this->episode();
+
+        $this->plan($episode, [[$act, 1]]);
+
+        $this->assertDatabaseHas('episode_orientations', [
+            'episode_id' => $episode->id,
+            'source_module' => CatalogModule::Reception->value,
+            'destination_module' => CatalogModule::Surgery->value,
+            'status' => 'PENDING',
+        ]);
+
+        $request = SurgicalRequest::query()->where('episode_id', $episode->id)->sole();
+        // Le bloc reçoit un dossier à programmer, jamais un dossier programmé :
+        // ni chirurgien, ni date ne sont décidés à l'accueil (ADR-159).
+        $this->assertSame(SurgicalRequestStatus::Pending, $request->status);
+        $this->assertSame(SurgicalRequestOrigin::Reception, $request->origin);
+        $this->assertSame($act->id, $request->catalog_item_id);
+        $this->assertSame('SURG-HERNIE-INGUINALE', $request->procedure_name);
+        $this->assertNull($request->surgeon_id);
+        $this->assertNull($request->scheduled_at);
+    }
+
+    public function test_replaying_the_arrival_never_opens_two_files_at_the_block(): void
+    {
+        $act = $this->service('SURG-ABCES', ReceptionRoutingMode::SurgeryDirect);
+        $episode = $this->episode();
+
+        $this->plan($episode, [[$act, 1]]);
+        $this->plan($episode, [[$act, 1]]);
+
+        $this->assertDatabaseCount('surgical_requests', 1);
+    }
+
     private function episode(EpisodePriority $priority = EpisodePriority::Normal): Episode
     {
         $patient = Patient::query()->create([
@@ -274,6 +313,7 @@ class EpisodeRoutingPlanTest extends TestCase
                 ReceptionRoutingMode::CareOnly => CatalogModule::Care,
                 ReceptionRoutingMode::LaboratoryDirect => CatalogModule::Laboratory,
                 ReceptionRoutingMode::MaternityDirect => CatalogModule::Maternity,
+                ReceptionRoutingMode::SurgeryDirect => CatalogModule::Surgery,
                 default => CatalogModule::Medicine,
             },
             'unit' => 'acte',

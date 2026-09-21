@@ -211,6 +211,9 @@ class ParaclinicalRequestDirectoryController extends Controller
                 'requestedBy:id,name',
                 'consultation:id,episode_orientation_id,status,completed_at',
                 'consultation.orientation:id,uuid,status',
+                // ADR-162 — la demande faite depuis le séjour.
+                'hospitalStay:id,uuid,status,episode_orientation_id',
+                'hospitalStay.episodeOrientation:id,uuid,status',
                 'episode:id,uuid,episode_number,patient_id',
                 'episode.patient:id,uuid,first_name,last_name,patient_number,sex,birth_date,birth_date_is_approximate,declared_age,address,address_entry_id',
                 'episode.patient.addressEntry:id,label',
@@ -227,7 +230,8 @@ class ParaclinicalRequestDirectoryController extends Controller
             // Une demande orpheline de son passage ou de son patient ne
             // décrit plus rien d'exploitable : on l'écarte de l'écran
             // plutôt que d'y afficher des tirets.
-            ->filter(fn ($request) => $request->episode?->patient !== null && $request->consultation !== null)
+            ->filter(fn ($request) => $request->episode?->patient !== null
+                && ($request->consultation !== null || $request->hospitalStay !== null))
             ->map(fn ($request) => [
                 'uuid' => $request->uuid,
                 'kind' => $kind,
@@ -332,10 +336,15 @@ class ParaclinicalRequestDirectoryController extends Controller
                     ->all(),
                 // Reprendre, jamais rouvrir une seconde consultation : le
                 // lien ramène sur celle qui a émis la demande.
-                'consultation_url' => $request->consultation->orientation
-                    ? "/medicine/orientations/{$request->consultation->orientation->uuid}/paraclinique"
-                    : null,
-                'orientation_uuid' => $request->consultation->orientation?->uuid,
+                // ADR-162 — une demande du séjour ramène au séjour.
+                'consultation_url' => $request->hospitalStay
+                    ? "/hospitalisation/{$request->hospitalStay->uuid}"
+                    : ($request->consultation->orientation
+                        ? "/medicine/orientations/{$request->consultation->orientation->uuid}/paraclinique"
+                        : null),
+                'from_stay' => $request->hospitalStay !== null,
+                'orientation_uuid' => $request->hospitalStay?->episodeOrientation?->uuid
+                    ?? $request->consultation?->orientation?->uuid,
                 // Les mêmes conditions que `CancelParaclinicalRequestAction`
                 // vérifie de son côté : l'écran n'est jamais la protection.
                 // Ranger n'a de sens que pour ce qui est rendu et déjà lu :
@@ -349,7 +358,9 @@ class ParaclinicalRequestDirectoryController extends Controller
                 'can_unarchive' => $canArchive
                     && $request->archived_at !== null
                     && $request->items->pluck('resulted_at')->filter()->max()?->greaterThanOrEqualTo(now()->subDays(self::RECENT_DAYS)),
+                // Une demande du séjour se retire depuis le séjour.
                 'can_withdraw' => $canWithdraw
+                    && $request->consultation !== null
                     && $request->cancelled_at === null
                     && $request->consultation->isEditable()
                     && $request->consultation->orientation?->status === EpisodeOrientationStatus::InProgress

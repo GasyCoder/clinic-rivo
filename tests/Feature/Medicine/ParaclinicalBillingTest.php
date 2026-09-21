@@ -138,6 +138,35 @@ class ParaclinicalBillingTest extends TestCase
     }
 
     /**
+     * ADR-163 — retirer **une** demande (et non répondre « Non » à toutes) la
+     * retirait du Laboratoire mais la laissait à payer : ce chemin oubliait
+     * l'ADR-105.
+     */
+    public function test_withdrawing_one_request_also_cancels_what_it_had_billed(): void
+    {
+        [$episode, $orientation] = $this->consultation();
+        $analysis = $this->paraclinicalItem('NFS', 'Numération formule sanguine', CatalogModule::Laboratory, '12000.00');
+
+        $this->actingAs($this->doctor)->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
+            'items' => [['catalog_item_uuid' => $analysis->uuid]],
+        ])->assertRedirect();
+        $request = $orientation->consultation()->firstOrFail()->labRequests()->sole();
+
+        $this->actingAs($this->doctor)->post("/medicine/orientations/{$orientation->uuid}/paraclinical-requests/cancel", [
+            'kind' => 'lab',
+            'uuid' => $request->uuid,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            BillableItemStatus::Cancelled,
+            BillableItem::query()->where('episode_id', $episode->id)
+                ->where('description', 'like', '%Numération%')
+                ->sole()
+                ->status,
+        );
+    }
+
+    /**
      * Un tarif absent ne doit jamais empêcher la demande : l'analyse part au
      * Laboratoire, la Réception régularise ensuite (ADR-054, ADR-072).
      */

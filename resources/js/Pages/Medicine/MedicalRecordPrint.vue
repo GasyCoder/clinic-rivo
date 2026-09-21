@@ -51,6 +51,12 @@ const props = defineProps({
      * n'est pas servie (ADR-146 amendement — le droit de son dossier, pas celui de sa mère).
      */
     birth: { type: Object, default: null },
+    /**
+     * ADR-165 — plusieurs dossiers réunis dans un seul document : le premier porte
+     * la barre d'actions et le titre de l'onglet, les suivants ne les répètent pas.
+     */
+    showActions: { type: Boolean, default: true },
+    pageTitle: { type: String, default: null },
 });
 
 const dateOrEmpty = (value) => (value ? formatDate(value) : '');
@@ -88,10 +94,11 @@ const restricted = (label) => `Non visible avec vos droits (${label})`;
 
 <template>
     <PaperSheet
-        :page-title="`Dossier médical — ${patient.name}`"
+        :page-title="pageTitle ?? `Dossier médical — ${patient.name}`"
         document-title="Dossier médical"
         :back-href="back.href"
         :back-label="back.label"
+        :show-actions="showActions"
     >
         <!-- Un seul modèle de dossier médical, des onglets : on passe de la mère à chacun de ses bébés
              sans repasser par un répertoire. Écran seulement, jamais imprimé. -->

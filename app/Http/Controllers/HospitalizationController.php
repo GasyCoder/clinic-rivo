@@ -2,24 +2,46 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Hospitalization\CancelHospitalVisitAction;
+use App\Actions\Hospitalization\CancelSurgeryFromStayAction;
+use App\Actions\Hospitalization\CorrectHospitalStayLocationAction;
+use App\Actions\Hospitalization\MoveHospitalStayAction;
 use App\Actions\Hospitalization\RecordHospitalDietEntryAction;
 use App\Actions\Hospitalization\RecordHospitalStayDiagnosisAction;
-use App\Actions\Hospitalization\StartHospitalVisitAction;
+use App\Actions\Hospitalization\RecordVitalSignReadingAction;
+use App\Actions\Hospitalization\RequestSurgeryFromStayAction;
 use App\Actions\Hospitalization\UpdateHospitalizationRequestAction;
+use App\Actions\Medicine\CompleteConsultationAction;
+use App\Enums\CatalogItemType;
+use App\Enums\CatalogModule;
+use App\Enums\ConsultationStatus;
 use App\Enums\EpisodeStatus;
+use App\Enums\HospitalCareLevel;
 use App\Enums\HospitalStayStatus;
+use App\Enums\SurgicalRequestStatus;
+use App\Http\Requests\Hospitalization\MoveHospitalStayRequest;
+use App\Http\Requests\Hospitalization\RequestSurgeryFromStayRequest;
 use App\Http\Requests\Hospitalization\StoreHospitalDietEntryRequest;
 use App\Http\Requests\Hospitalization\StoreHospitalStayDiagnosisRequest;
+use App\Http\Requests\Hospitalization\StoreVitalSignReadingRequest;
 use App\Http\Requests\Hospitalization\UpdateHospitalizationRequestRequest;
 use App\Http\Requests\Hospitalization\UpdateHospitalStayRequest;
-use App\Models\HospitalDietEntry;
-use App\Enums\CatalogModule;
+use App\Models\CatalogItem;
 use App\Models\Consultation;
 use App\Models\Diagnosis;
+use App\Models\EpisodeOrientation;
+use App\Models\HospitalDietEntry;
 use App\Models\HospitalStay;
+use App\Models\SurgicalRequest;
+use App\Models\User;
+use App\Models\VitalSignReading;
+use App\Support\ConsultationWorkflow;
+use App\Support\Hospitalization\BedDirectory;
+use App\Support\Hospitalization\DietSheet;
+use App\Support\Hospitalization\HospitalStayWorkstation;
+use App\Support\HospitalStaySurveillance;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -33,9 +55,10 @@ use Inertia\Response;
  */
 class HospitalizationController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, BedDirectory $beds): Response
     {
         $search = trim((string) $request->query('q', ''));
+        $bedsConfigured = $beds->configured();
 
         // ADR-156 — le module liste les patients **hospitalisés**. Les sorties
         // appartiennent à la Réception (« Sorties & règlements », ADR-090) : un
@@ -56,6 +79,7 @@ class HospitalizationController extends Controller
                 'hospitalizationRequest:id,reason,priority,requested_by',
                 'hospitalizationRequest.requestedBy:id,name',
                 'medicalDischarge:id,type',
+                'currentMovement',
             ])
             ->withCount('dietEntries')
             ->when($search !== '', fn ($query) => $query->whereHas('episode', fn ($episode) => $episode
@@ -70,6 +94,7 @@ class HospitalizationController extends Controller
 
         $stays->through(fn (HospitalStay $stay): array => [
             'uuid' => $stay->uuid,
+            'episode_uuid' => $stay->episode->uuid,
             'episode_number' => $stay->episode->episode_number,
             'patient' => $this->patient($stay),
             'reason' => $stay->hospitalizationRequest?->reason,
@@ -77,35 +102,103 @@ class HospitalizationController extends Controller
             'requested_by' => $stay->hospitalizationRequest?->requestedBy?->name,
             'service' => $stay->service,
             'room_bed' => $stay->room_bed,
+            'care_level' => $stay->currentMovement?->care_level?->value,
+            'care_level_label' => $stay->currentMovement?->care_level?->label(),
+            // ADR-164 — un patient au lit sans lit attribué se voit dans la liste.
+            'needs_bed' => $bedsConfigured && $stay->isActive() && $stay->hospital_bed_id === null,
             'admitted_at' => $stay->admitted_at,
             'discharged_at' => $stay->discharged_at,
-            'discharge_type' => $stay->medicalDischarge?->type?->label(),
+            'discharge_type' => $stay->end_reason?->label() ?? $stay->medicalDischarge?->type?->label(),
             'diet_entries_count' => $stay->diet_entries_count,
         ]);
+
+        $user = $request->user();
 
         return Inertia::render('Hospitalization/Index', [
             'stays' => $stays,
             'counts' => $counts,
             'search' => $search,
+            // ADR-165 — les actions groupées que ce compte peut lancer. Le serveur
+            // revérifie chaque droit : ceci ne sert qu'à ne pas proposer un refus.
+            'capabilities' => [
+                'can_print_medical_records' => $user->can('patients.view'),
+                'can_export' => $user->can('hospitalization.export'),
+                'can_view_vitals' => $user->can('vitals.view'),
+            ],
+            'bulkLimit' => HospitalStaySelectionController::BULK_LIMIT,
+            // ADR-164 — le plan des lits : qui occupe quoi, ce qui est libre,
+            // et les patients encore sans lit. Absent tant que le site n'a
+            // configuré aucun lit — jamais un plan vide qui se lirait « complet ».
+            // Le drapeau, lui, part toujours : l'onglet dit alors où les lits
+            // se créent, au lieu de disparaître comme une fonction absente.
+            'bedsConfigured' => $bedsConfigured,
+            'beds' => $bedsConfigured ? [
+                'summary' => $beds->summary(),
+                'services' => $beds->tree(withPatients: true),
+                'unassigned' => HospitalStay::query()
+                    ->where('status', HospitalStayStatus::Active->value)
+                    ->whereNull('hospital_bed_id')
+                    ->with('episode:id,episode_number,patient_id', 'episode.patient:id,first_name,last_name')
+                    ->orderBy('admitted_at')
+                    ->get(['id', 'uuid', 'episode_id', 'service', 'admitted_at'])
+                    ->map(fn (HospitalStay $stay): array => [
+                        'stay_uuid' => $stay->uuid,
+                        'episode_number' => $stay->episode?->episode_number,
+                        'patient' => trim(($stay->episode?->patient?->last_name ?? '').' '.($stay->episode?->patient?->first_name ?? '')),
+                        'service' => $stay->service,
+                        'admitted_at' => $stay->admitted_at,
+                    ])
+                    ->all(),
+            ] : null,
         ]);
     }
 
-    public function show(Request $request, HospitalStay $hospitalStay): Response
-    {
+    public function show(
+        Request $request,
+        HospitalStay $hospitalStay,
+        HospitalStaySurveillance $surveillance,
+        HospitalStayWorkstation $workstation,
+        BedDirectory $beds,
+    ): Response {
         abort_if($hospitalStay->status === HospitalStayStatus::Cancelled, 404);
 
         $user = $request->user();
 
         return Inertia::render('Hospitalization/Show', [
+            // ADR-162 — le poste de travail : note du jour, ordonnances,
+            // examens, soins, transfert, avec leurs catalogues.
+            ...$workstation->present($hospitalStay, $user),
             'stay' => $this->stay($hospitalStay),
+            // ADR-161 — l'historique des emplacements et la surveillance répétée.
+            'movements' => $surveillance->movements($hospitalStay),
+            'vitalReadings' => $user->can('vitals.view') ? $surveillance->readings($hospitalStay) : [],
+            // ADR-164 — dès que le site a configuré ses lits, l'emplacement se
+            // choisit parmi les lits libres ; sinon il reste saisi à la main.
+            'bedsConfigured' => $bedsConfigured = $beds->configured(),
+            'freeBeds' => $bedsConfigured && $hospitalStay->isActive() && $user->can('hospitalization.update')
+                ? $beds->freeBeds()
+                : [],
+            'careLevels' => collect(HospitalCareLevel::cases())
+                ->map(fn (HospitalCareLevel $level): array => ['value' => $level->value, 'label' => $level->label()])
+                ->all(),
             // ADR-147 — ce que le dossier a déjà conclu, plus ce que le séjour
             // a conclu : le médecin ne ressaisit rien pour prononcer la sortie.
             'diagnoses' => $user->can('diagnoses.view')
                 ? $this->diagnoses($hospitalStay)
                 : [],
-            // ADR-148 — les visites de service déjà faites pendant le séjour.
-            'visits' => $user->can('consultations.view')
-                ? $this->visits($hospitalStay)
+            // ADR-163 — les consultations du passage encore ouvertes : tant
+            // qu'elles le sont, le passage n'atteint pas « Sorties & règlements ».
+            // L'écran dit lesquelles, ce qui manque pour les clôturer, et les
+            // clôture d'un clic quand plus rien ne manque.
+            'openConsultations' => $user->can('consultations.view')
+                ? $this->openConsultations($hospitalStay, $user)
+                : [],
+            // ADR-160 — ce que le séjour a envoyé au bloc, et où en est chaque
+            // demande. Le fait est du parcours, servi à qui lit le séjour ; le
+            // lien vers le dossier du bloc n'est proposé qu'avec `surgery.view`.
+            'surgeries' => $this->surgeries($hospitalStay, $user),
+            'surgeryProcedures' => $user->can('surgery.request') && $hospitalStay->isActive()
+                ? $this->surgeryProcedures()
                 : [],
             'capabilities' => [
                 'can_record_diet' => $user->can('hospital_diet.record')
@@ -115,28 +208,31 @@ class HospitalizationController extends Controller
                 'can_edit_request' => $user->can('hospitalization.request') && $hospitalStay->isActive(),
                 'can_discharge' => $user->can('medical_discharge.create') && $hospitalStay->isActive(),
                 'can_add_diagnosis' => $user->can('diagnoses.create') && $hospitalStay->isActive(),
-                // ADR-148 — ouvrir une visite de service : la même autorité que
-                // prendre un patient en charge en Médecine.
-                'can_open_visit' => $user->can('consultations.create') && $hospitalStay->isActive(),
-                'can_view_visits' => $user->can('consultations.view'),
+                'can_request_surgery' => $user->can('surgery.request') && $hospitalStay->isActive(),
+                'can_move' => $user->can('hospitalization.update') && $hospitalStay->isActive(),
+                'can_view_vitals' => $user->can('vitals.view'),
+                'can_record_vitals' => $user->can('vitals.create') && $hospitalStay->isActive(),
+                'vitals_record_block' => $this->vitalsRecordBlock($user, $hospitalStay),
+                'can_correct_vitals' => $user->can('vitals.update')
+                    && $hospitalStay->episode->status === EpisodeStatus::Open,
             ],
         ]);
     }
 
-    public function update(UpdateHospitalStayRequest $request, HospitalStay $hospitalStay): RedirectResponse
-    {
-        if (! $hospitalStay->isActive()) {
-            throw ValidationException::withMessages(['room_bed' => 'Le séjour est terminé.']);
-        }
+    /**
+     * ADR-161 — corriger l'emplacement actuel, sans mutation ; ADR-164 —
+     * attribuer le premier lit après l'admission automatique.
+     */
+    public function update(
+        UpdateHospitalStayRequest $request,
+        HospitalStay $hospitalStay,
+        CorrectHospitalStayLocationAction $action,
+    ): RedirectResponse {
+        $stay = $action->execute($hospitalStay, $request->validated(), $request->user());
 
-        $clean = static fn (mixed $value): ?string => trim((string) $value) ?: null;
-
-        $hospitalStay->update([
-            'room_bed' => $clean($request->validated('room_bed')),
-            'service' => $clean($request->validated('service')),
-        ]);
-
-        return back()->with('status', 'Séjour mis à jour.');
+        return back()->with('status', $stay->hospital_bed_id
+            ? "Patient installé : {$stay->room_bed}."
+            : 'Séjour mis à jour.');
     }
 
     public function updateRequest(
@@ -150,23 +246,111 @@ class HospitalizationController extends Controller
     }
 
     /**
-     * ADR-148 — ouvrir une visite de service.
-     *
-     * Elle réutilise l'assistant Médecine tel quel : le médecin y retrouve
-     * diagnostic, ordonnance, examens et ordre de soins, avec leurs droits et
-     * leur facturation d'aujourd'hui. Aucun circuit n'est dupliqué.
+     * ADR-160 — le patient au lit descend au bloc, et garde son lit. La
+     * demande naît du séjour ; le bloc la programme.
      */
-    public function openVisit(
+    public function requestSurgery(
+        RequestSurgeryFromStayRequest $request,
+        HospitalStay $hospitalStay,
+        RequestSurgeryFromStayAction $action,
+    ): RedirectResponse {
+        $surgicalRequest = $action->execute($hospitalStay, $request->validated(), $request->user());
+
+        return back()->with('status', "Transféré au bloc : {$surgicalRequest->procedure_name}. Le patient garde son lit.");
+    }
+
+    /**
+     * ADR-163 — revenir sur un « Transférer au bloc » tant que le bloc ne l'a
+     * pas programmé. Le patient n'a jamais quitté son lit.
+     */
+    public function cancelSurgery(
         Request $request,
         HospitalStay $hospitalStay,
-        StartHospitalVisitAction $action,
+        SurgicalRequest $surgicalRequest,
+        CancelSurgeryFromStayAction $action,
     ): RedirectResponse {
-        abort_unless($request->user()->can('consultations.create'), 403);
+        abort_unless($surgicalRequest->episode_id === $hospitalStay->episode_id, 404);
 
-        $orientation = $action->execute($hospitalStay, $request->user());
+        $validated = $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
+        $action->execute($hospitalStay, $surgicalRequest, $validated['reason'] ?? null, $request->user());
 
-        return redirect("/medicine/orientations/{$orientation->uuid}/dossier")
-            ->with('status', 'Visite de service ouverte.');
+        return back()
+            ->with('status', "Transfert au bloc annulé : {$surgicalRequest->procedure_name}. Le patient reste dans son lit.")
+            ->with('status_type', 'warning');
+    }
+
+    /**
+     * ADR-163 — annuler une visite de service restée ouverte. Elle n'est pas
+     * effacée : elle reste lisible, statut « Annulée ».
+     */
+    public function cancelVisit(
+        Request $request,
+        HospitalStay $hospitalStay,
+        EpisodeOrientation $episodeOrientation,
+        CancelHospitalVisitAction $action,
+    ): RedirectResponse {
+        abort_unless($episodeOrientation->episode_id === $hospitalStay->episode_id, 404);
+
+        $validated = $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
+        $action->execute($hospitalStay, $episodeOrientation, $validated['reason'] ?? null, $request->user());
+
+        return back()
+            ->with('status', 'Visite de service annulée. Le patient reste hospitalisé.')
+            ->with('status_type', 'warning');
+    }
+
+    /**
+     * ADR-163 — clôturer depuis le séjour une consultation du passage restée
+     * ouverte, quand plus rien ne manque. La règle est celle de la clôture
+     * (ADR-076, ADR-084) : l'action refuse de toute façon si un obstacle existe.
+     */
+    public function closeConsultation(
+        Request $request,
+        HospitalStay $hospitalStay,
+        EpisodeOrientation $episodeOrientation,
+        CompleteConsultationAction $action,
+    ): RedirectResponse {
+        abort_unless(
+            $episodeOrientation->episode_id === $hospitalStay->episode_id
+                && $episodeOrientation->destination_module === CatalogModule::Medicine,
+            404,
+        );
+        $consultation = $episodeOrientation->consultation()->first();
+        abort_unless($consultation !== null, 404);
+
+        $action->execute($consultation, $request->user());
+
+        return back()->with('status', 'Consultation clôturée.');
+    }
+
+    /** ADR-161 — changement de service, de lit ou de niveau de soins. */
+    public function move(MoveHospitalStayRequest $request, HospitalStay $hospitalStay, MoveHospitalStayAction $action): RedirectResponse
+    {
+        $movement = $action->execute($hospitalStay, $request->validated(), $request->user());
+
+        return back()->with('status', 'Patient déplacé : '.$movement->care_level->label().($movement->service ? " · {$movement->service}" : '').'.');
+    }
+
+    /** ADR-161 — un relevé de surveillance. */
+    public function storeReading(StoreVitalSignReadingRequest $request, HospitalStay $hospitalStay, RecordVitalSignReadingAction $action): RedirectResponse
+    {
+        $action->record($hospitalStay, $request->validated(), $request->user());
+
+        return back()->with('status', 'Relevé enregistré.');
+    }
+
+    /** ADR-161 — corriger un relevé ; l'ancienne valeur reste à l'audit. */
+    public function updateReading(
+        StoreVitalSignReadingRequest $request,
+        HospitalStay $hospitalStay,
+        VitalSignReading $vitalSignReading,
+        RecordVitalSignReadingAction $action,
+    ): RedirectResponse {
+        abort_unless($vitalSignReading->hospital_stay_id === $hospitalStay->getKey(), 404);
+
+        $action->correct($vitalSignReading, $request->validated(), $request->user());
+
+        return back()->with('status', 'Relevé corrigé.');
     }
 
     /**
@@ -212,12 +396,12 @@ class HospitalizationController extends Controller
         return back()->with('status', 'Ligne de la fiche de régime corrigée.');
     }
 
-    public function printDiet(HospitalStay $hospitalStay): Response
+    public function printDiet(HospitalStay $hospitalStay, DietSheet $sheet): Response
     {
         abort_if($hospitalStay->status === HospitalStayStatus::Cancelled, 404);
 
         return Inertia::render('Hospitalization/DietSheetPrint', [
-            'stay' => $this->stay($hospitalStay),
+            'stay' => $sheet->present($hospitalStay),
         ]);
     }
 
@@ -231,6 +415,9 @@ class HospitalizationController extends Controller
             'admittedBy:id,name',
             'dischargedBy:id,name',
             'medicalDischarge',
+            'bed:id,uuid',
+            'medicalReferral:id,facility,departed_at',
+            'currentMovement',
             'dietEntries' => fn ($query) => $query->orderBy('served_on')->orderBy('served_time')->orderBy('id'),
             'dietEntries.recordedBy:id,name',
             'dietEntries.updatedBy:id,name',
@@ -269,10 +456,22 @@ class HospitalizationController extends Controller
             ],
             'service' => $stay->service,
             'room_bed' => $stay->room_bed,
+            // ADR-164 — le lit du référentiel, quand le site en a configuré.
+            'bed_uuid' => $stay->bed?->uuid,
             'admitted_at' => $stay->admitted_at,
             'admitted_by' => $stay->admittedBy?->name,
             'discharged_at' => $stay->discharged_at,
             'discharged_by' => $stay->dischargedBy?->name,
+            // ADR-161 — comment le séjour s'est terminé, y compris par un départ
+            // en transfert, qui ne porte aucune sortie médicale.
+            'end_reason' => $stay->end_reason?->value,
+            'end_reason_label' => $stay->end_reason?->label(),
+            'transfer' => $stay->medicalReferral ? [
+                'facility' => $stay->medicalReferral->facility,
+                'departed_at' => $stay->medicalReferral->departed_at,
+            ] : null,
+            'care_level' => $stay->currentMovement?->care_level?->value,
+            'care_level_label' => $stay->currentMovement?->care_level?->label(),
             'discharge' => $stay->medicalDischarge ? [
                 'type' => $stay->medicalDischarge->type->value,
                 'type_label' => $stay->medicalDischarge->type->label(),
@@ -335,36 +534,136 @@ class HospitalizationController extends Controller
     }
 
     /**
-     * Les visites de service du séjour, la plus récente d'abord.
+     * ADR-161 — pourquoi cet écran ne propose pas d'ajouter un relevé.
      *
-     * Ce sont de vraies consultations : la liste ne recopie donc rien de leur
-     * contenu, elle mène à l'assistant qui le porte déjà.
+     * Un cadre vide sans un mot se lit « la surveillance ne sert à rien ici » :
+     * il doit dire qui relève et, le cas échéant, quel droit manque — la même
+     * règle que les onglets verrouillés de l'ADR-158 et le refus de l'ADR-154.
+     * `null` quand le relevé est possible : l'écran affiche alors le formulaire.
+     */
+    private function vitalsRecordBlock(User $user, HospitalStay $stay): ?string
+    {
+        if (! $stay->isActive()) {
+            return 'Le séjour est terminé : la surveillance est close. Les relevés déjà pris restent lisibles.';
+        }
+
+        if (! $user->can('vitals.create')) {
+            return 'Les relevés sont pris au lit du patient par l’équipe soignante. Ajouter un relevé demande le droit « vitals.create », qui s’accorde dans Rôles & permissions.';
+        }
+
+        return null;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function surgeries(HospitalStay $stay, User $user): array
+    {
+        $canOpen = $user->can('surgery.view');
+        // ADR-163 — retirer une demande est la même autorité que la faire.
+        $canCancel = $user->can('surgery.request') && $stay->episode->status === EpisodeStatus::Open;
+
+        return SurgicalRequest::query()
+            ->where('episode_id', $stay->episode_id)
+            ->with(['surgeon:id,name', 'requestedBy:id,name', 'cancelledBy:id,name'])
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (SurgicalRequest $surgery): array => [
+                'uuid' => $surgery->uuid,
+                'procedure_name' => $surgery->procedure_name,
+                'status' => $surgery->status->value,
+                'origin' => $surgery->origin?->value,
+                'origin_label' => $surgery->origin?->label(),
+                'requested_by' => $surgery->requestedBy?->name,
+                'surgeon' => $surgery->surgeon?->name,
+                'scheduled_at' => $surgery->scheduled_at,
+                'created_at' => $surgery->created_at,
+                'cancelled_at' => $surgery->cancelled_at,
+                'cancelled_by' => $surgery->cancelledBy?->name,
+                'cancellation_reason' => $surgery->cancellation_reason,
+                'url' => $canOpen ? "/surgery/{$surgery->uuid}" : null,
+                // Annulable tant que le bloc ne l'a pas programmée (choix du
+                // propriétaire) ; une demande de la Réception ou de la
+                // Maternité se retire là où elle a été faite.
+                'can_cancel' => $canCancel
+                    && $surgery->status === SurgicalRequestStatus::Pending
+                    && CancelSurgeryFromStayAction::cancellableOrigin($surgery),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function surgeryProcedures(): array
+    {
+        return CatalogItem::query()
+            ->where('type', CatalogItemType::Service->value)
+            ->where('module', CatalogModule::Surgery->value)
+            ->where('code', 'like', 'SURG-%')
+            ->whereNull('deleted_at')
+            ->orderByRaw("code = 'SURG-OTHER'")
+            ->orderBy('name')
+            ->get(['uuid', 'code', 'name'])
+            ->map(fn (CatalogItem $item): array => ['uuid' => $item->uuid, 'code' => $item->code, 'name' => $item->name])
+            ->all();
+    }
+
+    /**
+     * ADR-163 — les consultations du passage encore ouvertes, avec ce qui manque
+     * pour les clôturer.
+     *
+     * La consultation qui a demandé l'hospitalisation, une visite de service
+     * d'avant l'ADR-162 : tant qu'une seule reste ouverte, un service a encore
+     * le patient, et le passage n'atteint pas « Sorties & règlements » après la
+     * sortie (ADR-054, ADR-084). Rien n'est clôturé à la place du médecin
+     * (ADR-076) : l'écran nomme ce qui manque, et clôture d'un clic quand plus
+     * rien ne manque.
+     *
+     * C'est la seule trace des visites sur cette page (ADR-163) : plus aucune
+     * ne s'ouvre, et celles qui sont closes ou annulées se relisent sur la page
+     * du passage, avec le reste du dossier.
      *
      * @return list<array<string, mixed>>
      */
-    private function visits(HospitalStay $stay): array
+    private function openConsultations(HospitalStay $stay, User $user): array
     {
+        $workflow = app(ConsultationWorkflow::class);
+        $canClose = $user->can('consultations.update');
+        $canCancelVisit = $user->can('consultations.create') && $stay->episode->status === EpisodeStatus::Open;
+
         return Consultation::query()
             ->where('episode_id', $stay->episode_id)
-            ->whereHas('orientation', fn ($query) => $query
-                ->where('destination_module', CatalogModule::Medicine->value)
-                ->where('source_module', CatalogModule::Hospitalization->value))
-            ->with(['orientation:id,uuid,status', 'doctor:id,name'])
-            ->withCount(['diagnoses', 'prescriptions'])
-            ->orderByDesc('id')
+            ->whereIn('status', ConsultationStatus::editableValues())
+            ->whereHas('orientation', fn ($query) => $query->where('destination_module', CatalogModule::Medicine->value))
+            ->with(['orientation:id,uuid,source_module,destination_module,accepted_by', 'doctor:id,name'])
+            ->orderBy('id')
             ->get()
-            ->map(fn (Consultation $visit): array => [
-                'uuid' => $visit->uuid,
-                'url' => "/medicine/orientations/{$visit->orientation->uuid}/dossier",
-                'status' => $visit->status?->value,
-                'is_open' => $visit->isEditable(),
-                'doctor' => $visit->doctor?->name,
-                'consulted_at' => $visit->consulted_at,
-                'completed_at' => $visit->completed_at,
-                'chief_complaint' => $visit->chief_complaint,
-                'diagnoses_count' => $visit->diagnoses_count,
-                'prescriptions_count' => $visit->prescriptions_count,
-            ])
+            ->map(function (Consultation $consultation) use ($stay, $user, $workflow, $canClose, $canCancelVisit): array {
+                $orientation = $consultation->orientation;
+                $isVisit = CancelHospitalVisitAction::isVisit($orientation);
+                $isAdmission = ! $isVisit && $stay->hospitalization_request_id !== null
+                    && $consultation->orientations()->where('hospitalization_request_id', $stay->hospitalization_request_id)->exists();
+                $blockers = $workflow->closureBlockerMessages($consultation);
+                // ADR-163 — une visite de service ne se clôture pas toujours :
+                // ouverte par erreur, elle s'annule tant qu'elle n'a rien
+                // produit. Ce qui l'en empêche est dit avant le clic.
+                $cancelBlockers = $isVisit ? CancelHospitalVisitAction::blockers($consultation) : [];
+                $mine = $orientation->accepted_by === null || $orientation->accepted_by === $user->getKey();
+
+                return [
+                    'uuid' => $orientation->uuid,
+                    'kind' => $isVisit ? 'VISIT' : ($isAdmission ? 'ADMISSION' : 'CONSULTATION'),
+                    'kind_label' => $isVisit
+                        ? 'Visite de service'
+                        : ($isAdmission ? 'Consultation qui a demandé l’hospitalisation' : 'Consultation'),
+                    'doctor' => $consultation->doctor?->name,
+                    'consulted_at' => $consultation->consulted_at,
+                    'url' => "/medicine/orientations/{$orientation->uuid}/cloture",
+                    'closure_blockers' => $blockers,
+                    'can_close' => $canClose && $blockers === [],
+                    'cancel_blockers' => $cancelBlockers,
+                    'can_cancel' => $isVisit && $canCancelVisit && $mine && $cancelBlockers === [],
+                    'cancel_reserved_to_author' => $isVisit && ! $mine,
+                ];
+            })
             ->values()
             ->all();
     }

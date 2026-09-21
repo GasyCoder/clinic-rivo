@@ -48,9 +48,13 @@ class SaveCareRecordAction
     /**
      * @param  array<string, mixed>  $data
      */
-    public function execute(EpisodeOrientation $orientation, array $data, User $actor): CareRecord
-    {
-        return DB::transaction(function () use ($orientation, $data, $actor): CareRecord {
+    public function execute(
+        EpisodeOrientation $orientation,
+        array $data,
+        User $actor,
+        ?CareCompletionMode $destination = null,
+    ): CareRecord {
+        return DB::transaction(function () use ($orientation, $data, $actor, $destination): CareRecord {
             $locked = EpisodeOrientation::query()
                 ->with(['episode.careRecord', 'episode.patient.allergies', 'episode.serviceRequests'])
                 ->lockForUpdate()
@@ -78,7 +82,7 @@ class SaveCareRecordAction
             // conserve `ensureWorkable()` et refuse une orientation déjà
             // terminée (ADR-085) — la dupliquer ici la ferait diverger.
 
-            $this->guardWorkflowFields($locked->episode, $data);
+            $this->guardWorkflowFields($locked->episode, $data, $destination);
 
             $procedures = collect($data['procedures'] ?? []);
             $consumables = collect($data['consumables'] ?? [])
@@ -210,7 +214,7 @@ class SaveCareRecordAction
     }
 
     /** @param array<string, mixed> $data */
-    private function guardWorkflowFields(Episode $episode, array $data): void
+    private function guardWorkflowFields(Episode $episode, array $data, ?CareCompletionMode $destination = null): void
     {
         foreach (['hospitalization_reason', 'hospitalized_at', 'discharged_at'] as $field) {
             if (filled($data[$field] ?? null)) {
@@ -220,7 +224,7 @@ class SaveCareRecordAction
             }
         }
 
-        if (! $this->careWorkflow->expectsMedicalTransmission($episode)
+        if (! $this->careWorkflow->expectsMedicalTransmission($episode, $destination)
             && (filled($data['diagnostic_note'] ?? null) || filled($data['transmission_reason'] ?? null))) {
             throw ValidationException::withMessages([
                 'transmission_reason' => 'Ce parcours se termine aux Soins et ne prévoit pas de transmission vers Médecine.',

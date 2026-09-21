@@ -26,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * written by the sending doctor would claim a fact nobody observed.
  */
 #[Fillable([
-    'episode_id', 'consultation_id', 'episode_orientation_id',
+    'episode_id', 'hospital_stay_id', 'consultation_id', 'episode_orientation_id',
     'facility', 'reason', 'diagnosis', 'clinical_summary', 'treatments_given',
     'priority', 'recommendations', 'notes',
     'status', 'referred_by', 'referred_at',
@@ -93,5 +93,11 @@ class MedicalReferral extends Model
     protected function auditModule(): ?string
     {
         return 'medical';
+    }
+
+    /** ADR-162 — la demande faite depuis le séjour, sans consultation. */
+    public function hospitalStay(): BelongsTo
+    {
+        return $this->belongsTo(HospitalStay::class);
     }
 }

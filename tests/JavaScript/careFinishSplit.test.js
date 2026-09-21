@@ -41,5 +41,8 @@ test('les points de vigilance sont épinglés en bas du panneau de gauche, repli
 });
 
 test('sans transmission, le récapitulatif garde toute la largeur même avec des points de vigilance', () => {
-    assert.match(sheet, /const hasSideColumn = computed\(\(\) => Boolean\(props\.orientation\.episode\.care_transmission_expected\)\)/);
+    // ADR-166 — la colonne suit la suite choisie : un patient terminé aux Soins
+    // n'a pas de transmission, un patient envoyé au médecin en a une.
+    assert.match(sheet, /const hasSideColumn = computed\(\(\) => transmissionVisible\.value\)/);
+    assert.match(sheet, /<section v-if="transmissionVisible" aria-labelledby="care-transmission-title"/);
 });

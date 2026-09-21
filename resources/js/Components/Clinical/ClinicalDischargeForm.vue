@@ -45,6 +45,12 @@ const props = defineProps({
     diagnosisHint: { type: String, default: 'Aucun diagnostic posé : ajoutez-le dans « 1 · Diagnostic » ci-dessus, il apparaîtra ici déjà coché.' },
     disabled: { type: Boolean, default: false },
     cancellable: { type: Boolean, default: true },
+    /**
+     * Le formulaire partage la ligne avec une colonne de repères (séjour,
+     * ADR-162) : sa largeur n'est plus celle de l'écran, et trois colonnes de
+     * consignes n'y tiennent qu'à partir des très grands écrans.
+     */
+    narrow: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['submit', 'cancel']);
@@ -399,10 +405,11 @@ const legendClass = 'mb-3 text-[11px] font-semibold uppercase tracking-wide text
              n'ont pas de destinataire (ADR-107). -->
         <section v-if="!isDeceased" :class="sectionClass">
             <p :class="legendClass">3 · Consignes remises au patient</p>
-            <div class="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+            <div :class="['grid gap-5 lg:grid-cols-2', narrow ? '2xl:grid-cols-3' : 'xl:grid-cols-3']">
             <!-- Traitement de sortie : l'ordonnance, cochée d'office -->
             <div>
-                <p :class="labelClass">Traitement de sortie <span class="font-normal text-muted-foreground">· repris de l’ordonnance</span></p>
+                <p :class="labelClass">Traitement de sortie</p>
+                <p class="-mt-1 mb-1.5 text-[11px] text-muted-foreground">{{ prescriptionLines.length ? 'Repris de l’ordonnance : décochez ce qui s’arrête.' : 'Repris de l’ordonnance.' }}</p>
                 <div v-if="prescriptionLines.length" class="space-y-1.5">
                     <button
                         v-for="line in prescriptionLines"

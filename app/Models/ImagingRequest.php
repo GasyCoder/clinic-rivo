@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * stay owned by Médecine — no cross-module EpisodeOrientation is created.
  */
 #[Fillable([
-    'episode_id', 'consultation_id', 'source_orientation_id',
+    'episode_id', 'hospital_stay_id', 'consultation_id', 'source_orientation_id',
     'requested_by', 'notes', 'requested_at',
     'cancelled_at', 'cancelled_by', 'cancel_reason',
     'archived_at', 'archived_by',
@@ -89,5 +89,11 @@ class ImagingRequest extends Model
     protected function auditModule(): ?string
     {
         return 'clinical_flow';
+    }
+
+    /** ADR-162 — la demande faite depuis le séjour, sans consultation. */
+    public function hospitalStay(): BelongsTo
+    {
+        return $this->belongsTo(HospitalStay::class);
     }
 }

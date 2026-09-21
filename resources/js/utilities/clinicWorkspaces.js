@@ -83,8 +83,10 @@ export const CLINIC_WORKSPACES = [
     { key: 'laboratory', group: 'clinical', text: 'Laboratoire', description: 'Demandes et résultats d’analyses', icon: FlaskConical, link: '/laboratory', permission: 'laboratory_orders.view', tone: 'cyan' },
     // care.view alone also powers the read-only projection embedded in
     // Médecine/Chirurgie's own dossier pages (ADR-048/054) — gating on
-    // care.update keeps the Soins queue for the role that operates it.
-    { key: 'care', group: 'clinical', text: 'Soins', description: 'Constantes et fiches de soins', icon: Bandage, link: '/care', permission: 'care.update', tone: 'green' },
+    // ADR-157 — la file appartient à qui FAIT les soins : `care.create`.
+    // `care.update` ne suffit pas — Médecine l'a pour corriger une fiche
+    // depuis sa consultation (ADR-093), pas pour entrer dans la file.
+    { key: 'care', group: 'clinical', text: 'Soins', description: 'Constantes et fiches de soins', icon: Bandage, link: '/care', permission: 'care.create', tone: 'green' },
     { key: 'maternity', group: 'clinical', text: 'Maternité', description: 'Suivi et actes de Maternité', icon: Heart, link: '/maternity', permission: 'maternity.view', tone: 'yellow' },
     { key: 'surgery', group: 'clinical', text: 'Chirurgie', description: 'Demandes et suivi du Bloc', icon: Scissors, link: '/surgery', permission: 'surgery.view', tone: 'yellow' },
     { key: 'anesthesia', group: 'clinical', text: 'Anesthésie', description: 'Évaluations anesthésiques', icon: Syringe, link: '/anesthesia', permission: 'anesthesia.view', tone: 'cyan' },
@@ -226,7 +228,7 @@ export const ROLE_FOCUS = {
     },
     NURSE: {
         lead: 'Vos patients en attente aux Soins et les fiches du jour.',
-        primary: { label: 'Ouvrir la file Soins', link: '/care', icon: Bandage, permission: 'care.update' },
+        primary: { label: 'Ouvrir la file Soins', link: '/care', icon: Bandage, permission: 'care.create' },
         shortcuts: ['maternity', 'anesthesia', 'patients'],
         metrics: ['care_records_today', 'passages_today'],
     },

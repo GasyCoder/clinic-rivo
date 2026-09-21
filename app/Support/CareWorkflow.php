@@ -3,9 +3,12 @@
 namespace App\Support;
 
 use App\Enums\CareCompletionMode;
+use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\ReceptionRoutingMode;
 use App\Models\Episode;
+use App\Models\EpisodeOrientation;
 use Illuminate\Support\Collection;
 
 /**
@@ -36,10 +39,37 @@ class CareWorkflow
             : CareCompletionMode::Finish;
     }
 
-    public function expectsMedicalTransmission(Episode $episode): bool
+    /**
+     * `$chosen` : la suite que l'infirmier a choisie à l'étape Terminer
+     * (ADR-166). Envoyer vers Médecine un patient prévu aux Soins seuls ouvre
+     * la transmission ; sans choix, c'est le parcours prévu qui décide.
+     */
+    public function expectsMedicalTransmission(Episode $episode, ?CareCompletionMode $chosen = null): bool
     {
-        return $episode->priority === EpisodePriority::Emergency
+        return $chosen === CareCompletionMode::Medicine
+            || $episode->priority === EpisodePriority::Emergency
             || $this->completionMode($episode) !== CareCompletionMode::Finish;
+    }
+
+    /**
+     * Médecine a déjà ce patient pour ce passage — en attente, en cours ou
+     * terminé : une urgence ouvre les deux files d'emblée, et un médecin a pu
+     * clôturer avant la fin des Soins. Seule une orientation retirée ne compte
+     * pas (ADR-085). Un seul endroit pour la règle : l'écran et l'action de
+     * fin des Soins la lisent tous deux.
+     */
+    public function medicineAlreadyInvolved(Episode $episode, bool $forUpdate = false): bool
+    {
+        $query = EpisodeOrientation::query()
+            ->where('episode_id', $episode->getKey())
+            ->where('destination_module', CatalogModule::Medicine->value)
+            ->where('status', '!=', EpisodeOrientationStatus::Cancelled->value);
+
+        if ($forUpdate) {
+            $query->lockForUpdate();
+        }
+
+        return $query->exists();
     }
 
     public function recommendsRoutineVitals(Episode $episode): bool

@@ -25,9 +25,34 @@ class CareQueueTabsTest extends TestCase
     private function nurse(): User
     {
         $role = Role::query()->firstOrCreate(['code' => 'NURSE'], ['name' => 'NURSE']);
-        $role->permissions()->syncWithoutDetaching([Permission::query()->firstOrCreate(['name' => 'care.view'])->id]);
+        // ADR-157 — la file appartient à qui fait les soins (`care.create`).
+        foreach (['care.view', 'care.create'] as $name) {
+            $role->permissions()->syncWithoutDetaching([Permission::query()->firstOrCreate(['name' => $name])->id]);
+        }
 
         return User::factory()->create(['role_id' => $role->id]);
+    }
+
+    /**
+     * ADR-157 — un compte Médecine voyait la file des infirmières. Il détient
+     * `care.update` pour corriger une fiche depuis sa consultation (ADR-093),
+     * et l'entrée de menu comme la route s'y adossaient : le droit de corriger
+     * devenait un droit d'entrer dans l'espace de l'autre métier.
+     */
+    public function test_the_nurses_queue_is_not_opened_by_the_right_to_correct_a_record(): void
+    {
+        $role = Role::query()->firstOrCreate(['code' => 'MEDICINE'], ['name' => 'MEDICINE']);
+
+        foreach (['care.view', 'care.update', 'vitals.view', 'vitals.update'] as $name) {
+            $role->permissions()->syncWithoutDetaching([Permission::query()->firstOrCreate(['name' => $name])->id]);
+        }
+
+        $doctor = User::factory()->create(['role_id' => $role->id]);
+
+        $this->actingAs($doctor)->get('/care')->assertForbidden();
+
+        // Le soignant, lui, y entre : c'est lui qui ouvre les fiches.
+        $this->actingAs($this->nurse())->get('/care')->assertOk();
     }
 
     private function episode(string $last): Episode

@@ -77,6 +77,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Estimation chiffrant les deux rayons avec leurs sous-totaux séparés, sans rien créer
 - [x] Passage « médicaments seuls » : aucune file clinique, `PENDING_SETTLEMENT` et bascule directe à la Caisse avec son ticket
 - [x] Vente comptoir anonyme retirée : toute vente de médicament passe par la Réception sur un dossier patient ; `pharmacy.counter_sales.create` déplacée de PHARMACY vers RECEPTION
+- [x] Un acte du bloc peut être la raison de la venue : la Réception l'inscrit et le bloc reçoit sa demande à programmer (ADR-159) ; sans tarif configuré, la demande part et la facturation attend (ADR-031)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
@@ -183,6 +184,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Fiche de soins à cinq étapes : la transmission à Médecine, facultative, rejoint « Terminer » au lieu d'avoir son propre écran (ADR-123)
 - [x] Patient pris en charge par erreur aux Soins : « Remettre en file » le replace à sa place tant qu'aucun soin n'est enregistré, audité (ADR-122)
 - [x] Patient pris en charge par erreur en Médecine : « Remettre en file » le replace à sa place tant que la consultation est vierge, audité (ADR-127)
+- [x] Les trois profils Soins (Infirmière, Maternité, Anesthésie) sont toujours affichés : celui sans droit est verrouillé et nomme la permission, au lieu d'être masqué — la barre disparue faisait lire l'écran comme une version ancienne (ADR-158)
+- [x] La file Soins s'ouvre avec `care.create` (faire les soins), plus avec `care.update` : un compte Médecine, qui l'a pour corriger une fiche (ADR-093), entrait dans l'espace des infirmières (ADR-157)
+- [x] La suite des Soins se choisit à l'étape Terminer : un patient attendu en Médecine se termine aux Soins avec un motif obligatoire (tracé, visible dans le parcours), un patient prévu aux Soins seuls s'envoie au médecin avec sa transmission ; la consultation prévue reste facturée (ADR-166)
+- [ ] Besoin inconnu terminé aux Soins sans Médecine : le passage reste « en soins » (ADR-054 ne vaut que pour Soins seuls) — à décider (ADR-166)
 - [x] File Soins réduite à deux onglets — À prendre aux Soins / Orientés en attente du médecin : les patients déjà accueillis par le médecin quittent la page pour le module Patients (ADR-124)
 - [x] File Soins : prendre un patient qui n'est pas le premier demande confirmation, comme en Médecine — règle et fenêtre partagées, rien n'est bloqué (ADR-121)
 - [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
@@ -275,7 +280,46 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Une seule sortie médicale, prononcée dans la consultation (« Décision & clôture » › Sortie médicale) : elle termine le séjour dans la même transaction, et le second formulaire du module Hospitalisation est retiré (ADR-156, renverse ADR-149/152)
 - [x] ~~Une visite de service ouverte retient la sortie d'hospitalisation~~ — sans objet (ADR-156) : la sortie est prononcée dans la visite : elle restait « En cours » après la sortie, gardait une orientation Médecine active et empêchait le passage d'atteindre « Sorties & règlements » (ADR-155)
 - [x] Une visite laissée ouverte par une sortie déjà prononcée se clôture enfin : la sortie se lit sur le passage, plus seulement sur sa consultation (ADR-155, ADR-107)
-- [ ] Gestion des lits, tour de salle en lot, prescription permanente reconduite, forfait journalier — aucune règle définie (ADR-113, ADR-148)
+- [x] Transférer au bloc depuis le séjour : le patient garde son lit (séjour ACTIVE, passage HOSPITALIZED), demande PENDING d'origine « Hospitalisation », intervention choisie, service/chambre/diagnostic d'entrée repris sans ressaisie (ADR-160)
+- [x] Défaut évité : passer par la consultation d'origine encore ouverte annulait le séjour — le patient perdait son lit (ADR-160)
+- [x] Le bloc et l'anesthésie savent qu'un lit attend : bandeau sur la fiche, pastille dans la file, lien vers le séjour avec `hospitalization.view` ; la page du séjour suit ses passages au bloc (ADR-160)
+- [ ] Paramètres du bloc / de l'anesthésie « selon les modèles » — captures attendues de la clinique (ADR-160)
+- [x] Transfert externe : le séjour se termine au départ du patient, constaté dans Transferts ; un seul circuit pour un patient au lit — la sortie « Transfert » ne lui est plus proposée (ADR-161)
+- [x] Motif de fin de chaque séjour (domicile, transfert, à la demande, refus, décès), repris pour les séjours déjà terminés depuis leur sortie réelle (ADR-161)
+- [x] Emplacements du séjour : historique service / lit / niveau de soins, « Changer de service / lit » distinct de « Corriger » ; mutation en réanimation ou surveillance continue sans quitter le séjour (ADR-161)
+- [x] Surveillance répétée des constantes pendant le séjour, bornes et repères de la fiche Soins, relevés corrigeables et tracés (ADR-161)
+- [x] L'onglet Surveillance nomme qui relève et le droit manquant au lieu d'un cadre vide ; un relevé est saisi à la main, jamais alimenté par un autre circuit (ADR-161, amendement du 2026-09-21)
+- [ ] `vitals.create` au socle `MEDICINE` — un médecin qui examine au lit prend la tension ; se coche depuis le portail (ADR-064), décision du propriétaire
+- [x] Le séjour, poste de travail du patient hospitalisé : onglets Vue d'ensemble / Notes / Ordonnances / Examens / Soins / Surveillance / Régime / Bloc / Sortie, chaque geste par l'action existante (`executeForStay`), sans rouvrir de consultation (ADR-162)
+- [x] Note du jour S/O/A/P, append-only, droits `hospital_notes.view` / `.create` (ADR-162)
+- [x] Ordonnance du séjour délivrée au service sans attendre le règlement ; la facture rejoint « Sorties & règlements » (ADR-162, amende ADR-049)
+- [x] Sortie médicale d'un patient hospitalisé prononcée sur la page du séjour, et là seulement ; refusée depuis une consultation tant que le séjour est actif (ADR-162, renverse ADR-156)
+- [x] Ajouter un diagnostic depuis l'étape Sortie, sans renvoi vers un autre onglet : les diagnostics consignés restent cochés, le nouveau arrive coché (ADR-162, amendement du 2026-09-21)
+- [x] Diagnostic final multi-lignes lu ligne par ligne à la sortie : la liste cochée n'est plus enregistrée comme un diagnostic de plus (ADR-162, amendement du 2026-09-21)
+- [x] Étape Sortie à deux colonnes : formulaire pleine largeur et colonne « Repères du séjour » — séjour, allergies, dernier relevé, avant de conclure (ADR-162, amendement du 2026-09-21)
+- [x] Transfert depuis le séjour : les autres sites de la clinique proposés dans une liste, « Autre établissement… » pour une saisie libre ; liste des sites calculée une seule fois (`ClinicSites`) (ADR-162, amendement du 2026-09-21)
+- [x] Bande des constantes (consultation, séjour, Maternité) ramenée à une seule ligne : 48 px au lieu de ~150 sur ordinateur, 146 au lieu de ~250 sur téléphone ; flèche, libellé écrit et aria-label conservés, le décompte des anomalies ouvre le détail
+- [x] Visite de service retirée ; les visites déjà ouvertes restent lisibles (ADR-162)
+- [x] Retirer une analyse / une imagerie depuis le séjour, avec la facturation qu'elle avait portée (ADR-163)
+- [x] Propositions d'ordonnance (ADR-111) pour le séjour, sur les diagnostics du passage, origine revérifiée (ADR-163)
+- [x] Annuler un transfert au bloc depuis le séjour tant que le bloc ne l'a pas programmé ; la conduite « Chirurgie » d'une consultation suit (ADR-163)
+- [x] Annuler une visite de service restée ouverte, sans l'effacer, tant qu'elle n'a rien produit ; sinon la clôturer (ADR-163)
+- [x] Carte « Visites de service » retirée du séjour : une visite ouverte paraît parmi les consultations à conclure, une visite close se relit sur la page du passage (ADR-163)
+- [x] Annuler un transfert externe demandé depuis le séjour tant que le patient n'est pas parti (ADR-163)
+- [x] Consultations du passage restées ouvertes signalées sur le séjour, avec ce qui manque et une clôture d'un clic (ADR-163)
+- [x] Le séjour ne s'annule plus dès qu'il a eu lieu (note, ordonnance, examen, relevé, bloc…) : piège de l'ADR-160 fermé (ADR-163)
+- [x] Retirer une demande en consultation annule enfin ce qu'elle avait facturé ; la prestation de la Réception n'est jamais annulée et se libère (ADR-163)
+- [ ] Déprogrammer une intervention côté bloc, et prise en charge / fin de l'orientation vers le bloc — non définis (ADR-163)
+- [ ] Lot 2 (reste) : plan de prise en charge, médecin référent (ADR-161)
+- [ ] À décider : traitement hospitalier et délivrance sans attendre le paiement, référentiel des lits, évasion pendant le séjour, compte rendu d'hospitalisation, facturation du séjour, paramètres de surveillance supplémentaires (ADR-161)
+- [x] Services, chambres et lits par site, réglés depuis le portail par l'API du site : chambre créée avec son nombre de lits, lits renommables, ajoutables, hors service avec motif, archivables (ADR-164)
+- [x] Un lit occupé ne peut pas être donné à un autre patient : occupation lue sur les séjours en cours, garantie par un index unique en base et un verrou, refus qui nomme l'occupant ; lit libéré à toute fin de séjour (ADR-164)
+- [x] Séjour ouvert « lit à attribuer », puis « Attribuer un lit » / « Changer de lit » parmi les lits libres ; niveau de soins repris du service ; onglet « Plan des lits » dans `/hospitalisation` (ADR-164)
+- [x] Texte libre de l'ADR-113 conservé tant qu'un site n'a configuré aucun lit, refusé côté serveur ensuite ; instantanés `service` / `room_bed` jamais réécrits (ADR-164)
+- [x] Liste des hospitalisés en shadcn avec icônes et sélection multiple (50 au plus) : tour de salle en paysage, fiches de régime et dossiers médicaux groupés (une feuille par page, les mêmes que l'impression unitaire), export Excel audité — jamais d'action clinique en lot (ADR-165)
+- [x] Droit dédié `hospitalization.export`, accordé à Médecine et Soins, pas à la Réception (ADR-165)
+- [ ] Configurer les services, chambres et lits de chaque site en production depuis le portail — tant qu'aucun n'existe, le site reste en texte libre (ADR-164)
+- [ ] Tour de salle en lot, prescription permanente reconduite, forfait journalier, réservation d'un lit pour une admission future — aucune règle définie (ADR-113, ADR-148, ADR-164)
 - [x] Module Pédiatrie simple (ADR-114) : file, prise en charge, sortie médicale rattachée à la consultation d'origine
 - [ ] Fiche pédiatrique — aucune fournie par la clinique, rien n'est inventé (ADR-114)
 - [x] Conduite à tenir vers un module transmise en un clic (Maternité, Pédiatrie, Transfert) ; Chirurgie : intervention choisie, diagnostic/hypothèse généré du dossier (ADR-114)
@@ -388,6 +432,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Tâches Pharmacie sur la Vue d'ensemble, plus de second accueil
 - [x] Entrée de stock filtrée par fournisseur, prix fournisseur actuel pré-rempli
 - [x] Simulation locale de l'approvisionnement (prix, catalogues, commandes, réceptions, facture)
+- [x] Médicaments d'essai de nouveau chargés par `migrate:fresh --seed` (38 fictifs : injectables, solutés, contraception, matériel), créés une seule fois et jamais réécrits (ADR-086, ADR-163)
 - [x] Page unique « Médicaments & stock » et page « Achats » à onglets (Commandes, À réceptionner, Réceptions, Factures)
 - [x] Entrée de stock par livraison : liste relue et modifiable, enregistrement atomique en une fois
 - [x] Inventaire par feuille de comptage imprimable, ajustements seulement sur les écarts
@@ -425,6 +470,15 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 # Phase 5 — Chirurgie
 
 - [x] Demande chirurgie
+- [x] Onze actes du récapitulatif « Revenus » de la clinique ajoutés au référentiel (abcès, ectopie testiculaire, furoncles, hernie inguinale et inguino-scrotale, invagination, kyste sous-cutané, plaie linéaire, torsion du cordon, volvulus, cystostomie de dérivation) — sans tarif : le prix appartient au Super Admin (ADR-024)
+- [x] Chirurgie · la file se lit comme les autres espaces : en-tête `SoinsWorkspaceHeader`, quatre vues exclusives en cartes-filtres (À programmer / Programmées / Au bloc / Terminées) comptées par le serveur, tableau et pastilles shadcn (ADR-099, ADR-135)
+- [x] La demande du bloc naît à la Réception (acte = raison de la venue) ou en consultation (conduite à tenir) ; le bloc ne crée plus de dossier — `/surgery/create` retiré et redirigé vers la file (ADR-159)
+- [x] `SURGERY_DIRECT` : un acte du bloc sélectionné à l'arrivée ouvre l'orientation `RECEPTION → SURGERY` **et** sa demande `PENDING`, idempotente, sur le modèle des analyses (ADR-068)
+- [x] 37 actes rendus sélectionnables à la Réception — « Autres », la césarienne (ADR-067), la consultation chirurgicale et la petite chirurgie écartées ; migration listant les codes explicitement, jamais tout le module (ADR-052, ADR-064)
+- [x] Origine de chaque demande affichée et tracée (`surgical_requests.origin` : Réception / Médecine / Maternité), nullable et jamais rétro-remplie ; état vide expliquant les deux chemins (ADR-159)
+- [x] Les trois garanties du catalogue (instantané du libellé, « Autres » à préciser, module respecté) déplacées sur la correction au bloc (`PUT /surgery/{demande}`) et testées là
+- [ ] Chirurgie · Show.vue (assistant 5 étapes) et les 10 composants de fiches à passer à shadcn
+- [ ] Pédiatrie · Index et Show à passer à shadcn
 - [x] Programmation
 - [x] Référentiel contrôlé des interventions avec choix « Autres » documenté
 - [x] Espaces Chirurgie et Anesthésie séparés par permission, dossier partagé
@@ -568,6 +622,7 @@ admin.rivo.mg
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
 - [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)
 - [x] Commandes (créer, envoyer, annuler) et factures (enregistrer avec document, archiver, restaurer) depuis le portail ; réception réservée au site
+- [x] Services, chambres et lits de chaque site : écran portail `/super-admin/hospital-beds`, par l'API du site, sans jamais afficher le nom d'un patient (ADR-164)
 - [x] Espace Fournisseurs pharmacie entièrement en shadcn (ADR-099) : index en dossiers avec vue liste, création et import en fenêtres, et les quatorze pages de détail migrées avec leurs composants partagés
 - [x] Portail Super Administration entièrement en shadcn (ADR-099) : les 36 écrans et les composants partagés (`PageHeader`, `IconInput`, `Card`, `Breadcrumb`, `EmptyState`, `Explorer*`, `FolderCard`, `FormSection`, `ValidationErrorSummary`) quittent la police d'icônes et la palette DashWind, sans changer aucun contrat de props
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste

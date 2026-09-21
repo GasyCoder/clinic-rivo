@@ -190,7 +190,7 @@ class PortalTest extends TestCase
                 ->component('SuperAdmin/Workspace')
                 ->where('workspace.code', 'FINANCE')
                 ->where('workspace.areas.2', 'Revenus chirurgie par acte')
-                ->has('workspace.surgical_revenue_rows', 28)
+                ->has('workspace.surgical_revenue_rows', 39)
                 ->where('workspace.surgical_revenue_rows.0.name', 'Adénome prostatique')
                 ->where('workspace.surgical_revenue_rows.0.actual', null)
                 ->where('workspace.surgical_revenue_rows.0.unpaid_debt', null));

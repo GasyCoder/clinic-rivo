@@ -16,6 +16,11 @@ enum ReceptionRoutingMode: string
     case CareOnly = 'CARE_ONLY';
     case LaboratoryDirect = 'LABORATORY_DIRECT';
     case MaternityDirect = 'MATERNITY_DIRECT';
+    // ADR-159 — un acte du bloc peut être la raison même de la venue : la
+    // Réception l'inscrit alors comme elle inscrit une analyse ou un acte de
+    // Maternité (ADR-068). Le bloc reçoit une demande, jamais un dossier
+    // qu'il aurait ouvert lui-même.
+    case SurgeryDirect = 'SURGERY_DIRECT';
 
     public function label(): string
     {
@@ -25,6 +30,7 @@ enum ReceptionRoutingMode: string
             self::CareOnly => 'Soins uniquement',
             self::LaboratoryDirect => 'Laboratoire directement',
             self::MaternityDirect => 'Maternité directement',
+            self::SurgeryDirect => 'Chirurgie directement',
         };
     }
 
@@ -43,6 +49,7 @@ enum ReceptionRoutingMode: string
         return match ($this) {
             self::LaboratoryDirect => CatalogModule::Laboratory,
             self::MaternityDirect => CatalogModule::Maternity,
+            self::SurgeryDirect => CatalogModule::Surgery,
             default => null,
         };
     }

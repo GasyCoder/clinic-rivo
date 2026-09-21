@@ -38,6 +38,12 @@ final class CareRequestSummary
      */
     public static function followUp(Collection $orders): array
     {
+        // ADR-162 — des soins demandés depuis le séjour : le patient retourne
+        // à son lit, il ne « sort » pas après les soins.
+        if ($orders->isNotEmpty() && $orders->every(fn (CareOrder $order) => $order->hospital_stay_id !== null)) {
+            return ['code' => 'STAY_IN_BED', 'label' => 'Le patient reste hospitalisé après les soins'];
+        }
+
         return $orders->contains(fn (CareOrder $order) => $order->requires_return_to_medicine)
             ? ['code' => 'RETURN_TO_MEDICINE', 'label' => 'Retour en Médecine prévu après les soins']
             : ['code' => 'DIRECT_EXIT', 'label' => 'Sortie directe après les soins (sans retour en Médecine)'];

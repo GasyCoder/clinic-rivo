@@ -35,7 +35,7 @@ class CareQueueRequestSummaryTest extends TestCase
     {
         $role = Role::query()->firstOrCreate(['code' => 'NURSE'], ['name' => 'NURSE']);
 
-        foreach (['care.view', ...$extra] as $name) {
+        foreach (['care.view', 'care.create', ...$extra] as $name) {
             $role->permissions()->syncWithoutDetaching([Permission::query()->firstOrCreate(['name' => $name])->id]);
         }
 

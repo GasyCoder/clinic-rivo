@@ -24,6 +24,7 @@ import {
     Search,
     Send,
     ShieldCheck,
+    Stethoscope,
     Trash2,
     Undo2,
     X,
@@ -37,6 +38,7 @@ import FormError from '@/Components/UI/FormError.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
 import ClinicalPatientHeader from '@/Components/Clinical/ClinicalPatientHeader.vue';
 import { formatDateTime } from '@/utilities/date';
 
@@ -59,6 +61,8 @@ const props = defineProps({
     consumableRequests: { type: Array, default: () => [] },
     careOrders: { type: Array, default: () => [] },
     hasActiveMedicineOrientation: { type: Boolean, default: false },
+    medicineAlreadyInvolved: { type: Boolean, default: false },
+    completionReason: { type: String, default: null },
     latestDiagnosis: { type: Object, default: null },
     capabilities: Object,
 });
@@ -167,6 +171,10 @@ const form = useForm({
     diagnostic_note: props.orientation.episode.care_transmission_expected ? (props.careRecord?.diagnostic_note ?? '') : '',
     transmission_reason: props.orientation.episode.care_transmission_expected ? (props.careRecord?.transmission_reason ?? '') : '',
     no_procedure_reason: props.careRecord?.no_procedure_reason ?? '',
+    // ADR-166 — la suite des Soins, pré-remplie selon le parcours prévu et
+    // modifiable à l'étape Terminer. Vide pour un besoin encore inconnu.
+    care_outcome: ({ MEDICINE: 'MEDICINE', FINISH: 'FINISH' })[props.orientation.episode.care_completion_mode] ?? '',
+    care_finish_reason: '',
     procedures: initialRequestedProcedures,
     // ADR-072 — material used, saved with the acts in one submission.
     consumables: initialSuggestedConsumables,
@@ -181,6 +189,15 @@ const formEl = ref(null);
 // scoped to this account, so nothing clinical is left in a shared browser
 // and no one inherits another nurse's unvalidated values.
 const DRAFT_KEYS = Object.keys(form.data());
+
+// Ce qu'il y aurait à enregistrer, hors choix de la suite : pris avant la
+// restauration du brouillon, pour qu'une saisie restaurée compte comme une
+// saisie. Changer seulement la suite ne doit jamais créer une fiche vide.
+const OUTCOME_KEYS = ['care_outcome', 'care_finish_reason'];
+const recordSnapshot = (data) => JSON.stringify(
+    Object.fromEntries(Object.entries(data).filter(([key]) => !OUTCOME_KEYS.includes(key))),
+);
+const savedRecordSnapshot = ref(recordSnapshot(form.data()));
 const draftSavedAt = ref(props.careRecordDraft?.updated_at ?? null);
 const draftRestored = ref(false);
 const draftSaving = ref(false);
@@ -315,7 +332,7 @@ const warningPillClass = (tone) => ({
     danger: 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300',
     warning: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200',
 }[tone] ?? 'border-border bg-muted/40 text-foreground');
-const hasSideColumn = computed(() => Boolean(props.orientation.episode.care_transmission_expected));
+const hasSideColumn = computed(() => transmissionVisible.value);
 const stepIndexFor = (key) => steps.findIndex((step) => step.key === key);
 const goToStep = (index) => {
     currentStepIndex.value = index;
@@ -1069,6 +1086,55 @@ const careOrderUnresolvedCount = computed(() => activeCareOrder.value?.items.fil
 }).length ?? 0);
 const isEmergency = computed(() => episode.value.priority === 'EMERGENCY');
 
+// ── Suite après les soins (ADR-166) ──────────────────────────────────────
+// L'infirmier décide : transmettre au médecin, ou terminer aux Soins — quel
+// que soit le parcours prévu à l'arrivée. Le serveur revérifie tout
+// (CompleteCareAndOrientToMedicineAction) ; ces calculs ne servent qu'à
+// l'écran. L'ordre de soins d'un médecin garde sa suite (ADR-055), et quand
+// Médecine a déjà le patient il n'y a rien à choisir.
+const plannedOutcome = computed(() => ({ MEDICINE: 'MEDICINE', FINISH: 'FINISH' })[episode.value.care_completion_mode] ?? null);
+const offersOutcomeChoice = computed(() => !activeCareOrder.value
+    && !props.medicineAlreadyInvolved
+    && Boolean(props.capabilities.can_complete));
+const chosenOutcome = computed(() => (offersOutcomeChoice.value ? form.care_outcome || null : null));
+const skipsPlannedMedicine = computed(() => plannedOutcome.value === 'MEDICINE' && chosenOutcome.value === 'FINISH');
+const transmissionVisible = computed(() => (chosenOutcome.value
+    ? chosenOutcome.value === 'MEDICINE'
+    : Boolean(episode.value.care_transmission_expected)));
+const outcomeReady = computed(() => {
+    if (!offersOutcomeChoice.value || chosenOutcome.value === 'MEDICINE') return true;
+    if (chosenOutcome.value !== 'FINISH') return false;
+    if (skipsPlannedMedicine.value) return trimmed(form.care_finish_reason).length > 0;
+
+    const hasActs = form.procedures.length > 0 || recordedProcedureCount.value > 0;
+
+    return plannedOutcome.value === 'FINISH' ? hasActs : hasActs || hasNoProcedureReason.value;
+});
+// Ce que le serveur accepterait d'enregistrer. Une fiche neuve sans aucune
+// valeur est refusée (SaveCareRecordAction) : retirer l'acte prérempli puis
+// envoyer au médecin ne doit donc pas passer par l'enregistrement.
+const RECORDED_FIELDS = [
+    'blood_group', 'blood_pressure_systolic', 'blood_pressure_diastolic', 'heart_rate', 'spo2',
+    'temperature_celsius', 'known_diabetes', 'height_cm', 'weight_kg', 'smoker', 'alcohol',
+    'allergy_note', 'no_procedure_reason',
+];
+const richTextHasContent = (html) => trimmed(String(html ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')).length > 0;
+const hasSomethingToRecord = computed(() => form.procedures.length > 0
+    || form.consumables.length > 0
+    || RECORDED_FIELDS.some((key) => trimmed(String(form[key] ?? '')) !== '')
+    || form.allergy_uuids.length > 0
+    || form.allergen_reference_uuids.length > 0
+    || form.new_allergies.length > 0
+    || (transmissionVisible.value && (richTextHasContent(form.diagnostic_note) || richTextHasContent(form.transmission_reason))));
+const needsSaving = computed(() => (props.careRecord
+    ? recordSnapshot(form.data()) !== savedRecordSnapshot.value || form.procedures.length > 0 || form.consumables.length > 0
+    : hasSomethingToRecord.value));
+const chooseOutcome = (value) => {
+    if (!props.capabilities.can_edit) return;
+    form.care_outcome = value;
+    if (value !== 'FINISH') form.care_finish_reason = '';
+};
+
 // Purely a label: the actual destination/settlement rule is decided
 // backend-side (CompleteCareAndOrientToMedicineAction) from the very same
 // facts (activeCareOrder, care_completion_mode, hasActiveMedicineOrientation).
@@ -1079,6 +1145,14 @@ const completionLabel = computed(() => {
             : 'Terminer la prise en charge Soins';
     }
     if (isEmergency.value && props.hasActiveMedicineOrientation) return 'Terminer le travail Soins';
+    if (offersOutcomeChoice.value) {
+        if (chosenOutcome.value === 'MEDICINE') return 'Transmettre à Médecine';
+        if (chosenOutcome.value === 'FINISH') {
+            return plannedOutcome.value === 'FINISH' && form.procedures.length ? 'Enregistrer l’acte et terminer' : 'Terminer aux Soins';
+        }
+
+        return 'Choisissez la suite';
+    }
     if (episode.value.care_completion_mode === 'MEDICINE') return 'Enregistrer et transmettre à Médecine';
     if (episode.value.care_completion_mode === 'FINISH') return 'Terminer les soins';
     return 'Enregistrer et terminer';
@@ -1090,6 +1164,13 @@ const completionWarning = computed(() => {
     }
     if (isEmergency.value && props.hasActiveMedicineOrientation) {
         return 'La fin du travail Soins ne ferme pas la prise en charge Médecine.';
+    }
+    if (offersOutcomeChoice.value) {
+        if (chosenOutcome.value === 'MEDICINE') return 'Après validation, le patient sera orienté vers Médecine.';
+        if (skipsPlannedMedicine.value) return 'Après validation, le patient est terminé aux Soins, sans passer en Médecine. Le motif reste au dossier.';
+        if (chosenOutcome.value === 'FINISH') return 'Après validation, le parcours Soins sera terminé.';
+
+        return 'Choisissez la suite après les soins : transmettre au médecin, ou terminer aux Soins.';
     }
     if (activeCareOrder.value?.requires_return_to_medicine || episode.value.care_completion_mode === 'MEDICINE') {
         return 'Après validation, le patient sera réorienté vers Médecine.';
@@ -1242,7 +1323,7 @@ const newAllergyCount = computed(
     () => form.new_allergies.length + form.allergen_reference_uuids.length,
 );
 
-const buildPayload = (data, orientToMedicine = undefined) => {
+const buildPayload = (data, forcedOutcome = undefined) => {
     const payload = {
             ...data,
             blood_group: data.blood_group || null,
@@ -1301,7 +1382,19 @@ const buildPayload = (data, orientToMedicine = undefined) => {
         delete payload.new_allergies;
     }
 
-    if (!props.orientation.episode.care_transmission_expected) {
+    // ADR-166 — la suite choisie voyage avec la fiche : elle ouvre la
+    // transmission d'un patient prévu aux Soins seuls envoyé au médecin, et
+    // porte le motif de celui qu'on termine aux Soins alors qu'il était attendu.
+    const outcome = forcedOutcome ?? chosenOutcome.value;
+    if (outcome) payload.care_outcome = outcome;
+    else delete payload.care_outcome;
+    if (outcome === 'FINISH' && plannedOutcome.value === 'MEDICINE' && !props.medicineAlreadyInvolved) {
+        payload.care_finish_reason = trimmed(data.care_finish_reason) || null;
+    } else {
+        delete payload.care_finish_reason;
+    }
+
+    if (!transmissionVisible.value && outcome !== 'MEDICINE') {
         delete payload.diagnostic_note;
         delete payload.transmission_reason;
     }
@@ -1310,8 +1403,6 @@ const buildPayload = (data, orientToMedicine = undefined) => {
         delete payload.consumables;
         delete payload.consumable_notes;
     }
-
-    if (orientToMedicine !== undefined) payload.orient_to_medicine = orientToMedicine;
 
     return payload;
 };
@@ -1327,6 +1418,7 @@ const errorStepKeyByField = {
     alcohol: 'vitals',
     allergy_note: 'allergies', allergy_uuids: 'allergies', allergen_reference_uuids: 'allergies', new_allergies: 'allergies',
     diagnostic_note: 'finish', transmission_reason: 'finish',
+    care_outcome: 'finish', care_finish_reason: 'finish',
 };
 const stepKeyForErrorField = (field) => {
     if (field.startsWith('procedures.') || field === 'no_procedure_reason' || field === 'care_record') return 'procedures';
@@ -1359,18 +1451,32 @@ const submit = () => {
             form.new_allergies = [];
             allergenReferenceSelection.value = '';
             form.defaults();
+            savedRecordSnapshot.value = recordSnapshot(form.data());
         },
         onError: scrollToErrors,
     });
 };
 
-const submitAndComplete = (orientToMedicine = false) => {
-    form.transform((data) => buildPayload(data, orientToMedicine))
+const submitAndComplete = (forcedOutcome = undefined) => {
+    form.transform((data) => buildPayload(data, forcedOutcome))
         .put(`/care/orientations/${props.orientation.uuid}/record-and-complete`, {
             preserveScroll: true,
             onError: scrollToErrors,
         });
 };
+
+// Rien de nouveau à enregistrer : on termine sans écrire de fiche, avec la
+// seule suite choisie (et son motif).
+const completeWithoutSaving = () => {
+    form.transform((data) => ({
+        care_outcome: chosenOutcome.value,
+        care_finish_reason: skipsPlannedMedicine.value ? trimmed(data.care_finish_reason) || null : null,
+    })).post(`/care/orientations/${props.orientation.uuid}/complete`, {
+        preserveScroll: true,
+        onError: scrollToErrors,
+    });
+};
+const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWithoutSaving());
 </script>
 
 <template>
@@ -1409,7 +1515,11 @@ const submitAndComplete = (orientToMedicine = false) => {
             <Info class="mt-0.5 h-4 w-4 shrink-0" />
             <span>
                 <strong class="font-semibold text-foreground">Prise en charge terminée.</strong>
-                Le patient a été transféré ; vous pouvez encore corriger cette fiche — chaque modification est tracée.
+                <template v-if="completionReason">
+                    Terminé aux Soins, sans passer en Médecine — motif : {{ completionReason }}.
+                    Vous pouvez encore corriger cette fiche — chaque modification est tracée.
+                </template>
+                <template v-else>Le patient a été transféré ; vous pouvez encore corriger cette fiche — chaque modification est tracée.</template>
                 Le transfert vers Médecine, lui, ne se fait qu’une fois.
             </span>
         </div>
@@ -1920,6 +2030,57 @@ const submitAndComplete = (orientToMedicine = false) => {
                     <span v-if="isEmergency" class="shrink-0 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">Urgence</span>
                 </header>
 
+                <!-- ADR-166 — la suite des Soins se décide ici, pré-remplie
+                     selon le parcours prévu : le soin peut suffire à un
+                     patient attendu en Médecine, et un patient venu pour un
+                     soin peut avoir besoin du médecin. -->
+                <fieldset v-if="offersOutcomeChoice" class="border-b border-border px-5 py-4" :disabled="!capabilities.can_edit">
+                    <legend id="care-outcome-title" class="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Suite après les soins</legend>
+                    <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="care-outcome-title">
+                        <button
+                            v-for="option in [
+                                { value: 'MEDICINE', icon: Stethoscope, title: 'Transmettre au médecin', text: 'Le patient rejoint la file Médecine avec votre transmission.' },
+                                { value: 'FINISH', icon: CircleCheck, title: 'Terminer aux Soins', text: 'Le soin suffit : le patient ne passe pas en Médecine.' },
+                            ]"
+                            :key="option.value"
+                            type="button"
+                            role="radio"
+                            :aria-checked="form.care_outcome === option.value"
+                            :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60', form.care_outcome === option.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:bg-muted/40']"
+                            @click="chooseOutcome(option.value)"
+                        >
+                            <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', form.care_outcome === option.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
+                                <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                            </span>
+                            <span class="min-w-0">
+                                <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                    {{ option.title }}
+                                    <Badge v-if="plannedOutcome === option.value" variant="outline">Prévu à l’arrivée</Badge>
+                                </span>
+                                <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
+                            </span>
+                        </button>
+                    </div>
+                    <FormError class="mt-2" :message="form.errors.care_outcome" />
+                    <FormField
+                        v-if="skipsPlannedMedicine"
+                        as="div"
+                        class="mt-3"
+                        label="Motif"
+                        required
+                        :error="form.errors.care_finish_reason"
+                    >
+                        <Textarea
+                            id="care_finish_reason"
+                            v-model="form.care_finish_reason"
+                            rows="2"
+                            maxlength="1000"
+                            placeholder="Ex. besoin couvert par le soin, patient reparti avant la consultation"
+                        />
+                        <p class="mt-1 text-[11px] text-muted-foreground">La consultation prévue n’aura pas lieu : ce motif reste au dossier du passage.</p>
+                    </FormField>
+                </fieldset>
+
                 <!-- Content on the left, context on the right: a single wide
                      column left "Aucun" floating in empty space and gave the
                      alerts the same visual weight as the data. -->
@@ -2036,7 +2197,7 @@ const submitAndComplete = (orientToMedicine = false) => {
 
                     <template #end>
                     <aside v-if="hasSideColumn" class="space-y-5">
-                        <section v-if="episode.care_transmission_expected" aria-labelledby="care-transmission-title" class="space-y-3">
+                        <section v-if="transmissionVisible" aria-labelledby="care-transmission-title" class="space-y-3">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary"><Send class="h-4 w-4" aria-hidden="true" /></span>
                                 <h3 id="care-transmission-title" class="text-sm font-bold text-foreground">Transmission à Médecine</h3>
@@ -2087,7 +2248,7 @@ const submitAndComplete = (orientToMedicine = false) => {
 
                 <Button v-if="currentStepKey !== 'finish'" type="button" size="rg" variant="primary" @click="nextStep">Suivant<ArrowRight class="h-5 w-5" /></Button>
 
-                <div v-else-if="capabilities.can_edit && (form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected || activeCareOrder)" class="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center">
+                <div v-else-if="capabilities.can_edit && (offersOutcomeChoice || form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected || activeCareOrder)" class="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center">
                     <p class="text-xs font-medium text-muted-foreground sm:me-2">
                         <span v-if="form.consumables.length">Les actes et le matériel seront enregistrés ensemble ; la Pharmacie recevra la demande de sortie de stock.</span>
                         <span v-else-if="form.procedures.length">Les actes seront enregistrés avec l’identité du soignant et l’heure de validation.</span>
@@ -2096,17 +2257,24 @@ const submitAndComplete = (orientToMedicine = false) => {
                     <div class="flex flex-wrap justify-end gap-2">
                         <template v-if="activeCareOrder">
                             <Button v-if="form.procedures.length" type="button" size="rg" variant="white-outline" :disabled="form.processing" @click="submit">Enregistrer</Button>
-                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || careOrderUnresolvedCount > 0" @click="submitAndComplete(false)"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || careOrderUnresolvedCount > 0" @click="submitAndComplete()"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
+                        </template>
+                        <template v-else-if="offersOutcomeChoice">
+                            <Button v-if="needsSaving" type="button" size="rg" variant="white-outline" :disabled="form.processing || !allergySafetyReady" @click="submit"><Save class="h-4 w-4" /><span class="ms-2">Enregistrer</span></Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady || !outcomeReady" @click="finishCare">
+                                <component :is="chosenOutcome === 'MEDICINE' ? Stethoscope : Check" class="h-4 w-4" aria-hidden="true" />
+                                <span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span>
+                            </Button>
                         </template>
                         <template v-else-if="capabilities.can_complete && episode.care_completion_mode === 'FINISH' && form.procedures.length">
-                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : 'Enregistrer l’acte et terminer' }}</span></Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete()"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : 'Enregistrer l’acte et terminer' }}</span></Button>
                         </template>
                         <template v-else-if="capabilities.can_complete && episode.care_completion_mode === 'MEDICINE'">
-                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete()"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
                         </template>
                         <template v-else-if="capabilities.can_complete && episode.care_completion_mode === 'CHOICE' && (form.procedures.length || hasNoProcedureReason)">
-                            <Button type="button" size="rg" variant="white-outline" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(true)">Enregistrer et orienter</Button>
-                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete(false)"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
+                            <Button type="button" size="rg" variant="white-outline" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete('MEDICINE')">Enregistrer et orienter</Button>
+                            <Button type="button" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady" @click="submitAndComplete()"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
                         </template>
                         <Button v-else-if="episode.care_completion_mode === 'CHOICE' && noProcedureSelected" type="button" size="rg" variant="primary" disabled>Indiquez le motif</Button>
                         <Button v-else type="submit" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la fiche' }}</span></Button>
@@ -2116,7 +2284,7 @@ const submitAndComplete = (orientToMedicine = false) => {
             </div>
         </form>
 
-        <section v-if="currentStepKey === 'finish' && capabilities.can_complete && !form.isDirty && form.procedures.length === 0 && !noProcedureSelected" class="flex flex-col gap-3 rounded-lg border border-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
+        <section v-if="currentStepKey === 'finish' && !offersOutcomeChoice && capabilities.can_complete && !form.isDirty && form.procedures.length === 0 && !noProcedureSelected" class="flex flex-col gap-3 rounded-lg border border-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
             <div><h2 class="text-sm font-bold text-foreground">Terminer sans nouvel acte</h2><p class="mt-1 text-xs text-muted-foreground">{{ canCompleteWithoutSaving || episode.care_completion_mode === 'MEDICINE' ? completionWarning : 'Enregistrez un acte réalisé avant de terminer les soins.' }}</p></div>
             <div class="flex flex-wrap gap-2">
                 <Link v-if="canCompleteWithoutSaving" :href="`/care/orientations/${orientation.uuid}/complete`" method="post" as="button" preserve-scroll><Button size="rg" :variant="episode.care_completion_mode === 'MEDICINE' ? 'primary' : 'white-outline'"><Check class="h-4 w-4" /><span class="ms-2">{{ completionLabel }}</span></Button></Link>

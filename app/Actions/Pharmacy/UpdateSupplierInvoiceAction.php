@@ -45,9 +45,10 @@ class UpdateSupplierInvoiceAction
                 $invoice = SupplierInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
                 [$purchaseOrder, $goodsReceipt] = $this->resolveLinks($supplier, $data);
                 [$lines, $total] = $this->resolveContent($data);
+                $invoiceNumber = $this->guardInvoiceNumber($supplier, $data['invoice_number'], $invoice);
 
                 $invoice->update([
-                    'invoice_number' => trim($data['invoice_number']),
+                    'invoice_number' => $invoiceNumber,
                     'purchase_order_id' => $purchaseOrder?->getKey(),
                     'goods_receipt_id' => $goodsReceipt?->getKey(),
                     'invoice_date' => $data['invoice_date'],

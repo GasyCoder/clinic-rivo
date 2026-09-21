@@ -6,7 +6,10 @@ use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
+use App\Enums\HospitalStayEndReason;
+use App\Enums\HospitalStayStatus;
 use App\Enums\MedicalRequestStatus;
+use App\Models\HospitalStay;
 use App\Models\MedicalReferral;
 use App\Models\User;
 use App\Services\Audit\Auditor;
@@ -78,6 +81,34 @@ class ConfirmTransferDepartureAction
             }
 
             $episode = $locked->episode;
+
+            // ADR-161 — le patient au lit est parti : son séjour se termine ici,
+            // au départ, et non à la décision. Sans cela il restait « au lit »
+            // et le passage n'atteignait jamais « Sorties & règlements ».
+            $stay = HospitalStay::query()
+                ->where('episode_id', $episode->getKey())
+                ->where('status', HospitalStayStatus::Active->value)
+                ->lockForUpdate()
+                ->first();
+
+            if ($stay) {
+                $stay->update([
+                    'status' => HospitalStayStatus::Discharged,
+                    'end_reason' => HospitalStayEndReason::Transfer,
+                    'discharged_at' => $departedAt,
+                    'discharged_by' => $actor->getKey(),
+                    'medical_referral_id' => $locked->getKey(),
+                    'active_key' => null,
+                ]);
+                $stay->closeCurrentMovement($departedAt);
+
+                $stayOrientation = $stay->episodeOrientation()->first();
+
+                if ($stayOrientation?->status === EpisodeOrientationStatus::InProgress) {
+                    $stayOrientation->complete($actor);
+                }
+            }
+
             $episode->medical_status = EpisodeMedicalStatus::Transferred;
 
             if ($episode->administrative_status === EpisodeAdministrativeStatus::InCare

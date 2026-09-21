@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\AllergySeverity;
+use App\Enums\CareCompletionMode;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
@@ -83,6 +84,22 @@ class UpdateCareRecordRequest extends FormRequest
             || $this->user()->can('patients.medical_history.manage');
     }
 
+    /**
+     * La suite choisie par l'infirmier (ADR-166). `orient_to_medicine`
+     * reste lu pour les appelants antérieurs : vrai veut dire Médecine,
+     * faux veut dire « suivre le parcours », jamais « terminer ».
+     */
+    public function destination(): ?CareCompletionMode
+    {
+        $chosen = CareCompletionMode::tryFrom((string) $this->input('care_outcome'));
+
+        if (in_array($chosen, [CareCompletionMode::Medicine, CareCompletionMode::Finish], true)) {
+            return $chosen;
+        }
+
+        return $this->boolean('orient_to_medicine') ? CareCompletionMode::Medicine : null;
+    }
+
     public function rules(CareWorkflow $careWorkflow): array
     {
         /** @var EpisodeOrientation|null $orientation */
@@ -92,7 +109,7 @@ class UpdateCareRecordRequest extends FormRequest
         $canViewAllergies = (bool) $this->user()?->can('patients.medical_history.view');
         $canManageAllergies = (bool) $this->user()?->can('patients.medical_history.manage');
         $canTransmitToMedicine = $orientation
-            ? $careWorkflow->expectsMedicalTransmission($orientation->episode)
+            ? $careWorkflow->expectsMedicalTransmission($orientation->episode, $this->destination())
             : false;
         $canDeclareConsumables = (bool) $this->user()?->can('care_consumables.request');
 
@@ -132,6 +149,11 @@ class UpdateCareRecordRequest extends FormRequest
             'transmission_reason' => [Rule::prohibitedIf(! $canTransmitToMedicine), 'nullable', 'string', 'max:12000'],
             'no_procedure_reason' => ['nullable', 'string', 'max:1000'],
             'orient_to_medicine' => ['sometimes', 'boolean'],
+            // ADR-166 — la suite choisie à l'étape Terminer ; absente, le
+            // parcours prévu décide. Le motif est exigé par l'action quand un
+            // patient attendu en Médecine est terminé aux Soins.
+            'care_outcome' => ['nullable', Rule::enum(CareCompletionMode::class)->only([CareCompletionMode::Medicine, CareCompletionMode::Finish])],
+            'care_finish_reason' => ['nullable', 'string', 'max:1000'],
             'procedures' => ['sometimes', 'array', 'max:30'],
             'procedures.*.catalog_item_uuid' => [
                 'required',

@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * `prescriptions.cancel`, not delete — see cancel() below, same pattern as
  * Episode::cancel().
  */
-#[Fillable(['consultation_id', 'prescribed_by', 'status', 'prescribed_at', 'cancel_reason', 'cancelled_at'])]
+#[Fillable(['episode_id', 'hospital_stay_id', 'consultation_id', 'prescribed_by', 'status', 'prescribed_at', 'cancel_reason', 'cancelled_at'])]
 class Prescription extends Model
 {
     use Auditable, HasUuid;
@@ -36,6 +36,33 @@ class Prescription extends Model
     public function consultation(): BelongsTo
     {
         return $this->belongsTo(Consultation::class);
+    }
+
+    /**
+     * ADR-162 — le passage, directement : une ordonnance du séjour n'a pas de
+     * consultation. Rempli depuis la consultation quand l'appelant ne le
+     * donne pas, pour qu'aucune ordonnance ne perde son passage.
+     */
+    public function episode(): BelongsTo
+    {
+        return $this->belongsTo(Episode::class);
+    }
+
+    /** ADR-162 — l'ordonnance écrite depuis le séjour. */
+    public function hospitalStay(): BelongsTo
+    {
+        return $this->belongsTo(HospitalStay::class);
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Prescription $prescription): void {
+            if ($prescription->episode_id === null && $prescription->consultation_id !== null) {
+                $prescription->episode_id = Consultation::query()
+                    ->whereKey($prescription->consultation_id)
+                    ->value('episode_id');
+            }
+        });
     }
 
     public function lines(): HasMany

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Pharmacy;
 
+use App\Models\CatalogItem;
+use App\Models\MedicineLot;
 use App\Models\Role;
 use App\Models\User;
 use Database\Seeders\DevelopmentMedicineStockSeeder;
@@ -39,12 +41,13 @@ class DevelopmentMedicineStockSeederTest extends TestCase
         $this->seed(DevelopmentMedicineStockSeeder::class);
         $this->seed(DevelopmentMedicineStockSeeder::class);
 
-        $this->assertDatabaseCount('medicines', 18);
-        $this->assertDatabaseCount('medicine_categories', 8);
+        // 18 historiques + 20 pour l'hospitalisation, la Maternité et les Soins (ADR-163).
+        $this->assertDatabaseCount('medicines', 38);
+        $this->assertDatabaseCount('medicine_categories', 10);
         $this->assertDatabaseCount('medicine_suppliers', 3);
-        $this->assertDatabaseCount('catalog_tariffs', 18);
-        $this->assertDatabaseCount('medicine_lots', 18);
-        $this->assertDatabaseCount('pharmacy_stock_movements', 18);
+        $this->assertDatabaseCount('catalog_tariffs', 38);
+        $this->assertDatabaseCount('medicine_lots', 38);
+        $this->assertDatabaseCount('pharmacy_stock_movements', 38);
         $this->assertDatabaseCount('pharmacy_stock_alerts', 4);
         $this->assertDatabaseCount('payments', 0);
         $this->assertDatabaseCount('cash_movements', 0);
@@ -73,7 +76,30 @@ class DevelopmentMedicineStockSeederTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Reception/Create')
                 ->where('capabilities.can_sell_medicines', true)
-                ->has('pharmacyCatalog', 17));
+                ->has('pharmacyCatalog', 37));
+    }
+
+    /**
+     * ADR-163 — relancer le seeder complète ce qui manque et n'écrase rien :
+     * ni un prix changé, ni un stock entamé, ni un médicament archivé.
+     */
+    public function test_re_seeding_never_overwrites_what_the_pharmacy_changed(): void
+    {
+        $this->seed(DevelopmentMedicineStockSeeder::class);
+
+        $item = CatalogItem::query()->where('code', 'DEV-PARA-500')->sole();
+        $item->tariffs()->where('active_key', 'CURRENT')->update(['amount' => '999.00']);
+        $lot = MedicineLot::query()->where('lot_number', 'DEV-PARA-500-LOT-01')->sole();
+        $lot->update(['quantity_on_hand' => 3]);
+        $archived = CatalogItem::query()->where('code', 'DEV-IBU-400')->sole();
+        $archived->delete();
+
+        $this->seed(DevelopmentMedicineStockSeeder::class);
+
+        $this->assertSame('999.00', $item->tariffs()->where('active_key', 'CURRENT')->sole()->amount);
+        $this->assertSame(3, $lot->fresh()->quantity_on_hand);
+        $this->assertTrue(CatalogItem::withTrashed()->findOrFail($archived->id)->trashed());
+        $this->assertDatabaseCount('pharmacy_stock_movements', 38);
     }
 
     public function test_it_refuses_to_run_in_production(): void

@@ -5,6 +5,8 @@ namespace App\Services\Medicine;
 use App\Models\ClinicalProtocol;
 use App\Models\Consultation;
 use App\Models\Diagnosis;
+use App\Models\HospitalStay;
+use App\Models\Patient;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -57,6 +59,48 @@ class ClinicalProtocolMatcher
             'corpus' => self::normalize(ClinicalNarrative::of($consultation)),
             'allergies' => $allergies,
             'diagnosis_catalog_ids' => $activeDiagnoses->pluck('diagnostic_catalog_id')->unique()->values()->all(),
+        ];
+    }
+
+    /**
+     * ADR-163 — ce que le séjour permet de savoir du patient, pour lui proposer
+     * une ordonnance comme en consultation.
+     *
+     * Les diagnostics sont ceux du passage — posés en consultation ou conclus
+     * sur le séjour (ADR-147) — : ce sont eux que l'ordonnance traite. Aucun
+     * texte n'est analysé : sur le séjour, on ne propose pas de diagnostic,
+     * seulement l'ordonnance des diagnostics déjà posés.
+     *
+     * @return array{age: ?int, sex: ?string, weight: ?float, corpus: string, allergies: array<int, string>, diagnosis_catalog_ids: array<int, int>}
+     */
+    public function stayContext(HospitalStay $stay): array
+    {
+        $stay->loadMissing(['episode.patient.allergies', 'episode.careRecord']);
+
+        $episode = $stay->episode;
+        $patient = $episode?->patient;
+
+        $fromConsultations = Diagnosis::query()
+            ->whereHas('consultation', fn ($query) => $query->where('episode_id', $stay->episode_id))
+            ->whereDoesntHave('cancellation')
+            ->whereNotNull('diagnostic_catalog_id')
+            ->pluck('diagnostic_catalog_id');
+
+        $fromStay = $stay->diagnoses()->whereNotNull('diagnostic_catalog_id')->pluck('diagnostic_catalog_id');
+
+        return [
+            'age' => $this->ageAt($patient, $episode?->started_at),
+            'sex' => $patient?->sex?->value,
+            'weight' => $episode?->careRecord?->weight_kg !== null ? (float) $episode->careRecord->weight_kg : null,
+            'corpus' => '',
+            'allergies' => collect($patient?->allergies ?? [])
+                ->pluck('substance')
+                ->filter()
+                ->map(fn ($substance) => (string) $substance)
+                ->unique()
+                ->values()
+                ->all(),
+            'diagnosis_catalog_ids' => $fromConsultations->concat($fromStay)->map(fn ($id) => (int) $id)->unique()->values()->all(),
         ];
     }
 
@@ -133,8 +177,18 @@ class ClinicalProtocolMatcher
      */
     public function suggestPrescription(Consultation $consultation, ?array $context = null): array
     {
-        $context ??= $this->context($consultation);
+        return $this->prescriptionFor($context ?? $this->context($consultation));
+    }
 
+    /**
+     * La même ordonnance type, à partir d'un contexte déjà lu : c'est ainsi que
+     * le séjour la reçoit (ADR-163), sans consultation à ouvrir.
+     *
+     * @param  array{age: ?int, sex: ?string, weight: ?float, allergies: array<int, string>, diagnosis_catalog_ids: array<int, int>}  $context
+     * @return array{protocols: array<int, array<string, mixed>>, excluded: array<int, array<string, string>>}
+     */
+    public function prescriptionFor(array $context): array
+    {
         if ($context['diagnosis_catalog_ids'] === []) {
             return ['protocols' => [], 'excluded' => []];
         }
@@ -300,14 +354,18 @@ class ClinicalProtocolMatcher
 
     private function ageOf(Consultation $consultation): ?int
     {
-        $patient = $consultation->episode?->patient;
+        return $this->ageAt($consultation->episode?->patient, $consultation->episode?->started_at);
+    }
 
+    /** L'âge au passage : une ordonnance se règle sur l'âge qu'avait le patient ce jour-là. */
+    private function ageAt(?Patient $patient, mixed $reference): ?int
+    {
         if (! $patient) {
             return null;
         }
 
         if ($patient->birth_date) {
-            $reference = $consultation->episode->started_at ?? now();
+            $reference ??= now();
 
             return $patient->birth_date->isAfter($reference)
                 ? null

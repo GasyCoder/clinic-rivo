@@ -452,7 +452,15 @@ class PermissionSeeder extends Seeder
         // ADR-113 — le séjour et sa fiche de régime.
         'hospitalization.view' => 'Consulter les patients hospitalisés et leur fiche de régime',
         'hospitalization.update' => 'Renseigner la chambre / le lit d’un séjour',
+        // ADR-165 — la liste contient des données personnelles : l'exporter est un droit à part.
+        'hospitalization.export' => 'Exporter en Excel la liste des patients hospitalisés',
         'hospital_diet.record' => 'Saisir la fiche de régime d’un patient hospitalisé',
+        // ADR-164 — services, chambres et lits, réglés depuis le portail par l'API du site.
+        'hospital_beds.view' => 'Voir les services, chambres et lits d’un site et leur occupation',
+        'hospital_beds.create' => 'Créer un service, une chambre (avec son nombre de lits) ou un lit',
+        'hospital_beds.update' => 'Renommer un service, une chambre ou un lit, et mettre un lit hors service',
+        'hospital_beds.archive' => 'Archiver un service, une chambre ou un lit libre',
+        'hospital_beds.restore' => 'Restaurer un service, une chambre ou un lit archivé',
         // ADR-116 — le « Dossier médical – Traitement » de la clinique.
         'treatment_journal.view' => 'Consulter le journal de traitement d’un passage',
         'treatment_journal.record' => 'Ajouter une ligne au journal de traitement',
@@ -479,6 +487,9 @@ class PermissionSeeder extends Seeder
         'newborns.medical_record.view' => 'Ouvrir le dossier médical d’un nouveau-né : naissance, poids, Apgar, état et soins',
         'newborns.patient.create' => 'Ouvrir le dossier patient d’un nouveau-né à l’accueil',
         'transfer.request' => 'Demander un transfert/référence depuis Médecine',
+        // ADR-162 — la note quotidienne du séjour hospitalier.
+        'hospital_notes.view' => 'Lire les notes quotidiennes d’un séjour hospitalier',
+        'hospital_notes.create' => 'Écrire la note quotidienne d’un séjour hospitalier (S/O/A/P)',
         'pediatrics.request' => 'Demander une orientation Pédiatrie depuis Médecine',
 
         // CDC §16 "Chirurgie" — catalogue anesthésie. ADR-048 en fait un

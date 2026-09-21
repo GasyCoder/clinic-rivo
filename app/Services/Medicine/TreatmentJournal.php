@@ -146,7 +146,7 @@ class TreatmentJournal
     private function prescriptionRows(Episode $episode): Collection
     {
         return Prescription::query()
-            ->whereHas('consultation', fn ($query) => $query->where('episode_id', $episode->getKey()))
+            ->where('episode_id', $episode->getKey())
             ->with(['prescribedBy:id,name', 'lines'])
             ->get()
             ->map(function (Prescription $prescription) {

@@ -4,6 +4,7 @@ namespace App\Actions\Hospitalization;
 
 use App\Enums\EpisodeMedicalStatus;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\HospitalCareLevel;
 use App\Enums\HospitalStayStatus;
 use App\Models\EpisodeOrientation;
 use App\Models\HospitalizationRequest;
@@ -44,6 +45,15 @@ class AdmitHospitalStayAction
             'admitted_at' => now(),
             'admitted_by' => $actor->getKey(),
             'active_key' => HospitalStay::activeKeyFor($episode),
+        ]);
+
+        // ADR-161 — l'admission est le premier emplacement du patient. La
+        // chambre / le lit se complètent ensuite ; une mutation en ouvre un autre.
+        $stay->movements()->create([
+            'service' => $stay->service,
+            'care_level' => HospitalCareLevel::Standard,
+            'started_at' => $stay->admitted_at,
+            'moved_by' => $actor->getKey(),
         ]);
 
         $episode->update(['medical_status' => EpisodeMedicalStatus::Hospitalized]);

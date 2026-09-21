@@ -19,8 +19,10 @@ import StayExams from '@/Components/Hospitalization/StayExams.vue';
 import StayCareOrders from '@/Components/Hospitalization/StayCareOrders.vue';
 import StayExit from '@/Components/Hospitalization/StayExit.vue';
 import StayOpenConsultations from '@/Components/Hospitalization/StayOpenConsultations.vue';
-import StayDiagnosisAdd from '@/Components/Hospitalization/StayDiagnosisAdd.vue';
 import StayExitContext from '@/Components/Hospitalization/StayExitContext.vue';
+import StayLocationCard from '@/Components/Hospitalization/StayLocationCard.vue';
+import StayDiagnosesCard from '@/Components/Hospitalization/StayDiagnosesCard.vue';
+import StayRequestCard from '@/Components/Hospitalization/StayRequestCard.vue';
 import BedPicker from '@/Components/Hospitalization/BedPicker.vue';
 import {
     ArrowLeft,
@@ -36,7 +38,6 @@ import {
     ArrowRightLeft,
     Activity,
     Ambulance,
-    Stethoscope,
     Undo2,
     Utensils,
     X,
@@ -214,14 +215,6 @@ const saveEdit = () => editEntry.put(`/hospitalisation/${props.stay.uuid}/regime
     onSuccess: () => { editingUuid.value = null; },
 });
 
-// ── Service et chambre / lit ────────────────────────────────────────────────
-const editingRoom = ref(false);
-const roomForm = useForm({ service: props.stay.service ?? '', room_bed: props.stay.room_bed ?? '' });
-const saveRoom = () => roomForm.put(`/hospitalisation/${props.stay.uuid}`, {
-    preserveScroll: true,
-    onSuccess: () => { editingRoom.value = false; },
-});
-
 // ── Mutation interne (ADR-161) ──────────────────────────────────────────────
 // Changer de service, de lit ou de niveau de soins ferme l'emplacement en
 // cours et en ouvre un autre : rien ne s'écrase. Le crayon ci-dessus corrige
@@ -272,11 +265,6 @@ const submitBed = () => {
             .put(`/hospitalisation/${props.stay.uuid}`, done);
     }
 };
-const needsBed = computed(() => props.bedsConfigured && props.stay.status === 'ACTIVE' && !props.stay.bed_uuid);
-
-const CARE_LEVEL_VARIANT = { STANDARD: 'outline', CONTINUOUS: 'warning', INTENSIVE: 'destructive' };
-const careLevelVariant = (level) => CARE_LEVEL_VARIANT[level] ?? 'outline';
-const pastMovements = computed(() => props.movements.filter((movement) => !movement.is_current).slice().reverse());
 
 // ── Surveillance (ADR-161) ──────────────────────────────────────────────────
 // Un relevé par passage de l'infirmier ou du médecin, jamais écrasé. Les
@@ -313,29 +301,14 @@ const bloodPressure = (reading) => (reading.blood_pressure_systolic && reading.b
     ? `${reading.blood_pressure_systolic}/${reading.blood_pressure_diastolic}`
     : '—');
 
-// ── Demande d'hospitalisation ───────────────────────────────────────────────
-// Elle part en un clic depuis la consultation, reprise du dossier ; c'est ici
-// que le médecin la complète (ADR-113, amendement).
+// ── Priorités ───────────────────────────────────────────────────────────────
+// Celles d'une demande d'hospitalisation, complétée dans sa carte
+// (StayRequestCard, ADR-113), et celles d'un transfert au bloc (ADR-160).
 const PRIORITIES = [
     { value: 'LOW', label: 'Faible' },
     { value: 'NORMAL', label: 'Normale' },
     { value: 'URGENT', label: 'Urgente' },
 ];
-const priorityLabel = (value) => PRIORITIES.find((option) => option.value === value)?.label ?? '—';
-const editingRequest = ref(false);
-const requestForm = useForm({
-    reason: props.stay.request.reason ?? '',
-    admission_diagnosis: props.stay.request.admission_diagnosis ?? '',
-    clinical_summary: props.stay.request.clinical_summary ?? '',
-    planned_treatment: props.stay.request.planned_treatment ?? '',
-    priority: props.stay.request.priority ?? 'NORMAL',
-    instructions: props.stay.request.instructions ?? '',
-});
-const saveRequest = () => requestForm.put(`/hospitalisation/${props.stay.uuid}/demande`, {
-    preserveScroll: true,
-    onSuccess: () => { editingRequest.value = false; },
-});
-const requestIncomplete = computed(() => !props.stay.request.reason || !props.stay.request.admission_diagnosis);
 
 // ── Transfert au bloc (ADR-160) ─────────────────────────────────────────────
 // Le patient descend au bloc et garde son lit : la demande naît du séjour, le
@@ -457,126 +430,31 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                 </p>
                 <Button type="button" size="xs" variant="ghost" class="mt-1 px-0" @click="selectTab('surveillance')">Voir la surveillance</Button>
             </Card>
-            <div class="grid gap-5 lg:grid-cols-2">
-                <Card class="p-5">
-                    <div class="flex items-center justify-between gap-2">
-                        <h2 class="text-sm font-semibold text-foreground">Séjour</h2>
-                        <Button v-if="capabilities.can_update_stay && bedsConfigured && stay.bed_uuid" type="button" size="icon-xs" variant="ghost" class="text-muted-foreground" title="Corriger le lit (erreur de saisie)" aria-label="Corriger le lit actuel" @click="openBedDialog('assign')"><Pencil class="h-3.5 w-3.5" /></Button>
-                        <Button v-else-if="capabilities.can_update_stay && !bedsConfigured && !editingRoom" type="button" size="icon-xs" variant="ghost" class="text-muted-foreground" title="Corriger l’emplacement actuel" aria-label="Corriger le service et la chambre actuels" @click="editingRoom = true"><Pencil class="h-3.5 w-3.5" /></Button>
-                    </div>
-                    <!-- ADR-164 — un patient au lit sans lit attribué se voit, et s'installe d'un geste. -->
-                    <div v-if="needsBed" class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100" role="status">
-                        <p class="flex items-center gap-2 font-semibold"><BedDouble class="h-4 w-4" aria-hidden="true" />Lit à attribuer</p>
-                        <p class="mt-0.5 text-xs">Le patient est admis mais n’occupe encore aucun lit du site<template v-if="stay.room_bed"> (noté à la main : {{ stay.room_bed }})</template>.</p>
-                        <Button v-if="capabilities.can_update_stay" type="button" size="sm" class="mt-2" @click="openBedDialog('assign')"><BedDouble class="h-4 w-4" />Attribuer un lit</Button>
-                    </div>
-                    <dl v-if="!editingRoom || bedsConfigured" class="mt-3 space-y-2.5 text-sm">
-                        <div><dt class="text-xs text-muted-foreground">Service</dt><dd class="text-foreground">{{ stay.service || 'Non précisé' }}</dd></div>
-                        <div v-if="!needsBed"><dt class="text-xs text-muted-foreground">Chambre / lit</dt><dd class="text-foreground">{{ stay.room_bed || 'Non renseigné' }}</dd></div>
-                        <div v-if="stay.care_level_label"><dt class="text-xs text-muted-foreground">Niveau de soins</dt><dd><Badge :variant="careLevelVariant(stay.care_level)">{{ stay.care_level_label }}</Badge></dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Entrée</dt><dd class="text-foreground">{{ formatDateTime(stay.admitted_at) }}<span v-if="stay.request.requested_by" class="block text-xs text-muted-foreground">Demandée par {{ doctorName(stay.request.requested_by) }}</span></dd></div>
-                    </dl>
-                    <form v-if="editingRoom && !bedsConfigured" class="mt-3 space-y-3" @submit.prevent="saveRoom">
-                        <FormField label="Service" :error="roomForm.errors.service">
-                            <Input v-model="roomForm.service" placeholder="Ex. : Médecine interne" maxlength="150" />
-                        </FormField>
-                        <FormField label="Chambre / lit" :error="roomForm.errors.room_bed">
-                            <Input v-model="roomForm.room_bed" placeholder="Ex. : Chambre 3, lit B" maxlength="100" />
-                        </FormField>
-                        <div class="flex justify-end gap-2">
-                            <Button type="button" size="sm" variant="ghost" @click="editingRoom = false; roomForm.reset()">Annuler</Button>
-                            <Button type="submit" size="sm" :disabled="roomForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
-                        </div>
-                    </form>
-                    <!-- ADR-164 — sans lit configuré, la saisie libre continue ; l'écran dit pourquoi, et où les lits se créent. -->
-                    <p v-if="!bedsConfigured && isActive && !editingRoom" class="mt-3 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
-                        Les lits de ce site ne sont pas encore configurés : la chambre se note à la main. Ils se créent depuis le portail
-                        Super Administration (« Services, chambres et lits ») ; « Attribuer un lit » apparaîtra alors ici.
-                    </p>
-                    <Button v-if="capabilities.can_move && bedsConfigured && stay.bed_uuid" type="button" size="sm" variant="white-outline" class="mt-4 w-full" @click="openBedDialog('move')">
-                        <ArrowRightLeft class="h-4 w-4" />Changer de lit
-                    </Button>
-                    <Button v-else-if="capabilities.can_move && !bedsConfigured && !editingRoom" type="button" size="sm" variant="white-outline" class="mt-4 w-full" @click="openMove">
-                        <ArrowRightLeft class="h-4 w-4" />Changer de service / lit
-                    </Button>
-                    <!-- ADR-161 — les emplacements précédents, jamais écrasés. -->
-                    <div v-if="pastMovements.length" class="mt-4 border-t border-border pt-3">
-                        <p class="text-xs font-semibold text-muted-foreground">Emplacements précédents</p>
-                        <ol class="mt-2 space-y-2">
-                            <li v-for="movement in pastMovements" :key="movement.uuid" class="text-xs">
-                                <p class="font-medium text-foreground">
-                                    {{ movement.service || 'Service non précisé' }}<template v-if="movement.room_bed"> · {{ movement.room_bed }}</template>
-                                </p>
-                                <p class="text-muted-foreground">
-                                    {{ movement.care_level_label }} · {{ formatDateTime(movement.started_at) }} → {{ formatDateTime(movement.ended_at) }}
-                                </p>
-                            </li>
-                        </ol>
-                    </div>
-                </Card>
-                <Card class="p-5">
-                    <div class="flex items-center justify-between gap-2">
-                        <h2 class="text-sm font-semibold text-foreground">Demande d’hospitalisation</h2>
-                        <Button v-if="capabilities.can_edit_request && !editingRequest" type="button" size="sm" variant="outline" @click="editingRequest = true"><Pencil class="h-3.5 w-3.5" />{{ requestIncomplete ? 'Compléter' : 'Modifier' }}</Button>
-                    </div>
-                    <p v-if="requestIncomplete && !editingRequest" class="mt-2 text-xs text-amber-700 dark:text-amber-300">Motif ou diagnostic d’entrée encore à préciser.</p>
-                    <dl v-if="!editingRequest" class="mt-3 space-y-2.5 text-sm">
-                        <div><dt class="text-xs text-muted-foreground">Motif</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.reason || '—' }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Diagnostic d’entrée</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.admission_diagnosis || '—' }}</dd></div>
-                        <div v-if="stay.request.clinical_summary"><dt class="text-xs text-muted-foreground">Résumé clinique et examens</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.clinical_summary }}</dd></div>
-                        <div v-if="stay.request.planned_treatment"><dt class="text-xs text-muted-foreground">Traitement prévu</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.planned_treatment }}</dd></div>
-                        <div><dt class="text-xs text-muted-foreground">Priorité</dt><dd class="text-foreground">{{ priorityLabel(stay.request.priority) }}</dd></div>
-                        <div v-if="stay.request.instructions"><dt class="text-xs text-muted-foreground">Consignes</dt><dd class="whitespace-pre-line text-foreground">{{ stay.request.instructions }}</dd></div>
-                    </dl>
-                    <form v-else class="mt-3 space-y-3" @submit.prevent="saveRequest">
-                        <FormField label="Motif d’hospitalisation" :error="requestForm.errors.reason">
-                            <Textarea v-model="requestForm.reason" :rows="2" maxlength="3000" />
-                        </FormField>
-                        <FormField label="Diagnostic d’entrée" :error="requestForm.errors.admission_diagnosis">
-                            <Textarea v-model="requestForm.admission_diagnosis" :rows="2" maxlength="3000" />
-                        </FormField>
-                        <FormField label="Résumé clinique et examens" :error="requestForm.errors.clinical_summary">
-                            <Textarea v-model="requestForm.clinical_summary" :rows="5" maxlength="5000" />
-                        </FormField>
-                        <FormField label="Traitement prévu" :error="requestForm.errors.planned_treatment">
-                            <Textarea v-model="requestForm.planned_treatment" :rows="3" maxlength="3000" />
-                        </FormField>
-                        <FormField label="Priorité" :error="requestForm.errors.priority">
-                            <Select v-model="requestForm.priority" :options="PRIORITIES" aria-label="Priorité" />
-                        </FormField>
-                        <FormField label="Consignes au service" :error="requestForm.errors.instructions">
-                            <Textarea v-model="requestForm.instructions" :rows="2" maxlength="3000" />
-                        </FormField>
-                        <FormError :message="requestForm.errors.hospitalization_request" />
-                        <div class="flex justify-end gap-2">
-                            <Button type="button" size="sm" variant="ghost" @click="editingRequest = false; requestForm.reset()">Annuler</Button>
-                            <Button type="submit" size="sm" :disabled="requestForm.processing"><Check class="h-4 w-4" />Enregistrer</Button>
-                        </div>
-                    </form>
-                </Card>
+            <div class="grid items-start gap-5 lg:grid-cols-2">
+                <!-- Où est le patient, puis ce qu'il a : les diagnostics suivent le séjour. -->
+                <div class="space-y-5">
+                    <StayLocationCard
+                        :stay="stay"
+                        :movements="movements"
+                        :capabilities="capabilities"
+                        :beds-configured="bedsConfigured"
+                        @bed="openBedDialog"
+                        @move="openMove"
+                    />
+                    <StayDiagnosesCard
+                        v-if="diagnoses.length || capabilities.can_add_diagnosis"
+                        :stay-uuid="stay.uuid"
+                        :diagnoses="diagnoses"
+                        :can-add="capabilities.can_add_diagnosis"
+                    />
+                </div>
+                <StayRequestCard
+                    :stay-uuid="stay.uuid"
+                    :request="stay.request"
+                    :can-edit="capabilities.can_edit_request"
+                    :priorities="PRIORITIES"
+                />
             </div>
-        <!-- ADR-147 — ce que le séjour a conclu, et ce que le dossier avait
-             déjà consigné. La sortie n'est plus ici (ADR-156) : ces
-             diagnostics restent la trace clinique du séjour lui-même. -->
-        <Card v-if="diagnoses.length || capabilities.can_add_diagnosis" class="p-5">
-            <h2 class="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Stethoscope class="h-4 w-4 text-muted-foreground" />Diagnostics
-            </h2>
-            <ul v-if="diagnoses.length" class="mt-3 space-y-2">
-                <li
-                    v-for="diagnosis in diagnoses"
-                    :key="diagnosis.id"
-                    class="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2"
-                >
-                    <span class="text-sm text-foreground">{{ diagnosis.description }}</span>
-                    <span class="text-xs text-muted-foreground">
-                        {{ diagnosis.recorded_by }}<span v-if="diagnosis.recorded_at"> · {{ formatDateTime(diagnosis.recorded_at) }}</span>
-                    </span>
-                </li>
-            </ul>
-            <p v-else class="mt-3 text-xs text-muted-foreground">Aucun diagnostic consigné pour ce passage.</p>
-            <StayDiagnosisAdd v-if="capabilities.can_add_diagnosis" :stay-uuid="stay.uuid" class="mt-3" />
-        </Card>
         <!-- ADR-161 — un transfert se termine au départ du patient, sans
              sortie médicale : le séjour dit où il est parti, et quand. -->
         <Card v-if="!stay.discharge && stay.end_reason === 'TRANSFER' && stay.transfer" class="p-5">

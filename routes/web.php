@@ -855,6 +855,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/care/orientations/{episodeOrientation}/record-and-complete', [CareController::class, 'saveAndComplete'])->name('care.orientations.record-and-complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/release', [CareController::class, 'release'])->name('care.orientations.release')->middleware('can:care.update');
+    Route::post('/care/orientations/{episodeOrientation}/take-over', [CareController::class, 'takeOver'])->name('care.orientations.take-over')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete', [CareController::class, 'complete'])->name('care.orientations.complete')->middleware('can:care.complete');
     Route::post('/care/orientations/{episodeOrientation}/complete-and-orient', [CareController::class, 'completeAndOrient'])->name('care.orientations.complete-and-orient')->middleware('can:care.complete');
     // Autosaved typing on the worksheet: survives a reload, discarded only

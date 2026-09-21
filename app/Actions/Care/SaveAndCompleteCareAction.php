@@ -25,16 +25,16 @@ class SaveAndCompleteCareAction
         array $data,
         User $actor,
         ?CareCompletionMode $destination = null,
-        ?string $finishReason = null,
+        ?string $outcomeReason = null,
     ): EpisodeOrientation {
-        return DB::transaction(function () use ($orientation, $data, $actor, $destination, $finishReason) {
+        return DB::transaction(function () use ($orientation, $data, $actor, $destination, $outcomeReason) {
             $this->saveRecord->execute($orientation, $data, $actor, $destination);
 
             return $this->completeCare->execute(
                 $orientation,
                 $actor,
                 $destination,
-                $finishReason,
+                $outcomeReason,
             );
         });
     }

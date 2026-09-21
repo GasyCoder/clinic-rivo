@@ -280,6 +280,55 @@ class HospitalizationFlowTest extends TestCase
         $this->assertSame('Médecine interne', $stay->fresh()->service);
     }
 
+    /**
+     * Un crayon par rubrique : envoyer une seule rubrique ne touche pas les
+     * autres (omettre n'efface pas, ADR-074), une rubrique envoyée vide
+     * s'efface, et un envoi sans rubrique est refusé.
+     */
+    public function test_each_section_of_the_request_is_saved_on_its_own(): void
+    {
+        $doctor = $this->doctor();
+        [, $orientation] = $this->consultation($doctor);
+
+        $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/hospitalization-requests", [
+            'priority' => 'NORMAL',
+        ])->assertSessionHasNoErrors();
+        $stay = HospitalStay::query()->sole();
+
+        $this->actingAs($doctor)->put("/hospitalisation/{$stay->uuid}/demande", [
+            'reason' => 'Déshydratation sévère',
+            'admission_diagnosis' => 'Gastro-entérite aiguë',
+            'planned_treatment' => 'Réhydratation IV',
+            'priority' => 'URGENT',
+        ])->assertSessionHasNoErrors();
+
+        // Seul le diagnostic d'entrée part : le reste de la demande ne bouge pas.
+        $this->actingAs($doctor)->put("/hospitalisation/{$stay->uuid}/demande", [
+            'admission_diagnosis' => 'Choléra',
+        ])->assertSessionHasNoErrors();
+
+        $request = $stay->hospitalizationRequest->fresh();
+        $this->assertSame('Choléra', $request->admission_diagnosis);
+        $this->assertSame('Déshydratation sévère', $request->reason);
+        $this->assertSame('Réhydratation IV', $request->planned_treatment);
+        $this->assertSame('URGENT', $request->priority->value);
+
+        // Une rubrique envoyée vide s'efface, sans toucher la priorité.
+        $this->actingAs($doctor)->put("/hospitalisation/{$stay->uuid}/demande", ['planned_treatment' => ''])
+            ->assertSessionHasNoErrors();
+        $this->assertNull($stay->hospitalizationRequest->fresh()->planned_treatment);
+        $this->assertSame('URGENT', $stay->hospitalizationRequest->fresh()->priority->value);
+
+        // La priorité, elle, ne s'efface jamais.
+        $this->actingAs($doctor)->put("/hospitalisation/{$stay->uuid}/demande", ['priority' => ''])
+            ->assertSessionHasErrors('priority');
+
+        // Rien à enregistrer : refusé, rien ne change.
+        $this->actingAs($doctor)->put("/hospitalisation/{$stay->uuid}/demande", [])
+            ->assertSessionHasErrors('hospitalization_request');
+        $this->assertSame('Choléra', $stay->hospitalizationRequest->fresh()->admission_diagnosis);
+    }
+
     // ── ADR-152 : le droit décide, jamais le rôle ────────────────────────
 
     /**

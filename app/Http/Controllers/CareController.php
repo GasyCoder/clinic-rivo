@@ -9,14 +9,17 @@ use App\Actions\Care\MarkCareOrderItemNotPerformedAction;
 use App\Actions\Care\ReleaseCareOrientationAction;
 use App\Actions\Care\SaveAndCompleteCareAction;
 use App\Actions\Care\SaveCareRecordAction;
+use App\Actions\Care\TakeOverCareOrientationAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
+use App\Enums\EpisodeStatus;
 use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
 use App\Http\Requests\Care\CompleteCareOrientationRequest;
 use App\Http\Requests\Care\SaveCareRecordDraftRequest;
+use App\Http\Requests\Care\TakeOverCareOrientationRequest;
 use App\Http\Requests\MarkCareOrderItemNotPerformedRequest;
 use App\Http\Requests\UpdateCareRecordRequest;
 use App\Models\AllergenReference;
@@ -230,7 +233,9 @@ class CareController extends Controller
             'episode.careRecord.creator:id,name',
             'episode.careRecord.updater:id,name',
             'episode.careRecord.procedures.performer:id,name',
+            'episode.orientations',
             'acceptedBy:id,name',
+            'takenOverFrom:id,name',
         ]);
 
         abort_unless($episodeOrientation->destination_module === CatalogModule::Care, 404);
@@ -289,6 +294,12 @@ class CareController extends Controller
             // n'a de choix à proposer.
             'medicineAlreadyInvolved' => $careWorkflow->medicineAlreadyInvolved($episodeOrientation->episode),
             'completionReason' => $episodeOrientation->completion_reason,
+            'completionOutcome' => $episodeOrientation->offPlanOutcome($episodeOrientation->episode->orientations),
+            'takeover' => $episodeOrientation->taken_over_at ? [
+                'at' => $episodeOrientation->taken_over_at,
+                'from' => $episodeOrientation->takenOverFrom?->name,
+                'reason' => $episodeOrientation->takeover_reason,
+            ] : null,
             'latestDiagnosis' => $latestDiagnosis ? [
                 'description' => $latestDiagnosis->description,
                 'doctor' => $latestDiagnosis->consultation->doctor?->name ?? $latestDiagnosis->recordedBy?->name,
@@ -419,6 +430,12 @@ class CareController extends Controller
                     && $request->user()->can('care.complete'),
                 'handled_by_other' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
                     && ! $isHandler,
+                // ADR-167 — la reprise suit la même règle que l'action : une
+                // prise en charge en cours d'un collègue, sur un passage ouvert.
+                'can_take_over' => $episodeOrientation->status === EpisodeOrientationStatus::InProgress
+                    && ! $isHandler
+                    && $episodeOrientation->episode->status === EpisodeStatus::Open
+                    && $request->user()->can('care.complete'),
                 'can_view_care_orders' => $canViewCareOrders,
                 'can_view_consumables' => $canViewConsumables,
                 'can_request_consumables' => $canRequestConsumables,
@@ -435,7 +452,7 @@ class CareController extends Controller
     ): RedirectResponse {
         $action->execute(
             $episodeOrientation,
-            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_finish_reason']),
+            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_outcome_reason']),
             $request->user(),
             $request->destination(),
         );
@@ -451,10 +468,10 @@ class CareController extends Controller
     ): RedirectResponse {
         $completed = $action->execute(
             $episodeOrientation,
-            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_finish_reason']),
+            $request->safe()->except(['orient_to_medicine', 'care_outcome', 'care_outcome_reason']),
             $request->user(),
             $request->destination(),
-            $request->validated('care_finish_reason'),
+            $request->validated('care_outcome_reason'),
         );
 
         return redirect()->route('care.index')->with('status', $this->completionMessage($completed, saved: true));
@@ -545,6 +562,18 @@ class CareController extends Controller
             ->with('status', 'Patient pris en charge aux Soins.');
     }
 
+    /** ADR-167 : reprendre, avec un motif, un patient pris en charge par un collègue. */
+    public function takeOver(
+        TakeOverCareOrientationRequest $request,
+        EpisodeOrientation $episodeOrientation,
+        TakeOverCareOrientationAction $action,
+    ): RedirectResponse {
+        $action->execute($episodeOrientation, $request->user(), (string) $request->validated('reason'));
+
+        return redirect()->route('care.orientations.show', $episodeOrientation)
+            ->with('status', 'Vous avez repris la prise en charge de ce patient.');
+    }
+
     /** ADR-122 : remettre en file, à sa place, un patient pris en charge par erreur. */
     public function release(
         Request $request,
@@ -566,7 +595,7 @@ class CareController extends Controller
             $episodeOrientation,
             $request->user(),
             $request->destination(),
-            $request->validated('care_finish_reason'),
+            $request->validated('care_outcome_reason'),
         );
 
         return back()->with('status', $this->completionMessage($completed, saved: false));

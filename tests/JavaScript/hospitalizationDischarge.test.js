@@ -6,13 +6,16 @@ const show = fs.readFileSync('resources/js/Pages/Hospitalization/Show.vue', 'utf
 const form = fs.readFileSync('resources/js/Components/Clinical/ClinicalDischargeForm.vue', 'utf8');
 const openConsultations = fs.readFileSync('resources/js/Components/Hospitalization/StayOpenConsultations.vue', 'utf8');
 const diagnosisAdd = fs.readFileSync('resources/js/Components/Hospitalization/StayDiagnosisAdd.vue', 'utf8');
+const diagnosesCard = fs.readFileSync('resources/js/Components/Hospitalization/StayDiagnosesCard.vue', 'utf8');
 const exit = fs.readFileSync('resources/js/Components/Hospitalization/StayExit.vue', 'utf8');
 const exitContext = fs.readFileSync('resources/js/Components/Hospitalization/StayExitContext.vue', 'utf8');
 
 /** ADR-147/156 — les diagnostics du séjour restent sa trace clinique. */
 test('le séjour garde ses diagnostics, dans leur propre carte', () => {
     assert.match(show, /diagnoses: \{ type: Array, default: \(\) => \[\] \}/);
-    assert.match(show, /v-for="diagnosis in diagnoses"/);
+    assert.match(diagnosesCard, /v-for="diagnosis in diagnoses"/);
+    // Sous la carte « Séjour », dans la même colonne : où est le patient, puis ce qu'il a.
+    assert.match(show, /<div class="space-y-5">\s*<StayLocationCard[\s\S]*?\/>\s*<StayDiagnosesCard/);
 });
 
 /** Le formulaire est partagé : il ne renvoie pas à l'écran de l'autre module. */
@@ -23,11 +26,12 @@ test('l’invite du diagnostic vient du parent, jamais codée dans le formulaire
 
 /** Poser un diagnostic reste gardé par son droit ; le serveur revérifie. */
 test('ajouter un diagnostic exige can_add_diagnosis', () => {
-    assert.match(show, /<StayDiagnosisAdd v-if="capabilities\.can_add_diagnosis"/);
+    assert.match(show, /:can-add="capabilities\.can_add_diagnosis"/);
+    assert.match(diagnosesCard, /<footer v-if="canAdd"[\s\S]*?<StayDiagnosisAdd/);
     assert.match(diagnosisAdd, /\/hospitalisation\/\$\{props\.stayUuid\}\/diagnostics/);
     // Aucune écriture dans la consultation depuis le séjour : elle est le plus
     // souvent close (ADR-076), le diagnostic va sur le séjour (ADR-147).
-    for (const source of [show, diagnosisAdd, exit]) {
+    for (const source of [show, diagnosesCard, diagnosisAdd, exit]) {
         assert.doesNotMatch(source, /\/medicine\/orientations\/.*\/diagnoses/);
     }
 });

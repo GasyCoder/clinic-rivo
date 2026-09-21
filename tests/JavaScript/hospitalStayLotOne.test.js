@@ -5,12 +5,13 @@ import fs from 'node:fs';
 /** ADR-161 — ce que le séjour promet à l'écran ; le build ne le voit pas. */
 const stay = fs.readFileSync('resources/js/Pages/Hospitalization/Show.vue', 'utf8');
 const index = fs.readFileSync('resources/js/Pages/Hospitalization/Index.vue', 'utf8');
+const location = fs.readFileSync('resources/js/Components/Hospitalization/StayLocationCard.vue', 'utf8');
 
 test('changer de service ouvre un nouvel emplacement, corriger ne déplace rien', () => {
     assert.match(stay, /\/hospitalisation\/\$\{props\.stay\.uuid\}\/mouvements/);
-    assert.match(stay, /Changer de service \/ lit/);
-    assert.match(stay, /Corriger l’emplacement actuel/);
-    assert.match(stay, /Emplacements précédents/);
+    assert.match(location, /Changer de service \/ lit/);
+    assert.match(location, /Corriger l’emplacement actuel/);
+    assert.match(location, /Emplacements précédents/);
 });
 
 test('la surveillance ajoute des relevés et affiche les repères du serveur', () => {

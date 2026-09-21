@@ -5,16 +5,18 @@ import { CalendarCheck, CircleAlert, Stethoscope, UserRound } from 'lucide-vue-n
 import Button from '@/Components/Shadcn/Button.vue';
 import { financialModeLabel as modeLabel } from '@/utilities/financialMode';
 import { formatDate, formatDayTime } from '@/utilities/date';
+import { doctorName } from '@/utilities/doctorName';
 import { formatPatientInitials } from '@/utilities/patient';
 
 /**
  * L'en-tête clinique : qui est ce patient, pourquoi il est là, et les
- * actions qui l'entourent — sur une seule ligne.
+ * actions qui l'entourent — en deux lignes serrées.
  *
- * Trois zones lues de gauche à droite, séparées par un filet plutôt que par
- * des cadres : l'identité, les repères de la rencontre, les actions. Aucune
- * constante ici : elles ont leur propre bandeau, et les mêler à l'identité
- * produisait la ligne tassée que cet écran avait.
+ * En haut, l'identité et les actions. En dessous, sur une seule ligne, les
+ * repères de la rencontre puis l'orientation. Les repères avaient chacun leur
+ * pastille d'icône de 36 px et s'empilaient faute de place entre l'identité
+ * et les boutons : l'en-tête occupait près de 190 px pour trois valeurs
+ * courtes. Aucune constante ici : elles ont leur propre bandeau.
  *
  * Les repères cliniques (`consultationType`, `doctor`, `startedAt`) sont
  * facultatifs : Soins et Maternité partagent ce composant sans en passer
@@ -55,7 +57,7 @@ const facts = computed(() => [
         key: 'doctor',
         icon: UserRound,
         label: 'Médecin',
-        value: props.doctor ? `Dr ${props.doctor}` : null,
+        value: props.doctor ? doctorName(props.doctor) : null,
     },
     {
         key: 'when',
@@ -72,11 +74,11 @@ const facts = computed(() => [
             ? 'border-destructive/40 border-s-4 border-s-destructive'
             : 'border-border']"
     >
-        <div class="flex flex-col gap-4 px-4 py-3 2xl:flex-row 2xl:items-center 2xl:gap-6">
-            <!-- QUI -->
-            <div v-if="showIdentity" class="flex min-w-0 items-center gap-3 2xl:shrink-0">
+        <!-- QUI, et les actions -->
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+            <div v-if="showIdentity" class="flex min-w-[18rem] flex-1 items-center gap-3">
                 <span
-                    :class="['flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold tracking-wide', isEmergency
+                    :class="['flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold tracking-wide', isEmergency
                         ? 'bg-destructive text-destructive-foreground'
                         : 'bg-primary/10 text-primary']"
                     aria-hidden="true"
@@ -95,7 +97,7 @@ const facts = computed(() => [
                             <CircleAlert class="h-3 w-3" aria-hidden="true" />Urgence
                         </span>
                     </div>
-                    <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
+                    <p class="flex flex-wrap items-center gap-x-2 text-sm leading-5 text-muted-foreground">
                         <span v-if="patient.age !== null && patient.age !== undefined">{{ patient.age }} ans</span>
                         <template v-if="birthDate">
                             <span class="text-border" aria-hidden="true">|</span>
@@ -112,24 +114,7 @@ const facts = computed(() => [
                 </div>
             </div>
 
-            <!-- POURQUOI -->
-            <dl
-                v-if="facts.length"
-                class="flex min-w-0 flex-1 flex-wrap items-center gap-x-8 gap-y-3 2xl:border-s 2xl:border-border 2xl:ps-6"
-            >
-                <div v-for="fact in facts" :key="fact.key" class="flex min-w-0 items-center gap-2.5">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true">
-                        <component :is="fact.icon" class="h-4 w-4" />
-                    </span>
-                    <div class="min-w-0">
-                        <dt class="text-xs leading-4 text-muted-foreground">{{ fact.label }}</dt>
-                        <dd class="truncate text-sm font-semibold leading-5 text-foreground">{{ fact.value }}</dd>
-                    </div>
-                </div>
-            </dl>
-
-            <!-- ACTIONS -->
-            <div class="flex shrink-0 flex-wrap items-center gap-2 2xl:justify-end">
+            <div class="flex shrink-0 flex-wrap items-center gap-2 sm:ms-auto">
                 <slot name="actions" />
                 <Button v-if="backHref" :as="Link" :href="backHref" size="sm" variant="white-outline">
                     {{ backLabel }}
@@ -137,9 +122,23 @@ const facts = computed(() => [
             </div>
         </div>
 
-        <p v-if="reason" class="truncate border-t border-border px-4 py-2 text-xs text-muted-foreground" :title="reason">
-            <span class="font-medium text-foreground">Orientation :</span> {{ reason }}
-        </p>
+        <!-- POURQUOI : les repères de la rencontre, puis l'orientation, sur une ligne -->
+        <div
+            v-if="facts.length || reason"
+            class="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border bg-muted/20 px-4 py-1.5"
+        >
+            <dl v-if="facts.length" class="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1">
+                <!-- Sur téléphone, l'icône suffit : le libellé reste lu à voix haute et au survol. -->
+                <div v-for="fact in facts" :key="fact.key" class="flex min-w-0 items-center gap-1.5" :title="fact.label">
+                    <component :is="fact.icon" class="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                    <dt class="sr-only text-xs text-muted-foreground sm:not-sr-only">{{ fact.label }}</dt>
+                    <dd class="truncate text-sm font-semibold text-foreground">{{ fact.value }}</dd>
+                </div>
+            </dl>
+            <p v-if="reason" class="min-w-[12rem] flex-1 truncate text-xs text-muted-foreground" :title="reason">
+                <span class="font-medium text-foreground">Orientation :</span> {{ reason }}
+            </p>
+        </div>
 
         <slot />
     </header>

@@ -8652,6 +8652,29 @@ Référence         d'abord inchangé ; transmise en un clic depuis l'ADR-114,
 La transmission reste un acte signé (ADR-106) : la confirmation relit ce qui
 part, repris du dossier.
 
+## Amendement du 2026-09-21 — la demande se corrige rubrique par rubrique
+
+Demande du propriétaire : « ajouter la modification pour chaque petite section au
+lieu de tout modifier ». Sur la page du séjour, chaque rubrique de la demande —
+motif, diagnostic d'entrée, résumé clinique, traitement prévu, consignes — porte
+son crayon, et la priorité le sien dans l'en-tête. Une seule rubrique s'ouvre à
+la fois ; le bouton « Modifier » qui rouvrait tout le formulaire disparaît.
+
+```text
+serveur   PUT /hospitalisation/{séjour}/demande n'écrit que les champs envoyés :
+          un champ absent reste tel quel (omettre n'efface pas, ADR-074), un champ
+          envoyé vide s'efface ; la priorité ne s'efface jamais ; un envoi sans
+          aucune rubrique est refusé
+pourquoi  l'action réécrivait les six champs à chaque envoi : corriger une
+          rubrique seule aurait effacé les autres, ou écrasé le motif d'un
+          collègue avec une valeur périmée
+écran     StayRequestCard ; une rubrique vide facultative ne s'affiche qu'à qui
+          peut la compléter (« Non renseigné ») ; Échap annule, Ctrl+Entrée
+          enregistre
+```
+
+Aucune permission nouvelle : `hospitalization.request`, comme avant.
+
 ---
 
 # ADR-114 — Modules Transferts et Pédiatrie, demandes transmises en un clic
@@ -13391,3 +13414,134 @@ acte prérempli par l'accueil   envoyé au médecin sans l'avoir réalisé, l'in
 besoin inconnu terminé aux     le passage reste « en soins » : l'ADR-054 ne fait avancer que le
 Soins sans Médecine            parcours Soins seuls. Inchangé ici — à décider
 ```
+
+## Amendement du 2026-09-21 — la suite prévue se lit, toute autre suite demande un motif
+
+Demande du propriétaire, avec deux arbitrages : « le bouton prévu est seulement à titre
+d'information, le bouton non prévu est cliquable et demande un motif », **dans les deux sens**.
+
+```text
+parcours prévu        carte prévue              carte non prévue
+CARE_THEN_MEDICINE    Transmettre — se lit      Terminer aux Soins — motif obligatoire
+CARE_ONLY             Terminer — se lit         Transmettre au médecin — motif obligatoire
+besoin inconnu        rien de prévu             les deux se choisissent, sans motif
+```
+
+La ligne « CARE_ONLY → Transmettre au médecin, sans motif » du tableau ci-dessus est donc
+remplacée : envoyer au médecin un patient prévu aux Soins seuls exige aussi un motif, refusé
+côté serveur sans lui (audit `care.orientation.send_to_medicine`). Le motif accompagne le
+patient — l'orientation Médecine porte « Orientation vers Médecine décidée aux Soins, hors du
+parcours prévu — motif : … » — et reste sur `completion_reason`. Le champ s'appelle désormais
+`care_outcome_reason` (il portait `care_finish_reason`, qui ne disait qu'un sens).
+
+À l'écran, la carte prévue n'est plus un bouton : elle s'applique d'office, en bordure bleue.
+La carte non prévue (« Changer · motif ») est un interrupteur qui ouvre le motif ; « Garder la
+suite prévue », ou un second clic, revient au parcours prévu. Le parcours du passage et la fiche
+terminée disent dans quel sens la suite a changé (`EpisodeOrientation::offPlanOutcome()`).
+
+---
+
+# ADR-167 — Reprendre la prise en charge Soins d'un collègue
+
+**Status:** ACCEPTED (2026-09-21 — signalement du propriétaire sur A-26-0003 : « je ne vois
+pas le bouton » de l'étape Terminer ; arbitrage : reprise avec motif obligatoire, réservée à
+`care.complete`)
+
+**Construit ce que l'ADR-085 laissait hors périmètre** (« aucune reprise d'un patient par un
+autre soignant n'est définie : elle exigera une règle explicite et tracée ») et que l'ADR-092
+reconduisait. **Complète l'ADR-166** : la suite des soins n'est plus masquée à qui ne peut pas
+la décider. Le CDC ne décrit pas cette reprise : la règle est celle du propriétaire.
+
+## Le constat
+
+Le patient A-26-0003 avait été pris en charge aux Soins par un compte Médecine (dont le socle
+porte `care.create` sur ce site, décision du portail, ADR-064), et l'infirmière qui l'avait
+réellement au chevet ouvrait la fiche. L'ADR-085 réservant la fin des Soins à celui qui a pris
+le patient, elle ne voyait à l'étape Terminer que « Enregistrer la fiche » : le choix de
+l'ADR-166 était masqué, sans un mot. Personne ne pouvait décider la suite tant que ce compte
+ne revenait pas.
+
+## La règle
+
+« Reprendre la prise en charge » (`TakeOverCareOrientationAction`,
+`POST /care/orientations/{o}/take-over`, `care.complete`) :
+
+```text
+permis       orientation Soins EN COURS, passage ouvert, prise en charge d'un autre compte
+motif        obligatoire (1 000 caractères au plus), jamais deviné
+effet        accepted_by = le compte qui reprend : il décide la suite (ADR-166) ;
+             l'ancien soignant ne termine ni ne transmet plus, il corrige encore (ADR-092)
+refusé       patient en attente (on le prend dans la file), soins terminés, passage clos,
+             reprendre son propre patient
+```
+
+`accepted_at` **n'est pas réécrit** : c'est le début réel des soins, et la remise en file
+(ADR-122) compte le travail enregistré depuis ce moment. La réécrire laisserait renvoyer en
+file un patient déjà soigné par le premier soignant. `taken_over_at`, `taken_over_from` et
+`takeover_reason` (migration `2026_10_21_090000`) gardent la dernière reprise pour l'écran ;
+l'audit `care.orientation.take_over` garde toutes les reprises avec l'ancien et le nouveau
+soignant.
+
+## L'écran
+
+À l'étape Terminer, la « Suite après les soins » se montre **verrouillée** plutôt que masquée
+(même parti pris que l'ADR-158) : les deux suites, la prévue marquée, « Cette décision revient
+à … », ce que le compte peut encore faire (corriger la fiche, ADR-092, ou la lire seulement) et
+le bouton de reprise. C'est le **seul** avertissement de la page (amendement du même jour, à la
+demande du propriétaire) : l'ancien bandeau en haut de la fiche est retiré, il répétait le même
+message ; la ligne « Pris en charge … par … » reste en haut. Les deux suites verrouillées se
+cliquent : elles ouvrent la reprise, et la suite cliquée est sélectionnée dès que la reprise
+aboutit (sans rien valider — le bouton de l'étape confirme). La reprise passe par une fenêtre qui nomme
+le soignant remplacé, exige le motif et ne se ferme pas sur un clic à côté ; la page reste en
+place, la saisie en cours n'est pas perdue, et la suite devient aussitôt choisissable. Après
+reprise : « Repris le … à … — motif : … » sous la ligne de prise en charge.
+
+## Permissions
+
+Aucune nouvelle : `care.complete`, le droit de ce que la reprise permet — terminer les soins.
+Sans lui, la fiche le dit (« La reprendre demande le droit « care.complete » »). Aucun rôle
+codé en dur (ADR-152).
+
+## Hors périmètre
+
+La même reprise en Maternité, en Médecine ou au bloc : non demandée, non construite.
+
+## Amendement du 2026-09-21 — un seul motif pour reprendre et changer de suite
+
+Question du propriétaire : « quelle différence entre cliquer une suite et Reprendre la prise en
+charge ? les deux demandent un motif ». Arbitrage : **un seul motif**. Quand le patient est tenu
+par un collègue, la carte prévue se lit seulement, et la carte non prévue ouvre une seule
+fenêtre, « Changer la suite prévue » : un motif (« Pourquoi changer la suite prévue ? ») qui
+trace la reprise **et** justifie le changement. Après la reprise, la suite est sélectionnée et
+le motif déjà rempli ; on confirme avec le bouton de l'étape. « Reprendre la prise en charge »
+reste le geste pour garder la suite prévue, avec son propre motif de reprise. Pour un besoin
+inconnu (rien de prévu), les deux cartes ouvrent la reprise, la suite choisie retenue.
+
+## Amendement du 2026-09-21 (bis) — une seule fenêtre, une case, plus de bandeau
+
+Demande du propriétaire : fusionner les deux fenêtres et retirer le bandeau jaune. Il n'existe
+plus qu'**une** fenêtre de reprise, avec **un** motif, suivi au bas d'une case à cocher
+« Reprendre la prise en charge », qui explique ce qu'elle entraîne (vous devenez le soignant
+responsable ; l'ancien ne termine ni ne transmet plus, il corrige encore la fiche, ADR-092).
+
+```text
+la case          jamais cochée d'avance ; le bouton reste grisé tant qu'elle n'est pas
+                 cochée ET le motif écrit. C'est le consentement explicite à la reprise :
+                 sans reprise, la suite reste la décision du soignant responsable (ADR-085)
+titre            « Changer la suite prévue » (carte non prévue) ;
+                 « Reprendre la prise en charge » sinon — même fenêtre, même motif
+bouton           « Reprendre et changer la suite » / « Reprendre la prise en charge »
+```
+
+Le bandeau « Cette décision revient à … » est retiré : qui a le patient se lit déjà dans
+l'en-tête (« Pris en charge … par … »). Seul un compte **sans** `care.complete` reçoit encore
+une phrase simple, sans cadre, qui nomme le droit manquant (ADR-154).
+
+**Garder la suite prévue et reprendre** (fin de garde, patient pris sur le mauvais compte) :
+la carte prévue ne se cliquant pas, ce geste passe par le pied de l'étape Terminer — un bouton
+« Reprendre la prise en charge », là où le soignant responsable trouve son bouton de fin, à côté
+de « Seul … peut terminer les soins. » Il ouvre **la même fenêtre**. Sans lui, un ordre de soins
+en cours ou un passage déjà vu par Médecine (cas où aucune suite ne se choisit) ne pourrait plus
+être repris. Le bloc « Suite après les soins » verrouillé n'est affiché que si une suite se
+choisit.
+

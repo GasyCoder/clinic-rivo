@@ -27,11 +27,14 @@ import {
     Stethoscope,
     Trash2,
     Undo2,
+    UserRoundCog,
     X,
 } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import ClinicalRichTextEditor from '@/Components/Clinical/ClinicalRichTextEditor.vue';
+import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import FormError from '@/Components/UI/FormError.vue';
@@ -63,6 +66,8 @@ const props = defineProps({
     hasActiveMedicineOrientation: { type: Boolean, default: false },
     medicineAlreadyInvolved: { type: Boolean, default: false },
     completionReason: { type: String, default: null },
+    completionOutcome: { type: String, default: null },
+    takeover: { type: Object, default: null },
     latestDiagnosis: { type: Object, default: null },
     capabilities: Object,
 });
@@ -83,6 +88,51 @@ const releasePatient = () => {
     router.post(`/care/orientations/${props.orientation.uuid}/release`, {}, {
         onError: (errors) => { releaseError.value = errors.orientation ?? 'Le patient n’a pas pu être remis en file.'; },
         onFinish: () => { releasing.value = false; },
+    });
+};
+
+// ADR-167 — reprendre un patient pris en charge par un collègue. Le motif est
+// exigé par le serveur ; la page reste en place (la saisie en cours n'est pas
+// perdue) et la suite après les soins devient la vôtre.
+const takeOverOpen = ref(false);
+const takeOverForm = useForm({ reason: '' });
+// Cliquer une suite verrouillée ouvre la reprise : la suite cliquée est
+// retenue et sélectionnée dès que la reprise aboutit.
+const takeOverOutcome = ref(null);
+const outcomeTitles = { MEDICINE: 'Transmettre au médecin', FINISH: 'Terminer aux Soins' };
+// Choisir la suite non prévue d'un patient tenu par un collègue est UN geste :
+// un seul motif, qui trace la reprise et justifie le changement (décision du
+// propriétaire, 2026-09-21).
+const takeOverChangesPlan = computed(() => Boolean(takeOverOutcome.value
+    && plannedOutcome.value
+    && takeOverOutcome.value !== plannedOutcome.value));
+// Une seule fenêtre : le motif, puis la case « Reprendre la prise en charge »
+// au bas. Cocher la case est le consentement explicite à la reprise : sans
+// elle, la suite reste la décision du soignant responsable (ADR-085).
+const takeOverConfirmed = ref(false);
+const takeOverReady = computed(() => takeOverConfirmed.value && trimmed(takeOverForm.reason).length > 0);
+const openTakeOver = (outcome = null) => {
+    takeOverOutcome.value = outcome;
+    takeOverConfirmed.value = false;
+    takeOverForm.clearErrors();
+    takeOverOpen.value = true;
+};
+const confirmTakeOver = () => {
+    if (!takeOverReady.value) return;
+    const outcome = takeOverOutcome.value;
+    const changesPlan = takeOverChangesPlan.value;
+    const reason = trimmed(takeOverForm.reason);
+    takeOverForm.post(`/care/orientations/${props.orientation.uuid}/take-over`, {
+        preserveScroll: true,
+        preserveState: true,
+        onSuccess: () => {
+            takeOverOpen.value = false;
+            takeOverForm.reset();
+            takeOverConfirmed.value = false;
+            if (outcome) chooseOutcome(outcome);
+            if (changesPlan) form.care_outcome_reason = reason;
+            takeOverOutcome.value = null;
+        },
     });
 };
 const patient = computed(() => episode.value.patient);
@@ -174,7 +224,7 @@ const form = useForm({
     // ADR-166 — la suite des Soins, pré-remplie selon le parcours prévu et
     // modifiable à l'étape Terminer. Vide pour un besoin encore inconnu.
     care_outcome: ({ MEDICINE: 'MEDICINE', FINISH: 'FINISH' })[props.orientation.episode.care_completion_mode] ?? '',
-    care_finish_reason: '',
+    care_outcome_reason: '',
     procedures: initialRequestedProcedures,
     // ADR-072 — material used, saved with the acts in one submission.
     consumables: initialSuggestedConsumables,
@@ -193,7 +243,7 @@ const DRAFT_KEYS = Object.keys(form.data());
 // Ce qu'il y aurait à enregistrer, hors choix de la suite : pris avant la
 // restauration du brouillon, pour qu'une saisie restaurée compte comme une
 // saisie. Changer seulement la suite ne doit jamais créer une fiche vide.
-const OUTCOME_KEYS = ['care_outcome', 'care_finish_reason'];
+const OUTCOME_KEYS = ['care_outcome', 'care_outcome_reason'];
 const recordSnapshot = (data) => JSON.stringify(
     Object.fromEntries(Object.entries(data).filter(([key]) => !OUTCOME_KEYS.includes(key))),
 );
@@ -1096,15 +1146,23 @@ const plannedOutcome = computed(() => ({ MEDICINE: 'MEDICINE', FINISH: 'FINISH' 
 const offersOutcomeChoice = computed(() => !activeCareOrder.value
     && !props.medicineAlreadyInvolved
     && Boolean(props.capabilities.can_complete));
+// Les boutons d'enregistrement et de fin de l'étape Terminer.
+const showsFinishActions = computed(() => Boolean(props.capabilities?.can_edit && (offersOutcomeChoice.value
+    || form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected.value || activeCareOrder.value)));
 const chosenOutcome = computed(() => (offersOutcomeChoice.value ? form.care_outcome || null : null));
-const skipsPlannedMedicine = computed(() => plannedOutcome.value === 'MEDICINE' && chosenOutcome.value === 'FINISH');
+// La suite prévue s'applique d'office ; choisir l'autre est un changement,
+// qui demande toujours un motif, dans les deux sens (ADR-166, amendement du
+// 2026-09-21). Un besoin inconnu n'a rien de prévu, donc rien à justifier.
+const offPlanOutcome = computed(() => ({ MEDICINE: 'FINISH', FINISH: 'MEDICINE' })[plannedOutcome.value] ?? null);
+const deviatesFromPlan = computed(() => Boolean(plannedOutcome.value && chosenOutcome.value && chosenOutcome.value !== plannedOutcome.value));
 const transmissionVisible = computed(() => (chosenOutcome.value
     ? chosenOutcome.value === 'MEDICINE'
     : Boolean(episode.value.care_transmission_expected)));
 const outcomeReady = computed(() => {
-    if (!offersOutcomeChoice.value || chosenOutcome.value === 'MEDICINE') return true;
-    if (chosenOutcome.value !== 'FINISH') return false;
-    if (skipsPlannedMedicine.value) return trimmed(form.care_finish_reason).length > 0;
+    if (!offersOutcomeChoice.value) return true;
+    if (!chosenOutcome.value) return false;
+    if (deviatesFromPlan.value) return trimmed(form.care_outcome_reason).length > 0;
+    if (chosenOutcome.value === 'MEDICINE') return true;
 
     const hasActs = form.procedures.length > 0 || recordedProcedureCount.value > 0;
 
@@ -1132,8 +1190,18 @@ const needsSaving = computed(() => (props.careRecord
 const chooseOutcome = (value) => {
     if (!props.capabilities.can_edit) return;
     form.care_outcome = value;
-    if (value !== 'FINISH') form.care_finish_reason = '';
+    if (!plannedOutcome.value || value === plannedOutcome.value) form.care_outcome_reason = '';
 };
+// La carte non prévue est un interrupteur : un second clic, comme « Garder la
+// suite prévue », revient au parcours prévu.
+const toggleOffPlan = () => chooseOutcome(deviatesFromPlan.value ? plannedOutcome.value : offPlanOutcome.value);
+const outcomeOptions = [
+    { value: 'MEDICINE', icon: Stethoscope, title: 'Transmettre au médecin', text: 'Le patient rejoint la file Médecine avec votre transmission.' },
+    { value: 'FINISH', icon: CircleCheck, title: 'Terminer aux Soins', text: 'Le soin suffit : le patient ne passe pas en Médecine.' },
+];
+const outcomeReasonPlaceholder = (outcome) => (outcome === 'FINISH'
+    ? 'Ex. besoin couvert par le soin, patient reparti avant la consultation'
+    : 'Ex. douleur thoracique signalée pendant le soin');
 
 // Purely a label: the actual destination/settlement rule is decided
 // backend-side (CompleteCareAndOrientToMedicineAction) from the very same
@@ -1166,8 +1234,9 @@ const completionWarning = computed(() => {
         return 'La fin du travail Soins ne ferme pas la prise en charge Médecine.';
     }
     if (offersOutcomeChoice.value) {
+        if (deviatesFromPlan.value && chosenOutcome.value === 'MEDICINE') return 'Après validation, le patient sera orienté vers Médecine. Le motif l’accompagne et reste au dossier.';
         if (chosenOutcome.value === 'MEDICINE') return 'Après validation, le patient sera orienté vers Médecine.';
-        if (skipsPlannedMedicine.value) return 'Après validation, le patient est terminé aux Soins, sans passer en Médecine. Le motif reste au dossier.';
+        if (deviatesFromPlan.value) return 'Après validation, le patient est terminé aux Soins, sans passer en Médecine. Le motif reste au dossier.';
         if (chosenOutcome.value === 'FINISH') return 'Après validation, le parcours Soins sera terminé.';
 
         return 'Choisissez la suite après les soins : transmettre au médecin, ou terminer aux Soins.';
@@ -1388,10 +1457,10 @@ const buildPayload = (data, forcedOutcome = undefined) => {
     const outcome = forcedOutcome ?? chosenOutcome.value;
     if (outcome) payload.care_outcome = outcome;
     else delete payload.care_outcome;
-    if (outcome === 'FINISH' && plannedOutcome.value === 'MEDICINE' && !props.medicineAlreadyInvolved) {
-        payload.care_finish_reason = trimmed(data.care_finish_reason) || null;
+    if (outcome && plannedOutcome.value && outcome !== plannedOutcome.value && !props.medicineAlreadyInvolved) {
+        payload.care_outcome_reason = trimmed(data.care_outcome_reason) || null;
     } else {
-        delete payload.care_finish_reason;
+        delete payload.care_outcome_reason;
     }
 
     if (!transmissionVisible.value && outcome !== 'MEDICINE') {
@@ -1418,7 +1487,7 @@ const errorStepKeyByField = {
     alcohol: 'vitals',
     allergy_note: 'allergies', allergy_uuids: 'allergies', allergen_reference_uuids: 'allergies', new_allergies: 'allergies',
     diagnostic_note: 'finish', transmission_reason: 'finish',
-    care_outcome: 'finish', care_finish_reason: 'finish',
+    care_outcome: 'finish', care_outcome_reason: 'finish',
 };
 const stepKeyForErrorField = (field) => {
     if (field.startsWith('procedures.') || field === 'no_procedure_reason' || field === 'care_record') return 'procedures';
@@ -1470,7 +1539,7 @@ const submitAndComplete = (forcedOutcome = undefined) => {
 const completeWithoutSaving = () => {
     form.transform((data) => ({
         care_outcome: chosenOutcome.value,
-        care_finish_reason: skipsPlannedMedicine.value ? trimmed(data.care_finish_reason) || null : null,
+        care_outcome_reason: deviatesFromPlan.value ? trimmed(data.care_outcome_reason) || null : null,
     })).post(`/care/orientations/${props.orientation.uuid}/complete`, {
         preserveScroll: true,
         onError: scrollToErrors,
@@ -1503,10 +1572,10 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
         </div>
         <p v-if="releaseError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300" role="alert">{{ releaseError }}</p>
 
-        <div v-if="capabilities.handled_by_other" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200" role="status">
-            <Lock class="h-4 w-4 mt-0.5 shrink-0" />
-            <span>Ce patient est pris en charge par <strong>{{ orientation.accepted_by ?? 'un autre soignant' }}</strong>. Vous consultez la fiche en lecture seule : seule la personne qui l’a pris en charge peut la compléter ou transférer le patient.</span>
-        </div>
+        <p v-if="takeover && !capabilities.handled_by_other" class="flex items-start gap-2 text-xs text-muted-foreground">
+            <History class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>Repris le {{ formatDateTime(takeover.at) }}<span v-if="takeover.from"> à {{ takeover.from }}</span> — motif : {{ takeover.reason }}</span>
+        </p>
 
         <div v-if="orientation.status === 'PENDING'" class="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
             Le patient doit être pris en charge avant de renseigner cette fiche.
@@ -1516,7 +1585,7 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
             <span>
                 <strong class="font-semibold text-foreground">Prise en charge terminée.</strong>
                 <template v-if="completionReason">
-                    Terminé aux Soins, sans passer en Médecine — motif : {{ completionReason }}.
+                    {{ completionOutcome === 'MEDICINE' ? 'Transmis au médecin, hors du parcours prévu' : 'Terminé aux Soins, sans passer en Médecine' }} — motif : {{ completionReason }}.
                     Vous pouvez encore corriger cette fiche — chaque modification est tracée.
                 </template>
                 <template v-else>Le patient a été transféré ; vous pouvez encore corriger cette fiche — chaque modification est tracée.</template>
@@ -2036,12 +2105,52 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
                      soin peut avoir besoin du médecin. -->
                 <fieldset v-if="offersOutcomeChoice" class="border-b border-border px-5 py-4" :disabled="!capabilities.can_edit">
                     <legend id="care-outcome-title" class="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Suite après les soins</legend>
-                    <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="care-outcome-title">
+
+                    <!-- Un parcours prévu : sa suite s'applique d'office et se lit
+                         seulement ; l'autre est un changement, qui demande un motif. -->
+                    <div v-if="plannedOutcome" class="grid gap-2 sm:grid-cols-2">
+                        <template v-for="option in outcomeOptions" :key="option.value">
+                            <div
+                                v-if="option.value === plannedOutcome"
+                                :aria-current="!deviatesFromPlan ? 'true' : undefined"
+                                :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3', !deviatesFromPlan ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card opacity-70']"
+                            >
+                                <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', !deviatesFromPlan ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
+                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <span class="min-w-0">
+                                    <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                        {{ option.title }}
+                                        <Badge variant="outline">Prévu à l’arrivée</Badge>
+                                    </span>
+                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
+                                </span>
+                            </div>
+                            <button
+                                v-else
+                                type="button"
+                                :aria-pressed="deviatesFromPlan"
+                                :class="['flex items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60', deviatesFromPlan ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-dashed border-border bg-card hover:border-primary/50 hover:bg-muted/40']"
+                                @click="toggleOffPlan"
+                            >
+                                <span :class="['mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md', deviatesFromPlan ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground']">
+                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <span class="min-w-0">
+                                    <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                        {{ option.title }}
+                                        <Badge variant="outline">Changer · motif</Badge>
+                                    </span>
+                                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
+                                </span>
+                            </button>
+                        </template>
+                    </div>
+
+                    <!-- Besoin inconnu : rien de prévu, les deux suites se choisissent. -->
+                    <div v-else class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="care-outcome-title">
                         <button
-                            v-for="option in [
-                                { value: 'MEDICINE', icon: Stethoscope, title: 'Transmettre au médecin', text: 'Le patient rejoint la file Médecine avec votre transmission.' },
-                                { value: 'FINISH', icon: CircleCheck, title: 'Terminer aux Soins', text: 'Le soin suffit : le patient ne passe pas en Médecine.' },
-                            ]"
+                            v-for="option in outcomeOptions"
                             :key="option.value"
                             type="button"
                             role="radio"
@@ -2053,33 +2162,85 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
                                 <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
                             </span>
                             <span class="min-w-0">
-                                <span class="flex flex-wrap items-center gap-2 text-sm font-bold text-foreground">
-                                    {{ option.title }}
-                                    <Badge v-if="plannedOutcome === option.value" variant="outline">Prévu à l’arrivée</Badge>
-                                </span>
+                                <span class="block text-sm font-bold text-foreground">{{ option.title }}</span>
                                 <span class="mt-0.5 block text-xs text-muted-foreground">{{ option.text }}</span>
                             </span>
                         </button>
                     </div>
+
                     <FormError class="mt-2" :message="form.errors.care_outcome" />
                     <FormField
-                        v-if="skipsPlannedMedicine"
+                        v-if="deviatesFromPlan"
                         as="div"
                         class="mt-3"
-                        label="Motif"
+                        label="Motif du changement"
                         required
-                        :error="form.errors.care_finish_reason"
+                        :error="form.errors.care_outcome_reason"
                     >
                         <Textarea
-                            id="care_finish_reason"
-                            v-model="form.care_finish_reason"
+                            id="care_outcome_reason"
+                            v-model="form.care_outcome_reason"
                             rows="2"
                             maxlength="1000"
-                            placeholder="Ex. besoin couvert par le soin, patient reparti avant la consultation"
+                            :placeholder="outcomeReasonPlaceholder(chosenOutcome)"
                         />
-                        <p class="mt-1 text-[11px] text-muted-foreground">La consultation prévue n’aura pas lieu : ce motif reste au dossier du passage.</p>
+                        <div class="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <span>{{ chosenOutcome === 'FINISH' ? 'La consultation prévue n’aura pas lieu : ce motif reste au dossier du passage.' : 'Seuls des soins étaient prévus : ce motif accompagne le patient chez le médecin et reste au dossier.' }}</span>
+                            <button type="button" class="font-semibold text-primary hover:underline" @click="chooseOutcome(plannedOutcome)">Garder la suite prévue</button>
+                        </div>
                     </FormField>
                 </fieldset>
+                <!-- ADR-167 — la suite n'est pas masquée à qui ne peut pas la
+                     décider : elle se montre verrouillée, avec le nom de qui
+                     la décide et le moyen de la reprendre. -->
+                <section v-else-if="capabilities.handled_by_other && !activeCareOrder && !medicineAlreadyInvolved" class="border-b border-border px-5 py-4" aria-labelledby="care-outcome-locked-title">
+                    <h3 id="care-outcome-locked-title" class="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                        <Lock class="h-3.5 w-3.5" aria-hidden="true" />Suite après les soins
+                    </h3>
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        <template v-for="option in outcomeOptions" :key="option.value">
+                            <!-- La suite prévue se lit seulement ; l'autre ouvre, en un
+                                 seul geste, la reprise et le changement de suite. -->
+                            <div
+                                v-if="option.value === plannedOutcome"
+                                aria-current="true"
+                                class="flex items-center gap-3 rounded-lg border border-primary bg-primary/5 px-3.5 py-3 ring-1 ring-primary"
+                            >
+                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <span class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-bold text-foreground">
+                                    {{ option.title }}
+                                    <Badge variant="outline">Prévu à l’arrivée</Badge>
+                                </span>
+                                <Lock class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </div>
+                            <button
+                                v-else
+                                type="button"
+                                :disabled="!capabilities.can_take_over"
+                                :aria-label="plannedOutcome ? `${option.title} — changer la suite prévue` : `${option.title} — reprendre d’abord la prise en charge`"
+                                :title="capabilities.can_take_over ? (plannedOutcome ? 'Changer la suite prévue : un motif vous sera demandé' : 'Reprenez la prise en charge pour choisir cette suite') : 'Seul le soignant qui a pris le patient décide la suite'"
+                                class="flex items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-3.5 py-3 text-start transition-colors hover:border-primary/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:border-border disabled:hover:bg-muted/30"
+                                @click="openTakeOver(option.value)"
+                            >
+                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                                    <component :is="option.icon" class="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <span class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-bold text-muted-foreground">
+                                    {{ option.title }}
+                                    <Badge v-if="plannedOutcome" variant="outline">Changer · motif</Badge>
+                                </span>
+                                <Lock class="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </button>
+                        </template>
+                    </div>
+                    <!-- Qui a le patient se lit dans l'en-tête (« Pris en charge … par ») :
+                         plus de bandeau ici. Sans le droit de reprendre, on le nomme. -->
+                    <p v-if="!capabilities.can_take_over" class="mt-2 text-xs text-muted-foreground">
+                        La suite revient au soignant qui a pris le patient en charge ; la reprendre demande le droit « care.complete ».
+                    </p>
+                </section>
 
                 <!-- Content on the left, context on the right: a single wide
                      column left "Aucun" floating in empty space and gave the
@@ -2248,13 +2409,20 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
 
                 <Button v-if="currentStepKey !== 'finish'" type="button" size="rg" variant="primary" @click="nextStep">Suivant<ArrowRight class="h-5 w-5" /></Button>
 
-                <div v-else-if="capabilities.can_edit && (offersOutcomeChoice || form.isDirty || form.hasErrors || form.procedures.length || noProcedureSelected || activeCareOrder)" class="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center">
+                <div v-else-if="showsFinishActions || capabilities.can_take_over" class="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center">
                     <p class="text-xs font-medium text-muted-foreground sm:me-2">
-                        <span v-if="form.consumables.length">Les actes et le matériel seront enregistrés ensemble ; la Pharmacie recevra la demande de sortie de stock.</span>
+                        <span v-if="!showsFinishActions">Seul {{ orientation.accepted_by ?? 'le soignant qui a pris le patient en charge' }} peut terminer les soins.</span>
+                        <span v-else-if="form.consumables.length">Les actes et le matériel seront enregistrés ensemble ; la Pharmacie recevra la demande de sortie de stock.</span>
                         <span v-else-if="form.procedures.length">Les actes seront enregistrés avec l’identité du soignant et l’heure de validation.</span>
                         <span v-else>Enregistrez uniquement les informations réellement constatées.</span>
                     </p>
                     <div class="flex flex-wrap justify-end gap-2">
+                        <!-- Reprendre sans changer la suite prévue (fin de garde, patient
+                             pris sur le mauvais compte) : la même fenêtre, le même motif. -->
+                        <Button v-if="capabilities.can_take_over" type="button" size="rg" variant="white-outline" @click="openTakeOver()">
+                            <UserRoundCog class="h-4 w-4" aria-hidden="true" /><span class="ms-2">Reprendre la prise en charge</span>
+                        </Button>
+                        <template v-if="showsFinishActions">
                         <template v-if="activeCareOrder">
                             <Button v-if="form.procedures.length" type="button" size="rg" variant="white-outline" :disabled="form.processing" @click="submit">Enregistrer</Button>
                             <Button type="button" size="rg" variant="primary" :disabled="form.processing || careOrderUnresolvedCount > 0" @click="submitAndComplete()"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : completionLabel }}</span></Button>
@@ -2278,6 +2446,7 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
                         </template>
                         <Button v-else-if="episode.care_completion_mode === 'CHOICE' && noProcedureSelected" type="button" size="rg" variant="primary" disabled>Indiquez le motif</Button>
                         <Button v-else type="submit" size="rg" variant="primary" :disabled="form.processing || !allergySafetyReady"><Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la fiche' }}</span></Button>
+                        </template>
                     </div>
                 </div>
                 <span v-else />
@@ -2291,6 +2460,65 @@ const finishCare = () => (needsSaving.value ? submitAndComplete() : completeWith
                 <Link v-if="episode.care_completion_mode === 'CHOICE'" :href="`/care/orientations/${orientation.uuid}/complete-and-orient`" method="post" as="button" preserve-scroll><Button size="rg" variant="primary">Vers Médecine</Button></Link>
             </div>
         </section>
+
+        <!-- ADR-167 — une seule fenêtre pour un patient tenu par un collègue :
+             un motif, puis la case « Reprendre la prise en charge ». Changer la
+             suite prévue et reprendre le patient sont le même geste. -->
+        <Dialog
+            v-model:open="takeOverOpen"
+            :title="takeOverChangesPlan ? 'Changer la suite prévue' : 'Reprendre la prise en charge'"
+            :description="takeOverChangesPlan
+                ? `Vous choisissez « ${outcomeTitles[takeOverOutcome]} » au lieu de la suite prévue. Un seul motif : il justifie le changement et trace la reprise.`
+                : `Ce patient est pris en charge par ${orientation.accepted_by ?? 'un collègue'}. Indiquez pourquoi vous le reprenez.`"
+            :dismissible="false"
+        >
+            <template #icon>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <component :is="takeOverChangesPlan ? (takeOverOutcome === 'MEDICINE' ? Stethoscope : Check) : UserRoundCog" class="h-5 w-5" aria-hidden="true" />
+                </span>
+            </template>
+            <form id="take-over-form" @submit.prevent="confirmTakeOver">
+                <p v-if="takeOverOutcome && !takeOverChangesPlan" class="mb-3 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-foreground">
+                    <Info class="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                    <span>Après la reprise, la suite « <strong>{{ outcomeTitles[takeOverOutcome] }}</strong> » sera sélectionnée ; vous confirmerez ensuite avec le bouton de l’étape.</span>
+                </p>
+                <FormField as="div" :label="takeOverChangesPlan ? 'Pourquoi changer la suite prévue ?' : 'Motif de la reprise'" required :error="takeOverForm.errors.reason">
+                    <Textarea
+                        id="take_over_reason"
+                        v-model="takeOverForm.reason"
+                        rows="3"
+                        maxlength="1000"
+                        :placeholder="takeOverChangesPlan ? outcomeReasonPlaceholder(takeOverOutcome) : 'Ex. fin de garde de mon collègue, patient pris en charge sur le mauvais compte'"
+                    />
+                    <p class="mt-1 text-[11px] text-muted-foreground">
+                        {{ takeOverChangesPlan
+                            ? 'La suite sera sélectionnée avec ce motif ; vous confirmerez ensuite avec le bouton de l’étape. Le motif, l’heure et l’ancien soignant restent au dossier et à l’audit.'
+                            : 'Le motif, l’heure et l’ancien soignant restent au dossier et à l’audit.' }}
+                    </p>
+                </FormField>
+                <label
+                    for="take_over_confirm"
+                    :class="['mt-4 flex cursor-pointer items-start gap-3 rounded-lg border px-3.5 py-3 transition-colors', takeOverConfirmed ? 'border-primary bg-primary/5' : 'border-border bg-muted/30 hover:bg-muted/60']"
+                >
+                    <Checkbox id="take_over_confirm" v-model="takeOverConfirmed" class="mt-0.5" />
+                    <span class="min-w-0 text-sm">
+                        <span class="flex items-center gap-1.5 font-semibold text-foreground">
+                            <UserRoundCog class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />Reprendre la prise en charge
+                        </span>
+                        <span class="mt-0.5 block text-xs text-muted-foreground">
+                            Vous devenez le soignant responsable de ce patient. {{ orientation.accepted_by ?? 'Le soignant actuel' }} ne pourra plus terminer les soins ni le transmettre au médecin ; il pourra encore corriger la fiche.
+                        </span>
+                    </span>
+                </label>
+                <p v-if="!takeOverConfirmed" class="mt-2 text-[11px] text-muted-foreground">Cochez la case pour confirmer : seul le soignant responsable décide la suite.</p>
+            </form>
+            <template #footer>
+                <Button type="button" size="rg" variant="white-outline" :disabled="takeOverForm.processing" @click="takeOverOpen = false">Annuler</Button>
+                <Button type="submit" form="take-over-form" size="rg" variant="primary" :disabled="takeOverForm.processing || !takeOverReady">
+                    <UserRoundCog class="h-4 w-4" aria-hidden="true" /><span class="ms-2">{{ takeOverForm.processing ? 'Enregistrement…' : takeOverChangesPlan ? 'Reprendre et changer la suite' : 'Reprendre la prise en charge' }}</span>
+                </Button>
+            </template>
+        </Dialog>
 
         <div
             v-if="cancelTarget"

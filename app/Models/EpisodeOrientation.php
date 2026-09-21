@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'episode_id', 'source_module', 'destination_module', 'status', 'active_key',
     'reason', 'oriented_by', 'accepted_by', 'completed_by', 'oriented_at',
     'accepted_at', 'completed_at', 'completion_reason',
+    'taken_over_at', 'taken_over_from', 'takeover_reason',
 ])]
 class EpisodeOrientation extends Model
 {
@@ -38,6 +39,7 @@ class EpisodeOrientation extends Model
             'status' => EpisodeOrientationStatus::class,
             'oriented_at' => 'datetime',
             'accepted_at' => 'datetime',
+            'taken_over_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
     }
@@ -60,6 +62,37 @@ class EpisodeOrientation extends Model
     public function completedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'completed_by');
+    }
+
+    /**
+     * ADR-166 — une fin de Soins hors du parcours prévu porte un motif. Elle a
+     * mené soit au médecin (une orientation Soins → Médecine ouverte à ce
+     * moment-là), soit à la fin aux Soins. `null` pour une fin ordinaire.
+     *
+     * @param  iterable<self>  $episodeOrientations  les orientations du même passage
+     */
+    public function offPlanOutcome(iterable $episodeOrientations): ?string
+    {
+        if (blank($this->completion_reason) || $this->completed_at === null) {
+            return null;
+        }
+
+        foreach ($episodeOrientations as $other) {
+            if ($other->destination_module === CatalogModule::Medicine
+                && $other->source_module === CatalogModule::Care
+                && $other->oriented_at !== null
+                && $other->oriented_at->greaterThanOrEqualTo($this->completed_at)) {
+                return 'MEDICINE';
+            }
+        }
+
+        return 'FINISH';
+    }
+
+    /** ADR-167 — le soignant à qui le patient a été repris en dernier. */
+    public function takenOverFrom(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'taken_over_from');
     }
 
     public function consultation(): HasOne

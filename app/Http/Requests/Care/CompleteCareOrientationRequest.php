@@ -23,7 +23,7 @@ class CompleteCareOrientationRequest extends FormRequest
     {
         return [
             'care_outcome' => ['nullable', Rule::enum(CareCompletionMode::class)->only([CareCompletionMode::Medicine, CareCompletionMode::Finish])],
-            'care_finish_reason' => ['nullable', 'string', 'max:1000'],
+            'care_outcome_reason' => ['nullable', 'string', 'max:1000'],
         ];
     }
 

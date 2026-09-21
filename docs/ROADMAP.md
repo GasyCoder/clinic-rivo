@@ -188,6 +188,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] La file Soins s'ouvre avec `care.create` (faire les soins), plus avec `care.update` : un compte Médecine, qui l'a pour corriger une fiche (ADR-093), entrait dans l'espace des infirmières (ADR-157)
 - [x] La suite des Soins se choisit à l'étape Terminer : un patient attendu en Médecine se termine aux Soins avec un motif obligatoire (tracé, visible dans le parcours), un patient prévu aux Soins seuls s'envoie au médecin avec sa transmission ; la consultation prévue reste facturée (ADR-166)
 - [ ] Besoin inconnu terminé aux Soins sans Médecine : le passage reste « en soins » (ADR-054 ne vaut que pour Soins seuls) — à décider (ADR-166)
+- [x] Reprendre la prise en charge Soins d'un collègue, motif obligatoire et tracé (`care.complete`) ; la suite des soins se montre verrouillée avec le nom de qui la décide, au lieu d'être masquée (ADR-167)
+- [x] Suite prévue affichée seulement (bordure bleue) ; la suite non prévue demande un motif dans les deux sens, et un seul motif suffit quand il faut aussi reprendre le patient (ADR-166, ADR-167, amendements du 2026-09-21)
+- [x] Une seule fenêtre de reprise : un motif, puis la case « Reprendre la prise en charge » ; bandeau jaune retiré, reprise sans changer la suite depuis le pied de l'étape Terminer (ADR-167, amendement bis du 2026-09-21)
 - [x] File Soins réduite à deux onglets — À prendre aux Soins / Orientés en attente du médecin : les patients déjà accueillis par le médecin quittent la page pour le module Patients (ADR-124)
 - [x] File Soins : prendre un patient qui n'est pas le premier demande confirmation, comme en Médecine — règle et fenêtre partagées, rien n'est bloqué (ADR-121)
 - [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
@@ -299,6 +302,10 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Étape Sortie à deux colonnes : formulaire pleine largeur et colonne « Repères du séjour » — séjour, allergies, dernier relevé, avant de conclure (ADR-162, amendement du 2026-09-21)
 - [x] Transfert depuis le séjour : les autres sites de la clinique proposés dans une liste, « Autre établissement… » pour une saisie libre ; liste des sites calculée une seule fois (`ClinicSites`) (ADR-162, amendement du 2026-09-21)
 - [x] Bande des constantes (consultation, séjour, Maternité) ramenée à une seule ligne : 48 px au lieu de ~150 sur ordinateur, 146 au lieu de ~250 sur téléphone ; flèche, libellé écrit et aria-label conservés, le décompte des anomalies ouvre le détail
+- [x] En-tête clinique (consultation, Soins, Maternité) en deux lignes serrées : identité et actions, puis repères et orientation sur une ligne — 98 px au lieu de ~190 sur ordinateur ; « Dr Dr. » corrigé quand le nom porte déjà son titre
+- [x] Vue d'ensemble du séjour : cartes « Séjour » et « Demande d'hospitalisation » refondues en shadcn avec icônes (repères en tuiles, jour de séjour, priorité en pastille, rubriques repliables mesurées à l'écran), extraites en `StayLocationCard` / `StayRequestCard`
+- [x] Demande d'hospitalisation corrigée rubrique par rubrique (un crayon par rubrique et pour la priorité) ; le serveur n'écrit que les champs envoyés, plus jamais les six à la fois (ADR-113, amendement du 2026-09-21)
+- [x] Carte « Diagnostics » du séjour placée sous « Séjour » et refondue (`StayDiagnosesCard`) : compteur, origine Consultation / Séjour, auteur et date iconés, ajout en pied de carte
 - [x] Visite de service retirée ; les visites déjà ouvertes restent lisibles (ADR-162)
 - [x] Retirer une analyse / une imagerie depuis le séjour, avec la facturation qu'elle avait portée (ADR-163)
 - [x] Propositions d'ordonnance (ADR-111) pour le séjour, sur les diagnostics du passage, origine revérifiée (ADR-163)

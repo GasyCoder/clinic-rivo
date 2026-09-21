@@ -11,8 +11,10 @@ use Illuminate\Validation\ValidationException;
  * ADR-113 (amendement) — compléter la demande d'un séjour en cours.
  *
  * La demande part en un clic depuis la consultation ; ce qui manque se
- * complète ici. Corrigée, jamais supprimée : `Auditable` garde l'ancienne et
- * la nouvelle valeur. Un séjour terminé ne se modifie plus.
+ * complète ici, rubrique par rubrique : seuls les champs reçus sont écrits,
+ * un champ absent reste tel quel (omettre n'efface pas, ADR-074). Corrigée,
+ * jamais supprimée : `Auditable` garde l'ancienne et la nouvelle valeur. Un
+ * séjour terminé ne se modifie plus.
  */
 class UpdateHospitalizationRequestAction
 {
@@ -30,14 +32,19 @@ class UpdateHospitalizationRequestAction
 
             $clean = static fn (mixed $value): ?string => trim((string) $value) ?: null;
 
-            $locked->hospitalizationRequest->update([
-                'reason' => $clean($data['reason'] ?? null),
-                'admission_diagnosis' => $clean($data['admission_diagnosis'] ?? null),
-                'clinical_summary' => $clean($data['clinical_summary'] ?? null),
-                'planned_treatment' => $clean($data['planned_treatment'] ?? null),
-                'priority' => ClinicalPriority::from($data['priority']),
-                'instructions' => $clean($data['instructions'] ?? null),
-            ]);
+            $changes = [];
+            foreach (['reason', 'admission_diagnosis', 'clinical_summary', 'planned_treatment', 'instructions'] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $changes[$field] = $clean($data[$field]);
+                }
+            }
+            if (array_key_exists('priority', $data)) {
+                $changes['priority'] = ClinicalPriority::from($data['priority']);
+            }
+
+            if ($changes !== []) {
+                $locked->hospitalizationRequest->update($changes);
+            }
         });
     }
 }

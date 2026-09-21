@@ -260,7 +260,7 @@ final class EpisodePathwayTimeline
     {
         $perModule = $orientations->groupBy(fn (EpisodeOrientation $orientation) => $orientation->destination_module->value);
 
-        return $orientations->map(function (EpisodeOrientation $orientation) use ($perModule, $careOrders, $withItems, $names) {
+        return $orientations->map(function (EpisodeOrientation $orientation) use ($orientations, $perModule, $careOrders, $withItems, $names) {
             $siblings = $perModule->get($orientation->destination_module->value);
             $total = $siblings->count();
             $sequence = $siblings->values()->search(fn (EpisodeOrientation $sibling) => $sibling->is($orientation)) + 1;
@@ -294,11 +294,13 @@ final class EpisodePathwayTimeline
                 'completed_at' => $orientation->completed_at,
                 'notes' => array_values(array_filter([
                     $requesters->isEmpty() ? null : 'Demandé par '.$requesters->implode(', '),
-                    // ADR-166 — un patient attendu en Médecine terminé aux Soins :
-                    // la Réception lit ici pourquoi la consultation n'a pas eu lieu.
-                    $orientation->completion_reason
-                        ? 'Terminé aux Soins, sans passer en Médecine — motif : '.$orientation->completion_reason
-                        : null,
+                    // ADR-166 — une suite changée aux Soins : la Réception et le
+                    // médecin lisent ici pourquoi le parcours prévu n'a pas été suivi.
+                    match ($orientation->offPlanOutcome($orientations)) {
+                        'FINISH' => 'Terminé aux Soins, sans passer en Médecine — motif : '.$orientation->completion_reason,
+                        'MEDICINE' => 'Transmis au médecin, hors du parcours prévu — motif : '.$orientation->completion_reason,
+                        default => null,
+                    },
                 ])),
                 'follow_up' => $orders->isEmpty() ? null : CareRequestSummary::followUp($orders),
                 'items' => $orders->isNotEmpty() && $withItems ? CareRequestSummary::items($orders) : [],

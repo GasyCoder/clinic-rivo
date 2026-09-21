@@ -35,7 +35,7 @@ class CompleteCareAndOrientToMedicineAction
      *
      *   `$destination` null            suivre le parcours prévu (ADR-030)
      *   CareCompletionMode::Medicine   transmettre au médecin, même un patient
-     *                                  prévu aux Soins seuls
+     *                                  prévu aux Soins seuls — avec un motif
      *   CareCompletionMode::Finish     terminer aux Soins, même un patient
      *                                  attendu en Médecine — avec un motif
      *
@@ -46,9 +46,9 @@ class CompleteCareAndOrientToMedicineAction
         EpisodeOrientation $orientation,
         User $actor,
         ?CareCompletionMode $destination = null,
-        ?string $finishReason = null,
+        ?string $outcomeReason = null,
     ): EpisodeOrientation {
-        return DB::transaction(function () use ($orientation, $actor, $destination, $finishReason): EpisodeOrientation {
+        return DB::transaction(function () use ($orientation, $actor, $destination, $outcomeReason): EpisodeOrientation {
             $locked = EpisodeOrientation::query()
                 ->with(['episode.serviceRequests', 'episode.careRecord.procedures'])
                 ->lockForUpdate()
@@ -76,17 +76,27 @@ class CompleteCareAndOrientToMedicineAction
                 || ($destination === null && $planned === CareCompletionMode::Medicine);
             $procedureCount = $locked->episode->careRecord?->procedures->count() ?? 0;
 
-            // Terminer aux Soins un patient que le médecin attend supprime une
-            // consultation prévue : le motif dit pourquoi, et reste au dossier.
+            // Toute suite qui s'écarte du parcours prévu exige un motif, dans
+            // les deux sens (ADR-166, amendement du 2026-09-21) : terminer aux
+            // Soins un patient que le médecin attend supprime une consultation
+            // prévue ; envoyer au médecin un patient prévu aux Soins seuls
+            // ajoute une consultation que personne n'attendait. Un besoin
+            // inconnu n'a pas de parcours prévu, donc rien dont s'écarter.
             // Quand Médecine a déjà le patient (urgence), rien n'est supprimé.
             $skipsPlannedMedicine = ! $toMedicine
                 && $planned === CareCompletionMode::Medicine
                 && ! $medicineInvolved;
-            $reason = trim((string) $finishReason);
+            $sendsOffPlan = $toMedicine
+                && $planned === CareCompletionMode::Finish
+                && ! $medicineInvolved;
+            $deviates = $skipsPlannedMedicine || $sendsOffPlan;
+            $reason = trim((string) $outcomeReason);
 
-            if ($skipsPlannedMedicine && $reason === '') {
+            if ($deviates && $reason === '') {
                 throw ValidationException::withMessages([
-                    'care_finish_reason' => 'Indiquez pourquoi le patient ne passe pas en Médecine.',
+                    'care_outcome_reason' => $skipsPlannedMedicine
+                        ? 'Indiquez pourquoi le patient ne passe pas en Médecine.'
+                        : 'Indiquez pourquoi le patient doit voir le médecin alors que seuls des soins étaient prévus.',
                 ]);
             }
 
@@ -105,7 +115,7 @@ class CompleteCareAndOrientToMedicineAction
                 ]);
             }
 
-            $locked->complete($actor, $skipsPlannedMedicine ? $reason : null);
+            $locked->complete($actor, $deviates ? $reason : null);
 
             if ($toMedicine) {
                 if (! $medicineInvolved) {
@@ -117,7 +127,7 @@ class CompleteCareAndOrientToMedicineAction
                         match ($planned) {
                             CareCompletionMode::Medicine => 'Orientation vers Médecine selon le parcours planifié.',
                             CareCompletionMode::Choice => 'Orientation explicite après évaluation d’un besoin initialement inconnu.',
-                            CareCompletionMode::Finish => 'Orientation vers Médecine décidée aux Soins, hors du parcours prévu.',
+                            CareCompletionMode::Finish => 'Orientation vers Médecine décidée aux Soins, hors du parcours prévu — motif : '.$reason,
                         },
                     );
                 }
@@ -130,12 +140,15 @@ class CompleteCareAndOrientToMedicineAction
                 EpisodeSettlement::advanceWhenNoServiceLeft($locked->episode->refresh());
             }
 
-            if ($skipsPlannedMedicine) {
+            if ($deviates) {
                 $this->auditor->record(
-                    'care.orientation.finish_at_care',
+                    $skipsPlannedMedicine ? 'care.orientation.finish_at_care' : 'care.orientation.send_to_medicine',
                     entity: $locked,
                     oldValues: ['planned' => $planned->value],
-                    newValues: ['outcome' => CareCompletionMode::Finish->value, 'reason' => $reason],
+                    newValues: [
+                        'outcome' => ($skipsPlannedMedicine ? CareCompletionMode::Finish : CareCompletionMode::Medicine)->value,
+                        'reason' => $reason,
+                    ],
                 );
             }
 

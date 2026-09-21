@@ -153,7 +153,7 @@ class UpdateCareRecordRequest extends FormRequest
             // parcours prévu décide. Le motif est exigé par l'action quand un
             // patient attendu en Médecine est terminé aux Soins.
             'care_outcome' => ['nullable', Rule::enum(CareCompletionMode::class)->only([CareCompletionMode::Medicine, CareCompletionMode::Finish])],
-            'care_finish_reason' => ['nullable', 'string', 'max:1000'],
+            'care_outcome_reason' => ['nullable', 'string', 'max:1000'],
             'procedures' => ['sometimes', 'array', 'max:30'],
             'procedures.*.catalog_item_uuid' => [
                 'required',

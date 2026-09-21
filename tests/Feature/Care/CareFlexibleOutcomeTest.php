@@ -42,7 +42,7 @@ class CareFlexibleOutcomeTest extends TestCase
                 'temperature_celsius' => 37.2,
                 'care_outcome' => 'FINISH',
             ])
-            ->assertSessionHasErrors('care_finish_reason');
+            ->assertSessionHasErrors('care_outcome_reason');
 
         $this->assertSame('IN_PROGRESS', $orientation->fresh()->status->value);
         $this->assertFalse($this->hasMedicineOrientation($orientation->episode_id));
@@ -51,7 +51,7 @@ class CareFlexibleOutcomeTest extends TestCase
             ->put("/care/orientations/{$orientation->uuid}/record-and-complete", [
                 'temperature_celsius' => 37.2,
                 'care_outcome' => 'FINISH',
-                'care_finish_reason' => '  Besoin couvert par le soin  ',
+                'care_outcome_reason' => '  Besoin couvert par le soin  ',
             ])
             ->assertRedirect(route('care.index'));
 
@@ -86,7 +86,7 @@ class CareFlexibleOutcomeTest extends TestCase
         $this->actingAs($nurse)
             ->post("/care/orientations/{$orientation->uuid}/complete", [
                 'care_outcome' => 'FINISH',
-                'care_finish_reason' => 'Patient reparti avant la consultation',
+                'care_outcome_reason' => 'Patient reparti avant la consultation',
             ])
             ->assertSessionHasNoErrors();
 
@@ -95,31 +95,56 @@ class CareFlexibleOutcomeTest extends TestCase
         $this->assertFalse(CareRecord::query()->where('episode_id', $orientation->episode_id)->exists());
     }
 
-    public function test_a_care_only_patient_can_be_sent_to_the_doctor_with_a_transmission(): void
+    public function test_a_care_only_patient_can_be_sent_to_the_doctor_only_with_a_reason(): void
     {
         $nurse = $this->nurse();
         $orientation = $this->activeCareOrientation($nurse, ReceptionRoutingMode::CareOnly);
 
+        // Toute suite non prévue exige un motif, dans les deux sens (amendement du 2026-09-21).
         $this->actingAs($nurse)
             ->put("/care/orientations/{$orientation->uuid}/record-and-complete", [
                 'care_outcome' => 'MEDICINE',
                 'transmission_reason' => '<p>Douleur thoracique signalée pendant le soin</p>',
             ])
+            ->assertSessionHasErrors('care_outcome_reason');
+        $this->assertSame('IN_PROGRESS', $orientation->fresh()->status->value);
+        $this->assertFalse($this->hasMedicineOrientation($orientation->episode_id));
+
+        $this->actingAs($nurse)
+            ->put("/care/orientations/{$orientation->uuid}/record-and-complete", [
+                'care_outcome' => 'MEDICINE',
+                'care_outcome_reason' => 'Douleur thoracique pendant l’injection',
+                'transmission_reason' => '<p>Douleur thoracique signalée pendant le soin</p>',
+            ])
             ->assertRedirect(route('care.index'));
 
         $this->assertSame('COMPLETED', $orientation->fresh()->status->value);
-        $this->assertNull($orientation->fresh()->completion_reason);
+        $this->assertSame('Douleur thoracique pendant l’injection', $orientation->fresh()->completion_reason);
         $this->assertDatabaseHas('episode_orientations', [
             'episode_id' => $orientation->episode_id,
             'destination_module' => CatalogModule::Medicine->value,
             'status' => 'PENDING',
-            'reason' => 'Orientation vers Médecine décidée aux Soins, hors du parcours prévu.',
+            'reason' => 'Orientation vers Médecine décidée aux Soins, hors du parcours prévu — motif : Douleur thoracique pendant l’injection',
         ]);
         $this->assertStringContainsString(
             'Douleur thoracique',
             (string) CareRecord::query()->where('episode_id', $orientation->episode_id)->value('transmission_reason'),
         );
         $this->assertSame('IN_CARE', Episode::find($orientation->episode_id)->administrative_status->value);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'care.orientation.send_to_medicine']);
+
+        // Le parcours du passage dit dans quel sens la suite a changé.
+        $this->actingAs($nurse)
+            ->get('/passages/'.Episode::find($orientation->episode_id)->uuid)
+            ->assertInertia(fn (Assert $page) => $page->where('episode.pathway', fn ($steps) => collect($steps)->contains(
+                fn ($step) => collect(collect($step)->get('notes', []))->contains(
+                    'Transmis au médecin, hors du parcours prévu — motif : Douleur thoracique pendant l’injection',
+                ),
+            )));
+
+        $this->actingAs($nurse)
+            ->get("/care/orientations/{$orientation->uuid}")
+            ->assertInertia(fn (Assert $page) => $page->where('completionOutcome', 'MEDICINE'));
     }
 
     public function test_a_care_only_patient_finished_at_care_still_needs_an_act(): void
@@ -199,7 +224,7 @@ class CareFlexibleOutcomeTest extends TestCase
 
         $this->actingAs($nurse)
             ->putJson("/care/orientations/{$orientation->uuid}/draft", [
-                'payload' => ['care_outcome' => 'FINISH', 'care_finish_reason' => 'Besoin couvert'],
+                'payload' => ['care_outcome' => 'FINISH', 'care_outcome_reason' => 'Besoin couvert'],
             ])
             ->assertOk();
 
@@ -207,7 +232,7 @@ class CareFlexibleOutcomeTest extends TestCase
             ->get("/care/orientations/{$orientation->uuid}")
             ->assertInertia(fn (Assert $page) => $page
                 ->where('careRecordDraft.payload.care_outcome', 'FINISH')
-                ->where('careRecordDraft.payload.care_finish_reason', 'Besoin couvert'));
+                ->where('careRecordDraft.payload.care_outcome_reason', 'Besoin couvert'));
     }
 
     private function hasMedicineOrientation(int $episodeId): bool

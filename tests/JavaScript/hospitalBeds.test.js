@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const show = fs.readFileSync('resources/js/Pages/Hospitalization/Show.vue', 'utf8');
+// La carte « Séjour » porte l'emplacement, sa correction et la saisie libre.
+const location = fs.readFileSync('resources/js/Components/Hospitalization/StayLocationCard.vue', 'utf8');
 const index = fs.readFileSync('resources/js/Pages/Hospitalization/Index.vue', 'utf8');
 const picker = fs.readFileSync('resources/js/Components/Hospitalization/BedPicker.vue', 'utf8');
 const board = fs.readFileSync('resources/js/Components/Hospitalization/BedBoard.vue', 'utf8');
@@ -18,8 +20,11 @@ test('le séjour choisit un lit libre quand le site en a configuré', () => {
     assert.match(show, /\.put\(`\/hospitalisation\/\$\{props\.stay\.uuid\}`, done\)/);
     assert.match(show, /\.post\(`\/hospitalisation\/\$\{props\.stay\.uuid\}\/mouvements`, done\)/);
     // La saisie libre n'est proposée que sans lit configuré.
-    assert.match(show, /v-else-if="capabilities\.can_move && !bedsConfigured && !editingRoom"/);
-    assert.match(show, /Lit à attribuer/);
+    assert.match(location, /const canMoveFree = computed\(\(\) => props\.capabilities\.can_move && !props\.bedsConfigured && !editingRoom\.value\);/);
+    assert.match(location, /v-else-if="canMoveFree"/);
+    assert.match(location, /Lit à attribuer/);
+    // La carte demande les fenêtres de lit ; la page les ouvre.
+    assert.match(show, /<StayLocationCard[\s\S]*?@bed="openBedDialog"[\s\S]*?@move="openMove"/);
 });
 
 test('le choix d’un lit est un groupe de boutons radio, filtrable', () => {
@@ -72,8 +77,8 @@ test('sans lit configuré, l’onglet et le séjour disent où les lits se crée
     assert.doesNotMatch(index, /<div v-if="beds" class="inline-flex[^"]*" role="tablist"/);
     assert.match(index, /<Card v-else-if="view === 'beds'"/);
     assert.match(index, /Aucun lit n’est encore configuré pour ce site/);
-    assert.match(show, /<p v-if="!bedsConfigured && isActive && !editingRoom"/);
-    assert.match(show, /Les lits de ce site ne sont pas encore configurés/);
+    assert.match(location, /<p v-if="!bedsConfigured && isActive && !editingRoom"/);
+    assert.match(location, /Les lits de ce site ne sont pas encore configurés/);
 });
 
 /**
@@ -83,10 +88,10 @@ test('sans lit configuré, l’onglet et le séjour disent où les lits se crée
  * condition, et n'existe jamais une fois les lits configurés.
  */
 test('la saisie libre du lieu n’apparaît jamais quand les lits sont configurés', () => {
-    assert.match(show, /<form v-if="editingRoom && !bedsConfigured" class="mt-3 space-y-3" @submit\.prevent="saveRoom">/);
-    assert.doesNotMatch(show, /<form v-else[^>]*saveRoom/);
-    assert.match(show, /<dl v-if="!editingRoom \|\| bedsConfigured"/);
+    assert.match(location, /<form v-if="editingRoom && !bedsConfigured" class="space-y-3" @submit\.prevent="saveRoom">/);
+    assert.doesNotMatch(location, /<form v-else[^>]*saveRoom/);
+    assert.match(location, /<dl v-if="!editingRoom \|\| bedsConfigured"/);
     assert.match(show, /<Dialog v-if="!bedsConfigured" v-model:open="moveOpen"/);
     // La note vient après le formulaire : elle ne peut plus capter un v-else.
-    assert.ok(show.indexOf('@submit.prevent="saveRoom"') < show.indexOf('Les lits de ce site ne sont pas encore configurés'));
+    assert.ok(location.indexOf('@submit.prevent="saveRoom"') < location.indexOf('Les lits de ce site ne sont pas encore configurés'));
 });

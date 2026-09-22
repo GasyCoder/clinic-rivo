@@ -49,7 +49,7 @@ class TrashPortalTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('SuperAdmin/Trash/Index')
                 ->has('sites', 2)
-                ->has('categories', 8)
+                ->has('categories', 9)
                 ->where('filters.category', 'PATIENT')
                 ->where('filters.site', 'M')
                 ->where('filters.search', 'Rakoto')

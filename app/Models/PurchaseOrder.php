@@ -24,7 +24,7 @@ class PurchaseOrder extends Model
     use Auditable, HasUuid, SoftDeletable;
 
     /**
-     * ADR-111 — seul un brouillon jamais envoyé peut quitter la corbeille
+     * ADR-113 — seul un brouillon jamais envoyé peut quitter la corbeille
      * pour de bon : une commande envoyée a engagé la clinique auprès d'un
      * tiers, elle reste dans l'histoire.
      */
@@ -79,6 +79,27 @@ class PurchaseOrder extends Model
     public function canceller(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    /**
+     * Le statut suit ce qui est réellement arrivé : il est recalculé après
+     * chaque réception, et après une quantité corrigée à l'entrée en stock.
+     */
+    public function refreshReceptionStatus(): void
+    {
+        $this->load('lines');
+        $fullyReceived = $this->lines->every(fn (PurchaseOrderLine $line) => $line->quantity_received >= $line->quantity_ordered);
+        $anyReceived = $this->lines->contains(fn (PurchaseOrderLine $line) => $line->quantity_received > 0);
+
+        $status = match (true) {
+            $fullyReceived => PurchaseOrderStatus::Received,
+            $anyReceived => PurchaseOrderStatus::PartiallyReceived,
+            default => PurchaseOrderStatus::Ordered,
+        };
+
+        if ($status !== $this->status) {
+            $this->update(['status' => $status]);
+        }
     }
 
     protected function auditModule(): ?string

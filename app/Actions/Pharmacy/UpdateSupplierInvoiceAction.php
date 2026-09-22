@@ -52,6 +52,7 @@ class UpdateSupplierInvoiceAction
                     'purchase_order_id' => $purchaseOrder?->getKey(),
                     'goods_receipt_id' => $goodsReceipt?->getKey(),
                     'invoice_date' => $data['invoice_date'],
+                    'due_date' => $data['due_date'] ?? null,
                     'total_amount' => $total,
                     ...($file && $newPath ? $this->attachmentColumns($file, $newPath) : []),
                     'notes' => $data['notes'] ?? null,

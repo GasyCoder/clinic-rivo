@@ -14728,3 +14728,148 @@ celui du fournisseur. Il renomme le produit du catalogue clinique
 `2026_09_18_130000`) ; le libellé du fournisseur reste sur sa ligne de
 catalogue, les ventes et factures passées gardent leur instantané, et
 l'ancien nom reste lisible à l'audit (`CatalogItem` est `Auditable`).
+
+---
+
+# ADR-113 — Réceptionner n'est pas ranger : dates serveur, écran unique d'entrée en stock
+
+**Status:** ACCEPTED (2026-09-22 — exigences explicites du propriétaire)
+
+**Amende l'ADR-097** sur un point central : « la réception appelle
+directement `RecordStockEntryAction` … ce qui crée le lot, le mouvement de
+stock immuable et incrémente `quantity_received` ». La réception ne crée plus
+aucun mouvement de stock. Complète l'ADR-098 (module Pharmacie) et l'ADR-112
+(deux prix) sans modifier l'ADR-012, l'ADR-013 ni l'ADR-049.
+
+## Aucune date du système ne se saisit
+
+Le propriétaire l'a posé en une phrase : les dates sont automatiques. Ce que
+le serveur sait, il ne le demande pas.
+
+```text
+posé par le serveur      numéro et date de commande, date d'envoi,
+                         date de réception, date d'entrée en stock
+saisi, parce qu'externe  péremption lue sur la boîte, date de la facture du
+                         fournisseur, échéance, livraison attendue
+```
+
+Les dates externes elles-mêmes cessent d'être des calendriers à remplir : la
+date de facture est celle du jour, avec « Autre date » si le papier en porte
+une autre ; l'échéance et la livraison attendue se choisissent en un clic
+(« 30 jours », « Sous 1 semaine »). `StockController` ignore désormais toute
+`received_at` transmise et date l'entrée lui-même.
+
+## Deux gestes, deux moments
+
+Une livraison arrive, on la contrôle, puis on la range. Les confondre avait
+deux conséquences : le stock devenait disponible avant d'être rangé, et une
+erreur de lot constatée en rangeant n'était plus corrigible — le mouvement
+était déjà immuable (ADR-097, à raison).
+
+```text
+Réception (goods_receipts)        ce qui est arrivé : quantité, lot,
+                                  péremption, remarque. Aucun mouvement.
+Entrée en stock (stock.entry)     le lot est créé, le mouvement immuable
+                                  écrit, la marchandise devient disponible.
+```
+
+`goods_receipt_lines` porte donc `uuid` (ADR-050 : jamais un identifiant SQL
+à l'écran), `notes`, `stocked_at` et `stocked_by`. Une ligne attend tant que
+`stocked_at` est nul ; `RecordReceivedStockAction` la verrouille, refuse une
+ligne déjà entrée en nommant qui l'a rangée et quand, puis appelle
+`RecordStockEntryAction` **inchangée** — mêmes règles de lot, même FEFO, même
+prix d'achat, celui de la réception (ADR-112).
+
+Tant que rien n'est entré, la ligne reste corrigible : une quantité changée
+au rangement met à jour la ligne de réception **et** la commande, dont le
+statut est recalculé (`PurchaseOrder::refreshReceptionStatus()`). Après
+l'entrée, plus rien ne se corrige ainsi : c'est un ajustement de stock tracé,
+comme avant.
+
+Les lignes reçues **avant** cette décision portent déjà leur mouvement : la
+migration les marque entrées à leur date, pour qu'aucune n'entre une seconde
+fois.
+
+## La facture accompagne la réception, ou elle attend
+
+Réceptionner se fait en deux étapes : ce qui est arrivé, puis la facture du
+fournisseur. La seconde est facultative — une livraison arrive souvent sans
+son papier. Sans elle, la réception est « facture en attente », visible comme
+telle dans la liste et sur la fiche, et la facture s'enregistre plus tard par
+`/pharmacy/receipts/{receipt}/invoice`. Les deux chemins partagent le même
+formulaire : deux formulaires auraient fini par diverger.
+
+`supplier_invoices.due_date` est ajoutée, nullable : une échéance est une
+donnée du fournisseur, pas une règle inventée. Aucun workflow de paiement
+fournisseur n'est créé — la Pharmacie n'encaisse ni ne paie (ADR-013).
+
+Le montant proposé à la saisie est celui de ce qui a été reçu, et seulement
+avec `stock.cost.view` : il révèle le coût d'achat (ADR-112). C'est une aide,
+jamais une vérité : le papier du fournisseur fait foi.
+
+## Un tableau plein, une recherche qui filtre
+
+Exigence explicite du propriétaire, après usage : un écran qui attend une
+recherche avant d'afficher quoi que ce soit cache le travail à faire.
+
+```text
+avant   champ de recherche vide → on tape → le produit s'ajoute au panier
+après   tout est affiché → on saisit une quantité (ou on coche) sur place,
+        la recherche ne fait que filtrer cette liste
+```
+
+La commande d'achat affiche donc tout ce que le fournisseur propose, avec sa
+quantité en face ; l'entrée en stock affiche la marchandise réceptionnée
+déjà remplie, et — pour une entrée sans commande — le catalogue entier de la
+pharmacie, à cocher. Une ligne non cochée n'affiche aucun champ : la liste
+reste lisible et le navigateur ne rend pas des centaines de champs inutiles.
+
+L'écran d'entrée en stock est **unique** : « Marchandise réceptionnée » et
+« Entrée sans commande » sont deux onglets du même tableau, au lieu de deux
+formulaires qui redemandaient les mêmes informations. La saisie sans commande
+ne pose plus qu'une question — d'où vient la marchandise — qui sert de
+provenance et de motif ; le rangement est le stock du site.
+
+## Un brouillon jamais envoyé part à la corbeille
+
+Une commande envoyée a engagé la clinique auprès d'un tiers : elle s'annule
+avec un motif, elle ne se jette pas (ADR-098). Un brouillon, lui, n'a rien
+engagé.
+
+`purchase_orders` devient Soft Delete (ADR-009) et rejoint la Corbeille
+(ADR-061) sous `TrashCategory::PurchaseOrder`, avec son motif obligatoire.
+`isForceDeleteProtected()` refuse la suppression définitive dès qu'une
+réception, une facture ou un envoi existe.
+
+```text
+purchase_orders.delete    mettre un brouillon à la corbeille
+purchase_orders.restore   l'en sortir
+```
+
+Accordées à aucun rôle par défaut, comme tout l'approvisionnement (ADR-098),
+et enregistrées par migration puisqu'un site en production ne rejoue plus
+`RolePermissionSeeder` (ADR-064).
+
+## Ce que l'écran dit désormais
+
+```text
+« Nouveau produit »     à la réception et à l'entrée : ce produit n'a jamais
+                        été reçu ni rangé — c'est là qu'on lui donne son nom
+                        à la pharmacie (ADR-112) et son prix de vente
+« Facture en attente »  la livraison est enregistrée, son papier non
+« N en attente »        ce qui est reçu mais pas encore rangé
+```
+
+Aucune fenêtre `confirm()` du navigateur ne subsiste dans ces parcours :
+envoyer une commande, valider une réception, entrer du stock, valider un
+inventaire, activer un catalogue et jeter un brouillon passent par la même
+fenêtre de confirmation de l'application, qui nomme ce qui va se passer.
+
+## Ce qui ne change pas
+
+La délivrance et sa règle « le stock ne sort qu'après règlement » (ADR-049),
+les consommables Soins (ADR-072), la réservation FEFO (ADR-036), la
+confidentialité du prix d'achat et le prix de vente fixé par la Pharmacie
+(ADR-112). La réception reste au site, jamais au portail (ADR-098) : c'est la
+personne qui a la marchandise sous les yeux qui lit les lots. La Pharmacie
+n'encaisse toujours rien.

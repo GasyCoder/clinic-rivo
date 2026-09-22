@@ -4,6 +4,7 @@ import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
@@ -90,10 +91,12 @@ const restore = (item) => useForm({}).post(itemUrl(item, '/restore'), { preserve
 
 // Défaire un rattachement erroné clôt le prix qu'il avait créé : la
 // confirmation le dit, parce que ce n'est pas une simple déliaison.
-const unlink = (item) => {
-    if (!confirm(`Défaire le rattachement de « ${item.medicine_label} » à « ${item.linked_medicine_name} » ? Le prix fournisseur qu’il portait sera clos, sans être supprimé.`)) return;
-    useForm({}).post(itemUrl(item, '/unlink'), { preserveScroll: true });
-};
+const unlinking = ref(null);
+const unlinkForm = useForm({});
+const unlink = () => unlinkForm.post(itemUrl(unlinking.value, '/unlink'), {
+    preserveScroll: true,
+    onSuccess: () => { unlinking.value = null; },
+});
 </script>
 
 <template>
@@ -193,7 +196,7 @@ const unlink = (item) => {
                                 <td class="px-5 py-3">
                                     <div class="flex items-center justify-end gap-1.5">
                                         <template v-if="!item.archived">
-                                            <Button v-if="can.unlink && item.linked_medicine_name" size="sm" variant="white-outline" type="button" :title="`Défaire le rattachement de ${item.medicine_label}`" @click="unlink(item)"><Link2Off class="h-4 w-4" /></Button>
+                                            <Button v-if="can.unlink && item.linked_medicine_name" size="sm" variant="white-outline" type="button" :title="`Défaire le rattachement de ${item.medicine_label}`" @click="unlinking = item"><Link2Off class="h-4 w-4" /></Button>
                                             <Button v-if="can.update" size="sm" variant="white-outline" type="button" :title="`Corriger ${item.medicine_label}`" @click="startEdit(item)"><Pencil class="h-4 w-4" /></Button>
                                             <Button v-if="can.delete" size="sm" variant="white-outline" type="button" class="text-red-600" :title="`Mettre ${item.medicine_label} à la corbeille`" @click="askRemove(item)"><Trash2 class="h-4 w-4" /></Button>
                                         </template>
@@ -265,4 +268,20 @@ const unlink = (item) => {
             </template>
         </Dialog>
     </div>
+    <ConfirmModal
+        :open="Boolean(unlinking)"
+        title="Défaire ce rattachement ?"
+        description="Le prix d’achat que ce rattachement avait créé est clos, jamais supprimé : la clinique a réellement cru ce prix, et l’audit doit continuer de le dire."
+        confirm-label="Défaire le rattachement"
+        tone="warning"
+        :processing="unlinkForm.processing"
+        @update:open="(value) => { if (!value) unlinking = null; }"
+        @confirm="unlink"
+    >
+        <p v-if="unlinking" class="rounded-xl border border-border px-4 py-3 text-sm">
+            <span class="font-semibold text-foreground">{{ unlinking.medicine_label }}</span>
+            <span class="block text-xs text-muted-foreground">rattaché à « {{ unlinking.linked_medicine_name }} »</span>
+        </p>
+    </ConfirmModal>
+
 </template>

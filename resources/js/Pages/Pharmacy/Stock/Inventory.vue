@@ -5,6 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import Button from '@/Components/UI/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import { formatDate } from '@/utilities/date';
@@ -58,15 +59,18 @@ const errorFor = (lot) => {
     return index === -1 ? null : form.errors[`counts.${index}.counted_quantity`] ?? null;
 };
 
+const confirming = ref(false);
 const submit = () => {
     submittedUuids.value = counted.value.map((lot) => lot.uuid);
-    const message = `Valider l’inventaire ? ${counted.value.length} lot(s) comptés, dont ${differences.value.length} avec un écart : chaque écart deviendra une correction de stock tracée.`;
-    if (!confirm(message)) return;
 
     form.transform((data) => ({
         reason: data.reason,
         counts: counted.value.map((lot) => ({ lot_uuid: lot.uuid, counted_quantity: Number(counts[lot.uuid]) })),
-    })).post('/pharmacy/stock/inventory', { preserveScroll: true });
+    })).post('/pharmacy/stock/inventory', {
+        preserveScroll: true,
+        onSuccess: () => { confirming.value = false; },
+        onError: () => { confirming.value = false; },
+    });
 };
 
 const printSheet = () => {
@@ -192,11 +196,27 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                 </label>
                 <div class="flex gap-2">
                     <Button :as="Link" href="/pharmacy/stock" size="lg" variant="white-outline">Annuler</Button>
-                    <Button type="button" size="lg" :disabled="form.processing || !counted.length || form.reason.trim().length < 3" @click="submit">
+                    <Button type="button" size="lg" :disabled="form.processing || !counted.length || form.reason.trim().length < 3" @click="confirming = true">
                         <Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : `Valider l’inventaire (${counted.length})` }}</span>
                     </Button>
                 </div>
             </section>
         </template>
+
+        <ConfirmModal
+            v-model:open="confirming"
+            title="Valider l’inventaire ?"
+            description="Chaque écart devient une correction de stock tracée, avec son motif. Un lot conforme ne crée aucun mouvement."
+            confirm-label="Valider l’inventaire"
+            tone="warning"
+            :processing="form.processing"
+            @confirm="submit"
+        >
+            <dl class="divide-y divide-border rounded-xl border border-border text-sm">
+                <div class="flex justify-between gap-4 px-4 py-2.5"><dt class="text-muted-foreground">Lots comptés</dt><dd class="font-semibold tabular-nums text-foreground">{{ counted.length }}</dd></div>
+                <div class="flex justify-between gap-4 px-4 py-2.5"><dt class="text-muted-foreground">Avec un écart</dt><dd class="font-semibold tabular-nums text-amber-600 dark:text-amber-400">{{ differences.length }}</dd></div>
+                <div class="flex justify-between gap-4 px-4 py-2.5"><dt class="text-muted-foreground">Motif</dt><dd class="text-end font-semibold text-foreground">{{ form.reason }}</dd></div>
+            </dl>
+        </ConfirmModal>
     </div>
 </template>

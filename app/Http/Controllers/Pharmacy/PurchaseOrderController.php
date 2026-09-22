@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Pharmacy;
 use App\Actions\Pharmacy\CancelPurchaseOrderAction;
 use App\Actions\Pharmacy\CreatePurchaseOrderAction;
 use App\Actions\Pharmacy\SubmitPurchaseOrderAction;
+use App\Actions\Pharmacy\TrashPurchaseOrderAction;
 use App\Actions\Pharmacy\UpdatePurchaseOrderAction;
 use App\Enums\PurchaseOrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\CancelPurchaseOrderRequest;
 use App\Http\Requests\Pharmacy\StorePurchaseOrderRequest;
+use App\Http\Requests\Pharmacy\TrashPurchaseOrderRequest;
 use App\Http\Requests\Pharmacy\UpdatePurchaseOrderRequest;
 use App\Models\MedicineSupplier;
 use App\Models\PurchaseOrder;
@@ -25,39 +27,76 @@ use Inertia\Response;
 
 class PurchaseOrderController extends Controller
 {
+    private const SORTS = ['recent', 'oldest', 'amount', 'number', 'supplier'];
+
     public function index(Request $request): Response
     {
+        $user = $request->user();
         // Without the purchases permission, only one supplier's folder is readable.
-        abort_unless($request->user()?->can('purchase_orders.view')
-            || ($request->filled('supplier') && $request->user()?->can('medicine_suppliers.view')), 403);
+        abort_unless($user?->can('purchase_orders.view')
+            || ($request->filled('supplier') && $user?->can('medicine_suppliers.view')), 403);
 
-        $status = $request->query('status');
-        $supplier = filled($request->query('supplier'))
-            ? MedicineSupplier::query()->where('uuid', $request->query('supplier'))->first(['id', 'uuid', 'name'])
+        $filters = [
+            'q' => trim((string) $request->query('q', '')),
+            'status' => (string) $request->query('status', ''),
+            'supplier' => (string) $request->query('supplier', ''),
+            'from' => (string) $request->query('from', ''),
+            'to' => (string) $request->query('to', ''),
+            'sort' => in_array($request->query('sort'), self::SORTS, true) ? $request->query('sort') : 'recent',
+        ];
+        $supplier = $filters['supplier'] !== ''
+            ? MedicineSupplier::query()->where('uuid', $filters['supplier'])->first(['id', 'uuid', 'name'])
             : null;
 
-        $orders = PurchaseOrder::query()
-            ->with('supplier:id,uuid,name')
-            ->when($status === PurchasesOverview::TO_RECEIVE, fn ($query) => $query->whereIn('status', PurchasesOverview::awaitingGoods()))
-            ->when(filled($status) && $status !== PurchasesOverview::TO_RECEIVE, fn ($query) => $query->where('status', $status))
+        // Tout sauf le statut : les compteurs disent combien de commandes
+        // chaque filtre de statut montrerait, avec la même recherche.
+        $base = PurchaseOrder::query()
             ->when($supplier, fn ($query) => $query->where('medicine_supplier_id', $supplier->id))
-            ->latest('created_at')
+            ->when($filters['q'] !== '', fn ($query) => $query->where(fn ($nested) => $nested
+                ->where('order_number', 'like', "%{$filters['q']}%")
+                ->orWhereHas('supplier', fn ($supplierQuery) => $supplierQuery->where('name', 'like', "%{$filters['q']}%"))))
+            ->when($filters['from'] !== '', fn ($query) => $query->whereDate('created_at', '>=', $filters['from']))
+            ->when($filters['to'] !== '', fn ($query) => $query->whereDate('created_at', '<=', $filters['to']));
+
+        $byStatus = (clone $base)->toBase()->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status');
+        $counts = [
+            'all' => (int) $byStatus->sum(),
+            PurchasesOverview::TO_RECEIVE => (int) collect(PurchasesOverview::awaitingGoods())->sum(fn (string $status) => $byStatus[$status] ?? 0),
+            ...collect(PurchaseOrderStatus::cases())->mapWithKeys(fn (PurchaseOrderStatus $status) => [$status->value => (int) ($byStatus[$status->value] ?? 0)])->all(),
+        ];
+
+        $orders = (clone $base)
+            ->with('supplier:id,uuid,name')
+            ->withCount('lines')
+            ->when($filters['status'] === PurchasesOverview::TO_RECEIVE, fn ($query) => $query->whereIn('status', PurchasesOverview::awaitingGoods()))
+            ->when($filters['status'] !== '' && $filters['status'] !== PurchasesOverview::TO_RECEIVE, fn ($query) => $query->where('status', $filters['status']))
+            ->tap(fn ($query) => match ($filters['sort']) {
+                'oldest' => $query->oldest('created_at'),
+                'amount' => $query->orderByDesc('total_amount'),
+                'number' => $query->orderByDesc('order_number'),
+                'supplier' => $query->orderBy(MedicineSupplier::query()->select('name')->whereColumn('medicine_suppliers.id', 'purchase_orders.medicine_supplier_id')),
+                default => $query->latest('created_at'),
+            })
             ->paginate(20)
             ->withQueryString()
-            ->through(fn (PurchaseOrder $order) => $this->summarize($order));
+            ->through(fn (PurchaseOrder $order) => [...$this->summarize($order), 'lines_count' => $order->lines_count]);
 
         return Inertia::render('Pharmacy/PurchaseOrders/Index', [
             'orders' => $orders,
-            'filters' => [
-                'status' => $status,
-                'supplier' => $supplier?->uuid,
-                'supplier_name' => $supplier?->name,
-            ],
+            'filters' => [...$filters, 'supplier_name' => $supplier?->name],
+            'counts' => $counts,
+            'statuses' => collect(PurchaseOrderStatus::cases())->map(fn (PurchaseOrderStatus $status) => ['value' => $status->value, 'label' => $status->label()])->values(),
+            'suppliers' => $user->can('purchase_orders.view')
+                ? MedicineSupplier::query()->orderBy('name')->get(['uuid', 'name'])
+                : [],
             'can' => [
-                'create' => $request->user()->can('purchase_orders.create'),
-                'update' => $request->user()->can('purchase_orders.update'),
+                'create' => $user->can('purchase_orders.create'),
+                'update' => $user->can('purchase_orders.update'),
+                'submit' => $user->can('purchase_orders.submit'),
+                'receive' => $user->can('goods_receipts.create'),
+                'delete' => $user->can('purchase_orders.delete'),
             ],
-            'purchases' => app(PurchasesOverview::class)->for($request->user()),
+            'purchases' => app(PurchasesOverview::class)->for($user),
         ]);
     }
 
@@ -167,6 +206,14 @@ class PurchaseOrderController extends Controller
         $action->execute($purchaseOrder, $request->validated('reason'), CatalogActor::fromUser($request->user()));
 
         return back()->with('status', 'Commande annulée.');
+    }
+
+    /** ADR-113 — un brouillon jamais envoyé part à la corbeille, avec son motif. */
+    public function destroy(TrashPurchaseOrderRequest $request, PurchaseOrder $purchaseOrder, TrashPurchaseOrderAction $action): RedirectResponse
+    {
+        $action->execute($purchaseOrder, $request->validated('reason'), CatalogActor::fromUser($request->user()));
+
+        return to_route('pharmacy.purchase-orders.index')->with('status', "Brouillon {$purchaseOrder->order_number} mis à la corbeille. Il peut être restauré depuis la Corbeille.");
     }
 
     /** @return array<string, mixed> */

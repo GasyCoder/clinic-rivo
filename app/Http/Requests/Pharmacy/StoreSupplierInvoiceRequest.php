@@ -17,6 +17,8 @@ class StoreSupplierInvoiceRequest extends FormRequest
         return [
             'invoice_number' => ['required', 'string', 'max:100'],
             'invoice_date' => ['required', 'date'],
+            // ADR-113 — l'échéance est une date du fournisseur : facultative.
+            'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
             'purchase_order_uuid' => ['nullable', 'uuid', 'exists:purchase_orders,uuid'],
             'goods_receipt_uuid' => ['nullable', 'uuid', 'exists:goods_receipts,uuid'],
             'notes' => ['nullable', 'string', 'max:2000'],

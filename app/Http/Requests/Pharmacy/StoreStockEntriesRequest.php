@@ -25,9 +25,9 @@ class StoreStockEntriesRequest extends FormRequest
         return [
             'received_at' => ['nullable', 'date'],
             'supplier_uuid' => ['nullable', 'uuid', 'exists:medicine_suppliers,uuid'],
-            'origin' => ['required', 'string', 'max:150'],
-            'destination' => ['required', 'string', 'max:150'],
-            'reason' => ['required', 'string', 'min:3', 'max:2000'],
+            'origin' => ['required', 'string', 'min:3', 'max:150'],
+            'destination' => ['nullable', 'string', 'max:150'],
+            'reason' => ['nullable', 'string', 'min:3', 'max:2000'],
             'entries' => ['required', 'array', 'min:1', 'max:200'],
             'entries.*.medicine_uuid' => ['required', 'uuid', 'exists:medicines,uuid'],
             'entries.*.operation' => ['required', Rule::enum(PharmacyStockEntryOperation::class)],

@@ -114,10 +114,9 @@ class StockWorkflowTest extends TestCase
     private function delivery(array $entries): array
     {
         return [
-            'received_at' => now()->toDateString(),
+            // ADR-113 — la date d'entrée est celle du serveur ; le rangement
+            // et le motif se déduisent de la provenance quand ils manquent.
             'origin' => 'Bon de livraison BL-204',
-            'destination' => 'Stock Pharmacie — Mampikony',
-            'reason' => 'Livraison hebdomadaire',
             'entries' => $entries,
         ];
     }
@@ -142,7 +141,7 @@ class StockWorkflowTest extends TestCase
                 ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYears(2)->toDateString(), 'quantity' => 10],
                 ['medicine_uuid' => $amoxicillin->uuid, 'operation' => 'ENTREE', 'lot_number' => 'AMX-01', 'expires_at' => now()->addYear()->toDateString(), 'quantity' => 4],
             ]))
-            ->assertRedirect('/pharmacy/stock')
+            ->assertRedirect('/pharmacy/stock/entries/create?mode=manuelle')
             ->assertSessionHas('status', '2 entrée(s) de stock enregistrée(s).');
 
         $this->assertSame(10, MedicineLot::query()->where('lot_number', 'PARA-01')->value('quantity_on_hand'));

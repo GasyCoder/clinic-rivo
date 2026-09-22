@@ -212,7 +212,7 @@ class PharmacyProcurementController extends Controller
             'lines' => ['nullable', 'array'],
         ]);
         $attachment = $request->file('attachment');
-        $payload = collect($request->only(['invoice_number', 'invoice_date', 'total_amount', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
+        $payload = collect($request->only(['invoice_number', 'invoice_date', 'due_date', 'total_amount', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
             ->filter(fn ($value) => filled($value))
             ->all();
         $lines = array_values($request->input('lines') ?? []);
@@ -279,7 +279,7 @@ class PharmacyProcurementController extends Controller
             'lines' => ['nullable', 'array'],
         ]);
         $attachment = $request->file('attachment');
-        $payload = collect($request->only(['invoice_number', 'invoice_date', 'total_amount', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
+        $payload = collect($request->only(['invoice_number', 'invoice_date', 'due_date', 'total_amount', 'purchase_order_uuid', 'goods_receipt_uuid', 'notes']))
             ->filter(fn ($value) => filled($value))
             ->all();
         $lines = array_values($request->input('lines') ?? []);

@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue';
 import { Link, router, useForm } from '@inertiajs/vue3';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import { Check, CloudUpload, Download, ExternalLink, Eye, FileCheck, FileSpreadsheet, FileText, LayoutGrid, List, ListChecks, Pencil, Upload, X } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
@@ -71,10 +72,13 @@ const submitUpload = () => uploadForm.post(props.baseUrl, {
     onSuccess: () => { uploadForm.reset(); uploading.value = false; },
 });
 
-const activate = (catalog) => {
-    if (!confirm(`Utiliser « ${catalog.original_name} » comme catalogue actuel de ${props.supplierName} ?`)) return;
-    router.post(`${props.baseUrl}/${catalog.uuid}/activate`, {}, { preserveScroll: true });
-};
+// Activer un catalogue change ce que le fournisseur est réputé proposer :
+// cela se confirme dans une fenêtre de l'application, jamais par confirm().
+const activating = ref(null);
+const activate = () => router.post(`${props.baseUrl}/${activating.value.uuid}/activate`, {}, {
+    preserveScroll: true,
+    onSuccess: () => { activating.value = null; },
+});
 const restore = (catalog) => router.post(`${props.baseUrl}/${catalog.uuid}/restore`, {}, { preserveScroll: true });
 
 const archiving = ref(null);
@@ -191,7 +195,7 @@ const VIEW_OPTIONS = [
                             <Button v-if="canOpenFile || downloadUrl" as="a" :href="fileHref(catalog)" :target="canOpenFile ? '_blank' : null" size="sm" variant="white-outline" class="justify-center">
                                 <component :is="canOpenFile ? Eye : Download" class="h-4 w-4" />{{ canOpenFile ? 'Ouvrir le fichier' : 'Télécharger' }}
                             </Button>
-                            <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" class="justify-center" @click="activate(catalog)">Utiliser ce catalogue</Button>
+                            <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" class="justify-center" @click="activating = catalog">Utiliser ce catalogue</Button>
                             <Button v-if="can.update" size="sm" variant="white-outline" class="justify-center" @click="startEdit(catalog)">Modifier</Button>
                             <Button v-if="can.delete" size="sm" variant="white-outline" class="justify-center text-red-600" @click="archiving = catalog">Mettre à la corbeille</Button>
                         </template>
@@ -235,7 +239,7 @@ const VIEW_OPTIONS = [
                             <Button v-if="canOpenFile || downloadUrl" as="a" :href="fileHref(catalog)" :target="canOpenFile ? '_blank' : null" size="sm" variant="white-outline" :title="`${canOpenFile ? 'Ouvrir' : 'Télécharger'} ${catalog.original_name}`">
                                 <component :is="canOpenFile ? ExternalLink : Download" class="h-4 w-4" />{{ canOpenFile ? 'Ouvrir le fichier' : 'Télécharger' }}
                             </Button>
-                            <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" @click="activate(catalog)">Utiliser ce catalogue</Button>
+                            <Button v-if="can.update && !catalog.is_active" size="sm" variant="white-outline" @click="activating = catalog">Utiliser ce catalogue</Button>
                             <Button v-if="can.update" size="sm" variant="white-outline" @click="startEdit(catalog)"><Pencil class="h-4 w-4" />Modifier</Button>
                             <Button v-if="can.delete" size="sm" variant="white-outline" class="text-red-600" @click="archiving = catalog">Mettre à la corbeille</Button>
                         </template>
@@ -292,4 +296,18 @@ const VIEW_OPTIONS = [
             </section>
         </div>
     </div>
+    <ConfirmModal
+        :open="Boolean(activating)"
+        title="Utiliser ce catalogue ?"
+        :description="`Il devient le tarif courant de ${supplierName} : c'est lui qui sera proposé aux commandes. L'ancien reste consultable.`"
+        confirm-label="Utiliser ce catalogue"
+        @update:open="(value) => { if (!value) activating = null; }"
+        @confirm="activate"
+    >
+        <p v-if="activating" class="rounded-xl border border-border px-4 py-3 text-sm">
+            <span class="font-semibold text-foreground">{{ activating.original_name }}</span>
+            <span v-if="activating.catalog_date" class="block text-xs text-muted-foreground">Tarif du {{ formatDate(activating.catalog_date) }}</span>
+        </p>
+    </ConfirmModal>
+
 </template>

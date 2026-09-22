@@ -459,6 +459,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // ADR-098 — a whole delivery, checked line by line, recorded at once.
     Route::post('/pharmacy/stock/entries/batch', [PharmacyStockController::class, 'storeEntries'])
         ->name('pharmacy.stock.entries.batch')->middleware('can:stock.entry');
+    // ADR-113 — les lignes réceptionnées entrent au stock.
+    Route::post('/pharmacy/stock/entries/received', [PharmacyStockController::class, 'storeReceived'])
+        ->name('pharmacy.stock.entries.received')->middleware('can:stock.entry');
     Route::get('/pharmacy/stock/inventory', [PharmacyStockController::class, 'inventory'])
         ->name('pharmacy.stock.inventory')->middleware('can:stock.adjust');
     Route::post('/pharmacy/stock/inventory', [PharmacyStockController::class, 'storeInventory'])
@@ -595,6 +598,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.purchase-orders.submit')->middleware('can:purchase_orders.submit');
     Route::post('/pharmacy/purchase-orders/{purchaseOrder}/cancel', [PurchaseOrderController::class, 'cancel'])
         ->name('pharmacy.purchase-orders.cancel')->middleware('can:purchase_orders.cancel');
+    Route::delete('/pharmacy/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'destroy'])
+        ->name('pharmacy.purchase-orders.destroy')->middleware('can:purchase_orders.delete');
 
     Route::get('/pharmacy/purchase-orders/{purchaseOrder}/receive', [GoodsReceiptController::class, 'create'])
         ->name('pharmacy.purchase-orders.receive')->middleware('can:goods_receipts.create');
@@ -604,6 +609,11 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.receipts.index')->middleware('can:goods_receipts.view');
     Route::get('/pharmacy/receipts/{goodsReceipt}', [GoodsReceiptController::class, 'show'])
         ->name('pharmacy.receipts.show')->middleware('can:goods_receipts.view');
+    // ADR-113 — la facture d'une réception enregistrée sans elle.
+    Route::get('/pharmacy/receipts/{goodsReceipt}/invoice', [GoodsReceiptController::class, 'createInvoice'])
+        ->name('pharmacy.receipts.invoice.create')->middleware('can:supplier_invoices.create');
+    Route::post('/pharmacy/receipts/{goodsReceipt}/invoice', [GoodsReceiptController::class, 'storeInvoice'])
+        ->name('pharmacy.receipts.invoice.store')->middleware('can:supplier_invoices.create');
 
     Route::get('/pharmacy/supplier-invoices', [SupplierInvoiceController::class, 'index'])
         ->name('pharmacy.supplier-invoices.index')->middleware('can:view-supplier-invoices');

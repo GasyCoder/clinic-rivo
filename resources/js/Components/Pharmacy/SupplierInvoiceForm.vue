@@ -4,7 +4,9 @@ import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Button from '@/Components/Shadcn/Button.vue';
 import FormSection from '@/Components/UI/FormSection.vue';
-import { CloudUpload, Copy, FileCheck, Info, ListPlus, Plus, Save, Trash2, X } from 'lucide-vue-next';
+import { CalendarDays, CloudUpload, Copy, FileCheck, Info, ListPlus, Plus, Save, Trash2, X } from 'lucide-vue-next';
+import { cn } from '@/lib/cn';
+import { formatDate } from '@/utilities/date';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
@@ -39,6 +41,7 @@ const initial = props.invoice;
 const form = useForm({
     invoice_number: initial?.invoice_number ?? '',
     invoice_date: initial?.invoice_date ?? new Date().toISOString().slice(0, 10),
+    due_date: initial?.due_date ?? '',
     purchase_order_uuid: initial
         ? (initial.purchase_order_uuid ?? '')
         : (props.orders.some((order) => order.uuid === props.initialOrderUuid) ? props.initialOrderUuid : ''),
@@ -92,6 +95,28 @@ const readyLines = computed(() => form.lines.filter((line) => line.medicine_uuid
 const canSubmit = computed(() => Boolean(supplierUuid.value && form.invoice_number
     && (detailed.value ? readyLines.value === form.lines.length && readyLines.value > 0 : total.value > 0)));
 
+// ADR-113 — la date d'une facture est celle du jour, sauf si le papier du
+// fournisseur en porte une autre ; l'échéance se choisit par délai.
+const today = new Date().toISOString().slice(0, 10);
+const customDate = ref(Boolean(initial?.invoice_date) && initial.invoice_date !== today);
+const customDue = ref(Boolean(initial?.due_date));
+const addDays = (days) => {
+    const date = new Date(`${form.invoice_date || today}T00:00:00`);
+    date.setDate(date.getDate() + days);
+
+    return date.toISOString().slice(0, 10);
+};
+const dueTerms = [
+    { label: 'À réception', value: () => '' },
+    { label: '15 jours', value: () => addDays(15) },
+    { label: '30 jours', value: () => addDays(30) },
+    { label: '60 jours', value: () => addDays(60) },
+];
+const chip = (active) => cn(
+    'rounded-full border px-3 py-1 text-xs font-semibold transition',
+    active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:bg-muted',
+);
+
 const inputClass = 'h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 disabled:bg-muted disabled:text-muted-foreground ';
 const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
 
@@ -123,10 +148,29 @@ const submit = () => {
                         <span :class="labelClass">Numéro de facture <span class="text-red-500">*</span></span>
                         <input v-model="form.invoice_number" type="text" maxlength="100" :class="inputClass" placeholder="Ex. FA-2026-0142" required>
                     </label>
-                    <label class="block">
-                        <span :class="labelClass">Date de la facture <span class="text-red-500">*</span></span>
-                        <DatePicker v-model="form.invoice_date" required />
-                    </label>
+                    <div class="block">
+                        <span :class="labelClass">Date de la facture</span>
+                        <div v-if="!customDate" class="flex h-11 items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm">
+                            <span class="inline-flex items-center gap-2 font-semibold text-foreground"><CalendarDays class="h-4 w-4 text-muted-foreground" />{{ formatDate(form.invoice_date) }}</span>
+                            <button type="button" class="text-xs font-semibold text-primary hover:underline" @click="customDate = true">Autre date</button>
+                        </div>
+                        <div v-else class="flex items-center gap-2">
+                            <input v-model="form.invoice_date" type="date" :max="today" :class="inputClass" required>
+                            <Button type="button" size="icon" variant="ghost" aria-label="Revenir à aujourd’hui" @click="form.invoice_date = today; customDate = false"><X class="h-4 w-4" /></Button>
+                        </div>
+                    </div>
+                    <div class="block">
+                        <span :class="labelClass">Échéance <span class="font-normal text-muted-foreground">(facultatif)</span></span>
+                        <div v-if="!customDue" class="flex flex-wrap items-center gap-1.5 pt-1.5">
+                            <button v-for="term in dueTerms" :key="term.label" type="button" :class="chip(form.due_date === term.value())" @click="form.due_date = term.value()">{{ term.label }}</button>
+                            <button type="button" :class="chip(false)" @click="customDue = true">Autre date</button>
+                        </div>
+                        <div v-else class="flex items-center gap-2">
+                            <input v-model="form.due_date" type="date" :min="form.invoice_date" :class="inputClass">
+                            <Button type="button" size="icon" variant="ghost" aria-label="Revenir aux délais habituels" @click="form.due_date = ''; customDue = false"><X class="h-4 w-4" /></Button>
+                        </div>
+                        <span v-if="form.due_date && !customDue" class="mt-1 block text-xs text-muted-foreground">À payer avant le {{ formatDate(form.due_date) }}</span>
+                    </div>
                     <label v-if="!detailed" class="block">
                         <span :class="labelClass">Montant total <span class="text-red-500">*</span></span>
                         <span class="relative block">

@@ -36,7 +36,7 @@ const restore = () => router.post(props.links.restore, {}, { preserveScroll: tru
                         <h1 class="font-heading text-2xl font-bold text-foreground">Facture {{ invoice.invoice_number }}</h1>
                         <Badge v-if="invoice.archived" tone="neutral">Archivée</Badge>
                     </div>
-                    <p class="mt-1 text-sm text-muted-foreground">{{ invoice.supplier }} · {{ formatDate(invoice.invoice_date) }}<span v-if="invoice.created_by_name"> · enregistrée par {{ invoice.created_by_name }}</span></p>
+                    <p class="mt-1 text-sm text-muted-foreground">{{ invoice.supplier }} · {{ formatDate(invoice.invoice_date) }}<span v-if="invoice.due_date"> · échéance {{ formatDate(invoice.due_date) }}</span><span v-if="invoice.created_by_name"> · enregistrée par {{ invoice.created_by_name }}</span></p>
                     <p v-if="invoice.purchase_order_number || invoice.goods_receipt_number" class="mt-1 text-sm text-muted-foreground">
                         <template v-if="invoice.purchase_order_number">
                             Commande

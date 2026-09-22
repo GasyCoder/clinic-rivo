@@ -483,6 +483,16 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Un produit listé sous deux références du même catalogue n'occupe qu'une ligne de commande : refus nommé côté serveur, références marquées dans le sélecteur
 - [x] Provenance d'un produit fournisseur affichée (catalogue d'origine) et distinction proposé / réellement réceptionné
 - [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-112)
+- [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-113)
+- [x] Entrée en stock corrigeable tant que rien n'est rangé : quantité, lot et péremption mettent à jour la réception et la commande ; une ligne n'entre qu'une fois
+- [x] Écran unique d'entrée en stock : « Marchandise réceptionnée » (déjà remplie) et « Entrée sans commande » (catalogue à cocher), plus deux formulaires redondants
+- [x] Aucune date du système saisie : commande, envoi, réception et entrée en stock sont datés par le serveur ; les dates externes (péremption, facture, échéance, livraison attendue) se choisissent par raccourci
+- [x] Réception en deux étapes avec la facture du fournisseur dans le même geste, ou « Facture en attente » et saisie plus tard au même formulaire
+- [x] Échéance de facture fournisseur (`supplier_invoices.due_date`), facultative, sans workflow de paiement inventé
+- [x] Tableau plein par défaut : la commande affiche tout le catalogue du fournisseur et l'entrée sans commande tout le catalogue de la pharmacie ; la recherche ne fait que filtrer
+- [x] Brouillon de commande mis à la corbeille avec motif et restaurable (`purchase_orders.delete`/`.restore`, `TrashCategory::PurchaseOrder`) ; une commande envoyée s'annule
+- [x] Plus aucune fenêtre `confirm()` du navigateur dans les parcours Achats/Stock : une confirmation qui nomme ce qui va se passer (`ConfirmModal`)
+- [x] « Nouveau produit » signalé à la réception et à l'entrée en stock, avec son nom à la pharmacie et son prix de vente au même endroit
 - [ ] Transfert stock
 - [ ] Rapports
 

@@ -5,6 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import FolderCard from '@/Components/UI/FolderCard.vue';
 import { Archive, Check, Folder, Mail, MapPin, Pencil, Phone, RotateCcw, TriangleAlert, User } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
@@ -70,10 +71,11 @@ const confirmArchive = () => archiveForm.delete(baseUrl.value, {
     preserveScroll: true,
     onSuccess: () => { archiving.value = false; archiveForm.reset(); },
 });
-const restore = () => {
-    if (!confirm(`Restaurer ${props.supplier.name} ? Il sera de nouveau proposé pour les commandes et les entrées de stock.`)) return;
-    router.post(`${baseUrl.value}/restore`, {}, { preserveScroll: true });
-};
+const restoring = ref(false);
+const restore = () => router.post(`${baseUrl.value}/restore`, {}, {
+    preserveScroll: true,
+    onSuccess: () => { restoring.value = false; },
+});
 
 const inputClass = 'h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 ';
 const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
@@ -112,7 +114,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
                             <Button v-if="can.update_supplier && !editing" size="rg" variant="white-outline" type="button" @click="startEdit"><Pencil class="h-4 w-4" />Modifier</Button>
                             <Button v-if="can.archive_supplier" size="rg" variant="white-outline" type="button" class="text-red-600" @click="archiving = true"><Archive class="h-4 w-4" />Mettre à la corbeille</Button>
                         </template>
-                        <Button v-else-if="can.restore_supplier" size="rg" type="button" @click="restore"><RotateCcw class="h-4 w-4" />Restaurer</Button>
+                        <Button v-else-if="can.restore_supplier" size="rg" type="button" @click="restoring = true"><RotateCcw class="h-4 w-4" />Restaurer</Button>
                     </div>
                 </div>
 
@@ -187,4 +189,12 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-foreground';
             </form>
         </div>
     </div>
+    <ConfirmModal
+        v-model:open="restoring"
+        title="Restaurer ce fournisseur ?"
+        :description="`${supplier.name} sera de nouveau proposé pour les commandes et les entrées de stock.`"
+        confirm-label="Restaurer"
+        @confirm="restore"
+    />
+
 </template>

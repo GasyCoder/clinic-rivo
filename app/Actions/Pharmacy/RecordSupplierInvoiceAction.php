@@ -25,6 +25,7 @@ class RecordSupplierInvoiceAction
      * @param array{
      *   invoice_number: string,
      *   invoice_date: string,
+     *   due_date?: ?string,
      *   purchase_order_uuid?: ?string,
      *   goods_receipt_uuid?: ?string,
      *   notes?: ?string,
@@ -60,6 +61,7 @@ class RecordSupplierInvoiceAction
                     'purchase_order_id' => $purchaseOrder?->getKey(),
                     'goods_receipt_id' => $goodsReceipt?->getKey(),
                     'invoice_date' => $data['invoice_date'],
+                    'due_date' => $data['due_date'] ?? null,
                     'total_amount' => $total,
                     'currency' => 'MGA',
                     ...($attachmentPath ? $this->attachmentColumns($data['attachment'], $attachmentPath) : []),

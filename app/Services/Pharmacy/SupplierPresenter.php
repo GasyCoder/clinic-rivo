@@ -126,6 +126,7 @@ class SupplierPresenter
                 'uuid' => $invoice->uuid,
                 'invoice_number' => $invoice->invoice_number,
                 'invoice_date' => $invoice->invoice_date?->toDateString(),
+                'due_date' => $invoice->due_date?->toDateString(),
                 'total_amount' => $invoice->total_amount,
             ])->values(),
         ];
@@ -168,6 +169,7 @@ class SupplierPresenter
             'invoice_number' => $invoice->invoice_number,
             'supplier' => $invoice->supplier->name,
             'invoice_date' => $invoice->invoice_date?->toDateString(),
+            'due_date' => $invoice->due_date?->toDateString(),
             'total_amount' => $invoice->total_amount,
             'has_attachment' => $invoice->hasAttachment(),
             // The list offers « restaurer » on a withdrawn invoice: it has to

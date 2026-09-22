@@ -1,38 +1,108 @@
 <script setup>
-import { computed } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import {
+    ArrowUpDown, Building2, CalendarDays, Package, PackageCheck, Pencil, Plus, Search, Send, Trash2, Truck, X,
+} from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import Badge from '@/Components/UI/Badge.vue';
-import Button from '@/Components/UI/Button.vue';
-import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
-import ExplorerView from '@/Components/UI/ExplorerView.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import Badge from '@/Components/Shadcn/Badge.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import EmptyState from '@/Components/UI/EmptyState.vue';
 import PurchasesHeader from '@/Components/Pharmacy/PurchasesHeader.vue';
+import { cn } from '@/lib/cn';
 import { formatDate } from '@/utilities/date';
-import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
+import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
 
 defineOptions({ layout: AppLayout });
 
-const props = defineProps({ orders: Object, filters: Object, can: Object, purchases: Object });
+/*
+ * ADR-113 — la liste des commandes d'achat : on y cherche une commande, on
+ * voit d'un coup d'œil combien en attendent une marchandise, et chaque ligne
+ * porte ce qu'on peut réellement en faire. Un brouillon jamais envoyé peut
+ * partir à la corbeille ; une commande envoyée s'annule, elle ne se jette pas.
+ */
+const props = defineProps({
+    orders: Object,
+    filters: Object,
+    counts: { type: Object, default: () => ({}) },
+    statuses: { type: Array, default: () => [] },
+    suppliers: { type: Array, default: () => [] },
+    can: { type: Object, default: () => ({}) },
+    purchases: Object,
+});
 
 const toReceive = computed(() => props.filters.status === 'TO_RECEIVE');
 
-const statuses = [
-    { value: '', label: 'Toutes' },
-    { value: 'DRAFT', label: 'Brouillons' },
-    { value: 'ORDERED', label: 'Envoyées' },
-    { value: 'PARTIALLY_RECEIVED', label: 'Reçues en partie' },
-    { value: 'RECEIVED', label: 'Reçues' },
-    { value: 'CANCELLED', label: 'Annulées' },
+const search = ref(props.filters.q ?? '');
+const apply = (changes = {}) => router.get('/pharmacy/purchase-orders', {
+    q: search.value || undefined,
+    status: (changes.status ?? props.filters.status) || undefined,
+    supplier: (changes.supplier ?? props.filters.supplier) || undefined,
+    from: (changes.from ?? props.filters.from) || undefined,
+    to: (changes.to ?? props.filters.to) || undefined,
+    sort: (changes.sort ?? props.filters.sort) === 'recent' ? undefined : (changes.sort ?? props.filters.sort),
+}, { preserveState: true, replace: true, preserveScroll: true });
+
+let searchTimer = null;
+watch(search, () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(apply, 350);
+});
+
+const filtered = computed(() => Boolean(props.filters.q || props.filters.status || props.filters.supplier || props.filters.from || props.filters.to));
+const reset = () => { search.value = ''; router.get('/pharmacy/purchase-orders', {}, { preserveState: true, replace: true }); };
+
+// Les compteurs sont le filtre : cliquer une carte filtre la liste.
+const cards = computed(() => [
+    { key: '', label: 'Toutes', count: props.counts.all, icon: Package, tone: 'text-muted-foreground' },
+    { key: 'DRAFT', label: 'Brouillons', count: props.counts.DRAFT, icon: Pencil, tone: 'text-muted-foreground' },
+    { key: 'TO_RECEIVE', label: 'À réceptionner', count: props.counts.TO_RECEIVE, icon: Truck, tone: 'text-amber-600 dark:text-amber-400' },
+    { key: 'RECEIVED', label: 'Reçues', count: props.counts.RECEIVED, icon: PackageCheck, tone: 'text-emerald-600 dark:text-emerald-400' },
+    { key: 'CANCELLED', label: 'Annulées', count: props.counts.CANCELLED, icon: X, tone: 'text-muted-foreground' },
+]);
+
+const supplierOptions = computed(() => [
+    { value: '', label: 'Tous les fournisseurs' },
+    ...props.suppliers.map((supplier) => ({ value: supplier.uuid, label: supplier.name })),
+]);
+const sortOptions = [
+    { value: 'recent', label: 'Plus récentes d’abord' },
+    { value: 'oldest', label: 'Plus anciennes d’abord' },
+    { value: 'amount', label: 'Montant décroissant' },
+    { value: 'number', label: 'Numéro de commande' },
+    { value: 'supplier', label: 'Fournisseur (A→Z)' },
 ];
 
-const TILE_TONES = { DRAFT: 'slate', ORDERED: 'sky', PARTIALLY_RECEIVED: 'amber', RECEIVED: 'emerald', CANCELLED: 'rose' };
 const awaitingGoods = (order) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status);
+const isDraft = (order) => order.status === 'DRAFT';
+// Une colonne d'actions vide dit pourquoi (ADR-098).
+const idleReason = (order) => ({
+    RECEIVED: 'Reçue',
+    CANCELLED: 'Annulée',
+    ORDERED: 'Envoyée au fournisseur',
+    PARTIALLY_RECEIVED: 'Reçue en partie',
+}[order.status] ?? '');
 
-const filterByStatus = (status) => router.get('/pharmacy/purchase-orders', {
-    status: status || undefined,
-    supplier: props.filters.supplier || undefined,
-}, { preserveState: true, replace: true });
+// --- Envoyer ------------------------------------------------------------------
+const sending = ref(null);
+const sendForm = useForm({});
+const send = () => sendForm.post(`/pharmacy/purchase-orders/${sending.value.uuid}/submit`, {
+    preserveScroll: true,
+    onSuccess: () => { sending.value = null; },
+});
+
+// --- Corbeille ----------------------------------------------------------------
+const trashing = ref(null);
+const trashForm = useForm({ reason: '' });
+const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value.uuid}`, {
+    preserveScroll: true,
+    onSuccess: () => { trashing.value = null; trashForm.reset(); },
+});
 </script>
 
 <template>
@@ -41,101 +111,145 @@ const filterByStatus = (status) => router.get('/pharmacy/purchase-orders', {
     <div class="w-full space-y-5">
         <PurchasesHeader :active="toReceive ? 'to-receive' : 'orders'" :purchases="purchases">
             <template #actions>
-                <Button v-if="props.can.create" :as="Link" :href="filters.supplier ? `/pharmacy/purchase-orders/create?supplier=${filters.supplier}` : '/pharmacy/purchase-orders/create'" size="rg">
-                    <Icon name="plus" /><span class="ms-2">Nouvelle commande</span>
+                <Button v-if="can.create" :as="Link" :href="filters.supplier ? `/pharmacy/purchase-orders/create?supplier=${filters.supplier}` : '/pharmacy/purchase-orders/create'">
+                    <Plus class="h-4 w-4" />Nouvelle commande
                 </Button>
             </template>
         </PurchasesHeader>
 
-        <div v-if="filters.supplier_name" class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-200 bg-primary-50/60 px-4 py-3 text-sm dark:border-primary-900 dark:bg-primary-950/20">
-            <span class="text-primary-900 dark:text-primary-100">Commandes du fournisseur <strong>{{ filters.supplier_name }}</strong></span>
+        <div v-if="filters.supplier_name" class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+            <span class="inline-flex items-center gap-2 text-foreground"><Building2 class="h-4 w-4 text-primary" />Commandes de <strong>{{ filters.supplier_name }}</strong></span>
             <span class="flex gap-4">
-                <Link :href="`/pharmacy/suppliers/${filters.supplier}`" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">Ouvrir son dossier</Link>
-                <Link href="/pharmacy/purchase-orders" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">Toutes les commandes</Link>
+                <Link :href="`/pharmacy/suppliers/${filters.supplier}`" class="font-semibold text-primary hover:underline">Ouvrir son dossier</Link>
+                <Link href="/pharmacy/purchase-orders" class="font-semibold text-primary hover:underline">Toutes les commandes</Link>
             </span>
         </div>
 
-        <ExplorerView
-            storage-key="pharmacy-orders"
-            :count="orders.data.length"
-            count-label="commande"
-            empty-icon="truck"
-            :empty-title="toReceive ? 'Rien à réceptionner' : 'Aucune commande'"
-            :empty-description="toReceive ? 'Aucune commande envoyée n’attend de marchandise.' : 'Les commandes passées aux fournisseurs apparaîtront ici.'"
-        >
-            <template v-if="!toReceive" #toolbar>
-                <div class="flex max-w-full gap-1 overflow-x-auto">
-                    <button
-                        v-for="status in statuses"
-                        :key="status.value"
-                        type="button"
-                        :class="['shrink-0 rounded-full px-3 py-1 text-xs font-semibold transition', (filters.status || '') === status.value ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-800' : 'text-slate-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-gray-900']"
-                        @click="filterByStatus(status.value)"
-                    >{{ status.label }}</button>
+        <!-- Compteurs cliquables -->
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <button
+                v-for="card in cards"
+                :key="card.key || 'all'"
+                type="button"
+                :class="cn('rounded-xl border bg-card p-4 text-start shadow-sm transition hover:border-primary/40',
+                           (filters.status || '') === card.key ? 'border-primary ring-2 ring-primary/20' : 'border-border')"
+                @click="apply({ status: card.key })"
+            >
+                <span class="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><component :is="card.icon" :class="cn('h-4 w-4', card.tone)" />{{ card.label }}</span>
+                <span class="mt-1.5 block font-heading text-2xl font-bold tabular-nums text-foreground">{{ formatNumber(card.count ?? 0) }}</span>
+            </button>
+        </div>
+
+        <!-- Recherche et filtres -->
+        <section class="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm lg:flex-row lg:items-center">
+            <IconInput v-model="search" :icon="Search" class="lg:max-w-sm" placeholder="N° de commande ou fournisseur…" autocomplete="off" @keydown.enter="apply()" />
+            <div class="flex flex-wrap items-center gap-2">
+                <Select v-if="suppliers.length" :model-value="filters.supplier ?? ''" :options="supplierOptions" :icon="Building2" placeholder="Tous les fournisseurs" @update:model-value="(value) => apply({ supplier: value })" />
+                <div class="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1">
+                    <CalendarDays class="h-4 w-4 text-muted-foreground" />
+                    <Input :model-value="filters.from ?? ''" type="date" class="h-8 w-[9.5rem] border-0 px-1 shadow-none" aria-label="À partir du" @update:model-value="(value) => apply({ from: value })" />
+                    <span class="text-xs text-muted-foreground">→</span>
+                    <Input :model-value="filters.to ?? ''" type="date" class="h-8 w-[9.5rem] border-0 px-1 shadow-none" aria-label="Jusqu’au" @update:model-value="(value) => apply({ to: value })" />
                 </div>
-            </template>
-            <template v-else #toolbar>
-                <span class="flex items-center gap-1.5 text-sm text-sky-700 dark:text-sky-300"><Icon name="info" />À réceptionner à l’arrivée des boîtes, en lisant lots et péremptions.</span>
-            </template>
+                <Select :model-value="filters.sort ?? 'recent'" :options="sortOptions" :icon="ArrowUpDown" @update:model-value="(value) => apply({ sort: value })" />
+                <Button v-if="filtered" variant="ghost" size="sm" @click="reset"><X class="h-4 w-4" />Tout effacer</Button>
+            </div>
+        </section>
 
-            <template #grid>
-                <ExplorerTile
-                    v-for="order in orders.data"
-                    :key="order.uuid"
-                    :href="`/pharmacy/purchase-orders/${order.uuid}`"
-                    icon="truck"
-                    :tone="TILE_TONES[order.status] ?? 'primary'"
-                    :badge="order.status_label"
-                    :title="order.order_number"
-                    :subtitle="order.supplier"
-                    :highlight="formatMoney(order.total_amount)"
-                    :meta="formatDate(order.ordered_at || order.created_at)"
-                    :muted="order.status === 'CANCELLED'"
-                >
-                    <template #actions>
-                        <Button v-if="purchases.can.receive && awaitingGoods(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/receive`" size="sm"><Icon name="package" /><span class="ms-1">Réceptionner</span></Button>
-                        <Button v-if="props.can.update && order.status === 'DRAFT'" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/edit`" size="sm" variant="white-outline"><Icon name="edit" /></Button>
-                    </template>
-                </ExplorerTile>
-            </template>
-
-            <template #list>
-                <table class="w-full min-w-[760px] text-sm">
-                    <thead class="bg-gray-50 text-xs font-semibold text-slate-500 dark:bg-gray-1000">
+        <section class="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div v-if="orders.data.length" class="overflow-x-auto">
+                <table class="w-full min-w-[920px] text-sm">
+                    <thead class="bg-muted/50 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                         <tr>
                             <th class="px-5 py-3 text-start">Commande</th>
                             <th class="px-4 py-3 text-start">Fournisseur</th>
-                            <th class="px-4 py-3 text-start">État</th>
-                            <th class="px-4 py-3 text-end">Montant</th>
                             <th class="px-4 py-3 text-start">Date</th>
+                            <th class="px-4 py-3 text-start">État</th>
+                            <th class="px-4 py-3 text-end">Lignes</th>
+                            <th class="px-4 py-3 text-end">Montant</th>
                             <th class="px-5 py-3 text-end">Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-900">
-                        <tr v-for="order in orders.data" :key="order.uuid" class="transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/40">
-                            <td class="px-5 py-3.5 font-mono font-semibold text-slate-800 dark:text-white">{{ order.order_number }}</td>
-                            <td class="px-4 py-3.5 text-slate-700 dark:text-slate-200">{{ order.supplier }}</td>
-                            <td class="px-4 py-3.5"><Badge :tone="statusTone(order.status)" dot>{{ order.status_label }}</Badge></td>
-                            <td class="px-4 py-3.5 text-end tabular-nums text-slate-700 dark:text-white">{{ formatMoney(order.total_amount) }}</td>
-                            <td class="px-4 py-3.5 text-slate-500">{{ formatDate(order.ordered_at || order.created_at) }}</td>
+                    <tbody class="divide-y divide-border">
+                        <tr v-for="order in orders.data" :key="order.uuid" :class="cn('transition-colors hover:bg-muted/20', order.status === 'CANCELLED' && 'opacity-60')">
                             <td class="px-5 py-3.5">
-                                <div class="flex justify-end gap-1.5 whitespace-nowrap">
-                                    <Button :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}`" size="sm" variant="white-outline">Voir</Button>
-                                    <Button v-if="props.can.update && order.status === 'DRAFT'" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${order.order_number}`"><Icon name="edit" /></Button>
-                                    <Button v-if="purchases.can.receive && awaitingGoods(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/receive`" size="sm"><Icon name="package" /><span class="ms-1.5">Réceptionner</span></Button>
+                                <Link :href="`/pharmacy/purchase-orders/${order.uuid}`" class="font-mono font-semibold text-foreground hover:text-primary hover:underline">{{ order.order_number }}</Link>
+                            </td>
+                            <td class="px-4 py-3.5 text-foreground">{{ order.supplier }}</td>
+                            <td class="px-4 py-3.5 text-muted-foreground">
+                                {{ formatDate(order.ordered_at || order.created_at) }}
+                                <span class="block text-xs">{{ order.ordered_at ? 'envoyée' : 'créée' }}</span>
+                            </td>
+                            <td class="px-4 py-3.5"><Badge :tone="statusTone(order.status)">{{ order.status_label }}</Badge></td>
+                            <td class="px-4 py-3.5 text-end tabular-nums text-muted-foreground">{{ order.lines_count }}</td>
+                            <td class="px-4 py-3.5 text-end font-semibold tabular-nums text-foreground">{{ formatMoney(order.total_amount) }}</td>
+                            <td class="px-5 py-3.5">
+                                <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                                    <Button :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}`" size="sm" variant="outline">Voir</Button>
+                                    <Button v-if="can.update && isDraft(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/edit`" size="icon" variant="outline" :title="`Modifier ${order.order_number}`"><Pencil class="h-4 w-4" /></Button>
+                                    <Button v-if="can.submit && isDraft(order)" size="sm" @click="sending = order"><Send class="h-4 w-4" />Envoyer</Button>
+                                    <Button v-if="can.receive && awaitingGoods(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/receive`" size="sm"><PackageCheck class="h-4 w-4" />Réceptionner</Button>
+                                    <Button v-if="can.delete && isDraft(order)" size="icon" variant="ghost" class="text-muted-foreground hover:text-red-600" :title="`Mettre ${order.order_number} à la corbeille`" @click="trashing = order"><Trash2 class="h-4 w-4" /></Button>
+                                    <span v-if="!isDraft(order) && !(can.receive && awaitingGoods(order))" class="text-xs text-muted-foreground">{{ idleReason(order) }}</span>
                                 </div>
                             </td>
                         </tr>
                     </tbody>
                 </table>
-            </template>
+            </div>
 
-            <template #footer>
-                <nav v-if="orders.prev_page_url || orders.next_page_url" class="flex justify-between border-t border-gray-200 bg-white px-5 py-3 text-sm dark:border-gray-900 dark:bg-gray-950">
-                    <Link v-if="orders.prev_page_url" :href="orders.prev_page_url" class="font-semibold text-primary-600" preserve-scroll>← Précédentes</Link><span v-else />
-                    <Link v-if="orders.next_page_url" :href="orders.next_page_url" class="font-semibold text-primary-600" preserve-scroll>Suivantes →</Link>
-                </nav>
-            </template>
-        </ExplorerView>
+            <EmptyState
+                v-else
+                icon="truck"
+                :title="filtered ? 'Aucune commande ne correspond' : 'Aucune commande'"
+                :description="filtered ? 'Modifiez la recherche, la période ou l’état.' : 'Les commandes passées aux fournisseurs apparaîtront ici.'"
+            />
+
+            <nav v-if="orders.prev_page_url || orders.next_page_url" class="flex justify-between border-t border-border px-5 py-3 text-sm">
+                <Link v-if="orders.prev_page_url" :href="orders.prev_page_url" class="font-semibold text-primary" preserve-scroll>← Précédentes</Link><span v-else />
+                <Link v-if="orders.next_page_url" :href="orders.next_page_url" class="font-semibold text-primary" preserve-scroll>Suivantes →</Link>
+            </nav>
+        </section>
+
+        <ConfirmModal
+            :open="Boolean(sending)"
+            title="Envoyer cette commande au fournisseur ?"
+            description="La commande quitte le brouillon : elle ne se modifie plus, elle s’annule avec un motif. Sa date d’envoi est enregistrée maintenant."
+            confirm-label="Envoyer la commande"
+            :processing="sendForm.processing"
+            :dismissible="!sendForm.processing"
+            @update:open="(value) => { if (!value) sending = null; }"
+            @confirm="send"
+        >
+            <template #confirm-icon><Send class="h-4 w-4" /></template>
+            <dl v-if="sending" class="divide-y divide-border rounded-xl border border-border text-sm">
+                <div class="flex justify-between gap-4 px-4 py-2.5"><dt class="text-muted-foreground">Commande</dt><dd class="font-mono font-semibold text-foreground">{{ sending.order_number }}</dd></div>
+                <div class="flex justify-between gap-4 px-4 py-2.5"><dt class="text-muted-foreground">Fournisseur</dt><dd class="text-end font-semibold text-foreground">{{ sending.supplier }}</dd></div>
+                <div class="flex justify-between gap-4 px-4 py-2.5"><dt class="text-muted-foreground">Montant</dt><dd class="font-semibold tabular-nums text-foreground">{{ formatMoney(sending.total_amount) }}</dd></div>
+            </dl>
+        </ConfirmModal>
+
+        <ConfirmModal
+            :open="Boolean(trashing)"
+            title="Mettre ce brouillon à la corbeille ?"
+            description="Il quitte la liste des commandes et reste restaurable depuis la Corbeille. Rien n’a été envoyé au fournisseur."
+            confirm-label="Mettre à la corbeille"
+            tone="danger"
+            :processing="trashForm.processing"
+            :disabled="trashForm.reason.trim().length < 3"
+            :dismissible="!trashForm.processing"
+            @update:open="(value) => { if (!value) { trashing = null; trashForm.reset(); trashForm.clearErrors(); } }"
+            @confirm="trash"
+        >
+            <template #confirm-icon><Trash2 class="h-4 w-4" /></template>
+            <div class="space-y-3">
+                <p v-if="trashing" class="text-sm text-muted-foreground">Commande <span class="font-mono font-semibold text-foreground">{{ trashing.order_number }}</span> · {{ trashing.supplier }} · {{ formatMoney(trashing.total_amount) }}</p>
+                <label class="block">
+                    <span class="mb-1.5 block text-sm font-semibold text-foreground">Pourquoi ? <span class="text-red-500">*</span></span>
+                    <Textarea v-model="trashForm.reason" rows="2" maxlength="1000" placeholder="Ex. saisi en double, fournisseur changé" />
+                    <span v-if="trashForm.errors.reason" class="mt-1 block text-xs text-destructive">{{ trashForm.errors.reason }}</span>
+                </label>
+            </div>
+        </ConfirmModal>
     </div>
 </template>

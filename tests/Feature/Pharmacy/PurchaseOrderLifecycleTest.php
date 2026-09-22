@@ -7,13 +7,16 @@ use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Enums\SupplierCatalogFileKind;
 use App\Models\CatalogItem;
+use App\Models\GoodsReceiptLine;
 use App\Models\Medicine;
+use App\Models\MedicineLot;
 use App\Models\MedicineSupplier;
 use App\Models\Permission;
 use App\Models\PharmacyStockMovement;
 use App\Models\PurchaseOrder;
 use App\Models\Role;
 use App\Models\SupplierCatalogItem;
+use App\Models\SupplierInvoice;
 use App\Models\User;
 use App\Services\Pharmacy\SupplierOfferComparison;
 use Database\Seeders\PermissionSeeder;
@@ -59,6 +62,9 @@ class PurchaseOrderLifecycleTest extends TestCase
         'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
         'purchase_orders.submit', 'purchase_orders.cancel',
         'goods_receipts.view', 'goods_receipts.create',
+        'supplier_invoices.view', 'supplier_invoices.create',
+        // ADR-113 — un brouillon jamais envoyé peut partir à la corbeille.
+        'purchase_orders.delete', 'purchase_orders.restore', 'trash.view', 'trash.restore',
         // ADR-112 — correcting a purchase price at reception is a cost
         // decision, never part of the PHARMACY role.
         'stock.cost.record',
@@ -412,6 +418,66 @@ class PurchaseOrderLifecycleTest extends TestCase
         ])->assertRedirect();
     }
 
+    /**
+     * ADR-113 — réceptionner ne fait rien entrer au stock : c'est un second
+     * geste, qui reprend les lignes encore en attente.
+     */
+    private function enterStock(PurchaseOrder $order, ?User $actor = null): TestResponse
+    {
+        $lines = GoodsReceiptLine::query()
+            ->whereNull('stocked_at')
+            ->whereIn('goods_receipt_id', $order->receipts()->pluck('id'))
+            ->get()
+            ->map(fn (GoodsReceiptLine $line) => [
+                'uuid' => $line->uuid,
+                'quantity' => $line->quantity_received,
+                'lot_number' => $line->lot_number,
+                'expires_at' => $line->expires_at->toDateString(),
+            ])->all();
+
+        return $this->actingAs($actor ?? $this->pharmacist)->post('/pharmacy/stock/entries/received', ['lines' => $lines]);
+    }
+
+    public function test_receiving_records_the_delivery_without_touching_stock_and_each_line_enters_once(): void
+    {
+        $supplier = $this->supplier();
+        $medicine = $this->medicine();
+        $order = $this->createOrder($supplier, $medicine, 10, '100');
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/submit");
+
+        $this->receive($order, [
+            ['purchase_order_line_id' => $order->lines->sole()->id, 'quantity_received' => 10, 'lot_number' => 'LOT-SPLIT', 'expires_at' => now()->addYear()->toDateString()],
+        ]);
+
+        // La livraison est constatée, mais rien n'est encore rangé.
+        $this->assertSame('RECEIVED', $order->fresh()->status->value);
+        $this->assertSame(0, PharmacyStockMovement::query()->count());
+        $this->assertSame(0, MedicineLot::query()->count());
+        $receiptLine = GoodsReceiptLine::query()->sole();
+        $this->assertNull($receiptLine->stocked_at);
+
+        $this->enterStock($order)->assertRedirect();
+
+        $movement = PharmacyStockMovement::query()->sole();
+        $this->assertSame(10, $movement->quantity_delta);
+        $this->assertSame(10, MedicineLot::query()->where('lot_number', 'LOT-SPLIT')->value('quantity_on_hand'));
+        $receiptLine->refresh();
+        $this->assertNotNull($receiptLine->stocked_at);
+        $this->assertSame($this->pharmacist->id, $receiptLine->stocked_by);
+
+        // Rejouée, la même ligne est refusée : une livraison n'entre qu'une fois.
+        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/received', [
+            'lines' => [[
+                'uuid' => $receiptLine->uuid,
+                'quantity' => $receiptLine->quantity_received,
+                'lot_number' => $receiptLine->lot_number,
+                'expires_at' => $receiptLine->expires_at->toDateString(),
+            ]],
+        ])->assertSessionHasErrors('lines.0.uuid');
+
+        $this->assertSame(1, PharmacyStockMovement::query()->count());
+    }
+
     public function test_partial_receiving_leaves_the_order_partially_received_then_fully_received_at_a_new_price(): void
     {
         $supplier = $this->supplier();
@@ -429,6 +495,9 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->assertSame('PARTIALLY_RECEIVED', $order->status->value);
         $this->assertSame(80, $line->fresh()->quantity_received);
 
+        // ADR-113 — la marchandise entre au stock par le second geste.
+        $this->enterStock($order)->assertRedirect();
+
         $firstMovement = PharmacyStockMovement::query()->sole();
         $this->assertSame(80, $firstMovement->quantity_delta);
         $this->assertSame('100.00', $firstMovement->unit_purchase_price);
@@ -443,6 +512,8 @@ class PurchaseOrderLifecycleTest extends TestCase
         $order->refresh();
         $this->assertSame('RECEIVED', $order->status->value);
         $this->assertSame(100, $line->fresh()->quantity_received);
+
+        $this->enterStock($order)->assertRedirect();
 
         $movements = PharmacyStockMovement::query()->orderBy('id')->get();
         $this->assertCount(2, $movements);
@@ -471,7 +542,7 @@ class PurchaseOrderLifecycleTest extends TestCase
             'lines' => [
                 ['purchase_order_line_id' => $line->id, 'quantity_received' => 11, 'lot_number' => 'LOT-OVER', 'expires_at' => now()->addYear()->toDateString()],
             ],
-        ])->assertSessionHasErrors('lines');
+        ])->assertSessionHasErrors('lines.0.quantity_received');
 
         $this->assertSame(0, $line->fresh()->quantity_received);
         $this->assertSame('ORDERED', $order->fresh()->status->value);
@@ -515,9 +586,100 @@ class PurchaseOrderLifecycleTest extends TestCase
 
         $this->assertSame(5, $line->fresh()->quantity_received);
 
+        $this->enterStock($order, $limitedUser)->assertRedirect();
+
         // ADR-112 — the purchase price is never asked again: it is the order's.
         $this->assertSame('10.00', PharmacyStockMovement::query()->sole()->unit_purchase_price);
         $this->assertSame('10.00', $order->receipts()->sole()->lines()->sole()->unit_purchase_price);
+    }
+
+    public function test_a_draft_goes_to_the_trash_with_a_reason_and_comes_back_from_it(): void
+    {
+        $supplier = $this->supplier();
+        $medicine = $this->medicine();
+        $order = $this->createOrder($supplier, $medicine, 4, '30');
+
+        $this->actingAs($this->pharmacist)
+            ->delete("/pharmacy/purchase-orders/{$order->uuid}", ['reason' => 'Saisi en double'])
+            ->assertRedirect('/pharmacy/purchase-orders');
+
+        $order->refresh();
+        $this->assertTrue($order->trashed());
+        $this->assertSame('Saisi en double', $order->delete_reason);
+        // Elle quitte la liste, mais rien n'est détruit.
+        $this->actingAs($this->pharmacist)->get('/pharmacy/purchase-orders')
+            ->assertInertia(fn ($page) => $page->where('counts.all', 0));
+
+        // ADR-061 — elle se retrouve dans la Corbeille et se restaure.
+        $this->actingAs($this->pharmacist)
+            ->post("/trash/PURCHASE_ORDER/{$order->uuid}/restore")
+            ->assertRedirect();
+        $this->assertFalse($order->fresh()->trashed());
+    }
+
+    public function test_a_sent_order_is_cancelled_never_trashed(): void
+    {
+        $supplier = $this->supplier();
+        $medicine = $this->medicine();
+        $order = $this->createOrder($supplier, $medicine, 4, '30');
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/submit");
+
+        $this->actingAs($this->pharmacist)
+            ->delete("/pharmacy/purchase-orders/{$order->uuid}", ['reason' => 'Trop tard'])
+            ->assertSessionHasErrors('status');
+
+        $this->assertFalse($order->fresh()->trashed());
+    }
+
+    public function test_the_supplier_invoice_can_accompany_the_reception_or_come_later(): void
+    {
+        $supplier = $this->supplier();
+        $medicine = $this->medicine();
+
+        // 1. Facture saisie dans le même geste que la réception.
+        $withInvoice = $this->createOrder($supplier, $medicine, 6, '100');
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$withInvoice->uuid}/submit");
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$withInvoice->uuid}/receipts", [
+            'lines' => [[
+                'purchase_order_line_id' => $withInvoice->lines->sole()->id,
+                'quantity_received' => 6, 'lot_number' => 'LOT-INV', 'expires_at' => now()->addYear()->toDateString(),
+            ]],
+            'invoice' => [
+                'invoice_number' => 'FA-2026-0142',
+                'invoice_date' => now()->toDateString(),
+                'due_date' => now()->addDays(30)->toDateString(),
+                'total_amount' => '600.00',
+            ],
+        ])->assertRedirect();
+
+        $invoice = SupplierInvoice::query()->sole();
+        $this->assertSame('FA-2026-0142', $invoice->invoice_number);
+        $this->assertSame(now()->addDays(30)->toDateString(), $invoice->due_date->toDateString());
+        $this->assertSame($withInvoice->receipts()->sole()->id, $invoice->goods_receipt_id);
+
+        // 2. Sans facture, la réception l'attend, et elle s'enregistre après.
+        $later = $this->createOrder($supplier, $medicine, 4, '100');
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$later->uuid}/submit");
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$later->uuid}/receipts", [
+            'lines' => [[
+                'purchase_order_line_id' => $later->lines->sole()->id,
+                'quantity_received' => 4, 'lot_number' => 'LOT-LATER', 'expires_at' => now()->addYear()->toDateString(),
+            ]],
+        ])->assertRedirect();
+
+        $receipt = $later->receipts()->sole();
+        $this->assertSame(0, $receipt->invoices()->count());
+
+        $this->actingAs($this->pharmacist)->get("/pharmacy/receipts/{$receipt->uuid}/invoice")->assertOk();
+        $this->actingAs($this->pharmacist)->post("/pharmacy/receipts/{$receipt->uuid}/invoice", [
+            'invoice_number' => 'FA-2026-0143',
+            'invoice_date' => now()->toDateString(),
+            'total_amount' => '400.00',
+        ])->assertRedirect("/pharmacy/receipts/{$receipt->uuid}");
+
+        $this->assertSame('FA-2026-0143', $receipt->invoices()->sole()->invoice_number);
+        // La facture ne touche jamais le stock (ADR-097).
+        $this->assertSame(0, PharmacyStockMovement::query()->count());
     }
 
     public function test_the_pharmacy_role_no_longer_sees_or_records_purchase_prices(): void

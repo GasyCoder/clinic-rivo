@@ -12,6 +12,7 @@ enum TrashCategory: string
     case MedicineSupplier = 'MEDICINE_SUPPLIER';
     case SupplierCatalog = 'SUPPLIER_CATALOG';
     case SupplierInvoice = 'SUPPLIER_INVOICE';
+    case PurchaseOrder = 'PURCHASE_ORDER';
 
     public function label(): string
     {
@@ -24,6 +25,7 @@ enum TrashCategory: string
             self::MedicineSupplier => 'Fournisseurs',
             self::SupplierCatalog => 'Catalogues fournisseurs',
             self::SupplierInvoice => 'Factures fournisseurs',
+            self::PurchaseOrder => 'Commandes fournisseurs (brouillons)',
         };
     }
 
@@ -38,6 +40,7 @@ enum TrashCategory: string
             self::MedicineSupplier => 'Fournisseur',
             self::SupplierCatalog => 'Catalogue fournisseur',
             self::SupplierInvoice => 'Facture fournisseur',
+            self::PurchaseOrder => 'Commande fournisseur',
         };
     }
 
@@ -52,6 +55,7 @@ enum TrashCategory: string
             self::MedicineSupplier => 'building',
             self::SupplierCatalog => 'file-text',
             self::SupplierInvoice => 'money',
+            self::PurchaseOrder => 'truck',
         };
     }
 
@@ -66,6 +70,7 @@ enum TrashCategory: string
             self::MedicineSupplier => 'medicine_suppliers.restore',
             self::SupplierCatalog => 'supplier_catalogs.restore',
             self::SupplierInvoice => 'supplier_invoices.restore',
+            self::PurchaseOrder => 'purchase_orders.restore',
         };
     }
 

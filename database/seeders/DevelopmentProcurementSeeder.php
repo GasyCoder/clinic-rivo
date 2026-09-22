@@ -7,10 +7,12 @@ use App\Actions\Pharmacy\CancelPurchaseOrderAction;
 use App\Actions\Pharmacy\CreatePurchaseOrderAction;
 use App\Actions\Pharmacy\LinkSupplierCatalogItemAction;
 use App\Actions\Pharmacy\ReceiveGoodsAction;
+use App\Actions\Pharmacy\RecordReceivedStockAction;
 use App\Actions\Pharmacy\RecordSupplierInvoiceAction;
 use App\Actions\Pharmacy\SetMedicineSupplierOfferAction;
 use App\Actions\Pharmacy\SubmitPurchaseOrderAction;
 use App\Actions\Pharmacy\UploadSupplierCatalogAction;
+use App\Models\GoodsReceipt;
 use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\Permission;
@@ -225,6 +227,19 @@ class DevelopmentProcurementSeeder extends Seeder
         $create = app(CreatePurchaseOrderAction::class);
         $submit = app(SubmitPurchaseOrderAction::class);
         $receive = app(ReceiveGoodsAction::class);
+        $enterStock = app(RecordReceivedStockAction::class);
+        // ADR-113 — réceptionner constate la livraison ; une seconde action
+        // la fait entrer au stock. La simulation joue les deux, sinon la
+        // démonstration n'aurait aucun lot.
+        $stockReceipt = fn (GoodsReceipt $goodsReceipt) => $enterStock->execute(
+            $goodsReceipt->lines->map(fn ($line) => [
+                'uuid' => $line->uuid,
+                'quantity' => $line->quantity_received,
+                'lot_number' => $line->lot_number,
+                'expires_at' => $line->expires_at->toDateString(),
+            ])->all(),
+            $actor,
+        );
         $orderActor = CatalogActor::fromUser($actor);
 
         $order = fn (string $supplier, array $lines, string $notes) => $create->execute($suppliers[$supplier], [
@@ -257,11 +272,12 @@ class DevelopmentProcurementSeeder extends Seeder
 
         // 3. Partiellement reçue : 80 gélules sur 100 arrivées.
         $partial = $submit->execute($order('DEV-CENTRALE', ['DEV-AMOX-500' => 100, 'DEV-SALBU' => 20], 'Livraison en deux fois annoncée.'), $orderActor);
-        $receive->execute($partial->fresh(), $receiveLines($partial, ['DEV-AMOX-500' => 80, 'DEV-SALBU' => 20]), 'Reliquat de 20 Amoxicilline attendu (simulation).', $actor);
+        $stockReceipt($receive->execute($partial->fresh(), $receiveLines($partial, ['DEV-AMOX-500' => 80, 'DEV-SALBU' => 20]), 'Reliquat de 20 Amoxicilline attendu (simulation).', $actor));
 
         // 4. Reçue en totalité, puis facturée.
         $received = $submit->execute($order('DEV-LOCAL', ['DEV-CREME' => 30, 'DEV-CONSOMMABLE' => 50, 'DEV-EPUISE' => 40], 'Réassort consommables.'), $orderActor);
         $receipt = $receive->execute($received->fresh(), $receiveLines($received, ['DEV-CREME' => 30, 'DEV-CONSOMMABLE' => 50, 'DEV-EPUISE' => 40]), 'Livraison complète (simulation).', $actor);
+        $stockReceipt($receipt);
         app(RecordSupplierInvoiceAction::class)->execute($suppliers['DEV-LOCAL'], [
             'invoice_number' => 'SIM-FAC-LOCAL-001',
             'invoice_date' => now()->toDateString(),

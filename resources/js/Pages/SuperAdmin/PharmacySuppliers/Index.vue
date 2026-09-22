@@ -22,6 +22,7 @@ import {
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
@@ -74,10 +75,11 @@ const submitArchive = () => archiveForm.delete(
     `/super-admin/pharmacy-suppliers/${props.selectedSite}/${archiving.value.uuid}`,
     { preserveScroll: true, onSuccess: () => { archiving.value = null; } },
 );
-const restoreSupplier = (supplier) => {
-    if (!confirm(`Restaurer ${supplier.name} ? Il sera de nouveau proposé pour les commandes et les entrées de stock.`)) return;
-    restoreForm.post(`/super-admin/pharmacy-suppliers/${props.selectedSite}/${supplier.uuid}/restore`, { preserveScroll: true });
-};
+const restoring = ref(null);
+const restoreSupplier = () => restoreForm.post(
+    `/super-admin/pharmacy-suppliers/${props.selectedSite}/${restoring.value.uuid}/restore`,
+    { preserveScroll: true, onSuccess: () => { restoring.value = null; } },
+);
 
 const STATUS = {
     ONLINE: { variant: 'success', label: 'Connecté' },
@@ -354,7 +356,7 @@ const emptyTitle = computed(() => {
                                             <Button :as="Link" :href="supplierUrl(supplier)" size="sm" variant="outline" title="Ouvrir le dossier"><Eye class="h-4 w-4" /><span class="hidden lg:inline">Ouvrir</span></Button>
                                             <Button v-if="can.update && !supplier.archived" :as="Link" :href="`${supplierUrl(supplier)}?edit=1`" size="sm" variant="ghost" title="Modifier le fournisseur"><Pencil class="h-4 w-4" /></Button>
                                             <Button v-if="can.archive && !supplier.archived" size="sm" variant="ghost" class="text-destructive" title="Mettre à la corbeille" @click="openArchive(supplier)"><Trash2 class="h-4 w-4" /></Button>
-                                            <Button v-if="can.restore && supplier.archived" size="sm" variant="ghost" title="Restaurer" :disabled="restoreForm.processing" @click="restoreSupplier(supplier)"><RotateCcw class="h-4 w-4" /></Button>
+                                            <Button v-if="can.restore && supplier.archived" size="sm" variant="ghost" title="Restaurer" :disabled="restoreForm.processing" @click="restoring = supplier"><RotateCcw class="h-4 w-4" /></Button>
                                         </div>
                                     </td>
                                 </tr>
@@ -485,4 +487,14 @@ const emptyTitle = computed(() => {
             </Button>
         </template>
     </Dialog>
+    <ConfirmModal
+        :open="Boolean(restoring)"
+        title="Restaurer ce fournisseur ?"
+        :description="restoring ? `${restoring.name} sera de nouveau proposé pour les commandes et les entrées de stock.` : ''"
+        confirm-label="Restaurer"
+        :processing="restoreForm.processing"
+        @update:open="(value) => { if (!value) restoring = null; }"
+        @confirm="restoreSupplier"
+    />
+
 </template>

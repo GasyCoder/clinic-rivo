@@ -5,6 +5,7 @@ namespace App\Services\Trash;
 use App\Actions\Catalog\RestoreCatalogItemAction;
 use App\Actions\Patient\RestorePatientAction;
 use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
+use App\Actions\Pharmacy\RestorePurchaseOrderAction;
 use App\Actions\Pharmacy\RestoreSupplierCatalogAction;
 use App\Actions\Pharmacy\RestoreSupplierInvoiceAction;
 use App\Enums\TrashCategory;
@@ -15,6 +16,7 @@ use App\Models\CatalogItem;
 use App\Models\MedicineSupplier;
 use App\Models\MutualOrganization;
 use App\Models\Patient;
+use App\Models\PurchaseOrder;
 use App\Models\SupplierCatalog;
 use App\Models\SupplierInvoice;
 use App\Services\Administration\AddressEntryManager;
@@ -49,6 +51,7 @@ class TrashDirectory
         private readonly RestoreMedicineSupplierAction $restoreSupplier,
         private readonly RestoreSupplierCatalogAction $restoreCatalog,
         private readonly RestoreSupplierInvoiceAction $restoreInvoice,
+        private readonly RestorePurchaseOrderAction $restoreOrder,
     ) {}
 
     /**
@@ -134,6 +137,7 @@ class TrashDirectory
                     TrashCategory::MedicineSupplier => $this->restoreSupplier->execute($model, $actor),
                     TrashCategory::SupplierCatalog => $this->restoreCatalog->execute($model, $actor),
                     TrashCategory::SupplierInvoice => $this->restoreInvoice->execute($model, $actor),
+                    TrashCategory::PurchaseOrder => $this->restoreOrder->execute($model, $actor),
                 };
             }
 
@@ -262,6 +266,8 @@ class TrashDirectory
                         ->where('original_name', 'like', "%{$search}%"),
                     TrashCategory::SupplierInvoice => $nested
                         ->where('invoice_number', 'like', "%{$search}%"),
+                    TrashCategory::PurchaseOrder => $nested
+                        ->where('order_number', 'like', "%{$search}%"),
                 };
             });
         }
@@ -289,6 +295,7 @@ class TrashDirectory
             TrashCategory::MedicineSupplier => MedicineSupplier::query(),
             TrashCategory::SupplierCatalog => SupplierCatalog::query()->with('supplier'),
             TrashCategory::SupplierInvoice => SupplierInvoice::query()->with('supplier'),
+            TrashCategory::PurchaseOrder => PurchaseOrder::query()->with('supplier'),
         };
     }
 
@@ -353,6 +360,11 @@ class TrashDirectory
                 'Facture '.$model->invoice_number,
                 $model->invoice_number,
                 ($model->supplier?->name ?? 'Fournisseur archivé').' · '.$model->total_amount.' MGA',
+            ],
+            TrashCategory::PurchaseOrder => [
+                'Commande '.$model->order_number,
+                $model->order_number,
+                'Brouillon · '.($model->supplier?->name ?? 'Fournisseur archivé').' · '.$model->total_amount.' MGA',
             ],
         };
 

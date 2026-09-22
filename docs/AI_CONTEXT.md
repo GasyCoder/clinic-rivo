@@ -575,6 +575,39 @@ factures Pharmacie sont séparées de la liste générale, sont affichées par d
 dans cet onglet et peuvent être filtrées dynamiquement par référence, client,
 patient ou passage. Voir ADR-050.
 
+**Réceptionner n'est pas ranger** (ADR-113, amende ADR-097). Une réception
+constate ce qui est arrivé — quantité, lot, péremption, remarque — et ne crée
+plus aucun mouvement de stock : `goods_receipt_lines` porte `uuid`, `notes`,
+`stocked_at` et `stocked_by`, et la marchandise entre au stock par un second
+geste (`RecordReceivedStockAction`, `stock.entry`), qui appelle
+`RecordStockEntryAction` inchangée. Tant que rien n'est rangé, quantité, lot
+et péremption restent corrigibles et mettent à jour la réception **et** la
+commande (`PurchaseOrder::refreshReceptionStatus()`) ; après, seule une
+correction de stock tracée existe. Une ligne n'entre qu'une fois — elle est
+verrouillée et refusée si `stocked_at` est déjà posé. Les lignes reçues avant
+cette décision sont marquées entrées à leur date par la migration.
+
+**Aucune date du système ne se saisit** : commande, envoi, réception et
+entrée en stock sont datés par le serveur. Les dates réellement externes
+(péremption, date de facture, échéance, livraison attendue) restent saisies,
+mais par raccourci — aujourd'hui par défaut, « 30 jours », « Sous 1
+semaine » — jamais un calendrier vide. La facture fournisseur peut
+accompagner la réception (même formulaire, `supplier_invoices.due_date`
+facultative) ou attendre : la réception est alors « facture en attente ».
+
+**Un tableau plein, une recherche qui filtre** : la commande d'achat affiche
+tout le catalogue du fournisseur avec sa quantité en face, et l'entrée en
+stock affiche la marchandise réceptionnée déjà remplie ou, sans commande, le
+catalogue entier à cocher. Aucun écran n'attend une recherche pour montrer
+ses données. L'entrée en stock est un écran unique à deux onglets, au lieu de
+deux formulaires qui redemandaient les mêmes informations.
+
+**Un brouillon de commande part à la corbeille** avec son motif
+(`purchase_orders.delete`/`.restore`, `TrashCategory::PurchaseOrder`,
+accordées à aucun rôle par défaut) ; une commande envoyée s'annule, elle ne
+se jette pas. Plus aucun `confirm()` du navigateur dans ces parcours : une
+fenêtre de confirmation nomme ce qui va se passer. Voir ADR-113.
+
 ---
 
 # Laboratoire

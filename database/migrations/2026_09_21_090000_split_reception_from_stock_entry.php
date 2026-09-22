@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
- * ADR-171 — la réception constate la livraison, l'entrée en stock la fait
+ * ADR-175 — la réception constate la livraison, l'entrée en stock la fait
  * entrer au stock : deux gestes, deux moments.
  *
  *   goods_receipt_lines   uuid (jamais d'identifiant SQL à l'écran, ADR-050),

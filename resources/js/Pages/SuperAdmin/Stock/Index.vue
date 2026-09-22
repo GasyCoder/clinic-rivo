@@ -66,6 +66,8 @@ const clearSelection = () => { selectedUuids.value = new Set(); };
 const statusLabel = (value) => ({
     AVAILABLE: 'Disponible',
     OUT_OF_STOCK: 'Rupture',
+    // ADR-176 — commandé, jamais entré en stock : ce n'est pas une rupture.
+    NEVER_RECEIVED: 'Jamais reçu',
     EXPIRING_SOON: 'Péremption proche',
     EXPIRED: 'Périmé',
     INACTIVE: 'Inactif',
@@ -79,6 +81,7 @@ const statusLabel = (value) => ({
 const statusTone = (value) => ({
     AVAILABLE: 'success',
     OUT_OF_STOCK: 'danger',
+    NEVER_RECEIVED: 'info',
     EXPIRING_SOON: 'warning',
     EXPIRED: 'danger',
     INACTIVE: 'neutral',
@@ -88,6 +91,7 @@ const statusOptions = [
     { value: 'ALL', label: 'Tous les états' },
     { value: 'AVAILABLE', label: 'Disponibles' },
     { value: 'OUT_OF_STOCK', label: 'Ruptures' },
+    { value: 'NEVER_RECEIVED', label: 'Commandés, jamais reçus' },
     { value: 'EXPIRING_SOON', label: 'Péremption proche' },
     { value: 'INACTIVE', label: 'Inactifs' },
 ];

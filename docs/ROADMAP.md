@@ -482,8 +482,8 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Commande sans action possible : le motif est affiché (reçue, annulée, déjà envoyée) au lieu d'une colonne vide
 - [x] Un produit listé sous deux références du même catalogue n'occupe qu'une ligne de commande : refus nommé côté serveur, références marquées dans le sélecteur
 - [x] Provenance d'un produit fournisseur affichée (catalogue d'origine) et distinction proposé / réellement réceptionné
-- [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-170)
-- [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-171)
+- [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-174)
+- [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-175)
 - [x] Entrée en stock corrigeable tant que rien n'est rangé : quantité, lot et péremption mettent à jour la réception et la commande ; une ligne n'entre qu'une fois
 - [x] Écran unique d'entrée en stock : « Marchandise réceptionnée » (déjà remplie) et « Entrée sans commande » (catalogue à cocher), plus deux formulaires redondants
 - [x] Aucune date du système saisie : commande, envoi, réception et entrée en stock sont datés par le serveur ; les dates externes (péremption, facture, échéance, livraison attendue) se choisissent par raccourci
@@ -493,6 +493,17 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Brouillon de commande mis à la corbeille avec motif et restaurable (`purchase_orders.delete`/`.restore`, `TrashCategory::PurchaseOrder`) ; une commande envoyée s'annule
 - [x] Plus aucune fenêtre `confirm()` du navigateur dans les parcours Achats/Stock : une confirmation qui nomme ce qui va se passer (`ConfirmModal`)
 - [x] « Nouveau produit » signalé à la réception et à l'entrée en stock, avec son nom à la pharmacie et son prix de vente au même endroit
+- [x] Réceptionner revient au socle `PHARMACY` (`purchase_orders.view`, `goods_receipts.view`, `goods_receipts.create`) : la pharmacie ne pouvait pas réceptionner sa propre livraison, et l'écran affichait « Envoyée au fournisseur » comme s'il n'y avait plus rien à faire (ADR-176)
+- [x] L'action de l'étape passe devant sur une commande : « Envoyer » / « Réceptionner » en tête, « Annuler » à droite en bouton discret — la règle de l'ADR-097 ne change pas, un fournisseur peut ne jamais livrer (ADR-176)
+- [x] Une commande sans bouton d'action nomme le droit manquant (`goods_receipts.create`) au lieu de son seul statut (ADR-176, ADR-154)
+- [ ] Étendre le masque du prix d'achat (ADR-174) aux écrans de commande : le montant d'une commande est désormais lisible par tout compte Pharmacie — à décider (ADR-176)
+- [x] Une commande annulée part à la corbeille, avec motif et restaurable, à la clinique **et** depuis le portail (nouveau `DELETE` de l'API du site) ; une commande vivante s'annule d'abord (ADR-176)
+- [x] « Commandé » n'est plus « en rupture » : un produit jamais réceptionné a son état, quitte la liste courante et vit dans l'onglet « Commandés, jamais reçus » — troisième signalement du même point (ADR-176, ADR-098)
+- [x] La carte « Disponibles » devient « Disponibles sans alerte » : elle affichait 0 pendant que trois produits avaient du stock, comptés sous « Péremption proche » (ADR-176)
+- [x] La facture fournisseur rejoint le socle `PHARMACY` (`supplier_invoices.view`/`.create`) : l'assistant de réception s'arrêtait à mi-chemin, l'étape 2 n'était jamais proposée (ADR-176, ADR-175)
+- [x] Péremption reprise d'un lot déjà détenu quand le n° de lot saisi le désigne, et liste des lots connus proposée — à la réception comme à l'entrée en stock (ADR-176)
+- [x] Défaut corrigé : ce remplissage existait à l'entrée en stock et ne marchait jamais (`@input` lu avant `v-model`, recherche sur le caractère précédent)
+- [ ] Automatiser le n° de lot et la péremption eux-mêmes — **refusé** : ils sont imprimés sur la boîte, les inventer fausserait le FEFO et rendrait un rappel de lot intraçable (ADR-175, ADR-036)
 - [ ] Transfert stock
 - [ ] Rapports
 

@@ -20,7 +20,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-171 — un seul écran pour faire entrer de la marchandise au stock.
+ * ADR-175 — un seul écran pour faire entrer de la marchandise au stock.
  *
  * Ce qui a été réceptionné arrive déjà rempli : fournisseur, commande, lots,
  * péremptions et quantités viennent de la réception. On relit, on corrige ce
@@ -47,6 +47,19 @@ const supplierUuid = ref(props.pending.some((supplier) => supplier.uuid === prop
     ? props.initialSupplier
     : (props.pending[0]?.uuid ?? ''));
 const orderUuid = ref(props.initialOrder);
+
+/*
+ * ADR-176 — arriver avec `?commande=` puis basculer en saisie manuelle sans
+ * un mot laisse croire à un écran redondant : c'est ce qu'a constaté le
+ * propriétaire. On dit ce qui s'est passé, avec le numéro demandé.
+ */
+const requestedOrderNumber = computed(() => props.pending
+    .flatMap((supplier) => supplier.orders ?? [])
+    .find((order) => order.uuid === props.initialOrder)?.order_number ?? null);
+const nothingPendingForRequest = computed(() => Boolean(
+    (props.initialOrder || props.initialSupplier)
+    && (!props.pending.length || (props.initialOrder && !requestedOrderNumber.value)),
+));
 const currentSupplier = computed(() => props.pending.find((supplier) => supplier.uuid === supplierUuid.value) ?? null);
 
 const toRow = (line) => ({
@@ -276,6 +289,18 @@ const siteName = computed(() => page.props.site?.name || page.props.site?.code |
         </div>
 
         <!-- ============ Marchandise réceptionnée ============ -->
+        <p
+            v-if="nothingPendingForRequest"
+            class="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100"
+        >
+            <PackageCheck class="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+                Cette livraison est déjà entièrement rangée : il n’y a plus rien à faire entrer au stock pour elle.
+                <Link href="/pharmacy/stock" class="font-semibold underline">Voir les médicaments &amp; stock</Link>
+                ou saisissez une entrée sans commande ci-dessous.
+            </span>
+        </p>
+
         <template v-if="mode === 'received'">
             <section v-if="!pending.length" class="rounded-2xl border border-dashed border-border bg-card px-6 py-14 text-center">
                 <span class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"><CheckCircle2 class="h-7 w-7" /></span>

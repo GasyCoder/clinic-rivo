@@ -10,6 +10,8 @@ const TONES = {
     EXPIRED: 'danger',
     UNAVAILABLE: 'neutral',
     INACTIVE: 'neutral',
+    // ADR-176 — commandé, jamais entré en stock : un état à part, jamais une rupture.
+    NEVER_RECEIVED: 'info',
     // Dispensing
     AWAITING_INVOICE: 'info',
     AWAITING_PAYMENT: 'warning',

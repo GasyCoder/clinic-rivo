@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-097, amendée par l'ADR-171 — réceptionner une commande constate ce qui
+ * ADR-097, amendée par l'ADR-175 — réceptionner une commande constate ce qui
  * est arrivé : quantités, lots, péremptions, remarques. Rien n'entre encore
  * au stock : c'est l'entrée en stock (RecordReceivedStockAction) qui crée le
  * lot et le mouvement, une fois la marchandise contrôlée et rangée.
@@ -139,7 +139,7 @@ class ReceiveGoodsAction
             ]);
         }
 
-        // ADR-170 — le prix d'achat n'est jamais redemandé : c'est celui de
+        // ADR-174 — le prix d'achat n'est jamais redemandé : c'est celui de
         // la commande. Un compte autorisé peut seulement le corriger si le
         // fournisseur a facturé autre chose.
         $unitPurchasePrice = filled($lineData['unit_purchase_price'] ?? null)

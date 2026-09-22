@@ -63,24 +63,44 @@ class PurchaseOrderLifecycleTest extends TestCase
         'purchase_orders.submit', 'purchase_orders.cancel',
         'goods_receipts.view', 'goods_receipts.create',
         'supplier_invoices.view', 'supplier_invoices.create',
-        // ADR-171 — un brouillon jamais envoyé peut partir à la corbeille.
+        // ADR-175 — un brouillon jamais envoyé peut partir à la corbeille.
         'purchase_orders.delete', 'purchase_orders.restore', 'trash.view', 'trash.restore',
-        // ADR-170 — correcting a purchase price at reception is a cost
+        // ADR-174 — correcting a purchase price at reception is a cost
         // decision, never part of the PHARMACY role.
         'stock.cost.record',
     ];
 
-    public function test_procurement_is_not_part_of_the_pharmacy_role_by_default(): void
+    /**
+     * ADR-176 — receiving is a physical act of this pharmacy: a plain
+     * PHARMACY account finds the order it must receive and records the
+     * reception. ADR-098 still holds for the rest — deciding a purchase,
+     * paying a supplier and holding the supplier folder are granted by name.
+     */
+    public function test_the_pharmacy_role_receives_its_goods_but_does_not_order_or_invoice(): void
     {
-        $pharmacist = User::factory()->create([
+        $plain = User::factory()->create([
             'role_id' => Role::query()->where('code', 'PHARMACY')->value('id'),
         ]);
 
-        $this->actingAs($pharmacist)->get('/pharmacy')->assertRedirect('/');
+        $this->actingAs($plain)->get('/pharmacy')->assertRedirect('/');
 
-        foreach (['/pharmacy/suppliers', '/pharmacy/purchase-orders', '/pharmacy/receipts', '/pharmacy/supplier-invoices'] as $url) {
-            $this->actingAs($pharmacist)->get($url)->assertForbidden();
+        foreach (['/pharmacy/purchase-orders', '/pharmacy/receipts'] as $url) {
+            $this->actingAs($plain)->get($url)->assertOk();
         }
+
+        // ADR-176 — la facture arrive dans le carton : la réception l'atteint.
+        $this->actingAs($plain)->get('/pharmacy/supplier-invoices')->assertOk();
+
+        foreach (['/pharmacy/suppliers', '/pharmacy/purchase-orders/create'] as $url) {
+            $this->actingAs($plain)->get($url)->assertForbidden();
+        }
+
+        // Le geste lui-même, sur une commande réellement partie au fournisseur.
+        $supplier = $this->supplier();
+        $order = $this->createOrder($supplier, $this->medicine());
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/submit");
+
+        $this->actingAs($plain)->get("/pharmacy/purchase-orders/{$order->uuid}/receive")->assertOk();
     }
 
     private function supplier(): MedicineSupplier
@@ -419,7 +439,7 @@ class PurchaseOrderLifecycleTest extends TestCase
     }
 
     /**
-     * ADR-171 — réceptionner ne fait rien entrer au stock : c'est un second
+     * ADR-175 — réceptionner ne fait rien entrer au stock : c'est un second
      * geste, qui reprend les lignes encore en attente.
      */
     private function enterStock(PurchaseOrder $order, ?User $actor = null): TestResponse
@@ -495,7 +515,7 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->assertSame('PARTIALLY_RECEIVED', $order->status->value);
         $this->assertSame(80, $line->fresh()->quantity_received);
 
-        // ADR-171 — la marchandise entre au stock par le second geste.
+        // ADR-175 — la marchandise entre au stock par le second geste.
         $this->enterStock($order)->assertRedirect();
 
         $firstMovement = PharmacyStockMovement::query()->sole();
@@ -588,7 +608,7 @@ class PurchaseOrderLifecycleTest extends TestCase
 
         $this->enterStock($order, $limitedUser)->assertRedirect();
 
-        // ADR-170 — the purchase price is never asked again: it is the order's.
+        // ADR-174 — the purchase price is never asked again: it is the order's.
         $this->assertSame('10.00', PharmacyStockMovement::query()->sole()->unit_purchase_price);
         $this->assertSame('10.00', $order->receipts()->sole()->lines()->sole()->unit_purchase_price);
     }
@@ -627,6 +647,37 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->actingAs($this->pharmacist)
             ->delete("/pharmacy/purchase-orders/{$order->uuid}", ['reason' => 'Trop tard'])
             ->assertSessionHasErrors('status');
+
+        $this->assertFalse($order->fresh()->trashed());
+    }
+
+    /**
+     * ADR-176 — une commande annulée n'engage plus personne : elle quitte la
+     * liste et reste restaurable depuis la Corbeille. Son annulation et son
+     * motif ne sont jamais effacés (ADR-010).
+     */
+    public function test_a_cancelled_order_goes_to_the_trash_and_comes_back_from_it(): void
+    {
+        $supplier = $this->supplier();
+        $order = $this->createOrder($supplier, $this->medicine(), 4, '30');
+        $this->actingAs($this->pharmacist)->post("/pharmacy/purchase-orders/{$order->uuid}/submit");
+        $this->actingAs($this->pharmacist)
+            ->post("/pharmacy/purchase-orders/{$order->uuid}/cancel", ['reason' => 'Fournisseur en rupture'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($this->pharmacist)
+            ->delete("/pharmacy/purchase-orders/{$order->uuid}", ['reason' => 'Saisie de test'])
+            ->assertSessionHasNoErrors();
+
+        $order->refresh();
+        $this->assertTrue($order->trashed());
+        $this->assertSame('Saisie de test', $order->delete_reason);
+        // L'annulation reste lisible : la corbeille range, elle n'efface pas.
+        $this->assertSame('Fournisseur en rupture', $order->cancellation_reason);
+
+        $this->actingAs($this->pharmacist)
+            ->post("/trash/PURCHASE_ORDER/{$order->uuid}/restore")
+            ->assertSessionHasNoErrors();
 
         $this->assertFalse($order->fresh()->trashed());
     }

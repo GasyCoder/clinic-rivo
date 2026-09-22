@@ -14,7 +14,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-171 — la facture d'une réception enregistrée sans elle. Mêmes champs
+ * ADR-175 — la facture d'une réception enregistrée sans elle. Mêmes champs
  * que dans l'assistant de réception : un seul formulaire pour les deux
  * moments, jamais deux qui divergent.
  */

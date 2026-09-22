@@ -145,6 +145,19 @@ class PharmacyProcurementSiteApiTest extends TestCase
         $this->assertSame(PurchaseOrderStatus::Cancelled, $cancelled->status);
         $this->assertNull($cancelled->cancelled_by);
         $this->assertSame($this->actorUuid, $cancelled->external_cancelled_by_uuid);
+
+        // ADR-176 — une commande annulée se range à la corbeille depuis le
+        // portail ; le droit est celui de la corbeille, pas de l'annulation.
+        $this->withHeaders($this->headers(['purchase_orders.cancel']))
+            ->deleteJson("{$this->base()}/orders/{$uuid}", ['reason' => 'Saisie de test'])
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers(['purchase_orders.delete']))
+            ->deleteJson("{$this->base()}/orders/{$uuid}", ['reason' => 'Saisie de test'])
+            ->assertOk();
+        $this->assertTrue($order->fresh()->trashed());
+        // La corbeille range, elle n'efface pas : le motif d'annulation reste.
+        $this->assertSame('Quantité erronée', $order->fresh()->cancellation_reason);
     }
 
     /**

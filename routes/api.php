@@ -58,6 +58,7 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}', [PharmacyProcurementController::class, 'updateOrder'])->name('pharmacy.suppliers.orders.update');
         Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/submit', [PharmacyProcurementController::class, 'submitOrder'])->name('pharmacy.suppliers.orders.submit');
         Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/cancel', [PharmacyProcurementController::class, 'cancelOrder'])->name('pharmacy.suppliers.orders.cancel');
+        Route::delete('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}', [PharmacyProcurementController::class, 'trashOrder'])->name('pharmacy.suppliers.orders.trash');
         Route::get('/pharmacy/suppliers/{supplierUuid}/invoice-form', [PharmacyProcurementController::class, 'invoiceForm'])->name('pharmacy.suppliers.invoices.form');
         Route::post('/pharmacy/suppliers/{supplierUuid}/invoices', [PharmacyProcurementController::class, 'storeInvoice'])->name('pharmacy.suppliers.invoices.store');
         Route::get('/pharmacy/suppliers/{supplierUuid}/invoices/{invoiceUuid}', [PharmacyProcurementController::class, 'showInvoice'])->name('pharmacy.suppliers.invoices.show');

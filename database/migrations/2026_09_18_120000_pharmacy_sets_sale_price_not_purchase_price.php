@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * ADR-170 — la Pharmacie fixe le prix de vente de ses médicaments, et ne
+ * ADR-174 — la Pharmacie fixe le prix de vente de ses médicaments, et ne
  * voit plus le prix d'achat, confidentiel.
  *
  * RolePermissionSeeder ne doit pas être rejoué sur un site en production

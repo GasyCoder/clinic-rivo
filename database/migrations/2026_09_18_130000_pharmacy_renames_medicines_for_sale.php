@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * ADR-170 — la Pharmacie peut vendre un produit sous un autre nom que celui
+ * ADR-174 — la Pharmacie peut vendre un produit sous un autre nom que celui
  * du fournisseur. Accordée au rôle PHARMACY sans rejouer le seeder (ADR-064).
  */
 return new class extends Migration

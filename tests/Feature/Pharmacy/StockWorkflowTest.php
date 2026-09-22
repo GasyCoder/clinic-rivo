@@ -15,6 +15,7 @@ use App\Models\PharmacyStockMovement;
 use App\Models\PurchaseOrder;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Pharmacy\MedicineStockOverviewService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -79,6 +80,40 @@ class StockWorkflowTest extends TestCase
         ]);
     }
 
+    /**
+     * ADR-176 — un produit entré au catalogue par une commande (ADR-098) n'est
+     * pas « en rupture » : on ne l'a jamais eu. Il a son propre état, et il
+     * sort de la liste courante jusqu'à sa première entrée en stock.
+     */
+    public function test_a_medicine_never_received_is_not_counted_as_a_shortage(): void
+    {
+        $ordered = $this->medicine('Compresses stériles');
+        $held = $this->medicine('Paracétamol');
+        $this->lot($held, 20, 'PARA-01');
+        $emptied = $this->medicine('Amoxicilline');
+        $this->lot($emptied, 0, 'AMOX-01');
+
+        $overview = app(MedicineStockOverviewService::class)->overview();
+        $status = collect($overview['medicines'])->pluck('status', 'name');
+
+        $this->assertSame('NEVER_RECEIVED', $status['Compresses stériles']);
+        $this->assertSame('AVAILABLE', $status['Paracétamol']);
+        // Un lot vidé, lui, EST une rupture : la clinique l'a tenu.
+        $this->assertSame('OUT_OF_STOCK', $status['Amoxicilline']);
+
+        $this->assertSame(1, $overview['summary']['never_received']);
+        $this->assertSame(1, $overview['summary']['out_of_stock']);
+        $this->assertSame(2, $overview['summary']['stocked_medicines']);
+
+        // La page les sert toutes ; c'est l'écran qui range les jamais reçus
+        // dans leur onglet, comptés à part.
+        $this->actingAs($this->pharmacist)->get('/pharmacy/stock')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('stock.summary.never_received', 1)
+                ->where('stock.summary.out_of_stock', 1));
+    }
+
     public function test_the_medicine_stock_page_lists_its_movements(): void
     {
         $medicine = $this->medicine('Paracétamol');
@@ -114,7 +149,7 @@ class StockWorkflowTest extends TestCase
     private function delivery(array $entries): array
     {
         return [
-            // ADR-171 — la date d'entrée est celle du serveur ; le rangement
+            // ADR-175 — la date d'entrée est celle du serveur ; le rangement
             // et le motif se déduisent de la provenance quand ils manquent.
             'origin' => 'Bon de livraison BL-204',
             'entries' => $entries,
@@ -215,7 +250,14 @@ class StockWorkflowTest extends TestCase
     {
         $invoicesOnly = $this->userWith(['pharmacy.view', 'supplier_invoices.view'], 'INVOICES_ONLY');
         $this->actingAs($invoicesOnly)->get('/pharmacy/purchases')->assertRedirect('/pharmacy/supplier-invoices');
-        $this->actingAs($this->pharmacist)->get('/pharmacy/purchases')->assertForbidden();
+
+        // ADR-176 — la Pharmacie réceptionne sa propre livraison : son socle
+        // ouvre donc les Achats, sur l'onglet des commandes. Un compte qui
+        // n'a aucun des trois droits d'achat reste refusé.
+        $this->actingAs($this->pharmacist)->get('/pharmacy/purchases')->assertRedirect('/pharmacy/purchase-orders');
+
+        $stockOnly = $this->userWith(['pharmacy.view', 'stock.view'], 'STOCK_ONLY');
+        $this->actingAs($stockOnly)->get('/pharmacy/purchases')->assertForbidden();
 
         $buyer = $this->userWith(['pharmacy.view', 'purchase_orders.view'], 'BUYER');
         $supplier = MedicineSupplier::query()->create(['code' => 'DISTRIB', 'name' => 'Distrib']);

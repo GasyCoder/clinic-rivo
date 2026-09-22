@@ -323,6 +323,41 @@ class RolePermissionSeederTest extends TestCase
     }
 
     /**
+     * ADR-176 — receiving the goods is a physical act of this pharmacy, so
+     * the role can find the order it must receive and record the reception.
+     * Deciding a purchase, paying a supplier and holding the supplier folder
+     * stay out of the socle: they are granted by name (ADR-098).
+     */
+    public function test_pharmacy_can_receive_its_goods_but_not_order_or_invoice(): void
+    {
+        $this->seedRbac();
+
+        $names = $this->permissionNamesFor('PHARMACY');
+
+        $this->assertContains('purchase_orders.view', $names);
+        $this->assertContains('goods_receipts.view', $names);
+        $this->assertContains('goods_receipts.create', $names);
+        // La facture arrive dans le carton : seconde étape de la réception.
+        $this->assertContains('supplier_invoices.view', $names);
+        $this->assertContains('supplier_invoices.create', $names);
+
+        foreach ([
+            'purchase_orders.create',
+            'purchase_orders.update',
+            'purchase_orders.submit',
+            'purchase_orders.cancel',
+            'purchase_orders.delete',
+            'supplier_invoices.delete',
+            'supplier_invoices.restore',
+            'medicine_suppliers.view',
+            'supplier_catalogs.create',
+            'medicine_supplier_offers.create',
+        ] as $permission) {
+            $this->assertNotContains($permission, $names, "{$permission} n'appartient pas au socle PHARMACY (ADR-098).");
+        }
+    }
+
+    /**
      * Phase A (Soins/Médecine stabilization) locks in the clinical/financial
      * boundaries the audit relied on, without asserting the permanent
      * absence of permissions not yet defined at all (e.g. surgery.request,

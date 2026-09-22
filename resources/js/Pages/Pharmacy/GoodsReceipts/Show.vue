@@ -14,7 +14,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-171 — une réception constate une livraison ; elle n'entre rien au
+ * ADR-175 — une réception constate une livraison ; elle n'entre rien au
  * stock. Cette fiche dit donc deux choses que l'ancienne taisait : ce qui
  * attend encore l'entrée en stock, et si la facture est arrivée.
  */

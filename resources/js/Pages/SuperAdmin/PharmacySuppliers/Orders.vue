@@ -9,7 +9,7 @@ import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
-import { Ban, Folder, Pencil, Plus, TriangleAlert } from 'lucide-vue-next';
+import { Ban, Folder, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-vue-next';
 import { formatDate } from '@/utilities/date';
 import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
 
@@ -33,6 +33,11 @@ const TILE_TONES = { DRAFT: 'slate', ORDERED: 'sky', PARTIALLY_RECEIVED: 'amber'
 // défait plus — la marchandise est entrée en stock.
 const cancellable = (order) => !['RECEIVED', 'CANCELLED'].includes(order.status);
 
+// ADR-176 — un brouillon n'a engagé personne, une commande annulée n'engage
+// plus : les deux se rangent à la corbeille et restent restaurables (ADR-061).
+// Une commande vivante s'annule d'abord ; le site rejuge la règle de toute façon.
+const trashable = (order) => ['DRAFT', 'CANCELLED'].includes(order.status);
+
 // Une colonne d'actions vide laisse croire à un droit manquant. Elle dit
 // donc pourquoi il n'y a rien à faire — c'est l'état de la commande.
 const WHY_LOCKED = {
@@ -41,7 +46,13 @@ const WHY_LOCKED = {
     ORDERED: 'Envoyée au fournisseur : elle s’annule, elle ne se modifie plus',
     PARTIALLY_RECEIVED: 'Partiellement reçue : elle ne se modifie plus',
 };
-const lockedReason = (order) => (order.status === 'DRAFT' ? null : WHY_LOCKED[order.status] ?? null);
+const lockedReason = (order) => {
+    if (order.status === 'DRAFT' || (props.can.trash_order && trashable(order))) {
+        return null;
+    }
+
+    return WHY_LOCKED[order.status] ?? null;
+};
 
 const cancelling = ref(null);
 const cancelForm = useForm({ reason: '' });
@@ -51,6 +62,18 @@ const askCancel = (order) => {
     cancelForm.clearErrors();
     cancelling.value = order;
 };
+
+const trashing = ref(null);
+const trashForm = useForm({ reason: '' });
+const askTrash = (order) => {
+    trashForm.reset();
+    trashForm.clearErrors();
+    trashing.value = order;
+};
+const confirmTrash = () => trashForm.delete(`${folderHref.value}/orders/${trashing.value.uuid}`, {
+    preserveScroll: true,
+    onSuccess: () => { trashing.value = null; },
+});
 
 const confirmCancel = () => cancelForm.post(`${folderHref.value}/orders/${cancelling.value.uuid}/cancel`, {
     preserveScroll: true,
@@ -138,7 +161,16 @@ const confirmCancel = () => cancelForm.post(`${folderHref.value}/orders/${cancel
                                             :title="`Annuler ${order.order_number}`"
                                             @click="askCancel(order)"
                                         ><Ban class="h-4 w-4" /></Button>
-                                        <span v-if="!cancellable(order)" class="text-xs text-muted-foreground" :title="lockedReason(order)">{{ lockedReason(order) }}</span>
+                                        <Button
+                                            v-if="can.trash_order && trashable(order)"
+                                            size="sm"
+                                            variant="white-outline"
+                                            type="button"
+                                            class="text-muted-foreground hover:text-destructive"
+                                            :title="`Mettre ${order.order_number} à la corbeille`"
+                                            @click="askTrash(order)"
+                                        ><Trash2 class="h-4 w-4" /></Button>
+                                        <span v-if="lockedReason(order)" class="text-xs text-muted-foreground" :title="lockedReason(order)">{{ lockedReason(order) }}</span>
                                     </div>
                                 </td>
                             </tr>
@@ -160,6 +192,25 @@ const confirmCancel = () => cancelForm.post(`${folderHref.value}/orders/${cancel
                 <Button type="button" variant="outline" @click="cancelling = null">Revenir</Button>
                 <Button type="button" variant="destructive" :disabled="cancelForm.processing || cancelForm.reason.trim().length < 3" @click="confirmCancel">
                     <Ban class="h-4 w-4" />Annuler la commande
+                </Button>
+            </template>
+        </Dialog>
+
+        <Dialog
+            :open="trashing !== null"
+            title="Mettre à la corbeille"
+            :description="trashing
+                ? `${trashing.order_number} quitte la liste des commandes. Elle reste dans la Corbeille, avec son motif, et se restaure de là — rien n’est détruit.`
+                : ''"
+            @update:open="trashing = $event ? trashing : null"
+        >
+            <Textarea v-model="trashForm.reason" :rows="3" placeholder="Motif (ex. saisie de test, commande en double)" />
+            <p v-if="trashForm.errors.reason" class="mt-1.5 text-sm text-destructive">{{ trashForm.errors.reason }}</p>
+            <p v-if="trashForm.errors.status" class="mt-1.5 text-sm text-destructive">{{ trashForm.errors.status }}</p>
+            <template #footer>
+                <Button type="button" variant="outline" @click="trashing = null">Revenir</Button>
+                <Button type="button" variant="destructive" :disabled="trashForm.processing || trashForm.reason.trim().length < 3" @click="confirmTrash">
+                    <Trash2 class="h-4 w-4" />Mettre à la corbeille
                 </Button>
             </template>
         </Dialog>

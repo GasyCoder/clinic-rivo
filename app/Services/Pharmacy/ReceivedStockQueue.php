@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
- * ADR-171 — ce qui a été réceptionné et attend d'être rangé au stock.
+ * ADR-175 — ce qui a été réceptionné et attend d'être rangé au stock.
  *
  * Une ligne de réception attend tant qu'elle n'a pas de `stocked_at` ; dès
  * qu'elle entre, elle quitte cette file et ne peut plus être proposée : c'est
@@ -103,7 +103,7 @@ class ReceivedStockQueue
                 - $line->purchaseOrderLine->quantity_received
                 + $line->quantity_received,
             'notes' => $line->notes,
-            // ADR-170 — le prix d'achat est confidentiel.
+            // ADR-174 — le prix d'achat est confidentiel.
             'unit_purchase_price' => $seeCost ? $line->unit_purchase_price : null,
             'sale_price' => $line->medicine->catalogItem?->currentStandardTariff?->amount,
             // Jamais entré au stock : il n'a encore aucun lot.

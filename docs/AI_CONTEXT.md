@@ -575,7 +575,7 @@ factures Pharmacie sont séparées de la liste générale, sont affichées par d
 dans cet onglet et peuvent être filtrées dynamiquement par référence, client,
 patient ou passage. Voir ADR-050.
 
-**Réceptionner n'est pas ranger** (ADR-171, amende ADR-097). Une réception
+**Réceptionner n'est pas ranger** (ADR-175, amende ADR-097). Une réception
 constate ce qui est arrivé — quantité, lot, péremption, remarque — et ne crée
 plus aucun mouvement de stock : `goods_receipt_lines` porte `uuid`, `notes`,
 `stocked_at` et `stocked_by`, et la marchandise entre au stock par un second
@@ -606,7 +606,49 @@ deux formulaires qui redemandaient les mêmes informations.
 (`purchase_orders.delete`/`.restore`, `TrashCategory::PurchaseOrder`,
 accordées à aucun rôle par défaut) ; une commande envoyée s'annule, elle ne
 se jette pas. Plus aucun `confirm()` du navigateur dans ces parcours : une
-fenêtre de confirmation nomme ce qui va se passer. Voir ADR-171.
+fenêtre de confirmation nomme ce qui va se passer. Voir ADR-175.
+
+**Réceptionner appartient au socle `PHARMACY`** (ADR-176, amende ADR-098).
+`purchase_orders.view`, `goods_receipts.view` et `goods_receipts.create` y
+rejoignent le stock : recevoir la marchandise est un acte physique de cette
+pharmacie, et sans `purchase_orders.view` elle enregistre une réception sans
+jamais trouver la commande à réceptionner. Commander, facturer et tenir le
+dossier fournisseur restent accordés nominativement (ADR-098) ; la facture
+hors socle laisse simplement la réception « facture en attente » (ADR-175).
+**Conséquence signalée** : le montant d'une commande — donc le prix d'achat —
+devient lisible par tout compte Pharmacie, l'ADR-174 ne masquant le coût que
+sur les écrans de réception et de stock ; étendre ce masque aux commandes
+reste à décider.
+
+**« Envoyer la commande » est la validation** — il n'existe aucune étape
+séparée : Brouillon → Envoyer (`purchase_orders.submit`) → Commandée →
+Réceptionner. « Annuler » reste possible jusqu'à la réception (ADR-097 : un
+fournisseur peut ne jamais livrer), mais passe en action discrète à droite,
+derrière l'action de l'étape. Une commande sans bouton **nomme le droit
+manquant** au lieu de son seul statut, qui se lisait « plus rien à faire »
+(ADR-154). Migration `2026_10_26_090000`, à jouer sur chaque site (ADR-064).
+
+**Une commande annulée part à la corbeille** (ADR-176, amende ADR-175) : comme
+un brouillon, avec son motif et restaurable (ADR-061) ; son annulation n'est
+jamais effacée, et la suppression définitive reste refusée dès qu'un envoi,
+une réception ou une facture existe. Une commande vivante s'annule d'abord.
+Le geste existe aussi **depuis le portail**, qui n'en avait aucun :
+`DELETE /api/v1/super-admin/pharmacy/suppliers/{uuid}/orders/{uuid}` appelle la
+même `TrashPurchaseOrderAction`. Droit : `purchase_orders.delete`, distinct de
+`cancel`, accordé à aucun rôle par défaut.
+
+**« Commandé » n'est pas « en rupture »** (ADR-176, ADR-098). Un produit entré
+au catalogue par une commande s'affichait « En rupture » avant toute
+livraison — troisième signalement du propriétaire sur ce point.
+`MedicineStockOverviewService` distingue désormais `NEVER_RECEIVED` (aucun lot
+n'a jamais existé) de `OUT_OF_STOCK` (des lots ont existé, il n'en reste
+rien) ; l'état se lit sur `lots_count`, jamais sur une colonne à tenir à jour.
+Un produit jamais reçu **quitte la liste courante** — ni « Tous », ni « En
+rupture », ni « Sans prix de vente » — et vit dans l'onglet « Commandés,
+jamais reçus ». La carte « Disponibles » devient **« Disponibles sans
+alerte »** : elle comptait 0 pendant que trois produits avaient du stock,
+comptés sous « Péremption proche » — les catégories restent exclusives
+(ADR-119, ADR-120), c'est le libellé qui mentait.
 
 ---
 

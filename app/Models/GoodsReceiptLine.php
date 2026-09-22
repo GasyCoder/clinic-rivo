@@ -42,7 +42,7 @@ class GoodsReceiptLine extends Model
         return $this->belongsTo(Medicine::class);
     }
 
-    /** ADR-171 — reçue mais pas encore entrée en stock. */
+    /** ADR-175 — reçue mais pas encore entrée en stock. */
     public function isAwaitingStock(): bool
     {
         return $this->stocked_at === null;

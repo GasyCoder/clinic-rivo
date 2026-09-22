@@ -8,6 +8,7 @@ use App\Actions\Pharmacy\CreatePurchaseOrderAction;
 use App\Actions\Pharmacy\RecordSupplierInvoiceAction;
 use App\Actions\Pharmacy\RestoreSupplierInvoiceAction;
 use App\Actions\Pharmacy\SubmitPurchaseOrderAction;
+use App\Actions\Pharmacy\TrashPurchaseOrderAction;
 use App\Actions\Pharmacy\UpdatePurchaseOrderAction;
 use App\Actions\Pharmacy\UpdateSupplierInvoiceAction;
 use App\Http\Controllers\Controller;
@@ -122,6 +123,23 @@ class PharmacyProcurementController extends Controller
         );
 
         return response()->json(['message' => "Commande {$order->order_number} annulée."]);
+    }
+
+    /**
+     * ADR-176 — un brouillon ou une commande annulée part à la corbeille,
+     * restaurable (ADR-061). Une commande vivante s'annule d'abord :
+     * l'Action le refuse, ici comme à la clinique.
+     */
+    public function trashOrder(Request $request, string $supplierUuid, string $orderUuid, TrashPurchaseOrderAction $action): JsonResponse
+    {
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+        $order = $action->execute(
+            $this->order($this->supplier($supplierUuid, withArchived: true), $orderUuid),
+            $validated['reason'],
+            CatalogActor::fromRemoteRequest($request),
+        );
+
+        return response()->json(['message' => "Commande {$order->order_number} mise à la corbeille."]);
     }
 
     /** What an invoice form needs: medicines, and this supplier's orders with their lines and receptions. */

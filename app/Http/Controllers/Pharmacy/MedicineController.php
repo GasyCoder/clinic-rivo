@@ -104,7 +104,7 @@ class MedicineController extends Controller
     }
 
     /**
-     * ADR-170 — the sale price only: the first one needs no reason, a change
+     * ADR-174 — the sale price only: the first one needs no reason, a change
      * does, because the previous price stays in the history (ADR-024).
      */
     public function updateSalePrice(Request $request, Medicine $medicine, SetCatalogTariffAction $action): RedirectResponse

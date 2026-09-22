@@ -39,7 +39,7 @@ class StoreStockEntriesRequest extends FormRequest
             ],
             'entries.*.quantity' => ['required', 'integer', 'min:1'],
             'entries.*.unit_purchase_price' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
-            // ADR-170 — le prix de vente peut se fixer à l'entrée, par qui en a le droit.
+            // ADR-174 — le prix de vente peut se fixer à l'entrée, par qui en a le droit.
             'entries.*.sale_price' => ['nullable', 'numeric', 'gt:0', 'max:999999999999.99'],
             'entries.*.sale_name' => ['nullable', 'string', 'max:255'],
         ];

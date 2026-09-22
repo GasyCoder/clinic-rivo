@@ -76,7 +76,7 @@ class SetCatalogTariffAction
     }
 
     /**
-     * ADR-170 — la Pharmacie fixe le prix de vente de ses médicaments, et
+     * ADR-174 — la Pharmacie fixe le prix de vente de ses médicaments, et
      * rien d'autre : la grille Standard d'un produit MEDICINE. Une
      * consultation, un acte ou la grille Mutuelle restent sous
      * catalog.tariffs.* (ADR-024, ADR-031).

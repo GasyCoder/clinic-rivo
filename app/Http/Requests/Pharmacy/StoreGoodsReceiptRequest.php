@@ -27,10 +27,10 @@ class StoreGoodsReceiptRequest extends FormRequest
             'lines.*.expires_at' => ['required', 'date'],
             'lines.*.unit_purchase_price' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
             'lines.*.notes' => ['nullable', 'string', 'max:500'],
-            // ADR-170 — le nom sous lequel la pharmacie vendra un produit nouveau.
+            // ADR-174 — le nom sous lequel la pharmacie vendra un produit nouveau.
             'lines.*.sale_name' => ['nullable', 'string', 'max:255'],
 
-            // ADR-171 — la facture peut accompagner la réception, ou venir plus tard.
+            // ADR-175 — la facture peut accompagner la réception, ou venir plus tard.
             'invoice' => ['nullable', 'array'],
             'invoice.invoice_number' => ['required_with:invoice', 'string', 'max:100'],
             'invoice.invoice_date' => ['required_with:invoice', 'date'],

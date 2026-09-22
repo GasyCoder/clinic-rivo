@@ -70,7 +70,7 @@ class StockController extends Controller
                     'label' => $item->medicine_label,
                     'reference' => $item->reference,
                     'presentation' => $item->presentation,
-                    // ADR-170 — le prix d'achat reste confidentiel.
+                    // ADR-174 — le prix d'achat reste confidentiel.
                     'purchase_price' => ! $data['capabilities']['can_view_cost'] ? null : $medicine->supplierOffers()
                         ->where('medicine_supplier_id', $item->catalog?->medicine_supplier_id)
                         ->where('active_key', 'CURRENT')
@@ -83,7 +83,7 @@ class StockController extends Controller
     }
 
     /**
-     * ADR-171 — un seul écran d'entrée en stock. Ce qui a été réceptionné y
+     * ADR-175 — un seul écran d'entrée en stock. Ce qui a été réceptionné y
      * arrive déjà rempli (fournisseur, commande, lots, quantités) : il ne
      * reste qu'à relire et valider. La saisie sans commande (don, stock de
      * départ) utilise le même tableau. Aucune date n'est saisie : l'entrée
@@ -100,7 +100,7 @@ class StockController extends Controller
         ]);
     }
 
-    /** ADR-171 — les lignes réceptionnées entrent au stock, tout ou rien. */
+    /** ADR-175 — les lignes réceptionnées entrent au stock, tout ou rien. */
     public function storeReceived(StoreReceivedStockRequest $request, RecordReceivedStockAction $action): RedirectResponse
     {
         $count = $action->execute($request->validated('lines'), $request->user());
@@ -111,7 +111,7 @@ class StockController extends Controller
 
     public function storeEntry(StoreStockEntryRequest $request, RecordStockEntryAction $action): RedirectResponse
     {
-        // ADR-171 — la date d'entrée est celle du serveur, jamais saisie.
+        // ADR-175 — la date d'entrée est celle du serveur, jamais saisie.
         $action->execute([...$request->validated(), 'received_at' => now()->toDateString()], $request->user());
 
         return to_route('pharmacy.stock.index')->with('status', 'L’entrée de stock a été enregistrée.');
@@ -121,7 +121,7 @@ class StockController extends Controller
     {
         $validated = $request->validated();
         $count = $action->execute(
-            // ADR-171 — la date d'entrée est celle du serveur, jamais saisie.
+            // ADR-175 — la date d'entrée est celle du serveur, jamais saisie.
             // Une seule question à l'écran — d'où vient la marchandise — qui
             // sert de provenance et de motif ; le rangement est le stock du site.
             [

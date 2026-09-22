@@ -10,10 +10,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-171 — un brouillon jamais envoyé peut partir à la corbeille, avec son
- * motif ; il se restaure depuis la Corbeille (ADR-061). Une commande envoyée
- * a engagé la clinique auprès d'un fournisseur : elle s'annule, elle ne se
- * jette pas.
+ * ADR-175, amendée par l'ADR-176 — partent à la corbeille, avec leur motif et
+ * restaurables depuis la Corbeille (ADR-061) :
+ *
+ *   - un brouillon jamais envoyé, qui n'a engagé personne ;
+ *   - une commande ANNULÉE, dont l'engagement est déjà retiré.
+ *
+ * Une commande vivante — envoyée, partiellement reçue, reçue — ne se jette
+ * jamais : elle engage la clinique auprès d'un tiers, et s'annule d'abord.
+ * Rien n'est détruit pour autant : la ligne, son motif d'annulation et son
+ * historique restent en base, et la suppression définitive reste refusée dès
+ * qu'un envoi, une réception ou une facture existe (ADR-175).
  */
 class TrashPurchaseOrderAction
 {
@@ -26,9 +33,9 @@ class TrashPurchaseOrderAction
         return DB::transaction(function () use ($order, $reason, $actor): PurchaseOrder {
             $order = PurchaseOrder::query()->lockForUpdate()->findOrFail($order->id);
 
-            if ($order->status !== PurchaseOrderStatus::Draft) {
+            if (! in_array($order->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::Cancelled], true)) {
                 throw ValidationException::withMessages([
-                    'status' => 'Seul un brouillon peut être mis à la corbeille. Une commande envoyée au fournisseur s’annule.',
+                    'status' => 'Seul un brouillon ou une commande annulée peut être mis à la corbeille. Annulez d’abord cette commande.',
                 ]);
             }
 

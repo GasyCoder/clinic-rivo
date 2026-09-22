@@ -28,7 +28,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
  *
  * Le numéro et la date de commande ne se saisissent pas : le numéro est
  * attribué à l'enregistrement, la date est celle de l'envoi au fournisseur
- * (ADR-171). L'écran les montre, il ne les demande pas.
+ * (ADR-175). L'écran les montre, il ne les demande pas.
  */
 const props = defineProps({
     // null quand la page fixe le fournisseur.

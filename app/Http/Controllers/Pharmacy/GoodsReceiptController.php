@@ -48,7 +48,7 @@ class GoodsReceiptController extends Controller
                 'order_number' => $receipt->purchaseOrder->order_number,
                 'lines_count' => $receipt->lines_count,
                 'awaiting_stock_count' => $receipt->awaiting_stock_count,
-                // ADR-171 — sans facture, la réception l'attend.
+                // ADR-175 — sans facture, la réception l'attend.
                 'invoice_pending' => $receipt->invoices_count === 0,
             ]);
 
@@ -63,7 +63,7 @@ class GoodsReceiptController extends Controller
     }
 
     /**
-     * ADR-171 — un assistant en deux étapes : ce qui est arrivé, puis la
+     * ADR-175 — un assistant en deux étapes : ce qui est arrivé, puis la
      * facture du fournisseur. La seconde peut attendre.
      */
     public function create(Request $request, PurchaseOrder $purchaseOrder): Response
@@ -78,10 +78,16 @@ class GoodsReceiptController extends Controller
         }
 
         $purchaseOrder->load(['supplier:id,uuid,name,contact_name,phone', 'lines.medicine.catalogItem:id,code,name,unit']);
-        $stocked = MedicineLot::query()
+        // ADR-176 — le n° de lot et la péremption se lisent sur la boîte et ne
+        // s'inventent jamais. En revanche, un lot que la pharmacie tient déjà
+        // porte une péremption enregistrée : la proposer évite de la retaper.
+        $lots = MedicineLot::query()
             ->whereIn('medicine_id', $purchaseOrder->lines->pluck('medicine_id'))
-            ->pluck('medicine_id')
-            ->flip();
+            ->where('active', true)
+            ->orderBy('expires_at')
+            ->get(['uuid', 'medicine_id', 'lot_number', 'expires_at'])
+            ->groupBy('medicine_id');
+        $stocked = $lots->keys()->flip();
         $received = GoodsReceiptLine::query()
             ->whereIn('medicine_id', $purchaseOrder->lines->pluck('medicine_id'))
             ->pluck('medicine_id')
@@ -106,7 +112,13 @@ class GoodsReceiptController extends Controller
                         'quantity_remaining' => $line->quantityRemaining(),
                         // Jamais reçu ni rangé : un produit nouveau pour la clinique.
                         'is_new' => ! $stocked->has($line->medicine_id) && ! $received->has($line->medicine_id),
-                        // ADR-170 — le prix d'achat est confidentiel.
+                        'known_lots' => $lots->get($line->medicine_id, collect())
+                            ->map(fn (MedicineLot $lot) => [
+                                'uuid' => $lot->uuid,
+                                'lot_number' => $lot->lot_number,
+                                'expires_at' => $lot->expires_at->toDateString(),
+                            ])->values()->all(),
+                        // ADR-174 — le prix d'achat est confidentiel.
                         'unit_price' => $seeCost ? $line->unit_price : null,
                     ])->values(),
             ],
@@ -195,7 +207,7 @@ class GoodsReceiptController extends Controller
         ]);
     }
 
-    /** ADR-171 — la facture d'une réception enregistrée sans elle. */
+    /** ADR-175 — la facture d'une réception enregistrée sans elle. */
     public function createInvoice(Request $request, GoodsReceipt $goodsReceipt): Response
     {
         abort_unless($request->user()?->can('supplier_invoices.create'), 403);
@@ -232,7 +244,7 @@ class GoodsReceiptController extends Controller
     /**
      * Le montant que la réception laisse attendre, proposé à la saisie de la
      * facture — jamais imposé : c'est le papier du fournisseur qui fait foi.
-     * Il révèle le coût d'achat : seulement avec `stock.cost.view` (ADR-170).
+     * Il révèle le coût d'achat : seulement avec `stock.cost.view` (ADR-174).
      */
     private function proposedTotal(GoodsReceipt $receipt, User $user): ?string
     {

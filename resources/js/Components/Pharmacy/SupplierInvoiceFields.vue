@@ -10,7 +10,7 @@ import { formatDate } from '@/utilities/date';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
 /**
- * ADR-171 — les informations d'une facture fournisseur, telles qu'elles sont
+ * ADR-175 — les informations d'une facture fournisseur, telles qu'elles sont
  * imprimées sur son papier : numéro, montant, éventuelle échéance.
  *
  * La date est celle du jour et ne se saisit pas ; elle ne s'ouvre que si la

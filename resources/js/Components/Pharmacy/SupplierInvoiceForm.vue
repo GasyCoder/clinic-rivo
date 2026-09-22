@@ -95,7 +95,7 @@ const readyLines = computed(() => form.lines.filter((line) => line.medicine_uuid
 const canSubmit = computed(() => Boolean(supplierUuid.value && form.invoice_number
     && (detailed.value ? readyLines.value === form.lines.length && readyLines.value > 0 : total.value > 0)));
 
-// ADR-171 — la date d'une facture est celle du jour, sauf si le papier du
+// ADR-175 — la date d'une facture est celle du jour, sauf si le papier du
 // fournisseur en porte une autre ; l'échéance se choisit par délai.
 const today = new Date().toISOString().slice(0, 10);
 const customDate = ref(Boolean(initial?.invoice_date) && initial.invoice_date !== today);

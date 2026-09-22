@@ -256,16 +256,26 @@ class RolePermissionSeeder extends Seeder
             'stock.approve', 'stock.import', 'stock.export',
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
             'stock.expiration.view', 'stock.alerts.view',
-            // ADR-170 — le prix d'achat est confidentiel : stock.cost.* n'est
+            // ADR-174 — le prix d'achat est confidentiel : stock.cost.* n'est
             // plus accordé à la Pharmacie, qui fixe en revanche le prix de
             // vente de ses médicaments (et d'eux seuls).
             'medicines.sale_price.update', 'medicines.name.update',
-            // ADR-098 — suppliers and the whole procurement chain
+            // ADR-098 — suppliers and the rest of the procurement chain
             // (medicine_suppliers.*, supplier_catalogs.*,
-            // medicine_supplier_offers.*, purchase_orders.*, goods_receipts.*,
-            // supplier_invoices.*) are granted to no role by default. The
-            // Super Admin grants them by name to the local accounts that
-            // actually do this work.
+            // medicine_supplier_offers.*, purchase_orders.create/update/
+            // submit/cancel/delete, supplier_invoices.*) are granted to no
+            // role by default. The Super Admin grants them by name to the
+            // local accounts that actually do this work.
+            // ADR-176 — receiving the goods is the exception: it is a
+            // physical act of this pharmacy (lot and expiry read on the box),
+            // so the role can find the order it must receive and record the
+            // reception. Deciding a purchase is not unpacking a carton.
+            'purchase_orders.view',
+            'goods_receipts.view', 'goods_receipts.create',
+            // La facture du fournisseur arrive dans le carton : c'est la
+            // seconde étape de la réception (ADR-175). La corriger ou la
+            // mettre à la corbeille reste accordé nominativement.
+            'supplier_invoices.view', 'supplier_invoices.create',
             // ADR-072 — records the stock exit of consumables already used
             // at Soins. Separate from pharmacy.dispense, which stays bound
             // to a settled invoice (ADR-049).

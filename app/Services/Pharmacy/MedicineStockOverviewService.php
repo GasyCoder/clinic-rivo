@@ -26,6 +26,11 @@ class MedicineStockOverviewService
                     ->orderBy('expires_at')
                     ->orderBy('id'),
             ])
+            // ADR-176 — « jamais réceptionné » se lit sur les lots eux-mêmes,
+            // tous états confondus : un lot n'existe que parce qu'une entrée
+            // en stock l'a créé. Un produit entré au catalogue par une
+            // commande (ADR-098) n'en a donc aucun tant que rien n'est arrivé.
+            ->withCount('lots')
             ->orderBy('generic_name')
             ->orderBy('id')
             ->get()
@@ -90,9 +95,16 @@ class MedicineStockOverviewService
                     'available_quantity' => $available,
                     'expired_quantity' => (int) $lots->where('status', 'EXPIRED')->sum('quantity_on_hand'),
                     'nearest_expiration' => $usableLots->where('available_quantity', '>', 0)->min('expires_at'),
-                    'status' => ! $medicine->active
-                        ? 'INACTIVE'
-                        : ($available === 0 ? 'OUT_OF_STOCK' : ($hasExpiring ? 'EXPIRING_SOON' : 'AVAILABLE')),
+                    'never_received' => $medicine->lots_count === 0,
+                    // Jamais réceptionné n'est pas une rupture : une rupture
+                    // dit « on le tient d'habitude et il n'y en a plus ».
+                    'status' => match (true) {
+                        ! $medicine->active => 'INACTIVE',
+                        $medicine->lots_count === 0 => 'NEVER_RECEIVED',
+                        $available === 0 => 'OUT_OF_STOCK',
+                        $hasExpiring => 'EXPIRING_SOON',
+                        default => 'AVAILABLE',
+                    },
                     'lots' => $lots->all(),
                 ];
             })
@@ -106,6 +118,8 @@ class MedicineStockOverviewService
                 'reserved_quantity' => (int) $medicines->sum('reserved_quantity'),
                 'available_quantity' => (int) $medicines->sum('available_quantity'),
                 'out_of_stock' => $medicines->where('status', 'OUT_OF_STOCK')->count(),
+                'never_received' => $medicines->where('status', 'NEVER_RECEIVED')->count(),
+                'stocked_medicines' => $medicines->where('status', '!=', 'NEVER_RECEIVED')->count(),
                 'expiring_soon' => $medicines->where('status', 'EXPIRING_SOON')->count(),
                 'expired_lots' => $medicines->sum(fn (array $medicine) => collect($medicine['lots'])->where('status', 'EXPIRED')->count()),
                 // ADR-098 — a product ordered from a supplier catalogue enters

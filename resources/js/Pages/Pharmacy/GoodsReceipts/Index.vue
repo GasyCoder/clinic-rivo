@@ -12,7 +12,7 @@ import { formatDateTime } from '@/utilities/date';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-171 — une réception a désormais deux suites : entrer au stock, et
+ * ADR-175 — une réception a désormais deux suites : entrer au stock, et
  * être facturée. La liste dit où chacune en est, plutôt que de laisser
  * croire qu'une livraison enregistrée est une livraison rangée.
  */

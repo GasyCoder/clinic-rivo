@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft, ArrowRight, Building2, CalendarDays, Check, ClipboardCheck, FileText, Hash, Minus, PackageCheck, Pencil, Plus, Sparkles, X,
@@ -21,7 +21,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-171 — réceptionner, c'est constater ce qui est arrivé : quantités,
+ * ADR-175 — réceptionner, c'est constater ce qui est arrivé : quantités,
  * lots et péremptions lus sur les boîtes. Rien n'entre au stock ici ; c'est
  * l'écran « Entrée en stock » qui range la marchandise.
  *
@@ -34,6 +34,22 @@ const props = defineProps({ order: Object, can: Object });
 const step = ref(1);
 const confirming = ref(false);
 const today = new Date().toISOString().slice(0, 10);
+
+/*
+ * ADR-176 — le n° de lot et la péremption se recopient de la boîte : rien ne
+ * les invente. Seul un lot que la pharmacie tient déjà porte une péremption
+ * enregistrée ; la saisir une seconde fois n'apprend rien à personne.
+ * Le `nextTick` est nécessaire : `@input` sur un composant est écouté avant
+ * que `v-model` ait posé la nouvelle valeur.
+ */
+const knownLot = (line) => (line._known_lots ?? []).find(
+    (lot) => lot.lot_number.toLocaleLowerCase() === String(line.lot_number ?? '').trim().toLocaleLowerCase(),
+);
+const onLotInput = async (line) => {
+    await nextTick();
+    const lot = knownLot(line);
+    if (lot?.expires_at) line.expires_at = lot.expires_at;
+};
 
 const form = useForm({
     notes: '',
@@ -54,6 +70,7 @@ const form = useForm({
         _remaining: line.quantity_remaining,
         _ordered: line.quantity_ordered,
         _unit_price: line.unit_price,
+        _known_lots: line.known_lots ?? [],
     })),
     invoice: {
         invoice_number: '',
@@ -255,7 +272,17 @@ const steps = [
                                     <p v-if="lineError(index, 'quantity_received')" class="mt-1 text-[11px] text-destructive">{{ lineError(index, 'quantity_received') }}</p>
                                 </td>
                                 <td class="px-3 py-3">
-                                    <Input v-model="line.lot_number" class="h-9 font-mono text-sm" maxlength="100" placeholder="Lu sur la boîte" :disabled="!line._received" />
+                                    <Input
+                                        v-model="line.lot_number"
+                                        class="h-9 font-mono text-sm"
+                                        maxlength="100"
+                                        placeholder="Lu sur la boîte"
+                                        :list="line._known_lots?.length ? `recu-lots-${index}` : undefined"
+                                        :disabled="!line._received"
+                                        @input="onLotInput(line)"
+                                    />
+                                    <datalist v-if="line._known_lots?.length" :id="`recu-lots-${index}`"><option v-for="lot in line._known_lots" :key="lot.uuid" :value="lot.lot_number" /></datalist>
+                                    <p v-if="knownLot(line)" class="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">Lot connu : sa péremption est reprise</p>
                                     <p v-if="lineError(index, 'lot_number')" class="mt-1 text-[11px] text-destructive">{{ lineError(index, 'lot_number') }}</p>
                                 </td>
                                 <td class="px-3 py-3">

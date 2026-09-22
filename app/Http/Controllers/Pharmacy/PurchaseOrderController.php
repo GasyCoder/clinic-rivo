@@ -208,7 +208,7 @@ class PurchaseOrderController extends Controller
         return back()->with('status', 'Commande annulée.');
     }
 
-    /** ADR-171 — un brouillon jamais envoyé part à la corbeille, avec son motif. */
+    /** ADR-175 — un brouillon jamais envoyé part à la corbeille, avec son motif. */
     public function destroy(TrashPurchaseOrderRequest $request, PurchaseOrder $purchaseOrder, TrashPurchaseOrderAction $action): RedirectResponse
     {
         $action->execute($purchaseOrder, $request->validated('reason'), CatalogActor::fromUser($request->user()));

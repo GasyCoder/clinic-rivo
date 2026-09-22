@@ -33,6 +33,24 @@ const sendOrder = () => router.post(props.links.submit, {}, {
 });
 const unitCount = computed(() => props.order.lines.reduce((sum, line) => sum + (Number(line.quantity_ordered) || 0), 0));
 
+/*
+ * Une commande envoyée attend sa marchandise : ne rien dire laisserait croire
+ * qu'il n'y a plus rien à faire. Le portail a déjà sa propre phrase (la
+ * réception reste au site, ADR-098) ; sinon, c'est le droit qui manque et on
+ * le nomme plutôt que de laisser un écran muet (ADR-154).
+ */
+const awaitingNote = computed(() => {
+    if (props.receptionNote) {
+        return props.receptionNote;
+    }
+
+    if (!props.can.receive) {
+        return 'La marchandise reste à réceptionner. Réceptionner demande le droit « goods_receipts.create », qui s’accorde dans Rôles & permissions.';
+    }
+
+    return null;
+});
+
 const cancelling = ref(false);
 const cancelForm = useForm({ reason: '' });
 const confirmCancel = () => cancelForm.post(props.links.cancel, {
@@ -62,16 +80,24 @@ const awaitingGoods = () => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(props.ord
                     <p v-if="order.notes" class="mt-1 text-sm text-muted-foreground">{{ order.notes }}</p>
                     <p v-if="order.cancellation_reason" class="mt-2 text-sm text-red-600">Motif d’annulation : {{ order.cancellation_reason }}</p>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    <Button v-if="can.cancel && !['RECEIVED', 'CANCELLED'].includes(order.status)" size="rg" variant="white-outline" class="text-red-600" @click="cancelling = true">Annuler la commande</Button>
-                    <Button v-if="can.update && links.edit && order.status === 'DRAFT'" :as="Link" :href="links.edit" size="rg" variant="white-outline"><Pencil class="h-4 w-4" />Modifier</Button>
+                <!--
+                    ADR-176 — l'action de l'étape vient en premier : envoyer un
+                    brouillon, réceptionner une commande partie. « Annuler »
+                    reste possible jusqu'à la réception (ADR-097 : un
+                    fournisseur peut ne jamais livrer), mais c'est une sortie
+                    de secours et non le geste attendu — il passe à droite, en
+                    discret, et ne devient rouge qu'au survol.
+                -->
+                <div class="flex flex-1 flex-wrap items-center gap-2 sm:justify-end">
                     <Button v-if="can.submit && order.status === 'DRAFT'" size="rg" @click="sending = true"><Send class="h-4 w-4" />Envoyer la commande</Button>
                     <Button v-if="can.receive && links.receive && awaitingGoods()" :as="Link" :href="links.receive" size="rg"><Package class="h-4 w-4" />Réceptionner</Button>
+                    <Button v-if="can.update && links.edit && order.status === 'DRAFT'" :as="Link" :href="links.edit" size="rg" variant="white-outline"><Pencil class="h-4 w-4" />Modifier</Button>
                     <Button v-if="can.create_invoice && links.newInvoice && order.status !== 'CANCELLED' && order.status !== 'DRAFT'" :as="Link" :href="links.newInvoice" size="rg" variant="white-outline"><FileText class="h-4 w-4" />Enregistrer la facture</Button>
+                    <Button v-if="can.cancel && !['RECEIVED', 'CANCELLED'].includes(order.status)" size="sm" variant="ghost" class="hover:text-destructive" @click="cancelling = true"><Ban class="h-4 w-4" />Annuler</Button>
                 </div>
             </div>
-            <p v-if="receptionNote && awaitingGoods()" class="mt-4 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
-                <Info class="mt-0.5 h-4 w-4" />{{ receptionNote }}
+            <p v-if="awaitingNote && awaitingGoods()" class="mt-4 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
+                <Info class="mt-0.5 h-4 w-4" />{{ awaitingNote }}
             </p>
         </section>
 

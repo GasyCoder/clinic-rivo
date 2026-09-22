@@ -21,7 +21,7 @@ import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatu
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-171 — la liste des commandes d'achat : on y cherche une commande, on
+ * ADR-175 — la liste des commandes d'achat : on y cherche une commande, on
  * voit d'un coup d'œil combien en attendent une marchandise, et chaque ligne
  * porte ce qu'on peut réellement en faire. Un brouillon jamais envoyé peut
  * partir à la corbeille ; une commande envoyée s'annule, elle ne se jette pas.
@@ -80,13 +80,29 @@ const sortOptions = [
 
 const awaitingGoods = (order) => ['ORDERED', 'PARTIALLY_RECEIVED'].includes(order.status);
 const isDraft = (order) => order.status === 'DRAFT';
-// Une colonne d'actions vide dit pourquoi (ADR-098).
-const idleReason = (order) => ({
-    RECEIVED: 'Reçue',
-    CANCELLED: 'Annulée',
-    ORDERED: 'Envoyée au fournisseur',
-    PARTIALLY_RECEIVED: 'Reçue en partie',
-}[order.status] ?? '');
+// ADR-176 — un brouillon n'a engagé personne, une commande annulée n'engage
+// plus : les deux se rangent à la corbeille, restaurables. Une commande vivante
+// s'annule d'abord.
+const canTrash = (order) => ['DRAFT', 'CANCELLED'].includes(order.status);
+const hasRowAction = (order) => (props.can.update && isDraft(order))
+    || (props.can.submit && isDraft(order))
+    || (props.can.receive && awaitingGoods(order))
+    || (props.can.delete && canTrash(order));
+// Une colonne d'actions vide dit pourquoi (ADR-098). Une commande qui attend
+// encore sa marchandise n'est jamais « terminée » : si aucun bouton n'apparaît,
+// c'est le droit de réceptionner qui manque, pas l'étape (ADR-154).
+const idleReason = (order) => {
+    if (awaitingGoods(order) && !props.can.receive) {
+        return 'Réceptionner demande le droit « goods_receipts.create »';
+    }
+
+    return {
+        RECEIVED: 'Reçue',
+        CANCELLED: 'Annulée',
+        ORDERED: 'Envoyée au fournisseur',
+        PARTIALLY_RECEIVED: 'Reçue en partie',
+    }[order.status] ?? '';
+};
 
 // --- Envoyer ------------------------------------------------------------------
 const sending = ref(null);
@@ -189,8 +205,8 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
                                     <Button v-if="can.update && isDraft(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/edit`" size="icon" variant="outline" :title="`Modifier ${order.order_number}`"><Pencil class="h-4 w-4" /></Button>
                                     <Button v-if="can.submit && isDraft(order)" size="sm" @click="sending = order"><Send class="h-4 w-4" />Envoyer</Button>
                                     <Button v-if="can.receive && awaitingGoods(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/receive`" size="sm"><PackageCheck class="h-4 w-4" />Réceptionner</Button>
-                                    <Button v-if="can.delete && isDraft(order)" size="icon" variant="ghost" class="text-muted-foreground hover:text-red-600" :title="`Mettre ${order.order_number} à la corbeille`" @click="trashing = order"><Trash2 class="h-4 w-4" /></Button>
-                                    <span v-if="!isDraft(order) && !(can.receive && awaitingGoods(order))" class="text-xs text-muted-foreground">{{ idleReason(order) }}</span>
+                                    <Button v-if="can.delete && canTrash(order)" size="icon" variant="ghost" class="text-muted-foreground hover:text-red-600" :title="`Mettre ${order.order_number} à la corbeille`" @click="trashing = order"><Trash2 class="h-4 w-4" /></Button>
+                                    <span v-if="!hasRowAction(order)" class="text-xs text-muted-foreground">{{ idleReason(order) }}</span>
                                 </div>
                             </td>
                         </tr>
@@ -231,8 +247,10 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
 
         <ConfirmModal
             :open="Boolean(trashing)"
-            title="Mettre ce brouillon à la corbeille ?"
-            description="Il quitte la liste des commandes et reste restaurable depuis la Corbeille. Rien n’a été envoyé au fournisseur."
+            :title="trashing && trashing.status === 'CANCELLED' ? 'Mettre cette commande annulée à la corbeille ?' : 'Mettre ce brouillon à la corbeille ?'"
+            :description="trashing && trashing.status === 'CANCELLED'
+                ? 'Elle quitte la liste des commandes et reste restaurable depuis la Corbeille. Son annulation et son motif sont conservés.'
+                : 'Il quitte la liste des commandes et reste restaurable depuis la Corbeille. Rien n’a été envoyé au fournisseur.'"
             confirm-label="Mettre à la corbeille"
             tone="danger"
             :processing="trashForm.processing"

@@ -255,6 +255,18 @@ class PharmacyProcurementController extends Controller
         );
     }
 
+    /** ADR-176 — brouillon ou commande annulée ; le site rejuge la règle. */
+    public function trashOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'DELETE', 'orders/'.rawurlencode($order), $validated),
+            'Commande mise à la corbeille.',
+        );
+    }
+
     public function createInvoice(Request $request, string $site, string $supplier, PortalSiteApiClient $client): Response
     {
         $this->assertSite($site);

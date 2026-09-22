@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, nextTick } from 'vue';
 import { Minus, Pencil, Plus, Sparkles, X } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
 /**
- * ADR-171 — le tableau d'entrée en stock, le même pour la marchandise
+ * ADR-175 — le tableau d'entrée en stock, le même pour la marchandise
  * réceptionnée et pour une entrée sans commande : une ligne par produit,
  * tout se corrige sur place, rien ne s'ouvre ailleurs.
  *
@@ -41,7 +41,18 @@ const today = new Date().toISOString().slice(0, 10);
 const knownLot = (row) => (row.known_lots ?? []).find(
     (lot) => lot.lot_number.toLocaleLowerCase() === String(row.lot_number ?? '').trim().toLocaleLowerCase(),
 );
-const onLotInput = (row) => {
+/*
+ * Le n° de lot et la péremption se lisent sur la boîte : le système ne les
+ * invente jamais (ADR-175). La seule chose qu'il sache, c'est un lot que la
+ * pharmacie tient déjà — sa péremption est alors un fait enregistré, pas une
+ * supposition, et le champ se remplit tout seul.
+ *
+ * `@input` sur un composant est écouté avant que `v-model` ait posé la
+ * nouvelle valeur : sans ce `nextTick`, on cherchait le lot précédent, et le
+ * remplissage ne marchait jamais à la première frappe.
+ */
+const onLotInput = async (row) => {
+    await nextTick();
     const lot = knownLot(row);
     if (lot?.expires_at) row.expires_at = lot.expires_at;
 };

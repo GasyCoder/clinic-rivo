@@ -482,6 +482,8 @@ class PharmacySupplierController extends Controller
                 // two that exist rather than a single « Voir ».
                 'update_order' => $user->can('purchase_orders.update'),
                 'cancel_order' => $user->can('purchase_orders.cancel'),
+                // ADR-176 — brouillon ou commande annulée : la corbeille, restaurable.
+                'trash_order' => $user->can('purchase_orders.delete'),
                 'update_invoice' => $user->can('supplier_invoices.update'),
                 'archive_invoice' => $user->can('supplier_invoices.delete'),
                 'restore_invoice' => $user->can('supplier_invoices.restore'),

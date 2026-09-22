@@ -14741,14 +14741,14 @@ l'ancien nom reste lisible à l'audit (`CatalogItem` est `Auditable`).
 
 ---
 
-# ADR-171 — Réceptionner n'est pas ranger : dates serveur, écran unique d'entrée en stock
+# ADR-175 — Réceptionner n'est pas ranger : dates serveur, écran unique d'entrée en stock
 
 **Status:** ACCEPTED (2026-09-22 — exigences explicites du propriétaire)
 
 **Amende l'ADR-097** sur un point central : « la réception appelle
 directement `RecordStockEntryAction` … ce qui crée le lot, le mouvement de
 stock immuable et incrémente `quantity_received` ». La réception ne crée plus
-aucun mouvement de stock. Complète l'ADR-098 (module Pharmacie) et l'ADR-170
+aucun mouvement de stock. Complète l'ADR-098 (module Pharmacie) et l'ADR-174
 (deux prix) sans modifier l'ADR-012, l'ADR-013 ni l'ADR-049.
 
 ## Aucune date du système ne se saisit
@@ -14788,7 +14788,7 @@ Entrée en stock (stock.entry)     le lot est créé, le mouvement immuable
 `stocked_at` est nul ; `RecordReceivedStockAction` la verrouille, refuse une
 ligne déjà entrée en nommant qui l'a rangée et quand, puis appelle
 `RecordStockEntryAction` **inchangée** — mêmes règles de lot, même FEFO, même
-prix d'achat, celui de la réception (ADR-170).
+prix d'achat, celui de la réception (ADR-174).
 
 Tant que rien n'est entré, la ligne reste corrigible : une quantité changée
 au rangement met à jour la ligne de réception **et** la commande, dont le
@@ -14814,7 +14814,7 @@ donnée du fournisseur, pas une règle inventée. Aucun workflow de paiement
 fournisseur n'est créé — la Pharmacie n'encaisse ni ne paie (ADR-013).
 
 Le montant proposé à la saisie est celui de ce qui a été reçu, et seulement
-avec `stock.cost.view` : il révèle le coût d'achat (ADR-170). C'est une aide,
+avec `stock.cost.view` : il révèle le coût d'achat (ADR-174). C'est une aide,
 jamais une vérité : le papier du fournisseur fait foi.
 
 ## Un tableau plein, une recherche qui filtre
@@ -14865,7 +14865,7 @@ et enregistrées par migration puisqu'un site en production ne rejoue plus
 ```text
 « Nouveau produit »     à la réception et à l'entrée : ce produit n'a jamais
                         été reçu ni rangé — c'est là qu'on lui donne son nom
-                        à la pharmacie (ADR-170) et son prix de vente
+                        à la pharmacie (ADR-174) et son prix de vente
 « Facture en attente »  la livraison est enregistrée, son papier non
 « N en attente »        ce qui est reçu mais pas encore rangé
 ```
@@ -14880,6 +14880,218 @@ fenêtre de confirmation de l'application, qui nomme ce qui va se passer.
 La délivrance et sa règle « le stock ne sort qu'après règlement » (ADR-049),
 les consommables Soins (ADR-072), la réservation FEFO (ADR-036), la
 confidentialité du prix d'achat et le prix de vente fixé par la Pharmacie
-(ADR-170). La réception reste au site, jamais au portail (ADR-098) : c'est la
+(ADR-174). La réception reste au site, jamais au portail (ADR-098) : c'est la
 personne qui a la marchandise sous les yeux qui lit les lots. La Pharmacie
 n'encaisse toujours rien.
+
+---
+
+# ADR-176 — Réceptionner appartient à la Pharmacie ; l'action de l'étape passe devant
+
+**Status:** ACCEPTED (2026-09-22 — deux arbitrages explicites du propriétaire)
+
+**Amende l'ADR-098** sur le socle du rôle `PHARMACY` et **confirme l'ADR-097**
+sur l'annulation d'une commande envoyée.
+
+## Le constat
+
+Sur la commande `ABC-000003`, statut « Commandée », la liste des commandes
+affichait « Envoyée au fournisseur » en gris **à la place de toute action**, et
+le dossier ouvert depuis le portail ne proposait que « Annuler la commande ».
+Le propriétaire a posé la question dans ces termes : « pourquoi il dit toujours
+annuler même si la commande a été commandée ? où, qui valide cette commande ? »
+
+Trois faits distincts s'y mêlaient, dont un seul était un défaut.
+
+```text
+« Envoyer la commande » EST la validation   purchase_orders.submit ; il n'existe
+                                            aucune étape de validation séparée
+le portail ne réceptionne jamais            ADR-098, arbitrage du propriétaire :
+                                            la réception reste au site
+aucun bouton « Réceptionner » au site       ← le défaut
+```
+
+Vérification faite en base : `pharmacie@rivo.com` (rôle `PHARMACY`) détenait
+`purchase_orders.*` en exceptions nominatives mais **pas** `goods_receipts.create`,
+retiré du socle par la migration de l'ADR-098. La pharmacie ne pouvait donc pas
+réceptionner sa propre livraison, et l'écran nommait l'état de la commande là où
+il aurait dû nommer le droit manquant.
+
+## Décision 1 — réceptionner revient au socle `PHARMACY`
+
+```text
+au socle   purchase_orders.view, goods_receipts.view, goods_receipts.create
+par nom    purchase_orders.create/update/submit/cancel/delete,
+           supplier_invoices.*, medicine_suppliers.*, supplier_catalogs.*,
+           medicine_supplier_offers.*
+```
+
+Recevoir la marchandise est un **acte physique de cette pharmacie** — l'ADR-098
+le dit déjà pour justifier que la réception reste au site : « c'est la personne
+qui a la marchandise sous les yeux qui lit les lots et les péremptions ».
+Décider un achat, payer un fournisseur et tenir son dossier restent une autre
+autorité, accordée nominativement.
+
+`purchase_orders.view` accompagne les deux autres et n'est pas un élargissement
+gratuit : sans elle, la pharmacie enregistre une réception mais ne trouve aucune
+commande à réceptionner — le même cul-de-sac, un cran plus bas.
+
+**Conséquence signalée, non tranchée.** Le montant d'une commande — donc le prix
+d'achat — devient lisible par tout compte Pharmacie. L'ADR-174 rend le prix
+d'achat confidentiel **sur les écrans de réception et de détail du stock** ;
+l'écran d'une commande n'était pas dans son périmètre, et `SupplierPresenter`
+ne masque ni `unit_price` ni `total_amount`. Étendre le masque de l'ADR-174 aux
+écrans de commande est une décision distincte, à prendre avec le propriétaire.
+
+La **facture fournisseur** reste hors socle : la seconde étape de l'assistant de
+réception (ADR-175) n'est alors pas proposée et la réception est « facture en
+attente » — un état déjà défini, jamais une impasse.
+
+## Décision 2 — « Annuler » reste, en action discrète
+
+Retirer l'annulation d'une commande déjà envoyée a été envisagé et **écarté par
+le propriétaire**. Le motif est celui de l'ADR-097 : un fournisseur peut ne
+jamais livrer, et `CancelPurchaseOrderAction` ne refuse que `RECEIVED` et
+`CANCELLED`. Sans annulation, une commande non livrée resterait indéfiniment
+dans « À réceptionner », sans aucune porte de sortie.
+
+Ce qui change est le **rang**, pas la règle :
+
+```text
+avant   [Annuler la commande] [Modifier] [Envoyer] [Réceptionner] [Facture]
+après   [Envoyer|Réceptionner] [Modifier] [Facture]              … [Annuler]
+```
+
+L'action de l'étape vient en premier — « Envoyer la commande » pour un
+brouillon, « Réceptionner » pour une commande partie. « Annuler » passe à
+droite, en bouton discret qui ne devient rouge qu'au survol : une sortie de
+secours, pas le geste attendu.
+
+## Un écran muet nomme le droit qui manque
+
+`idleReason` affichait l'état de la commande — « Envoyée au fournisseur » — dès
+qu'aucune action n'était offerte, ce qui se lit « il n'y a plus rien à faire ».
+Quand la commande attend encore sa marchandise et que le compte n'a pas
+`goods_receipts.create`, la liste nomme désormais le droit, et le détail porte
+le même bandeau. C'est la règle de l'ADR-154 : un refus dit ce qui manque.
+
+## Déploiement
+
+Migration `2026_10_26_090000_grant_reception_permissions_to_pharmacy_role`, à
+jouer sur chaque site — un site déjà en production ne rejoue jamais
+`RolePermissionSeeder` (ADR-064). Le seeder est complété pour les sites neufs.
+Aucune permission nouvelle n'est créée : les trois existaient déjà au catalogue.
+
+## Décision 3 — une commande annulée part à la corbeille
+
+**Amende l'ADR-175** (« un brouillon jamais envoyé peut partir à la
+corbeille »). Constat du propriétaire, sur le dossier fournisseur du portail :
+une commande annulée n'offrait plus aucune action, la colonne affichant
+« Annulée » — elle restait donc dans la liste pour toujours.
+
+```text
+brouillon jamais envoyé   corbeille (personne n'a été engagé)
+commande ANNULÉE          corbeille (l'engagement est déjà retiré)
+envoyée · partiellement reçue · reçue   jamais : on l'annule d'abord
+```
+
+Rien n'est détruit (ADR-010) : la ligne, son motif d'annulation et son
+historique restent en base, elle se restaure depuis la Corbeille (ADR-061), et
+la suppression définitive reste refusée dès qu'un envoi, une réception ou une
+facture existe (ADR-175, `isForceDeleteProtected`).
+
+Le geste existe des deux côtés, par le même chemin qu'ailleurs : au site
+(`DELETE /pharmacy/purchase-orders/{uuid}`, inchangé) et **depuis le portail**,
+qui n'avait aucune suppression — `DELETE /api/v1/super-admin/pharmacy/suppliers/{uuid}/orders/{uuid}`
+appelle la même `TrashPurchaseOrderAction`, avec l'identité UUID/nom du Super
+Administrateur (ADR-098). Le droit est `purchase_orders.delete`, distinct de
+`purchase_orders.cancel` : annuler un engagement et ranger une ligne ne sont
+pas la même décision. Il n'appartient à aucun rôle par défaut (ADR-098).
+
+## Décision 4 — « commandé » n'est pas « en rupture »
+
+Troisième fois que le propriétaire soulève le même point (« seuls les produits
+réceptionnés entrent au catalogue pharmacie », ADR-098) : commander un produit
+le fait apparaître aussitôt dans « Médicaments & stock », **avant toute
+livraison**. L'ADR-098 répondait que « l'interface rend la séparation
+visible » ; elle ne la rendait pas visible du tout — le produit s'affichait
+**« En rupture »**, ce qui veut dire « on le tient d'habitude et il n'y en a
+plus ». Un produit jamais reçu n'a jamais été tenu.
+
+La contrainte technique de l'ADR-098 ne change pas : une ligne de commande
+référence un `Medicine`, donc le produit doit exister au catalogue **avant**
+d'être commandé. C'est son affichage qui est corrigé.
+
+```text
+NEVER_RECEIVED   aucun lot n'a jamais existé — commandé, pas encore arrivé
+OUT_OF_STOCK     des lots ont existé, il n'en reste rien
+```
+
+L'état se lit sur les lots eux-mêmes (`lots_count === 0`), jamais sur une
+colonne à tenir à jour : un lot n'existe que parce qu'une entrée en stock l'a
+créé. Un produit jamais reçu quitte la liste courante — il n'est plus dans
+« Tous », ni dans « En rupture », ni dans « Sans prix de vente » — et vit dans
+son onglet **« Commandés, jamais reçus »**, d'où son nom et son prix restent
+corrigeables avant l'arrivée. Il y rejoint le stock de lui-même à sa première
+entrée.
+
+## Décision 5 — un libellé qui compte 0 alors que le stock existe
+
+Sur le même écran, la carte « Disponibles » affichait **0** pendant que chaque
+ligne annonçait « Disponible 1 ». Le compte était juste : les catégories sont
+exclusives — leur somme fait le total, comme partout ailleurs (ADR-119,
+ADR-120) — et ces trois produits étaient comptés sous « Péremption proche ».
+C'est le mot qui mentait.
+
+La carte et l'onglet deviennent **« Disponibles sans alerte »**. L'exclusivité
+est conservée : compter « tout ce qui a du stock » aurait fait compter deux
+fois un produit dont un lot périme bientôt, et la somme des cartes n'aurait
+plus rien voulu dire.
+
+## Décision 6 — la facture accompagne la réception jusqu'au bout
+
+La décision 1 laissait `supplier_invoices.*` hors du socle, en notant que la
+réception serait alors « facture en attente ». À l'usage, l'assistant de
+l'ADR-175 s'arrêtait à mi-chemin : l'étape 2 n'était jamais proposée, et
+personne sur place ne pouvait saisir la facture arrivée dans le carton.
+
+`supplier_invoices.view` et `supplier_invoices.create` rejoignent donc le
+socle `PHARMACY` (migration `2026_10_26_100000`). Corriger une facture, la
+mettre à la corbeille et la restaurer restent accordés nominativement
+(ADR-098) : revenir sur une pièce comptable enregistrée n'est pas la même
+autorité que la saisir.
+
+## Décision 7 — le lot et la péremption ne s'inventent pas, mais ne se
+retapent pas non plus
+
+Demande du propriétaire : « N° de lot et Péremption automatiser ». **Refusé
+pour ce qu'ils sont** — ces deux valeurs sont imprimées sur la boîte, et
+l'ADR-175 les classe explicitement parmi les rares saisies légitimes
+(« péremption lue sur la boîte »). Les fabriquer rendrait le FEFO faux
+(ADR-036) et ferait délivrer un produit périmé en croyant l'inverse ; un
+numéro de lot inventé rendrait de plus tout rappel de lot intraçable.
+
+Ce qui est automatisé, parce que c'est un **fait déjà enregistré** et non une
+supposition : quand le n° de lot saisi désigne un lot que la pharmacie tient
+déjà, sa péremption est reprise, et la liste des lots connus du produit est
+proposée à la saisie. À la réception comme à l'entrée en stock.
+
+Ce mécanisme existait à l'entrée en stock et **ne marchait jamais** : `@input`
+sur un composant est écouté avant que `v-model` ait posé la nouvelle valeur,
+si bien que la recherche portait sur le caractère précédent. Un `nextTick` le
+répare. La réception, elle, n'en avait aucun : elle le reçoit
+(`known_lots` par ligne, servis par `GoodsReceiptController::create`).
+
+Rien n'est prérempli à l'ouverture de l'écran : proposer d'office le lot d'une
+livraison précédente ferait fusionner une nouvelle boîte dans un lot dont la
+péremption n'est pas la sienne — exactement l'erreur que ces champs existent
+pour éviter.
+
+## Ce qui ne change pas
+
+La réception reste au site et jamais au portail (ADR-098), l'ordre réception →
+entrée en stock (ADR-175), la confidentialité du prix d'achat là où l'ADR-174
+l'a posée, et la Pharmacie n'encaisse toujours rien (ADR-013). Un produit
+jamais réceptionné reste sans lot, sans stock et sans prix de vente : il ne
+peut être ni délivré ni vendu (ADR-036, ADR-049), ce qui était déjà vrai —
+cela se voit désormais.

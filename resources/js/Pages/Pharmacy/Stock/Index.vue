@@ -42,7 +42,7 @@ const search = ref('');
 const family = ref('');
 
 /*
- * ADR-170 — la Pharmacie fixe elle-même le prix de vente. Le premier se
+ * ADR-174 — la Pharmacie fixe elle-même le prix de vente. Le premier se
  * saisit sans motif ; un changement en exige un, l'ancien prix restant dans
  * l'historique.
  */
@@ -64,17 +64,32 @@ const savePrice = () => {
 };
 
 const medicines = computed(() => props.stock.medicines ?? []);
+/*
+ * ADR-176 — un produit commandé n'a pas encore rejoint la pharmacie : il entre
+ * au catalogue parce qu'une ligne de commande doit le désigner (ADR-098), mais
+ * il n'a ni lot, ni stock, ni prix. Le compter « En rupture » ferait lire
+ * « on le tient d'habitude et il n'y en a plus ». Il vit donc dans son propre
+ * onglet, hors de la liste courante, jusqu'à sa première entrée en stock.
+ */
+const stocked = computed(() => medicines.value.filter((item) => item.status !== 'NEVER_RECEIVED'));
+const neverReceived = computed(() => medicines.value.filter((item) => item.status === 'NEVER_RECEIVED'));
 const activeCategories = computed(() => props.categories.filter((category) => !category.archived));
-const unpriced = computed(() => medicines.value.filter((medicine) => medicine.active && !medicine.sale_price));
+const unpriced = computed(() => stocked.value.filter((medicine) => medicine.active && !medicine.sale_price));
 
 const filters = computed(() => [
-    { value: 'ALL', label: 'Tous', count: medicines.value.length },
-    { value: 'AVAILABLE', label: 'Disponibles', count: medicines.value.filter((item) => item.status === 'AVAILABLE').length },
+    { value: 'ALL', label: 'Tous', count: stocked.value.length },
+    // Les catégories restent exclusives : leur somme fait « Tous ». Un produit
+    // dont un lot périme bientôt est disponible, mais il est compté sous
+    // « Péremption proche » — le libellé le dit plutôt que de laisser lire 0.
+    { value: 'AVAILABLE', label: 'Disponibles sans alerte', count: stocked.value.filter((item) => item.status === 'AVAILABLE').length },
     { value: 'OUT_OF_STOCK', label: 'En rupture', count: props.stock.summary?.out_of_stock ?? 0 },
     ...(props.capabilities.can_view_expiration
         ? [{ value: 'EXPIRING_SOON', label: 'Péremption proche', count: props.stock.summary?.expiring_soon ?? 0 }]
         : []),
-    { value: 'INACTIVE', label: 'Inactifs', count: medicines.value.filter((item) => item.status === 'INACTIVE').length },
+    { value: 'INACTIVE', label: 'Inactifs', count: stocked.value.filter((item) => item.status === 'INACTIVE').length },
+    ...(neverReceived.value.length
+        ? [{ value: 'NEVER_RECEIVED', label: 'Commandés, jamais reçus', count: neverReceived.value.length }]
+        : []),
     // Un produit sans prix de vente ne peut être ni vendu ni délivré : il
     // doit se voir, sinon le comptoir paraît vide sans raison (ADR-098).
     ...(unpriced.value.length ? [{ value: 'NO_SALE_PRICE', label: 'Sans prix de vente', count: unpriced.value.length }] : []),
@@ -84,9 +99,14 @@ const visible = computed(() => {
     const needle = search.value.trim().toLocaleLowerCase();
 
     return medicines.value.filter((medicine) => {
+        const neverReceivedRow = medicine.status === 'NEVER_RECEIVED';
         const matchesStatus = status.value === 'NO_SALE_PRICE'
-            ? (medicine.active && !medicine.sale_price)
-            : (!showStock.value || status.value === 'ALL' || medicine.status === status.value);
+            ? (medicine.active && !medicine.sale_price && !neverReceivedRow)
+            : status.value === 'NEVER_RECEIVED'
+                ? neverReceivedRow
+                // Hors de son onglet, un produit jamais reçu ne figure dans
+                // aucune liste — pas même « Tous ».
+                : (!neverReceivedRow && (!showStock.value || status.value === 'ALL' || medicine.status === status.value));
         const matchesFamily = !family.value || medicine.category?.name === family.value;
         const matchesSearch = medicineMatches(medicine, needle);
 
@@ -104,6 +124,8 @@ const TILE = {
     OUT_OF_STOCK: { tone: 'rose', badge: 'Rupture' },
     EXPIRING_SOON: { tone: 'amber', badge: 'Péremption' },
     INACTIVE: { tone: 'slate', badge: 'Inactif' },
+    // ADR-176 — commandé, pas encore arrivé : ce n'est pas une rupture.
+    NEVER_RECEIVED: { tone: 'sky', badge: 'Jamais reçu' },
 };
 const tile = (medicine) => (showStock.value ? TILE[medicine.status] : null) ?? { tone: medicine.active ? 'primary' : 'slate', badge: null };
 const tileHref = (medicine) => (showStock.value ? `/pharmacy/stock/${medicine.uuid}` : (props.capabilities.can_update_medicine ? `/pharmacy/medicines/${medicine.uuid}/edit` : null));
@@ -134,10 +156,13 @@ const submitImport = () => importForm.post('/pharmacy/setup/medicines/import', {
 });
 
 const summaryCards = computed(() => (showStock.value ? [
-    { label: 'Médicaments', value: medicines.value.length, icon: 'capsule', tone: 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300', filter: 'ALL' },
-    { label: 'Disponibles', value: medicines.value.filter((item) => item.status === 'AVAILABLE').length, icon: 'check-circle', tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300', filter: 'AVAILABLE' },
+    { label: 'Médicaments', value: stocked.value.length, icon: 'capsule', tone: 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300', filter: 'ALL' },
+    { label: 'Disponibles sans alerte', value: stocked.value.filter((item) => item.status === 'AVAILABLE').length, icon: 'check-circle', tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300', filter: 'AVAILABLE' },
     { label: 'En rupture', value: props.stock.summary?.out_of_stock ?? 0, icon: 'alert', tone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300', filter: 'OUT_OF_STOCK' },
     { label: 'Péremption proche', value: props.stock.summary?.expiring_soon ?? 0, icon: 'clock', tone: 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300', filter: 'EXPIRING_SOON' },
+    ...(neverReceived.value.length
+        ? [{ label: 'Commandés, jamais reçus', value: neverReceived.value.length, icon: 'truck', tone: 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300', filter: 'NEVER_RECEIVED' }]
+        : []),
 ] : []));
 </script>
 

@@ -398,6 +398,7 @@ class PharmacyWorkspaceService
         return match ($status) {
             'AVAILABLE' => 'Disponible',
             'OUT_OF_STOCK' => 'Rupture',
+            'NEVER_RECEIVED' => 'Jamais reçu',
             'EXPIRING_SOON' => 'Péremption proche',
             'EXPIRED' => 'Périmé',
             'INACTIVE' => 'Inactif',

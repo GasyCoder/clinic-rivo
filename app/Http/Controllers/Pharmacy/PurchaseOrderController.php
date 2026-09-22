@@ -77,9 +77,10 @@ class PurchaseOrderController extends Controller
             : null;
 
         return Inertia::render('Pharmacy/PurchaseOrders/Create', [
-            'suppliers' => MedicineSupplier::query()->orderBy('name')->get(['uuid', 'code', 'name']),
+            'suppliers' => MedicineSupplier::query()->orderBy('name')->get(['uuid', 'code', 'name', 'contact_name', 'phone', 'email']),
             'supplierUuid' => $supplier?->uuid ?? '',
             'medicines' => $supplier ? $options->orderMedicines($supplier) : [],
+            'canSend' => $request->user()->can('purchase_orders.submit'),
         ]);
     }
 
@@ -122,7 +123,7 @@ class PurchaseOrderController extends Controller
     }
 
     /** ADR-098 — only a draft is corrected; a sent order is cancelled, never rewritten. */
-    public function edit(PurchaseOrder $purchaseOrder, ProcurementFormOptions $options): Response|RedirectResponse
+    public function edit(Request $request, PurchaseOrder $purchaseOrder, ProcurementFormOptions $options): Response|RedirectResponse
     {
         if ($purchaseOrder->status !== PurchaseOrderStatus::Draft) {
             return to_route('pharmacy.purchase-orders.show', $purchaseOrder)
@@ -133,7 +134,9 @@ class PurchaseOrderController extends Controller
 
         return Inertia::render('Pharmacy/PurchaseOrders/Edit', [
             'order' => app(SupplierPresenter::class)->orderDetail($purchaseOrder),
+            'supplier' => app(SupplierPresenter::class)->identity($purchaseOrder->supplier),
             'medicines' => $options->orderMedicines($purchaseOrder->supplier),
+            'canSend' => $request->user()->can('purchase_orders.submit'),
         ]);
     }
 

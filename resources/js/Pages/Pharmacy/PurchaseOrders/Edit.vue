@@ -6,7 +6,7 @@ import PurchaseOrderForm from '@/Components/Pharmacy/PurchaseOrderForm.vue';
 
 defineOptions({ layout: AppLayout });
 
-const props = defineProps({ order: Object, medicines: Array });
+const props = defineProps({ order: Object, supplier: Object, medicines: Array, canSend: Boolean });
 
 const orderHref = `/pharmacy/purchase-orders/${props.order.uuid}`;
 </script>
@@ -23,8 +23,10 @@ const orderHref = `/pharmacy/purchase-orders/${props.order.uuid}`;
         </div>
 
         <PurchaseOrderForm
+            :supplier="supplier"
             :supplier-name="order.supplier"
             :supplier-uuid="order.supplier_uuid"
+            :can-send="canSend"
             :medicines="medicines"
             :order="order"
             :submit-url="() => orderHref"

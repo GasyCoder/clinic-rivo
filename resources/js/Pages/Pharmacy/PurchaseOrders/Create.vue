@@ -2,11 +2,12 @@
 import { Head, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
+import PageHeader from '@/Components/UI/PageHeader.vue';
 import PurchaseOrderForm from '@/Components/Pharmacy/PurchaseOrderForm.vue';
 
 defineOptions({ layout: AppLayout });
 
-const props = defineProps({ suppliers: Array, supplierUuid: String, medicines: Array });
+const props = defineProps({ suppliers: Array, supplierUuid: String, medicines: Array, canSend: Boolean });
 
 // Ce qu'un fournisseur peut livrer ne se devine pas côté navigateur : le
 // serveur le redit à chaque changement (ADR-098), catalogue compris.
@@ -19,24 +20,22 @@ const onSupplierChange = (uuid) => router.get('/pharmacy/purchase-orders/create'
 </script>
 
 <template>
-    <Head title="Nouvelle commande fournisseur" />
+    <Head title="Nouvelle commande" />
 
     <div class="w-full space-y-5">
         <Breadcrumb :items="[{ label: 'Commandes', href: '/pharmacy/purchase-orders' }, { label: 'Nouvelle commande' }]" />
 
-        <div>
-            <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Nouvelle commande fournisseur</h1>
-            <p class="mt-1 text-sm text-slate-500">La commande est enregistrée en brouillon. Vous pourrez la vérifier avant de l’envoyer.</p>
-        </div>
+        <PageHeader eyebrow="Achats" title="Nouvelle commande" description="Choisissez le fournisseur, ajoutez les produits, puis enregistrez en brouillon ou envoyez directement." icon="truck" tone="violet" />
 
         <PurchaseOrderForm
             :suppliers="suppliers"
             :supplier-uuid="props.supplierUuid"
             :medicines="medicines"
+            :can-send="canSend"
             :catalog-href="props.supplierUuid ? `/pharmacy/suppliers/${props.supplierUuid}/catalogs` : '/pharmacy/stock'"
-            @supplier-change="onSupplierChange"
             :submit-url="(uuid) => `/pharmacy/suppliers/${uuid}/purchase-orders`"
             cancel-href="/pharmacy/purchase-orders"
+            @supplier-change="onSupplierChange"
         />
     </div>
 </template>

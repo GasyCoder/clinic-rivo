@@ -107,6 +107,7 @@ class PharmacyProcurementController extends Controller
             'targetSite' => $result['site'],
             'supplier' => data_get($result, 'data.supplier'),
             'medicines' => data_get($result, 'data.medicines', []),
+            'canSend' => $request->user()->can('purchase_orders.submit'),
             'error' => $result['ok'] ? null : $result['message'],
         ]);
     }
@@ -159,6 +160,7 @@ class PharmacyProcurementController extends Controller
             'supplier' => data_get($detail, 'data.supplier'),
             'order' => data_get($detail, 'data.order'),
             'medicines' => data_get($form, 'data.medicines', []),
+            'canSend' => $user->can('purchase_orders.submit'),
             'error' => match (true) {
                 ! $detail['ok'] => $detail['message'],
                 ! $form['ok'] => $form['message'],

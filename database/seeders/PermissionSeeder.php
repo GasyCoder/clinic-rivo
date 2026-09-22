@@ -271,6 +271,8 @@ class PermissionSeeder extends Seeder
         'purchase_orders.update' => 'Modifier une commande fournisseur en brouillon',
         'purchase_orders.submit' => 'Passer une commande fournisseur',
         'purchase_orders.cancel' => 'Annuler une commande fournisseur',
+        'purchase_orders.delete' => 'Mettre à la corbeille une commande fournisseur en brouillon',
+        'purchase_orders.restore' => 'Restaurer une commande fournisseur mise à la corbeille',
         'goods_receipts.view' => 'Voir les réceptions de commandes',
         'goods_receipts.create' => 'Réceptionner une commande fournisseur',
         'supplier_invoices.view' => 'Voir les factures fournisseurs',

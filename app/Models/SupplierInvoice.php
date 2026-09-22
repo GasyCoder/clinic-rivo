@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'invoice_number', 'medicine_supplier_id', 'purchase_order_id', 'goods_receipt_id',
-    'invoice_date', 'total_amount', 'currency',
+    'invoice_date', 'due_date', 'total_amount', 'currency',
     'attachment_path', 'attachment_original_name', 'attachment_mime_type', 'attachment_size',
     'notes', 'created_by', 'updated_by',
     'external_created_by_uuid', 'external_created_by_name',
@@ -26,6 +26,7 @@ class SupplierInvoice extends Model
     {
         return [
             'invoice_date' => 'date',
+            'due_date' => 'date',
             'total_amount' => 'decimal:2',
             'attachment_size' => 'integer',
         ];

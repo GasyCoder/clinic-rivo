@@ -13,6 +13,7 @@ const props = defineProps({
     supplier: { type: Object, default: null },
     order: { type: Object, default: null },
     medicines: { type: Array, default: () => [] },
+    canSend: { type: Boolean, default: false },
     error: { type: String, default: null },
 });
 
@@ -44,6 +45,8 @@ const orderHref = computed(() => `${folderHref.value}/orders/${props.order?.uuid
             </div>
 
             <PurchaseOrderForm
+                :supplier="supplier"
+                :can-send="canSend"
                 :supplier-name="supplier?.name ?? ''"
                 :supplier-uuid="supplier?.uuid ?? ''"
                 :medicines="medicines"

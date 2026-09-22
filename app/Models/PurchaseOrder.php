@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\PurchaseOrderStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
+use App\Models\Concerns\SoftDeletable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,7 +21,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class PurchaseOrder extends Model
 {
-    use Auditable, HasUuid;
+    use Auditable, HasUuid, SoftDeletable;
+
+    /**
+     * ADR-111 — seul un brouillon jamais envoyé peut quitter la corbeille
+     * pour de bon : une commande envoyée a engagé la clinique auprès d'un
+     * tiers, elle reste dans l'histoire.
+     */
+    public function isForceDeleteProtected(): bool
+    {
+        return $this->status !== PurchaseOrderStatus::Draft
+            || $this->receipts()->exists()
+            || $this->invoices()->exists();
+    }
 
     protected function casts(): array
     {

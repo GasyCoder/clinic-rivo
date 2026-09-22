@@ -2,20 +2,26 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
+use App\Models\Concerns\HasUuid;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'goods_receipt_id', 'purchase_order_line_id', 'medicine_id', 'lot_number', 'expires_at',
-    'quantity_received', 'unit_purchase_price', 'pharmacy_stock_movement_id',
+    'quantity_received', 'unit_purchase_price', 'notes', 'pharmacy_stock_movement_id',
+    'stocked_at', 'stocked_by',
 ])]
 class GoodsReceiptLine extends Model
 {
+    use Auditable, HasUuid;
+
     protected function casts(): array
     {
         return [
             'expires_at' => 'date',
+            'stocked_at' => 'datetime',
             'quantity_received' => 'integer',
             'unit_purchase_price' => 'decimal:2',
         ];
@@ -34,6 +40,12 @@ class GoodsReceiptLine extends Model
     public function medicine(): BelongsTo
     {
         return $this->belongsTo(Medicine::class);
+    }
+
+    /** ADR-111 — reçue mais pas encore entrée en stock. */
+    public function isAwaitingStock(): bool
+    {
+        return $this->stocked_at === null;
     }
 
     public function movement(): BelongsTo

@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, onMounted, ref } from 'vue';
 import { Link, router, useForm } from '@inertiajs/vue3';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -152,7 +153,7 @@ const VIEW_OPTIONS = [
             <div class="grid gap-4 sm:grid-cols-2">
                 <label class="block">
                     <span class="mb-1.5 block text-sm font-medium text-foreground">Date du catalogue</span>
-                    <input v-model="uploadForm.catalog_date" type="date" class="h-11 w-full rounded-lg border border-border bg-card px-3 text-sm">
+                    <DatePicker v-model="uploadForm.catalog_date" />
                 </label>
                 <label class="block">
                     <span class="mb-1.5 block text-sm font-medium text-foreground">Remarque</span>
@@ -258,7 +259,7 @@ const VIEW_OPTIONS = [
                 <form class="mt-4 space-y-4" @submit.prevent="saveEdit">
                     <label class="block">
                         <span class="mb-1.5 block text-sm font-medium text-foreground">Date du catalogue</span>
-                        <input v-model="editForm.catalog_date" type="date" class="h-11 w-full rounded-lg border border-border bg-card px-3 text-sm">
+                        <DatePicker v-model="editForm.catalog_date" />
                     </label>
                     <label class="block">
                         <span class="mb-1.5 block text-sm font-medium text-foreground">Remarque</span>

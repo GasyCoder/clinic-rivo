@@ -73,6 +73,7 @@ class StoreArrivalRequest extends FormRequest
                     'uuid',
                     Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
                 ],
+                'registration_context' => ['prohibited'],
                 // Emergency is a decision on the stable Episode UUID, never
                 // an arrival flag carried before the passage exists.
                 'is_emergency' => ['prohibited'],
@@ -84,13 +85,22 @@ class StoreArrivalRequest extends FormRequest
         $type = (string) $this->input('patient_type');
         $isStaff = $type === PatientType::Staff->value;
         $isMutual = $type === PatientType::Mutual->value;
+        $isExternalNewborn = $this->input('registration_context') === 'EXTERNAL_NEWBORN';
 
         $commonRule = fn (array $rules): array => [
             Rule::prohibitedIf($isStaff),
             ...$rules,
         ];
+        $adultOnlyRule = fn (array $rules): array => [
+            Rule::prohibitedIf($isStaff || $isExternalNewborn),
+            ...$rules,
+        ];
 
         return [
+            // ADR-146 (amendement 2026-09-22) : ce marqueur ne devient pas
+            // une donnée du Patient. Il borne uniquement le formulaire et
+            // interdit au serveur les attributs administratifs d'un adulte.
+            'registration_context' => ['sometimes', Rule::in(['EXTERNAL_NEWBORN'])],
             'patient_type' => ['required', new Enum(PatientType::class)],
             'employee_uuid' => [
                 Rule::requiredIf($isStaff),
@@ -118,23 +128,23 @@ class StoreArrivalRequest extends FormRequest
                 'max:130',
             ]),
             'sex' => $commonRule([Rule::requiredIf(! $isStaff), 'nullable', new Enum(PatientSex::class)]),
-            'civility' => $commonRule(['nullable', new Enum(PatientCivility::class)]),
-            'identity_document_type' => $commonRule([
+            'civility' => $adultOnlyRule(['nullable', new Enum(PatientCivility::class)]),
+            'identity_document_type' => $adultOnlyRule([
                 'nullable',
                 'required_with:identity_document_number',
                 new Enum(IdentityDocumentType::class),
             ]),
-            'identity_document_number' => $commonRule([
+            'identity_document_number' => $adultOnlyRule([
                 'nullable',
                 'required_with:identity_document_type',
                 'string',
                 'max:100',
             ]),
-            'marital_status' => $commonRule(['nullable', new Enum(MaritalStatus::class)]),
-            'children_count' => $commonRule(['nullable', 'integer', 'min:0', 'max:65535']),
-            'profession' => $commonRule(['nullable', 'string', 'max:255']),
-            'phone' => $commonRule(['nullable', 'string', 'max:50']),
-            'email' => $commonRule(['nullable', 'email', 'max:255']),
+            'marital_status' => $adultOnlyRule(['nullable', new Enum(MaritalStatus::class)]),
+            'children_count' => $adultOnlyRule(['nullable', 'integer', 'min:0', 'max:65535']),
+            'profession' => $adultOnlyRule(['nullable', 'string', 'max:255']),
+            'phone' => $adultOnlyRule(['nullable', 'string', 'max:50']),
+            'email' => $adultOnlyRule(['nullable', 'email', 'max:255']),
             'address_entry_uuid' => $commonRule([
                 'nullable',
                 'uuid',
@@ -301,6 +311,7 @@ class StoreArrivalRequest extends FormRequest
     {
         return [
             'patient_type' => 'type de patient',
+            'registration_context' => 'contexte d’enregistrement',
             'employee_uuid' => 'membre du personnel',
             'last_name' => 'nom',
             'first_name' => 'prénom(s)',

@@ -1,4 +1,6 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -723,7 +725,7 @@ const counterTiles = computed(() => [
                         </div>
                         <div>
                             <FormLabel for="due_date">Échéance (facultative)</FormLabel>
-                            <Input id="due_date" v-model="form.due_date" class="mt-1" type="date" />
+                            <DatePicker id="due_date" v-model="form.due_date" class="mt-1" />
                             <FormError v-if="form.errors.due_date">{{ form.errors.due_date }}</FormError>
                         </div>
                     </div>
@@ -735,7 +737,7 @@ const counterTiles = computed(() => [
                     <div class="grid gap-3 sm:grid-cols-2">
                         <div>
                             <FormLabel for="left_at_estimate">Date et heure estimées <span class="text-red-500">*</span></FormLabel>
-                            <Input id="left_at_estimate" v-model="form.left_at_estimate" class="mt-1" type="datetime-local" :aria-invalid="!!form.errors.left_at_estimate" />
+                            <DateTimePicker id="left_at_estimate" v-model="form.left_at_estimate" class="mt-1" :invalid="!!form.errors.left_at_estimate" />
                             <FormError v-if="form.errors.left_at_estimate">{{ form.errors.left_at_estimate }}</FormError>
                         </div>
                         <div>

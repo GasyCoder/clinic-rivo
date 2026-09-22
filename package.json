@@ -26,6 +26,7 @@
         "@headlessui/vue": "^1.7.23",
         "@inertiajs/vite": "^3.6.1",
         "@inertiajs/vue3": "^3.6.1",
+        "@internationalized/date": "^3.12.4",
         "@popperjs/core": "^2.11.8",
         "@tiptap/extension-color": "^2.27.3",
         "@tiptap/extension-font-family": "^2.27.3",

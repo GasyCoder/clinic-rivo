@@ -24,6 +24,7 @@ import {
     HeartPulse,
     LayoutGrid,
     ListChecks,
+    Scissors,
     Search,
     Siren,
     Stethoscope,
@@ -35,6 +36,7 @@ import { formatDateTime } from '@/utilities/date';
 import { doctorName } from '@/utilities/doctorName';
 import { formatPatientInitials } from '@/utilities/patient';
 import { stayDays } from '@/utilities/hospitalStay';
+import { surgeryStatus } from '@/utilities/surgicalRequestStatus';
 
 defineOptions({ layout: AppLayout });
 
@@ -54,6 +56,8 @@ const props = defineProps({
     stays: { type: Object, required: true },
     counts: { type: Object, required: true },
     search: { type: String, default: '' },
+    /** ADR-160 — « bloc » : seulement les patients qui vont au bloc, ou y sont. */
+    filter: { type: String, default: null },
     /** ADR-164 — le plan des lits ; absent tant que le site n'en a configuré aucun. */
     beds: { type: Object, default: null },
     /** ADR-164 — l'onglet reste visible sans lit configuré : il dit où les créer. */
@@ -68,6 +72,9 @@ const view = ref('patients');
 
 const query = ref(props.search);
 
+// La recherche garde le filtre de la carte : chercher parmi les patients du bloc.
+const withFilter = (params) => (props.filter ? { ...params, filter: props.filter } : params);
+
 const visit = (params) => router.get('/hospitalisation', params, {
     preserveState: true,
     preserveScroll: true,
@@ -77,7 +84,12 @@ const visit = (params) => router.get('/hospitalisation', params, {
 // ADR-156 — un seul compte : les patients réellement au lit. Les sorties se
 // suivent à la Réception (« Sorties & règlements »), pas ici.
 const tiles = computed(() => [
-    { value: 'active', label: 'Hospitalisés', hint: 'Séjours en cours', icon: BedDouble, tone: 'primary', count: props.counts.active ?? 0, active: view.value === 'patients' },
+    { value: 'active', label: 'Hospitalisés', hint: 'Séjours en cours', icon: BedDouble, tone: 'primary', count: props.counts.active ?? 0, active: view.value === 'patients' && !props.filter },
+    // ADR-160 — le patient garde son lit pendant le bloc : sans cette carte,
+    // rien ne distinguait celui qui attend son intervention ou qui y est déjà.
+    ...((props.counts.bloc ?? 0) > 0 || props.filter === 'bloc' ? [
+        { value: 'bloc', label: 'Vers le bloc', hint: 'À programmer, programmés ou au bloc', icon: Scissors, tone: 'sky', count: props.counts.bloc ?? 0, active: view.value === 'patients' && props.filter === 'bloc' },
+    ] : []),
     ...(props.beds ? [
         { value: 'free', label: 'Lits libres', hint: `Sur ${props.beds.summary.beds} lit${props.beds.summary.beds > 1 ? 's' : ''}`, icon: BedSingle, tone: 'emerald', count: props.beds.summary.free, active: view.value === 'beds' },
         ...(props.beds.unassigned.length ? [
@@ -94,6 +106,14 @@ const selectTile = (value) => {
         return;
     }
 
+    if (value === 'bloc') {
+        view.value = 'patients';
+        // Un second clic sur la carte active la referme, comme dans les files.
+        visit(props.filter === 'bloc' ? { q: props.search } : { q: props.search, filter: 'bloc' });
+
+        return;
+    }
+
     view.value = 'beds';
 };
 
@@ -105,6 +125,20 @@ const VIEWS = [
 const PRIORITY = {
     URGENT: { label: 'Urgent', variant: 'destructive' },
 };
+
+// ADR-160 — le passage au bloc, dit avec les libellés de la page du séjour.
+// « Au bloc » se suffit ; les autres états disent de quoi ils parlent.
+const surgeryBadge = (surgery) => {
+    const status = surgeryStatus(surgery.status);
+
+    return { variant: status.variant, label: /bloc/i.test(status.label) ? status.label : `Bloc · ${status.label}` };
+};
+const surgeryDetail = (surgery) => [
+    surgery.procedure_name,
+    // Une date prévue n'a plus de sens une fois le patient en salle.
+    ['SCHEDULED', 'PREOPERATIVE_VALIDATED'].includes(surgery.status) && surgery.scheduled_at ? `prévue le ${formatDateTime(surgery.scheduled_at)}` : null,
+    !surgery.active && surgery.done_at ? formatDateTime(surgery.done_at) : null,
+].filter(Boolean).join(' · ');
 
 /* ── Sélection multiple (ADR-165) ──────────────────────────────────────
  *
@@ -127,7 +161,7 @@ const toggleRow = (uuid, on) => {
 };
 const toggleAll = (on) => { selected.value = on ? rows.value.map((stay) => stay.uuid) : []; };
 
-watch(() => [props.stays?.current_page, props.search], () => { selected.value = []; });
+watch(() => [props.stays?.current_page, props.search, props.filter], () => { selected.value = []; });
 watch(rows, (list) => {
     const present = new Set(list.map((stay) => stay.uuid));
 
@@ -160,7 +194,7 @@ const patientLabel = (stay) => `${stay.patient.name} · ${stay.episode_number}`;
                     </div>
                 </div>
 
-                <form class="w-full sm:w-72" @submit.prevent="visit({ q: query })">
+                <form class="w-full sm:w-72" @submit.prevent="visit(withFilter({ q: query }))">
                     <IconInput
                         v-model="query"
                         :icon="Search"
@@ -306,6 +340,20 @@ const patientLabel = (stay) => `${stay.patient.name} · ${stay.episode_number}`;
                                         <span class="mt-0.5 block text-xs text-muted-foreground">
                                             <span class="font-mono">{{ stay.patient.patient_number }}</span> · Passage {{ stay.episode_number }}<template v-if="stay.patient.age !== null"> · {{ stay.patient.age }} ans</template>
                                         </span>
+                                        <!-- ADR-160 — le patient garde son lit pendant le bloc : la
+                                             liste dit qu'il y va, qu'il y est, ou qu'il en revient —
+                                             sous le nom : la seule colonne toujours visible, même sur téléphone. -->
+                                        <component
+                                            :is="stay.surgery.url ? Link : 'div'"
+                                            v-if="stay.surgery"
+                                            :href="stay.surgery.url ?? undefined"
+                                            :class="['mt-2 block max-w-[16rem] rounded-md', stay.surgery.url && 'group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30']"
+                                            :title="stay.surgery.url ? 'Ouvrir le dossier du bloc' : undefined"
+                                        >
+                                            <Badge :variant="surgeryBadge(stay.surgery).variant"><Scissors class="h-3 w-3" />{{ surgeryBadge(stay.surgery).label }}</Badge>
+                                            <span v-if="surgeryDetail(stay.surgery)" :class="['mt-1 block truncate text-xs text-muted-foreground', stay.surgery.url && 'group-hover:text-primary']">{{ surgeryDetail(stay.surgery) }}</span>
+                                            <span v-if="stay.surgery.others" class="block text-xs text-muted-foreground">+{{ stay.surgery.others }} autre{{ stay.surgery.others > 1 ? 's' : '' }} demande{{ stay.surgery.others > 1 ? 's' : '' }} au bloc</span>
+                                        </component>
                                     </div>
                                 </div>
                             </td>
@@ -369,7 +417,7 @@ const patientLabel = (stay) => `${stay.patient.name} · ${stay.episode_number}`;
                                     <BedDouble class="h-5 w-5" aria-hidden="true" />
                                 </span>
                                 <span class="text-sm text-muted-foreground">
-                                    {{ search ? 'Aucun séjour ne correspond à cette recherche.' : 'Aucun patient hospitalisé actuellement.' }}
+                                    {{ search ? 'Aucun séjour ne correspond à cette recherche.' : filter === 'bloc' ? 'Aucun patient hospitalisé ne va au bloc actuellement.' : 'Aucun patient hospitalisé actuellement.' }}
                                 </span>
                             </td>
                         </tr>

@@ -39,6 +39,7 @@ use App\Support\ConsultationWorkflow;
 use App\Support\Hospitalization\BedDirectory;
 use App\Support\Hospitalization\DietSheet;
 use App\Support\Hospitalization\HospitalStayWorkstation;
+use App\Support\Hospitalization\StaySurgeryStatus;
 use App\Support\HospitalStaySurveillance;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -68,12 +69,20 @@ class HospitalizationController extends Controller
         // dossier restent consultables.
         $base = HospitalStay::query()->where('status', '!=', HospitalStayStatus::Cancelled->value);
 
+        // ADR-160 — les patients qui vont au bloc, ou y sont, se filtrent d'une
+        // carte : ils gardent leur lit, et rien d'autre ne les distinguait.
+        $filter = $request->query('filter') === 'bloc' ? 'bloc' : null;
+
         $counts = [
             'active' => (clone $base)->where('status', HospitalStayStatus::Active->value)->count(),
+            'bloc' => StaySurgeryStatus::constrainToActive(
+                (clone $base)->where('status', HospitalStayStatus::Active->value),
+            )->count(),
         ];
 
         $stays = $base
-            ->when($search === '', fn ($query) => $query->where('status', HospitalStayStatus::Active->value))
+            ->when($search === '' || $filter === 'bloc', fn ($query) => $query->where('status', HospitalStayStatus::Active->value))
+            ->when($filter === 'bloc', fn ($query) => StaySurgeryStatus::constrainToActive($query))
             ->with([
                 'episode.patient:id,uuid,patient_number,first_name,last_name,sex,birth_date,declared_age',
                 'hospitalizationRequest:id,reason,priority,requested_by',
@@ -91,6 +100,12 @@ class HospitalizationController extends Controller
             ->orderByDesc('admitted_at')
             ->paginate(20)
             ->withQueryString();
+
+        $user = $request->user();
+        $surgeries = StaySurgeryStatus::forEpisodes(
+            $stays->getCollection()->pluck('episode_id')->all(),
+            $user->can('surgery.view'),
+        );
 
         $stays->through(fn (HospitalStay $stay): array => [
             'uuid' => $stay->uuid,
@@ -110,14 +125,15 @@ class HospitalizationController extends Controller
             'discharged_at' => $stay->discharged_at,
             'discharge_type' => $stay->end_reason?->label() ?? $stay->medicalDischarge?->type?->label(),
             'diet_entries_count' => $stay->diet_entries_count,
+            // ADR-160 — à programmer, programmé, au bloc, ou déjà opéré ; null sans passage au bloc.
+            'surgery' => $surgeries[$stay->episode_id] ?? null,
         ]);
-
-        $user = $request->user();
 
         return Inertia::render('Hospitalization/Index', [
             'stays' => $stays,
             'counts' => $counts,
             'search' => $search,
+            'filter' => $filter,
             // ADR-165 — les actions groupées que ce compte peut lancer. Le serveur
             // revérifie chaque droit : ceci ne sert qu'à ne pas proposer un refus.
             'capabilities' => [

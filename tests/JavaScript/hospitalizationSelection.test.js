@@ -28,8 +28,8 @@ test('une action n’est proposée qu’avec son droit ; le serveur revérifie',
     assert.match(index, /v-if="capabilities\.can_export"\s+as="a"\s+:href="bulkHref\('export'\)"/);
 });
 
-test('une sélection ne survit ni à un changement de page ni à une recherche', () => {
-    assert.match(index, /watch\(\(\) => \[props\.stays\?\.current_page, props\.search\], \(\) => \{ selected\.value = \[\]; \}\)/);
+test('une sélection ne survit ni à un changement de page, ni à une recherche, ni à un filtre', () => {
+    assert.match(index, /watch\(\(\) => \[props\.stays\?\.current_page, props\.search, props\.filter\], \(\) => \{ selected\.value = \[\]; \}\)/);
     assert.match(index, /const overLimit = computed\(\(\) => selectedRows\.value\.length > props\.bulkLimit\)/);
 });
 

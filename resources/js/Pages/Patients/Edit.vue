@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
@@ -305,7 +306,7 @@ const selectLgClass = 'block h-11 w-full rounded-md border border-gray-200 bg-wh
 
                             <div class="lg:col-span-6">
                                 <div class="mb-1.5 flex items-center justify-between gap-3"><span class="text-sm font-medium text-slate-700 dark:text-white">Naissance ou âge <span class="text-red-500">*</span></span><span class="inline-flex rounded border border-gray-200 bg-white p-0.5 dark:border-gray-800 dark:bg-gray-950"><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', birthDateMode === 'date' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="setBirthDateMode('date')">Date</button><button type="button" :class="['rounded px-2.5 py-1 text-[11px] font-semibold', birthDateMode === 'age' ? 'bg-gray-100 text-slate-700 dark:bg-gray-900 dark:text-white' : 'text-slate-400']" @click="setBirthDateMode('age')">Âge</button></span></div>
-                                <Input v-if="birthDateMode === 'date'" v-model="form.birth_date" size="lg" type="date" />
+                                <DatePicker v-if="birthDateMode === 'date'" v-model="form.birth_date" size="lg" />
                                 <Input v-else v-model="form.age" size="lg" type="number" min="0" max="130" placeholder="Âge en années" />
                                 <p v-if="birthDateMode === 'date' && exactAge !== null" class="mt-1.5 text-xs text-slate-400">Âge calculé automatiquement : {{ exactAge }} ans.</p><p v-else-if="birthDateMode === 'age'" class="mt-1.5 text-xs text-slate-400">À utiliser uniquement lorsque la date exacte est inconnue.</p>
                                 <FormError v-if="form.errors.birth_date || form.errors.age" class="mt-1">{{ form.errors.birth_date || form.errors.age }}</FormError>

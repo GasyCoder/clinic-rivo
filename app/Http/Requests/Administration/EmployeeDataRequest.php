@@ -143,6 +143,8 @@ abstract class EmployeeDataRequest extends FormRequest
             'new_address_label' => ['nullable', 'string', 'max:255'],
             'observation' => ['nullable', 'string', 'max:5000'],
             'active' => ['required', 'boolean'],
+            // ADR-168 — compte de connexion relié : son planning RH devient lisible.
+            'user_uuid' => ['sometimes', 'nullable', 'uuid'],
         ];
     }
 
@@ -207,6 +209,7 @@ abstract class EmployeeDataRequest extends FormRequest
             'new_address_label' => 'nouvelle adresse',
             'observation' => 'observation',
             'active' => 'état actif',
+            'user_uuid' => 'compte de connexion',
         ];
     }
 

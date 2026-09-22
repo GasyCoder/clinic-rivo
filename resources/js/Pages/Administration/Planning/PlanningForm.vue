@@ -1,4 +1,5 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed, ref } from 'vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
@@ -88,8 +89,8 @@ const areaClass = 'block min-h-28 w-full rounded-xl border border-gray-200 bg-wh
                 <HrFormSection number="2" title="Objet et période" description="Définissez le créneau réel. La fin doit être postérieure au début." tone="sky">
                     <div class="grid gap-4 lg:grid-cols-2">
                         <div class="lg:col-span-2"><label for="planning_title" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Objet du créneau</label><input id="planning_title" v-model="form.title" :class="fieldClass" maxlength="255" placeholder="Ex. Garde, permanence, consultation"><FormError v-if="form.errors.title">{{ form.errors.title }}</FormError></div>
-                        <div><label for="planning_starts_at" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Début <span class="text-red-500">*</span></label><input id="planning_starts_at" v-model="form.starts_at" type="datetime-local" :class="fieldClass" required><FormError v-if="form.errors.starts_at">{{ form.errors.starts_at }}</FormError></div>
-                        <div><label for="planning_ends_at" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin <span class="text-red-500">*</span></label><input id="planning_ends_at" v-model="form.ends_at" type="datetime-local" :class="fieldClass" required><FormError v-if="form.errors.ends_at">{{ form.errors.ends_at }}</FormError></div>
+                        <div><label for="planning_starts_at" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Début <span class="text-red-500">*</span></label><DateTimePicker id="planning_starts_at" v-model="form.starts_at" required /><FormError v-if="form.errors.starts_at">{{ form.errors.starts_at }}</FormError></div>
+                        <div><label for="planning_ends_at" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin <span class="text-red-500">*</span></label><DateTimePicker id="planning_ends_at" v-model="form.ends_at" required /><FormError v-if="form.errors.ends_at">{{ form.errors.ends_at }}</FormError></div>
                     </div>
                 </HrFormSection>
 

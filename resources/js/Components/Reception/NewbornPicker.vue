@@ -15,8 +15,8 @@ import { formatDateTime } from '@/utilities/date';
  *
  * Né chez nous : le bébé n'est pas encore patient, il vit dans le dossier de sa mère. La Réception cherche la
  * mère, voit ses bébés, et le choisit — un clic ; il devient alors patient et repart dans le parcours d'arrivée
- * comme n'importe quel patient existant (`select`). Né ailleurs : on ne le retrouvera pas chez nous, c'est
- * l'enregistrement habituel d'un nouveau patient (`external`).
+ * comme n'importe quel patient existant (`select`). Né ailleurs : on ne le retrouvera pas chez nous ; l'écran
+ * parent ouvre alors une identité minimale de bébé (`external`), jamais le profil administratif d'un adulte.
  *
  * Rien de clinique n'est affiché : le nom, le rang, le sexe et la naissance suffisent à reconnaître l'enfant.
  * Le serveur juge de tout (naissance jamais devinée, sexe exigé) ; l'écran reflète ses refus.
@@ -25,7 +25,7 @@ const props = defineProps({
     /** `requestJson` de l'écran d'arrivée : même CSRF, mêmes erreurs. */
     request: { type: Function, required: true },
 });
-const emit = defineEmits(['select', 'external']);
+const emit = defineEmits(['select', 'external', 'internal']);
 
 const origin = ref(null);
 const query = ref('');
@@ -121,6 +121,16 @@ const canChoose = (baby) => !baby.blocked && (!needsSex(baby) || Boolean(sexByBa
 const sexLabel = (code) => ({ F: 'Féminin', M: 'Masculin' }[code] ?? null);
 const bornOn = (baby) => (baby.born_at ? formatDateTime(baby.born_at) : null);
 const noBabyFound = computed(() => mother.value && !loadingBabies.value && !babies.value.length && !message.value);
+
+const chooseInternalOrigin = () => {
+    origin.value = 'here';
+    emit('internal');
+};
+
+const chooseExternalOrigin = () => {
+    origin.value = 'external';
+    emit('external');
+};
 </script>
 
 <template>
@@ -130,7 +140,7 @@ const noBabyFound = computed(() => mother.value && !loadingBabies.value && !babi
             <button
                 type="button"
                 :class="cn('flex items-start gap-3 rounded-lg border p-4 text-start transition', origin === 'here' ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40')"
-                @click="origin = 'here'"
+                @click="chooseInternalOrigin"
             >
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><Building2 class="h-5 w-5" /></span>
                 <span>
@@ -140,13 +150,13 @@ const noBabyFound = computed(() => mother.value && !loadingBabies.value && !babi
             </button>
             <button
                 type="button"
-                class="flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-start transition hover:border-primary/40"
-                @click="emit('external')"
+                :class="cn('flex items-start gap-3 rounded-lg border p-4 text-start transition', origin === 'external' ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40')"
+                @click="chooseExternalOrigin"
             >
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"><MapPinned class="h-5 w-5" /></span>
                 <span>
                     <span class="block text-sm font-bold text-foreground">Né ailleurs</span>
-                    <span class="mt-0.5 block text-xs text-muted-foreground">Accouchement externe : enregistrement habituel d'un nouveau patient.</span>
+                    <span class="mt-0.5 block text-xs text-muted-foreground">Accouchement externe : identité du bébé et contact de son responsable.</span>
                 </span>
             </button>
         </div>
@@ -218,7 +228,7 @@ const noBabyFound = computed(() => mother.value && !loadingBabies.value && !babi
                 <div v-else-if="noBabyFound" class="mt-4 rounded-md border border-dashed border-border px-4 py-6 text-center">
                     <p class="text-sm font-semibold text-foreground">Aucun nouveau-né consigné pour cette mère</p>
                     <p class="mt-1 text-xs text-muted-foreground">Le bébé est peut-être né ailleurs, ou la Maternité ne l'a pas encore enregistré.</p>
-                    <Button type="button" class="mt-3" size="sm" variant="white-outline" @click="emit('external')">Né ailleurs — nouveau patient</Button>
+                    <Button type="button" class="mt-3" size="sm" variant="white-outline" @click="chooseExternalOrigin">Né ailleurs — nouveau patient</Button>
                 </div>
             </template>
 

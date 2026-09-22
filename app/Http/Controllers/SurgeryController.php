@@ -18,10 +18,14 @@ use App\Http\Requests\UpdateSurgicalRequestRequest;
 use App\Models\CatalogItem;
 use App\Models\SurgicalRequest;
 use App\Models\User;
+use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
+use App\Services\Surgery\SurgeonRoster;
 use App\Services\Surgery\SurgicalCaseWorkspace;
 use App\Support\SurgeryReferenceData;
 use App\Support\SurgicalStayContext;
+use Carbon\CarbonImmutable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -136,9 +140,12 @@ class SurgeryController extends Controller
         SurgicalRequest $surgicalRequest,
         SurgicalCaseWorkspace $workspace,
         CareRecordReadModel $careRecordReadModel,
+        CareConsumableDirectory $consumables,
     ): Response {
         $viewer = request()->user();
         $canViewAnesthesia = $viewer->can('anesthesia.view');
+        $canDeclareConsumables = $viewer->can('surgery.consumables.create')
+            && $surgicalRequest->status !== SurgicalRequestStatus::Cancelled;
         $careRecord = $surgicalRequest->episode()->with('careRecord')->first()?->careRecord;
 
         return Inertia::render('Surgery/Show', [
@@ -150,13 +157,49 @@ class SurgeryController extends Controller
             // dossier ; le lien vers le séjour, seulement avec le droit de l'ouvrir.
             'hospitalStay' => SurgicalStayContext::for($surgicalRequest, $viewer),
             'users' => $workspace->activeUsers(),
+            // ADR-168 — chaque fonction dit le profil qui la tient : l'écran ne
+            // propose que les comptes concernés, le serveur le revérifie.
             'teamFunctions' => array_map(
-                fn ($case) => ['value' => $case->value],
+                fn ($case) => ['value' => $case->value, 'label' => $case->label(), 'profile' => $case->profileCode()],
                 SurgicalTeamFunction::cases(),
             ),
             'procedures' => $this->procedureOptions(),
             'anesthesiaItems' => SurgeryReferenceData::anesthesiaItems(),
+            // ADR-169 — le matériel du bloc passe par le stock de la Pharmacie.
+            // Sans aucun montant : le bloc ne voit ni ne saisit de prix (ADR-036).
+            'consumableRequests' => $consumables->forSurgicalRequest($surgicalRequest->getKey()),
+            'consumableCatalog' => $canDeclareConsumables
+                ? $consumables->selectableConsumables(CatalogModule::Surgery)
+                : [],
+            'consumableSuggestions' => $canDeclareConsumables
+                ? $this->usualMaterialOf($surgicalRequest)
+                : [],
         ]);
+    }
+
+    /**
+     * Le matériel habituel de l'intervention demandée, configuré au référentiel
+     * (ADR-169) : une suggestion que l'équipe confirme, jamais une règle — et
+     * rien n'est déduit du nom de l'acte (ADR-052).
+     *
+     * @return array<int, array{medicine_uuid: string, default_quantity: int}>
+     */
+    private function usualMaterialOf(SurgicalRequest $surgicalRequest): array
+    {
+        $act = $surgicalRequest->catalogItem()->with('defaultConsumables.medicine:id,uuid')->first();
+
+        if (! $act || $act->module !== CatalogModule::Surgery) {
+            return [];
+        }
+
+        return $act->defaultConsumables
+            ->filter(fn ($row) => $row->medicine !== null)
+            ->map(fn ($row) => [
+                'medicine_uuid' => $row->medicine->uuid,
+                'default_quantity' => (int) $row->default_quantity,
+            ])
+            ->values()
+            ->all();
     }
 
     public function update(UpdateSurgicalRequestRequest $request, SurgicalRequest $surgicalRequest, UpdateSurgicalRequestAction $action): RedirectResponse
@@ -176,11 +219,50 @@ class SurgeryController extends Controller
 
     public function schedule(ScheduleSurgicalRequestRequest $request, SurgicalRequest $surgicalRequest, ScheduleSurgicalRequestAction $action): RedirectResponse
     {
-        $surgeon = User::query()->findOrFail($request->validated('surgeon_id'));
+        $surgeon = User::query()->with('professionalProfile')->findOrFail($request->validated('surgeon_id'));
+        // Omettre les aides les laisse intacts (ADR-074) ; une liste vide les retire.
+        $assistants = $request->exists('assistant_surgeon_ids')
+            ? $this->orderedUsers($request->validated('assistant_surgeon_ids', []))
+            : null;
 
-        $action->execute($surgicalRequest, $surgeon, $request->validated('scheduled_at'));
+        $action->execute($surgicalRequest, $surgeon, $request->validated('scheduled_at'), $assistants);
 
         return back()->with('status', 'Intervention programmée.');
+    }
+
+    /**
+     * ADR-168 — les chirurgiens (profil Chirurgien) et leur disponibilité au
+     * planning RH à l'heure demandée. Servi à l'écran de programmation ; le
+     * serveur rejuge tout à l'enregistrement.
+     */
+    public function surgeons(Request $request, SurgicalRequest $surgicalRequest, SurgeonRoster $roster): JsonResponse
+    {
+        $validated = $request->validate(['at' => ['required', 'date']]);
+        $at = CarbonImmutable::parse($validated['at']);
+        $surgeons = $roster->surgeons();
+        $availability = $roster->availability($surgeons, $at);
+        $viewerId = $request->user()->id;
+
+        return response()->json([
+            'at' => $at->toIso8601String(),
+            'data' => $surgeons->map(fn (User $surgeon) => [
+                'id' => $surgeon->id,
+                'name' => $surgeon->name,
+                'is_me' => $surgeon->id === $viewerId,
+                ...$availability[$surgeon->id],
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * @param  array<int, int|string>  $ids
+     * @return Collection<int, User>
+     */
+    private function orderedUsers(array $ids): Collection
+    {
+        $users = User::query()->with('professionalProfile')->whereIn('id', $ids)->get()->keyBy('id');
+
+        return collect($ids)->map(fn ($id) => $users->get((int) $id))->filter()->values();
     }
 
     public function updatePreparation(UpdateSurgicalPreparationRequest $request, SurgicalRequest $surgicalRequest, UpdateSurgicalPreparationAction $action): RedirectResponse

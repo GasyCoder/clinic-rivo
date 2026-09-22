@@ -1,4 +1,5 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed, ref } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -69,7 +70,7 @@ const submit = () => {
 
         <form v-if="showForm" class="mt-4 space-y-3 border-t border-border pt-4" @submit.prevent="submit">
             <FormField label="Date et heure" required :error="form.errors.occurred_at" class="max-w-xs">
-                <Input v-model="form.occurred_at" type="datetime-local" :max="toLocalInput(new Date())" />
+                <DateTimePicker v-model="form.occurred_at" :max="toLocalInput(new Date())" />
             </FormField>
             <FormField label="Description" required :error="form.errors.description">
                 <ClinicalRichTextEditor

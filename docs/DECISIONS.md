@@ -1263,7 +1263,8 @@ facturables, mais tout encaissement reste exclusivement à Réception / Caisse.
 
 # ADR-033 — Profils professionnels et permissions propres au compte
 
-**Status:** ACCEPTED (2026-08-23 — exigence explicite du client)
+**Status:** ACCEPTED (2026-08-23 — exigence explicite du client) ; le rôle `SURGERY` reçoit ses
+profils `SURGEON`, `OR_NURSE` et `SURGICAL_PARAMEDICAL` par l'**ADR-168** (2026-09-22).
 
 Cette décision amende ADR-006 et ADR-026. Le CDC officiel rattache encore
 l'anesthésiste à Chirurgie et le gardien ainsi que la maintenance à
@@ -2011,6 +2012,85 @@ montant, zéro ou dette ne peut être déduit d'un dossier chirurgical seul. Tan
 que la création des prestations facturables Chirurgie et l'API de rapport ne
 sont pas implémentées, l'interface Finance affiche donc des valeurs
 indisponibles (`—`) plutôt que de faux `Ar0`.
+
+## Amendement du 2026-09-22 — le dossier du bloc se lit dans l'ordre de son workflow
+
+Demande du propriétaire : rendre la page d'un dossier chirurgical plus lisible, et
+lui faire suivre la logique métier. Le CDC §16 ne décrit que les permissions et
+l'absence d'encaissement ; l'ordre ci-dessous est celui des transitions que le
+modèle `SurgicalRequest` impose déjà — rien n'est inventé, rien n'est assoupli.
+
+```text
+source unique    resources/js/utilities/surgicalWorkflow.js : étapes (Chirurgie 5,
+                 Anesthésie 3), prochaine action et droit que le serveur exigera,
+                 lus sur le statut réel ; la page ne recompte plus rien
+étape à faire    marquée « À faire » ; une étape qui attend dit pourquoi (« Le feu vert
+                 se confirme une fois l'intervention programmée ») et reste lisible
+ouverture        le dossier s'ouvre sur l'étape de sa prochaine action
+barre du bas     « Prochaine étape » : ce qui reste à faire, où qu'on soit dans la page,
+                 avec un bouton qui ouvre le bon formulaire ; sans le droit, elle nomme
+                 le droit au lieu d'un bouton qui refuserait (ADR-154)
+annulée          lisible, plus aucun bouton d'écriture ; le bandeau d'hospitalisation
+                 ne dit plus que le patient « remonte à son lit après le bloc »
+```
+
+Deux pièges du workflow, que le serveur crée sans les annoncer, sont désormais
+signalés à l'écran :
+
+```text
+heure de fin     l'intervention ne se corrige qu'« Au bloc » ; la validation du compte
+                 rendu clôt l'intervention. « Valider » attend donc l'heure de fin.
+sortie du bloc   elle ne se renseigne plus après la sortie de Chirurgie : un dossier
+                 « Opéré » sans sortie du bloc la propose d'abord, et la sortie de
+                 Chirurgie avertit (sans bloquer)
+```
+
+**Défaut corrigé côté serveur.** Valider un compte rendu sur un dossier qui n'était
+pas « Au bloc » enregistrait le compte rendu comme validé, puis la clôture de
+l'intervention échouait (erreur 500) : un compte rendu que plus personne ne pouvait
+corriger, sur un dossier que plus personne ne pouvait clore.
+`ValidateSurgicalReportAction` vérifie désormais le statut **avant** de toucher au
+compte rendu, dans une transaction, et répond par un message (clé `report`).
+
+**Signalé, non tranché.** Le serveur accepte encore la rédaction d'un compte rendu
+avant le démarrage de l'intervention, et la validation d'un compte rendu sans heure
+de fin : l'écran ne les propose plus, mais en faire des refus serveur est une règle
+métier à décider. Aucune permission, route ni migration nouvelle.
+
+**Complément du même jour — deux colonnes, et l'ordre à l'intérieur des étapes.** Constat
+du propriétaire : l'étape « Dossier » montrait en même temps Demande, Programmation, Équipe
+de bloc et Synthèse anesthésie, sans ordre, et la page défilait trop. L'espace Chirurgie se
+lit désormais en deux colonnes :
+
+```text
+colonne principale   le geste de l'étape, et lui seul, dans l'ordre du workflow
+  Dossier            Programmation → Équipe de bloc (juste en dessous)
+  Préparation        ① Feu vert → ② Entrée au bloc
+  Intervention       Intervention, puis consommables
+  Suivi & clôture    Compte rendu → Suivi péri/postopératoire → Complications
+                     → Sortie de Chirurgie (le geste final)
+colonne latérale     le même contexte à chaque étape : Synthèse anesthésie → Demande
+                     → Synthèse des Soins
+en-tête              le patient hospitalisé en pastille à côté du statut
+                     (« Hospitalisé · Salle 1 · Lit 2 », lien vers le séjour, détail au survol)
+```
+
+Chaque section porte son état — « Fait », « À faire », ou en attente d'un geste
+précédent. L'équipe attend la programmation (les chirurgiens en viennent, ADR-168) ; la
+synthèse anesthésie se relit avant le feu vert ; la salle et les consignes suivent la
+programmation. Une section en attente se replie sur son titre et ce qu'elle attend
+(« Afficher » la déplie quand même) et s'ouvre d'elle-même quand son tour vient. Sur un
+écran étroit, le contexte passe sous le geste : l'action reste en premier. L'espace
+Anesthésie garde sa page sur une colonne. C'est de l'affichage : le serveur n'est pas
+modifié et ne refuse rien de nouveau.
+
+Les deux colonnes sont séparées par une barre verticale que l'on glisse (`ResizableSplit`,
+déjà employé pour l'examen clinique et la fiche de soins) : souris, tactile ou clavier,
+double-clic pour revenir au réglage par défaut (70 / 30), bornes 50 à 75 %. La largeur
+choisie reste sur le poste (`rivo:surgery:context-split`) et n'est jamais envoyée au
+serveur. La carte Demande (`SurgicalRequestCard`) donne un repère à chacun de ses faits —
+intervention, demandeur et date, transmission — et ne propose d'enregistrer qu'une
+correction réelle.
 
 ---
 
@@ -6340,6 +6420,54 @@ validées après une version du CDC.
 
 Aucune permission, route, validation ou règle métier n'est touchée par cette
 décision.
+
+**Amendement du 2026-09-22 — un sélecteur de date et d'heure.** L'ADR-107 constatait qu'aucune
+primitive de date n'existait dans la couche shadcn de RIVO. À la demande du propriétaire, la
+programmation du bloc remplace le champ natif `datetime-local` par `Shadcn/DateTimePicker` :
+un déclencheur qui affiche la valeur en toutes lettres (« ven. 25 sept. 2026 · 09:30 »), un
+calendrier (`Shadcn/Calendar`, primitives `reka-ui`, français, semaine du lundi) et deux
+colonnes Heure / Minutes (pas de 5 minutes) dans le même panneau. La valeur échangée reste celle
+d'un `datetime-local` (« AAAA-MM-JJTHH:mm », heure locale) : aucun serveur ni formulaire n'a à
+changer. Aucune heure n'est inventée — un jour choisi sans heure ne produit pas de valeur.
+`@internationalized/date`, déjà installé par `reka-ui`, devient une dépendance directe.
+
+Le même jour, à la demande du propriétaire, **tous** les champs date de l'application passent par
+deux composants : `Shadcn/DateTimePicker` (date et heure) et `Shadcn/DatePicker` (date seule,
+« AAAA-MM-JJ », le panneau se ferme au choix du jour). 59 champs natifs dans une trentaine
+d'écrans (Chirurgie, Maternité, Hospitalisation, Réception, RH, Pharmacie, Corbeille…) ont été
+remplacés ; un test échoue si un champ date natif réapparaît. Les deux composants partagent :
+
+```text
+valeur        identique au champ natif : aucun serveur ni formulaire modifié
+bornes        min / max grisent les jours hors bornes ; le serveur valide toujours
+calendrier    listes Mois / Année (une date de naissance ne se cherche pas mois par mois)
+libellé       court par défaut (« 25/09/2026 09:30 ») pour tenir dans les cases étroites,
+              forme longue au survol ; `format="long"` pour un champ large
+formulaires   name (champ caché), readonly, required, size, attributs ARIA transmis
+```
+
+**Panneau compact (même jour).** Le propriétaire trouvait le panneau trop gros et le champ
+« Date et heure » de la sonde urinaire débordant. Le panneau passe de ~390 × 317 px à
+242 × 296 px (date seule : 242 × 255) — pas plus large que le champ qui l'ouvre :
+
+```text
+calendrier    cases de 28 px ; Mois / Année en listes natives habillées (`Shadcn/NativeSelect`)
+heure         une ligne « Heure [09] : [30] » sous le calendrier, à la place des deux colonnes
+              latérales ; un jour choisi sans heure se signale (« Choisissez l'heure »)
+Maintenant    remplace « Aujourd'hui » pour la date et l'heure : date et heure courantes à la
+              minute, lues au clic — un geste explicite, jamais une heure inventée
+```
+
+`NativeSelect` est réservé aux listes courtes d'un panneau déjà ouvert : une liste dans un second
+portail le fermerait au premier clic ; `Select` reste la liste de l'application. Elle porte `bg-none` :
+le plugin `@tailwindcss/forms` dessine une flèche en image de fond sur tout `<select>`, et sans ce
+retrait chaque liste affichait deux flèches (constaté par le propriétaire le jour même).
+
+Le débordement venait de `Select` (`min-w-[176px]`) plus large que sa colonne dans une carte de
+~325 px, et la date entière (« 25/09/2026 09:30 ») demande ~170 px. Les cartes Voie veineuse et
+Sonde urinaire (Entrée au bloc) se placent désormais par requêtes de conteneur : côte à côte
+seulement si chacune garde la date entière, sinon empilées avec leurs champs sur une ligne — même
+hauteur, rien de tronqué, à toutes les largeurs de la colonne principale.
 
 ---
 
@@ -11536,6 +11664,23 @@ attributions — un site en production ne rejoue plus `RolePermissionSeeder` (AD
 exception `ALLOW`, pour ne rien retirer à une sage-femme. Un `DENY` n'est jamais recopié : refuser l'espace
 Maternité n'a jamais voulu dire refuser la naissance d'un enfant.
 
+## Amendement du 2026-09-22 — « né ailleurs » n'est pas un formulaire d'adulte
+
+À l'accueil d'un nouveau-né, les deux branches restent explicitement différentes :
+
+```text
+né à la clinique   chercher la mère et choisir sa fiche de bébé ; aucun formulaire Patient n'est affiché
+né ailleurs        créer le dossier avec l'identité propre au bébé uniquement
+```
+
+Le formulaire externe demande nom, prénom, naissance/âge, sexe et, si utile, domicile familial. Il ne demande
+ni téléphone ni email propres au bébé, ni civilité, pièce d'identité, profession, situation maritale ou nombre
+d'enfants. Le parent ou responsable est saisi comme **contact de l'Épisode** (`emergency_contact_*`), jamais
+comme coordonnées permanentes du bébé (ADR-034). `registration_context=EXTERNAL_NEWBORN` est un marqueur de
+validation de la requête, pas un attribut du Patient : le serveur refuse ces champs d'adulte même si un navigateur
+les envoie directement. Cette adaptation précise « enregistrement d'un nouveau patient » sans modifier le parcours
+du bébé né à la clinique ni créer une nouvelle catégorie financière.
+
 ---
 
 # ADR-147 — Diagnostic de sortie porté par le séjour, et Réception en lecture sur l'Hospitalisation
@@ -12587,6 +12732,33 @@ l'hospitalisation. Aucun rôle n'est codé en dur (ADR-152).
   remplacer une hospitalisation déjà admise. **Traité par l'ADR-163** : dès que le patient
   a réellement séjourné, le séjour ne s'annule plus par ce chemin.
 
+## Amendement du 2026-09-21 — la liste des hospitalisés dit qui va au bloc
+
+Demande du propriétaire : « lorsque le patient bascule ou entre au bloc, il faut le marquer sur
+la liste ». Le patient garde son lit pendant le bloc : sur `/hospitalisation`, rien ne
+distinguait celui qui attend son intervention, ou qui est déjà en salle, d'un patient au lit.
+
+```text
+sous le nom    un repère « Bloc · À programmer », « Bloc · Programmée » (avec la date prévue),
+               « Au bloc », puis « Opéré » / « Sorti du bloc » une fois l'intervention faite ;
+               l'intervention en dessous, et « +N autre demande au bloc » s'il y en a plusieurs
+               — sous le nom, parce que c'est la seule colonne visible sur un téléphone
+priorité       la demande la plus avancée l'emporte (en salle > préop. validé > programmée >
+               à programmer) ; sans demande en cours, la dernière intervention terminée ;
+               une demande annulée n'est jamais lue ; sans passage au bloc, aucun repère
+carte          « Vers le bloc » : les séjours en cours dont une demande n'est pas terminée,
+               comptés par le serveur ; la carte filtre (?filter=bloc) et se referme d'un
+               second clic ; un filtre inconnu ne filtre rien
+lien           le repère ouvre le dossier du bloc seulement avec surgery.view — jamais un lien
+               vers un refus (ADR-146) ; le fait lui-même est lu comme sur la page du séjour
+```
+
+Rien n'est recopié : `App\Support\Hospitalization\StaySurgeryStatus` lit la demande chirurgicale
+du passage en une requête par page. Les libellés vivent dans `utilities/surgicalRequestStatus.js`,
+lu par la liste et par la page du séjour — la copie locale de la page est retirée ; « Au bloc »
+passe en pastille pleine pour ne plus se confondre avec « À programmer ». Aucune permission ni
+route nouvelle.
+
 ---
 
 # ADR-161 — Séjour hospitalier, lot 1 : départ en transfert, emplacements, surveillance
@@ -13545,3 +13717,221 @@ en cours ou un passage déjà vu par Médecine (cas où aucune suite ne se chois
 être repris. Le bloc « Suite après les soins » verrouillé n'est affiché que si une suite se
 choisit.
 
+---
+
+# ADR-168 — Programmer l'intervention : chirurgien principal, aides, profil Chirurgien et planning RH
+
+**Status:** ACCEPTED (2026-09-22 — exigence explicite du propriétaire : « si c'est le compte
+chirurgien lui-même, il coche Moi-même, mais il peut ajouter d'autres ; si c'est un compte Soins
+ou Médecine, il sélectionne les disponibles, un, deux, trois… » ; trois arbitrages : un principal
+et des aides, disponibilité selon le planning RH, profil métier dans le rôle Chirurgie)
+
+**Complète l'ADR-048** (la programmation du bloc), **amende l'ADR-033** (le rôle SURGERY reçoit
+ses profils métier) et s'appuie sur **l'ADR-066** (planning RH). Le CDC nomme les fonctions du bloc
+(« chirurgien, anesthésiste, infirmier de bloc, paramédical », §9) mais ne dit rien de la
+disponibilité ni du nombre de chirurgiens : ces règles sont celles du propriétaire.
+
+## Le constat
+
+« Programmer l'intervention » ne proposait qu'**un** chirurgien, choisi parmi les comptes dont le
+**rôle** s'appelle SURGERY — un nom de rôle codé en dur (ADR-152) —, et le serveur acceptait
+n'importe quel compte actif. Rien ne disait qui était réellement là à l'heure prévue, et un
+chirurgien qui programmait sa propre intervention devait se chercher dans la liste.
+
+## La règle
+
+```text
+date et heure      choisies d'abord : la disponibilité en dépend
+« Moi-même »       une case, seulement pour un compte au profil Chirurgien ;
+                   cochée, elle le met chirurgien principal
+les autres         un, deux, trois… (5 aides au plus) parmi les chirurgiens disponibles
+principal          le premier choisi (ou « Moi-même ») = surgical_requests.surgeon_id,
+                   lu partout ; « Définir principal » en change
+aides              les suivants = membres de l'équipe de bloc, fonction « Chirurgien »
+                   — aucune table nouvelle
+```
+
+`ScheduleSurgicalRequestAction` juge tout côté serveur, dans une transaction : principal et aides
+portent le profil, sont disponibles, distincts, et le principal n'est pas aussi aide. Les membres
+« Chirurgien » de l'équipe deviennent **exactement** les aides choisis : un aide retiré quitte
+l'équipe (retrait audité), l'ancien principal devient aide s'il est coché. Omettre
+`assistant_surgeon_ids` laisse les aides intacts (ADR-074) ; une liste vide les retire.
+
+## Un chirurgien est un profil, pas un rôle
+
+Trois profils rejoignent le rôle SURGERY (migration `2026_10_22_090000`, jouée sur chaque site et
+sur le portail ; `ProfessionalProfileSeeder` pour un site neuf) :
+
+```text
+SURGEON                Chirurgien / Chirurgienne — seul profil programmable comme chirurgien
+OR_NURSE               Infirmier / Infirmière de bloc
+SURGICAL_PARAMEDICAL   Paramédical du bloc
+```
+
+Aucune permission recommandée : le socle SURGERY reste la seule source des droits, et un profil
+ne donne jamais de droit (ADR-033). Les comptes SURGERY existants restent **sans profil**
+(« Profil métier à définir ») : aucune qualification n'est déduite. Le Super Administrateur la
+pose dans Utilisateurs ; tant qu'aucun compte n'a le profil Chirurgien, **aucune intervention ne
+peut être programmée**, et l'écran le dit.
+
+## Disponible : lu sur le planning RH, jamais saisi
+
+`SurgeonRoster` lit la fiche Employé reliée au compte (`employees.user_id`) et ses créneaux
+(`planning_shifts`) à l'heure programmée :
+
+```text
+AVAILABLE        un créneau couvre l'heure programmée         → proposé
+OFF_PLANNING     fiche reliée, aucun créneau à cette heure     → verrouillé, refusé
+INACTIVE_RECORD  fiche reliée mais inactive ou archivée        → verrouillé, refusé
+UNLINKED         aucune fiche reliée : le planning ne dit rien → proposé, « Non vérifié »
+```
+
+Un chirurgien indisponible est **montré verrouillé avec sa raison**, pas masqué (même parti pris
+que l'ADR-158). Un chirurgien UNLINKED porte le badge « Non vérifié » sur sa ligne ; l'explication
+(aucune fiche RH reliée, où la relier) est donnée par un toast, une fois par ouverture du
+formulaire (demande du propriétaire, 2026-09-22). L'écran lit la disponibilité sur `GET /surgery/{demande}/surgeons?at=`
+(`surgery.schedule`) ; le serveur la rejuge à l'enregistrement.
+
+**UNLINKED est accepté, et c'est une transition signalée.** Aucun site n'a encore relié de fiche
+RH à un compte : refuser un chirurgien au planning inconnu bloquerait toute programmation au
+déploiement. La règle se durcit d'elle-même à mesure que les RH relient les fiches (même esprit
+que l'ADR-164). Refuser aussi UNLINKED est une décision à prendre avec le propriétaire.
+
+## Relier une fiche RH à un compte
+
+`employees.user_id` existait (unique, facultatif) sans qu'aucun écran ne le remplisse. Le
+formulaire Employé reçoit « Compte de connexion » (`employees.create` / `employees.update`,
+droits existants), résolu par `EmployeeAccountResolver` :
+
+```text
+un compte, une fiche      archives comprises : deux fiches donneraient deux plannings
+nouveau lien              compte actif seulement ; un lien existant survit à la désactivation
+proposés                  comptes actifs non reliés, jamais un compte SUPER_ADMIN
+effet                     rend le planning lisible ; ne crée aucun compte, ne donne aucun droit
+```
+
+## Équipe de bloc et opérateur
+
+Le formulaire libre de l'équipe ne propose plus la fonction « Chirurgien » et le serveur la
+refuse : un chirurgien entre dans l'équipe par la programmation, sans quoi le profil et le
+planning seraient contournables. L'opérateur de l'intervention se choisit parmi les chirurgiens
+programmés (principal en tête).
+
+**Complément du même jour — chaque fonction a son profil.** Le formulaire de l'équipe listait
+tous les comptes actifs, réception comprise, et le serveur acceptait n'importe lequel. Chaque
+fonction est désormais tenue par le profil métier qui lui correspond (CDC §9, ADR-033) — la
+règle déjà appliquée au choix de l'anesthésiste d'un dossier d'anesthésie :
+
+```text
+Anesthésiste        profil ANESTHETIST (rôle Soins)
+Infirmier de bloc   profil OR_NURSE (rôle Chirurgie)
+Paramédical         profil SURGICAL_PARAMEDICAL (rôle Chirurgie)
+Chirurgien          profil SURGEON — par la programmation seulement
+```
+
+On choisit la fonction, puis la personne parmi les seuls comptes de ce profil ; une fonction
+sans compte le dit (« le Super Administrateur attribue ce profil métier dans Utilisateurs »).
+`AssignSurgicalTeamMemberAction` refuse un compte sans le bon profil et une même personne deux
+fois à la même fonction — revérifié côté serveur, jamais seulement à l'écran. La
+correspondance fonction → profil vit dans `SurgicalTeamFunction::profileCode()` et est servie à
+l'écran. La présence au planning RH n'est pas exigée pour l'équipe : à décider.
+
+## Signalé, non tranché
+
+```text
+UNLINKED accepté           transition ci-dessus — à confirmer ou à durcir
+heure de début seulement   la durée de l'intervention n'est pas connue : un créneau qui finit
+                           pendant l'opération ne se voit pas
+aucun contrôle de conflit  un chirurgien peut être programmé sur deux interventions à la même heure
+après le démarrage         la programmation se ferme ; un chirurgien qui rejoint en cours
+                           d'intervention ne peut plus être inscrit
+opérateur                  l'écran propose les chirurgiens programmés, le serveur accepte
+                           encore tout compte actif
+MEDICINE et surgery.schedule   accordé par le portail sur ce site : décision d'administration
+```
+
+Aucune permission nouvelle.
+
+---
+
+# ADR-169 — Le matériel du bloc passe par le stock de la Pharmacie
+
+**Status:** ACCEPTED (2026-09-22 — constat du propriétaire : « l'étape Consommables ne se relie pas aux
+stocks de la Pharmacie ? » ; quatre arbitrages explicites, un par question)
+
+**Complète l'ADR-048** (l'étape Intervention et ses consommables), **l'ADR-072** (consommables Soins) et
+**l'ADR-142** (Maternité). Le CDC §16 dit seulement que la Chirurgie « génère des prestations facturables,
+sans encaissement » : les règles ci-dessous sont celles du propriétaire.
+
+## Le constat
+
+« Consommables » était un texte libre (`surgical_consumables` : libellé, quantité, unité). Rien ne sortait
+du stock, rien n'était facturé, et la Pharmacie ne savait pas qu'un produit avait été posé au bloc : son
+inventaire devenait faux à chaque intervention, et le patient repartait sans que la clinique ait compté ce
+qu'elle avait utilisé.
+
+## Les quatre arbitrages
+
+```text
+produits      parapharmacie + matériel configuré pour un acte de Chirurgie (fils, drains, champs…),
+              comme la Maternité (ADR-142) — jamais tout le stock
+facturation   en plus de l'intervention, ligne par ligne, au tarif serveur ; encaissé à la Caisse
+stock         sort dès que la Pharmacie sert, sans attendre le règlement (amendement de l'ADR-049
+              posé par l'ADR-072 : le produit est déjà posé sur le patient)
+hors stock    une ligne libre reste possible pour un produit absent du stock : tracée, ni sortie
+              de stock ni facture ; les lignes déjà saisies restent lisibles telles quelles
+```
+
+## Un seul circuit, pas un troisième
+
+Le bloc emprunte le circuit existant sans le recopier : même `CareConsumableRequest`, même file
+« Consommables Soins » de la Pharmacie, même sortie FEFO (`ServeCareConsumablesAction`) qui n'entame jamais
+une quantité réservée, même facturation (`care_consumable:{uuid}`, rattachement à la facture non encaissée
+du passage, échec financier jamais bloquant — ADR-054, ADR-103), même annulation avec motif tant que rien
+n'a quitté le stock (ADR-010).
+
+```text
+source_module          SURGERY
+surgical_request_id    le dossier du bloc qui a déclaré (colonne ajoutée, nullable)
+care_orientation_id    l'orientation vers le bloc quand le passage en a une — jamais inventée :
+                       une demande ouverte au bloc avant l'ADR-159 n'en a pas
+libellé et audit       « Bloc opératoire » dans la file et sur le mouvement de stock ;
+                       surgery.consumables.request / surgery.consumables.cancel
+```
+
+`RequestCareConsumablesAction::executeForSurgery()` n'ajoute qu'un point d'entrée : l'écriture commune
+(contrôle des produits, lignes figées, facturation, audit) est partagée par les trois services. Le service
+se lit sur le dossier, jamais sur une valeur envoyée. Une demande de chirurgie annulée ou un passage clos
+refuse toute déclaration.
+
+## La liste de produits est une décision du référentiel
+
+`CareConsumableDirectory::eligibleMedicines()` porte la règle une seule fois : Soins = parapharmacie ;
+Maternité **et** Chirurgie = parapharmacie **plus** les produits configurés comme matériel habituel d'un
+de leurs actes (`care_act_consumables`, `acceptsConfiguredProducts()`). La configuration se fait dans
+Administration › Catalogue avec `catalog.items.update` (ADR-024) ; un acte de Chirurgie y accepte tout
+produit actif et stockable. Rien n'est déduit du nom d'un acte (ADR-052).
+
+Le matériel habituel de l'intervention demandée est **proposé** à l'ouverture du formulaire (« Habituel »),
+jamais imposé : l'équipe confirme, corrige ou retire. Il n'est lu que si l'intervention porte un acte du
+référentiel de Chirurgie.
+
+## Aucun prix au bloc
+
+La page du dossier sert le catalogue (disponibilité seule), les suggestions et les demandes **sans aucun
+montant** (`billing` nul) : le bloc ne voit ni ne saisit de prix (ADR-036). Le montant se lit à la
+Pharmacie (ADR-103) et s'encaisse à la Caisse (ADR-012, ADR-016).
+
+## Permissions
+
+Aucune nouvelle : `surgery.consumables.create` (socle `SURGERY`) déclare et annule depuis le dossier ; la
+Pharmacie sert avec `care_consumables.serve`. Le serveur revérifie, l'écran ne fait que suivre.
+
+## Ce qui reste à la clinique
+
+Configurer le matériel habituel des actes de Chirurgie et donner un prix de vente aux produits concernés.
+Sans configuration, seule la parapharmacie est déclarable ; sans prix, la ligne sort du stock et reste
+« non facturée — à régulariser » par la Réception (ADR-103).
+
+La migration `2026_10_23_090000` se joue sur chaque site ; la base du portail n'a pas de file Pharmacie,
+mais la jouer partout garde les schémas alignés.

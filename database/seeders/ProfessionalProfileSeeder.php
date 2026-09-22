@@ -43,6 +43,25 @@ class ProfessionalProfileSeeder extends Seeder
                 ],
             ],
         ],
+        // ADR-168 — aucune permission recommandée : le socle SURGERY fait foi.
+        // SURGEON est le seul profil proposé comme chirurgien à la programmation.
+        'SURGERY' => [
+            'SURGEON' => [
+                'name' => 'Chirurgien / Chirurgienne',
+                'description' => 'Opère ; seul profil proposé comme chirurgien à la programmation du bloc.',
+                'permissions' => [],
+            ],
+            'OR_NURSE' => [
+                'name' => 'Infirmier / Infirmière de bloc',
+                'description' => 'Instrumentation et assistance au bloc opératoire.',
+                'permissions' => [],
+            ],
+            'SURGICAL_PARAMEDICAL' => [
+                'name' => 'Paramédical du bloc',
+                'description' => 'Personnel paramédical rattaché au bloc opératoire.',
+                'permissions' => [],
+            ],
+        ],
         'SUPPORT' => [
             'GUARD' => [
                 'name' => 'Gardien / Gardienne',

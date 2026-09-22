@@ -1,4 +1,5 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed } from 'vue';
 import Button from '@/Components/UI/Button.vue';
 import FormError from '@/Components/UI/FormError.vue';
@@ -39,8 +40,8 @@ const areaClass = 'block min-h-28 w-full rounded-xl border border-gray-200 bg-wh
 
                 <HrFormSection number="2" title="Constater la session" description="La sortie est facultative : laissez-la vide si la présence est toujours en cours." tone="violet">
                     <div class="grid gap-4 sm:grid-cols-2">
-                        <div><div class="mb-1.5 flex items-center justify-between gap-2"><label for="attendance_started_at" class="block text-sm font-medium text-slate-700 dark:text-white">Heure d’entrée <span class="text-red-500">*</span></label><button type="button" class="text-xs font-bold text-violet-600 hover:text-violet-700" @click="setNow('started_at')">Mettre maintenant</button></div><input id="attendance_started_at" v-model="form.started_at" type="datetime-local" :class="fieldClass" required><FormError v-if="form.errors.started_at">{{ form.errors.started_at }}</FormError></div>
-                        <div><div class="mb-1.5 flex items-center justify-between gap-2"><label for="attendance_ended_at" class="block text-sm font-medium text-slate-700 dark:text-white">Heure de sortie</label><button type="button" class="text-xs font-bold text-violet-600 hover:text-violet-700" @click="setNow('ended_at')">Clôturer maintenant</button></div><input id="attendance_ended_at" v-model="form.ended_at" type="datetime-local" :class="fieldClass"><FormError v-if="form.errors.ended_at">{{ form.errors.ended_at }}</FormError></div>
+                        <div><div class="mb-1.5 flex items-center justify-between gap-2"><label for="attendance_started_at" class="block text-sm font-medium text-slate-700 dark:text-white">Heure d’entrée <span class="text-red-500">*</span></label><button type="button" class="text-xs font-bold text-violet-600 hover:text-violet-700" @click="setNow('started_at')">Mettre maintenant</button></div><DateTimePicker id="attendance_started_at" v-model="form.started_at" required /><FormError v-if="form.errors.started_at">{{ form.errors.started_at }}</FormError></div>
+                        <div><div class="mb-1.5 flex items-center justify-between gap-2"><label for="attendance_ended_at" class="block text-sm font-medium text-slate-700 dark:text-white">Heure de sortie</label><button type="button" class="text-xs font-bold text-violet-600 hover:text-violet-700" @click="setNow('ended_at')">Clôturer maintenant</button></div><DateTimePicker id="attendance_ended_at" v-model="form.ended_at" /><FormError v-if="form.errors.ended_at">{{ form.errors.ended_at }}</FormError></div>
                     </div>
                 </HrFormSection>
 

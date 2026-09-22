@@ -1,4 +1,6 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
@@ -778,10 +780,10 @@ const careBloodPressure = computed(() => {
                                 <Input v-model="form.pregnancy_data.parity" type="number" min="0" max="30" />
                             </FormField>
                             <FormField label="Dernières règles" :error="form.errors['pregnancy_data.last_menstrual_period']">
-                                <Input v-model="form.pregnancy_data.last_menstrual_period" type="date" />
+                                <DatePicker v-model="form.pregnancy_data.last_menstrual_period" />
                             </FormField>
                             <FormField label="Terme estimé" :error="form.errors['pregnancy_data.estimated_due_date']">
-                                <Input v-model="form.pregnancy_data.estimated_due_date" type="date" />
+                                <DatePicker v-model="form.pregnancy_data.estimated_due_date" />
                             </FormField>
                         </div>
                         <ClinicalFieldHints :hints="contextHints" label="Repères sur la grossesse" @apply="applyDueDate" />
@@ -813,7 +815,7 @@ const careBloodPressure = computed(() => {
                     <template v-else-if="activeSection === 'labor'">
                         <div class="grid gap-4 md:grid-cols-3">
                             <FormField label="Début du travail" :error="form.errors['labor_data.started_at']">
-                                <Input v-model="form.labor_data.started_at" type="datetime-local" />
+                                <DateTimePicker v-model="form.labor_data.started_at" />
                                 <ClinicalFieldHints :hints="laborStartHints" label="Repères sur le début du travail" />
                             </FormField>
                             <FormField label="Membranes" :error="form.errors['labor_data.membranes_status']">
@@ -835,7 +837,7 @@ const careBloodPressure = computed(() => {
                     <template v-else-if="activeSection === 'delivery'">
                         <div class="grid gap-4 md:grid-cols-2">
                             <FormField label="Date et heure" :error="form.errors['delivery_data.occurred_at']">
-                                <Input v-model="form.delivery_data.occurred_at" type="datetime-local" />
+                                <DateTimePicker v-model="form.delivery_data.occurred_at" />
                                 <ClinicalFieldHints :hints="deliveryDateHints" label="Repères sur la date de l’accouchement" />
                             </FormField>
                             <FormField label="Voie d’accouchement" :error="form.errors['delivery_data.mode']">

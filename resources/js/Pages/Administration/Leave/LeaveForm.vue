@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
@@ -112,8 +113,8 @@ const areaClass = 'block min-h-32 w-full rounded-xl border border-gray-200 bg-wh
                 <HrFormSection number="2" title="Période et calcul automatique" description="Renseignez uniquement les dates. Le serveur calcule la durée et les soldes depuis l’historique validé." tone="amber">
                     <div class="grid gap-4 sm:grid-cols-3">
                         <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-900"><span class="text-xs font-medium text-slate-400">Date de demande</span><strong class="mt-1 flex items-center gap-2 text-sm text-slate-700 dark:text-white"><Icon name="lock" />{{ requestedDate }}</strong><p class="mt-1 text-[10px] leading-4 text-slate-400">Fixée par le serveur lors de l’enregistrement.</p></div>
-                        <div><label for="leave_starts_on" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Premier jour demandé <span class="text-red-500">*</span></label><input id="leave_starts_on" v-model="form.starts_on" type="date" :class="fieldClass" required><FormError v-if="form.errors.starts_on">{{ form.errors.starts_on }}</FormError></div>
-                        <div><label for="leave_returns_on" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Dernier jour demandé <span class="text-red-500">*</span></label><input id="leave_returns_on" v-model="form.returns_on" type="date" :class="fieldClass" required><FormError v-if="form.errors.returns_on">{{ form.errors.returns_on }}</FormError></div>
+                        <div><label for="leave_starts_on" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Premier jour demandé <span class="text-red-500">*</span></label><DatePicker id="leave_starts_on" v-model="form.starts_on" required /><FormError v-if="form.errors.starts_on">{{ form.errors.starts_on }}</FormError></div>
+                        <div><label for="leave_returns_on" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Dernier jour demandé <span class="text-red-500">*</span></label><DatePicker id="leave_returns_on" v-model="form.returns_on" required /><FormError v-if="form.errors.returns_on">{{ form.errors.returns_on }}</FormError></div>
                     </div>
 
                     <div v-if="previewLoading" class="mt-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/20"><Icon class="animate-spin" name="loader" />Calcul des jours et du solde…</div>

@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\Patient;
 use App\Models\PatientStaffLink;
 use App\Models\User;
+use App\Services\Administration\EmployeeAccountResolver;
 use App\Services\Administration\EmployeeAddressResolver;
 use App\Services\Administration\EmployeeIdentityNormalizer;
 use App\Services\Administration\EmployeePatientIdentityMapper;
@@ -23,6 +24,7 @@ class UpdateEmployeeAction
         private readonly EmployeePatientIdentityMapper $patientIdentityMapper,
         private readonly UpdatePatientAction $updatePatient,
         private readonly HrReferenceResolver $referenceResolver,
+        private readonly EmployeeAccountResolver $accountResolver,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -34,6 +36,7 @@ class UpdateEmployeeAction
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->getKey());
             $data = $this->identityNormalizer->normalize($data);
             $data = $this->referenceResolver->employeeData($data);
+            $data = $this->accountResolver->resolve($data, $employee);
             $data = $this->addressResolver->resolve($data, $actor, $employee);
 
             $staffLink = PatientStaffLink::query()

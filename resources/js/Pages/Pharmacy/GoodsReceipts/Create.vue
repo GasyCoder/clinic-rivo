@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
@@ -65,7 +66,7 @@ const submit = () => {
                     </label>
                     <label class="block">
                         <span :class="labelClass">Péremption</span>
-                        <input v-model="line.expires_at" type="date" :class="inputClass" :required="Number(line.quantity_received) > 0">
+                        <DatePicker v-model="line.expires_at" :required="Number(line.quantity_received) > 0" />
                     </label>
                     <label v-if="can.record_cost" class="block">
                         <span :class="labelClass">Prix d’achat par unité (MGA)</span>

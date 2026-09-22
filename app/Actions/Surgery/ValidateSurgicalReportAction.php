@@ -2,8 +2,11 @@
 
 namespace App\Actions\Surgery;
 
+use App\Enums\SurgicalRequestStatus;
 use App\Models\SurgicalReport;
+use App\Models\SurgicalRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ValidateSurgicalReportAction
@@ -13,21 +16,38 @@ class ValidateSurgicalReportAction
      * COMPLETED) — a validated operative report is the evidence the
      * intervention is clinically finished, same reasoning as
      * Episode::startCare() being triggered by a consultation happening.
+     *
+     * The case's own transition is checked BEFORE the report is touched, in
+     * one transaction: validating a report on a case that is not at the block
+     * used to save the report as validated and then fail on complete(),
+     * leaving a report nobody could correct on a case nobody could close.
      */
     public function execute(SurgicalReport $report): SurgicalReport
     {
-        if ($report->validated_at !== null) {
-            throw ValidationException::withMessages([
-                'report' => 'Ce compte rendu opératoire est déjà validé.',
-            ]);
-        }
+        return DB::transaction(function () use ($report): SurgicalReport {
+            $report = SurgicalReport::query()->lockForUpdate()->findOrFail($report->getKey());
 
-        $report->validated_by = Auth::id();
-        $report->validated_at = now();
-        $report->save();
+            if ($report->validated_at !== null) {
+                throw ValidationException::withMessages([
+                    'report' => 'Ce compte rendu opératoire est déjà validé.',
+                ]);
+            }
 
-        $report->surgicalRequest->complete();
+            $surgicalRequest = SurgicalRequest::query()->lockForUpdate()->findOrFail($report->surgical_request_id);
 
-        return $report;
+            if ($surgicalRequest->status !== SurgicalRequestStatus::InProgress) {
+                throw ValidationException::withMessages([
+                    'report' => 'Le compte rendu se valide une fois l’intervention démarrée : sa validation clôt l’intervention.',
+                ]);
+            }
+
+            $report->validated_by = Auth::id();
+            $report->validated_at = now();
+            $report->save();
+
+            $surgicalRequest->complete();
+
+            return $report->setRelation('surgicalRequest', $surgicalRequest);
+        });
     }
 }

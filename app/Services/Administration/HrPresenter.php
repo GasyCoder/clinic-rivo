@@ -61,6 +61,14 @@ class HrPresenter
                 ? $employee->addressEntry->active && ! $employee->addressEntry->trashed()
                 : true,
             'observation' => $employee->observation,
+            // ADR-168 — servi seulement quand la relation est chargée : la liste
+            // paginée ne paie pas une requête par ligne pour un champ de fiche.
+            'user_uuid' => $employee->relationLoaded('user') ? $employee->user?->uuid : null,
+            'user_account' => $employee->relationLoaded('user') && $employee->user ? [
+                'uuid' => $employee->user->uuid,
+                'name' => $employee->user->name,
+                'active' => $employee->user->active && ! $employee->user->deactivated_at,
+            ] : null,
             'archived' => $employee->trashed(),
             'deleted_at' => $employee->deleted_at?->toIso8601String(),
             'delete_reason' => $employee->delete_reason,

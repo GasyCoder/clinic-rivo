@@ -1,12 +1,15 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed, ref } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
-import Card from '@/Components/UI/Card.vue';
-import CardBody from '@/Components/UI/CardBody.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import CardBody from '@/Components/Shadcn/CardContent.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import Icon from '@/Components/Surgery/SurgeryIcon.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import Select from '@/Components/Shadcn/Select.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import ClinicalAccordionSection from '@/Components/Surgery/ClinicalAccordionSection.vue';
 import { useValidationNavigation } from '@/composables/useValidationNavigation';
@@ -46,6 +49,7 @@ const {
 } = useValidationNavigation(form, activeSection, sectionForError, formElement);
 
 const referenceByCode = computed(() => Object.fromEntries(props.referenceItems.map((item) => [item.code, item])));
+const referenceOptions = computed(() => props.referenceItems.map((item) => ({ value: item.code, label: item.name })));
 const categoryLabels = { MEDICATION: 'Médicament', MATERIAL: 'Matériel', TECHNIQUE: 'Technique', OTHER: 'Autre' };
 const addItem = () => {
     selectionError.value = '';
@@ -116,10 +120,7 @@ const validate = () => {
                     <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900">
                         <h3 class="mb-3 text-xs font-bold uppercase tracking-wide text-slate-400">Ajouter un élément</h3>
                         <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                            <select v-model="selectedCode" class="min-h-11 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white">
-                                <option value="">Choisir : Adrénaline, Kétamine, fil, lame…</option>
-                                <option v-for="item in referenceItems" :key="item.code" :value="item.code">{{ item.name }}</option>
-                            </select>
+                            <Select v-model="selectedCode" :options="referenceOptions" placeholder="Choisir : Adrénaline, Kétamine, fil, lame…" class="w-full" />
                             <Button size="lg" variant="white-outline" type="button" :disabled="!selectedCode" @click="addItem"><Icon name="plus" /><span class="ms-2">Ajouter</span></Button>
                         </div>
                         <p v-if="selectionError" class="mt-2 text-xs text-amber-600">{{ selectionError }}</p>
@@ -155,8 +156,8 @@ const validate = () => {
                         @toggle="activeSection = activeSection === 'observations' ? '' : 'observations'"
                     >
                     <section class="grid grid-cols-1 gap-4 rounded-md border border-violet-100 bg-violet-50/30 p-4 dark:border-violet-950 dark:bg-violet-950/10 lg:grid-cols-[minmax(0,2fr)_minmax(240px,1fr)]">
-                        <label class="text-sm text-slate-500">Conduite et observations<textarea v-model="form.notes" v-bind="fieldAttrs('notes')" rows="4" :class="['mt-1 block w-full resize-y rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white', invalidClass('notes')]" placeholder="Technique, incidents, observations peropératoires…"></textarea><FormError v-if="errorMessage('notes')" :id="errorId('notes')" :message="errorMessage('notes')" /></label>
-                        <label class="text-sm text-slate-500">Anesthésie administrée le<Input v-model="form.administered_at" v-bind="fieldAttrs('administered_at')" size="lg" type="datetime-local" /><FormError v-if="errorMessage('administered_at')" :id="errorId('administered_at')" :message="errorMessage('administered_at')" /></label>
+                        <label class="text-sm text-muted-foreground">Conduite et observations<Textarea v-model="form.notes" v-bind="fieldAttrs('notes')" rows="4" :class="invalidClass('notes')" placeholder="Technique, incidents, observations peropératoires…" /><FormError v-if="errorMessage('notes')" :id="errorId('notes')" :message="errorMessage('notes')" /></label>
+                        <label class="text-sm text-slate-500">Anesthésie administrée le<DateTimePicker v-model="form.administered_at" v-bind="fieldAttrs('administered_at')" size="lg" /><FormError v-if="errorMessage('administered_at')" :id="errorId('administered_at')" :message="errorMessage('administered_at')" /></label>
                     </section>
 
                     <div class="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-4 dark:border-gray-900">

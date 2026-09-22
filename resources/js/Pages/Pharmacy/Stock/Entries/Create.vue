@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -203,7 +204,7 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                             </label>
                             <label class="block">
                                 <span :class="labelClass">Date de réception</span>
-                                <input v-model="form.received_at" name="received_at" type="date" :class="inputClass">
+                                <DatePicker v-model="form.received_at" name="received_at" />
                             </label>
                             <label class="block">
                                 <span :class="labelClass">Provenance <span class="text-red-500">*</span></span>
@@ -253,7 +254,7 @@ const stepClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg 
                             </label>
                             <label class="block">
                                 <span :class="labelClass">Péremption <span class="text-red-500">*</span></span>
-                                <input v-model="draft.expires_at" type="date" :class="inputClass" :readonly="Boolean(existingLot)">
+                                <DatePicker v-model="draft.expires_at" :readonly="Boolean(existingLot)" />
                             </label>
                             <label class="block">
                                 <span :class="labelClass">Quantité reçue <span class="text-red-500">*</span></span>

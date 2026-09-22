@@ -191,6 +191,84 @@ class SurgeryFromStayTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->where('hospitalStay', null));
     }
 
+    public function test_the_list_of_inpatients_marks_who_goes_to_the_block(): void
+    {
+        $doctor = $this->doctor();
+        [, $stay] = $this->admitted($doctor);
+        [, $other] = $this->admitted($doctor);
+        $act = $this->act('SURG-ABCES', 'Abcès');
+        $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/bloc", [
+            'catalog_item_uuid' => $act->uuid,
+            'priority' => 'NORMAL',
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($doctor)->get('/hospitalisation')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('counts.active', 2)
+                ->where('counts.bloc', 1)
+                ->where('filter', null)
+                ->has('stays.data', 2)
+                ->where('stays.data', fn ($rows) => collect($rows)->firstWhere('uuid', $stay->uuid)['surgery']['status'] === 'PENDING'
+                    && collect($rows)->firstWhere('uuid', $stay->uuid)['surgery']['active'] === true
+                    && collect($rows)->firstWhere('uuid', $stay->uuid)['surgery']['procedure_name'] === 'Abcès'
+                    // Sans `surgery.view`, le fait est dit, le lien vers le bloc n'est pas proposé.
+                    && collect($rows)->firstWhere('uuid', $stay->uuid)['surgery']['url'] === null
+                    // Un patient sans passage au bloc n'a aucun repère, jamais un repère vide.
+                    && collect($rows)->firstWhere('uuid', $other->uuid)['surgery'] === null));
+
+        // La carte filtre : seuls les patients qui vont au bloc, ou y sont.
+        $this->actingAs($doctor)->get('/hospitalisation?filter=bloc')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('filter', 'bloc')
+                ->has('stays.data', 1)
+                ->where('stays.data.0.uuid', $stay->uuid));
+
+        // Un filtre inconnu ne filtre rien : un signet périmé ne vide pas la liste.
+        $this->actingAs($doctor)->get('/hospitalisation?filter=nimporte')
+            ->assertInertia(fn (Assert $page) => $page->where('filter', null)->has('stays.data', 2));
+
+        $withBlockRight = $this->userWith('MEDICINE_LEAD', ['hospitalization.view', 'surgery.view']);
+        $request = SurgicalRequest::query()->sole();
+        $this->actingAs($withBlockRight)->get('/hospitalisation?filter=bloc')
+            ->assertInertia(fn (Assert $page) => $page->where('stays.data.0.surgery.url', "/surgery/{$request->uuid}"));
+    }
+
+    public function test_the_list_shows_the_most_advanced_block_step_then_the_operation_once_done(): void
+    {
+        $doctor = $this->doctor();
+        [, $stay] = $this->admitted($doctor);
+        foreach (['SURG-ABCES' => 'Abcès', 'SURG-HERNIE-INGUINALE' => 'Hernie inguinale'] as $code => $name) {
+            $this->actingAs($doctor)->post("/hospitalisation/{$stay->uuid}/bloc", [
+                'catalog_item_uuid' => $this->act($code, $name)->uuid,
+                'priority' => 'NORMAL',
+            ])->assertSessionHasNoErrors();
+        }
+        $hernia = SurgicalRequest::query()->where('procedure_name', 'Hernie inguinale')->sole();
+        $abscess = SurgicalRequest::query()->where('procedure_name', 'Abcès')->sole();
+        $hernia->forceFill(['status' => SurgicalRequestStatus::InProgress])->save();
+
+        // Le patient en salle l'emporte ; l'autre demande ne disparaît pas.
+        $this->actingAs($doctor)->get('/hospitalisation')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('stays.data.0.surgery.status', 'IN_PROGRESS')
+                ->where('stays.data.0.surgery.procedure_name', 'Hernie inguinale')
+                ->where('stays.data.0.surgery.others', 1));
+
+        // Opéré, l'autre demande annulée : la liste dit l'opération, plus un passage au bloc en cours.
+        $hernia->forceFill(['status' => SurgicalRequestStatus::Completed, 'completed_at' => now()])->save();
+        $abscess->forceFill(['status' => SurgicalRequestStatus::Cancelled, 'cancelled_at' => now()])->save();
+
+        $this->actingAs($doctor)->get('/hospitalisation')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('counts.bloc', 0)
+                ->where('stays.data.0.surgery.status', 'COMPLETED')
+                ->where('stays.data.0.surgery.active', false)
+                ->where('stays.data.0.surgery.others', 0));
+
+        $this->actingAs($doctor)->get('/hospitalisation?filter=bloc')
+            ->assertInertia(fn (Assert $page) => $page->has('stays.data', 0));
+    }
+
     /** @return array{0: Episode, 1: HospitalStay} */
     private function admitted(User $doctor): array
     {

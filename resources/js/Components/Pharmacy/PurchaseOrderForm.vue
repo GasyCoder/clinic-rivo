@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -84,7 +85,7 @@ const submit = () => {
                     </label>
                     <label class="block">
                         <span :class="labelClass">Livraison attendue le</span>
-                        <input v-model="form.expected_delivery_at" type="date" :class="inputClass">
+                        <DatePicker v-model="form.expected_delivery_at" />
                     </label>
                     <label class="block">
                         <span :class="labelClass">Remarque</span>

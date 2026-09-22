@@ -15,10 +15,12 @@ use LogicException;
  * ADR-072 — what Soins actually used on the patient, notified to Pharmacy.
  * Never a prescription: Soins may not prescribe (client requirement of
  * 2026-09-10), which is why lines are restricted server-side to
- * MedicineForm::ParapharmacyConsumable.
+ * MedicineForm::ParapharmacyConsumable. ADR-142 et ADR-169 — la Maternité et
+ * le bloc empruntent le même circuit ; `source_module` dit qui a déclaré.
  */
 #[Fillable([
     'request_number', 'source_module', 'episode_id', 'care_orientation_id', 'care_record_id', 'maternity_record_id',
+    'surgical_request_id',
     'status', 'notes', 'requested_at', 'requested_by', 'served_at',
     'served_by', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
 ])]
@@ -63,10 +65,19 @@ class CareConsumableRequest extends Model
         return $this->belongsTo(MaternityRecord::class);
     }
 
-    /** Le service qui a déclaré ce matériel : Soins ou Maternité (ADR-142). */
+    public function surgicalRequest(): BelongsTo
+    {
+        return $this->belongsTo(SurgicalRequest::class);
+    }
+
+    /** Le service qui a déclaré ce matériel : Soins, Maternité (ADR-142) ou bloc (ADR-169). */
     public function sourceLabel(): string
     {
-        return $this->source_module === 'MATERNITY' ? 'Maternité' : 'Soins';
+        return match ($this->source_module) {
+            'MATERNITY' => 'Maternité',
+            'SURGERY' => 'Bloc opératoire',
+            default => 'Soins',
+        };
     }
 
     public function lines(): HasMany
@@ -91,6 +102,10 @@ class CareConsumableRequest extends Model
 
     protected function auditModule(): ?string
     {
-        return $this->source_module === 'MATERNITY' ? 'maternity' : 'care';
+        return match ($this->source_module) {
+            'MATERNITY' => 'maternity',
+            'SURGERY' => 'surgery',
+            default => 'care',
+        };
     }
 }

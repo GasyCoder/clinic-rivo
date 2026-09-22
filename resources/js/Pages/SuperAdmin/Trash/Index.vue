@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, reactive, ref } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -190,11 +191,11 @@ const formatDateTime = (value) => value
                     </label>
                     <label class="block">
                         <span class="mb-1.5 block text-xs font-medium text-muted-foreground">Du</span>
-                        <input v-model="filterValues.deleted_from" name="deleted_from" type="date" class="h-10 w-full rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary">
+                        <DatePicker v-model="filterValues.deleted_from" name="deleted_from" />
                     </label>
                     <label class="block">
                         <span class="mb-1.5 block text-xs font-medium text-muted-foreground">Au</span>
-                        <input v-model="filterValues.deleted_to" name="deleted_to" type="date" class="h-10 w-full rounded border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary">
+                        <DatePicker v-model="filterValues.deleted_to" name="deleted_to" />
                     </label>
                     <div class="flex h-10 items-center gap-2">
                         <Button size="rg" type="submit" :disabled="filtersProcessing"><component :class="{ 'animate-spin': filtersProcessing }" :is="filtersProcessing ? LoaderCircle : Filter" />{{ filtersProcessing ? 'Actualisation…' : 'Filtrer' }}</Button>

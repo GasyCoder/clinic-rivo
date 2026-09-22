@@ -22,7 +22,8 @@ const props = defineProps({
     summary: Object,
     pendingMedicines: { type: Array, default: () => [] },
     careConsumableOptions: { type: Array, default: () => [] },
-    maternityConsumableOptions: { type: Array, default: () => [] },
+    /** ADR-142 / ADR-169 — tout produit stockable, pour un acte de la Maternité ou de Chirurgie. */
+    stockableConsumableOptions: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -43,8 +44,9 @@ const careConsumableSearch = ref('');
 const careConsumableProcessing = ref(false);
 const careConsumableError = ref('');
 
-const isCareAct = (item) => item.type === 'SERVICE' && ['CARE', 'MATERNITY'].includes(item.module);
-const isMaternityAct = (item) => item.type === 'SERVICE' && item.module === 'MATERNITY';
+const isCareAct = (item) => item.type === 'SERVICE' && ['CARE', 'MATERNITY', 'SURGERY'].includes(item.module);
+/** La Maternité et le bloc posent de vrais produits : tout le stock leur est configurable. */
+const acceptsStockable = (item) => item.type === 'SERVICE' && ['MATERNITY', 'SURGERY'].includes(item.module);
 const openCareConsumables = (item) => {
     careConsumableTarget.value = item;
     careConsumableError.value = '';
@@ -61,7 +63,7 @@ const availableCareConsumables = computed(() => {
 
     // Un acte de la Maternité pose de vrais produits (DIU, implant, injectable) : tout
     // produit stockable peut lui être associé, là où les Soins n'ont que de la parapharmacie.
-    const options = isMaternityAct(careConsumableTarget.value ?? {}) ? props.maternityConsumableOptions : props.careConsumableOptions;
+    const options = acceptsStockable(careConsumableTarget.value ?? {}) ? props.stockableConsumableOptions : props.careConsumableOptions;
 
     return options.filter((option) => {
         if (chosen.has(option.medicine_uuid)) return false;
@@ -737,7 +739,7 @@ const formatDateTime = (value) => value
                             </button>
                             <div v-if="availableCareConsumables.length === 0" class="px-4 py-7 text-center">
                                 <Icon class="text-xl text-slate-300" name="search" />
-                                <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careConsumableSearch ? 'Aucun consommable trouvé' : ((isMaternityAct(careConsumableTarget ?? {}) ? maternityConsumableOptions : careConsumableOptions).length ? 'Tous les produits sont déjà proposés' : 'Aucun produit stockable n’est configuré en Pharmacie') }}</p>
+                                <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-300">{{ careConsumableSearch ? 'Aucun consommable trouvé' : ((acceptsStockable(careConsumableTarget ?? {}) ? stockableConsumableOptions : careConsumableOptions).length ? 'Tous les produits sont déjà proposés' : 'Aucun produit stockable n’est configuré en Pharmacie') }}</p>
                             </div>
                         </div>
                     </div>

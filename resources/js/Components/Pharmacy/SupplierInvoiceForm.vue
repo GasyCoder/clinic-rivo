@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -124,7 +125,7 @@ const submit = () => {
                     </label>
                     <label class="block">
                         <span :class="labelClass">Date de la facture <span class="text-red-500">*</span></span>
-                        <input v-model="form.invoice_date" type="date" :class="inputClass" required>
+                        <DatePicker v-model="form.invoice_date" required />
                     </label>
                     <label v-if="!detailed" class="block">
                         <span :class="labelClass">Montant total <span class="text-red-500">*</span></span>

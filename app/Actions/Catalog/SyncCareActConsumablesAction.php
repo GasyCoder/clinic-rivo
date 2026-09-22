@@ -9,6 +9,7 @@ use App\Models\CareActConsumable;
 use App\Models\CatalogItem;
 use App\Models\Medicine;
 use App\Services\Audit\Auditor;
+use App\Services\Care\CareConsumableDirectory;
 use App\Services\Catalog\CatalogActor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * ADR-072 — configures the material usually consumed by a nursing act.
  * ADR-142 — same for a Maternity act, with any stockable Pharmacy product.
+ * ADR-169 — same for a Surgery act (material used at the operating block).
  *
  * Catalogue configuration, so it requires `catalog.items.update` (ADR-024)
  * and is audited. It never touches stock, price, or any declaration already
@@ -36,11 +38,13 @@ class SyncCareActConsumablesAction
         return DB::transaction(function () use ($item, $lines, $actor): CatalogItem {
             $item = CatalogItem::query()->lockForUpdate()->findOrFail($item->getKey());
 
-            $isMaternity = $item->module === CatalogModule::Maternity;
+            // La Maternité et le bloc posent de vrais produits : tout produit
+            // stockable peut être configuré pour leurs actes (ADR-142, ADR-169).
+            $isMaternity = CareConsumableDirectory::acceptsConfiguredProducts($item->module);
 
             if ($item->type !== CatalogItemType::Service || ! ($isMaternity || $item->module === CatalogModule::Care)) {
                 throw ValidationException::withMessages([
-                    'catalog_item' => 'Seul un acte de soins ou de la Maternité peut recevoir du matériel habituel.',
+                    'catalog_item' => 'Seul un acte de soins, de la Maternité ou de Chirurgie peut recevoir du matériel habituel.',
                 ]);
             }
 
@@ -71,7 +75,7 @@ class SyncCareActConsumablesAction
             if ($medicines->count() !== $submitted->count()) {
                 throw ValidationException::withMessages([
                     'consumables' => $isMaternity
-                        ? 'Seuls les produits actifs et stockables de la Pharmacie peuvent être associés à un acte de la Maternité.'
+                        ? 'Seuls les produits actifs et stockables de la Pharmacie peuvent être associés à un acte de la Maternité ou de Chirurgie.'
                         : 'Seuls les consommables de parapharmacie actifs peuvent être associés à un acte de soins.',
                 ]);
             }

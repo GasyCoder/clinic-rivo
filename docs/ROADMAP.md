@@ -19,6 +19,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Configuration frontend
 - [x] Configuration base locale
 - [x] shadcn-vue comme design system par défaut (ADR-099) ; DashWind conservé en reliquat le temps des migrations
+- [x] Sélecteur de date et d'heure shadcn (`Shadcn/DateTimePicker`, calendrier `reka-ui` en français, colonnes Heure / Minutes), d'abord sur la programmation du bloc ; même valeur qu'un `datetime-local` (ADR-099)
+- [x] `Shadcn/DatePicker` (date seule) et migration de tous les champs date natifs de l'application (59) vers `DatePicker` / `DateTimePicker` ; test garde-fou contre leur retour (ADR-099)
+- [x] Sélecteur de date compact (242 × 296 px au lieu de ~390 × 317) : cases de 28 px, ligne Heure : Minutes sous le calendrier, bouton « Maintenant » ; cartes Voie veineuse / Sonde urinaire placées par requêtes de conteneur, plus aucun champ qui déborde ni date tronquée (ADR-099)
 - [x] Menu latéral fidèle au rendu serveur : l'ordre personnel et les vues liste/grille ne sont plus lus pendant le rendu, plus aucune ligne portant le libellé d'un module et le lien d'un autre (ADR-115)
 - [x] Entrées mères par module (Médecine, Réception, Référentiels) ; un seul enfant actif à la fois ; icônes revues (ADR-115)
 - [x] Marque de l'application unifiée dans la navigation : pastille d'initiales dérivées de `rivo.brand` et enseigne en majuscules, écrites une seule fois pour le bandeau latéral et la barre du haut
@@ -140,6 +143,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Onglets Mère · Bébé 1 · Bébé 2 sur le dossier médical, et un seul composant `NewbornDossiers` (Maternité, détail du passage) au lieu de trois blocs écrits à la main, hors du formulaire verrouillé (ADR-145)
 - [x] Sexe du bébé choisi dans la fenêtre de création quand la fiche ne le porte pas, puis écrit dans la fiche (ADR-145)
 - [x] Le bébé vit dans le dossier de sa mère et ne devient patient qu'à l'accueil : la Réception demande « accouchement chez nous ou ailleurs ? », cherche la mère, choisit le bébé dans son arborescence (ADR-146)
+- [x] Arrivée nouveau-né cohérente : né ici = recherche de la mère seulement ; né ailleurs = identité minimale du bébé, champs d'adulte refusés, parent/responsable porté par le passage (ADR-146, amendement du 2026-09-22)
 - [x] Nom et prénom du bébé saisis dans sa fiche Maternité (facultatifs) ; un bébé non prénommé se dit « Bébé 2 de RAKOTO », jamais un prénom inventé (ADR-146)
 - [x] Dossier médical d'un bébé lisible dès sa fiche, avant tout dossier patient (`/passages/{episode}/nouveau-nes/{uuid}/dossier-medical`), qui redirige vers son dossier patient dès qu'il en a un (ADR-146)
 - [x] Geste de création retiré de la Maternité : la sage-femme consigne le bébé, l'accueil ouvre son dossier patient (ADR-146)
@@ -286,6 +290,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Transférer au bloc depuis le séjour : le patient garde son lit (séjour ACTIVE, passage HOSPITALIZED), demande PENDING d'origine « Hospitalisation », intervention choisie, service/chambre/diagnostic d'entrée repris sans ressaisie (ADR-160)
 - [x] Défaut évité : passer par la consultation d'origine encore ouverte annulait le séjour — le patient perdait son lit (ADR-160)
 - [x] Le bloc et l'anesthésie savent qu'un lit attend : bandeau sur la fiche, pastille dans la file, lien vers le séjour avec `hospitalization.view` ; la page du séjour suit ses passages au bloc (ADR-160)
+- [x] La liste des hospitalisés marque qui va au bloc, qui y est et qui en revient (sous le nom, visible sur téléphone), avec une carte « Vers le bloc » qui filtre ; libellés partagés avec la page du séjour (ADR-160, amendement du 2026-09-21)
 - [ ] Paramètres du bloc / de l'anesthésie « selon les modèles » — captures attendues de la clinique (ADR-160)
 - [x] Transfert externe : le séjour se termine au départ du patient, constaté dans Transferts ; un seul circuit pour un patient au lit — la sortie « Transfert » ne lui est plus proposée (ADR-161)
 - [x] Motif de fin de chaque séjour (domicile, transfert, à la demande, refus, décès), repris pour les séjours déjà terminés depuis leur sortie réelle (ADR-161)
@@ -419,6 +424,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [ ] Retours
 - [x] File Pharmacie des consommables Soins avec sortie de stock FEFO respectant les réservations
 - [x] File « Consommables Soins » en shadcn (ADR-099) : compteurs partagés, fenêtre de sortie de stock par la primitive `Dialog`, tokens sémantiques
+- [x] La file des consommables reçoit aussi le matériel du bloc, origine « Bloc opératoire » sur la demande et le mouvement de stock (ADR-169)
 - [x] Ce que le patient doit pour ce matériel affiché sur la file Pharmacie — montant, facture et statut, en lecture seule (ADR-103)
 - [x] Ligne jamais facturée comptée et nommée (`unbilled_lines`) : l'échec de facturation, volontairement non bloquant, n'est plus silencieux (ADR-103)
 - [x] Définition des demandes de dispensation ouvertes écrite une seule fois (`PharmacyDispenseStatus::openValues()`), partagée par la file Pharmacie et le répertoire patients (ADR-119)
@@ -484,7 +490,16 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 - [x] 37 actes rendus sélectionnables à la Réception — « Autres », la césarienne (ADR-067), la consultation chirurgicale et la petite chirurgie écartées ; migration listant les codes explicitement, jamais tout le module (ADR-052, ADR-064)
 - [x] Origine de chaque demande affichée et tracée (`surgical_requests.origin` : Réception / Médecine / Maternité), nullable et jamais rétro-remplie ; état vide expliquant les deux chemins (ADR-159)
 - [x] Les trois garanties du catalogue (instantané du libellé, « Autres » à préciser, module respecté) déplacées sur la correction au bloc (`PUT /surgery/{demande}`) et testées là
-- [ ] Chirurgie · Show.vue (assistant 5 étapes) et les 10 composants de fiches à passer à shadcn
+- [x] Chirurgie · Show.vue refondu en assistant clinique shadcn à 5 étapes ; les fiches papier entrée, pré-anesthésie, paraclinique et sortie restent le vocabulaire métier, avec identité/âge cohérents et synthèse Soins sans ressaisie
+- [x] Dossier du bloc lu dans l'ordre de son workflow : étape à faire marquée, étapes en attente qui disent pourquoi, barre « Prochaine étape » qui ouvre le bon formulaire, en-tête compact, sections shadcn (ADR-048, amendement du 2026-09-22)
+- [x] Valider un compte rendu hors du bloc ne laisse plus un compte rendu à moitié validé (erreur 500 corrigée) ; « Valider » attend l'heure de fin, la sortie du bloc est proposée avant la sortie de Chirurgie (ADR-048)
+- [x] Dossier du bloc en deux colonnes : le geste de l'étape à gauche (Programmation → Équipe ; Feu vert → Entrée au bloc ; Intervention ; Compte rendu → Suivi → Complications → Sortie), le contexte à droite (Anesthésie, Demande, Soins), le patient hospitalisé en pastille à côté du statut ; états Fait / À faire / en attente, sections en attente repliées (ADR-048)
+- [ ] Refus serveur d'un compte rendu rédigé avant l'intervention ou validé sans heure de fin — règle à décider (ADR-048)
+- [x] Programmation à plusieurs chirurgiens : « Moi-même » pour un compte au profil Chirurgien, principal + aides (équipe de bloc), disponibilité lue sur le planning RH à l'heure choisie, indisponibles montrés verrouillés (ADR-168)
+- [x] Profils métier du rôle Chirurgie — Chirurgien, Infirmier de bloc, Paramédical — sans droit recommandé ; seul le profil Chirurgien est programmable (ADR-168)
+- [x] Équipe de bloc : chaque fonction ne propose que les comptes de son profil métier (Anesthésiste, Infirmier de bloc, Paramédical), refus serveur sinon, pas de doublon (ADR-168)
+- [ ] Attribuer le profil Chirurgien aux comptes SURGERY de chaque site depuis le portail — sans lui, aucune intervention ne se programme (ADR-168)
+- [ ] À décider : refuser aussi un chirurgien sans fiche RH reliée, contrôle de conflit d'horaire, durée d'intervention, ajout d'un chirurgien après le démarrage (ADR-168)
 - [ ] Pédiatrie · Index et Show à passer à shadcn
 - [x] Programmation
 - [x] Référentiel contrôlé des interventions avec choix « Autres » documenté
@@ -497,6 +512,8 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 - [x] Anesthésie
 - [x] Equipe bloc
 - [x] Consommables
+- [x] Consommables du bloc reliés au stock Pharmacie : produits de parapharmacie et matériel configuré pour l'acte, demande dans la file Pharmacie, sortie FEFO sans attendre le règlement, facturés en plus de l'intervention ; ligne « hors stock » conservée (ADR-169)
+- [ ] Configurer le matériel habituel des actes de Chirurgie et le prix de vente des produits concernés — configuration de la clinique (ADR-169)
 - [x] Compte rendu et verrouillage après validation
 - [x] Complications
 - [x] Entrée/sortie du bloc et suivi postopératoire structuré
@@ -545,6 +562,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Rapports RH
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé
+- [x] Fiche Employé reliée au compte de connexion (un compte, une fiche) : son planning RH dit quand la personne est disponible, sans créer de compte ni donner de droit (ADR-168)
 
 ---
 

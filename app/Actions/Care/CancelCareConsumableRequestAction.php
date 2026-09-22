@@ -63,12 +63,14 @@ class CancelCareConsumableRequestAction
             ]);
 
             $this->auditor->record(
-                'care.consumables.cancel',
+                // Le bloc a son propre module d'audit (ADR-169) ; Soins et
+                // Maternité gardent la trace qu'ils écrivaient déjà.
+                $request->source_module === 'SURGERY' ? 'surgery.consumables.cancel' : 'care.consumables.cancel',
                 entity: $request,
                 oldValues: ['status' => CareConsumableRequestStatus::Pending->value],
                 newValues: ['status' => CareConsumableRequestStatus::Cancelled->value],
                 reason: $reason,
-                module: 'care',
+                module: $request->source_module === 'SURGERY' ? 'surgery' : 'care',
                 actor: $actor,
             );
 

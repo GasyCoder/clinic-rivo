@@ -176,7 +176,7 @@ const confirmServe = () => {
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="font-mono text-xs font-bold text-foreground">{{ request.request_number }}</span>
                             <Badge :tone="statusTone(request.status)">{{ request.status_label }}</Badge>
-                            <!-- ADR-142 : le même circuit sert les Soins et la Maternité — l'origine se lit d'un coup d'œil. -->
+                            <!-- ADR-142 / ADR-169 : le même circuit sert les Soins, la Maternité et le bloc — l'origine se lit d'un coup d'œil. -->
                             <Badge variant="outline">{{ request.source_label }}</Badge>
                         </div>
                         <p class="mt-1.5 truncate text-sm font-bold text-foreground">
@@ -267,7 +267,7 @@ const confirmServe = () => {
                         ? 'Aucune demande ouverte ne porte ce patient, ce passage ou ce matériel.'
                         : (tab === 'partial'
                             ? 'Toutes les demandes ouvertes attendent encore leur première sortie de stock.'
-                            : 'Les Soins et la Maternité n’ont déclaré aucun matériel à sortir du stock.')"
+                            : 'Ni les Soins, ni la Maternité, ni le bloc n’ont déclaré de matériel à sortir du stock.')"
                 >
                     <Button v-if="tab === 'partial'" type="button" variant="outline" size="sm" @click="$emit('change-tab', 'to-serve')">
                         Voir toutes les demandes à servir
@@ -321,7 +321,7 @@ const confirmServe = () => {
                 v-else
                 icon="check-circle"
                 :title="searching ? 'Aucune demande ne correspond' : 'Tout est facturé'"
-                description="Chaque matériel déclaré aux Soins ou à la Maternité a été porté au compte de son passage."
+                description="Chaque matériel déclaré aux Soins, en Maternité ou au bloc a été porté au compte de son passage."
             >
                 <Button type="button" variant="outline" size="sm" @click="$emit('change-tab', 'to-serve')">
                     Revenir aux demandes à servir

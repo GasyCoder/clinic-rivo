@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -234,7 +235,7 @@ const stockTone = (medicine) => {
                     <div class="grid gap-3 sm:grid-cols-2">
                         <label class="block">
                             <span class="mb-1.5 block text-sm font-medium text-foreground">Livraison attendue</span>
-                            <input v-model="form.expected_delivery_at" type="date" class="h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25">
+                            <DatePicker v-model="form.expected_delivery_at" />
                         </label>
                         <label class="block">
                             <span class="mb-1.5 block text-sm font-medium text-foreground">Remarque</span>

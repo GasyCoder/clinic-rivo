@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -40,7 +41,7 @@ const groupedShifts = computed(() => {
         <section class="grid gap-3 sm:grid-cols-2"><HrStatCard label="Créneaux" :value="summary.shifts" hint="Sur la période affichée" icon="calendar" tone="sky" /><HrStatCard label="Employés planifiés" :value="summary.employees" hint="Personnel distinct" icon="users" tone="violet" /></section>
 
         <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
-            <form class="grid gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="filter"><div><label for="planning_from" class="mb-1.5 block text-xs font-bold text-slate-500">Du</label><input id="planning_from" v-model="from" type="date" class="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm dark:border-gray-800 dark:bg-gray-950"></div><div><label for="planning_to" class="mb-1.5 block text-xs font-bold text-slate-500">Au</label><input id="planning_to" v-model="to" type="date" class="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm dark:border-gray-800 dark:bg-gray-950"></div><Button class="self-end" size="rg">Afficher la période</Button></form>
+            <form class="grid gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="filter"><div><label for="planning_from" class="mb-1.5 block text-xs font-bold text-slate-500">Du</label><DatePicker id="planning_from" v-model="from" /></div><div><label for="planning_to" class="mb-1.5 block text-xs font-bold text-slate-500">Au</label><DatePicker id="planning_to" v-model="to" /></div><Button class="self-end" size="rg">Afficher la période</Button></form>
             <div v-if="groupedShifts.length" class="divide-y divide-gray-200 dark:divide-gray-900">
                 <section v-for="group in groupedShifts" :key="group.key">
                     <div class="flex items-center gap-2 bg-gray-50/70 px-5 py-2.5 dark:bg-gray-1000/30"><span class="h-2 w-2 rounded-full bg-sky-500" /><h2 class="text-xs font-bold capitalize text-slate-600 dark:text-slate-300">{{ group.label }}</h2><span class="ms-auto rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-slate-400 shadow-sm dark:bg-gray-950">{{ group.shifts.length }}</span></div>

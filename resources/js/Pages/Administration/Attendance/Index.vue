@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -33,8 +34,8 @@ const duration = (minutes) => minutes === null ? 'Ouverte' : `${Math.floor(minut
 
         <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <form class="grid gap-3 border-b border-gray-200 p-4 dark:border-gray-900 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr_auto]" @submit.prevent="filter">
-                <div><label for="attendance_from" class="mb-1.5 block text-xs font-bold text-slate-500">Du</label><input id="attendance_from" v-model="from" type="date" class="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm dark:border-gray-800 dark:bg-gray-950"></div>
-                <div><label for="attendance_to" class="mb-1.5 block text-xs font-bold text-slate-500">Au</label><input id="attendance_to" v-model="to" type="date" class="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm dark:border-gray-800 dark:bg-gray-950"></div>
+                <div><label for="attendance_from" class="mb-1.5 block text-xs font-bold text-slate-500">Du</label><DatePicker id="attendance_from" v-model="from" /></div>
+                <div><label for="attendance_to" class="mb-1.5 block text-xs font-bold text-slate-500">Au</label><DatePicker id="attendance_to" v-model="to" /></div>
                 <div><label for="attendance_employee" class="mb-1.5 block text-xs font-bold text-slate-500">Employé</label><select id="attendance_employee" v-model="employee" class="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white"><option value="">Tous les employés</option><option v-for="item in employees" :key="item.uuid" :value="item.uuid">{{ item.employee_number }} · {{ item.name }}</option></select></div>
                 <Button class="self-end" size="rg">Afficher</Button>
             </form>

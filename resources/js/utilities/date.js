@@ -32,6 +32,26 @@ export function formatDayTime(value) {
     return `${date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+/**
+ * Valeur d'un champ `datetime-local` (« AAAA-MM-JJTHH:mm », sans fuseau ni
+ * secondes), à l'heure locale — comme `formatDateTime` l'affiche.
+ *
+ * Une date sérialisée par Laravel est en UTC (« …T06:00:00.000000Z ») :
+ * découper la chaîne donnerait 06:00 là où l'écran affiche 09:00, et une
+ * correction enregistrerait l'heure décalée.
+ */
+export function toDatetimeLocalInput(value) {
+    if (!value) {
+        return '';
+    }
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime())
+        ? ''
+        : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 export function formatDateTime(value) {
     if (!value) {
         return null;

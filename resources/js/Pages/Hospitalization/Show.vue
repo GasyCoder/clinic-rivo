@@ -1,4 +1,6 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, onMounted, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -50,6 +52,7 @@ import {
 } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { doctorName } from '@/utilities/doctorName';
+import { surgeryStatus } from '@/utilities/surgicalRequestStatus';
 
 defineOptions({ layout: AppLayout });
 
@@ -318,17 +321,6 @@ const surgeryOpen = ref(false);
 const procedureQuery = ref('');
 const surgeryForm = useForm({ catalog_item_uuid: '', indication: '', priority: 'NORMAL', notes: '' });
 
-const SURGERY_STATUS = {
-    PENDING: { label: 'À programmer', variant: 'warning' },
-    SCHEDULED: { label: 'Programmée', variant: 'secondary' },
-    PREOPERATIVE_VALIDATED: { label: 'Bilan préop. validé', variant: 'secondary' },
-    IN_PROGRESS: { label: 'Au bloc', variant: 'warning' },
-    COMPLETED: { label: 'Opéré', variant: 'success' },
-    DISCHARGED: { label: 'Sorti du bloc', variant: 'outline' },
-    CANCELLED: { label: 'Annulée', variant: 'outline' },
-};
-const surgeryStatus = (status) => SURGERY_STATUS[status] ?? { label: status, variant: 'outline' };
-
 const fold = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const filteredProcedures = computed(() => {
     const query = fold(procedureQuery.value.trim());
@@ -546,7 +538,7 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                     <Input v-model="readingForm.temperature_celsius" type="number" step="0.1" inputmode="decimal" />
                 </FormField>
                 <FormField label="Mesuré le" hint="(maintenant si vide)" :error="readingForm.errors.measured_at">
-                    <Input v-model="readingForm.measured_at" type="datetime-local" />
+                    <DateTimePicker v-model="readingForm.measured_at" />
                 </FormField>
                 <div class="flex items-end">
                     <Button type="submit" size="sm" class="w-full" :disabled="readingForm.processing || !readingHasValue"><Plus class="h-4 w-4" />Ajouter</Button>
@@ -634,7 +626,7 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                         <tbody class="divide-y divide-border">
                             <template v-for="entry in stay.diet_entries" :key="entry.uuid">
                                 <tr v-if="editingUuid === entry.uuid" class="bg-accent/40 align-top">
-                                    <td class="px-2 py-2"><Input v-model="editEntry.served_on" type="date" aria-label="Jour" /></td>
+                                    <td class="px-2 py-2"><DatePicker v-model="editEntry.served_on" aria-label="Jour" /></td>
                                     <td class="px-2 py-2"><Input v-model="editEntry.served_time" type="time" aria-label="Heure" /></td>
                                     <td v-for="meal in MEALS" :key="meal.key" class="px-2 py-2"><Input v-model="editEntry[meal.key]" :aria-label="meal.label" maxlength="255" /></td>
                                     <td class="px-2 py-2"><Input v-model="editEntry.observation" aria-label="Observation" maxlength="2000" /></td>
@@ -666,7 +658,7 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                             <!-- La ligne d'ajout est la dernière ligne de la grille,
                                  comme on remplit la feuille papier. -->
                             <tr v-if="capabilities.can_add_diet" class="bg-muted/30 align-top">
-                                <td class="px-2 py-2"><Input v-model="newEntry.served_on" type="date" aria-label="Jour" /></td>
+                                <td class="px-2 py-2"><DatePicker v-model="newEntry.served_on" aria-label="Jour" /></td>
                                 <td class="px-2 py-2"><Input v-model="newEntry.served_time" type="time" aria-label="Heure" /></td>
                                 <td v-for="meal in MEALS" :key="meal.key" class="px-2 py-2"><Input v-model="newEntry[meal.key]" :placeholder="meal.label" :aria-label="meal.label" maxlength="255" /></td>
                                 <td class="px-2 py-2"><Input v-model="newEntry.observation" placeholder="Observation" aria-label="Observation" maxlength="2000" /></td>
@@ -836,7 +828,7 @@ const allergyLabel = computed(() => (props.stay.allergies.length ? props.stay.al
                 <FormField label="FC" :error="correctionForm.errors.heart_rate"><Input v-model="correctionForm.heart_rate" type="number" /></FormField>
                 <FormField label="SpO₂" :error="correctionForm.errors.spo2"><Input v-model="correctionForm.spo2" type="number" /></FormField>
                 <FormField label="Température" :error="correctionForm.errors.temperature_celsius"><Input v-model="correctionForm.temperature_celsius" type="number" step="0.1" /></FormField>
-                <FormField label="Mesuré le" :error="correctionForm.errors.measured_at"><Input v-model="correctionForm.measured_at" type="datetime-local" /></FormField>
+                <FormField label="Mesuré le" :error="correctionForm.errors.measured_at"><DateTimePicker v-model="correctionForm.measured_at" /></FormField>
                 <FormField label="Observation" class="sm:col-span-3" :error="correctionForm.errors.notes"><Input v-model="correctionForm.notes" maxlength="1000" /></FormField>
             </form>
             <template #footer>

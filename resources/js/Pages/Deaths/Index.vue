@@ -1,4 +1,6 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -380,7 +382,7 @@ const submitRecord = () => form.post(`/deces/${recording.value.uuid}/acte`, {
                         <Input id="death_cni_number" v-model="form.identity_document_number" maxlength="100" />
                     </FormField>
                     <FormField label="délivrée le" :error="form.errors.identity_document_issued_on">
-                        <Input id="death_cni_issued_on" v-model="form.identity_document_issued_on" type="date" />
+                        <DatePicker id="death_cni_issued_on" v-model="form.identity_document_issued_on" />
                     </FormField>
                     <FormField label="à" :error="form.errors.identity_document_issued_place">
                         <Input id="death_cni_issued_place" v-model="form.identity_document_issued_place" maxlength="255" />
@@ -391,7 +393,7 @@ const submitRecord = () => form.post(`/deces/${recording.value.uuid}/acte`, {
             <section v-show="currentStep === 2" class="space-y-3">
                 <div class="grid gap-3 sm:grid-cols-2">
                     <FormField label="Date et heure du décès" required :error="form.errors.death_occurred_at">
-                        <Input id="death_occurred_at" v-model="form.death_occurred_at" type="datetime-local" />
+                        <DateTimePicker id="death_occurred_at" v-model="form.death_occurred_at" />
                     </FormField>
                     <FormField label="Lieu du décès" required :error="form.errors.death_place">
                         <Input id="death_place" v-model="form.death_place" maxlength="255" />

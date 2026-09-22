@@ -22,7 +22,7 @@ test('la ligne de libellé a une hauteur fixe', () => {
 test('le sélecteur Date/Âge occupe le slot du libellé', () => {
     assert.match(field, /<slot name="action" \/>/);
 
-    const birth = create.slice(create.indexOf('label="Naissance ou âge"'));
+    const birth = create.slice(create.indexOf(":label=\"isExternalNewborn ? 'Naissance du bébé' : 'Naissance ou âge'\""));
     const block = birth.slice(0, birth.indexOf('</FormField>'));
 
     assert.match(block, /<template #action>/);

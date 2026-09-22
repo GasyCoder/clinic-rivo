@@ -8,8 +8,8 @@ use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
 use App\Enums\MedicineStockReservationStatus;
-use App\Models\CareConsumableRequest;
 use App\Models\CareActConsumable;
+use App\Models\CareConsumableRequest;
 use App\Models\CareConsumableRequestLine;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
@@ -44,11 +44,13 @@ class CareConsumableDirectory
      * Maternité   la parapharmacie, PLUS les produits que l'administration a
      *             explicitement configurés comme matériel habituel d'un acte de
      *             la Maternité (DIU, implant, injectable contraceptif…)
+     * Bloc        même règle pour les actes de Chirurgie (fils, drains, champs,
+     *             produits posés au bloc) — ADR-169
      * ```
      *
-     * La Maternité pose réellement ces produits — c'est la sage-femme qui insère
-     * le DIU —, mais elle ne les choisit pas librement dans tout le stock : la
-     * liste est une décision du référentiel, jamais une déduction (ADR-142).
+     * La Maternité et le bloc posent réellement ces produits, mais ne les
+     * choisissent pas librement dans tout le stock : la liste est une décision
+     * du référentiel, jamais une déduction (ADR-142, ADR-169).
      *
      * @return Builder<Medicine>
      */
@@ -59,9 +61,9 @@ class CareConsumableDirectory
             ->where(function (Builder $query) use ($service): void {
                 $query->where('form', MedicineForm::ParapharmacyConsumable->value);
 
-                if ($service === CatalogModule::Maternity) {
+                if (self::acceptsConfiguredProducts($service)) {
                     $query->orWhereIn('id', CareActConsumable::query()
-                        ->whereHas('catalogItem', fn ($item) => $item->where('module', CatalogModule::Maternity->value))
+                        ->whereHas('catalogItem', fn ($item) => $item->where('module', $service->value))
                         ->select('medicine_id'));
                 }
             })
@@ -69,6 +71,15 @@ class CareConsumableDirectory
                 ->where('type', CatalogItemType::Medicine->value)
                 ->where('module', CatalogModule::Pharmacy->value)
                 ->where('stockable', true));
+    }
+
+    /**
+     * Les services qui posent de vrais produits, au-delà de la parapharmacie :
+     * la liste est étendue par le matériel configuré pour leurs actes.
+     */
+    public static function acceptsConfiguredProducts(CatalogModule $service): bool
+    {
+        return in_array($service, [CatalogModule::Maternity, CatalogModule::Surgery], true);
     }
 
     /**
@@ -81,12 +92,13 @@ class CareConsumableDirectory
 
     /**
      * Tout produit actif et stockable de la Pharmacie : ce que l'administration
-     * peut associer à un acte de la Maternité (ADR-142). Réservé à l'écran de
-     * configuration du référentiel — jamais au poste de soins.
+     * peut associer à un acte de la Maternité (ADR-142) ou de Chirurgie
+     * (ADR-169). Réservé à l'écran de configuration du référentiel — jamais au
+     * poste de soins ni au bloc.
      *
      * @return Collection<int, array<string, mixed>>
      */
-    public function configurableForMaternity(): Collection
+    public function configurableStockable(): Collection
     {
         return $this->presentSelectable(Medicine::query()
             ->where('active', true)
@@ -155,6 +167,24 @@ class CareConsumableDirectory
         return $this->present(
             CareConsumableRequest::query()
                 ->where('care_orientation_id', $orientationId)
+                ->with($this->relations())
+                ->latest('requested_at')
+                ->latest('id')
+                ->get(),
+        );
+    }
+
+    /**
+     * Le matériel déclaré pour un dossier du bloc (ADR-169), le plus récent
+     * d'abord. Sans montant : le bloc ne voit ni ne saisit aucun prix (ADR-036).
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function forSurgicalRequest(int $surgicalRequestId): Collection
+    {
+        return $this->present(
+            CareConsumableRequest::query()
+                ->where('surgical_request_id', $surgicalRequestId)
                 ->with($this->relations())
                 ->latest('requested_at')
                 ->latest('id')

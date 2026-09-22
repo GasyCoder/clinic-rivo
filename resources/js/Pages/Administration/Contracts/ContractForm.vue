@@ -1,4 +1,5 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed } from 'vue';
 import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/UI/Icon.vue';
@@ -40,10 +41,10 @@ const areaClass = 'block min-h-28 w-full rounded-xl border border-gray-200 bg-wh
 
                 <HrFormSection number="3" title="Renseigner le calendrier" description="La période est enregistrée telle qu’elle est déclarée ; aucun renouvellement n’est généré automatiquement." tone="sky">
                     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        <div><label for="contract_signed" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Signature</label><input id="contract_signed" v-model="form.signed_on" type="date" :class="fieldClass"><FormError v-if="form.errors.signed_on">{{ form.errors.signed_on }}</FormError></div>
-                        <div><label for="contract_starts" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Début <span class="text-red-500">*</span></label><input id="contract_starts" v-model="form.starts_on" type="date" :class="fieldClass" required><FormError v-if="form.errors.starts_on">{{ form.errors.starts_on }}</FormError></div>
-                        <div><label for="contract_trial" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin d’essai</label><input id="contract_trial" v-model="form.trial_ends_on" type="date" :class="fieldClass"><FormError v-if="form.errors.trial_ends_on">{{ form.errors.trial_ends_on }}</FormError></div>
-                        <div><label for="contract_ends" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin du contrat</label><input id="contract_ends" v-model="form.ends_on" type="date" :class="fieldClass"><FormError v-if="form.errors.ends_on">{{ form.errors.ends_on }}</FormError></div>
+                        <div><label for="contract_signed" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Signature</label><DatePicker id="contract_signed" v-model="form.signed_on" /><FormError v-if="form.errors.signed_on">{{ form.errors.signed_on }}</FormError></div>
+                        <div><label for="contract_starts" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Début <span class="text-red-500">*</span></label><DatePicker id="contract_starts" v-model="form.starts_on" required /><FormError v-if="form.errors.starts_on">{{ form.errors.starts_on }}</FormError></div>
+                        <div><label for="contract_trial" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin d’essai</label><DatePicker id="contract_trial" v-model="form.trial_ends_on" /><FormError v-if="form.errors.trial_ends_on">{{ form.errors.trial_ends_on }}</FormError></div>
+                        <div><label for="contract_ends" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-white">Fin du contrat</label><DatePicker id="contract_ends" v-model="form.ends_on" /><FormError v-if="form.errors.ends_on">{{ form.errors.ends_on }}</FormError></div>
                     </div>
                 </HrFormSection>
 

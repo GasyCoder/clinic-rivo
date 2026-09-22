@@ -1,12 +1,13 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed, ref } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
-import Card from '@/Components/UI/Card.vue';
-import CardBody from '@/Components/UI/CardBody.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import CardBody from '@/Components/Shadcn/CardContent.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import Icon from '@/Components/Surgery/SurgeryIcon.vue';
+import Input from '@/Components/Shadcn/Input.vue';
 import { formatDateTime } from '@/utilities/date';
 import ClinicalAccordionSection from './ClinicalAccordionSection.vue';
 import DynamicTreatmentTable from './DynamicTreatmentTable.vue';
@@ -80,7 +81,7 @@ const awakeningLabels = {
                             :complete="vitalsComplete"
                             @toggle="activeSection = activeSection === 'vitals' ? '' : 'vitals'"
                         >
-                            <div class="grid gap-3 sm:grid-cols-2"><label class="text-xs text-slate-500">Heure d’entrée<Input v-model="exitForm.block_entered_at" size="lg" type="datetime-local" /></label><label class="text-xs text-slate-500">Heure de sortie<Input v-model="exitForm.block_exited_at" size="lg" type="datetime-local" /></label></div>
+                            <div class="grid gap-3 sm:grid-cols-2"><label class="text-xs text-slate-500">Heure d’entrée<DateTimePicker v-model="exitForm.block_entered_at" size="lg" /></label><label class="text-xs text-slate-500">Heure de sortie<DateTimePicker v-model="exitForm.block_exited_at" size="lg" /></label></div>
                             <div class="mt-4 overflow-x-auto rounded-md border border-gray-200 dark:border-gray-900">
                                 <table class="w-full min-w-[720px] border-collapse text-sm">
                                     <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Paramètre</th><th class="px-3 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Entrée</th><th class="px-3 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Sortie</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Unité</th></tr></thead>
@@ -128,7 +129,7 @@ const awakeningLabels = {
                 >
                     <section>
                         <form v-if="canEditPostoperative" class="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8" @submit.prevent="submitObservation">
-                            <Input v-model="observationForm.observed_at" type="datetime-local" required />
+                            <DateTimePicker v-model="observationForm.observed_at" required />
                             <Input v-model="observationForm.diuresis_quantity" type="number" min="0" step="0.01" placeholder="Diurèse" />
                             <Input v-model="observationForm.diuresis_unit" placeholder="Unité" />
                             <Input v-model="observationForm.temperature_celsius" type="number" min="25" max="45" step="0.01" placeholder="T° °C" />

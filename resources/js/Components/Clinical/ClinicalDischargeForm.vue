@@ -1,4 +1,5 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed, ref, watch } from 'vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import ClinicalSegmentedChoice from '@/Components/Clinical/ClinicalSegmentedChoice.vue';
@@ -315,7 +316,7 @@ const legendClass = 'mb-3 text-[11px] font-semibold uppercase tracking-wide text
             <span class="text-muted-foreground">Décision datée du</span>
             <strong class="text-foreground">{{ formatHuman(form.discharged_at) }}</strong>
             <button v-if="!editingDate" type="button" class="font-semibold text-primary hover:underline disabled:opacity-50" :disabled="disabled" @click="editingDate = true">Changer</button>
-            <IconInput v-else id="discharged_at" v-model="form.discharged_at" class="w-56" :icon="CalendarDays" type="datetime-local" :disabled="disabled" />
+            <DateTimePicker v-else id="discharged_at" v-model="form.discharged_at" class="w-56" :disabled="disabled" />
                 <FormError class="w-full" :message="form.errors.discharged_at" />
             </div>
         </section>

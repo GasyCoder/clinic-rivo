@@ -1,12 +1,16 @@
 <script setup>
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref } from 'vue';
 import { useForm } from '@inertiajs/vue3';
-import Button from '@/Components/UI/Button.vue';
-import Card from '@/Components/UI/Card.vue';
-import CardBody from '@/Components/UI/CardBody.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import Card from '@/Components/Shadcn/Card.vue';
+import CardBody from '@/Components/Shadcn/CardContent.vue';
 import FormError from '@/Components/UI/FormError.vue';
-import Icon from '@/Components/UI/Icon.vue';
-import Input from '@/Components/UI/Input.vue';
+import Icon from '@/Components/Surgery/SurgeryIcon.vue';
+import Input from '@/Components/Shadcn/Input.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import TriStateChoice from '@/Components/Surgery/TriStateChoice.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import ClinicalAccordionSection from '@/Components/Surgery/ClinicalAccordionSection.vue';
 import { useValidationNavigation } from '@/composables/useValidationNavigation';
@@ -43,6 +47,7 @@ const gynecoDefaults = {
     parity_status: '', obstetric_hemorrhage: '', notes: '',
 };
 const existing = record.value?.consultation_data ?? {};
+const selectValue = (value) => value === null || value === undefined ? '' : String(value);
 const form = useForm({
     consultation_data: {
         admission_reason: '', tobacco: '', alcohol: '', other_toxic_exposure: '',
@@ -55,13 +60,27 @@ const form = useForm({
         other_prosthesis: '', last_meal_time: '', last_drink_time: '',
         neuropsychological_status: '',
         ...existing,
-        gyneco_obstetric: { ...gynecoDefaults, ...(existing.gyneco_obstetric ?? {}) },
+        neuropsychological_status: selectValue(existing.neuropsychological_status),
+        gyneco_obstetric: {
+            ...gynecoDefaults,
+            ...(existing.gyneco_obstetric ?? {}),
+            contraception: selectValue(existing.gyneco_obstetric?.contraception),
+            delivery_route: selectValue(existing.gyneco_obstetric?.delivery_route),
+            parity_status: selectValue(existing.gyneco_obstetric?.parity_status),
+        },
         clinical_exam: { ...clinicalDefaults, ...(existing.clinical_exam ?? {}) },
     },
 });
 
-const inputClass = 'mt-1 block min-h-11 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
-const textareaClass = `${inputClass} resize-y`;
+const contraceptionOptions = [{ value: 'ORAL', label: 'Orale' }, { value: 'INJECTION', label: 'Injection' }];
+const deliveryOptions = [{ value: 'VAGINAL', label: 'Voie basse' }, { value: 'CESAREAN', label: 'Césarienne' }];
+const parityOptions = [{ value: 'PRIMIPAROUS', label: 'Primipare' }, { value: 'MULTIPAROUS', label: 'Multipare' }];
+const neuropsychologicalOptions = [
+    { value: 'CALM', label: 'Calme' },
+    { value: 'RELAXED', label: 'Détendu(e)' },
+    { value: 'ANXIOUS', label: 'Anxieux(se)' },
+    { value: 'AGITATED', label: 'Agité(e)' },
+];
 const assessmentLocked = computed(() => Boolean(record.value?.assessment_validated_at));
 const canEdit = computed(() => !assessmentLocked.value && (record.value ? props.canUpdate : props.canCreate));
 const isFemale = computed(() => String(patient.value.sex ?? '') === 'F');
@@ -158,7 +177,7 @@ const submit = (nextSection = null) => {
                     <section class="rounded-md border border-emerald-100 bg-emerald-50/40 p-4 dark:border-emerald-950 dark:bg-emerald-950/20">
                         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             <label class="text-sm font-medium text-slate-600 dark:text-slate-300">Motif d’entrée
-                                <textarea v-model="form.consultation_data.admission_reason" v-bind="fieldAttrs('consultation_data.admission_reason')" rows="2" :class="[textareaClass, invalidClass('consultation_data.admission_reason')]" placeholder="Motif clinique de l’admission"></textarea>
+                                <Textarea v-model="form.consultation_data.admission_reason" v-bind="fieldAttrs('consultation_data.admission_reason')" rows="2" :class="invalidClass('consultation_data.admission_reason')" placeholder="Motif clinique de l’admission" />
                                 <FormError v-if="errorMessage('consultation_data.admission_reason')" :id="errorId('consultation_data.admission_reason')" :message="errorMessage('consultation_data.admission_reason')" />
                             </label>
                             <div class="rounded-md border border-emerald-100 bg-white/70 px-4 py-3 text-sm dark:border-emerald-950 dark:bg-gray-950/50">
@@ -184,16 +203,16 @@ const submit = (nextSection = null) => {
                                         {{ condition[1] }}
                                     </label>
                                 </div>
-                                <div><textarea v-model="form.consultation_data.medical_history_notes" v-bind="fieldAttrs('consultation_data.medical_history_notes')" rows="3" :class="[textareaClass, invalidClass('consultation_data.medical_history_notes')]" placeholder="Autres antécédents ou précisions"></textarea><FormError v-if="errorMessage('consultation_data.medical_history_notes')" :id="errorId('consultation_data.medical_history_notes')" :message="errorMessage('consultation_data.medical_history_notes')" /></div>
+                                <div><Textarea v-model="form.consultation_data.medical_history_notes" v-bind="fieldAttrs('consultation_data.medical_history_notes')" rows="3" :class="invalidClass('consultation_data.medical_history_notes')" placeholder="Autres antécédents ou précisions" /><FormError v-if="errorMessage('consultation_data.medical_history_notes')" :id="errorId('consultation_data.medical_history_notes')" :message="errorMessage('consultation_data.medical_history_notes')" /></div>
                                 <div class="grid grid-cols-2 gap-2"><div><Input v-model="form.consultation_data.cough_duration" v-bind="fieldAttrs('consultation_data.cough_duration')" placeholder="Durée de la toux" /><FormError v-if="errorMessage('consultation_data.cough_duration')" :id="errorId('consultation_data.cough_duration')" :message="errorMessage('consultation_data.cough_duration')" /></div><div><Input v-model="form.consultation_data.sputum" v-bind="fieldAttrs('consultation_data.sputum')" placeholder="Crachat" /><FormError v-if="errorMessage('consultation_data.sputum')" :id="errorId('consultation_data.sputum')" :message="errorMessage('consultation_data.sputum')" /></div></div>
                                 <div><Input v-model="form.consultation_data.pain_notes" v-bind="fieldAttrs('consultation_data.pain_notes')" placeholder="Description de la douleur" /><FormError v-if="errorMessage('consultation_data.pain_notes')" :id="errorId('consultation_data.pain_notes')" :message="errorMessage('consultation_data.pain_notes')" /></div>
                             </div>
 
                             <div class="space-y-4 p-4">
                                 <h4 class="text-xs font-bold uppercase text-slate-400">Anesthésiques et chirurgicaux</h4>
-                                <label class="block text-sm text-slate-500">Antécédents anesthésiques<textarea v-model="form.consultation_data.anesthetic_history" v-bind="fieldAttrs('consultation_data.anesthetic_history')" rows="4" :class="[textareaClass, invalidClass('consultation_data.anesthetic_history')]"></textarea><FormError v-if="errorMessage('consultation_data.anesthetic_history')" :id="errorId('consultation_data.anesthetic_history')" :message="errorMessage('consultation_data.anesthetic_history')" /></label>
-                                <label class="block text-sm text-slate-500">Antécédents chirurgicaux<textarea v-model="form.consultation_data.surgical_history" v-bind="fieldAttrs('consultation_data.surgical_history')" rows="4" :class="[textareaClass, invalidClass('consultation_data.surgical_history')]"></textarea><FormError v-if="errorMessage('consultation_data.surgical_history')" :id="errorId('consultation_data.surgical_history')" :message="errorMessage('consultation_data.surgical_history')" /></label>
-                                <label class="block text-sm text-slate-500">Incident antérieur<textarea v-model="form.consultation_data.anesthetic_incidents" v-bind="fieldAttrs('consultation_data.anesthetic_incidents')" rows="3" :class="[textareaClass, invalidClass('consultation_data.anesthetic_incidents')]"></textarea><FormError v-if="errorMessage('consultation_data.anesthetic_incidents')" :id="errorId('consultation_data.anesthetic_incidents')" :message="errorMessage('consultation_data.anesthetic_incidents')" /></label>
+                                <label class="block text-sm text-muted-foreground">Antécédents anesthésiques<Textarea v-model="form.consultation_data.anesthetic_history" v-bind="fieldAttrs('consultation_data.anesthetic_history')" rows="4" :class="invalidClass('consultation_data.anesthetic_history')" /><FormError v-if="errorMessage('consultation_data.anesthetic_history')" :id="errorId('consultation_data.anesthetic_history')" :message="errorMessage('consultation_data.anesthetic_history')" /></label>
+                                <label class="block text-sm text-muted-foreground">Antécédents chirurgicaux<Textarea v-model="form.consultation_data.surgical_history" v-bind="fieldAttrs('consultation_data.surgical_history')" rows="4" :class="invalidClass('consultation_data.surgical_history')" /><FormError v-if="errorMessage('consultation_data.surgical_history')" :id="errorId('consultation_data.surgical_history')" :message="errorMessage('consultation_data.surgical_history')" /></label>
+                                <label class="block text-sm text-muted-foreground">Incident antérieur<Textarea v-model="form.consultation_data.anesthetic_incidents" v-bind="fieldAttrs('consultation_data.anesthetic_incidents')" rows="3" :class="invalidClass('consultation_data.anesthetic_incidents')" /><FormError v-if="errorMessage('consultation_data.anesthetic_incidents')" :id="errorId('consultation_data.anesthetic_incidents')" :message="errorMessage('consultation_data.anesthetic_incidents')" /></label>
                             </div>
 
                             <div class="space-y-4 p-4">
@@ -204,12 +223,12 @@ const submit = (nextSection = null) => {
                                     <label class="text-xs text-slate-500">Accouchements (P)<Input v-model="form.consultation_data.gyneco_obstetric.para" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.para')" type="number" min="0" max="30" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.para')" :id="errorId('consultation_data.gyneco_obstetric.para')" :message="errorMessage('consultation_data.gyneco_obstetric.para')" /></label>
                                     <label class="text-xs text-slate-500">Avortements (A)<Input v-model="form.consultation_data.gyneco_obstetric.abortion" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.abortion')" type="number" min="0" max="30" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.abortion')" :id="errorId('consultation_data.gyneco_obstetric.abortion')" :message="errorMessage('consultation_data.gyneco_obstetric.abortion')" /></label>
                                 </div>
-                                <label class="block text-sm text-slate-500">DDR<Input v-model="form.consultation_data.gyneco_obstetric.last_menstrual_period" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.last_menstrual_period')" type="date" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.last_menstrual_period')" :id="errorId('consultation_data.gyneco_obstetric.last_menstrual_period')" :message="errorMessage('consultation_data.gyneco_obstetric.last_menstrual_period')" /></label>
-                                <div class="grid grid-cols-2 gap-2"><label class="text-xs text-slate-500">Contraception<select v-model="form.consultation_data.gyneco_obstetric.contraception" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.contraception')" :class="[inputClass, invalidClass('consultation_data.gyneco_obstetric.contraception')]"><option value="">Non renseignée</option><option value="ORAL">Orale</option><option value="INJECTION">Injection</option></select><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.contraception')" :id="errorId('consultation_data.gyneco_obstetric.contraception')" :message="errorMessage('consultation_data.gyneco_obstetric.contraception')" /></label><label class="text-xs text-slate-500">Date<Input v-model="form.consultation_data.gyneco_obstetric.contraception_date" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.contraception_date')" type="date" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.contraception_date')" :id="errorId('consultation_data.gyneco_obstetric.contraception_date')" :message="errorMessage('consultation_data.gyneco_obstetric.contraception_date')" /></label></div>
-                                <div class="grid grid-cols-2 gap-2"><label class="text-xs text-slate-500">Accouchement<select v-model="form.consultation_data.gyneco_obstetric.delivery_route" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.delivery_route')" :class="[inputClass, invalidClass('consultation_data.gyneco_obstetric.delivery_route')]"><option value="">Non renseigné</option><option value="VAGINAL">Voie basse</option><option value="CESAREAN">Césarienne</option></select><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.delivery_route')" :id="errorId('consultation_data.gyneco_obstetric.delivery_route')" :message="errorMessage('consultation_data.gyneco_obstetric.delivery_route')" /></label><label class="text-xs text-slate-500">Date<Input v-model="form.consultation_data.gyneco_obstetric.delivery_date" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.delivery_date')" type="date" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.delivery_date')" :id="errorId('consultation_data.gyneco_obstetric.delivery_date')" :message="errorMessage('consultation_data.gyneco_obstetric.delivery_date')" /></label></div>
-                                <label class="block text-sm text-slate-500">Parité<select v-model="form.consultation_data.gyneco_obstetric.parity_status" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.parity_status')" :class="[inputClass, invalidClass('consultation_data.gyneco_obstetric.parity_status')]"><option value="">Non renseignée</option><option value="PRIMIPAROUS">Primipare</option><option value="MULTIPAROUS">Multipare</option></select><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.parity_status')" :id="errorId('consultation_data.gyneco_obstetric.parity_status')" :message="errorMessage('consultation_data.gyneco_obstetric.parity_status')" /></label>
-                                <label class="block text-sm text-slate-500">Hémorragie obstétricale<select v-model="form.consultation_data.gyneco_obstetric.obstetric_hemorrhage" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" :class="[inputClass, invalidClass('consultation_data.gyneco_obstetric.obstetric_hemorrhage')]"><option value="">Non renseignée</option><option :value="true">Oui</option><option :value="false">Non</option></select><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" :id="errorId('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" :message="errorMessage('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" /></label>
-                                <textarea v-model="form.consultation_data.gyneco_obstetric.notes" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.notes')" rows="2" :class="[textareaClass, invalidClass('consultation_data.gyneco_obstetric.notes')]" placeholder="Précisions"></textarea>
+                                <label class="block text-sm text-slate-500">DDR<DatePicker v-model="form.consultation_data.gyneco_obstetric.last_menstrual_period" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.last_menstrual_period')" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.last_menstrual_period')" :id="errorId('consultation_data.gyneco_obstetric.last_menstrual_period')" :message="errorMessage('consultation_data.gyneco_obstetric.last_menstrual_period')" /></label>
+                                <div class="grid grid-cols-2 gap-2"><label class="text-xs text-muted-foreground">Contraception<Select v-model="form.consultation_data.gyneco_obstetric.contraception" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.contraception')" :options="contraceptionOptions" placeholder="Non renseignée" :class="['mt-1 w-full', invalidClass('consultation_data.gyneco_obstetric.contraception')]" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.contraception')" :id="errorId('consultation_data.gyneco_obstetric.contraception')" :message="errorMessage('consultation_data.gyneco_obstetric.contraception')" /></label><label class="text-xs text-muted-foreground">Date<DatePicker v-model="form.consultation_data.gyneco_obstetric.contraception_date" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.contraception_date')" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.contraception_date')" :id="errorId('consultation_data.gyneco_obstetric.contraception_date')" :message="errorMessage('consultation_data.gyneco_obstetric.contraception_date')" /></label></div>
+                                <div class="grid grid-cols-2 gap-2"><label class="text-xs text-muted-foreground">Accouchement<Select v-model="form.consultation_data.gyneco_obstetric.delivery_route" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.delivery_route')" :options="deliveryOptions" placeholder="Non renseigné" :class="['mt-1 w-full', invalidClass('consultation_data.gyneco_obstetric.delivery_route')]" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.delivery_route')" :id="errorId('consultation_data.gyneco_obstetric.delivery_route')" :message="errorMessage('consultation_data.gyneco_obstetric.delivery_route')" /></label><label class="text-xs text-muted-foreground">Date<DatePicker v-model="form.consultation_data.gyneco_obstetric.delivery_date" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.delivery_date')" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.delivery_date')" :id="errorId('consultation_data.gyneco_obstetric.delivery_date')" :message="errorMessage('consultation_data.gyneco_obstetric.delivery_date')" /></label></div>
+                                <label class="block text-sm text-muted-foreground">Parité<Select v-model="form.consultation_data.gyneco_obstetric.parity_status" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.parity_status')" :options="parityOptions" placeholder="Non renseignée" :class="['mt-1 w-full', invalidClass('consultation_data.gyneco_obstetric.parity_status')]" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.parity_status')" :id="errorId('consultation_data.gyneco_obstetric.parity_status')" :message="errorMessage('consultation_data.gyneco_obstetric.parity_status')" /></label>
+                                <label class="block text-sm text-muted-foreground" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.obstetric_hemorrhage')">Hémorragie obstétricale<TriStateChoice v-model="form.consultation_data.gyneco_obstetric.obstetric_hemorrhage" empty-label="Non renseignée" /><FormError v-if="errorMessage('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" :id="errorId('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" :message="errorMessage('consultation_data.gyneco_obstetric.obstetric_hemorrhage')" /></label>
+                                <Textarea v-model="form.consultation_data.gyneco_obstetric.notes" v-bind="fieldAttrs('consultation_data.gyneco_obstetric.notes')" rows="2" :class="invalidClass('consultation_data.gyneco_obstetric.notes')" placeholder="Précisions" />
                                 <FormError v-if="errorMessage('consultation_data.gyneco_obstetric.notes')" :id="errorId('consultation_data.gyneco_obstetric.notes')" :message="errorMessage('consultation_data.gyneco_obstetric.notes')" />
                             </div>
                         </div>
@@ -255,7 +274,7 @@ const submit = (nextSection = null) => {
                     <section class="grid grid-cols-1 gap-4 rounded-md border border-gray-200 bg-gray-50 p-4 dark:border-gray-900 dark:bg-gray-1000 lg:grid-cols-3">
                         <label class="text-sm text-slate-500">Heure du dernier repas<Input v-model="form.consultation_data.last_meal_time" v-bind="fieldAttrs('consultation_data.last_meal_time')" size="lg" type="time" /><FormError v-if="errorMessage('consultation_data.last_meal_time')" :id="errorId('consultation_data.last_meal_time')" :message="errorMessage('consultation_data.last_meal_time')" /></label>
                         <label class="text-sm text-slate-500">Heure de la dernière boisson<Input v-model="form.consultation_data.last_drink_time" v-bind="fieldAttrs('consultation_data.last_drink_time')" size="lg" type="time" /><FormError v-if="errorMessage('consultation_data.last_drink_time')" :id="errorId('consultation_data.last_drink_time')" :message="errorMessage('consultation_data.last_drink_time')" /></label>
-                        <label class="text-sm text-slate-500">État neuropsychologique<select v-model="form.consultation_data.neuropsychological_status" v-bind="fieldAttrs('consultation_data.neuropsychological_status')" :class="[inputClass, invalidClass('consultation_data.neuropsychological_status')]"><option value="">Non renseigné</option><option value="CALM">Calme</option><option value="RELAXED">Détendu(e)</option><option value="ANXIOUS">Anxieux(se)</option><option value="AGITATED">Agité(e)</option></select><FormError v-if="errorMessage('consultation_data.neuropsychological_status')" :id="errorId('consultation_data.neuropsychological_status')" :message="errorMessage('consultation_data.neuropsychological_status')" /></label>
+                        <label class="text-sm text-muted-foreground">État neuropsychologique<Select v-model="form.consultation_data.neuropsychological_status" v-bind="fieldAttrs('consultation_data.neuropsychological_status')" :options="neuropsychologicalOptions" placeholder="Non renseigné" :class="['mt-1 w-full', invalidClass('consultation_data.neuropsychological_status')]" /><FormError v-if="errorMessage('consultation_data.neuropsychological_status')" :id="errorId('consultation_data.neuropsychological_status')" :message="errorMessage('consultation_data.neuropsychological_status')" /></label>
                     </section>
 
                     <div v-if="canEdit" class="flex justify-end border-t border-gray-100 pt-4 dark:border-gray-900">

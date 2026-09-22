@@ -64,7 +64,35 @@ test('la Réception demande l\'origine de l\'accouchement et retrouve le bébé 
 
     // L'écran d'arrivée en fait un patient sélectionné, comme n'importe quel patient existant.
     assert.match(reception, /patientMode === 'newborn'/);
-    assert.match(reception, /@select="newbornSelected" @external="chooseNewPatient"/);
+    assert.match(reception, /@select="newbornSelected"/);
+    assert.match(reception, /@internal="chooseInternalNewborn"/);
+    assert.match(reception, /@external="chooseExternalNewborn"/);
+});
+
+test('un nouveau-né né ici ne voit aucun formulaire patient, celui né ailleurs reçoit une identité de bébé', () => {
+    const picker = fs.readFileSync('resources/js/Components/Reception/NewbornPicker.vue', 'utf8');
+
+    assert.match(reception, /v-if="patientMode === 'create' \|\| isExternalNewborn"/);
+    assert.match(reception, /registration_context: 'EXTERNAL_NEWBORN'/);
+    assert.match(reception, /Identité du nouveau-né né ailleurs/);
+    assert.match(reception, /v-if="!isExternalNewborn" label="Téléphone"/);
+    assert.match(reception, /v-if="!isExternalNewborn" label="Email"/);
+    assert.match(reception, /v-if="!isExternalNewborn" label="Profession"/);
+    assert.match(reception, /v-if="!isExternalNewborn" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"/);
+    assert.match(reception, /Parent ou responsable à joindre/);
+    assert.match(picker, /emit\('internal'\)/);
+    assert.match(picker, /emit\('external'\)/);
+});
+
+test('naissance, sexe et domicile du bébé restent sur la même rangée large', () => {
+    const birthAt = reception.indexOf(":label=\"isExternalNewborn ? 'Naissance du bébé' : 'Naissance ou âge'\"");
+    const rowStart = reception.lastIndexOf('<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
+    const nextRow = reception.indexOf('<div v-if="!isExternalNewborn" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
+    const row = reception.slice(rowStart, nextRow);
+
+    assert.notEqual(rowStart, -1);
+    assert.match(row, /label="Sexe"/);
+    assert.match(row, /Domicile familial/);
 });
 
 test('un bébé qui a son dossier ne peut plus être retiré du dossier Maternité', () => {

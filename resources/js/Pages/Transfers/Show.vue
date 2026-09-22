@@ -1,4 +1,5 @@
 <script setup>
+import DateTimePicker from '@/Components/Shadcn/DateTimePicker.vue';
 import { computed, ref } from 'vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -246,7 +247,7 @@ const RICH_FIELDS = [
                 </datalist>
             </FormField>
             <FormField label="Date et heure du départ" required :error="departureForm.errors.departed_at">
-                <Input v-model="departureForm.departed_at" type="datetime-local" />
+                <DateTimePicker v-model="departureForm.departed_at" />
             </FormField>
             <FormField label="Observations" hint="Facultatif — moyen de transport, accompagnant…" :error="departureForm.errors.departure_notes">
                 <Textarea v-model="departureForm.departure_notes" :rows="2" maxlength="3000" />

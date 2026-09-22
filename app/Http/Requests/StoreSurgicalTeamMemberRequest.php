@@ -24,7 +24,20 @@ class StoreSurgicalTeamMemberRequest extends FormRequest
                     ->where('active', true)
                     ->whereNull('deactivated_at')),
             ],
-            'function' => ['required', new Enum(SurgicalTeamFunction::class)],
+            // ADR-168 — un chirurgien entre dans l'équipe par la programmation
+            // (profil Chirurgien, planning RH), jamais par ce formulaire libre.
+            'function' => [
+                'required',
+                new Enum(SurgicalTeamFunction::class),
+                Rule::notIn([SurgicalTeamFunction::Surgeon->value]),
+            ],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'function.not_in' => 'Les chirurgiens se choisissent avec la programmation de l’intervention (profil Chirurgien, planning RH).',
         ];
     }
 }

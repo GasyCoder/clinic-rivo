@@ -268,8 +268,10 @@ class MaternityWorkspaceTest extends TestCase
         ]);
         $this->assertSame(0, SurgicalIntervention::query()->count());
 
+        // ADR-168 — seul un compte au profil Chirurgien se programme comme chirurgien.
         $surgeon = User::factory()->create([
             'role_id' => Role::query()->where('code', 'SURGERY')->value('id'),
+            'professional_profile_id' => ProfessionalProfile::query()->where('code', 'SURGEON')->value('id'),
         ]);
         $this->actingAs($surgeon);
         app(ScheduleSurgicalRequestAction::class)->execute($request, $surgeon, '2026-09-02 08:00:00');

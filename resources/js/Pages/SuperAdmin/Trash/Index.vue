@@ -4,7 +4,7 @@ import { computed, reactive, ref } from 'vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
-import { Filter, LoaderCircle, RotateCcw, Search, Server, Trash2 } from 'lucide-vue-next';
+import { Filter, Lock, LoaderCircle, RotateCcw, Search, Server, Trash2 } from 'lucide-vue-next';
 import { lucideIcon } from '@/lib/icons';
 import { usePermissions } from '@/composables/usePermissions';
 
@@ -234,14 +234,36 @@ const formatDateTime = (value) => value
                         <p>{{ formatDateTime(record.deleted_at) }}</p>
                         <p class="mt-0.5 truncate text-[11px] text-muted-foreground">par {{ record.deleted_by }}</p>
                     </div>
-                    <p class="line-clamp-2 pe-4 text-xs leading-5 text-muted-foreground" :title="record.delete_reason">{{ record.delete_reason || 'Aucun motif renseigné' }}</p>
+                    <div class="pe-4">
+                        <p class="line-clamp-2 text-xs leading-5 text-muted-foreground" :title="record.delete_reason">{{ record.delete_reason || 'Aucun motif renseigné' }}</p>
+                        <p v-if="!record.can_force_delete && (record.force_delete_blockers ?? []).length" class="mt-0.5 text-[11px] leading-4 text-amber-600 dark:text-amber-400">
+                            Conservé : {{ record.force_delete_blockers.join(', ') }}
+                        </p>
+                    </div>
                     <div class="flex justify-end">
                         <Button v-if="can('trash.restore') && record.can_restore" size="sm" variant="white-outline" type="button" @click="openRestore(record)">
                             <RotateCcw class="h-4 w-4" />Restaurer
                         </Button>
-                        <Button v-if="can('trash.force_delete')" size="sm" variant="white-outline" type="button" class="ms-2 text-destructive hover:bg-destructive/10" title="Supprimer définitivement" @click="openDestroy(record)">
+                        <!-- ADR-061 — un bouton qui serait refusé ne s'affiche pas :
+                             le site dit ce qui retient l'élément, et on le lit ici. -->
+                        <Button
+                            v-if="can('trash.force_delete') && record.can_force_delete"
+                            size="sm"
+                            variant="white-outline"
+                            type="button"
+                            class="ms-2 text-destructive hover:bg-destructive/10"
+                            title="Supprimer définitivement"
+                            @click="openDestroy(record)"
+                        >
                             <Trash2 class="h-4 w-4" />
                         </Button>
+                        <span
+                            v-else-if="can('trash.force_delete')"
+                            class="ms-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                            :title="`A déjà servi : ${(record.force_delete_blockers ?? []).join(', ')}. Cet élément reste restaurable.`"
+                        >
+                            <Lock class="h-3.5 w-3.5" />A servi
+                        </span>
                     </div>
                 </article>
             </div>
@@ -270,7 +292,7 @@ const formatDateTime = (value) => value
                     </div>
                 </div>
                 <p class="mt-4 rounded border border-border bg-muted/50 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
-                    Le site refusera si cet élément a déjà servi — une commande, une réception, un prix ou un mouvement de stock. Dans ce cas il reste dans la corbeille, restaurable.
+                    Le site a vérifié que rien ne s’y rattache — ni commande, ni réception, ni prix, ni mouvement de stock. Il le revérifie à l’enregistrement.
                 </p>
                 <p v-for="error in Object.values(destroyForm.errors)" :key="error" class="mt-3 text-xs text-red-600">{{ error }}</p>
                 <div class="mt-5 flex justify-end gap-3">

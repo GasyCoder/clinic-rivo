@@ -4791,6 +4791,16 @@ ni médicament, ni lot, ni fournisseur, ni commande. Les deux seeders restent
 appelables nommément pour qui veut une chaîne d'approvisionnement de
 démonstration.
 
+**Retour en arrière, puis rétablissement (2026-09-22).** Le 2026-09-21, le
+propriétaire avait demandé l'inverse — que `migrate:fresh --seed` recrée des
+médicaments, « de quoi essayer une ordonnance » — et `DevelopmentSeeder`
+appelait de nouveau `DevelopmentMedicineStockSeeder`. Le 2026-09-22 il
+revient à la règle de cette ADR : la Pharmacie se saisit avec de vraies
+données. Le seeder quitte donc `DevelopmentSeeder` **et** le banc local de
+l'ADR-043 (`rivo:local-apis` ne peuple plus « stock Pharmacie de test ») ; il
+reste appelable nommément. Un test le garde : après `DevelopmentSeeder`,
+`medicines`, `medicine_lots` et `medicine_suppliers` sont vides.
+
 Pour vider une base déjà remplie, `php artisan rivo:pharmacy-reset` efface le
 domaine entier — fournisseurs, catalogues et leurs fichiers, prix, commandes,
 réceptions, factures fournisseur, stock, lots, mouvements, médicaments et
@@ -14731,14 +14741,14 @@ l'ancien nom reste lisible à l'audit (`CatalogItem` est `Auditable`).
 
 ---
 
-# ADR-113 — Réceptionner n'est pas ranger : dates serveur, écran unique d'entrée en stock
+# ADR-171 — Réceptionner n'est pas ranger : dates serveur, écran unique d'entrée en stock
 
 **Status:** ACCEPTED (2026-09-22 — exigences explicites du propriétaire)
 
 **Amende l'ADR-097** sur un point central : « la réception appelle
 directement `RecordStockEntryAction` … ce qui crée le lot, le mouvement de
 stock immuable et incrémente `quantity_received` ». La réception ne crée plus
-aucun mouvement de stock. Complète l'ADR-098 (module Pharmacie) et l'ADR-112
+aucun mouvement de stock. Complète l'ADR-098 (module Pharmacie) et l'ADR-170
 (deux prix) sans modifier l'ADR-012, l'ADR-013 ni l'ADR-049.
 
 ## Aucune date du système ne se saisit
@@ -14778,7 +14788,7 @@ Entrée en stock (stock.entry)     le lot est créé, le mouvement immuable
 `stocked_at` est nul ; `RecordReceivedStockAction` la verrouille, refuse une
 ligne déjà entrée en nommant qui l'a rangée et quand, puis appelle
 `RecordStockEntryAction` **inchangée** — mêmes règles de lot, même FEFO, même
-prix d'achat, celui de la réception (ADR-112).
+prix d'achat, celui de la réception (ADR-170).
 
 Tant que rien n'est entré, la ligne reste corrigible : une quantité changée
 au rangement met à jour la ligne de réception **et** la commande, dont le
@@ -14804,7 +14814,7 @@ donnée du fournisseur, pas une règle inventée. Aucun workflow de paiement
 fournisseur n'est créé — la Pharmacie n'encaisse ni ne paie (ADR-013).
 
 Le montant proposé à la saisie est celui de ce qui a été reçu, et seulement
-avec `stock.cost.view` : il révèle le coût d'achat (ADR-112). C'est une aide,
+avec `stock.cost.view` : il révèle le coût d'achat (ADR-170). C'est une aide,
 jamais une vérité : le papier du fournisseur fait foi.
 
 ## Un tableau plein, une recherche qui filtre
@@ -14855,7 +14865,7 @@ et enregistrées par migration puisqu'un site en production ne rejoue plus
 ```text
 « Nouveau produit »     à la réception et à l'entrée : ce produit n'a jamais
                         été reçu ni rangé — c'est là qu'on lui donne son nom
-                        à la pharmacie (ADR-112) et son prix de vente
+                        à la pharmacie (ADR-170) et son prix de vente
 « Facture en attente »  la livraison est enregistrée, son papier non
 « N en attente »        ce qui est reçu mais pas encore rangé
 ```
@@ -14870,6 +14880,6 @@ fenêtre de confirmation de l'application, qui nomme ce qui va se passer.
 La délivrance et sa règle « le stock ne sort qu'après règlement » (ADR-049),
 les consommables Soins (ADR-072), la réservation FEFO (ADR-036), la
 confidentialité du prix d'achat et le prix de vente fixé par la Pharmacie
-(ADR-112). La réception reste au site, jamais au portail (ADR-098) : c'est la
+(ADR-170). La réception reste au site, jamais au portail (ADR-098) : c'est la
 personne qui a la marchandise sous les yeux qui lit les lots. La Pharmacie
 n'encaisse toujours rien.

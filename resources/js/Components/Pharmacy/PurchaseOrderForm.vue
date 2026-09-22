@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -27,7 +28,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
  *
  * Le numéro et la date de commande ne se saisissent pas : le numéro est
  * attribué à l'enregistrement, la date est celle de l'envoi au fournisseur
- * (ADR-113). L'écran les montre, il ne les demande pas.
+ * (ADR-171). L'écran les montre, il ne les demande pas.
  */
 const props = defineProps({
     // null quand la page fixe le fournisseur.
@@ -258,7 +259,7 @@ const chip = (active) => cn(
                         <button type="button" :class="chip(false)" @click="customDelivery = true">Autre date</button>
                     </dd>
                     <dd v-else class="flex items-center gap-2">
-                        <Input v-model="form.expected_delivery_at" type="date" :min="today" />
+                        <DatePicker v-model="form.expected_delivery_at" :min="today" />
                         <Button type="button" size="sm" variant="ghost" @click="form.expected_delivery_at = ''; customDelivery = false">Retour</Button>
                     </dd>
                     <dd v-if="form.expected_delivery_at" class="mt-1 text-xs text-muted-foreground">Attendue le {{ formatDate(form.expected_delivery_at) }}</dd>

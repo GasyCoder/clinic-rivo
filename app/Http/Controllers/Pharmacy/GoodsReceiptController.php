@@ -48,7 +48,7 @@ class GoodsReceiptController extends Controller
                 'order_number' => $receipt->purchaseOrder->order_number,
                 'lines_count' => $receipt->lines_count,
                 'awaiting_stock_count' => $receipt->awaiting_stock_count,
-                // ADR-113 — sans facture, la réception l'attend.
+                // ADR-171 — sans facture, la réception l'attend.
                 'invoice_pending' => $receipt->invoices_count === 0,
             ]);
 
@@ -63,7 +63,7 @@ class GoodsReceiptController extends Controller
     }
 
     /**
-     * ADR-113 — un assistant en deux étapes : ce qui est arrivé, puis la
+     * ADR-171 — un assistant en deux étapes : ce qui est arrivé, puis la
      * facture du fournisseur. La seconde peut attendre.
      */
     public function create(Request $request, PurchaseOrder $purchaseOrder): Response
@@ -106,7 +106,7 @@ class GoodsReceiptController extends Controller
                         'quantity_remaining' => $line->quantityRemaining(),
                         // Jamais reçu ni rangé : un produit nouveau pour la clinique.
                         'is_new' => ! $stocked->has($line->medicine_id) && ! $received->has($line->medicine_id),
-                        // ADR-112 — le prix d'achat est confidentiel.
+                        // ADR-170 — le prix d'achat est confidentiel.
                         'unit_price' => $seeCost ? $line->unit_price : null,
                     ])->values(),
             ],
@@ -195,7 +195,7 @@ class GoodsReceiptController extends Controller
         ]);
     }
 
-    /** ADR-113 — la facture d'une réception enregistrée sans elle. */
+    /** ADR-171 — la facture d'une réception enregistrée sans elle. */
     public function createInvoice(Request $request, GoodsReceipt $goodsReceipt): Response
     {
         abort_unless($request->user()?->can('supplier_invoices.create'), 403);
@@ -232,7 +232,7 @@ class GoodsReceiptController extends Controller
     /**
      * Le montant que la réception laisse attendre, proposé à la saisie de la
      * facture — jamais imposé : c'est le papier du fournisseur qui fait foi.
-     * Il révèle le coût d'achat : seulement avec `stock.cost.view` (ADR-112).
+     * Il révèle le coût d'achat : seulement avec `stock.cost.view` (ADR-170).
      */
     private function proposedTotal(GoodsReceipt $receipt, User $user): ?string
     {

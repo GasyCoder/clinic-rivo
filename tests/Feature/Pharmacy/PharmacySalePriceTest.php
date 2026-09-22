@@ -20,7 +20,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * ADR-112 — the pharmacy sets the sale price of its medicines, and nothing
+ * ADR-170 — the pharmacy sets the sale price of its medicines, and nothing
  * else: never a service price, never the Mutual grid.
  */
 class PharmacySalePriceTest extends TestCase

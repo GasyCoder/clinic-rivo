@@ -45,6 +45,8 @@ class DevelopmentTestAccountSeeder extends Seeder
         'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'medicine_supplier_offers.update',
         'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
         'purchase_orders.submit', 'purchase_orders.cancel',
+        // ADR-171 — corbeille d'un brouillon, et entrée en stock de ce qui a été reçu.
+        'purchase_orders.delete', 'purchase_orders.restore',
         'goods_receipts.view', 'goods_receipts.create',
         'supplier_invoices.view', 'supplier_invoices.create',
         'supplier_invoices.update', 'supplier_invoices.delete', 'supplier_invoices.restore',

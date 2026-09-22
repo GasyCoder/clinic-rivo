@@ -114,7 +114,7 @@ class StockWorkflowTest extends TestCase
     private function delivery(array $entries): array
     {
         return [
-            // ADR-113 — la date d'entrée est celle du serveur ; le rangement
+            // ADR-171 — la date d'entrée est celle du serveur ; le rangement
             // et le motif se déduisent de la provenance quand ils manquent.
             'origin' => 'Bon de livraison BL-204',
             'entries' => $entries,

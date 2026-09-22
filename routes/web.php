@@ -459,7 +459,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // ADR-098 — a whole delivery, checked line by line, recorded at once.
     Route::post('/pharmacy/stock/entries/batch', [PharmacyStockController::class, 'storeEntries'])
         ->name('pharmacy.stock.entries.batch')->middleware('can:stock.entry');
-    // ADR-113 — les lignes réceptionnées entrent au stock.
+    // ADR-171 — les lignes réceptionnées entrent au stock.
     Route::post('/pharmacy/stock/entries/received', [PharmacyStockController::class, 'storeReceived'])
         ->name('pharmacy.stock.entries.received')->middleware('can:stock.entry');
     Route::get('/pharmacy/stock/inventory', [PharmacyStockController::class, 'inventory'])
@@ -511,7 +511,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.medicines.edit')->middleware('can:medicines.update');
     Route::put('/pharmacy/medicines/{medicine}', [PharmacyMedicineController::class, 'update'])
         ->name('pharmacy.medicines.update')->middleware('can:medicines.update');
-    // ADR-112 — the pharmacy sets its own sale price, nothing else.
+    // ADR-170 — the pharmacy sets its own sale price, nothing else.
     Route::put('/pharmacy/medicines/{medicine}/sale-price', [PharmacyMedicineController::class, 'updateSalePrice'])
         ->name('pharmacy.medicines.sale-price')->middleware('can:medicines.sale_price.update');
     Route::post('/pharmacy/medicines/{medicine}/deactivate', [PharmacyMedicineController::class, 'deactivate'])
@@ -609,7 +609,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.receipts.index')->middleware('can:goods_receipts.view');
     Route::get('/pharmacy/receipts/{goodsReceipt}', [GoodsReceiptController::class, 'show'])
         ->name('pharmacy.receipts.show')->middleware('can:goods_receipts.view');
-    // ADR-113 — la facture d'une réception enregistrée sans elle.
+    // ADR-171 — la facture d'une réception enregistrée sans elle.
     Route::get('/pharmacy/receipts/{goodsReceipt}/invoice', [GoodsReceiptController::class, 'createInvoice'])
         ->name('pharmacy.receipts.invoice.create')->middleware('can:supplier_invoices.create');
     Route::post('/pharmacy/receipts/{goodsReceipt}/invoice', [GoodsReceiptController::class, 'storeInvoice'])

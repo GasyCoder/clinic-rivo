@@ -63,9 +63,9 @@ class PurchaseOrderLifecycleTest extends TestCase
         'purchase_orders.submit', 'purchase_orders.cancel',
         'goods_receipts.view', 'goods_receipts.create',
         'supplier_invoices.view', 'supplier_invoices.create',
-        // ADR-113 — un brouillon jamais envoyé peut partir à la corbeille.
+        // ADR-171 — un brouillon jamais envoyé peut partir à la corbeille.
         'purchase_orders.delete', 'purchase_orders.restore', 'trash.view', 'trash.restore',
-        // ADR-112 — correcting a purchase price at reception is a cost
+        // ADR-170 — correcting a purchase price at reception is a cost
         // decision, never part of the PHARMACY role.
         'stock.cost.record',
     ];
@@ -419,7 +419,7 @@ class PurchaseOrderLifecycleTest extends TestCase
     }
 
     /**
-     * ADR-113 — réceptionner ne fait rien entrer au stock : c'est un second
+     * ADR-171 — réceptionner ne fait rien entrer au stock : c'est un second
      * geste, qui reprend les lignes encore en attente.
      */
     private function enterStock(PurchaseOrder $order, ?User $actor = null): TestResponse
@@ -495,7 +495,7 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->assertSame('PARTIALLY_RECEIVED', $order->status->value);
         $this->assertSame(80, $line->fresh()->quantity_received);
 
-        // ADR-113 — la marchandise entre au stock par le second geste.
+        // ADR-171 — la marchandise entre au stock par le second geste.
         $this->enterStock($order)->assertRedirect();
 
         $firstMovement = PharmacyStockMovement::query()->sole();
@@ -588,7 +588,7 @@ class PurchaseOrderLifecycleTest extends TestCase
 
         $this->enterStock($order, $limitedUser)->assertRedirect();
 
-        // ADR-112 — the purchase price is never asked again: it is the order's.
+        // ADR-170 — the purchase price is never asked again: it is the order's.
         $this->assertSame('10.00', PharmacyStockMovement::query()->sole()->unit_purchase_price);
         $this->assertSame('10.00', $order->receipts()->sole()->lines()->sole()->unit_purchase_price);
     }

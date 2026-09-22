@@ -4,7 +4,7 @@ namespace App\Http\Requests\Pharmacy;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** ADR-113 — la facture d'une réception : un document global, sans ressaisir les produits. */
+/** ADR-171 — la facture d'une réception : un document global, sans ressaisir les produits. */
 class StoreReceiptInvoiceRequest extends FormRequest
 {
     public function authorize(): bool

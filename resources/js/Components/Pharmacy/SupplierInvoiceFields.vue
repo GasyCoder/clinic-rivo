@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { CalendarDays, FileText, Paperclip, X } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { cn } from '@/lib/cn';
@@ -9,7 +10,7 @@ import { formatDate } from '@/utilities/date';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
 /**
- * ADR-113 — les informations d'une facture fournisseur, telles qu'elles sont
+ * ADR-171 — les informations d'une facture fournisseur, telles qu'elles sont
  * imprimées sur son papier : numéro, montant, éventuelle échéance.
  *
  * La date est celle du jour et ne se saisit pas ; elle ne s'ouvre que si la
@@ -84,7 +85,7 @@ const chip = (active) => cn(
                 <button type="button" class="text-xs font-semibold text-primary hover:underline" @click="customDate = true">Autre date</button>
             </div>
             <div v-else class="flex items-center gap-2">
-                <Input v-model="form.invoice_date" type="date" :max="today" />
+                <DatePicker v-model="form.invoice_date" :max="today" />
                 <Button type="button" size="icon" variant="ghost" aria-label="Revenir à aujourd’hui" @click="form.invoice_date = today; customDate = false"><X class="h-4 w-4" /></Button>
             </div>
             <span v-if="error('invoice_date')" class="mt-1 block text-xs text-destructive">{{ error('invoice_date') }}</span>
@@ -103,7 +104,7 @@ const chip = (active) => cn(
                 <button type="button" :class="chip(false)" @click="customDue = true">Autre date</button>
             </div>
             <div v-else class="flex items-center gap-2">
-                <Input v-model="form.due_date" type="date" :min="form.invoice_date" />
+                <DatePicker v-model="form.due_date" :min="form.invoice_date" />
                 <Button type="button" size="icon" variant="ghost" aria-label="Revenir aux délais habituels" @click="form.due_date = ''; customDue = false"><X class="h-4 w-4" /></Button>
             </div>
             <span v-if="form.due_date && !customDue" class="mt-1 block text-xs text-muted-foreground">À payer avant le {{ formatDate(form.due_date) }}</span>

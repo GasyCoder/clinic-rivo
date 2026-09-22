@@ -55,8 +55,13 @@ class DevelopmentProcurementSeeder extends Seeder
         'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'medicine_supplier_offers.update',
         'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
         'purchase_orders.submit', 'purchase_orders.cancel',
+        // ADR-171 — un brouillon jamais envoyé part à la corbeille.
+        'purchase_orders.delete', 'purchase_orders.restore', 'trash.view', 'trash.restore',
         'goods_receipts.view', 'goods_receipts.create',
         'supplier_invoices.view', 'supplier_invoices.create',
+        // ADR-171 — réceptionner ne range pas : le compte doit aussi pouvoir
+        // faire entrer la marchandise au stock, et lui donner son prix de vente.
+        'stock.entry', 'stock.lots.create', 'medicines.sale_price.update', 'medicines.name.update',
     ];
 
     /** medicine code, supplier code, earlier price (or null), current price */
@@ -228,7 +233,7 @@ class DevelopmentProcurementSeeder extends Seeder
         $submit = app(SubmitPurchaseOrderAction::class);
         $receive = app(ReceiveGoodsAction::class);
         $enterStock = app(RecordReceivedStockAction::class);
-        // ADR-113 — réceptionner constate la livraison ; une seconde action
+        // ADR-171 — réceptionner constate la livraison ; une seconde action
         // la fait entrer au stock. La simulation joue les deux, sinon la
         // démonstration n'aurait aucun lot.
         $stockReceipt = fn (GoodsReceipt $goodsReceipt) => $enterStock->execute(

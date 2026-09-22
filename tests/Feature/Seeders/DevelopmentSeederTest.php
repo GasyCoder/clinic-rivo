@@ -8,6 +8,7 @@ use App\Models\Permission;
 use App\Models\User;
 use Database\Seeders\DevelopmentCashRegisterSeeder;
 use Database\Seeders\DevelopmentLegacyAnalysisCatalogSeeder;
+use Database\Seeders\DevelopmentSeeder;
 use Database\Seeders\DevelopmentTestAccountSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -54,6 +55,21 @@ class DevelopmentSeederTest extends TestCase
         // The second run added nothing, and every child still has its parent.
         $this->assertSame(719, AnalysisCatalog::query()->count());
         $this->assertSame(0, AnalysisCatalog::query()->whereNotNull('parent_id')->whereDoesntHave('parent')->count());
+    }
+
+    /**
+     * ADR-086, rétabli le 2026-09-22 — la Pharmacie se saisit avec de vraies
+     * données : un `migrate:fresh --seed` local ne crée ni médicament, ni
+     * lot, ni fournisseur. Le stock de démonstration reste appelable à la
+     * main (`DevelopmentMedicineStockSeeder`).
+     */
+    public function test_a_fresh_clinic_gets_no_pharmacy_data(): void
+    {
+        $this->seed(DevelopmentSeeder::class);
+
+        $this->assertDatabaseCount('medicines', 0);
+        $this->assertDatabaseCount('medicine_lots', 0);
+        $this->assertDatabaseCount('medicine_suppliers', 0);
     }
 
     public function test_re_seeding_never_gives_back_access_someone_removed(): void

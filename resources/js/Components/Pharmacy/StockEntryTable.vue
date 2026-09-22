@@ -3,13 +3,14 @@ import { computed } from 'vue';
 import { Minus, Pencil, Plus, Sparkles, X } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
 /**
- * ADR-113 — le tableau d'entrée en stock, le même pour la marchandise
+ * ADR-171 — le tableau d'entrée en stock, le même pour la marchandise
  * réceptionnée et pour une entrée sans commande : une ligne par produit,
  * tout se corrige sur place, rien ne s'ouvre ailleurs.
  *
@@ -137,16 +138,13 @@ const cellInput = 'h-9 text-sm';
 
                         <td class="px-3 py-3">
                             <span v-if="!editable(row)" class="text-sm text-muted-foreground">—</span>
-                            <Input
+                            <DatePicker
                                 v-else
                                 v-model="row.expires_at"
-                                type="date"
                                 :min="today"
-                                :class="cellInput"
+                                size="sm"
                                 :readonly="Boolean(knownLot(row))"
                                 :disabled="rowDisabled(row)"
-                                :data-entry-cell="`${index}-expiry`"
-                                @keydown.enter="onEnter($event, index, 'expiry')"
                             />
                         </td>
 

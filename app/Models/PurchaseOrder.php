@@ -24,7 +24,7 @@ class PurchaseOrder extends Model
     use Auditable, HasUuid, SoftDeletable;
 
     /**
-     * ADR-113 — seul un brouillon jamais envoyé peut quitter la corbeille
+     * ADR-171 — seul un brouillon jamais envoyé peut quitter la corbeille
      * pour de bon : une commande envoyée a engagé la clinique auprès d'un
      * tiers, elle reste dans l'histoire.
      */

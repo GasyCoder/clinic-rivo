@@ -8,8 +8,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
-import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
@@ -21,7 +21,7 @@ import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatu
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-113 — la liste des commandes d'achat : on y cherche une commande, on
+ * ADR-171 — la liste des commandes d'achat : on y cherche une commande, on
  * voit d'un coup d'œil combien en attendent une marchandise, et chaque ligne
  * porte ce qu'on peut réellement en faire. Un brouillon jamais envoyé peut
  * partir à la corbeille ; une commande envoyée s'annule, elle ne se jette pas.
@@ -147,9 +147,9 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
                 <Select v-if="suppliers.length" :model-value="filters.supplier ?? ''" :options="supplierOptions" :icon="Building2" placeholder="Tous les fournisseurs" @update:model-value="(value) => apply({ supplier: value })" />
                 <div class="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1">
                     <CalendarDays class="h-4 w-4 text-muted-foreground" />
-                    <Input :model-value="filters.from ?? ''" type="date" class="h-8 w-[9.5rem] border-0 px-1 shadow-none" aria-label="À partir du" @update:model-value="(value) => apply({ from: value })" />
+                    <DatePicker :model-value="filters.from ?? ''" size="sm" placeholder="À partir du" :max="filters.to || undefined" @update:model-value="(value) => apply({ from: value })" />
                     <span class="text-xs text-muted-foreground">→</span>
-                    <Input :model-value="filters.to ?? ''" type="date" class="h-8 w-[9.5rem] border-0 px-1 shadow-none" aria-label="Jusqu’au" @update:model-value="(value) => apply({ to: value })" />
+                    <DatePicker :model-value="filters.to ?? ''" size="sm" placeholder="Jusqu’au" :min="filters.from || undefined" @update:model-value="(value) => apply({ to: value })" />
                 </div>
                 <Select :model-value="filters.sort ?? 'recent'" :options="sortOptions" :icon="ArrowUpDown" @update:model-value="(value) => apply({ sort: value })" />
                 <Button v-if="filtered" variant="ghost" size="sm" @click="reset"><X class="h-4 w-4" />Tout effacer</Button>

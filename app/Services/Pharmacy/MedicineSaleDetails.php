@@ -11,7 +11,7 @@ use App\Support\Money;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-112 — le prix et le nom sous lesquels la pharmacie vend un produit.
+ * ADR-170 — le prix et le nom sous lesquels la pharmacie vend un produit.
  *
  * Trois écrans les proposent (entrée manuelle, réception, entrée depuis une
  * réception) : la règle vit ici une seule fois, pour qu'aucun des trois ne

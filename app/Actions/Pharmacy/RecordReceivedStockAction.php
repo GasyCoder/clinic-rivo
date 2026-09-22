@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-113 — fait entrer au stock ce qui a été réceptionné.
+ * ADR-171 — fait entrer au stock ce qui a été réceptionné.
  *
  * La réception a constaté la livraison ; ici la marchandise est rangée. Le
  * pharmacien relit chaque ligne et peut encore corriger ce qu'il a sous les
@@ -20,7 +20,7 @@ use Illuminate\Validation\ValidationException;
  * vérifiée non encore entrée, puis marquée. Tout ou rien.
  *
  * Le mouvement passe par RecordStockEntryAction, inchangée : mêmes règles de
- * lot, même FEFO, même prix d'achat — celui de la réception (ADR-112).
+ * lot, même FEFO, même prix d'achat — celui de la réception (ADR-170).
  */
 class RecordReceivedStockAction
 {

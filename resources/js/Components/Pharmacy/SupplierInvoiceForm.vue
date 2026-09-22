@@ -95,7 +95,7 @@ const readyLines = computed(() => form.lines.filter((line) => line.medicine_uuid
 const canSubmit = computed(() => Boolean(supplierUuid.value && form.invoice_number
     && (detailed.value ? readyLines.value === form.lines.length && readyLines.value > 0 : total.value > 0)));
 
-// ADR-113 — la date d'une facture est celle du jour, sauf si le papier du
+// ADR-171 — la date d'une facture est celle du jour, sauf si le papier du
 // fournisseur en porte une autre ; l'échéance se choisit par délai.
 const today = new Date().toISOString().slice(0, 10);
 const customDate = ref(Boolean(initial?.invoice_date) && initial.invoice_date !== today);
@@ -155,7 +155,7 @@ const submit = () => {
                             <button type="button" class="text-xs font-semibold text-primary hover:underline" @click="customDate = true">Autre date</button>
                         </div>
                         <div v-else class="flex items-center gap-2">
-                            <input v-model="form.invoice_date" type="date" :max="today" :class="inputClass" required>
+                            <DatePicker v-model="form.invoice_date" :max="today" required />
                             <Button type="button" size="icon" variant="ghost" aria-label="Revenir à aujourd’hui" @click="form.invoice_date = today; customDate = false"><X class="h-4 w-4" /></Button>
                         </div>
                     </div>
@@ -166,7 +166,7 @@ const submit = () => {
                             <button type="button" :class="chip(false)" @click="customDue = true">Autre date</button>
                         </div>
                         <div v-else class="flex items-center gap-2">
-                            <input v-model="form.due_date" type="date" :min="form.invoice_date" :class="inputClass">
+                            <DatePicker v-model="form.due_date" :min="form.invoice_date" />
                             <Button type="button" size="icon" variant="ghost" aria-label="Revenir aux délais habituels" @click="form.due_date = ''; customDue = false"><X class="h-4 w-4" /></Button>
                         </div>
                         <span v-if="form.due_date && !customDue" class="mt-1 block text-xs text-muted-foreground">À payer avant le {{ formatDate(form.due_date) }}</span>

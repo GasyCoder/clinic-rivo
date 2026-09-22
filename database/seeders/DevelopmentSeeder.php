@@ -35,12 +35,15 @@ class DevelopmentSeeder extends Seeder
             DevelopmentLegacyAnalysisCatalogSeeder::class, // 719 analyses historiques
             DevelopmentDiagnosticCatalogSeeder::class,    // diagnostics courants
             DevelopmentCashRegisterSeeder::class,         // Caisse 1 / Caisse 2
-            // Demande du propriétaire (2026-09-21, ADR-163) : après un
-            // `migrate:fresh --seed`, la Pharmacie doit avoir de quoi essayer
-            // une ordonnance. Médicaments, lots et prix fictifs, créés une
-            // seule fois : un médicament déjà présent n'est jamais retouché.
-            DevelopmentMedicineStockSeeder::class,
         ]);
+
+        // La Pharmacie n'est plus préremplie (ADR-086, rétabli le 2026-09-22
+        // à la demande du propriétaire, après le court retour en arrière du
+        // 2026-09-21) : elle se saisit avec de vraies données. Les
+        // médicaments, lots et fournisseurs de démonstration restent
+        // appelables à la main :
+        //
+        //   php artisan db:seed --class=DevelopmentMedicineStockSeeder
 
         // La chaîne d'approvisionnement de démonstration (prix fournisseurs,
         // catalogues, commandes, réceptions) reste à la demande :

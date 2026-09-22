@@ -20,7 +20,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-113 — un seul écran pour faire entrer de la marchandise au stock.
+ * ADR-171 — un seul écran pour faire entrer de la marchandise au stock.
  *
  * Ce qui a été réceptionné arrive déjà rempli : fournisseur, commande, lots,
  * péremptions et quantités viennent de la réception. On relit, on corrige ce

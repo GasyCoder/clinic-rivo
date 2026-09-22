@@ -482,8 +482,8 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Commande sans action possible : le motif est affiché (reçue, annulée, déjà envoyée) au lieu d'une colonne vide
 - [x] Un produit listé sous deux références du même catalogue n'occupe qu'une ligne de commande : refus nommé côté serveur, références marquées dans le sélecteur
 - [x] Provenance d'un produit fournisseur affichée (catalogue d'origine) et distinction proposé / réellement réceptionné
-- [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-112)
-- [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-113)
+- [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-170)
+- [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-171)
 - [x] Entrée en stock corrigeable tant que rien n'est rangé : quantité, lot et péremption mettent à jour la réception et la commande ; une ligne n'entre qu'une fois
 - [x] Écran unique d'entrée en stock : « Marchandise réceptionnée » (déjà remplie) et « Entrée sans commande » (catalogue à cocher), plus deux formulaires redondants
 - [x] Aucune date du système saisie : commande, envoi, réception et entrée en stock sont datés par le serveur ; les dates externes (péremption, facture, échéance, livraison attendue) se choisissent par raccourci

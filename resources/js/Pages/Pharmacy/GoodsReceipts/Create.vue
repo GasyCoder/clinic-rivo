@@ -9,6 +9,7 @@ import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Input from '@/Components/Shadcn/Input.vue';
@@ -20,7 +21,7 @@ import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 defineOptions({ layout: AppLayout });
 
 /*
- * ADR-113 — réceptionner, c'est constater ce qui est arrivé : quantités,
+ * ADR-171 — réceptionner, c'est constater ce qui est arrivé : quantités,
  * lots et péremptions lus sur les boîtes. Rien n'entre au stock ici ; c'est
  * l'écran « Entrée en stock » qui range la marchandise.
  *
@@ -258,7 +259,7 @@ const steps = [
                                     <p v-if="lineError(index, 'lot_number')" class="mt-1 text-[11px] text-destructive">{{ lineError(index, 'lot_number') }}</p>
                                 </td>
                                 <td class="px-3 py-3">
-                                    <Input v-model="line.expires_at" type="date" class="h-9 text-sm" :disabled="!line._received" />
+                                    <DatePicker v-model="line.expires_at" size="sm" :disabled="!line._received" />
                                     <p v-if="lineError(index, 'expires_at')" class="mt-1 text-[11px] text-destructive">{{ lineError(index, 'expires_at') }}</p>
                                 </td>
                                 <td v-if="can.record_cost" class="px-3 py-3">

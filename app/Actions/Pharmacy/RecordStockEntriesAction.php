@@ -42,7 +42,7 @@ class RecordStockEntriesAction
                 }
             }
 
-            // ADR-112 — prix et nom de vente, appliqués une fois la livraison
+            // ADR-170 — prix et nom de vente, appliqués une fois la livraison
             // entièrement acceptée.
             $sale->apply((string) $delivery['reason'], $actor);
 

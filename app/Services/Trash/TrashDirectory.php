@@ -8,6 +8,7 @@ use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
 use App\Actions\Pharmacy\RestorePurchaseOrderAction;
 use App\Actions\Pharmacy\RestoreSupplierCatalogAction;
 use App\Actions\Pharmacy\RestoreSupplierInvoiceAction;
+use App\Enums\PurchaseOrderStatus;
 use App\Enums\TrashCategory;
 use App\Models\AddressEntry;
 use App\Models\AuditLog;
@@ -368,6 +369,11 @@ class TrashDirectory
             ],
         };
 
+        // ADR-098 / ADR-061 — l'écran doit savoir AVANT le clic : ce qui retient
+        // un élément est nommé ici, plutôt que renvoyé comme un refus après
+        // la confirmation.
+        $blockers = $this->forceDeleteBlockers($category, $model);
+
         return [
             'uuid' => $model->uuid,
             'category' => $category->value,
@@ -382,6 +388,85 @@ class TrashDirectory
                 ?? 'Système',
             'delete_reason' => $model->delete_reason,
             'can_restore' => true,
+            'can_force_delete' => $blockers === [],
+            'force_delete_blockers' => $blockers,
         ];
+    }
+
+    /**
+     * Ce qui retient un élément dans la corbeille, nommé et compté.
+     *
+     * `isForceDeleteProtected()` reste la règle — elle seule refuse. Ceci en
+     * est la lecture : les mêmes relations, dites à l'écran pour qu'il
+     * n'offre pas un bouton qui sera refusé.
+     *
+     * @return array<int, string>
+     */
+    private function forceDeleteBlockers(TrashCategory $category, Model $model): array
+    {
+        if (! $model->isForceDeleteProtected()) {
+            return [];
+        }
+
+        $counts = match ($category) {
+            TrashCategory::MedicineSupplier => [
+                'commande' => $model->purchaseOrders()->count(),
+                'facture' => $model->invoices()->withTrashed()->count(),
+                'lot reçu' => $model->lots()->count(),
+                'mouvement de stock' => $model->stockMovements()->count(),
+                'prix d’achat' => $model->offers()->count(),
+            ],
+            TrashCategory::CatalogItem => [
+                'tarif' => $model->tariffs()->count(),
+                'prestation facturée' => $model->billableItems()->count(),
+                'demande de la Réception' => $model->episodeServiceRequests()->count(),
+                'acte demandé aux Soins' => $model->careOrderItems()->count(),
+            ],
+            TrashCategory::AddressEntry => [
+                'patient' => $model->patients()->withTrashed()->count(),
+                'employé' => $model->employees()->withTrashed()->count(),
+            ],
+            TrashCategory::MutualOrganization => [
+                'couverture patient' => $model->coverages()->count(),
+                'couverture de passage' => $model->episodeCoverages()->count(),
+            ],
+            TrashCategory::CashRegister => [
+                'session de caisse' => $model->sessions()->count(),
+            ],
+            TrashCategory::PurchaseOrder => [
+                'réception' => $model->receipts()->count(),
+                'facture' => $model->invoices()->count(),
+            ],
+            TrashCategory::Patient => [
+                'passage' => $model->episodes()->count(),
+                'facture' => $model->invoices()->count(),
+                'antécédent' => $model->antecedents()->count(),
+                'allergie' => $model->allergies()->count(),
+                'traitement habituel' => $model->treatments()->count(),
+            ],
+            TrashCategory::SupplierCatalog => [
+                'ligne importée' => $model->items()->count(),
+            ],
+            default => [],
+        };
+
+        // Deux cas ne se comptent pas : ils tiennent à ce qu'est l'élément.
+        $stated = match (true) {
+            $category === TrashCategory::SupplierInvoice => ['une facture fournisseur est une pièce comptable'],
+            $category === TrashCategory::PurchaseOrder && $model->status !== PurchaseOrderStatus::Draft => ['la commande a été envoyée au fournisseur'],
+            default => [],
+        };
+
+        $named = collect($counts)
+            ->filter()
+            ->map(fn (int $total, string $label): string => $total.' '.$label.($total > 1 && ! str_contains($label, 'prix') ? 's' : ''))
+            ->values()
+            ->all();
+
+        // Un modèle protégé sans compte lisible le dit quand même : mieux vaut
+        // une phrase générale qu'un bouton qui échoue.
+        $blockers = [...$stated, ...$named];
+
+        return $blockers !== [] ? $blockers : ['cet élément a déjà servi'];
     }
 }

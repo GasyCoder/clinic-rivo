@@ -100,4 +100,36 @@ class SupplierTrashTest extends TestCase
         $this->assertSame(0, SupplierCatalogItem::query()->where('supplier_catalog_id', $catalog->id)->count());
         $this->assertFalse(Storage::disk('local')->exists('suppliers/tarif.xlsx'));
     }
+
+    /**
+     * ADR-061 — la liste dit avant le clic ce qui retient un élément : un
+     * bouton qui serait refusé ne doit pas être proposé.
+     */
+    public function test_the_trash_says_which_items_can_be_destroyed_and_what_holds_the_others(): void
+    {
+        $user = $this->actor(['trash.view', 'trash.force_delete', 'medicine_suppliers.restore']);
+        $free = MedicineSupplier::query()->create(['code' => 'FOUR-04', 'name' => 'Jamais servi']);
+        $used = MedicineSupplier::query()->create(['code' => 'FOUR-05', 'name' => 'A déjà facturé']);
+        $used->invoices()->create([
+            'invoice_number' => 'FAC-2026-009',
+            'invoice_date' => now()->toDateString(),
+            'total_amount' => '120000',
+            'currency' => 'MGA',
+        ]);
+        $free->delete();
+        $used->delete();
+
+        $records = collect(app(TrashDirectory::class)->list(['category' => TrashCategory::MedicineSupplier->value])['data'])
+            ->keyBy('uuid');
+
+        $this->assertTrue($records[$free->uuid]['can_force_delete']);
+        $this->assertSame([], $records[$free->uuid]['force_delete_blockers']);
+
+        $this->assertFalse($records[$used->uuid]['can_force_delete']);
+        $this->assertSame(['1 facture'], $records[$used->uuid]['force_delete_blockers']);
+
+        // Ce que l'écran annonce est ce que le serveur applique.
+        $this->expectException(ValidationException::class);
+        app(TrashDirectory::class)->forceDelete(TrashCategory::MedicineSupplier, $used->uuid, CatalogActor::fromUser($user));
+    }
 }

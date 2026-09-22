@@ -4,7 +4,7 @@ namespace App\Http\Requests\Pharmacy;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** ADR-113 — les lignes réceptionnées que le pharmacien fait entrer au stock. */
+/** ADR-171 — les lignes réceptionnées que le pharmacien fait entrer au stock. */
 class StoreReceivedStockRequest extends FormRequest
 {
     public function authorize(): bool

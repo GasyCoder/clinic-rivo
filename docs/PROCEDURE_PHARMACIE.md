@@ -143,7 +143,7 @@ un produit créé depuis un catalogue fournisseur n'a que le libellé du
 fournisseur, parce que déduire une DCI d'un nom commercial serait inventer
 une information clinique.
 
-> **Droits (ADR-112).** Le compte Pharmacie fixe et modifie le prix de vente
+> **Droits (ADR-170).** Le compte Pharmacie fixe et modifie le prix de vente
 > de ses médicaments (`medicines.sale_price.update`) — le premier sans motif,
 > un changement avec motif. Il ne touche ni les tarifs des consultations et
 > actes, ni la grille Mutuelle. Le **prix d'achat**, lui, est confidentiel :

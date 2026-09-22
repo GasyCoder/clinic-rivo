@@ -42,7 +42,7 @@ const search = ref('');
 const family = ref('');
 
 /*
- * ADR-112 — la Pharmacie fixe elle-même le prix de vente. Le premier se
+ * ADR-170 — la Pharmacie fixe elle-même le prix de vente. Le premier se
  * saisit sans motif ; un changement en exige un, l'ancien prix restant dans
  * l'historique.
  */

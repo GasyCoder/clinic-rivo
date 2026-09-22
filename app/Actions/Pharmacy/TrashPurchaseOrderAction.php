@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-113 — un brouillon jamais envoyé peut partir à la corbeille, avec son
+ * ADR-171 — un brouillon jamais envoyé peut partir à la corbeille, avec son
  * motif ; il se restaure depuis la Corbeille (ADR-061). Une commande envoyée
  * a engagé la clinique auprès d'un fournisseur : elle s'annule, elle ne se
  * jette pas.

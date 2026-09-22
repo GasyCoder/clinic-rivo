@@ -191,11 +191,8 @@ class StartLocalSiteApis extends Command
                 $this->runArtisan($site, ['db:seed', '--class=Database\\Seeders\\DevelopmentMutualOrganizationSeeder', '--force', '--no-interaction']);
             });
 
-            if ($wasCreated) {
-                $this->components->task("{$site['name']} — stock Pharmacie de test", function () use ($site): void {
-                    $this->runArtisan($site, ['db:seed', '--class=Database\\Seeders\\DevelopmentMedicineStockSeeder', '--force', '--no-interaction']);
-                });
-            }
+            // ADR-086 — la Pharmacie d'un site local se saisit avec de vraies
+            // données ; son stock de démonstration s'appelle à la main.
         } catch (Throwable $exception) {
             if ($wasCreated) {
                 File::delete($databasePath);
@@ -261,7 +258,11 @@ class StartLocalSiteApis extends Command
             'RIVO_SITE_NAME' => (string) $site['name'],
             'RIVO_SITE_TYPE' => 'clinic',
             'RIVO_SITE_API_TOKEN' => (string) $site['token'],
-            'RIVO_CATALOG_SEED_ACTOR' => "administration.{$suffix}@rivo.test",
+            // ADR-086 — le catalogue est peuplé par `DatabaseSeeder` lui-même,
+            // avant que `DevelopmentUserSeeder` ne crée les comptes par rôle :
+            // l'auteur du provisioning est donc le compte de test du site,
+            // seul existant à cet instant.
+            'RIVO_CATALOG_SEED_ACTOR' => 'user@rivo.test',
             'RIVO_LOCAL_SITE_APIS' => 'false',
             'DB_CONNECTION' => 'sqlite',
             'DB_DATABASE' => $this->databasePath($site),

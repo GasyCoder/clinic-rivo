@@ -256,7 +256,7 @@ class RolePermissionSeeder extends Seeder
             'stock.approve', 'stock.import', 'stock.export',
             'stock.lots.view', 'stock.lots.create', 'stock.lots.update',
             'stock.expiration.view', 'stock.alerts.view',
-            // ADR-112 — le prix d'achat est confidentiel : stock.cost.* n'est
+            // ADR-170 — le prix d'achat est confidentiel : stock.cost.* n'est
             // plus accordé à la Pharmacie, qui fixe en revanche le prix de
             // vente de ses médicaments (et d'eux seuls).
             'medicines.sale_price.update', 'medicines.name.update',

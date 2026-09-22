@@ -6,6 +6,7 @@ use App\Enums\AnesthesiaCaseStage;
 use App\Models\SurgicalRequest;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Surgery\SurgicalCaseWorkspace;
+use App\Services\Surgery\SurgicalReadinessPresenter;
 use App\Support\SurgeryReferenceData;
 use App\Support\SurgicalStayContext;
 use Illuminate\Database\Eloquent\Builder;
@@ -73,6 +74,7 @@ class AnesthesiaWorkspaceController extends Controller
         SurgicalRequest $surgicalRequest,
         SurgicalCaseWorkspace $workspace,
         CareRecordReadModel $careRecordReadModel,
+        SurgicalReadinessPresenter $readiness,
     ): Response {
         $careRecord = $surgicalRequest->episode()->with('careRecord')->first()?->careRecord;
 
@@ -80,6 +82,9 @@ class AnesthesiaWorkspaceController extends Controller
             'workspace' => 'anesthesia',
             'surgicalRequest' => $workspace->loadForAnesthesia($surgicalRequest),
             'careSummary' => $careRecordReadModel->present($careRecord, $request->user()),
+            // ADR-170 — même lecture pour les deux espaces : l'anesthésiste
+            // voit où en est le bloc, le chirurgien voit où en est l'anesthésie.
+            'readiness' => $readiness->present($surgicalRequest, $request->user()),
             // ADR-160 — le même séjour que la Chirurgie : un seul dossier (ADR-048).
             'hospitalStay' => SurgicalStayContext::for($surgicalRequest, $request->user()),
             'users' => [],

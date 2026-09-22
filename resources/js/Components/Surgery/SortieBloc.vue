@@ -9,6 +9,11 @@ import FormError from '@/Components/UI/FormError.vue';
 import Icon from '@/Components/Surgery/SurgeryIcon.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import { formatDateTime } from '@/utilities/date';
+import { cn } from '@/lib/cn';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
+import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
+import { useAutosave } from '@/composables/useAutosave';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, BedDouble, ClipboardCheck, Clock, Droplet, Droplets, Eye, FlaskConical, Gauge, GaugeCircle, Hand, HeartPulse, LogIn, LogOut, Minus, Moon, Package, Pill, Plus, ShieldPlus, Sun, Syringe, Thermometer, Trash2, Wind, ArrowRight } from 'lucide-vue-next';
 import ClinicalAccordionSection from './ClinicalAccordionSection.vue';
 import DynamicTreatmentTable from './DynamicTreatmentTable.vue';
 
@@ -32,12 +37,26 @@ const exitForm = useForm({
     antibiotic_name: exit.antibiotic_name ?? '', antibiotic_quantity: exit.antibiotic_quantity ?? '', antibiotic_unit: exit.antibiotic_unit ?? '',
     awakening_status: exit.awakening_status ?? '', awakening_score: exit.awakening_score ?? '',
 });
-const submitExit = (nextSection = null) => exitForm.put(`${base.value}/block-exit`, {
-    preserveScroll: true,
-    onSuccess: () => {
-        if (nextSection) activeSection.value = nextSection;
-    },
-});
+// Les constantes d'entrée et de sortie du bloc, une ligne par paramètre. Les
+// bornes sont celles déjà appliquées par le formulaire ; le serveur revalide.
+const VITAL_ROWS = [
+    { key: 'blood_pressure_systolic', label: 'PA systolique', unit: 'mmHg', icon: Gauge, min: 40, max: 300 },
+    { key: 'blood_pressure_diastolic', label: 'PA diastolique', unit: 'mmHg', icon: GaugeCircle, min: 20, max: 200 },
+    { key: 'heart_rate', label: 'Fréquence cardiaque', unit: 'batt/min', icon: HeartPulse, min: 20, max: 300 },
+    { key: 'oxygen_saturation', label: 'SpO₂', unit: '%', icon: Droplet, min: 0, max: 100 },
+    { key: 'respiratory_rate', label: 'Fréquence respiratoire', unit: 'cycles/min', icon: Wind, min: 1, max: 150 },
+    { key: 'temperature_celsius', label: 'Température', unit: '°C', icon: Thermometer, min: 25, max: 45, step: '0.01' },
+];
+
+// Écart sortie − entrée : de l'arithmétique d'affichage, jamais une interprétation.
+const vitalDelta = (key) => {
+    const entry = exitForm[`entry_${key}`];
+    const exitValue = exitForm[`exit_${key}`];
+    if (entry === '' || entry === null || exitValue === '' || exitValue === null) return null;
+    const delta = Number(exitValue) - Number(entry);
+    if (!Number.isFinite(delta)) return null;
+    return Math.round(delta * 100) / 100;
+};
 
 const observationForm = useForm({
     observed_at: '', diuresis_quantity: '', diuresis_unit: '', temperature_celsius: '',
@@ -52,6 +71,13 @@ const observations = computed(() => props.surgicalRequest.observations ?? []);
 const postoperativeItems = computed(() => (props.surgicalRequest.treatment_items ?? []).filter((item) => item.phase === 'POSTOPERATIVE'));
 const canUseExit = computed(() => ['IN_PROGRESS', 'COMPLETED'].includes(props.surgicalRequest.status));
 const canEditPostoperative = computed(() => props.canRecordPostoperative && canUseExit.value);
+// Plus de bouton « Enregistrer » : le bilan s'enregistre tout seul quelques
+// instants après la dernière saisie, par la même route et les mêmes droits.
+const autosave = useAutosave(exitForm, (options) => exitForm.put(`${base.value}/block-exit`, options), {
+    enabled: () => props.canEdit && canUseExit.value,
+});
+/** « Suivant » : enregistre ce qui reste, puis ouvre la section suivante. */
+const next = (nextSection) => autosave.flush(() => { activeSection.value = nextSection; });
 const vitalsComplete = computed(() => Boolean(exitForm.block_exited_at || exitForm.exit_heart_rate || exitForm.exit_oxygen_saturation));
 const balanceComplete = computed(() => Boolean(exitForm.perfusion_serum || exitForm.transfusion_blood || exitForm.urine_quantity || exitForm.awakening_status));
 
@@ -60,6 +86,8 @@ const awakeningLabels = {
     RESPONDS_TO_REQUEST: 'Se réveille à la demande',
     NO_SIMPLE_COMMAND_RESPONSE: 'Ne répond pas aux ordres simples',
 };
+// Une icône par état, en plus du libellé : jamais la couleur seule.
+const awakeningIcons = { PERFECTLY_AWAKE: Sun, RESPONDS_TO_REQUEST: Hand, NO_SIMPLE_COMMAND_RESPONSE: Moon };
 </script>
 
 <template>
@@ -71,7 +99,7 @@ const awakeningLabels = {
             </header>
 
             <div class="space-y-3 p-4 sm:p-5">
-                <form class="space-y-3" @submit.prevent="submitExit()">
+                <form class="space-y-3" @submit.prevent="autosave.flush()">
                     <fieldset :disabled="!canEdit || !canUseExit" class="space-y-3 disabled:opacity-60">
                         <ClinicalAccordionSection
                             :open="activeSection === 'vitals'"
@@ -81,21 +109,50 @@ const awakeningLabels = {
                             :complete="vitalsComplete"
                             @toggle="activeSection = activeSection === 'vitals' ? '' : 'vitals'"
                         >
-                            <div class="grid gap-3 sm:grid-cols-2"><label class="text-xs text-slate-500">Heure d’entrée<DateTimePicker v-model="exitForm.block_entered_at" size="lg" /></label><label class="text-xs text-slate-500">Heure de sortie<DateTimePicker v-model="exitForm.block_exited_at" size="lg" /></label></div>
-                            <div class="mt-4 overflow-x-auto rounded-md border border-gray-200 dark:border-gray-900">
-                                <table class="w-full min-w-[720px] border-collapse text-sm">
-                                    <thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Paramètre</th><th class="px-3 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Entrée</th><th class="px-3 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Sortie</th><th class="px-4 py-2.5 text-start text-[10px] font-bold uppercase tracking-wide text-slate-400">Unité</th></tr></thead>
-                                    <tbody class="divide-y divide-gray-200 dark:divide-gray-900">
-                                        <tr><td class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">PA systolique</td><td class="p-2"><Input v-model="exitForm.entry_blood_pressure_systolic" type="number" min="40" max="300" /></td><td class="p-2"><Input v-model="exitForm.exit_blood_pressure_systolic" type="number" min="40" max="300" /></td><td class="px-4 text-xs text-slate-400">mmHg</td></tr>
-                                        <tr><td class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">PA diastolique</td><td class="p-2"><Input v-model="exitForm.entry_blood_pressure_diastolic" type="number" min="20" max="200" /></td><td class="p-2"><Input v-model="exitForm.exit_blood_pressure_diastolic" type="number" min="20" max="200" /></td><td class="px-4 text-xs text-slate-400">mmHg</td></tr>
-                                        <tr><td class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Fréquence cardiaque</td><td class="p-2"><Input v-model="exitForm.entry_heart_rate" type="number" min="20" max="300" /></td><td class="p-2"><Input v-model="exitForm.exit_heart_rate" type="number" min="20" max="300" /></td><td class="px-4 text-xs text-slate-400">batt/min</td></tr>
-                                        <tr><td class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">SpO₂</td><td class="p-2"><Input v-model="exitForm.entry_oxygen_saturation" type="number" min="0" max="100" /></td><td class="p-2"><Input v-model="exitForm.exit_oxygen_saturation" type="number" min="0" max="100" /></td><td class="px-4 text-xs text-slate-400">%</td></tr>
-                                        <tr><td class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Fréquence respiratoire</td><td class="p-2"><Input v-model="exitForm.entry_respiratory_rate" type="number" min="1" max="150" /></td><td class="p-2"><Input v-model="exitForm.exit_respiratory_rate" type="number" min="1" max="150" /></td><td class="px-4 text-xs text-slate-400">cycles/min</td></tr>
-                                        <tr><td class="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Température</td><td class="p-2"><Input v-model="exitForm.entry_temperature_celsius" type="number" min="25" max="45" step="0.01" /></td><td class="p-2"><Input v-model="exitForm.exit_temperature_celsius" type="number" min="25" max="45" step="0.01" /></td><td class="px-4 text-xs text-slate-400">°C</td></tr>
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <label class="block space-y-1.5">
+                                    <span class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><LogIn class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />Heure d’entrée au bloc</span>
+                                    <DateTimePicker v-model="exitForm.block_entered_at" size="lg" />
+                                </label>
+                                <label class="block space-y-1.5">
+                                    <span class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><LogOut class="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />Heure de sortie du bloc</span>
+                                    <DateTimePicker v-model="exitForm.block_exited_at" size="lg" />
+                                </label>
+                            </div>
+                            <div class="mt-4 overflow-x-auto rounded-lg border border-border">
+                                <table class="w-full min-w-[760px] border-collapse text-sm">
+                                    <thead class="bg-muted/40">
+                                        <tr>
+                                            <th class="px-4 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Paramètre</th>
+                                            <th class="px-3 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><LogIn class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />Entrée</span></th>
+                                            <th class="px-3 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><LogOut class="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />Sortie</span></th>
+                                            <th class="px-3 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Écart</th>
+                                            <th class="px-4 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Unité</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-border">
+                                        <tr v-for="row in VITAL_ROWS" :key="row.key" class="transition-colors hover:bg-muted/20">
+                                            <td class="px-4 py-2">
+                                                <span class="flex items-center gap-2.5">
+                                                    <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary" aria-hidden="true"><component :is="row.icon" class="h-4 w-4" /></span>
+                                                    <span class="text-sm font-medium text-foreground">{{ row.label }}</span>
+                                                </span>
+                                            </td>
+                                            <td class="p-2"><Input v-model="exitForm[`entry_${row.key}`]" type="number" :min="row.min" :max="row.max" :step="row.step" :aria-label="`${row.label} à l’entrée (${row.unit})`" /></td>
+                                            <td class="p-2"><Input v-model="exitForm[`exit_${row.key}`]" type="number" :min="row.min" :max="row.max" :step="row.step" :aria-label="`${row.label} à la sortie (${row.unit})`" /></td>
+                                            <td class="px-3 py-2">
+                                                <span v-if="vitalDelta(row.key) === null" class="text-xs text-muted-foreground">—</span>
+                                                <span v-else :class="cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium tabular-nums', vitalDelta(row.key) === 0 ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-foreground')">
+                                                    <component :is="vitalDelta(row.key) > 0 ? ArrowUp : (vitalDelta(row.key) < 0 ? ArrowDown : Minus)" class="h-3 w-3" aria-hidden="true" />
+                                                    {{ vitalDelta(row.key) > 0 ? '+' : '' }}{{ vitalDelta(row.key).toLocaleString('fr-FR') }}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 text-xs text-muted-foreground">{{ row.unit }}</td>
+                                        </tr>
                                     </tbody>
                                 </table>
                             </div>
-                            <div v-if="canEdit && canUseExit" class="mt-4 flex justify-end"><Button size="rg" type="button" :disabled="exitForm.processing" @click="submitExit('balance')"><Icon name="save" /><span class="ms-2">Enregistrer et continuer</span><Icon class="ms-2" name="arrow-right" /></Button></div>
+                            <div v-if="canEdit && canUseExit" class="mt-4 flex items-center justify-end gap-3"><ClinicalSaveStatus :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="exitForm.isDirty" :failed="autosave.failed.value" /><Button size="rg" type="button" :disabled="exitForm.processing" @click="next('balance')">Suivant<ArrowRight class="h-4 w-4" aria-hidden="true" /></Button></div>
                         </ClinicalAccordionSection>
 
                         <ClinicalAccordionSection
@@ -107,12 +164,75 @@ const awakeningLabels = {
                             @toggle="activeSection = activeSection === 'balance' ? '' : 'balance'"
                         >
                             <div class="grid gap-4 lg:grid-cols-3">
-                                <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900"><h3 class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Apports</h3><div class="mt-3 space-y-2"><Input v-model="exitForm.perfusion_serum" placeholder="Perfusion — sérum" /><Input v-model="exitForm.perfusion_bag" placeholder="Poche" /><Input v-model="exitForm.transfusion_blood" placeholder="Transfusion — sang" /><div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.transfusion_quantity" type="number" min="0" step="0.01" placeholder="Quantité" /><Input v-model="exitForm.transfusion_unit" placeholder="Unité" /></div></div></section>
-                                <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900"><h3 class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Sorties</h3><div class="mt-3 space-y-2"><Input v-model="exitForm.urine_appearance" placeholder="Urine — aspect" /><div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.urine_quantity" type="number" min="0" step="0.01" placeholder="Quantité" /><Input v-model="exitForm.urine_unit" placeholder="Unité" /></div><div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.blood_loss_quantity" type="number" min="0" step="0.01" placeholder="Pertes sanguines" /><Input v-model="exitForm.blood_loss_unit" placeholder="Unité" /></div></div></section>
-                                <section class="rounded-md border border-gray-200 p-4 dark:border-gray-900"><h3 class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Doses reçues</h3><div class="mt-3 space-y-2"><Input v-model="exitForm.drug_name" placeholder="Drogue" /><div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.drug_quantity" type="number" min="0" step="0.01" placeholder="Quantité" /><Input v-model="exitForm.drug_unit" placeholder="Unité" /></div><Input v-model="exitForm.antibiotic_name" placeholder="Antibiotique" /><div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.antibiotic_quantity" type="number" min="0" step="0.01" placeholder="Quantité" /><Input v-model="exitForm.antibiotic_unit" placeholder="Unité" /></div></div></section>
+                                <!-- Apports -->
+                                <section class="rounded-lg border border-border bg-card p-4">
+                                    <h3 class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        <span class="grid h-7 w-7 place-items-center rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" aria-hidden="true"><ArrowDownToLine class="h-3.5 w-3.5" /></span>Apports
+                                    </h3>
+                                    <div class="mt-3 space-y-3">
+                                        <label class="block space-y-1"><span class="text-xs text-muted-foreground">Perfusion — sérum</span><IconInput v-model="exitForm.perfusion_serum" :icon="Syringe" placeholder="Ex. Ringer lactate" /></label>
+                                        <label class="block space-y-1"><span class="text-xs text-muted-foreground">Poche</span><IconInput v-model="exitForm.perfusion_bag" :icon="Package" placeholder="Ex. 500 ml" /></label>
+                                        <div class="space-y-1">
+                                            <span class="text-xs text-muted-foreground">Transfusion — sang</span>
+                                            <IconInput v-model="exitForm.transfusion_blood" :icon="Droplet" placeholder="Produit sanguin" aria-label="Transfusion — sang" />
+                                            <div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.transfusion_quantity" type="number" min="0" step="0.01" placeholder="Quantité" aria-label="Transfusion — quantité" /><Input v-model="exitForm.transfusion_unit" placeholder="Unité" aria-label="Transfusion — unité" /></div>
+                                        </div>
+                                    </div>
+                                </section>
+                                <!-- Sorties -->
+                                <section class="rounded-lg border border-border bg-card p-4">
+                                    <h3 class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        <span class="grid h-7 w-7 place-items-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" aria-hidden="true"><ArrowUpFromLine class="h-3.5 w-3.5" /></span>Sorties
+                                    </h3>
+                                    <div class="mt-3 space-y-3">
+                                        <div class="space-y-1">
+                                            <span class="text-xs text-muted-foreground">Urines</span>
+                                            <IconInput v-model="exitForm.urine_appearance" :icon="Eye" placeholder="Aspect" aria-label="Urines — aspect" />
+                                            <div class="grid grid-cols-2 gap-2"><IconInput v-model="exitForm.urine_quantity" :icon="FlaskConical" type="number" min="0" step="0.01" placeholder="Quantité" aria-label="Urines — quantité" /><Input v-model="exitForm.urine_unit" placeholder="Unité" aria-label="Urines — unité" /></div>
+                                        </div>
+                                        <div class="space-y-1">
+                                            <span class="text-xs text-muted-foreground">Pertes sanguines</span>
+                                            <div class="grid grid-cols-2 gap-2"><IconInput v-model="exitForm.blood_loss_quantity" :icon="Droplets" type="number" min="0" step="0.01" placeholder="Quantité" aria-label="Pertes sanguines — quantité" /><Input v-model="exitForm.blood_loss_unit" placeholder="Unité" aria-label="Pertes sanguines — unité" /></div>
+                                        </div>
+                                    </div>
+                                </section>
+                                <!-- Doses reçues -->
+                                <section class="rounded-lg border border-border bg-card p-4">
+                                    <h3 class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        <span class="grid h-7 w-7 place-items-center rounded-md bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" aria-hidden="true"><Pill class="h-3.5 w-3.5" /></span>Doses reçues
+                                    </h3>
+                                    <div class="mt-3 space-y-3">
+                                        <div class="space-y-1">
+                                            <span class="text-xs text-muted-foreground">Drogue</span>
+                                            <IconInput v-model="exitForm.drug_name" :icon="Pill" placeholder="Nom" aria-label="Drogue — nom" />
+                                            <div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.drug_quantity" type="number" min="0" step="0.01" placeholder="Quantité" aria-label="Drogue — quantité" /><Input v-model="exitForm.drug_unit" placeholder="Unité" aria-label="Drogue — unité" /></div>
+                                        </div>
+                                        <div class="space-y-1">
+                                            <span class="text-xs text-muted-foreground">Antibiotique</span>
+                                            <IconInput v-model="exitForm.antibiotic_name" :icon="ShieldPlus" placeholder="Nom" aria-label="Antibiotique — nom" />
+                                            <div class="grid grid-cols-2 gap-2"><Input v-model="exitForm.antibiotic_quantity" type="number" min="0" step="0.01" placeholder="Quantité" aria-label="Antibiotique — quantité" /><Input v-model="exitForm.antibiotic_unit" placeholder="Unité" aria-label="Antibiotique — unité" /></div>
+                                        </div>
+                                    </div>
+                                </section>
                             </div>
-                            <section class="mt-4 rounded-md border border-gray-200 p-4 dark:border-gray-900"><h3 class="text-[10px] font-bold uppercase tracking-wide text-slate-400">État de réveil</h3><div class="mt-3 grid gap-2 lg:grid-cols-3"><label v-for="(label, value) in awakeningLabels" :key="value" :class="['flex min-h-11 cursor-pointer items-center gap-2 rounded border px-3 py-2 text-xs transition-colors', exitForm.awakening_status === value ? 'border-primary-300 bg-primary-50 font-semibold text-primary-700 dark:border-primary-900 dark:bg-primary-950/20 dark:text-primary-300' : 'border-gray-200 text-slate-500 dark:border-gray-800']"><input v-model="exitForm.awakening_status" type="radio" :value="value" class="h-4 w-4" />{{ label }}</label></div><label class="mt-3 block max-w-sm text-xs text-slate-500">Score utilisé par la clinique<Input v-model="exitForm.awakening_score" placeholder="Valeur confirmée" /></label></section>
-                            <div v-if="canEdit && canUseExit" class="mt-4 flex justify-end"><Button size="rg" type="button" :disabled="exitForm.processing" @click="submitExit('postoperative')"><Icon name="save" /><span class="ms-2">Enregistrer et continuer</span><Icon class="ms-2" name="arrow-right" /></Button></div>
+                            <!-- État de réveil -->
+                            <section class="mt-4 rounded-lg border border-border bg-card p-4">
+                                <h3 class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    <span class="grid h-7 w-7 place-items-center rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" aria-hidden="true"><BedDouble class="h-3.5 w-3.5" /></span>État de réveil
+                                </h3>
+                                <div class="mt-3 grid gap-2 lg:grid-cols-3" role="radiogroup" aria-label="État de réveil">
+                                    <label
+                                        v-for="(label, value) in awakeningLabels"
+                                        :key="value"
+                                        :class="cn('flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors', exitForm.awakening_status === value ? 'border-primary bg-primary/5 font-medium text-foreground ring-1 ring-primary/40' : 'border-border text-muted-foreground hover:bg-muted/40')"
+                                    >
+                                        <input v-model="exitForm.awakening_status" type="radio" :value="value" class="h-4 w-4 accent-[hsl(var(--primary))]" />
+                                        <component :is="awakeningIcons[value]" class="h-4 w-4 shrink-0" aria-hidden="true" />{{ label }}
+                                    </label>
+                                </div>
+                                <label class="mt-3 block max-w-sm space-y-1"><span class="text-xs text-muted-foreground">Score utilisé par la clinique</span><IconInput v-model="exitForm.awakening_score" :icon="ClipboardCheck" placeholder="Valeur confirmée" /></label>
+                            </section>
+                            <div v-if="canEdit && canUseExit" class="mt-4 flex items-center justify-end gap-3"><ClinicalSaveStatus :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="exitForm.isDirty" :failed="autosave.failed.value" /><Button size="rg" type="button" :disabled="exitForm.processing" @click="next('postoperative')">Suivant<ArrowRight class="h-4 w-4" aria-hidden="true" /></Button></div>
                         </ClinicalAccordionSection>
                     </fieldset>
                     <FormError v-if="exitForm.errors.block_exit">{{ exitForm.errors.block_exit }}</FormError>
@@ -128,20 +248,48 @@ const awakeningLabels = {
                     @toggle="activeSection = activeSection === 'postoperative' ? '' : 'postoperative'"
                 >
                     <section>
-                        <form v-if="canEditPostoperative" class="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8" @submit.prevent="submitObservation">
-                            <DateTimePicker v-model="observationForm.observed_at" required />
-                            <Input v-model="observationForm.diuresis_quantity" type="number" min="0" step="0.01" placeholder="Diurèse" />
-                            <Input v-model="observationForm.diuresis_unit" placeholder="Unité" />
-                            <Input v-model="observationForm.temperature_celsius" type="number" min="25" max="45" step="0.01" placeholder="T° °C" />
-                            <Input v-model="observationForm.blood_pressure_systolic" type="number" min="40" max="300" placeholder="TA syst." />
-                            <Input v-model="observationForm.blood_pressure_diastolic" type="number" min="20" max="200" placeholder="TA diast." />
-                            <Input v-model="observationForm.heart_rate" type="number" min="20" max="300" placeholder="FC" />
-                            <div class="flex gap-2"><Input v-model="observationForm.oxygen_saturation" type="number" min="0" max="100" placeholder="SpO₂ %" /><Button icon type="submit" aria-label="Ajouter"><Icon name="plus" /></Button></div>
+                        <form v-if="canEditPostoperative" class="rounded-lg border border-border bg-muted/10 p-3" @submit.prevent="submitObservation">
+                            <p class="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground"><Plus class="h-3.5 w-3.5 text-primary" aria-hidden="true" />Nouveau relevé</p>
+                            <div class="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+                                <label class="col-span-2 space-y-1 md:col-span-1 xl:col-span-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><Clock class="h-3 w-3" aria-hidden="true" />Heure</span><DateTimePicker v-model="observationForm.observed_at" required /></label>
+                                <label class="space-y-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><FlaskConical class="h-3 w-3" aria-hidden="true" />Diurèse</span><Input v-model="observationForm.diuresis_quantity" type="number" min="0" step="0.01" placeholder="Qté" /></label>
+                                <label class="space-y-1"><span class="text-[11px] text-muted-foreground">Unité</span><Input v-model="observationForm.diuresis_unit" placeholder="ml" /></label>
+                                <label class="space-y-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><Thermometer class="h-3 w-3" aria-hidden="true" />T° (°C)</span><Input v-model="observationForm.temperature_celsius" type="number" min="25" max="45" step="0.01" /></label>
+                                <label class="space-y-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><Gauge class="h-3 w-3" aria-hidden="true" />TA syst.</span><Input v-model="observationForm.blood_pressure_systolic" type="number" min="40" max="300" placeholder="mmHg" /></label>
+                                <label class="space-y-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><GaugeCircle class="h-3 w-3" aria-hidden="true" />TA diast.</span><Input v-model="observationForm.blood_pressure_diastolic" type="number" min="20" max="200" placeholder="mmHg" /></label>
+                                <label class="space-y-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><HeartPulse class="h-3 w-3" aria-hidden="true" />FC</span><Input v-model="observationForm.heart_rate" type="number" min="20" max="300" placeholder="bpm" /></label>
+                                <label class="space-y-1"><span class="flex items-center gap-1 text-[11px] text-muted-foreground"><Droplet class="h-3 w-3" aria-hidden="true" />SpO₂ (%)</span><Input v-model="observationForm.oxygen_saturation" type="number" min="0" max="100" /></label>
+                            </div>
+                            <div class="mt-3 flex justify-end"><Button size="sm" type="submit" :disabled="observationForm.processing"><Plus class="h-4 w-4" />Ajouter le relevé</Button></div>
                         </form>
                         <FormError v-if="observationForm.errors.observation">{{ observationForm.errors.observation }}</FormError>
 
-                        <div class="mt-3 overflow-x-auto rounded-md border border-gray-200 dark:border-gray-900">
-                            <table class="w-full min-w-[720px] border-collapse text-sm"><thead class="bg-gray-50/70 dark:bg-gray-1000/40"><tr><th class="px-3 py-2.5 text-start text-[10px] font-bold uppercase text-slate-400">Heure</th><th class="text-[10px] font-bold uppercase text-slate-400">Diurèse</th><th class="text-[10px] font-bold uppercase text-slate-400">T°</th><th class="text-[10px] font-bold uppercase text-slate-400">TA</th><th class="text-[10px] font-bold uppercase text-slate-400">FC</th><th class="text-[10px] font-bold uppercase text-slate-400">SpO₂</th><th class="w-12"></th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-900"><tr v-for="observation in observations" :key="observation.id"><td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">{{ formatDateTime(observation.observed_at) }}</td><td class="text-center text-xs text-slate-500">{{ observation.diuresis_quantity ?? '—' }} {{ observation.diuresis_unit ?? '' }}</td><td class="text-center text-xs text-slate-500">{{ observation.temperature_celsius ?? '—' }}</td><td class="text-center text-xs text-slate-500">{{ observation.blood_pressure_systolic ?? '—' }}/{{ observation.blood_pressure_diastolic ?? '—' }}</td><td class="text-center text-xs text-slate-500">{{ observation.heart_rate ?? '—' }}</td><td class="text-center text-xs text-slate-500">{{ observation.oxygen_saturation ?? '—' }}</td><td><button v-if="canEditPostoperative" type="button" class="flex h-8 w-8 items-center justify-center rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-950" @click="removeObservation(observation)"><Icon name="trash" /></button></td></tr><tr v-if="observations.length === 0"><td colspan="7" class="px-3 py-5 text-center text-xs text-slate-400">Aucune constante enregistrée.</td></tr></tbody></table>
+                        <div class="mt-3 overflow-x-auto rounded-lg border border-border">
+                            <table class="w-full min-w-[720px] border-collapse text-sm">
+                                <thead class="bg-muted/40">
+                                    <tr>
+                                        <th class="px-3 py-2.5 text-start text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><Clock class="h-3.5 w-3.5" aria-hidden="true" />Heure</span></th>
+                                        <th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><FlaskConical class="h-3.5 w-3.5" aria-hidden="true" />Diurèse</span></th>
+                                        <th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><Thermometer class="h-3.5 w-3.5" aria-hidden="true" />T°</span></th>
+                                        <th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><Gauge class="h-3.5 w-3.5" aria-hidden="true" />TA</span></th>
+                                        <th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><HeartPulse class="h-3.5 w-3.5" aria-hidden="true" />FC</span></th>
+                                        <th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><span class="inline-flex items-center gap-1.5"><Droplet class="h-3.5 w-3.5" aria-hidden="true" />SpO₂</span></th>
+                                        <th class="w-12"><span class="sr-only">Actions</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-border">
+                                    <tr v-for="observation in observations" :key="observation.id" class="hover:bg-muted/20">
+                                        <td class="px-3 py-2 text-xs font-medium text-foreground">{{ formatDateTime(observation.observed_at) }}</td>
+                                        <td class="text-center text-xs text-muted-foreground tabular-nums">{{ observation.diuresis_quantity ?? '—' }} {{ observation.diuresis_unit ?? '' }}</td>
+                                        <td class="text-center text-xs text-muted-foreground tabular-nums">{{ observation.temperature_celsius ?? '—' }}</td>
+                                        <td class="text-center text-xs text-muted-foreground tabular-nums">{{ observation.blood_pressure_systolic ?? '—' }}/{{ observation.blood_pressure_diastolic ?? '—' }}</td>
+                                        <td class="text-center text-xs text-muted-foreground tabular-nums">{{ observation.heart_rate ?? '—' }}</td>
+                                        <td class="text-center text-xs text-muted-foreground tabular-nums">{{ observation.oxygen_saturation ?? '—' }}</td>
+                                        <td><button v-if="canEditPostoperative" type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-destructive hover:bg-destructive/10" :aria-label="`Supprimer le relevé de ${formatDateTime(observation.observed_at)}`" @click="removeObservation(observation)"><Trash2 class="h-4 w-4" /></button></td>
+                                    </tr>
+                                    <tr v-if="observations.length === 0"><td colspan="7" class="px-3 py-6 text-center text-xs text-muted-foreground"><HeartPulse class="mx-auto mb-1 h-5 w-5 opacity-50" aria-hidden="true" />Aucune constante enregistrée.</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </section>
 

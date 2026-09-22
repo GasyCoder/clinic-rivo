@@ -7,6 +7,7 @@ use App\Models\Permission;
 use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -68,6 +69,8 @@ class RbacPresenter
     /** @return array<string, mixed> */
     public function role(Role $role, ?int $holders = null, ?int $holdersWithExceptions = null): array
     {
+        $defaultPermissions = RolePermissionSeeder::defaultPermissionNames($role->code);
+
         return [
             'id' => $role->id,
             'code' => $role->code,
@@ -90,6 +93,12 @@ class RbacPresenter
             'users_with_exceptions_count' => $holdersWithExceptions
                 ?? $role->users()->whereHas('permissions')->count(),
             'permissions' => $role->permissions->pluck('name')->sort()->values(),
+            // A portal-created role has no honest factory default. `null`
+            // lets the UI withhold reset instead of pretending that an empty
+            // baseline is its default. Built-in roles may intentionally have
+            // an empty default (SUPPORT/MAINTENANCE).
+            'has_default_baseline' => $defaultPermissions !== null,
+            'default_permissions' => $defaultPermissions?->values(),
             'profiles' => $role->professionalProfiles->map(fn (ProfessionalProfile $profile) => [
                 'id' => $profile->id,
                 'code' => $profile->code,

@@ -167,9 +167,28 @@ const partnerSelectOptions = computed(() => [
     ...(props.partnerOrganizations ?? []).map((organization) => ({ value: organization.uuid, label: organization.name })),
 ]);
 
+const isChildPatient = computed(() => (
+    patientMode.value === 'create' && ['GIRL', 'BOY'].includes(patientForm.civility)
+));
+const isDependentPatient = computed(() => isExternalNewborn.value || isChildPatient.value);
+
+const resetAdultAdministrativeFields = () => {
+    patientForm.identity_document_type = '';
+    patientForm.identity_document_number = '';
+    patientForm.marital_status = '';
+    patientForm.children_count = '';
+    patientForm.phone = '';
+    patientForm.email = '';
+    patientForm.profession = '';
+};
+
 const chooseCivility = (value) => {
     patientForm.civility = value || '';
     patientForm.sex = civilityOptions.find((option) => option.value === patientForm.civility)?.sex ?? patientForm.sex;
+
+    if (['GIRL', 'BOY'].includes(patientForm.civility)) {
+        resetAdultAdministrativeFields();
+    }
 };
 
 const financialMode = ref(props.resumeEpisode?.financial_mode ?? 'SELF');
@@ -641,13 +660,7 @@ const chooseExternalNewborn = () => {
     // d'adulte. Nettoyer ici évite de réutiliser une ancienne saisie lorsque
     // l'agent bascule depuis « Nouveau Patient ».
     patientForm.civility = '';
-    patientForm.identity_document_type = '';
-    patientForm.identity_document_number = '';
-    patientForm.marital_status = '';
-    patientForm.children_count = '';
-    patientForm.phone = '';
-    patientForm.email = '';
-    patientForm.profession = '';
+    resetAdultAdministrativeFields();
     patientForm.age = '';
     resetEpisodeContact();
 };
@@ -703,6 +716,13 @@ const arrivalPayload = (confirmDuplicate = false) => {
         return {
             ...identity,
             registration_context: 'EXTERNAL_NEWBORN',
+        };
+    }
+
+    if (isChildPatient.value) {
+        return {
+            ...identity,
+            civility: patientForm.civility,
         };
     }
 
@@ -1222,7 +1242,9 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                                 <p class="mt-1 text-xs text-muted-foreground">
                                     {{ isExternalNewborn
                                         ? 'Renseignez uniquement l’identité propre au bébé. Les coordonnées appartiennent au parent ou au responsable à joindre.'
-                                        : 'Les informations ci-dessous seront conservées dans le dossier administratif.' }}
+                                        : isChildPatient
+                                            ? 'Renseignez l’identité de l’enfant. Ses coordonnées de contact sont celles du parent ou du responsable.'
+                                            : 'Les informations ci-dessous seront conservées dans le dossier administratif.' }}
                                 </p>
                             </div>
                         </div>
@@ -1271,16 +1293,16 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                                 </div>
                             </FormField>
 
-                            <FormField v-if="!isExternalNewborn" label="Téléphone" :error="firstError(arrivalErrors, 'phone')">
+                            <FormField v-if="!isDependentPatient" label="Téléphone" :error="firstError(arrivalErrors, 'phone')">
                                 <IconInput v-model="patientForm.phone" size="lg" :icon="Phone" type="tel" autocomplete="tel" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'phone'))" />
                             </FormField>
-                            <FormField v-if="!isExternalNewborn" label="Email" :error="firstError(arrivalErrors, 'email')">
+                            <FormField v-if="!isDependentPatient" label="Email" :error="firstError(arrivalErrors, 'email')">
                                 <IconInput v-model="patientForm.email" size="lg" :icon="Mail" type="email" autocomplete="email" placeholder="patient@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'email'))" />
                             </FormField>
-                            <FormField v-if="!isExternalNewborn" label="Profession" :error="firstError(arrivalErrors, 'profession')">
+                            <FormField v-if="!isDependentPatient" label="Profession" :error="firstError(arrivalErrors, 'profession')">
                                 <IconInput v-model="patientForm.profession" size="lg" :icon="Briefcase" autocomplete="organization-title" placeholder="Profession" :aria-invalid="Boolean(firstError(arrivalErrors, 'profession'))" />
                             </FormField>
-                            <FormField :label="isExternalNewborn ? 'Domicile familial' : 'Adresse'" :error="firstError(arrivalErrors, 'address_entry_uuid') || firstError(arrivalErrors, 'new_address_label')">
+                            <FormField :label="isDependentPatient ? 'Domicile familial' : 'Adresse'" :error="firstError(arrivalErrors, 'address_entry_uuid') || firstError(arrivalErrors, 'new_address_label')">
                                 <template v-if="capabilities.can_create_address" #action>
                                     <span class="inline-flex shrink-0 rounded border border-border bg-card p-0.5">
                                         <button type="button" :class="['rounded px-2 py-0.5 text-[10px] font-semibold transition-colors', addressMode === 'existing' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground']" @click="setAddressMode('existing')">Liste</button>
@@ -1292,7 +1314,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             </FormField>
                         </div>
 
-                        <div v-if="!isExternalNewborn" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div v-if="!isDependentPatient" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <FormField
                                 as="div"
                                 label="Pièce d’identité"
@@ -1320,8 +1342,8 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><UsersRound class="h-4 w-4" /></span>
                         <div>
-                            <h3 class="text-sm font-bold text-foreground">{{ isExternalNewborn ? 'Parent ou responsable à joindre' : 'Personne à contacter pour ce passage' }} <span class="font-normal text-muted-foreground">(facultatif)</span></h3>
-                            <p class="mt-1 text-xs text-muted-foreground">{{ isExternalNewborn ? 'Le téléphone et l’email sont ceux de l’adulte responsable, jamais ceux du bébé.' : 'Ces coordonnées appartiennent uniquement au nouvel Episode et peuvent changer à chaque passage.' }}</p>
+                            <h3 class="text-sm font-bold text-foreground">{{ isDependentPatient ? 'Parent ou responsable à joindre' : 'Personne à contacter pour ce passage' }} <span class="font-normal text-muted-foreground">(facultatif)</span></h3>
+                            <p class="mt-1 text-xs text-muted-foreground">{{ isDependentPatient ? 'Le téléphone et l’email sont ceux de l’adulte responsable, jamais ceux de l’enfant.' : 'Ces coordonnées appartiennent uniquement au nouvel Episode et peuvent changer à chaque passage.' }}</p>
                         </div>
                     </div>
                     <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
@@ -1332,7 +1354,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             <IconInput v-model="patientForm.emergency_contact_phone" size="lg" :icon="Phone" type="tel" autocomplete="off" placeholder="Ex. 034 00 000 00" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_phone'))" />
                         </FormField>
                         <FormField label="Lien avec le patient" :error="firstError(arrivalErrors, 'emergency_contact_relationship')">
-                            <IconInput v-model="patientForm.emergency_contact_relationship" size="lg" :icon="UsersRound" autocomplete="off" :placeholder="isExternalNewborn ? 'Ex. Mère, père, tuteur' : 'Ex. Conjoint, parent, enfant…'" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_relationship'))" />
+                            <IconInput v-model="patientForm.emergency_contact_relationship" size="lg" :icon="UsersRound" autocomplete="off" :placeholder="isDependentPatient ? 'Ex. Mère, père, tuteur' : 'Ex. Conjoint, parent, enfant…'" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_relationship'))" />
                         </FormField>
                         <FormField label="Email du contact" :error="firstError(arrivalErrors, 'emergency_contact_email')">
                             <IconInput v-model="patientForm.emergency_contact_email" size="lg" :icon="Mail" type="email" autocomplete="off" placeholder="contact@exemple.mg" :aria-invalid="Boolean(firstError(arrivalErrors, 'emergency_contact_email'))" />

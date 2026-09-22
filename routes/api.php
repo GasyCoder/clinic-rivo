@@ -165,7 +165,9 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::delete('/roles/{roleCode}', [SuperAdminRoleController::class, 'archive'])->name('roles.archive');
         Route::post('/roles/{roleCode}/restore', [SuperAdminRoleController::class, 'restore'])->name('roles.restore');
         Route::put('/roles/{roleCode}/permissions', [SuperAdminRoleController::class, 'updatePermissions'])->name('roles.permissions.update');
+        Route::post('/roles/{roleCode}/permissions/reset', [SuperAdminRoleController::class, 'resetPermissions'])->name('roles.permissions.reset');
         Route::put('/roles/accounts/{userUuid}/permissions', [SuperAdminRoleController::class, 'updateUserPermissions'])->name('roles.accounts.permissions.update');
+        Route::post('/roles/accounts/{userUuid}/permissions/reset', [SuperAdminRoleController::class, 'resetUserPermissions'])->name('roles.accounts.permissions.reset');
 
         // Le catalogue des permissions lui-même (ADR-101).
         // Le rapport consolidé du site, lu par le tableau de bord central

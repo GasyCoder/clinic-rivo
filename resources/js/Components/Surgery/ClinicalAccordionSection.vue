@@ -8,6 +8,8 @@ defineProps({
     description: { type: String, default: '' },
     complete: Boolean,
     tone: { type: String, default: 'primary' },
+    /** Composant lucide qui dit de quoi parle la section (facultatif). */
+    icon: { type: [Object, Function, String], default: null },
 });
 
 defineEmits(['toggle']);
@@ -21,7 +23,11 @@ defineEmits(['toggle']);
                 <span v-else>{{ step }}</span>
             </span>
             <span class="min-w-0 flex-1">
-                <strong class="block text-sm text-foreground">{{ title }}</strong>
+                <strong class="flex items-center gap-2 text-sm text-foreground">
+                    <component :is="icon" v-if="icon && typeof icon !== 'string'" class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    {{ title }}
+                    <span v-if="complete" class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">Renseigné</span>
+                </strong>
                 <span v-if="description" class="mt-0.5 block text-xs leading-5 text-muted-foreground">{{ description }}</span>
             </span>
             <ChevronDown :class="['h-4 w-4 shrink-0 text-muted-foreground transition-transform', open ? 'rotate-180' : '']" aria-hidden="true" />

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 const create = fs.readFileSync('resources/js/Pages/Reception/Create.vue', 'utf8');
 
 const addressField = () => {
-    const at = create.indexOf(":label=\"isExternalNewborn ? 'Domicile familial' : 'Adresse'\"");
+    const at = create.indexOf(":label=\"isDependentPatient ? 'Domicile familial' : 'Adresse'\"");
     assert.notEqual(at, -1, 'le champ Adresse est introuvable');
 
     return create.slice(at, create.indexOf('</FormField>', at));

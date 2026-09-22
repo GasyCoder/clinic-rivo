@@ -146,6 +146,7 @@ const selectSite = (code) => {
 /* ------------------------------------------------------------------ */
 
 const baselineForm = useForm({ permission_ids: [] });
+const resetRoleForm = useForm({});
 
 const saveBaseline = ({ role, permissionIds }) => {
     baselineForm.permission_ids = permissionIds;
@@ -154,11 +155,17 @@ const saveBaseline = ({ role, permissionIds }) => {
     });
 };
 
+const resetRole = ({ role }) => resetRoleForm.post(
+    `/super-admin/workspaces/roles/${selectedSiteCode.value}/permissions/${role.code}/reset`,
+    { preserveScroll: true },
+);
+
 /* ------------------------------------------------------------------ */
 /* Exceptions individuelles (ADR-022, ADR-033)                        */
 /* ------------------------------------------------------------------ */
 
 const overridesForm = useForm({ permission_overrides: [] });
+const resetAccountForm = useForm({});
 
 const saveOverrides = ({ user, overrides }) => {
     overridesForm.permission_overrides = overrides;
@@ -167,6 +174,11 @@ const saveOverrides = ({ user, overrides }) => {
         { preserveScroll: true },
     );
 };
+
+const resetAccount = ({ user }) => resetAccountForm.post(
+    `/super-admin/workspaces/roles/${selectedSiteCode.value}/accounts/${user.uuid}/permissions/reset`,
+    { preserveScroll: true },
+);
 
 /* ------------------------------------------------------------------ */
 /* Référentiel des rôles (ADR-100)                                    */
@@ -359,9 +371,11 @@ const codeHint = 'Majuscules, sans accent ni espace : lettres, chiffres et « _ 
                 :users="users"
                 :permission-catalog="permissionCatalog"
                 :site-name="selectedSite.site.name"
-                :processing="baselineForm.processing"
-                :errors="baselineForm.errors"
+                :can-reset="canManageBaselines"
+                :processing="baselineForm.processing || resetRoleForm.processing"
+                :errors="{ ...baselineForm.errors, ...resetRoleForm.errors }"
                 @save="saveBaseline"
+                @reset="resetRole"
                 @update:dirty="baselineDirty = $event"
             />
 
@@ -372,9 +386,10 @@ const codeHint = 'Majuscules, sans accent ni espace : lettres, chiffres et « _ 
                 :permission-catalog="permissionCatalog"
                 :site-name="selectedSite.site.name"
                 :can-assign="canAssignPermissions"
-                :processing="overridesForm.processing"
-                :errors="overridesForm.errors"
+                :processing="overridesForm.processing || resetAccountForm.processing"
+                :errors="{ ...overridesForm.errors, ...resetAccountForm.errors }"
                 @save="saveOverrides"
+                @reset="resetAccount"
                 @update:dirty="overridesDirty = $event"
             />
 

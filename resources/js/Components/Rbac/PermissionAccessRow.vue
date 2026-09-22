@@ -8,7 +8,7 @@ import { cn } from '@/lib/cn';
 /**
  * Une permission et l'exception que ce compte porte dessus.
  *
- * Trois états, jamais deux : « Selon le rôle » n'est pas une absence de
+ * Trois états, jamais deux : « Suivre le rôle » n'est pas une absence de
  * décision, c'est le socle du rôle qui s'applique — vert quand ce socle
  * accorde le droit, gris quand il ne l'accorde pas. Les deux autres sont
  * des exceptions propres au compte, et une interdiction l'emporte toujours
@@ -27,11 +27,28 @@ const props = defineProps({
 
 defineEmits(['change']);
 
-const choices = [
-    { value: '', label: 'Selon le rôle' },
-    { value: 'allow', label: 'Autoriser' },
-    { value: 'deny', label: 'Interdire' },
-];
+/**
+ * Chaque bouton dit ce qu'il produit, pas seulement ce qu'il écrit :
+ * « Suivre le rôle » annonce le résultat que le socle donne à ce compte,
+ * les deux exceptions annoncent qu'elles s'appliquent malgré le socle.
+ */
+const choices = computed(() => [
+    {
+        value: '',
+        label: 'Suivre le rôle',
+        hint: props.roleGranted ? 'le rôle l’accorde → accès' : 'le rôle ne l’accorde pas → pas d’accès',
+    },
+    {
+        value: 'allow',
+        label: 'Toujours autoriser',
+        hint: props.roleGranted ? 'inutile : le rôle l’accorde déjà' : 'même si le rôle ne l’accorde pas',
+    },
+    {
+        value: 'deny',
+        label: 'Toujours interdire',
+        hint: props.roleGranted ? 'même si le rôle l’accorde' : 'verrouillé, même si le rôle l’accorde un jour',
+    },
+]);
 
 const rowClass = computed(() => cn(
     'grid gap-3 border-b border-border/60 px-4 py-3 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center',
@@ -66,13 +83,13 @@ const choiceClass = (value) => {
                 </Badge>
                 <Badge v-if="state === '' && roleGranted" variant="success" class="px-1.5 py-0 text-[10px]">Inclus dans le rôle</Badge>
                 <Badge v-else-if="state === ''" variant="outline" class="px-1.5 py-0 text-[10px]">Non inclus dans le rôle</Badge>
-                <Badge v-else-if="state === 'allow'" variant="success" class="px-1.5 py-0 text-[10px]">Exception · Autorisé</Badge>
-                <Badge v-else variant="destructive" class="px-1.5 py-0 text-[10px]">Exception · Interdit</Badge>
+                <Badge v-else-if="state === 'allow'" variant="success" class="px-1.5 py-0 text-[10px]">Exception : toujours autorisé</Badge>
+                <Badge v-else variant="destructive" class="px-1.5 py-0 text-[10px]">Exception : toujours interdit</Badge>
             </div>
             <p v-if="advanced" class="mt-1 truncate font-mono text-[11px] text-muted-foreground" :title="permission.name">{{ permission.name }}</p>
             <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                <span>Rôle : <strong :class="roleGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'">{{ roleGranted ? 'autorisé' : 'interdit' }}</strong></span>
-                <span>Effectif : <strong :class="effectiveGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'">{{ effectiveGranted ? 'autorisé' : 'interdit' }}</strong></span>
+                <span>Socle du rôle : <strong :class="roleGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'">{{ roleGranted ? 'accorde ce droit' : 'n’accorde pas ce droit' }}</strong></span>
+                <span>Résultat pour ce compte : <strong :class="effectiveGranted ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'">{{ effectiveGranted ? 'accès' : 'pas d’accès' }}</strong></span>
                 <span v-if="sourceLabel" class="text-primary">{{ sourceLabel }}</span>
             </div>
         </div>
@@ -87,13 +104,15 @@ const choiceClass = (value) => {
                     role="radio"
                     :aria-checked="state === choice.value"
                     :disabled="disabled"
+                    :title="choice.hint"
                     :class="cn(
-                        'min-h-8 flex-1 rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none',
+                        'flex min-h-8 flex-1 flex-col items-center rounded-md px-2.5 py-1 leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none',
                         choiceClass(choice.value),
                     )"
                     @click="$emit('change', choice.value)"
                 >
-                    {{ choice.label }}
+                    <span class="text-[11px] font-bold">{{ choice.label }}</span>
+                    <span class="text-[9.5px] font-normal opacity-80">{{ choice.hint }}</span>
                 </button>
             </div>
         </fieldset>

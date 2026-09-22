@@ -2092,6 +2092,57 @@ serveur. La carte Demande (`SurgicalRequestCard`) donne un repère à chacun de 
 intervention, demandeur et date, transmission — et ne propose d'enregistrer qu'une
 correction réelle.
 
+## Amendement du 2026-09-22 — les formulaires du bloc s'enregistrent tout seuls
+
+Demande du propriétaire : « enregistrer » doit être automatique, et chaque « Enregistrer et
+continuer » devient « Suivant ». Entrée au bloc, sortie du bloc, consultation pré-anesthésique,
+examen paraclinique et conduite anesthésique s'enregistrent environ 1,5 s après la dernière
+saisie (`composables/useAutosave.js`).
+
+```text
+même chemin     la même route, les mêmes droits, la même validation et le même audit que
+                l'ancien bouton : seul le clic disparaît ; en lecture seule, rien ne part
+« Suivant »     enregistre immédiatement ce qui reste, puis ouvre la section suivante ;
+                un refus y reste et amène le regard sur le champ fautif
+statut          « Modifications non enregistrées » / « Enregistrement… » / « Enregistré à HH:MM »
+                / « Échec » (+ Réessayer) — « enregistré » seulement après la réponse du serveur
+discrétion      aucun toast pour un enregistrement automatique ; la frappe n'est jamais
+                interrompue (état de la page conservé, curseur et section inchangés)
+quitter         changer d'onglet enregistre ce qui reste
+```
+
+« Valider l'évaluation » et « Valider le dossier » restent des gestes explicites : ils attendent que
+le dernier enregistrement soit parti. Chaque enregistrement automatique reste une écriture auditée
+du dossier : il y en a davantage qu'avec un bouton, espacés par la pause de frappe.
+
+Hors périmètre, signalé : la consultation Médecine garde son bouton « Enregistrer » — elle n'y
+enregistre automatiquement qu'un brouillon (ADR-073), et valider une étape reste un geste distinct
+(ADR-076). Son bouton principal se nomme désormais « Suivant : <étape> », même effet qu'avant.
+
+## Amendement du 2026-09-22 — l'espace Anesthésie se lit comme le bloc
+
+Demande du propriétaire : « ajouter des UI et UX avec icônes » sur `/anesthesia/{demande}`. Les trois
+étapes (consultation pré-anesthésique, examen paraclinique et décision, conduite anesthésique)
+quittent les derniers restes DashWind (`SurgeryIcon`, palettes slate/gray et rose/sky/amber/orange
+codées en dur) pour les tokens shadcn et les icônes lucide (ADR-099). C'est de l'affichage : aucun
+`v-model`, aucune route, aucune validation ni règle serveur ne change.
+
+```text
+AnesthesiaStepHeader   en-tête commun aux trois étapes : icône du geste, « Anesthésie · étape N sur 3 »,
+                       état (Évaluation validée / Dossier validé / Lecture seule) en Badge, et
+                       l'avancement des sous-étapes — barre et liste « fait / à faire », chaque état
+                       écrit et non seulement coloré
+ClinicalSubsection     un bloc de champs : icône, titre, phrase, emplacement à droite (le total Glasgow)
+ClinicalAccordionSection  reçoit `icon` (composant lucide) et une pastille « Renseigné » quand la
+                       sous-étape est complète ; les anciens `icon="file-text"` (chaînes ignorées)
+                       deviennent de vraies icônes
+antécédents médicaux   les cases à cocher natives deviennent des pastilles cochables (case masquée en
+                       `sr-only`, coche dessinée) : un « oui » se distingue au premier regard
+```
+
+L'avancement affiché par l'en-tête est celui que les sections calculent déjà (`historyComplete`,
+`resultsComplete`…) ; rien n'est recalculé. Le rendu n'a pas été vérifié dans un navigateur.
+
 ---
 
 # ADR-049 — Parcours Pharmacie, facturation Caisse et stock local
@@ -11681,6 +11732,11 @@ validation de la requête, pas un attribut du Patient : le serveur refuse ces ch
 les envoie directement. Cette adaptation précise « enregistrement d'un nouveau patient » sans modifier le parcours
 du bébé né à la clinique ni créer une nouvelle catégorie financière.
 
+La même règle s'applique au formulaire général lorsque la civilité choisie est `Enfant fille` ou
+`Enfant garçon` : le serveur conserve la civilité, l'identité, la naissance, le sexe et le domicile familial,
+mais refuse téléphone, email, profession, pièce d'identité, situation maritale et nombre d'enfants. Ces valeurs
+ne sont pas remplacées par des zéros ni par celles du parent. Le parent ou responsable reste le contact du passage.
+
 ---
 
 # ADR-147 — Diagnostic de sortie porté par le séjour, et Réception en lecture sur l'Hospitalisation
@@ -13843,8 +13899,7 @@ UNLINKED accepté           transition ci-dessus — à confirmer ou à durcir
 heure de début seulement   la durée de l'intervention n'est pas connue : un créneau qui finit
                            pendant l'opération ne se voit pas
 aucun contrôle de conflit  un chirurgien peut être programmé sur deux interventions à la même heure
-après le démarrage         la programmation se ferme ; un chirurgien qui rejoint en cours
-                           d'intervention ne peut plus être inscrit
+après le démarrage         traité par l'amendement du 2026-09-22 ci-dessous
 opérateur                  l'écran propose les chirurgiens programmés, le serveur accepte
                            encore tout compte actif
 MEDICINE et surgery.schedule   accordé par le portail sur ce site : décision d'administration
@@ -13852,6 +13907,58 @@ MEDICINE et surgery.schedule   accordé par le portail sur ce site : décision d
 
 Aucune permission nouvelle.
 
+## Amendement du 2026-09-22 — au bloc, les aides et l'opérateur s'ajustent encore
+
+Constat du propriétaire : sur un dossier « Au bloc », seules la salle et les consignes se
+modifiaient ; un chirurgien arrivé en renfort ne pouvait plus être inscrit, et l'opérateur
+réel ne pouvait plus être corrigé (la section Intervention ne corrige que la fin, le résumé
+et les notes). Arbitrage du propriétaire, entre « rien », « seulement les aides », « aides
+et opérateur » et « tout, date comprise » : **aides et opérateur**.
+
+```text
+figés au démarrage   la date programmée (l'heure réelle est le « Début » de l'intervention)
+                     et le chirurgien principal — revu par l'amendement suivant
+ajustables au bloc   les aides (ajout, retrait) et l'opérateur réel, choisi parmi le
+                     principal et les aides — jamais un compte extérieur à l'équipe
+conditions           dossier « Au bloc » (IN_PROGRESS) seulement ; profil Chirurgien
+                     exigé ; le planning RH n'est pas revérifié (le patient est déjà sur
+                     la table) ; retirer l'opérateur des aides exige d'en désigner un autre ;
+                     un envoi qui ne change rien est refusé
+trace                motif obligatoire, audit surgery.team.adjust avec l'ancienne et la
+                     nouvelle équipe
+droit                surgery.schedule, la même autorité que programmer
+```
+
+`AdjustSurgicalTeamDuringInterventionAction` (`POST /surgery/{demande}/team-adjustment`)
+juge tout sous verrou et réutilise la synchronisation des aides de la programmation. À
+l'écran, « Ajuster l'équipe opératoire » remplace le bouton de programmation une fois au
+bloc (`SurgicalTeamAdjuster`), et une ligne dit ce qui est figé et pourquoi. Après la fin
+de l'intervention, plus rien ne se modifie. Aucune permission nouvelle, aucune migration.
+
+
+## Amendement du même jour — chaque tuile se corrige, date et principal compris
+
+Le propriétaire revient sur l'arbitrage ci-dessus (« date et principal figés au bloc ») :
+la date programmée peut changer, et chaque tuile de la programmation porte son crayon.
+Décision du propriétaire, appliquée telle quelle.
+
+```text
+avant le démarrage   crayon → POST /schedule, un fait à la fois ; le planning RH est
+                     vérifié, un chirurgien absent est montré verrouillé avec la raison
+au bloc              crayon → POST /team-adjustment, un fait à la fois : date programmée,
+                     chirurgien principal, aides, opérateur (tuile de la section
+                     Intervention) ; champ omis = inchangé ; motif obligatoire, audité
+changer de principal l'ancien principal, s'il est l'opérateur enregistré, reste dans
+                     l'équipe comme aide : qui a opéré n'est jamais réécrit
+date au bloc         reste la date programmée ; l'heure réelle est le « Début » consigné
+salle, consignes     leurs tuiles ouvrent le formulaire de préparation existant
+```
+
+Le bouton global « Ajuster l'équipe opératoire » est remplacé par ces crayons
+(`ScheduleFieldEditor`). La date programmée se corrige au bloc en écrivant directement le
+dossier verrouillé, hors de la transition `SurgicalRequest::schedule()` qui reste fermée
+après le démarrage. Après la fin de l'intervention, plus rien ne se modifie. Aucune
+permission nouvelle, aucune migration.
 ---
 
 # ADR-169 — Le matériel du bloc passe par le stock de la Pharmacie
@@ -13935,3 +14042,399 @@ Sans configuration, seule la parapharmacie est déclarable ; sans prix, la ligne
 
 La migration `2026_10_23_090000` se joue sur chaque site ; la base du portail n'a pas de file Pharmacie,
 mais la jouer partout garde les schémas alignés.
+
+---
+
+# ADR-170 — Chirurgie et Anesthésie en parallèle, deux points de rendez-vous opposables
+
+**Status:** ACCEPTED (2026-09-22 — exigence explicite du propriétaire, après audit
+du module Chirurgie/Anesthésie)
+
+**Complète l'ADR-048** (les deux espaces, le dossier partagé) et **l'ADR-168**
+(l'équipe de bloc et ses profils). Le CDC §16 décrit le déroulé d'une
+intervention et les permissions du module ; **il ne décrit ni autorisation
+anesthésique, ni checklist de sécurité**. Les règles ci-dessous sont donc
+celles du propriétaire, signalées comme telles et non transcrites du CDC
+(ADR-020).
+
+## Le principe : parallèle, avec des rendez-vous
+
+```text
+Chirurgie et Anesthésie travaillent EN PARALLÈLE
+Rien n'impose à l'une d'attendre que l'autre ait tout terminé
+Mais deux transitions sont des points de rendez-vous opposables :
+    l'incision   →  les checkpoints de sécurité doivent être réellement faits
+    la clôture   →  tout ce qui doit être documenté doit l'être
+```
+
+Ce n'est **pas** un assistant linéaire. `SurgicalReadinessGate` est l'autorité
+unique de ces deux transitions ; le reste du dossier se remplit dans l'ordre que
+l'équipe choisit.
+
+## Sept défauts constatés à l'audit
+
+```text
+1  démarrer l'intervention ne vérifiait que le statut du dossier : ni
+   anesthésiste, ni autorisation, ni checklist
+2  la « décision » d'anesthésie vivait dans paraclinical_data.surgery_authorized,
+   un drapeau JSON qu'aucune règle ne lisait
+3  performed_by acceptait n'importe quel compte actif
+4  aucune checklist de sécurité du bloc
+5  valider le compte rendu clôturait le dossier au passage : un seul métier
+   clôturait pour tous, SIGN OUT, sortie du bloc et anesthésie non documentées
+6  ValidateAnesthesiaRecordAction n'avait aucune condition de phase : la fiche
+   pouvait être verrouillée avant même l'incision
+7  aucune autorisation par dossier : `anesthesia.update` ouvrait tous les
+   dossiers du site, `surgery.intervention.create` tous les blocs
+```
+
+## L'autorisation anesthésique, distincte de la validation du bilan
+
+Deux faits, que le code confondait :
+
+```text
+assessment_validated_at   l'évaluation pré-anesthésique est terminée et verrouillée
+clearance_status          la décision : le bloc peut-il avoir lieu ?
+validated_at              la fiche entière est close (conduite au bloc comprise)
+```
+
+`AnesthesiaClearanceStatus` : `DRAFT`, `CLEARED`, `CLEARED_WITH_CONDITIONS`,
+`NOT_CLEARED`, `DEFERRED`. **`DRAFT` n'est pas une décision** : tant que personne
+n'a prononcé, l'incision est retenue — une absence n'est jamais une décision
+(ADR-077, ADR-079, ADR-095). Un refus ou un report **exige son motif**, que le
+bloc lit dans sa propre synthèse : l'équipe chirurgicale ne peut pas le deviner.
+
+Une décision est **révisable** tant que l'intervention n'a pas commencé (l'état
+d'un patient change) ; au bloc, elle ne se reprononce plus. Chaque révision est
+auditée avec l'ancienne et la nouvelle valeur.
+
+`paraclinical_data.surgery_authorized` **n'est pas migré** vers ce statut :
+c'était un champ de saisie qu'aucune règle n'opposait, et le convertir en
+décision attribuerait à un anesthésiste une autorisation qu'il n'a jamais
+prononcée sous cette forme.
+
+### Conditions
+
+`anesthesia_clearance_conditions` : deux états seulement, `OPEN` et `RESOLVED`.
+Une condition ouverte **bloque l'incision**. Elle se lève par l'anesthésie et
+par elle seule — laisser le bloc cocher lui-même les réserves de l'anesthésiste
+lui rendrait l'autorisation qu'on venait précisément de ne pas lui donner.
+
+**`WAIVED` n'existe pas**, délibérément : le CDC ne dit pas qui pourrait passer
+outre la réserve d'un anesthésiste, et l'inventer créerait une porte de sortie
+sans responsable. À décider avec la clinique si le besoin apparaît.
+
+## Checklist de sécurité du bloc
+
+Trois temps — `SIGN_IN` (avant l'induction), `TIME_OUT` (juste avant l'incision),
+`SIGN_OUT` (avant que l'équipe quitte la salle) — avec une traçabilité réelle :
+chaque rôle requis confirme **sa propre part**, nominativement et horodatée. Un
+chirurgien ne signe pas pour l'anesthésiste : c'est précisément ce qu'une
+checklist existe pour empêcher.
+
+```text
+SIGN_IN    Anesthésie + Équipe de salle   (le chirurgien n'y est pas toujours)
+TIME_OUT   Chirurgien + Anesthésie + Équipe de salle
+SIGN_OUT   Chirurgien + Anesthésie + Équipe de salle
+```
+
+Un temps n'est **jamais déclaré terminé par un clic** : `completed_at` est
+calculé des faits — les points obligatoires cochés et chaque rôle ayant confirmé
+(`refreshCompletion()`). Une fois posé, il ne bouge plus.
+
+**Le contenu des items n'est pas une règle médicale inventée.**
+`App\Support\SurgicalSafetyChecklistItems` est un fichier unique, relu, qui ne
+contient que des vérifications organisationnelles — le bon patient, la bonne
+intervention, le bon côté, le matériel, la personne présente. Aucun seuil,
+aucun score, aucune contre-indication. Les items obligatoires sont
+volontairement les quatre ou cinq que personne ne conteste ; **élargir la liste
+est une décision de la clinique**, qui se prend dans ce fichier et nulle part
+ailleurs.
+
+Aucune permission nouvelle : confirmer suit le métier —
+`anesthesia.update` pour l'anesthésie, `surgery.preparation.update` pour le
+chirurgien et l'équipe de salle (ADR-101 : une permission que rien ne vérifie
+est un interrupteur qui ne commande rien).
+
+## Bloquant ou avertissement — la distinction est la règle centrale
+
+```text
+blocker   la transition est refusée par le serveur, y compris en POST direct
+warning   l'équipe est prévenue et décide
+```
+
+**On ne retient jamais un bloc opératoire pour un champ facultatif.** La fiche
+d'entrée au bloc manquante et les points facultatifs non cochés sont des
+avertissements ; ils n'ont jamais empêché une incision.
+
+Ce qui bloque l'incision :
+
+```text
+dossier annulé · intervention déjà ouverte · feu vert préopératoire non confirmé
+aucun anesthésiste affecté · aucun dossier d'anesthésie
+évaluation non validée · décision absente, refusée, reportée ou échue
+condition d'autorisation encore ouverte
+SIGN IN ou TIME OUT : manquant, points requis non cochés, confirmation manquante
+```
+
+Chaque constat porte son **propriétaire** (`SURGERY`, `ANESTHESIA`, `BLOCK`) :
+l'écran dit « en attente de l'anesthésiste » au lieu de proposer au chirurgien
+un geste qui n'est pas le sien.
+
+## Valider le compte rendu ne clôt plus le dossier
+
+`ValidateSurgicalReportAction` n'appelle plus `complete()`.
+`CompleteSurgicalCaseAction` est un geste à part, qui exige :
+
+```text
+intervention terminée (heure de fin) · compte rendu validé · SIGN OUT confirmé
+sortie du bloc renseignée · dossier d'anesthésie finalisé
+```
+
+La permission reste `surgery.report.validate` — c'est elle qui emportait la
+clôture jusqu'ici ; en inventer une nouvelle retirerait à chaque site une
+capacité qu'il possédait. L'action est idempotente : un second clic sur un
+dossier clôturé le renvoie tel quel.
+
+Symétriquement, `ValidateAnesthesiaRecordAction` refuse désormais de fermer la
+fiche **avant l'incision** : la conduite peropératoire resterait entièrement à
+consigner sur un dossier verrouillé.
+
+## L'autorisation par dossier, au-dessus du RBAC
+
+`App\Services\Surgery\SurgicalCaseActors` répond à la question que la
+permission ne pose pas : cette personne travaille-t-elle sur **ce** patient ?
+
+```text
+anesthesia.update  ouvre le métier
+isAnesthetistOf()  ouvre le dossier
+surgery.update     supervision — une porte nommée, jamais un effet de bord
+```
+
+`SurgicalRequestPolicy` et `AnesthesiaRecordPolicy` portent ces règles ; les
+FormRequests concernées ne renvoient plus `true`. Huit autres FormRequests du module
+(programmation, sortie de Chirurgie, équipe, sortie du bloc, notes, traitements)
+renvoient encore `true` et ne sont gardées que par le `can:` de leur route :
+l'autorisation par dossier ne s'y applique pas encore — signalé, non traité. `performed_by` doit être un
+chirurgien **de ce dossier** (`surgeon_id`, un membre d'équipe `SURGEON`) ou la
+supervision : un compte actif ne suffit plus.
+
+Ouvrir le dossier d'anesthésie fait exception et reste ouvert à
+`anesthesia.create` sans affectation préalable — l'exiger enfermerait la
+clinique, puisque avant ce dossier personne n'est encore l'anesthésiste. Le
+compte qui l'ouvre en devient l'anesthésiste, sauf s'il en désigne
+explicitement un autre, que la FormRequest restreint déjà au profil
+`ANESTHETIST` (ADR-168).
+
+## Le serveur décide, l'écran affiche
+
+`SurgicalReadinessPresenter` compose `readiness` (blocages, avertissements,
+lignes d'état, décision d'anesthésie, checklists, droits de l'acteur). **Aucune
+règle sensible n'est recalculée en JavaScript** : deux copies de la même règle
+finissent par se contredire, et ici la divergence se paie au bloc — un bouton
+actif sur un dossier que le serveur refusera, ou grisé sans qu'on sache
+pourquoi.
+
+Un bouton désactivé dit toujours **pourquoi** (`BlockingIssuesAlert`), et la
+couleur ne porte jamais seule une information critique : chaque état a son mot
+écrit (« Terminé », « À faire », « Bloquant », « Attention ») et son icône.
+
+Composants : `SurgicalReadinessCard`, `BlockingIssuesAlert`,
+`AnesthesiaClearanceBadge`, `AnesthesiaClearancePanel`,
+`SurgicalSafetyChecklist` — shadcn-vue (ADR-099).
+
+## Ce qui n'est pas fait, et pourquoi
+
+```text
+READY_FOR_INCISION comme statut stocké   il est CALCULÉ (blockersForIncision) :
+                                         un statut stocké se désynchronise du
+                                         fait qu'il prétend décrire
+renommer PREOPERATIVE_VALIDATED          aucun gain : le nom est déjà porté par
+                                         des lignes, des tests et l'audit
+WAIVED sur une condition                 aucun responsable défini par le CDC
+migration de surgery_authorized          inventerait une décision non prononcée
+cohérence horaire entrée/sortie du bloc  signalée, non tranchée : aucune règle
+                                         de la clinique ne dit ce qui doit
+                                         précéder quoi à la minute près
+```
+
+## Migrations
+
+`2026_10_24_090000_create_anesthesia_clearance` (colonnes nullables sur
+`anesthesia_records` + table des conditions) et
+`2026_10_24_091000_create_surgical_safety_checklists`. Rétrocompatibles :
+aucune donnée supprimée, aucune colonne retirée, tout nullable — un dossier
+antérieur se lit `DRAFT`, c'est-à-dire « personne n'a décidé », ce qui est
+exact. Aucune permission nouvelle, donc aucune migration de droits.
+
+---
+
+# ADR-171 — Réinitialiser un dossier du bloc saisi à tort, sans rien détruire
+
+**Status:** ACCEPTED (2026-09-22 — exigence explicite du propriétaire : « tout ce qui est saisi peut
+être à tort ou en erreur, on peut réinitialiser à zéro, mais toujours avec confirmation » ; arbitrages :
+usage réel en production, périmètre = tout le dossier du bloc)
+
+**Amende l'ADR-010** pour ce seul cas, signalé avant l'implémentation : les données cliniques du bloc
+(intervention, compte rendu, checklists, anesthésie) sont retirées du dossier. Elles ne sont pas
+détruites : elles sont **archivées** avant d'être retirées. Le CDC §15/16 ne liste aucune permission
+`surgery.delete/cancel` ; ce geste est la décision du propriétaire.
+
+## Ce que fait « Réinitialiser »
+
+```text
+archive      surgical_request_resets : instantané complet de ce qui était saisi (programmation,
+             équipe, feu vert, entrée au bloc, checklists et confirmations, intervention, compte
+             rendu, sortie du bloc, surveillance, traitements, complications, notes, lignes hors
+             stock, dossier d'anesthésie et ses conditions), statut d'avant, motif, auteur, heure ;
+             écrite une fois, jamais modifiée ni supprimée (le modèle le refuse)
+retrait      ces saisies quittent le dossier ; la demande garde intervention demandée, origine,
+             demandeur et notes de demande, et repasse « À programmer » (PENDING)
+audit        surgery.request.reset : statut d'avant, nombre d'éléments archivés, UUID de l'archive
+```
+
+## Ce qu'il ne défait pas
+
+```text
+matériel déjà servi par la Pharmacie   refus : le stock a bougé ; la correction est un ajustement
+                                       de stock audité, puis la réinitialisation
+matériel demandé, pas encore servi     la demande est annulée, motif repris (règle de l'ADR-169)
+demande annulée, passage clos          refus
+dossier sans aucune saisie             refus (rien à réinitialiser)
+orientation, séjour, facturation       inchangés : ils n'appartiennent pas au dossier du bloc
+```
+
+## Confirmation
+
+Bouton « Réinitialiser » dans l'en-tête du dossier (`SurgicalCaseReset`), seulement avec le droit.
+La fenêtre liste ce qui sera retiré, exige un motif et une case « Je confirme », et ne se ferme pas
+au clic à côté. Le serveur revérifie tout ; l'écran ne décide de rien.
+
+## Permission
+
+`surgery.reset`, accordée au rôle `SURGERY` par la migration `2026_10_25_090000` (ADR-064) — à jouer
+sur chaque site et sur le portail. Le Super Administrateur la retire ou la réserve à un compte depuis
+« Rôles & permissions ».
+
+## Signalé, non tranché
+
+Aucun écran ne relit encore une archive : elle se lit en base et dans l'audit. Une restauration
+depuis l'archive n'est pas proposée.
+
+---
+
+# ADR-172 — Le « Dossier chirurgical » est généré depuis les données, et le bloc figure au dossier médical
+
+**Status:** ACCEPTED (2026-09-22 — modèle papier « Dossier Chirurgical » de la clinique fourni par
+le propriétaire, qui a demandé d'appliquer la recommandation)
+
+**Complète l'ADR-048** (les fiches papier du bloc comme vocabulaire), **l'ADR-116** (dossier médical
+et journal de traitement) et **l'ADR-170** (autorisation anesthésique). Le CDC §16 ne décrit aucun
+document imprimable du bloc : ce qui suit est la décision du propriétaire.
+
+## Le constat
+
+Le propriétaire a fourni les quatre pages papier du « Dossier Chirurgical » — Entrée du patient au
+bloc, Sortie du patient au bloc, Consultation pré-anesthésique, Examen paraclinique — et demandé si
+les actes du bloc et de l'anesthésie se retrouvaient dans le dossier médical. Vérification faite :
+**rien** de ce que la Chirurgie et l'Anesthésie consignent n'atteignait le dossier médical imprimé,
+le journal de traitement ni le parcours du passage — seule l'orientation « Chirurgie » y figurait.
+Toutes les cases du papier existaient pourtant déjà en base (fiches d'entrée et de sortie du bloc,
+traitements, surveillance, dossier d'anesthésie).
+
+## Trois choses, sans nouveau modèle de données
+
+```text
+1  un « Dossier chirurgical » imprimable, généré depuis ce qui est saisi
+2  le bloc au journal de traitement et au dossier médical
+3  « Imprimer le dossier » dans les deux espaces, entier ou une seule feuille
+```
+
+Aucune table, aucune colonne : `App\Support\Documents\SurgicalDossierSheet` **lit** le dossier du
+bloc et le dossier d'anesthésie et compose quatre feuilles fidèles au papier, une par page, dans un
+seul document (`GET /surgery/{demande}/dossier`, page `Surgery/DossierPrint`, `PaperSheet`). Le PDF
+est celui du navigateur (ADR-070). `?feuille=entry|exit|consultation|paraclinical` n'en imprime
+qu'une ; une valeur inconnue imprime tout, jamais une page vide.
+
+## Chaque feuille garde le droit qui possède sa donnée
+
+```text
+route                      surgery.view OU anesthesia.view (capacité view-surgical-dossier)
+Entrée / Sortie du bloc    surgery.view
+Consultation / Paraclinique  anesthesia.view
+en-tête                    anesthésiste avec anesthesia.view ; entrée/sortie d'hospitalisation
+                           avec hospitalization.view
+```
+
+Une feuille refusée est servie **restreinte et nommée**, jamais vide — un vide se lirait « rien
+consigné » (ADR-116). Les libellés (enums, clés JSON, antécédents cochables) sont résolus côté
+serveur ; la page n'interprète aucun code. Une case que personne n'a remplie reste vide : jamais
+« Non », jamais « Normal » (ADR-077).
+
+## Divergences avec le papier, signalées
+
+```text
+« Autorisation d'opérer »   la case du papier imprime la décision de l'ADR-170 (statut, auteur,
+                            date, motif, conditions). L'ancien drapeau JSON `surgery_authorized`
+                            n'est imprimé que s'il a réellement été coché — jamais converti en
+                            décision (ADR-074)
+Situation maritale, enfants viennent du dossier patient, pas d'une saisie du bloc
+Conduite anesthésique       n'a pas de page papier ; elle est imprimée à la suite de l'Examen
+                            paraclinique, dans le dossier d'anesthésie auquel elle appartient
+Checklists de sécurité      absentes du papier (ADR-170) ; imprimées avec leurs confirmations
+                            réelles, un temps sans confirmation restant une ligne vide
+```
+
+## Le bloc au journal et au dossier médical
+
+`TreatmentJournal::surgeryRows()` (gardé par `surgery.view`) ajoute, chacun à son heure réelle :
+entrée au bloc, début et fin de l'intervention, sortie du bloc avec l'état de réveil, traitements
+préliminaires et postopératoires, complications, sortie de Chirurgie. Une demande annulée n'écrit
+rien. `MedicalRecordSheet` reçoit une section « Bloc opératoire » — intervention, dates, chirurgien,
+réveil, et, avec `anesthesia.view`, anesthésiste, classe ASA et décision anesthésique — nommée
+« non visible avec vos droits » sans `surgery.view`, jamais servie vide.
+
+Aucune permission nouvelle, aucune migration. Rendu vérifié par build et tests, non en navigateur.
+
+---
+
+# ADR-173 — Réinitialiser explicitement un socle ou un compte à ses droits par défaut
+
+**Status:** ACCEPTED (2026-09-22 — exigence explicite du propriétaire : ajouter la
+réinitialisation des permissions d'un rôle et d'un compte)
+
+**Complète l'ADR-064** (socle éditable), **l'ADR-100** (socles et exceptions sur un écran
+distinct) et **l'ADR-033** (recommandations de profil explicites). La priorité reste :
+
+```text
+DENY individuel > ALLOW individuel > socle du rôle
+```
+
+Deux gestes distincts sont proposés dans « Rôles & permissions », chacun après une confirmation
+qui nomme sa portée :
+
+```text
+Réinitialiser le rôle    restaure le socle livré par RolePermissionSeeder pour ce rôle standard ;
+                        touche tous les titulaires par héritage, sans modifier leurs exceptions ;
+                        audit role.permissions.reset
+
+Réinitialiser le compte supprime toutes les lignes user_permissions de ce compte, MANUAL comme
+                        PROFILE ; le profil professionnel reste affecté, mais ses recommandations
+                        ne sont pas réappliquées ; le compte hérite seulement du socle de son rôle ;
+                        audit user.permissions.reset
+```
+
+La réinitialisation d'un compte est volontairement plus large que l'éditeur ordinaire des
+exceptions, qui ne remplace que les lignes `MANUAL` (ADR-100). « Par défaut » ne signifie pas
+« appliquer le profil recommandé » : une recommandation n'est une permission effective qu'après
+l'action explicite prévue par l'ADR-033.
+
+Un rôle créé depuis le portail n'a aucun socle système historique à restaurer. L'action est donc
+absente de l'écran et refusée par le serveur pour ce rôle ; vider silencieusement son socle
+inventerait un défaut. `SUPPORT` et `MAINTENANCE`, en revanche, sont des rôles standards dont le
+socle par défaut est intentionnellement vide : ils restent réinitialisables.
+
+Les deux commandes passent par l'API du site cible, jamais par sa base. Le portail et le site
+revérifient respectivement `users.manage` (rôle) et `permissions.assign` (compte). Le rôle
+`SUPER_ADMIN` reste protégé. Aucun changement de `User::effectivePermissionNames()`, aucune
+permission nouvelle, aucune migration.

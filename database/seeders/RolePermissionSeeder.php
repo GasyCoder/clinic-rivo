@@ -226,7 +226,7 @@ class RolePermissionSeeder extends Seeder
         // separate Anesthesia workspace is granted explicitly per account;
         // it is never implied by surgery.view (ADR-048).
         'SURGERY' => [
-            'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule',
+            'surgery.view', 'surgery.create', 'surgery.update', 'surgery.schedule', 'surgery.reset',
             'surgery.preoperative.view', 'surgery.preoperative.validate',
             'surgery.intervention.create', 'surgery.intervention.update',
             'surgery.report.create', 'surgery.report.update', 'surgery.report.validate',
@@ -286,11 +286,46 @@ class RolePermissionSeeder extends Seeder
             ?->permissions()->sync($superAdminPermissionIds);
 
         foreach (self::GRANTS as $code => $matchers) {
-            $ids = $this->matchingPermissionIds($matchers);
+            $ids = self::matchingPermissionIds($matchers);
 
             Role::query()->where('code', $code)->first()
                 ?->permissions()->sync($ids);
         }
+    }
+
+    /**
+     * Return the application baseline for a built-in role.
+     *
+     * `null` deliberately means "no system default exists" (for example a
+     * role created from the portal). It must not be confused with an empty
+     * baseline, which is the intentional default for SUPPORT and MAINTENANCE.
+     *
+     * @return Collection<int, int>|null
+     */
+    public static function defaultPermissionIds(string $roleCode): ?Collection
+    {
+        $roleCode = mb_strtoupper($roleCode);
+
+        if (! array_key_exists($roleCode, self::GRANTS)) {
+            return null;
+        }
+
+        return self::matchingPermissionIds(self::GRANTS[$roleCode]);
+    }
+
+    /** @return Collection<int, string>|null */
+    public static function defaultPermissionNames(string $roleCode): ?Collection
+    {
+        $ids = self::defaultPermissionIds($roleCode);
+
+        if ($ids === null) {
+            return null;
+        }
+
+        return Permission::query()
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->pluck('name');
     }
 
     /**
@@ -301,7 +336,7 @@ class RolePermissionSeeder extends Seeder
      *
      * @param  array<int, string>  $matchers
      */
-    private function matchingPermissionIds(array $matchers): Collection
+    private static function matchingPermissionIds(array $matchers): Collection
     {
         if ($matchers === []) {
             return collect();

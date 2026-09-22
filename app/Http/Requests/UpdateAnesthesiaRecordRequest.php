@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\AnesthesiaRecord;
 use App\Support\AnesthesiaAssessmentRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -10,7 +11,10 @@ class UpdateAnesthesiaRecordRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $record = $this->route('anesthesiaRecord');
+
+        return $record instanceof AnesthesiaRecord
+            && $this->user()?->can('update', $record) === true;
     }
 
     public function rules(): array

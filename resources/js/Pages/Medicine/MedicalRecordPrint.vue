@@ -37,6 +37,12 @@ const props = defineProps({
     diagnosis_visible: { type: Boolean, default: true },
     diagnosis: { type: String, default: null },
     /**
+     * ADR-172 — le passage au bloc fait partie du même dossier. `null` : aucun ; sinon une ligne par
+     * intervention, gardée par `surgery.view` ; l'anesthésie y est gardée par `anesthesia.view`.
+     */
+    surgery_visible: { type: Boolean, default: true },
+    surgery: { type: Array, default: null },
+    /**
      * ADR-143 — la Maternité fait partie du même dossier. `null` : ce passage n'en a
      * pas ; `{ restricted: true }` : elle existe mais ce compte n'a pas le droit de la lire.
      */
@@ -364,6 +370,46 @@ const restricted = (label) => `Non visible avec vos droits (${label})`;
                     </td>
                 </tr>
             </tbody>
+        </table>
+
+        <!-- ADR-172 : le bloc opératoire est une section du dossier, jamais un second dossier. -->
+        <table v-if="!birth && (!surgery_visible || surgery)" class="ps-table mrp-block">
+            <thead><tr><th class="ps-section ps-section-blue" colspan="4">BLOC OPÉRATOIRE</th></tr></thead>
+            <tbody v-if="!surgery_visible">
+                <tr><td colspan="4" class="ps-muted p-2">{{ restricted('surgery.view') }}</td></tr>
+            </tbody>
+            <template v-else>
+                <tbody v-for="item in surgery" :key="item.uuid">
+                    <tr>
+                        <th class="ps-label ps-label-blue-soft">Intervention</th>
+                        <td>{{ item.procedure }}<span v-if="item.status" class="ps-muted"> · {{ item.status }}</span></td>
+                        <th class="ps-label ps-label-blue-soft">Chirurgien</th>
+                        <td>{{ item.surgeon }}</td>
+                    </tr>
+                    <tr>
+                        <th class="ps-label ps-label-blue-soft">Début</th>
+                        <td>{{ item.started_at ? formatDateTime(item.started_at) : (item.scheduled_at ? `Programmée le ${formatDateTime(item.scheduled_at)}` : '') }}</td>
+                        <th class="ps-label ps-label-blue-soft">Fin</th>
+                        <td>{{ item.ended_at ? formatDateTime(item.ended_at) : '' }}</td>
+                    </tr>
+                    <tr>
+                        <th class="ps-label ps-label-blue-soft">Anesthésiste</th>
+                        <td :class="item.anesthesia_visible ? undefined : 'ps-muted'">{{ item.anesthesia_visible ? item.anesthesia?.anesthetist : restricted('anesthesia.view') }}</td>
+                        <th class="ps-label ps-label-blue-soft">Classe ASA</th>
+                        <td>{{ item.anesthesia_visible ? item.anesthesia?.asa_class : '' }}</td>
+                    </tr>
+                    <tr>
+                        <th class="ps-label ps-label-blue-soft">Décision anesthésique</th>
+                        <td>{{ item.anesthesia_visible ? [item.anesthesia?.clearance, item.anesthesia?.clearance_reason].filter(Boolean).join(' — ') : '' }}</td>
+                        <th class="ps-label ps-label-blue-soft">Réveil</th>
+                        <td>{{ item.awakening }}</td>
+                    </tr>
+                    <tr>
+                        <th class="ps-label ps-label-blue-soft">Résumé de l’acte</th>
+                        <td colspan="3">{{ item.summary }}<span v-if="item.report_validated" class="ps-muted"> · Compte rendu validé</span></td>
+                    </tr>
+                </tbody>
+            </template>
         </table>
 
         <!-- ADR-143 : la Maternité est une section du dossier, pas un second dossier. -->

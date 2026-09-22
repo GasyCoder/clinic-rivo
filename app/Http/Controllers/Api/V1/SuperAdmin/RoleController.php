@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
 use App\Actions\Role\ArchiveRoleAction;
 use App\Actions\Role\CreateRoleAction;
+use App\Actions\Role\ResetRolePermissionsAction;
 use App\Actions\Role\RestoreRoleAction;
 use App\Actions\Role\UpdateRoleAction;
 use App\Actions\Role\UpdateRolePermissionsAction;
+use App\Actions\User\ResetUserPermissionsAction;
 use App\Actions\User\UpdateUserPermissionOverridesAction;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
@@ -165,6 +167,17 @@ class RoleController extends Controller
         ]);
     }
 
+    public function resetPermissions(Request $request, string $roleCode, ResetRolePermissionsAction $action): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, 'users.manage');
+        $role = $action->execute($this->role($roleCode), $actor);
+
+        return response()->json([
+            'message' => "Le socle du rôle {$role->name} a été réinitialisé.",
+            'data' => $this->presenter->role($role->load('professionalProfiles')),
+        ]);
+    }
+
     /**
      * Les exceptions individuelles d'un compte. Endpoint distinct de la
      * mise à jour du compte : cet écran ne modifie ni l'identité, ni le
@@ -185,6 +198,18 @@ class RoleController extends Controller
 
         return response()->json([
             'message' => "Permissions individuelles de {$user->name} mises à jour.",
+            'data' => $this->presenter->user($user),
+        ]);
+    }
+
+    public function resetUserPermissions(Request $request, string $userUuid, ResetUserPermissionsAction $action): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, 'permissions.assign');
+        $user = User::query()->where('uuid', $userUuid)->firstOrFail();
+        $user = $action->execute($user, $actor);
+
+        return response()->json([
+            'message' => "Les permissions individuelles de {$user->name} ont été réinitialisées.",
             'data' => $this->presenter->user($user),
         ]);
     }

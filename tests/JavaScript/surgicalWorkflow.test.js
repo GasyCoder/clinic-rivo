@@ -82,18 +82,31 @@ test('le rang d’une demande annulée reste hors du workflow', () => {
     assert.ok(statusRank('IN_PROGRESS') > statusRank('PREOPERATIVE_VALIDATED'));
 });
 
-test('l’anesthésie suit consultation, évaluation validée, conduite validée', () => {
+test('l’anesthésie suit consultation, bilan, décision, conduite', () => {
+    const assessed = { consultation_data: { history: 'HTA' }, assessment_validated_at: 'x' };
+
     assert.equal(anesthesiaNextAction(null).key, 'consultation');
     assert.equal(anesthesiaNextAction(null).permission, 'anesthesia.create');
     assert.equal(anesthesiaNextAction({ consultation_data: {} }).permission, 'anesthesia.update');
     assert.equal(anesthesiaNextAction({ consultation_data: { history: 'HTA' } }).key, 'assessment');
-    assert.equal(anesthesiaNextAction({ consultation_data: { history: 'HTA' }, assessment_validated_at: 'x' }).key, 'peroperative');
-    assert.equal(anesthesiaNextAction({ consultation_data: { history: 'HTA' }, assessment_validated_at: 'x', validated_at: 'y' }).key, null);
 
-    const [consultation, paraclinical, peroperative] = anesthesiaSteps({ consultation_data: { history: 'HTA' } });
+    // ADR-170 — valider l'évaluation ne vaut pas autorisation : la décision
+    // reste à prononcer, et c'est elle que le bloc attend.
+    assert.equal(anesthesiaNextAction(assessed).key, 'clearance');
+    assert.equal(anesthesiaNextAction({ ...assessed, clearance_status: 'DRAFT' }).key, 'clearance');
+    assert.equal(anesthesiaNextAction({ ...assessed, clearance_status: 'NOT_CLEARED' }).key, 'peroperative');
+    assert.equal(anesthesiaNextAction({ ...assessed, clearance_status: 'CLEARED', validated_at: 'y' }).key, null);
+
+    const [consultation, paraclinical, clearance, peroperative] = anesthesiaSteps({ consultation_data: { history: 'HTA' } });
     assert.equal(consultation.complete, true);
     assert.equal(paraclinical.waiting, null);
+    assert.equal(clearance.complete, false);
+    assert.match(clearance.waiting, /bilan terminé/);
     assert.match(peroperative.waiting, /validation de l’évaluation/);
+
+    // Une décision prononcée, quelle qu'elle soit, termine son étape.
+    const [, , decided] = anesthesiaSteps({ ...assessed, clearance_status: 'NOT_CLEARED' });
+    assert.equal(decided.complete, true);
 });
 
 test('le compte rendu ne se valide pas sans l’heure de fin, et jamais hors du bloc', () => {

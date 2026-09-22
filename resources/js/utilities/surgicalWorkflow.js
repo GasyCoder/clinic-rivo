@@ -164,7 +164,15 @@ export const surgeryNextAction = (request) => {
     }
 };
 
-/** Les trois étapes Anesthésie, sur le dossier anesthésique partagé (ADR-048). */
+/**
+ * Les quatre étapes Anesthésie, sur le dossier anesthésique partagé
+ * (ADR-048, ADR-170).
+ *
+ * « Décision » est une étape à part entière : valider l'évaluation dit que le
+ * bilan est terminé, pas que le bloc est autorisé. Les deux étaient confondus,
+ * et c'est ce qui laissait partir au bloc un dossier que personne n'avait
+ * autorisé.
+ */
 export const anesthesiaSteps = (record) => [
     {
         id: 'consultation',
@@ -176,14 +184,21 @@ export const anesthesiaSteps = (record) => [
     {
         id: 'paraclinical',
         label: 'Paraclinique',
-        description: 'Résultats, scores et décision',
+        description: 'Résultats et scores',
         complete: Boolean(record?.assessment_validated_at),
-        waiting: hasClinicalData(record?.consultation_data) ? null : 'La décision se prend après la consultation pré-anesthésique.',
+        waiting: hasClinicalData(record?.consultation_data) ? null : 'Le bilan se complète après la consultation pré-anesthésique.',
+    },
+    {
+        id: 'clearance',
+        label: 'Décision',
+        description: 'Le bloc est-il autorisé ?',
+        complete: Boolean(record?.clearance_status) && record.clearance_status !== 'DRAFT',
+        waiting: record?.assessment_validated_at ? null : 'La décision se prononce sur un bilan terminé.',
     },
     {
         id: 'peroperative',
         label: 'Conduite anesthésique',
-        description: 'Produits utilisés et observations',
+        description: 'Produits utilisés, observations et réveil',
         complete: Boolean(record?.validated_at),
         waiting: record?.assessment_validated_at ? null : 'Se renseigne en salle, après la validation de l’évaluation.',
     },
@@ -202,8 +217,18 @@ export const anesthesiaNextAction = (record) => {
         return {
             key: 'assessment', step: 'paraclinical', tone: 'primary', permission: 'anesthesia.validate',
             title: 'Compléter le bilan et valider l’évaluation',
-            detail: 'Résultats paracliniques, classe ASA et décision : la chirurgie est-elle autorisée ?',
+            detail: 'Résultats paracliniques et classe ASA : le bilan est terminé et verrouillé.',
             cta: 'Ouvrir le bilan',
+        };
+    }
+    // ADR-170 — valider l'évaluation ne vaut pas autorisation : tant que
+    // personne n'a décidé, l'incision reste retenue.
+    if (!record.clearance_status || record.clearance_status === 'DRAFT') {
+        return {
+            key: 'clearance', step: 'clearance', tone: 'primary', permission: 'anesthesia.validate',
+            title: 'Prononcer la décision d’autorisation',
+            detail: 'Autorisé, sous conditions, non autorisé ou reporté : le bloc attend cette décision.',
+            cta: 'Prononcer',
         };
     }
     if (!record.validated_at) {

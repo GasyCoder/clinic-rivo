@@ -126,13 +126,13 @@ test('les confirmations utilisent le Dialog partagé', () => {
 });
 
 /**
- * Trois états, jamais deux : « Selon le rôle » n'est pas une absence de
+ * Trois états, jamais deux : « Suivre le rôle » n'est pas une absence de
  * décision, c'est le socle du rôle qui s'applique (ADR-064).
  */
 test('la ligne de permission conserve ses trois états', () => {
-    assert.match(row, /\{ value: '', label: 'Selon le rôle' \}/);
-    assert.match(row, /\{ value: 'allow', label: 'Autoriser' \}/);
-    assert.match(row, /\{ value: 'deny', label: 'Interdire' \}/);
+    assert.match(row, /value: '',\s*label: 'Suivre le rôle'/);
+    assert.match(row, /value: 'allow',\s*label: 'Toujours autoriser'/);
+    assert.match(row, /value: 'deny',\s*label: 'Toujours interdire'/);
     assert.match(row, /Inclus dans le rôle/);
 });
 

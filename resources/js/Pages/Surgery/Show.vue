@@ -10,32 +10,44 @@ import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Select from '@/Components/Shadcn/Select.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
+import SurgeryFactTile from '@/Components/Surgery/SurgeryFactTile.vue';
+import ScheduleFieldEditor from '@/Components/Surgery/ScheduleFieldEditor.vue';
 import {
     Activity,
     AlertTriangle,
     ArrowLeft,
     ArrowRight,
+    CalendarClock,
     CalendarDays,
     Check,
+    CirclePlay,
     CheckCircle2,
     ChevronLeft,
     ChevronRight,
     CircleDot,
+    DoorOpen,
     ClipboardList,
     ExternalLink,
     FileText,
+    Flag,
     Info,
+    ListChecks,
     Lock,
     LogOut,
     Pencil,
     Plus,
     ShieldCheck,
     Sparkles,
+    StickyNote,
     Stethoscope,
     UserRound,
     Users,
+    UsersRound,
     X,
 } from 'lucide-vue-next';
+import AnesthesiaClearanceBadge from '@/Components/Surgery/AnesthesiaClearanceBadge.vue';
+import AnesthesiaClearancePanel from '@/Components/Surgery/AnesthesiaClearancePanel.vue';
+import BlockingIssuesAlert from '@/Components/Surgery/BlockingIssuesAlert.vue';
 import CareSummaryReadOnly from '@/Components/Surgery/CareSummaryReadOnly.vue';
 import ConduiteAnesthesique from '@/Components/Surgery/ConduiteAnesthesique.vue';
 import ConsultationPreAnesthesique from '@/Components/Surgery/ConsultationPreAnesthesique.vue';
@@ -47,7 +59,11 @@ import SortieBloc from '@/Components/Surgery/SortieBloc.vue';
 import SurgerySection from '@/Components/Surgery/SurgerySection.vue';
 import SurgicalConsumables from '@/Components/Surgery/SurgicalConsumables.vue';
 import SurgeonScheduler from '@/Components/Surgery/SurgeonScheduler.vue';
+import SurgicalReadinessCard from '@/Components/Surgery/SurgicalReadinessCard.vue';
 import SurgicalRequestCard from '@/Components/Surgery/SurgicalRequestCard.vue';
+import SurgicalCaseReset from '@/Components/Surgery/SurgicalCaseReset.vue';
+import SurgicalDossierPrintMenu from '@/Components/Surgery/SurgicalDossierPrintMenu.vue';
+import SurgicalSafetyChecklist from '@/Components/Surgery/SurgicalSafetyChecklist.vue';
 import ResizableSplit from '@/Components/UI/ResizableSplit.vue';
 import ValidationPreoperatoire from '@/Components/Surgery/ValidationPreoperatoire.vue';
 import { usePermissions } from '@/composables/usePermissions';
@@ -77,6 +93,12 @@ const props = defineProps({
     consumableRequests: { type: Array, default: () => [] },
     consumableCatalog: { type: Array, default: () => [] },
     consumableSuggestions: { type: Array, default: () => [] },
+    /**
+     * ADR-170 — l'état de préparation opératoire, composé par le serveur :
+     * blocages, avertissements, décision d'anesthésie et checklist. L'écran
+     * n'en recalcule aucune règle (le serveur refuse de toute façon).
+     */
+    readiness: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
@@ -189,6 +211,33 @@ const teamFunctionOptions = computed(() => props.teamFunctions
     .map((item) => ({ value: item.value, label: item.label ?? TEAM_FUNCTION_LABELS[item.value] ?? item.value })));
 /** Les chirurgiens aides : les membres « Chirurgien » de l'équipe (ADR-168). */
 const assistantSurgeons = computed(() => (props.surgicalRequest.team_members ?? []).filter((member) => member.function === 'SURGEON'));
+const assistantSurgeonNames = computed(() => assistantSurgeons.value.map((member) => member.user?.name).filter(Boolean));
+
+// Repère relatif sous la date programmée : de l'affichage seulement, lu sur
+// l'horloge du poste — rien n'est décidé dessus.
+// Durée de l'intervention, quand début et fin sont tous deux consignés.
+const interventionDuration = computed(() => {
+    const started = props.surgicalRequest.intervention?.started_at;
+    const ended = props.surgicalRequest.intervention?.ended_at;
+    if (!started || !ended) return null;
+    const minutes = Math.round((new Date(ended) - new Date(started)) / 60_000);
+    if (!Number.isFinite(minutes) || minutes < 0) return null;
+    const hours = Math.floor(minutes / 60);
+    return `Durée : ${hours ? `${hours} h ` : ''}${String(minutes % 60).padStart(hours ? 2 : 1, '0')} min`;
+});
+
+const scheduledHint = computed(() => {
+    if (props.surgicalRequest.intervention?.started_at) return null;
+    const at = props.surgicalRequest.scheduled_at ? new Date(props.surgicalRequest.scheduled_at) : null;
+    if (!at || Number.isNaN(at.getTime())) return null;
+    const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const days = Math.round((startOfDay(at) - startOfDay(new Date())) / 86_400_000);
+    if (days === 0) return 'Aujourd’hui';
+    if (days === 1) return 'Demain';
+    if (days > 1) return `Dans ${days} jours`;
+    if (days === -1) return 'Hier';
+    return `Il y a ${-days} jours`;
+});
 /** L'opérateur se choisit parmi les chirurgiens programmés, principal en tête. */
 const operatorOptions = computed(() => [
     ...(props.surgicalRequest.surgeon ? [{ value: String(props.surgicalRequest.surgeon.id), label: `${props.surgicalRequest.surgeon.name} — principal` }] : []),
@@ -197,12 +246,16 @@ const operatorOptions = computed(() => [
         .map((member) => ({ value: String(member.user.id), label: `${member.user.name} — aide` })),
 ]);
 const anesthesiaAssessment = computed(() => props.surgicalRequest.anesthesia_record?.paraclinical_data ?? {});
-const surgeryAuthorization = computed(() => {
-    if (anesthesiaAssessment.value.surgery_authorized === true) return { label: 'Chirurgie autorisée', variant: 'success' };
-    if (anesthesiaAssessment.value.surgery_authorized === false) return { label: 'Chirurgie non autorisée', variant: 'destructive' };
 
-    return { label: 'Décision non renseignée', variant: 'warning' };
-});
+// --- ADR-170 — tout ce qui retient ou permet un geste vient du serveur. ---
+const readiness = computed(() => props.readiness ?? {});
+const anesthesiaReadiness = computed(() => readiness.value.anesthesia ?? null);
+const anesthesiaClearance = computed(() => anesthesiaReadiness.value?.clearance ?? null);
+const readinessBlockers = computed(() => readiness.value.blockers ?? []);
+const readinessWarnings = computed(() => readiness.value.warnings ?? []);
+const completionBlockers = computed(() => readiness.value.completion_blockers ?? []);
+const checklistOf = (phase) => (readiness.value.checklists ?? []).find((row) => row.phase === phase) ?? null;
+const anesthesiaRecordId = computed(() => props.surgicalRequest.anesthesia_record?.id ?? null);
 
 // `datetime-local` pré-rempli à l'heure locale : la valeur sérialisée est en UTC.
 const toDatetimeLocal = toDatetimeLocalInput;
@@ -216,6 +269,24 @@ const toDatetimeLocal = toDatetimeLocalInput;
 const canEditSchedule = computed(() => ['PENDING', 'SCHEDULED', 'PREOPERATIVE_VALIDATED'].includes(status.value) && can('surgery.schedule'));
 const isAlreadyScheduled = computed(() => Boolean(props.surgicalRequest.surgeon));
 const showScheduleForm = ref(false);
+// Au bloc : les aides et l'opérateur réel s'ajustent encore, avec un motif.
+const canAdjustTeam = computed(() => writable.value && status.value === 'IN_PROGRESS' && can('surgery.schedule'));
+// Le crayon d'une tuile ouvre l'éditeur de ce seul fait (date, principal, aides, opérateur).
+const editingField = ref(null);
+const canEditScheduleFields = computed(() => writable.value && (canEditSchedule.value || canAdjustTeam.value));
+const toggleField = (field) => { editingField.value = editingField.value === field ? null : field; };
+// Quand le bouton de modification n'apparaît pas, l'écran dit pourquoi : un
+// bouton absent se lit comme une fonction qui n'existe pas (ADR-158).
+const scheduleLockReason = computed(() => {
+    if (!writable.value || !isAlreadyScheduled.value || canEditSchedule.value || canAdjustTeam.value) return null;
+    if (status.value === 'IN_PROGRESS') {
+        return 'Corriger la programmation au bloc demande le droit « surgery.schedule », qui s’accorde dans Rôles & permissions.';
+    }
+    if (!['PENDING', 'SCHEDULED', 'PREOPERATIVE_VALIDATED'].includes(status.value)) {
+        return 'L’intervention est terminée : la programmation et l’équipe opératoire ne se modifient plus.';
+    }
+    return 'Modifier la programmation demande le droit « surgery.schedule », qui s’accorde dans Rôles & permissions.';
+});
 
 // --- Ordre de l'étape Dossier (ADR-048, ADR-168) ---
 // La salle et les consignes suivent la programmation : avant, rien à préparer.
@@ -236,7 +307,11 @@ const blockEntryState = computed(() => {
 
     return statusRank(status.value) >= statusRank('PREOPERATIVE_VALIDATED') ? 'todo' : 'waiting';
 });
-const anesthesiaReady = computed(() => Boolean(props.surgicalRequest.anesthesia_record?.assessment_validated_at));
+// ADR-170 — « prête » veut dire autorisée, pas seulement évaluée : c'est la
+// confusion que cette décision corrige.
+const anesthesiaReady = computed(() => anesthesiaClearance.value?.allows_incision === true
+    && !anesthesiaClearance.value?.expired
+    && !(anesthesiaReadiness.value?.conditions ?? []).some((row) => row.open));
 
 // --- Salle et préparation du bloc (surgery.preparation.update) ---
 const showPreparationForm = ref(false);
@@ -288,7 +363,9 @@ const removeMember = (member) => {
 // Le serveur n'accepte le démarrage qu'après le feu vert, et la correction
 // qu'« Au bloc » : après la validation du compte rendu, l'intervention est close.
 const intervention = computed(() => props.surgicalRequest.intervention ?? null);
-const canStartIntervention = computed(() => status.value === 'PREOPERATIVE_VALIDATED');
+// ADR-170 — c'est le readiness gate qui décide, jamais le seul statut : un
+// dossier sans anesthésiste, sans autorisation ou sans TIME OUT est refusé.
+const canStartIntervention = computed(() => readiness.value.can_start_intervention === true);
 const canEditIntervention = computed(() => status.value === 'IN_PROGRESS' && can('surgery.intervention.update'));
 const interventionCreateForm = useForm({
     performed_by: props.surgicalRequest.surgeon?.id ? String(props.surgicalRequest.surgeon.id) : '',
@@ -354,10 +431,19 @@ const report = computed(() => props.surgicalRequest.report ?? null);
 const reportOpen = computed(() => statusRank(status.value) >= 3);
 const reportValidationBlocker = computed(() => {
     if (status.value !== 'IN_PROGRESS') return 'La validation se fait une fois l’intervention démarrée.';
-    if (!intervention.value?.ended_at) return 'Renseignez d’abord l’heure de fin de l’intervention : après la validation, elle ne se modifie plus.';
+    if (!intervention.value?.ended_at) return 'Renseignez d’abord l’heure de fin de l’intervention.';
 
     return null;
 });
+// ADR-170 — la clôture du dossier, refusée par le serveur tant que le gate
+// n'est pas satisfait : l'écran grise le bouton, il ne décide rien.
+const completing = ref(false);
+const completeCase = () => router.post(`${base.value}/complete`, {}, {
+    preserveScroll: true,
+    onStart: () => { completing.value = true; },
+    onFinish: () => { completing.value = false; },
+});
+
 const reportCreateForm = useForm({ content: '' });
 const submitReportCreate = () => reportCreateForm.post(`${base.value}/report`, { preserveScroll: true });
 
@@ -400,6 +486,15 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                 <HospitalStayBanner v-if="hospitalStay" inline :stay="hospitalStay" :cancelled="cancelled" />
             </template>
             <template #actions>
+                <!-- ADR-172 — le Dossier chirurgical imprimable, entier ou une feuille, généré depuis les données. -->
+                <SurgicalDossierPrintMenu
+                    :surgical-request-uuid="surgicalRequest.uuid"
+                    :workspace="workspace"
+                    :can-view-surgery="can('surgery.view')"
+                    :can-view-anesthesia="can('anesthesia.view')"
+                />
+                <!-- ADR-171 — remet le dossier à zéro quand la saisie est fausse ; toujours confirmé, archivé côté serveur. -->
+                <SurgicalCaseReset v-if="writable && can('surgery.reset')" :surgical-request="surgicalRequest" />
                 <Button :as="Link" :href="workspaceMeta.returnUrl" variant="outline" size="sm"><ArrowLeft class="h-4 w-4" />{{ workspaceMeta.returnLabel }}</Button>
             </template>
         </EnTeteDossierChirurgical>
@@ -528,6 +623,31 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                     />
                 </div>
 
+                <!-- ADR-170 — la décision d'autorisation : son étape à elle, parce
+                     que valider le bilan ne vaut pas autoriser le bloc. -->
+                <template v-if="isAnesthesiaWorkspace && activeTab === 'clearance'">
+                    <div id="anesthesia-clearance" class="scroll-mt-24 xl:col-span-12">
+                        <AnesthesiaClearancePanel
+                            :anesthesia="anesthesiaReadiness"
+                            :base="base"
+                            :record-id="anesthesiaRecordId"
+                        />
+                    </div>
+                    <!-- Ce que le bloc attend encore : l'anesthésiste voit où en
+                         est le dossier sans quitter son espace. -->
+                    <div v-if="props.readiness" class="xl:col-span-12">
+                        <SurgicalReadinessCard :readiness="readiness" :show-issues="false" />
+                    </div>
+                    <div v-for="phase in ['SIGN_IN', 'TIME_OUT']" :key="phase" class="xl:col-span-6">
+                        <SurgicalSafetyChecklist
+                            v-if="checklistOf(phase)"
+                            :checklist="checklistOf(phase)"
+                            :base="base"
+                            :readonly="!writable || !readiness.actor?.can_save_checklist"
+                        />
+                    </div>
+                </template>
+
                 <div v-if="isAnesthesiaWorkspace && activeTab === 'peroperative'" id="anesthesia-peroperative" class="scroll-mt-24 xl:col-span-12">
                     <ConduiteAnesthesique
                         :surgical-request="surgicalRequest"
@@ -552,27 +672,44 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                         title="Programmation"
                         description="Date, chirurgiens, puis salle et consignes de préparation."
                     >
-                        <template #actions>
-                            <Button v-if="writable && isAlreadyScheduled && canEditSchedule && !showScheduleForm" size="sm" variant="white-outline" type="button" @click="showScheduleForm = true"><Pencil class="h-3.5 w-3.5" />Corriger</Button>
-                        </template>
-
                         <SurgeonScheduler v-if="showScheduleForm && canEditSchedule" :surgical-request="surgicalRequest" @close="showScheduleForm = false" />
                         <div v-else-if="!isAlreadyScheduled" class="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3">
                             <p class="me-auto text-sm text-muted-foreground">Aucun chirurgien ni date encore fixés.</p>
                             <Button v-if="writable && canEditSchedule" size="sm" type="button" @click="showScheduleForm = true"><CalendarDays class="h-4 w-4" />Programmer l’intervention</Button>
                             <p v-else-if="writable" class="text-xs text-muted-foreground">À faire par un compte disposant du droit « surgery.schedule ».</p>
                         </div>
-                        <dl v-else class="grid gap-3 text-sm sm:grid-cols-3">
-                            <div><dt class="text-xs text-muted-foreground">Programmée le</dt><dd class="font-medium text-foreground">{{ formatDateTime(surgicalRequest.scheduled_at) ?? '—' }}</dd></div>
-                            <div><dt class="text-xs text-muted-foreground">Chirurgien principal</dt><dd class="font-medium text-foreground">{{ surgicalRequest.surgeon?.name ?? '—' }}</dd></div>
-                            <div><dt class="text-xs text-muted-foreground">Chirurgiens aides</dt><dd :class="assistantSurgeons.length ? 'text-foreground' : 'text-muted-foreground'">{{ assistantSurgeons.map((member) => member.user?.name).filter(Boolean).join(', ') || 'Aucun' }}</dd></div>
-                        </dl>
+                        <template v-else>
+                            <dl class="grid gap-3 sm:grid-cols-3">
+                                <SurgeryFactTile :icon="CalendarClock" label="Programmée le" :value="formatDateTime(surgicalRequest.scheduled_at) ?? '—'" :empty="!surgicalRequest.scheduled_at" :hint="scheduledHint" :editable="canEditScheduleFields" :editing="editingField === 'date'" @edit="toggleField('date')" />
+                                <SurgeryFactTile :icon="Stethoscope" label="Chirurgien principal" :value="surgicalRequest.surgeon?.name ?? 'Non désigné'" :empty="!surgicalRequest.surgeon" :editable="canEditScheduleFields" :editing="editingField === 'principal'" @edit="toggleField('principal')" />
+                                <SurgeryFactTile
+                                    :icon="UsersRound"
+                                    label="Chirurgiens aides"
+                                    :value="assistantSurgeonNames.join(', ') || 'Aucun'"
+                                    :empty="!assistantSurgeonNames.length"
+                                    :hint="assistantSurgeonNames.length > 1 ? `${assistantSurgeonNames.length} aides` : null"
+                                    :editable="canEditScheduleFields"
+                                    :editing="editingField === 'assistants'"
+                                    @edit="toggleField('assistants')"
+                                />
+                            </dl>
+                            <ScheduleFieldEditor
+                                v-if="editingField && editingField !== 'operator' && canEditScheduleFields"
+                                :key="editingField"
+                                class="mt-3"
+                                :surgical-request="surgicalRequest"
+                                :field="editingField"
+                                @close="editingField = null"
+                            />
+                            <p v-if="canAdjustTeam && !editingField" class="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground"><Info class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />L’intervention a démarré : chaque correction (crayon) demande un motif, conservé dans l’historique du dossier.</p>
+                        </template>
+                        <p v-if="scheduleLockReason && !showScheduleForm" class="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground"><Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ scheduleLockReason }}</p>
 
                         <!-- La salle et les consignes suivent la programmation : avant, elles n'ont rien à préparer. -->
                         <div v-if="showPreparationBlock" class="mt-4 border-t border-border pt-4">
                             <div class="mb-2 flex items-center justify-between gap-2">
-                                <h3 class="text-xs font-semibold text-foreground">Salle et préparation du bloc</h3>
-                                <Button v-if="writable && can('surgery.preparation.update') && !showPreparationForm" size="xs" variant="white-outline" type="button" @click="showPreparationForm = true"><Pencil class="h-3 w-3" />{{ surgicalRequest.operating_room ? 'Modifier' : 'Affecter la salle' }}</Button>
+                                <h3 class="flex items-center gap-1.5 text-xs font-semibold text-foreground"><ListChecks class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />Salle et préparation du bloc</h3>
+                                <Button v-if="writable && can('surgery.preparation.update') && !showPreparationForm && !surgicalRequest.operating_room" size="xs" variant="white-outline" type="button" @click="showPreparationForm = true"><DoorOpen class="h-3 w-3" />Affecter la salle</Button>
                             </div>
                             <form v-if="showPreparationForm" class="space-y-3" @submit.prevent="submitPreparation">
                                 <FormField label="Salle / bloc" :error="preparationForm.errors.operating_room"><Input id="operating_room" v-model="preparationForm.operating_room" placeholder="Ex. Bloc 1" /></FormField>
@@ -582,9 +719,9 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                                     <Button size="sm" type="submit" :disabled="preparationForm.processing">Enregistrer</Button>
                                 </div>
                             </form>
-                            <dl v-else class="grid gap-3 text-sm sm:grid-cols-2">
-                                <div><dt class="text-xs text-muted-foreground">Salle</dt><dd :class="surgicalRequest.operating_room ? 'text-foreground' : 'text-muted-foreground'">{{ surgicalRequest.operating_room ?? 'Non affectée' }}</dd></div>
-                                <div><dt class="text-xs text-muted-foreground">Consignes</dt><dd class="whitespace-pre-line text-foreground">{{ surgicalRequest.preparation_notes || '—' }}</dd></div>
+                            <dl v-else class="grid gap-3 sm:grid-cols-2">
+                                <SurgeryFactTile :icon="DoorOpen" label="Salle" :value="surgicalRequest.operating_room ?? 'Non affectée'" :empty="!surgicalRequest.operating_room" :editable="writable && can('surgery.preparation.update')" @edit="showPreparationForm = true" />
+                                <SurgeryFactTile :icon="ClipboardList" label="Consignes de préparation" :value="surgicalRequest.preparation_notes || 'Aucune consigne'" :empty="!surgicalRequest.preparation_notes" multiline :editable="writable && can('surgery.preparation.update')" @edit="showPreparationForm = true" />
                             </dl>
                         </div>
                     </SurgerySection>
@@ -669,6 +806,10 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                      Le feu vert, puis l'entrée au bloc. Ce qu'on relit avant — les
                      Soins, l'anesthésie — reste sous les yeux dans la colonne latérale. -->
                 <template v-if="!isAnesthesiaWorkspace && activeTab === 'preparation'">
+                    <!-- ADR-170 — ce qui manque avant l'incision, et à qui il appartient. -->
+                    <div v-if="props.readiness" class="xl:col-span-12">
+                        <SurgicalReadinessCard :readiness="readiness" />
+                    </div>
 
                     <ValidationPreoperatoire
                         :order="1"
@@ -683,6 +824,14 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                             :order="2"
                             :state="blockEntryState"
                         />
+                    </div>
+
+                    <!-- ADR-170 — checklist de sécurité : chaque métier confirme sa part. -->
+                    <div v-if="checklistOf('SIGN_IN')" id="surgery-sign-in" class="scroll-mt-24 xl:col-span-6">
+                        <SurgicalSafetyChecklist :checklist="checklistOf('SIGN_IN')" :base="base" :readonly="!writable || !readiness.actor?.can_save_checklist" />
+                    </div>
+                    <div v-if="checklistOf('TIME_OUT')" id="surgery-time-out" class="scroll-mt-24 xl:col-span-6">
+                        <SurgicalSafetyChecklist :checklist="checklistOf('TIME_OUT')" :base="base" :readonly="!writable || !readiness.actor?.can_save_checklist" />
                     </div>
                 </template>
 
@@ -716,8 +865,11 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                                     </FormField>
                                 </div>
                                 <FormField label="Notes de début d’intervention" :error="interventionCreateForm.errors.notes"><Textarea id="intervention_start_notes" v-model="interventionCreateForm.notes" rows="2" /></FormField>
+                                <!-- ADR-170 — un bouton grisé dit toujours pourquoi. -->
+                                <BlockingIssuesAlert v-if="!canStartIntervention" :issues="readinessBlockers" level="blocking" />
+                                <BlockingIssuesAlert v-else-if="readinessWarnings.length" :issues="readinessWarnings" level="warning" />
+                                <p v-if="serverError('intervention')" class="text-xs text-destructive">{{ serverError('intervention') }}</p>
                                 <div class="flex flex-wrap items-center justify-end gap-2">
-                                    <p v-if="!canStartIntervention" class="me-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Info class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Le feu vert préopératoire doit d’abord être confirmé (étape Préparation).</p>
                                     <Button type="submit" :disabled="interventionCreateForm.processing || !canStartIntervention"><Activity class="h-4 w-4" />Démarrer l’intervention</Button>
                                 </div>
                             </form>
@@ -735,17 +887,20 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                                     <Button size="sm" type="submit" :disabled="interventionUpdateForm.processing">Enregistrer</Button>
                                 </div>
                             </form>
-                            <dl v-else class="grid gap-3 text-sm sm:grid-cols-3">
-                                <div><dt class="text-xs text-muted-foreground">Opérateur</dt><dd class="font-medium text-foreground">{{ intervention.performed_by?.name ?? '—' }}</dd></div>
-                                <div><dt class="text-xs text-muted-foreground">Début</dt><dd class="text-foreground">{{ formatDateTime(intervention.started_at) ?? '—' }}</dd></div>
-                                <div>
-                                    <dt class="text-xs text-muted-foreground">Fin</dt>
-                                    <dd v-if="intervention.ended_at" class="text-foreground">{{ formatDateTime(intervention.ended_at) }}</dd>
-                                    <dd v-else class="font-medium text-amber-700 dark:text-amber-300">À renseigner</dd>
-                                </div>
-                                <div class="sm:col-span-3"><dt class="text-xs text-muted-foreground">Résumé de l’acte</dt><dd class="whitespace-pre-line text-foreground">{{ intervention.procedure_summary || '—' }}</dd></div>
-                                <div v-if="intervention.notes" class="sm:col-span-3"><dt class="text-xs text-muted-foreground">Notes</dt><dd class="whitespace-pre-line text-foreground">{{ intervention.notes }}</dd></div>
+                            <dl v-else class="grid gap-3 sm:grid-cols-3">
+                                <SurgeryFactTile :icon="Stethoscope" label="Opérateur" :value="intervention.performed_by?.name ?? 'Non désigné'" :empty="!intervention.performed_by" :editable="canAdjustTeam" :editing="editingField === 'operator'" @edit="toggleField('operator')" />
+                                <SurgeryFactTile :icon="CirclePlay" label="Début" :value="formatDateTime(intervention.started_at) ?? '—'" :empty="!intervention.started_at" />
+                                <SurgeryFactTile
+                                    :icon="Flag"
+                                    label="Fin"
+                                    :value="intervention.ended_at ? formatDateTime(intervention.ended_at) : 'À renseigner'"
+                                    :tone="intervention.ended_at ? null : 'warning'"
+                                    :hint="intervention.ended_at ? interventionDuration : 'Attendue avant de valider le compte rendu.'"
+                                />
+                                <SurgeryFactTile class="sm:col-span-3" :icon="FileText" label="Résumé de l’acte" :value="intervention.procedure_summary || 'Non renseigné'" :empty="!intervention.procedure_summary" multiline />
+                                <SurgeryFactTile v-if="intervention.notes" class="sm:col-span-3" :icon="StickyNote" label="Notes" :value="intervention.notes" multiline />
                             </dl>
+                            <ScheduleFieldEditor v-if="editingField === 'operator' && canAdjustTeam" key="operator" class="mt-3" :surgical-request="surgicalRequest" field="operator" @close="editingField = null" />
                             <p v-if="!editingIntervention && statusRank(status) > 3" class="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Lock class="h-3.5 w-3.5" aria-hidden="true" />Intervention close par la validation du compte rendu : elle ne se modifie plus.</p>
                         </template>
                     </SurgerySection>
@@ -771,12 +926,50 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
 
                 <!-- ================= Étape 5 · Suivi & clôture ================= -->
                 <template v-if="!isAnesthesiaWorkspace && activeTab === 'followup'">
+                    <!-- ADR-170 — SIGN OUT : avant que l'équipe quitte la salle. -->
+                    <div v-if="checklistOf('SIGN_OUT')" id="surgery-sign-out" class="scroll-mt-24 xl:col-span-6">
+                        <SurgicalSafetyChecklist :checklist="checklistOf('SIGN_OUT')" :base="base" :readonly="!writable || !readiness.actor?.can_save_checklist" />
+                    </div>
+
+                    <!-- ADR-170 — clore le dossier : un geste distinct de la
+                         validation du compte rendu, et qui exige que tout soit
+                         réellement documenté. -->
+                    <SurgerySection
+                        v-if="status === 'IN_PROGRESS' && readiness.actor?.can_complete_case"
+                        id="surgery-completion"
+                        class="xl:col-span-6"
+                        :icon="CheckCircle2"
+                        title="Clôture du dossier"
+                        description="Intervention terminée, compte rendu validé, SIGN OUT confirmé, sortie du bloc et anesthésie documentées."
+                    >
+                        <template #badge>
+                            <Badge :variant="readiness.can_complete ? 'success' : 'outline'">
+                                {{ readiness.can_complete ? 'Prêt à clôturer' : 'Incomplet' }}
+                            </Badge>
+                        </template>
+                        <BlockingIssuesAlert
+                            v-if="!readiness.can_complete"
+                            :issues="completionBlockers"
+                            level="blocking"
+                            title="Ce qui manque avant de clôturer"
+                        />
+                        <p v-else class="text-sm text-muted-foreground">Tout est documenté : le dossier peut être clôturé.</p>
+                        <p v-if="serverError('case')" class="mt-2 text-xs text-destructive">{{ serverError('case') }}</p>
+                        <template #footer>
+                            <div class="flex justify-end">
+                                <Button size="sm" variant="success" type="button" :disabled="completing || !readiness.can_complete" @click="completeCase">
+                                    <CheckCircle2 class="h-4 w-4" />Clôturer le dossier
+                                </Button>
+                            </div>
+                        </template>
+                    </SurgerySection>
+
                     <SurgerySection
                         id="surgery-report"
                         class="xl:col-span-12"
                         :icon="ClipboardList"
                         title="Compte rendu opératoire"
-                        description="Sa validation clôt l’intervention : il ne se modifie plus ensuite."
+                        description="Sa validation le verrouille. La clôture du dossier est un geste à part, plus bas."
                     >
                         <template #badge>
                             <Badge v-if="report?.validated_at" variant="success"><Lock class="h-3 w-3" />Validé</Badge>
@@ -817,7 +1010,7 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                         <template v-if="report && !report.validated_at && !editingReport && writable && can('surgery.report.validate')" #footer>
                             <div class="flex flex-wrap items-center justify-end gap-2">
                                 <p v-if="reportValidationBlocker" class="me-auto flex items-center gap-1.5"><Info class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{{ reportValidationBlocker }}</p>
-                                <p v-else class="me-auto">Relisez le compte rendu : sa validation clôt l’intervention.</p>
+                                <p v-else class="me-auto">Relisez le compte rendu : après validation, il ne se modifie plus.</p>
                                 <Button size="sm" variant="success" type="button" :disabled="validatingReport || Boolean(reportValidationBlocker)" @click="validateReport"><CheckCircle2 class="h-4 w-4" />Valider le compte rendu</Button>
                             </div>
                             <p v-if="serverError('report')" class="mt-2 text-destructive">{{ serverError('report') }}</p>
@@ -972,7 +1165,7 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                         {{ surgicalRequest.anesthesia_record ? 'Évaluation en brouillon : l’anesthésiste ne l’a pas encore validée.' : 'Aucune évaluation anesthésique enregistrée pour l’instant.' }}
                     </template>
                     <template #badge>
-                        <Badge v-if="surgicalRequest.anesthesia_record" :variant="surgeryAuthorization.variant">{{ surgeryAuthorization.label }}</Badge>
+                        <AnesthesiaClearanceBadge v-if="surgicalRequest.anesthesia_record" :clearance="anesthesiaClearance" />
                     </template>
                     <template #actions>
                         <Button :as="Link" :href="`/anesthesia/${surgicalRequest.uuid}`" size="xs" variant="white-outline"><ExternalLink class="h-3 w-3" />Ouvrir</Button>
@@ -982,6 +1175,20 @@ const serverError = (key) => page.props.errors?.[key] ?? null;
                         <div><dt class="text-xs text-muted-foreground">Classe ASA</dt><dd class="text-foreground">{{ anesthesiaAssessment.asa_class || '—' }}</dd></div>
                         <div class="sm:col-span-2"><dt class="text-xs text-muted-foreground">Plan anesthésique</dt><dd class="text-foreground">{{ anesthesiaAssessment.anesthesia_plan || '—' }}</dd></div>
                         <div class="sm:col-span-2"><dt class="text-xs text-muted-foreground">Évaluation</dt><dd class="text-foreground">{{ surgicalRequest.anesthesia_record.assessment_validated_at ? `Validée le ${formatDateTime(surgicalRequest.anesthesia_record.assessment_validated_at)}` : 'Brouillon — pas encore validée' }}</dd></div>
+                        <!-- ADR-170 — un refus ou un report se lit ici, jamais masqué. -->
+                        <div v-if="anesthesiaClearance" class="sm:col-span-2">
+                            <dt class="text-xs text-muted-foreground">Décision</dt>
+                            <dd class="text-foreground">{{ anesthesiaClearance.description }}</dd>
+                            <dd v-if="anesthesiaClearance.reason" class="mt-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
+                                <span class="font-semibold">Motif :</span> {{ anesthesiaClearance.reason }}
+                            </dd>
+                        </div>
+                        <div v-if="(anesthesiaReadiness?.conditions ?? []).some((row) => row.open)" class="sm:col-span-2">
+                            <dt class="text-xs text-muted-foreground">Conditions à lever</dt>
+                            <dd class="text-foreground">
+                                <span v-for="row in anesthesiaReadiness.conditions.filter((c) => c.open)" :key="row.id" class="block">• {{ row.label }}</span>
+                            </dd>
+                        </div>
                     </dl>
                     <p v-else class="text-sm text-muted-foreground">Aucune évaluation anesthésique enregistrée.</p>
                 </SurgerySection>

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\SurgicalChecklistPhase;
 use App\Enums\SurgicalRequestOrigin;
 use App\Enums\SurgicalRequestStatus;
 use App\Exceptions\InvalidSurgicalRequestTransitionException;
@@ -128,6 +129,17 @@ class SurgicalRequest extends Model
         return $this->hasMany(SurgicalCareNote::class);
     }
 
+    /** ADR-170 — les trois temps de la checklist de sécurité du bloc. */
+    public function safetyChecklists(): HasMany
+    {
+        return $this->hasMany(SurgicalSafetyChecklist::class);
+    }
+
+    public function safetyChecklist(SurgicalChecklistPhase $phase): ?SurgicalSafetyChecklist
+    {
+        return $this->safetyChecklists->firstWhere('phase', $phase);
+    }
+
     public function blockEntry(): HasOne
     {
         return $this->hasOne(SurgicalBlockEntry::class);
@@ -225,8 +237,12 @@ class SurgicalRequest extends Model
     }
 
     /**
-     * IN_PROGRESS → COMPLETED. Called by ValidateSurgicalReportAction once
-     * the operative report is validated (surgery.report.validate).
+     * IN_PROGRESS → COMPLETED.
+     *
+     * ADR-170 : n'est plus un effet de bord de la validation du compte rendu.
+     * Clore le dossier est un acte à part, porté par `CompleteSurgicalCaseAction`,
+     * qui vérifie d'abord que le bloc a réellement fini — compte rendu validé,
+     * SIGN OUT confirmé, anesthésie terminée.
      */
     public function complete(): void
     {

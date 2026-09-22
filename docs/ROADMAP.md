@@ -144,6 +144,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Sexe du bébé choisi dans la fenêtre de création quand la fiche ne le porte pas, puis écrit dans la fiche (ADR-145)
 - [x] Le bébé vit dans le dossier de sa mère et ne devient patient qu'à l'accueil : la Réception demande « accouchement chez nous ou ailleurs ? », cherche la mère, choisit le bébé dans son arborescence (ADR-146)
 - [x] Arrivée nouveau-né cohérente : né ici = recherche de la mère seulement ; né ailleurs = identité minimale du bébé, champs d'adulte refusés, parent/responsable porté par le passage (ADR-146, amendement du 2026-09-22)
+- [x] Profil enfant piloté par « Enfant fille / garçon » : identité et domicile familial seulement ; champs d'adulte masqués et refusés, contact parent porté par le passage (ADR-146, amendement du 2026-09-22)
 - [x] Nom et prénom du bébé saisis dans sa fiche Maternité (facultatifs) ; un bébé non prénommé se dit « Bébé 2 de RAKOTO », jamais un prénom inventé (ADR-146)
 - [x] Dossier médical d'un bébé lisible dès sa fiche, avant tout dossier patient (`/passages/{episode}/nouveau-nes/{uuid}/dossier-medical`), qui redirige vers son dossier patient dès qu'il en a un (ADR-146)
 - [x] Geste de création retiré de la Maternité : la sage-femme consigne le bébé, l'accueil ouvre son dossier patient (ADR-146)
@@ -494,12 +495,33 @@ AUCUN PAIEMENT DANS LA PHARMACIE
 - [x] Dossier du bloc lu dans l'ordre de son workflow : étape à faire marquée, étapes en attente qui disent pourquoi, barre « Prochaine étape » qui ouvre le bon formulaire, en-tête compact, sections shadcn (ADR-048, amendement du 2026-09-22)
 - [x] Valider un compte rendu hors du bloc ne laisse plus un compte rendu à moitié validé (erreur 500 corrigée) ; « Valider » attend l'heure de fin, la sortie du bloc est proposée avant la sortie de Chirurgie (ADR-048)
 - [x] Dossier du bloc en deux colonnes : le geste de l'étape à gauche (Programmation → Équipe ; Feu vert → Entrée au bloc ; Intervention ; Compte rendu → Suivi → Complications → Sortie), le contexte à droite (Anesthésie, Demande, Soins), le patient hospitalisé en pastille à côté du statut ; états Fait / À faire / en attente, sections en attente repliées (ADR-048)
+- [x] Formulaires du bloc et de l'anesthésie enregistrés automatiquement, « Enregistrer et continuer » remplacé par « Suivant » ; statut d'enregistrement visible, aucun toast (ADR-048, amendement du 2026-09-22)
+- [x] Espace Anesthésie refondu en shadcn (ADR-099) : en-tête d'étape commun avec icône, position « étape N sur 3 » et avancement des sous-étapes, blocs de champs iconés, antécédents en pastilles cochables ; aucune donnée ni règle modifiée (ADR-048, amendement du 2026-09-22)
+- [ ] Enregistrement automatique réel de la consultation Médecine (aujourd'hui brouillon seulement, ADR-073) — à décider
+- [x] Réinitialiser un dossier du bloc saisi à tort : tout archivé avant retrait, demande remise « À programmer », motif et confirmation obligatoires, refusé si la Pharmacie a déjà servi du matériel (`surgery.reset`, ADR-171)
+- [ ] Relire / restaurer une archive de réinitialisation depuis l'écran (ADR-171)
+- [x] « Dossier chirurgical » imprimable généré depuis les données — quatre feuilles fidèles au papier (Entrée au bloc, Sortie du bloc, Consultation pré-anesthésique, Examen paraclinique), une par page, entier ou une seule feuille, chaque feuille gardée par son droit ; « Imprimer le dossier » dans les deux espaces (ADR-172)
+- [x] Le bloc figure au journal de traitement (entrée, intervention, sortie, traitements, complications) et au dossier médical (section « Bloc opératoire », anesthésie avec `anesthesia.view`) (ADR-172)
 - [ ] Refus serveur d'un compte rendu rédigé avant l'intervention ou validé sans heure de fin — règle à décider (ADR-048)
+- [x] Chirurgie et Anesthésie en parallèle, avec deux rendez-vous opposables : `SurgicalReadinessGate` garde l'incision et la clôture, appelé sous verrou dans la transaction — un POST direct est refusé comme l'écran (ADR-170)
+- [x] Autorisation anesthésique distincte de la validation du bilan (`AnesthesiaClearanceStatus` : Autorisé / sous conditions / non autorisé / reporté) ; `DRAFT` n'est pas une décision et retient l'incision ; motif obligatoire pour un refus ou un report, lu par le bloc (ADR-170)
+- [x] Conditions d'une autorisation sous conditions (`OPEN` / `RESOLVED`) : une condition ouverte bloque l'incision, et se lève par l'anesthésie seule (ADR-170)
+- [x] Checklist de sécurité du bloc en trois temps (SIGN IN / TIME OUT / SIGN OUT) avec confirmation nominative par métier ; `completed_at` calculé des faits, jamais posé par un clic (ADR-170)
+- [x] Bloquant ≠ avertissement : la fiche d'entrée au bloc et les points facultatifs avertissent sans jamais retenir une incision (ADR-170)
+- [x] Valider le compte rendu ne clôt plus le dossier : `CompleteSurgicalCaseAction` exige intervention terminée, compte rendu validé, SIGN OUT, sortie du bloc et anesthésie finalisée (ADR-170)
+- [x] Dossier d'anesthésie non verrouillable avant l'incision : la conduite peropératoire doit pouvoir y être consignée (ADR-170)
+- [x] Autorisation par dossier au-dessus du RBAC (`SurgicalCaseActors`, `SurgicalRequestPolicy`, `AnesthesiaRecordPolicy`) ; plus aucun `authorize(): true` sur l'incision, l'anesthésie, la checklist et la clôture ; `performed_by` restreint aux chirurgiens du dossier (ADR-170)
+- [x] `readiness` composé par le serveur (`SurgicalReadinessPresenter`) : aucune règle sensible recalculée en JavaScript ; un bouton désactivé dit pourquoi et nomme le métier attendu (ADR-170)
+- [x] Étape « Décision » dans l'espace Anesthésie, entre Paraclinique et Conduite (ADR-170)
+- [ ] Faire valider par la clinique le contenu des trois temps de la checklist (`SurgicalSafetyChecklistItems`) : items obligatoires et facultatifs — point de départ, jamais une règle médicale transcrite (ADR-170)
+- [ ] Autorisation par dossier pour les huit FormRequests restées à `authorize(): true` (programmation, sortie de Chirurgie, équipe, sortie du bloc, notes, traitements) — gardées aujourd'hui par le seul `can:` de route (ADR-170)
+- [ ] `WAIVED` sur une condition d'autorisation (qui pourrait passer outre la réserve d'un anesthésiste ?) et cohérence horaire entrée/sortie du bloc — non définis par le CDC, non inventés (ADR-170)
 - [x] Programmation à plusieurs chirurgiens : « Moi-même » pour un compte au profil Chirurgien, principal + aides (équipe de bloc), disponibilité lue sur le planning RH à l'heure choisie, indisponibles montrés verrouillés (ADR-168)
 - [x] Profils métier du rôle Chirurgie — Chirurgien, Infirmier de bloc, Paramédical — sans droit recommandé ; seul le profil Chirurgien est programmable (ADR-168)
 - [x] Équipe de bloc : chaque fonction ne propose que les comptes de son profil métier (Anesthésiste, Infirmier de bloc, Paramédical), refus serveur sinon, pas de doublon (ADR-168)
 - [ ] Attribuer le profil Chirurgien aux comptes SURGERY de chaque site depuis le portail — sans lui, aucune intervention ne se programme (ADR-168)
-- [ ] À décider : refuser aussi un chirurgien sans fiche RH reliée, contrôle de conflit d'horaire, durée d'intervention, ajout d'un chirurgien après le démarrage (ADR-168)
+- [x] Programmation corrigeable tuile par tuile (crayon) : date, chirurgien principal, aides et opérateur ; au bloc avec motif obligatoire et audit, l'ancien principal restant aide s'il a opéré (ADR-168, amendements du 2026-09-22)
+- [ ] À décider : refuser aussi un chirurgien sans fiche RH reliée, contrôle de conflit d'horaire, durée d'intervention (ADR-168)
 - [ ] Pédiatrie · Index et Show à passer à shadcn
 - [x] Programmation
 - [x] Référentiel contrôlé des interventions avec choix « Autres » documenté
@@ -642,6 +664,7 @@ admin.rivo.mg
 - [x] Référentiel des rôles administrable depuis le portail (ADR-100) : créer, renommer, archiver avec motif (refusé si des comptes le portent) et restaurer, par site via l'API — le code d'un rôle reste son identité et ne change jamais
 - [x] Écrans « Utilisateurs » et « Rôles & permissions » séparés (ADR-100) : les comptes d'un côté, le socle des rôles et les exceptions individuelles de l'autre, sans changer la résolution DENY > ALLOW > socle
 - [x] Socle des rôles refondu (shadcn, ADR-099) : rail des rôles et des catégories sans pagination, recherche sur tout le catalogue, écart « accordées / retirées » relisible avant envoi, barre d'enregistrement collante et garde-fou sur le brouillon
+- [x] Réinitialisation confirmée des droits (ADR-173) : rôle standard vers son socle livré, sans toucher aux exceptions ; compte vers l'héritage pur de son rôle, sans réappliquer silencieusement les recommandations du profil ; API et audit distincts
 - [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail

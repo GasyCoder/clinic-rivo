@@ -11,7 +11,7 @@ import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
  * gestures:
  *
  *   Enregistrer            keep the work, stay on the step (IN_PROGRESS)
- *   Enregistrer et continuer  declare the step done and move on (COMPLETED)
+ *   Suivant                declare the step done and move on (COMPLETED)
  *   Passer cette étape     declare the step unnecessary (SKIPPED)
  *
  * Saving is never the same act as validating: a step is only finished when
@@ -30,7 +30,7 @@ const props = defineProps({
     /** Whether this step owns a form the parent submits. */
     hasForm: { type: Boolean, default: false },
     dirty: { type: Boolean, default: false },
-    /** Content requirement satisfied — enables "Enregistrer et continuer". */
+    /** Content requirement satisfied — enables « Suivant ». */
     canContinue: { type: Boolean, default: true },
     processing: { type: Boolean, default: false },
     canEdit: { type: Boolean, default: false },
@@ -78,8 +78,8 @@ const statusNote = computed(() => STATUS_NOTES[props.state?.status] ?? null);
  * médecin à deviner l'écran suivant, alors que le parcours la connaît.
  */
 const continueLabel = computed(() => (props.next?.label
-    ? `Enregistrer et passer à ${props.next.label.toLocaleLowerCase('fr')}`
-    : 'Enregistrer et valider l’étape'));
+    ? `Suivant : ${props.next.label.toLocaleLowerCase('fr')}`
+    : 'Valider l’étape'));
 
 /**
  * « Passer cette étape » agit immédiatement.

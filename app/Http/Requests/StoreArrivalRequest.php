@@ -86,12 +86,20 @@ class StoreArrivalRequest extends FormRequest
         $isStaff = $type === PatientType::Staff->value;
         $isMutual = $type === PatientType::Mutual->value;
         $isExternalNewborn = $this->input('registration_context') === 'EXTERNAL_NEWBORN';
+        $isChild = in_array($this->input('civility'), [
+            PatientCivility::Girl->value,
+            PatientCivility::Boy->value,
+        ], true);
 
         $commonRule = fn (array $rules): array => [
             Rule::prohibitedIf($isStaff),
             ...$rules,
         ];
         $adultOnlyRule = fn (array $rules): array => [
+            Rule::prohibitedIf($isStaff || $isExternalNewborn || $isChild),
+            ...$rules,
+        ];
+        $civilityRule = fn (array $rules): array => [
             Rule::prohibitedIf($isStaff || $isExternalNewborn),
             ...$rules,
         ];
@@ -128,7 +136,7 @@ class StoreArrivalRequest extends FormRequest
                 'max:130',
             ]),
             'sex' => $commonRule([Rule::requiredIf(! $isStaff), 'nullable', new Enum(PatientSex::class)]),
-            'civility' => $adultOnlyRule(['nullable', new Enum(PatientCivility::class)]),
+            'civility' => $civilityRule(['nullable', new Enum(PatientCivility::class)]),
             'identity_document_type' => $adultOnlyRule([
                 'nullable',
                 'required_with:identity_document_number',

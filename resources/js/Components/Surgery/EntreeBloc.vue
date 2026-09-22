@@ -10,7 +10,9 @@ import Select from '@/Components/Shadcn/Select.vue';
 import ClinicalAccordionSection from './ClinicalAccordionSection.vue';
 import DynamicTreatmentTable from './DynamicTreatmentTable.vue';
 import SurgerySection from './SurgerySection.vue';
-import { ArrowRight, LockKeyhole, LogIn, Save } from 'lucide-vue-next';
+import ClinicalSaveStatus from '@/Components/Clinical/ClinicalSaveStatus.vue';
+import { useAutosave } from '@/composables/useAutosave';
+import { ArrowRight, LockKeyhole, LogIn } from 'lucide-vue-next';
 
 const props = defineProps({
     surgicalRequest: Object,
@@ -45,21 +47,20 @@ const form = useForm({
     catheter_placed_at: entry.catheter_placed_at?.slice(0, 16) ?? '',
 });
 
-const submit = (nextSection = null) => form.transform((data) => ({
+// Plus de bouton « Enregistrer » : la fiche s'enregistre toute seule
+// quelques instants après la dernière saisie, par la même route.
+const send = (options) => form.transform((data) => ({
     ...data,
     full_bath_completed: data.full_bath_completed === '' ? null : data.full_bath_completed === '1',
     weighing_completed: data.weighing_completed === '' ? null : data.weighing_completed === '1',
     urinary_catheter_placed: data.urinary_catheter_placed === '' ? null : data.urinary_catheter_placed === '1',
-})).put(`${base.value}/block-entry`, {
-    preserveScroll: true,
-    onSuccess: () => {
-        if (nextSection) activeSection.value = nextSection;
-    },
-});
-
+})).put(`${base.value}/block-entry`, options);
 const preliminaryItems = computed(() => (props.surgicalRequest.treatment_items ?? []).filter((item) => item.phase === 'PRELIMINARY'));
 const preliminaryLocked = computed(() => ['IN_PROGRESS', 'COMPLETED', 'DISCHARGED'].includes(props.surgicalRequest.status));
 const locked = computed(() => !props.canEdit || props.surgicalRequest.status === 'DISCHARGED');
+const autosave = useAutosave(form, send, { enabled: () => !locked.value });
+/** « Suivant » : enregistre ce qui reste, puis ouvre la tâche suivante. */
+const next = (nextSection) => autosave.flush(() => { activeSection.value = nextSection; });
 const preparationComplete = computed(() => [form.full_bath_completed, form.weighing_completed, form.heart_rate, form.oxygen_saturation].some((value) => value !== ''));
 const accessComplete = computed(() => [form.peripheral_iv_count, form.serum_name, form.urinary_catheter_placed, form.catheter_placed_at].some((value) => value !== ''));
 const yesNoOptions = [{ value: '1', label: 'Oui' }, { value: '0', label: 'Non' }];
@@ -82,7 +83,7 @@ const FIELD = 'grid min-w-0 gap-1 text-xs text-muted-foreground';
             <Badge variant="outline"><LockKeyhole class="h-3 w-3" />Lecture seule</Badge>
         </template>
             <div class="space-y-3">
-                <form class="space-y-3" @submit.prevent="submit()">
+                <form class="space-y-3" @submit.prevent="autosave.flush()">
                     <fieldset :disabled="locked" class="space-y-3 disabled:opacity-70">
                         <ClinicalAccordionSection
                             :open="activeSection === 'preparation'"
@@ -103,7 +104,7 @@ const FIELD = 'grid min-w-0 gap-1 text-xs text-muted-foreground';
                                     <div class="mt-3 grid gap-3 sm:grid-cols-2"><label class="min-w-0 text-xs text-muted-foreground">Toilette complète<Select v-model="form.full_bath_completed" :options="yesNoOptions" placeholder="Non renseigné" class="mt-1 w-full" /></label><label class="min-w-0 text-xs text-muted-foreground">Pesage réalisé<Select v-model="form.weighing_completed" :options="yesNoOptions" placeholder="Non renseigné" class="mt-1 w-full" /></label></div>
                                 </section>
                             </div>
-                            <div v-if="!locked" class="mt-4 flex justify-end"><Button size="rg" type="button" :disabled="form.processing" @click="submit('access')"><Save class="h-4 w-4" />Enregistrer et continuer<ArrowRight class="h-4 w-4" /></Button></div>
+                            <div v-if="!locked" class="mt-4 flex items-center justify-end gap-3"><ClinicalSaveStatus :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="form.isDirty" :failed="autosave.failed.value" /><Button size="rg" type="button" :disabled="form.processing" @click="next('access')">Suivant<ArrowRight class="h-4 w-4" /></Button></div>
                         </ClinicalAccordionSection>
 
                         <ClinicalAccordionSection
@@ -140,7 +141,7 @@ const FIELD = 'grid min-w-0 gap-1 text-xs text-muted-foreground';
                                     </section>
                                 </div>
                             </div>
-                            <div v-if="!locked" class="mt-4 flex justify-end"><Button size="rg" type="button" :disabled="form.processing" @click="submit('treatment')"><Save class="h-4 w-4" />Enregistrer et continuer<ArrowRight class="h-4 w-4" /></Button></div>
+                            <div v-if="!locked" class="mt-4 flex items-center justify-end gap-3"><ClinicalSaveStatus :saving="autosave.saving.value" :saved-at="autosave.savedAt.value" :dirty="form.isDirty" :failed="autosave.failed.value" /><Button size="rg" type="button" :disabled="form.processing" @click="next('treatment')">Suivant<ArrowRight class="h-4 w-4" /></Button></div>
                         </ClinicalAccordionSection>
                     </fieldset>
                     <FormError v-if="form.errors.block_entry">{{ form.errors.block_entry }}</FormError>

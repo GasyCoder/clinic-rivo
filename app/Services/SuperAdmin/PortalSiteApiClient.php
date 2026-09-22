@@ -389,6 +389,15 @@ class PortalSiteApiClient
         );
     }
 
+    /** @return array<string, mixed> */
+    public function resetUserPermissions(string $siteCode, string $userUuid, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'POST', 'super-admin/roles/accounts/'.$userUuid.'/permissions/reset',
+            [], $actor,
+        );
+    }
+
     /** @param array<int, int> $permissionIds
      * @return array<string, mixed> */
     public function updateRolePermissions(string $siteCode, string $roleCode, array $permissionIds, User $actor): array
@@ -396,6 +405,15 @@ class PortalSiteApiClient
         return $this->request(
             $this->site($siteCode), 'PUT', 'super-admin/roles/'.$roleCode.'/permissions',
             ['permission_ids' => $permissionIds], $actor,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function resetRolePermissions(string $siteCode, string $roleCode, User $actor): array
+    {
+        return $this->request(
+            $this->site($siteCode), 'POST', 'super-admin/roles/'.$roleCode.'/permissions/reset',
+            [], $actor,
         );
     }
 

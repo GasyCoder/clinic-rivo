@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\ProfessionalProfile;
+use App\Models\SurgicalRequest;
 use App\Support\AnesthesiaAssessmentRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -12,7 +13,10 @@ class StoreAnesthesiaRecordRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $case = $this->route('surgicalRequest');
+
+        return $case instanceof SurgicalRequest
+            && $this->user()?->can('createAnesthesiaRecord', $case) === true;
     }
 
     public function rules(): array

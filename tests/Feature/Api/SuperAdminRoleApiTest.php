@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Api;
 
+use App\Enums\UserPermissionSource;
 use App\Models\Permission;
+use App\Models\ProfessionalProfile;
 use App\Models\Role;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
@@ -10,6 +12,7 @@ use Database\Seeders\ProfessionalProfileSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -75,6 +78,11 @@ class SuperAdminRoleApiTest extends TestCase
             // Le socle SUPER_ADMIN n'est jamais réglé ici : il se déduit du
             // type de déploiement (ADR-025, ADR-027).
             ->assertJsonFragment(['code' => 'SUPER_ADMIN', 'protected' => true]);
+
+        $this->withHeaders($this->headers(permissions: ['roles.view']))
+            ->getJson('/api/v1/super-admin/roles')
+            ->assertOk()
+            ->assertJsonFragment(['code' => 'RECEPTION', 'has_default_baseline' => true]);
     }
 
     public function test_a_super_admin_creates_a_role_with_the_permissions_actually_sent(): void
@@ -241,6 +249,110 @@ class SuperAdminRoleApiTest extends TestCase
 
         $this->assertCount(0, $user->refresh()->load('permissions')->permissions);
         $this->assertTrue($user->can('reception.view'));
+    }
+
+    public function test_a_built_in_role_can_be_reset_to_its_application_baseline_without_touching_accounts(): void
+    {
+        $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
+        $expected = RolePermissionSeeder::defaultPermissionNames('RECEPTION')->all();
+        $unrelated = Permission::query()->where('name', 'surgery.view')->firstOrFail();
+        $role->permissions()->sync([$unrelated->id]);
+
+        $user = User::factory()->create(['role_id' => $role->id]);
+        $user->permissions()->attach($unrelated->id, ['effect' => 'deny']);
+        $actorUuid = (string) Str::uuid();
+
+        $this->withHeaders($this->headers($actorUuid, permissions: ['users.manage']))
+            ->postJson('/api/v1/super-admin/roles/RECEPTION/permissions/reset')
+            ->assertOk()
+            ->assertJsonPath('data.has_default_baseline', true);
+
+        $this->assertEqualsCanonicalizing($expected, $role->fresh()->permissions->pluck('name')->all());
+        $this->assertDatabaseHas('user_permissions', [
+            'user_id' => $user->id,
+            'permission_id' => $unrelated->id,
+            'effect' => 'deny',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'role.permissions.reset',
+            'external_actor_uuid' => $actorUuid,
+        ]);
+    }
+
+    public function test_a_custom_role_has_no_invented_default_baseline(): void
+    {
+        $role = Role::query()->create(['code' => 'PHYSIO', 'name' => 'Physio']);
+        $role->permissions()->attach(Permission::query()->where('name', 'care.view')->value('id'));
+
+        $this->withHeaders($this->headers(permissions: ['users.manage']))
+            ->postJson('/api/v1/super-admin/roles/PHYSIO/permissions/reset')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('role');
+
+        $this->assertSame(['care.view'], $role->fresh()->permissions->pluck('name')->all());
+    }
+
+    public function test_resetting_an_account_removes_manual_and_profile_rows_without_reapplying_recommendations(): void
+    {
+        $role = Role::query()->where('code', 'NURSE')->firstOrFail();
+        $profile = ProfessionalProfile::query()->where('code', 'MIDWIFE')->firstOrFail();
+        $user = User::factory()->create([
+            'role_id' => $role->id,
+            'professional_profile_id' => $profile->id,
+        ]);
+        $manual = Permission::query()->where('name', 'billing.print')->firstOrFail();
+        $recommended = Permission::query()->where('name', 'maternity.view')->firstOrFail();
+
+        DB::table('user_permissions')->insert([
+            [
+                'user_id' => $user->id,
+                'permission_id' => $manual->id,
+                'effect' => 'deny',
+                'source' => UserPermissionSource::Manual->value,
+                'source_profile_id' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'user_id' => $user->id,
+                'permission_id' => $recommended->id,
+                'effect' => 'allow',
+                'source' => UserPermissionSource::Profile->value,
+                'source_profile_id' => $profile->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+        $actorUuid = (string) Str::uuid();
+
+        $this->withHeaders($this->headers($actorUuid, permissions: ['permissions.assign']))
+            ->postJson("/api/v1/super-admin/roles/accounts/{$user->uuid}/permissions/reset")
+            ->assertOk()
+            ->assertJsonCount(0, 'data.permission_overrides');
+
+        $user->refresh();
+        $this->assertSame($profile->id, $user->professional_profile_id);
+        $this->assertDatabaseMissing('user_permissions', ['user_id' => $user->id]);
+        $this->assertTrue($user->can('care.view'));
+        $this->assertFalse($user->can('maternity.view'));
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'user.permissions.reset',
+            'external_actor_uuid' => $actorUuid,
+        ]);
+    }
+
+    public function test_reset_endpoints_recheck_the_remote_permissions(): void
+    {
+        $role = Role::query()->where('code', 'RECEPTION')->firstOrFail();
+        $user = User::factory()->create(['role_id' => $role->id]);
+
+        $this->withHeaders($this->headers(permissions: ['roles.view']))
+            ->postJson('/api/v1/super-admin/roles/RECEPTION/permissions/reset')
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers(permissions: ['roles.view']))
+            ->postJson("/api/v1/super-admin/roles/accounts/{$user->uuid}/permissions/reset")
+            ->assertForbidden();
     }
 
     /**

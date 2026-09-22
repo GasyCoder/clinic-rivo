@@ -75,10 +75,10 @@ test('un nouveau-né né ici ne voit aucun formulaire patient, celui né ailleur
     assert.match(reception, /v-if="patientMode === 'create' \|\| isExternalNewborn"/);
     assert.match(reception, /registration_context: 'EXTERNAL_NEWBORN'/);
     assert.match(reception, /Identité du nouveau-né né ailleurs/);
-    assert.match(reception, /v-if="!isExternalNewborn" label="Téléphone"/);
-    assert.match(reception, /v-if="!isExternalNewborn" label="Email"/);
-    assert.match(reception, /v-if="!isExternalNewborn" label="Profession"/);
-    assert.match(reception, /v-if="!isExternalNewborn" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"/);
+    assert.match(reception, /v-if="!isDependentPatient" label="Téléphone"/);
+    assert.match(reception, /v-if="!isDependentPatient" label="Email"/);
+    assert.match(reception, /v-if="!isDependentPatient" label="Profession"/);
+    assert.match(reception, /v-if="!isDependentPatient" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"/);
     assert.match(reception, /Parent ou responsable à joindre/);
     assert.match(picker, /emit\('internal'\)/);
     assert.match(picker, /emit\('external'\)/);
@@ -87,12 +87,20 @@ test('un nouveau-né né ici ne voit aucun formulaire patient, celui né ailleur
 test('naissance, sexe et domicile du bébé restent sur la même rangée large', () => {
     const birthAt = reception.indexOf(":label=\"isExternalNewborn ? 'Naissance du bébé' : 'Naissance ou âge'\"");
     const rowStart = reception.lastIndexOf('<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
-    const nextRow = reception.indexOf('<div v-if="!isExternalNewborn" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
+    const nextRow = reception.indexOf('<div v-if="!isDependentPatient" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
     const row = reception.slice(rowStart, nextRow);
 
     assert.notEqual(rowStart, -1);
     assert.match(row, /label="Sexe"/);
     assert.match(row, /Domicile familial/);
+});
+
+test('les civilités enfant activent le profil enfant et retirent les champs administratifs d’adulte', () => {
+    assert.match(reception, /\['GIRL', 'BOY'\]\.includes\(patientForm\.civility\)/);
+    assert.match(reception, /const isDependentPatient = computed\(\(\) => isExternalNewborn\.value \|\| isChildPatient\.value\)/);
+    assert.match(reception, /if \(isChildPatient\.value\)/);
+    assert.match(reception, /Parent ou responsable à joindre/);
+    assert.match(reception, /Le téléphone et l’email sont ceux de l’adulte responsable, jamais ceux de l’enfant/);
 });
 
 test('un bébé qui a son dossier ne peut plus être retiré du dossier Maternité', () => {

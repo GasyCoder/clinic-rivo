@@ -80,6 +80,14 @@ class RoleController extends Controller
         );
     }
 
+    public function resetPermissions(Request $request, string $site, string $role, PortalSiteApiClient $client): RedirectResponse
+    {
+        return $this->respond(
+            $client->resetRolePermissions($site, $role, $request->user()),
+            'Le socle du rôle a été réinitialisé.',
+        );
+    }
+
     public function updateAccountPermissions(Request $request, string $site, string $user, PortalSiteApiClient $client): RedirectResponse
     {
         $validated = $request->validate([
@@ -91,6 +99,14 @@ class RoleController extends Controller
         return $this->respond(
             $client->updateUserPermissionOverrides($site, $user, $validated['permission_overrides'], $request->user()),
             'Permissions individuelles mises à jour.',
+        );
+    }
+
+    public function resetAccountPermissions(Request $request, string $site, string $user, PortalSiteApiClient $client): RedirectResponse
+    {
+        return $this->respond(
+            $client->resetUserPermissions($site, $user, $request->user()),
+            'Les permissions individuelles du compte ont été réinitialisées.',
         );
     }
 

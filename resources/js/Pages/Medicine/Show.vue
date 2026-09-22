@@ -903,7 +903,7 @@ const interviewFilled = computed(() => interviewForm.chief_complaint.trim().leng
 
 /**
  * `complete` carries the doctor's intent, and only that: "Enregistrer" keeps
- * the work without claiming the step is finished, "Enregistrer et continuer"
+ * the work without claiming the step is finished, « Suivant »
  * validates it and moves on. The server decides both the step status and the
  * redirection from this flag — never from the fact that content was written.
  */

@@ -67,7 +67,7 @@ class ScheduleSurgicalRequestAction
     }
 
     /** @param Collection<int, User> $assistants */
-    private function guardSelection(User $surgeon, Collection $assistants): void
+    public function guardSelection(User $surgeon, Collection $assistants): void
     {
         if ($assistants->count() > self::MAX_ASSISTANTS) {
             throw ValidationException::withMessages([
@@ -95,7 +95,7 @@ class ScheduleSurgicalRequestAction
      *
      * @param  Collection<int, User>  $assistants
      */
-    private function syncAssistants(SurgicalRequest $surgicalRequest, User $surgeon, Collection $assistants): void
+    public function syncAssistants(SurgicalRequest $surgicalRequest, User $surgeon, Collection $assistants): void
     {
         $wanted = $assistants->pluck('id')->map(fn ($id) => (int) $id)->all();
         $current = $surgicalRequest->teamMembers()

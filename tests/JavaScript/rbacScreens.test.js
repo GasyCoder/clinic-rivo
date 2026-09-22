@@ -5,6 +5,7 @@ import fs from 'node:fs';
 const users = fs.readFileSync('resources/js/Pages/SuperAdmin/Users/Index.vue', 'utf8');
 const roles = fs.readFileSync('resources/js/Pages/SuperAdmin/Roles/Index.vue', 'utf8');
 const overrides = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
+const baselines = fs.readFileSync('resources/js/Components/Rbac/RoleBaselineEditor.vue', 'utf8');
 const menu = fs.readFileSync('resources/js/Components/Layout/Menu.vue', 'utf8');
 
 /**
@@ -83,4 +84,28 @@ test('renommer ne touche que le libellé', () => {
 
     assert.match(rename, /useForm\(\{ name: '' \}\)/);
     assert.doesNotMatch(rename, /code:/);
+});
+
+test('les réinitialisations distinguent le socle du rôle des exceptions du compte', () => {
+    assert.match(baselines, /Réinitialiser le rôle/);
+    assert.match(baselines, /selectedRole\?\.has_default_baseline/);
+    assert.match(baselines, /Leurs autorisations et interdictions individuelles resteront inchangées/);
+
+    assert.match(overrides, /Réinitialiser le compte/);
+    // Visible même sans exception (ADR-158) : désactivé et expliqué, jamais masqué.
+    assert.doesNotMatch(overrides, /v-if="canAssign && resetStats\.total"/);
+    assert.match(overrides, /:disabled="processing \|\| resetStats\.total === 0"/);
+    assert.match(overrides, /héritera uniquement du socle de son rôle/);
+    assert.match(overrides, /ses recommandations ne seront pas réappliquées automatiquement/);
+});
+
+/** Les trois états d'une exception disent ce qu'ils produisent, pas seulement ce qu'ils écrivent. */
+test('les trois états d’une permission sont nommés par leur effet', () => {
+    const row = fs.readFileSync('resources/js/Components/Rbac/PermissionAccessRow.vue', 'utf8');
+
+    assert.match(row, /label: 'Suivre le rôle'/);
+    assert.match(row, /label: 'Toujours autoriser'/);
+    assert.match(row, /label: 'Toujours interdire'/);
+    assert.match(row, /Socle du rôle :/);
+    assert.match(row, /Résultat pour ce compte :/);
 });

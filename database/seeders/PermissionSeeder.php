@@ -516,6 +516,7 @@ class PermissionSeeder extends Seeder
         'surgery.create' => 'Créer une demande de chirurgie',
         'surgery.update' => 'Modifier une demande de chirurgie',
         'surgery.schedule' => 'Programmer une intervention',
+        'surgery.reset' => 'Réinitialiser un dossier de chirurgie saisi à tort (archivé, motif obligatoire)',
         'surgery.preoperative.view' => 'Voir le bilan préopératoire',
         'surgery.preoperative.validate' => 'Valider le bilan préopératoire',
         'surgery.intervention.create' => 'Créer une intervention',

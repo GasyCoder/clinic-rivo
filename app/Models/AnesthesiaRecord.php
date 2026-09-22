@@ -2,10 +2,14 @@
 
 namespace App\Models;
 
+use App\Enums\AnesthesiaClearanceConditionStatus;
+use App\Enums\AnesthesiaClearanceStatus;
 use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 /**
  * CDC GitHub §15/16 — anesthesia.view/create/update/validate. No delete/
@@ -19,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'surgical_request_id', 'anesthetist_id', 'consultation_data',
     'paraclinical_data', 'anesthetic_items', 'notes', 'administered_at',
     'assessment_validated_by', 'assessment_validated_at',
+    'clearance_status', 'clearance_decided_by', 'clearance_decided_at',
+    'clearance_reason', 'clearance_valid_until',
     'validated_by', 'validated_at',
 ])]
 class AnesthesiaRecord extends Model
@@ -33,6 +39,9 @@ class AnesthesiaRecord extends Model
             'anesthetic_items' => 'array',
             'administered_at' => 'datetime',
             'assessment_validated_at' => 'datetime',
+            'clearance_status' => AnesthesiaClearanceStatus::class,
+            'clearance_decided_at' => 'datetime',
+            'clearance_valid_until' => 'datetime',
             'validated_at' => 'datetime',
         ];
     }
@@ -55,6 +64,37 @@ class AnesthesiaRecord extends Model
     public function assessmentValidator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assessment_validated_by');
+    }
+
+    /** ADR-170 — qui a prononcé la décision d'autorisation, et non qui a rempli la fiche. */
+    public function clearanceDecidedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'clearance_decided_by');
+    }
+
+    public function clearanceConditions(): HasMany
+    {
+        return $this->hasMany(AnesthesiaClearanceCondition::class)->oldest('id');
+    }
+
+    public function assessmentIsValidated(): bool
+    {
+        return $this->assessment_validated_at !== null;
+    }
+
+    /** Les réserves encore à lever : une seule suffit à retenir l'incision. */
+    public function openConditions(): Collection
+    {
+        return $this->clearanceConditions
+            ->where('status', AnesthesiaClearanceConditionStatus::Open)
+            ->values();
+    }
+
+    /** Une autorisation datée peut être expirée : ce n'est alors plus une autorisation. */
+    public function clearanceHasExpired(): bool
+    {
+        return $this->clearance_valid_until !== null
+            && $this->clearance_valid_until->isPast();
     }
 
     protected function auditModule(): ?string

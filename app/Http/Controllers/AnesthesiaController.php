@@ -34,8 +34,9 @@ class AnesthesiaController extends Controller
     public function validateRecord(Request $request, SurgicalRequest $surgicalRequest, AnesthesiaRecord $anesthesiaRecord, ValidateAnesthesiaRecordAction $action): RedirectResponse
     {
         abort_unless($anesthesiaRecord->surgical_request_id === $surgicalRequest->getKey(), 404);
+        abort_unless($request->user()->can('validateRecord', $anesthesiaRecord), 403);
 
-        $action->execute($anesthesiaRecord);
+        $action->execute($anesthesiaRecord, $request->user());
 
         return back()->with('status', "Dossier d'anesthésie validé.");
     }
@@ -43,6 +44,7 @@ class AnesthesiaController extends Controller
     public function validateAssessment(Request $request, SurgicalRequest $surgicalRequest, AnesthesiaRecord $anesthesiaRecord, ValidatePreanestheticAssessmentAction $action): RedirectResponse
     {
         abort_unless($anesthesiaRecord->surgical_request_id === $surgicalRequest->getKey(), 404);
+        abort_unless($request->user()->can('validateAssessment', $anesthesiaRecord), 403);
 
         $action->execute($anesthesiaRecord);
 

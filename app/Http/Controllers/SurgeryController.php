@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Surgery\AdjustSurgicalTeamDuringInterventionAction;
 use App\Actions\Surgery\DischargeSurgicalRequestAction;
 use App\Actions\Surgery\ScheduleSurgicalRequestAction;
 use App\Actions\Surgery\UpdateSurgicalPreparationAction;
@@ -11,6 +12,7 @@ use App\Enums\CatalogModule;
 use App\Enums\HospitalStayStatus;
 use App\Enums\SurgicalRequestStatus;
 use App\Enums\SurgicalTeamFunction;
+use App\Http\Requests\AdjustSurgicalTeamRequest;
 use App\Http\Requests\DischargeSurgicalRequestRequest;
 use App\Http\Requests\ScheduleSurgicalRequestRequest;
 use App\Http\Requests\UpdateSurgicalPreparationRequest;
@@ -22,6 +24,7 @@ use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
 use App\Services\Surgery\SurgeonRoster;
 use App\Services\Surgery\SurgicalCaseWorkspace;
+use App\Services\Surgery\SurgicalReadinessPresenter;
 use App\Support\SurgeryReferenceData;
 use App\Support\SurgicalStayContext;
 use Carbon\CarbonImmutable;
@@ -141,6 +144,7 @@ class SurgeryController extends Controller
         SurgicalCaseWorkspace $workspace,
         CareRecordReadModel $careRecordReadModel,
         CareConsumableDirectory $consumables,
+        SurgicalReadinessPresenter $readiness,
     ): Response {
         $viewer = request()->user();
         $canViewAnesthesia = $viewer->can('anesthesia.view');
@@ -152,6 +156,10 @@ class SurgeryController extends Controller
             'workspace' => 'surgery',
             'surgicalRequest' => $workspace->loadForSurgery($surgicalRequest, $canViewAnesthesia),
             'careSummary' => $careRecordReadModel->present($careRecord, $viewer),
+            // ADR-170 — l'état de préparation opératoire est composé par le
+            // serveur : l'écran affiche ce que le gate a décidé, il ne
+            // recalcule aucune règle sensible en JavaScript.
+            'readiness' => $readiness->present($surgicalRequest, $viewer),
             // ADR-160 — un patient hospitalisé descend au bloc et remonte à son
             // lit : l'équipe doit le savoir. Le fait est servi à qui voit le
             // dossier ; le lien vers le séjour, seulement avec le droit de l'ouvrir.
@@ -228,6 +236,25 @@ class SurgeryController extends Controller
         $action->execute($surgicalRequest, $surgeon, $request->validated('scheduled_at'), $assistants);
 
         return back()->with('status', 'Intervention programmée.');
+    }
+
+    /**
+     * Amendement de l'ADR-168 — au bloc, les aides et l'opérateur réel
+     * s'ajustent avec un motif ; la date et le principal restent figés.
+     */
+    public function adjustTeam(AdjustSurgicalTeamRequest $request, SurgicalRequest $surgicalRequest, AdjustSurgicalTeamDuringInterventionAction $action): RedirectResponse
+    {
+        $action->execute(
+            $surgicalRequest,
+            $request->exists('assistant_surgeon_ids') ? $this->orderedUsers($request->validated('assistant_surgeon_ids', [])) : null,
+            $request->validated('performed_by') !== null ? (int) $request->validated('performed_by') : null,
+            $request->validated('reason'),
+            $request->user(),
+            $request->filled('surgeon_id') ? User::query()->with('professionalProfile')->findOrFail($request->validated('surgeon_id')) : null,
+            $request->validated('scheduled_at'),
+        );
+
+        return back()->with('status', 'Programmation corrigée.');
     }
 
     /**

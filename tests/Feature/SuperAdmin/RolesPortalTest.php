@@ -136,6 +136,37 @@ class RolesPortalTest extends TestCase
         });
     }
 
+    public function test_role_and_account_resets_are_forwarded_to_the_site_api(): void
+    {
+        $this->fakeRoles([
+            'https://m.test/api/v1/super-admin/roles/RECEPTION/permissions/reset' => Http::response([
+                'message' => 'Le socle du rôle Réception a été réinitialisé.',
+                'data' => [],
+            ]),
+            'https://m.test/api/v1/super-admin/roles/accounts/*/permissions/reset' => Http::response([
+                'message' => 'Les permissions individuelles ont été réinitialisées.',
+                'data' => [],
+            ]),
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->post('/super-admin/workspaces/roles/M/permissions/RECEPTION/reset')
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        $this->actingAs($this->superAdmin)
+            ->post('/super-admin/workspaces/roles/M/accounts/11111111-1111-4111-8111-111111111111/permissions/reset')
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/roles/RECEPTION/permissions/reset'
+            && $request->hasHeader('Idempotency-Key'));
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/roles/accounts/11111111-1111-4111-8111-111111111111/permissions/reset'
+            && $request->hasHeader('Idempotency-Key'));
+    }
+
     /**
      * Le catalogue des permissions se pilote depuis le même écran, et par la
      * même route : l'API du site décide, le portail ne fait que transmettre.
@@ -173,7 +204,8 @@ class RolesPortalTest extends TestCase
                     'roles' => [[
                         'id' => 1, 'code' => 'RECEPTION', 'name' => 'Réception', 'protected' => false,
                         'archived' => false, 'archived_at' => null, 'archive_reason' => null,
-                        'users_count' => 2, 'permissions' => ['cash.view'], 'profiles' => [],
+                        'users_count' => 2, 'permissions' => ['cash.view'], 'has_default_baseline' => true,
+                        'default_permissions' => ['cash.view'], 'profiles' => [],
                     ]],
                     'users' => [[
                         'uuid' => '11111111-1111-4111-8111-111111111111', 'name' => 'Florent', 'email' => 'florent@m.test',

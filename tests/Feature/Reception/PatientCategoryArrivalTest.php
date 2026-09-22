@@ -119,6 +119,67 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertDatabaseCount('episodes', 0);
     }
 
+    public function test_a_child_arrival_keeps_the_childs_identity_and_the_parents_passage_contact(): void
+    {
+        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            'patient_type' => PatientType::Standard->value,
+            'civility' => 'GIRL',
+            'first_name' => 'Soa',
+            'last_name' => 'Rakoto',
+            'birth_date' => now()->subYears(8)->toDateString(),
+            'sex' => 'F',
+            'emergency_contact_name' => 'Vola Rakoto',
+            'emergency_contact_phone' => '0340000000',
+            'emergency_contact_relationship' => 'Mère',
+        ]);
+
+        $patient = Patient::query()->sole();
+        $episode = Episode::query()->sole();
+
+        $response->assertRedirect(route('reception.passages.services.show', $episode));
+        $this->assertSame('GIRL', $patient->civility->value);
+        $this->assertSame('F', $patient->sex->value);
+        $this->assertNull($patient->phone);
+        $this->assertNull($patient->email);
+        $this->assertNull($patient->profession);
+        $this->assertNull($patient->identity_document_type);
+        $this->assertNull($patient->marital_status);
+        $this->assertNull($patient->children_count);
+        $this->assertSame('Vola Rakoto', $episode->emergency_contact_name);
+        $this->assertSame('0340000000', $episode->emergency_contact_phone);
+        $this->assertSame('Mère', $episode->emergency_contact_relationship);
+    }
+
+    public function test_a_child_arrival_rejects_adult_administrative_fields(): void
+    {
+        $actor = $this->receptionist(['patients.create', 'episodes.create']);
+
+        $response = $this->actingAs($actor)->post('/reception/patients', [
+            'patient_type' => PatientType::Standard->value,
+            'civility' => 'BOY',
+            'first_name' => 'Faly',
+            'last_name' => 'Rakoto',
+            'birth_date' => now()->subYears(10)->toDateString(),
+            'sex' => 'M',
+            'phone' => '0340000000',
+            'email' => 'child@example.test',
+            'profession' => 'Élève',
+            'marital_status' => 'SINGLE',
+            'children_count' => 0,
+            'identity_document_type' => 'PASSPORT',
+            'identity_document_number' => 'P-1234',
+        ]);
+
+        $response->assertSessionHasErrors([
+            'phone', 'email', 'profession', 'marital_status', 'children_count',
+            'identity_document_type', 'identity_document_number',
+        ]);
+        $this->assertDatabaseCount('patients', 0);
+        $this->assertDatabaseCount('episodes', 0);
+    }
+
     /**
      * Une adresse absente du référentiel ne doit pas bloquer une arrivée :
      * la Réception la saisit à la main et l'entrée est créée puis rattachée.

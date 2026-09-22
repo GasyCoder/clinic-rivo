@@ -35,7 +35,7 @@ test('la suite après « Aucun examen » vient du serveur', () => {
 });
 
 test('le bouton « continuer » nomme l’étape que le serveur annonce', () => {
-    assert.match(bar, /Enregistrer et passer à \$\{props\.next\.label\.toLocaleLowerCase\('fr'\)\}/);
+    assert.match(bar, /Suivant : \$\{props\.next\.label\.toLocaleLowerCase\('fr'\)\}/);
 });
 
 /** Les noms de payload restent : les renommer imposerait une migration front. */

@@ -49,7 +49,7 @@ const props = defineProps({
     errors: { type: Object, default: () => ({}) },
 });
 
-const emit = defineEmits(['save', 'update:dirty']);
+const emit = defineEmits(['save', 'reset', 'update:dirty']);
 
 const selectedUuid = ref('');
 const search = ref('');
@@ -57,6 +57,7 @@ const filter = ref('all');
 const selectedCategory = ref('');
 const userSearch = ref('');
 const showDiff = ref(false);
+const showReset = ref(false);
 const pendingUuid = ref(null);
 
 /** `{ [permissionId]: 'allow' | 'deny' }` — l'absence vaut « selon le rôle ». */
@@ -174,7 +175,7 @@ const confirmBulk = () => {
     pendingBulk.value = null;
 };
 
-const bulkLabel = { allow: 'Autoriser', deny: 'Interdire', '': 'Revenir au socle du rôle' };
+const bulkLabel = { allow: 'Toujours autoriser', deny: 'Toujours interdire', '': 'Remettre « Suivre le rôle »' };
 
 const matchesSearch = (permission) => permissionMatchesSearch(
     permission,
@@ -347,6 +348,16 @@ const summary = computed(() => {
     };
 });
 
+const resetStats = computed(() => {
+    const overrides = selectedUser.value?.permission_overrides ?? [];
+
+    return {
+        total: overrides.length,
+        manual: overrides.filter((override) => override.source !== 'PROFILE').length,
+        profile: overrides.filter((override) => override.source === 'PROFILE').length,
+    };
+});
+
 const visibleUsers = computed(() => {
     const needle = userSearch.value.trim().toLowerCase();
 
@@ -400,7 +411,7 @@ const pendingUserName = computed(() => props.users.find((user) => user.uuid === 
 const describe = (permission) => {
     const from = savedEffects.value[permission.id] ?? '';
     const to = draft.value[permission.id] ?? '';
-    const word = { '': 'Selon le rôle', allow: 'Autorisé', deny: 'Interdit' };
+    const word = { '': 'Suit le rôle', allow: 'Toujours autorisé', deny: 'Toujours interdit' };
 
     return `${word[from]} → ${word[to]}`;
 };
@@ -412,10 +423,16 @@ const save = () => emit('save', {
         effect,
     })),
 });
+
+const resetToRole = () => {
+    showReset.value = false;
+    emit('reset', { user: selectedUser.value });
+};
 </script>
 
 <template>
     <div class="space-y-4">
+        <FormError v-if="errors.user">{{ errors.user }}</FormError>
         <FormError v-if="errors.permission_overrides">{{ errors.permission_overrides }}</FormError>
 
         <p
@@ -514,11 +531,17 @@ const save = () => emit('save', {
                         role="status"
                     >
                         <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
-                        <p class="text-xs leading-5 text-emerald-900 dark:text-emerald-100">
-                            Le rôle « {{ selectedRole.name }} » accorde déjà {{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }},
-                            marquée{{ selectedRole.permissions.length > 1 ? 's' : '' }} « Inclus dans le rôle » — rien à cocher, elles suivent le socle.
-                            Une interdiction individuelle l’emporte toujours sur ce socle.
-                        </p>
+                        <div class="text-xs leading-5 text-emerald-900 dark:text-emerald-100">
+                            <p>
+                                Le rôle « {{ selectedRole.name }} » accorde déjà {{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }},
+                                marquée{{ selectedRole.permissions.length > 1 ? 's' : '' }} « Inclus dans le rôle » — rien à cocher, elles suivent le socle.
+                            </p>
+                            <p class="mt-1">
+                                <strong>Suivre le rôle</strong> : aucune exception, le socle décide (et ses changements futurs s’appliquent).
+                                <strong>Toujours autoriser</strong> : ce compte a le droit même si le rôle ne l’accorde pas.
+                                <strong>Toujours interdire</strong> : ce compte n’a pas le droit même si le rôle l’accorde — l’interdiction l’emporte sur tout.
+                            </p>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -527,11 +550,11 @@ const save = () => emit('save', {
                             <p class="mt-0.5 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{{ summary.effective }}</p>
                         </div>
                         <div class="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-                            <p class="text-[10px] font-bold uppercase text-primary">Autorisations</p>
+                            <p class="text-[10px] font-bold uppercase text-primary">Toujours autorisés</p>
                             <p class="mt-0.5 text-lg font-bold tabular-nums text-primary">{{ summary.allowed }}</p>
                         </div>
                         <div class="rounded-lg border border-red-200 bg-red-50/30 px-3 py-2 dark:border-red-900 dark:bg-red-950/15">
-                            <p class="text-[10px] font-bold uppercase text-destructive">Interdictions</p>
+                            <p class="text-[10px] font-bold uppercase text-destructive">Toujours interdits</p>
                             <p class="mt-0.5 text-lg font-bold tabular-nums text-destructive">{{ summary.denied }}</p>
                         </div>
                         <div class="rounded-lg border border-border px-3 py-2">
@@ -573,9 +596,9 @@ const save = () => emit('save', {
                             <Badge variant="outline" class="px-2 py-0 text-[10px] tabular-nums">{{ section.exceptions }} exception{{ section.exceptions > 1 ? 's' : '' }}</Badge>
                             <Badge v-if="section.changed" variant="warning" class="px-2 py-0 text-[10px]">{{ section.changed }} modifié{{ section.changed > 1 ? 's' : '' }}</Badge>
                             <div v-if="canAssign" class="ms-auto flex items-center gap-1">
-                                <Button type="button" size="sm" variant="ghost" class="h-7 px-2 text-[11px]" @click="openBulk(section.shown, 'allow', `« ${section.label} » (${section.shown.length} affichée${section.shown.length > 1 ? 's' : ''})`)">Tout autoriser</Button>
-                                <Button type="button" size="sm" variant="ghost" class="h-7 px-2 text-[11px]" @click="openBulk(section.shown, 'deny', `« ${section.label} » (${section.shown.length} affichée${section.shown.length > 1 ? 's' : ''})`)">Tout interdire</Button>
-                                <Button type="button" size="sm" variant="ghost" class="h-7 px-2 text-[11px]" @click="openBulk(section.shown, '', `« ${section.label} » (${section.shown.length} affichée${section.shown.length > 1 ? 's' : ''})`)">Selon le rôle</Button>
+                                <Button type="button" size="sm" variant="ghost" class="h-7 px-2 text-[11px]" @click="openBulk(section.shown, 'allow', `« ${section.label} » (${section.shown.length} affichée${section.shown.length > 1 ? 's' : ''})`)">Tout : toujours autoriser</Button>
+                                <Button type="button" size="sm" variant="ghost" class="h-7 px-2 text-[11px]" @click="openBulk(section.shown, 'deny', `« ${section.label} » (${section.shown.length} affichée${section.shown.length > 1 ? 's' : ''})`)">Tout : toujours interdire</Button>
+                                <Button type="button" size="sm" variant="ghost" class="h-7 px-2 text-[11px]" @click="openBulk(section.shown, '', `« ${section.label} » (${section.shown.length} affichée${section.shown.length > 1 ? 's' : ''})`)">Tout : suivre le rôle</Button>
                             </div>
                         </div>
 
@@ -621,12 +644,55 @@ const save = () => emit('save', {
                 <div class="flex flex-wrap items-center gap-2">
                     <Button v-if="dirty" type="button" variant="outline" size="sm" @click="showDiff = true">Voir les modifications</Button>
                     <Button v-if="dirty" type="button" variant="ghost" size="sm" :disabled="processing" @click="resetDraft"><RotateCcw class="h-4 w-4" />Annuler</Button>
+                    <!-- Toujours affiché (ADR-158) : un bouton absent se lit « la fonction n'existe pas ». -->
+                    <Button
+                        v-if="canAssign"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        :disabled="processing || resetStats.total === 0"
+                        :title="resetStats.total === 0
+                            ? 'Rien à réinitialiser : ce compte ne porte aucune exception, il suit déjà son rôle.'
+                            : `Retirer les ${resetStats.total} exception${resetStats.total > 1 ? 's' : ''} : le compte suivra de nouveau son rôle partout.`"
+                        @click="showReset = true"
+                    >
+                        <RotateCcw class="h-4 w-4" />Réinitialiser le compte
+                        <span v-if="resetStats.total" class="tabular-nums font-normal">({{ resetStats.total }})</span>
+                    </Button>
                     <Button type="button" variant="primary" size="sm" :disabled="processing || ! dirty || ! canAssign" @click="save">
                         <Check class="h-4 w-4" />{{ processing ? 'Enregistrement…' : 'Enregistrer les exceptions' }}
                     </Button>
                 </div>
             </div>
         </div>
+
+        <Dialog
+            :open="showReset"
+            title="Réinitialiser les permissions du compte ?"
+            :description="`${selectedUser?.name ?? 'Ce compte'} héritera uniquement du socle de son rôle.`"
+            :dismissible="! processing"
+            @update:open="showReset = $event"
+        >
+            <div class="space-y-3 text-sm leading-6 text-muted-foreground">
+                <p>
+                    Les <strong class="text-foreground">{{ resetStats.total }} exception{{ resetStats.total > 1 ? 's' : '' }} individuelle{{ resetStats.total > 1 ? 's' : '' }}</strong>
+                    seront retirées : {{ resetStats.manual }} décision{{ resetStats.manual > 1 ? 's' : '' }} manuelle{{ resetStats.manual > 1 ? 's' : '' }}
+                    et {{ resetStats.profile }} recommandation{{ resetStats.profile > 1 ? 's' : '' }} de profil déjà appliquée{{ resetStats.profile > 1 ? 's' : '' }}.
+                </p>
+                <p class="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-5">
+                    Le profil professionnel reste affecté au compte, mais ses recommandations ne seront pas réappliquées automatiquement. Le compte recevra seulement les droits du rôle « {{ selectedRole?.name ?? '—' }} ».
+                </p>
+                <p v-if="dirty" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+                    <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />Les modifications non enregistrées visibles à l’écran seront abandonnées.
+                </p>
+            </div>
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="processing" @click="showReset = false">Annuler</Button>
+                <Button type="button" variant="destructive" :disabled="processing" @click="resetToRole">
+                    <RotateCcw class="h-4 w-4" />{{ processing ? 'Réinitialisation…' : 'Revenir au rôle uniquement' }}
+                </Button>
+            </template>
+        </Dialog>
 
         <Dialog
             :open="showDiff"

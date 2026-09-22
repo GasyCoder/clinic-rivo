@@ -5,14 +5,16 @@ namespace App\Support\Documents;
 use App\Enums\EpisodeStatus;
 use App\Enums\HospitalStayStatus;
 use App\Enums\PatientAntecedentType;
+use App\Enums\SurgicalRequestStatus;
 use App\Models\Consultation;
 use App\Models\Episode;
 use App\Models\MaternityRecord;
 use App\Models\Patient;
+use App\Models\SurgicalRequest;
 use App\Models\User;
+use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\NewbornFiche;
 use Carbon\CarbonImmutable;
-use App\Services\Medicine\ClinicalRichTextSanitizer;
 
 /**
  * ADR-116 — le « DOSSIER MÉDICAL » de la clinique, rempli depuis le passage.
@@ -136,6 +138,8 @@ final class MedicalRecordSheet
             'hospitalization' => null,
             'diagnosis_visible' => $user->can('diagnoses.view'),
             'diagnosis' => null,
+            'surgery_visible' => $user->can('surgery.view'),
+            'surgery' => null,
             'maternity' => null,
             'birth' => $this->maternity->birthOf($record, $newbornUuid, $rank, $mother, $user),
             'dossiers' => $this->maternity->dossiersForNewborn($record, $newbornUuid, $user),
@@ -184,6 +188,8 @@ final class MedicalRecordSheet
             : collect();
 
         $stay = $episode?->hospitalStays->first(fn ($stay) => $stay->status !== HospitalStayStatus::Cancelled);
+        $canSurgery = $user->can('surgery.view');
+        $surgery = $canSurgery && $episode ? $this->surgerySection($episode, $user) : null;
 
         $diagnoses = $consultations->flatMap->diagnoses->pluck('description')->filter()->unique()->values();
 
@@ -241,6 +247,10 @@ final class MedicalRecordSheet
                     ? $diagnoses->implode(' ; ')
                     : ($episode?->medicalDischarge?->final_diagnosis ?: null))
                 : null,
+            // ADR-172 : le passage au bloc fait partie du même dossier ; gardé par
+            // `surgery.view`, et l'anesthésie par `anesthesia.view` — jamais servi vide.
+            'surgery_visible' => $canSurgery,
+            'surgery' => $surgery,
             // ADR-143 : la Maternité fait partie du même dossier, jamais d'un second.
             'maternity' => $episode ? $this->maternity->present($episode, $user) : null,
             // ADR-144 : le patient est un nouveau-né de la clinique — sa naissance, lue chez sa mère.
@@ -248,5 +258,57 @@ final class MedicalRecordSheet
             // ADR-145 : la mère et ses bébés, chacun avec son dossier médical — un seul modèle, des onglets.
             'dossiers' => $this->maternity->dossiers($patient, $episode, $user),
         ];
+    }
+
+    /**
+     * ADR-172 — ce que le dossier médical dit du bloc : l'intervention, ses
+     * dates, le chirurgien, l'anesthésiste, la classe ASA, la décision
+     * anesthésique et le réveil. Le détail vit dans le « Dossier chirurgical »
+     * imprimable ; ici, une ligne par passage au bloc, rien de recopié.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    private function surgerySection(Episode $episode, User $user): ?array
+    {
+        $canAnesthesia = $user->can('anesthesia.view');
+
+        $cases = SurgicalRequest::query()
+            ->where('episode_id', $episode->getKey())
+            ->whereNot('status', SurgicalRequestStatus::Cancelled->value)
+            ->with([
+                'surgeon:id,name', 'intervention.performedBy:id,name', 'blockExit', 'report',
+                'anesthesiaRecord.anesthetist:id,name',
+            ])
+            ->orderBy('created_at')
+            ->get();
+
+        if ($cases->isEmpty()) {
+            return null;
+        }
+
+        return $cases->map(function (SurgicalRequest $case) use ($canAnesthesia): array {
+            $record = $case->anesthesiaRecord;
+
+            return [
+                'uuid' => $case->uuid,
+                'procedure' => $case->procedure_name,
+                'status' => SurgicalDossierSheet::statusLabel($case->status),
+                'scheduled_at' => $case->scheduled_at?->toIso8601String(),
+                'started_at' => $case->intervention?->started_at?->toIso8601String(),
+                'ended_at' => $case->intervention?->ended_at?->toIso8601String(),
+                'surgeon' => $case->intervention?->performedBy?->name ?? $case->surgeon?->name,
+                'summary' => $case->intervention?->procedure_summary,
+                'report_validated' => $case->report?->validated_at !== null,
+                'awakening' => $case->blockExit?->awakening_status?->label(),
+                'anesthesia_visible' => $canAnesthesia,
+                'anesthesia' => $canAnesthesia ? [
+                    'anesthetist' => $record?->anesthetist?->name,
+                    'asa_class' => $record?->paraclinical_data['asa_class'] ?? null,
+                    'clearance' => $record?->clearance_status?->label(),
+                    'clearance_reason' => $record?->clearance_reason,
+                ] : null,
+                'dossier_url' => "/surgery/{$case->uuid}/dossier",
+            ];
+        })->values()->all();
     }
 }

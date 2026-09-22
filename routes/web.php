@@ -17,6 +17,7 @@ use App\Http\Controllers\Administration\PlanningController;
 use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\Administration\UserController as AdministrationUserController;
 use App\Http\Controllers\AdministrationController;
+use App\Http\Controllers\AnesthesiaClearanceController;
 use App\Http\Controllers\AnesthesiaController;
 use App\Http\Controllers\AnesthesiaWorkspaceController;
 use App\Http\Controllers\AttentionDigestController;
@@ -91,12 +92,16 @@ use App\Http\Controllers\SurgeryController;
 use App\Http\Controllers\SurgicalBlockEntryController;
 use App\Http\Controllers\SurgicalBlockExitController;
 use App\Http\Controllers\SurgicalCareNoteController;
+use App\Http\Controllers\SurgicalCaseCompletionController;
 use App\Http\Controllers\SurgicalComplicationController;
 use App\Http\Controllers\SurgicalConsumableController;
+use App\Http\Controllers\SurgicalDossierController;
 use App\Http\Controllers\SurgicalInterventionController;
 use App\Http\Controllers\SurgicalPostoperativeObservationController;
 use App\Http\Controllers\SurgicalPreoperativeController;
 use App\Http\Controllers\SurgicalReportController;
+use App\Http\Controllers\SurgicalRequestResetController;
+use App\Http\Controllers\SurgicalSafetyChecklistController;
 use App\Http\Controllers\SurgicalTeamMemberController;
 use App\Http\Controllers\SurgicalTreatmentItemController;
 use App\Http\Controllers\TransferController;
@@ -326,9 +331,11 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // Socle d'un RÔLE — tous ses comptes à la fois, additif aux
         // exceptions individuelles ci-dessous, qu'il ne touche jamais (ADR-064).
         Route::put('/workspaces/roles/{site}/permissions/{role}', [SuperAdminRoleController::class, 'updatePermissions'])->name('workspaces.roles.permissions.update')->middleware('can:users.manage');
+        Route::post('/workspaces/roles/{site}/permissions/{role}/reset', [SuperAdminRoleController::class, 'resetPermissions'])->name('workspaces.roles.permissions.reset')->middleware('can:users.manage');
         // Exceptions individuelles d'un compte : DENY prioritaire, puis
         // ALLOW, puis le socle du rôle (ADR-022, ADR-033).
         Route::put('/workspaces/roles/{site}/accounts/{user}/permissions', [SuperAdminRoleController::class, 'updateAccountPermissions'])->name('workspaces.roles.accounts.permissions.update')->middleware('can:permissions.assign');
+        Route::post('/workspaces/roles/{site}/accounts/{user}/permissions/reset', [SuperAdminRoleController::class, 'resetAccountPermissions'])->name('workspaces.roles.accounts.permissions.reset')->middleware('can:permissions.assign');
         // Le catalogue des permissions du site (ADR-101).
         Route::post('/workspaces/roles/permissions', [SuperAdminRoleController::class, 'storePermission'])->name('workspaces.permissions.store')->middleware('can:permissions.create');
         Route::put('/workspaces/roles/{site}/catalog/{permission}', [SuperAdminRoleController::class, 'updatePermission'])->name('workspaces.permissions.update')->middleware('can:permissions.update');
@@ -1064,9 +1071,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/surgery/create', fn () => redirect()->route('surgery.index'))
         ->name('surgery.create.form')->middleware('can:surgery.view');
     Route::get('/surgery/{surgicalRequest}', [SurgeryController::class, 'show'])->name('surgery.show')->middleware('can:surgery.view');
+    // ADR-172 — le « Dossier chirurgical » imprimable (4 feuilles), généré depuis les données ; `?feuille=` en imprime une seule.
+    Route::get('/surgery/{surgicalRequest}/dossier', [SurgicalDossierController::class, 'print'])->name('surgery.dossier.print')->middleware('can:view-surgical-dossier');
     Route::put('/surgery/{surgicalRequest}', [SurgeryController::class, 'update'])->name('surgery.update')->middleware('can:surgery.update');
     Route::post('/surgery/{surgicalRequest}/schedule', [SurgeryController::class, 'schedule'])->name('surgery.schedule')->middleware('can:surgery.schedule');
     Route::get('/surgery/{surgicalRequest}/surgeons', [SurgeryController::class, 'surgeons'])->name('surgery.surgeons')->middleware('can:surgery.schedule');
+    Route::post('/surgery/{surgicalRequest}/team-adjustment', [SurgeryController::class, 'adjustTeam'])->name('surgery.team-adjustment')->middleware('can:surgery.schedule');
     Route::post('/surgery/{surgicalRequest}/preparation', [SurgeryController::class, 'updatePreparation'])->name('surgery.preparation.update')->middleware('can:surgery.preparation.update');
     Route::put('/surgery/{surgicalRequest}/block-entry', [SurgicalBlockEntryController::class, 'update'])->name('surgery.block-entry.update')->middleware('can:surgery.preparation.update');
     Route::post('/surgery/{surgicalRequest}/discharge', [SurgeryController::class, 'discharge'])->name('surgery.discharge')->middleware('can:surgery.discharge.create');
@@ -1084,10 +1094,24 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::put('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}', [AnesthesiaController::class, 'update'])->name('surgery.anesthesia.update')->middleware('can:anesthesia.update');
     Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/assessment/validate', [AnesthesiaController::class, 'validateAssessment'])->name('surgery.anesthesia.assessment.validate')->middleware('can:anesthesia.validate');
     Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/validate', [AnesthesiaController::class, 'validateRecord'])->name('surgery.anesthesia.validate')->middleware('can:anesthesia.validate');
+    // ADR-170 — la décision d'autorisation du bloc, distincte de la validation
+    // de l'évaluation : une évaluation complète peut conclure « non autorisé ».
+    Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/clearance', [AnesthesiaClearanceController::class, 'decide'])->name('surgery.anesthesia.clearance')->middleware('can:anesthesia.validate');
+    Route::post('/surgery/{surgicalRequest}/anesthesia/{anesthesiaRecord}/clearance/conditions/{condition}/resolve', [AnesthesiaClearanceController::class, 'resolveCondition'])->name('surgery.anesthesia.clearance.conditions.resolve')->middleware('can:anesthesia.update');
 
     Route::post('/surgery/{surgicalRequest}/report', [SurgicalReportController::class, 'store'])->name('surgery.report.store')->middleware('can:surgery.report.create');
     Route::put('/surgery/{surgicalRequest}/report/{report}', [SurgicalReportController::class, 'update'])->name('surgery.report.update')->middleware('can:surgery.report.update');
     Route::post('/surgery/{surgicalRequest}/report/{report}/validate', [SurgicalReportController::class, 'validateReport'])->name('surgery.report.validate')->middleware('can:surgery.report.validate');
+    // ADR-170 — clore le dossier n'est plus un effet de bord de la validation
+    // du compte rendu : c'est un geste à part, gardé par la Policy (qui exige
+    // `surgery.report.validate`, la permission qui l'emportait jusqu'ici).
+    Route::post('/surgery/{surgicalRequest}/reset', [SurgicalRequestResetController::class, 'store'])->name('surgery.reset')->middleware('can:surgery.reset');
+    Route::post('/surgery/{surgicalRequest}/complete', [SurgicalCaseCompletionController::class, 'complete'])->name('surgery.complete')->middleware('can:complete,surgicalRequest');
+
+    // ADR-170 — checklist de sécurité du bloc. La permission dépend du rôle
+    // confirmé (anesthésie ou équipe chirurgicale) : c'est la Policy qui ouvre
+    // la salle, et l'Action qui vérifie que chacun confirme sa propre part.
+    Route::post('/surgery/{surgicalRequest}/checklist/{phase}', [SurgicalSafetyChecklistController::class, 'save'])->name('surgery.checklist.save')->middleware('can:saveChecklist,surgicalRequest')->whereIn('phase', ['SIGN_IN', 'TIME_OUT', 'SIGN_OUT']);
 
     Route::post('/surgery/{surgicalRequest}/complications', [SurgicalComplicationController::class, 'store'])->name('surgery.complications.store')->middleware('can:surgery.complications.create');
     // ADR-169 — le matériel du bloc passe par le stock de la Pharmacie ; la saisie libre reste « hors stock ».

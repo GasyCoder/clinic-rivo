@@ -4,7 +4,7 @@ namespace Tests\Feature\Maternity;
 
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
-use App\Actions\Surgery\CreateAnesthesiaRecordAction;
+use App\Actions\Surgery\CompleteSurgicalCaseAction;
 use App\Actions\Surgery\CreateSurgicalInterventionAction;
 use App\Actions\Surgery\CreateSurgicalReportAction;
 use App\Actions\Surgery\DischargeSurgicalRequestAction;
@@ -16,6 +16,7 @@ use App\Actions\Surgery\ValidateSurgicalReportAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
+use App\Enums\SurgicalChecklistPhase;
 use App\Enums\SurgicalRequestStatus;
 use App\Models\CareRecord;
 use App\Models\CareRecordProcedure;
@@ -37,11 +38,12 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia;
+use Tests\Feature\Surgery\Concerns\BuildsSurgicalCases;
 use Tests\TestCase;
 
 class MaternityWorkspaceTest extends TestCase
 {
-    use RefreshDatabase;
+    use BuildsSurgicalCases, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -277,11 +279,23 @@ class MaternityWorkspaceTest extends TestCase
         app(ScheduleSurgicalRequestAction::class)->execute($request, $surgeon, '2026-09-02 08:00:00');
         app(UpdateSurgicalRequestAction::class)->execute($request, ['preoperative_notes' => 'Bilan préopératoire validable.']);
         app(ValidatePreoperativeAssessmentAction::class)->execute($request, $surgeon);
-        $anesthesia = app(CreateAnesthesiaRecordAction::class)->execute($request, ['notes' => 'Anesthésie standard.']);
-        app(ValidateAnesthesiaRecordAction::class)->execute($anesthesia);
-        app(CreateSurgicalInterventionAction::class)->execute($request, ['notes' => 'Césarienne réalisée au bloc.']);
+        // ADR-170 — la césarienne passe par les mêmes checkpoints de bloc que
+        // toute intervention : anesthésiste affecté, autorisation prononcée,
+        // SIGN IN et TIME OUT confirmés.
+        $this->grant($surgeon, ['anesthesia.create', 'anesthesia.update', 'anesthesia.validate']);
+        $anesthesia = $this->anesthesiaCleared($request->fresh(), $surgeon);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::SignIn, $surgeon, $surgeon);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::TimeOut, $surgeon, $surgeon);
+
+        $intervention = app(CreateSurgicalInterventionAction::class)
+            ->execute($request->fresh(), ['notes' => 'Césarienne réalisée au bloc.'], $surgeon->fresh());
+        $intervention->update(['ended_at' => now()]);
+        app(ValidateAnesthesiaRecordAction::class)->execute($anesthesia->fresh(), $surgeon->fresh());
         $report = app(CreateSurgicalReportAction::class)->execute($request, 'Intervention terminée sans incident.');
         app(ValidateSurgicalReportAction::class)->execute($report);
+        $this->completeChecklist($request->fresh(), SurgicalChecklistPhase::SignOut, $surgeon, $surgeon);
+        $request->blockExit()->create(['recorded_by' => $surgeon->id, 'left_at' => now()]);
+        app(CompleteSurgicalCaseAction::class)->execute($request->fresh(), $surgeon->fresh());
         app(DischargeSurgicalRequestAction::class)->execute($request->fresh(), $surgeon, 'Retour en surveillance Maternité.');
 
         $this->assertSame(SurgicalRequestStatus::Discharged, $request->fresh()->status);

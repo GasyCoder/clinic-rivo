@@ -2,13 +2,17 @@
 
 namespace App\Http\Requests;
 
+use App\Models\SurgicalRequest;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateSurgicalInterventionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $case = $this->route('surgicalRequest');
+
+        return $case instanceof SurgicalRequest
+            && $this->user()?->can('updateIntervention', $case) === true;
     }
 
     public function rules(): array

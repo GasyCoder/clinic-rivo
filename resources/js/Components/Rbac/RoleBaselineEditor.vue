@@ -52,11 +52,12 @@ const props = defineProps({
      */
     users: { type: Array, default: () => [] },
     siteName: { type: String, default: '' },
+    canReset: { type: Boolean, default: false },
     processing: { type: Boolean, default: false },
     errors: { type: Object, default: () => ({}) },
 });
 
-const emit = defineEmits(['save', 'close', 'update:dirty']);
+const emit = defineEmits(['save', 'reset', 'close', 'update:dirty']);
 
 const selectedRoleCode = ref(props.roles[0]?.code ?? '');
 
@@ -97,6 +98,20 @@ const baselineIds = computed(() => new Set(
         .filter((permission) => selectedRole.value?.permissions?.includes(permission.name))
         .map((permission) => permission.id),
 ));
+
+const defaultIds = computed(() => new Set(
+    props.permissionCatalog
+        .filter((permission) => selectedRole.value?.default_permissions?.includes(permission.name))
+        .map((permission) => permission.id),
+));
+
+const defaultDiff = computed(() => diffPermissionSelection(
+    props.permissionCatalog,
+    baselineIds.value,
+    defaultIds.value,
+));
+const isDefaultBaseline = computed(() => defaultDiff.value.total === 0);
+const showReset = ref(false);
 
 const granted = (permission) => draftIds.value.has(permission.id);
 
@@ -352,6 +367,11 @@ const confirmRoleSwitch = () => {
 const pendingRoleName = computed(() => props.roles.find((role) => role.code === pendingRoleCode.value)?.name ?? '');
 
 const save = () => emit('save', { role: selectedRole.value, permissionIds: Array.from(draftIds.value) });
+
+const resetToDefault = () => {
+    showReset.value = false;
+    emit('reset', { role: selectedRole.value });
+};
 </script>
 
 <template>
@@ -574,6 +594,17 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                 <div class="flex flex-wrap items-center gap-2">
                     <Button v-if="dirty" type="button" variant="outline" size="sm" @click="showDiff = true">Voir les modifications</Button>
                     <Button v-if="dirty" type="button" variant="ghost" size="sm" :disabled="processing" @click="resetDraft"><RotateCcw class="h-4 w-4" />Annuler</Button>
+                    <Button
+                        v-if="canReset && selectedRole?.has_default_baseline"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        :disabled="processing || isDefaultBaseline"
+                        :title="isDefaultBaseline ? 'Ce rôle utilise déjà son socle par défaut' : 'Restaurer le socle défini par l’application'"
+                        @click="showReset = true"
+                    >
+                        <RotateCcw class="h-4 w-4" />Réinitialiser le rôle
+                    </Button>
                     <Button type="button" variant="outline" size="sm" :disabled="processing" @click="emit('close')">Fermer</Button>
                     <Button type="button" variant="primary" size="sm" :disabled="processing || ! dirty" @click="save">
                         <Check class="h-4 w-4" />{{ processing ? 'Enregistrement…' : 'Enregistrer le socle' }}
@@ -581,6 +612,44 @@ const save = () => emit('save', { role: selectedRole.value, permissionIds: Array
                 </div>
             </div>
         </div>
+
+        <Dialog
+            :open="showReset"
+            title="Réinitialiser le socle du rôle ?"
+            :description="`Le rôle « ${selectedRole?.name ?? ''} » retrouvera les permissions définies par défaut dans l’application.`"
+            :dismissible="! processing"
+            @update:open="showReset = $event"
+        >
+            <div class="space-y-3 text-sm leading-6 text-muted-foreground">
+                <p>
+                    Cette action touchera <strong class="text-foreground">{{ selectedRole?.users_count ?? 0 }} compte{{ selectedRole?.users_count > 1 ? 's' : '' }}</strong>
+                    par leur rôle. Leurs autorisations et interdictions individuelles resteront inchangées et continueront de l’emporter sur le socle.
+                </p>
+                <div class="grid gap-2 sm:grid-cols-3">
+                    <div class="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                        <p class="text-[10px] font-bold uppercase tracking-wide">Socle actuel</p>
+                        <p class="mt-0.5 text-lg font-bold tabular-nums text-foreground">{{ baselineIds.size }}</p>
+                    </div>
+                    <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2 dark:border-emerald-900 dark:bg-emerald-950/20">
+                        <p class="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">À ajouter</p>
+                        <p class="mt-0.5 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{{ defaultDiff.added.length }}</p>
+                    </div>
+                    <div class="rounded-lg border border-red-200 bg-red-50/50 px-3 py-2 dark:border-red-900 dark:bg-red-950/20">
+                        <p class="text-[10px] font-bold uppercase tracking-wide text-destructive">À retirer</p>
+                        <p class="mt-0.5 text-lg font-bold tabular-nums text-destructive">{{ defaultDiff.removed.length }}</p>
+                    </div>
+                </div>
+                <p v-if="dirty" class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+                    <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />Les modifications non enregistrées visibles à l’écran seront abandonnées.
+                </p>
+            </div>
+            <template #footer>
+                <Button type="button" variant="outline" :disabled="processing" @click="showReset = false">Annuler</Button>
+                <Button type="button" variant="destructive" :disabled="processing" @click="resetToDefault">
+                    <RotateCcw class="h-4 w-4" />{{ processing ? 'Réinitialisation…' : 'Restaurer le socle par défaut' }}
+                </Button>
+            </template>
+        </Dialog>
 
         <Dialog
             :open="showDiff"

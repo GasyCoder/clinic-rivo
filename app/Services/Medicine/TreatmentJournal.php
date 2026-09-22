@@ -2,6 +2,7 @@
 
 namespace App\Services\Medicine;
 
+use App\Enums\SurgicalRequestStatus;
 use App\Models\CareOrder;
 use App\Models\CareRecordProcedure;
 use App\Models\Consultation;
@@ -10,6 +11,8 @@ use App\Models\HospitalStay;
 use App\Models\ImagingRequest;
 use App\Models\LabRequest;
 use App\Models\Prescription;
+use App\Models\SurgicalRequest;
+use App\Models\SurgicalTreatmentItem;
 use App\Models\TreatmentJournalEntry;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -52,6 +55,9 @@ class TreatmentJournal
             ->merge($user->can('laboratory_orders.view') ? $this->labRows($episode) : [])
             ->merge($user->can('imaging_orders.view') ? $this->imagingRows($episode) : [])
             ->merge($user->can('hospitalization.view') ? $this->hospitalRows($episode) : [])
+            // ADR-172 — ce que le bloc a fait figure au journal, gardé par le
+            // droit qui possède déjà le dossier du bloc.
+            ->merge($user->can('surgery.view') ? $this->surgeryRows($episode) : [])
             ->merge($user->can('medical_record.view') ? $this->dischargeRows($episode) : []);
 
         return $rows
@@ -226,6 +232,115 @@ class TreatmentJournal
                     .($stay->cancelled_at ? ' — séjour annulé' : ''),
                 visa: $stay->admittedBy?->name,
             ));
+    }
+
+    /**
+     * ADR-172 — les faits du bloc, chacun à son heure réelle : entrée au bloc,
+     * début et fin de l'intervention, sortie du bloc, traitements préliminaires
+     * et postopératoires, complications, sortie de Chirurgie. Une demande
+     * annulée n'a rien fait et n'écrit rien.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function surgeryRows(Episode $episode): Collection
+    {
+        return SurgicalRequest::query()
+            ->where('episode_id', $episode->getKey())
+            ->whereNot('status', SurgicalRequestStatus::Cancelled->value)
+            ->with([
+                'surgeon:id,name', 'dischargedBy:id,name',
+                'intervention.performedBy:id,name', 'blockExit', 'blockEntry',
+                'complications.reportedBy:id,name', 'treatmentItems.recordedBy:id,name',
+            ])
+            ->get()
+            ->flatMap(function (SurgicalRequest $case): Collection {
+                $procedure = $case->procedure_name ?: 'intervention';
+                $rows = collect();
+
+                if ($case->blockExit?->block_entered_at) {
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:block-entry",
+                        occurredAt: $case->blockExit->block_entered_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: 'Entrée au bloc opératoire — '.$procedure,
+                        visa: $case->surgeon?->name,
+                    ));
+                }
+
+                if ($case->intervention?->started_at) {
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:intervention-start",
+                        occurredAt: $case->intervention->started_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: $this->sentence('Début de l’intervention : '.$procedure, $case->intervention->procedure_summary),
+                        visa: $case->intervention->performedBy?->name ?? $case->surgeon?->name,
+                    ));
+                }
+
+                if ($case->intervention?->ended_at) {
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:intervention-end",
+                        occurredAt: $case->intervention->ended_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: 'Fin de l’intervention : '.$procedure,
+                        visa: $case->intervention->performedBy?->name ?? $case->surgeon?->name,
+                    ));
+                }
+
+                if ($case->blockExit?->block_exited_at) {
+                    $awakening = $case->blockExit->awakening_status?->label();
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:block-exit",
+                        occurredAt: $case->blockExit->block_exited_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: $this->sentence('Sortie du bloc opératoire', $awakening ? 'réveil : '.$awakening : null),
+                        visa: $case->surgeon?->name,
+                    ));
+                }
+
+                foreach ($case->treatmentItems as $item) {
+                    /** @var SurgicalTreatmentItem $item */
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:treatment:{$item->getKey()}",
+                        occurredAt: $item->created_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: $this->sentence(
+                            $item->phase?->label().' : '.$item->label.$this->times($item->quantity).($item->unit ? ' '.$item->unit : ''),
+                            $item->category?->label(),
+                        ),
+                        visa: $item->recordedBy?->name,
+                    ));
+                }
+
+                foreach ($case->complications as $complication) {
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:complication:{$complication->getKey()}",
+                        occurredAt: $complication->reported_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: 'Complication : '.$complication->description,
+                        visa: $complication->reportedBy?->name,
+                    ));
+                }
+
+                if ($case->discharged_at) {
+                    $rows->push($this->row(
+                        key: "surgery:{$case->uuid}:discharge",
+                        occurredAt: $case->discharged_at,
+                        source: 'SURGERY',
+                        sourceLabel: 'Bloc opératoire',
+                        text: $this->sentence('Sortie de Chirurgie', $case->discharge_notes),
+                        visa: $case->dischargedBy?->name,
+                    ));
+                }
+
+                return $rows;
+            });
     }
 
     /** @return Collection<int, array<string, mixed>> */

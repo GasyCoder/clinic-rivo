@@ -489,7 +489,7 @@ class PermissionSeeder extends Seeder
         // l'accès. Ces trois droits nomment les trois gestes réels, identité et clinique séparées.
         'newborns.view' => 'Voir les nouveau-nés d’une mère : nom, rang, sexe et date de naissance',
         'newborns.medical_record.view' => 'Ouvrir le dossier médical d’un nouveau-né : naissance, poids, Apgar, état et soins',
-        'newborns.patient.create' => 'Ouvrir le dossier patient d’un nouveau-né à l’accueil',
+        'newborns.patient.create' => 'Ouvrir le dossier patient d’un nouveau-né depuis la Maternité',
         'transfer.request' => 'Demander un transfert/référence depuis Médecine',
         // ADR-162 — la note quotidienne du séjour hospitalier.
         'hospital_notes.view' => 'Lire les notes quotidiennes d’un séjour hospitalier',

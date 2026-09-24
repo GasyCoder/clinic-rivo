@@ -140,6 +140,15 @@ class Episode extends Model
         return $this->hasOne(ReceptionJourneyDraft::class);
     }
 
+    /**
+     * ADR-177 — ce que la Réception suggère comme prochaine étape. Indicatif :
+     * aucune de ces lignes ne décide qui voit le passage, ni ne vaut orientation.
+     */
+    public function receptionNextSteps(): HasMany
+    {
+        return $this->hasMany(EpisodeReceptionNextStep::class);
+    }
+
     public function careRecord(): HasOne
     {
         return $this->hasOne(CareRecord::class);

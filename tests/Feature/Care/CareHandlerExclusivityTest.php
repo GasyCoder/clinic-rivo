@@ -140,6 +140,9 @@ class CareHandlerExclusivityTest extends TestCase
             'catalog_item_uuid' => $consultation->uuid,
             'quantity' => 1,
         ]], $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $care = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($care, $nurse);
 

@@ -301,6 +301,30 @@ n'envoie plus `permission_overrides`, et la clé omise laisse les exceptions
 intactes plutôt que de les effacer à chaque correction d'un nom. La
 résolution reste `DENY individuel > ALLOW individuel > socle du rôle`.
 
+**« Rôles & permissions » est un centre de gestion** (ADR-178, présentation
+seulement — aucune route, Policy, API ni règle ne change). Trois onglets :
+**Rôles** (liste des rôles en colonne à gauche, socle du rôle choisi à droite ;
+créer, renommer, archiver, restaurer et réinitialiser s'y font sur place),
+**Exceptions par compte** et **Catalogue des droits**. Les catégories sont
+rangées dans 14 modules (`utilities/permissionCategories.js`, repli
+« Administration & système » pour une catégorie inconnue) ; chaque
+fonctionnalité est une ligne et ses droits tombent dans sept colonnes communes
+— Voir | Créer | Modifier | Supprimer | Restaurer | Valider | Exporter —, le
+reste gardant son libellé (`buildPermissionModules()`). Chaque fonctionnalité a
+son icône. Modules en accordéons **exclusifs** (en ouvrir un referme les autres,
+`useExclusiveModules`) avec « N / total » et « Tout sélectionner /
+désélectionner », case à trois
+états par ligne, recherche multi-mots sur libellé, code et verbe. Cocher remplit
+un **brouillon** : une barre collante compte les changements, « Revoir »,
+« Annuler », « Enregistrer les modifications ». Les confirmations ne restent
+qu'à l'enregistrement de droits sensibles, aux réinitialisations (ADR-173), à
+l'archivage (motif) et à l'abandon d'un brouillon (changer de rôle, de compte,
+d'onglet, de site ou quitter la page, `useUnsavedChangesGuard`). L'adresse suit
+la sélection (`?site=…&vue=comptes&compte=…`, `&role=…`). ADR-150, ADR-153,
+ADR-154 et ADR-158 restent affichés. Un rôle n'a pas de description en base :
+les rôles livrés ont une phrase fixe (`utilities/roleDescriptions.js`), la
+rendre éditable reste à décider.
+
 Les utilisateurs sont locaux à chaque base/site. Un compte actif doit posséder
 un rôle valide. Les comptes ne sont jamais supprimés physiquement : ils sont
 désactivés avec motif, auteur et audit, puis leurs sessions sont révoquées.
@@ -1483,9 +1507,44 @@ par le navigateur. Elle ne constitue jamais une facture.
 
 Depuis ADR-053, le parcours normal de Réception commence par le besoin et non
 par le financement : besoin, estimation temporaire, recherche/création du
-Patient, création d'un Episode unique, choix `SELF`/`MUTUAL`/`STAFF`,
-confirmation puis routage. Le catalogue initial exige aussi un routage
-Réception configuré.
+Patient, création d'un Episode unique, choix `SELF`/`MUTUAL`/`STAFF`, puis
+confirmation. Le catalogue initial exige aussi un parcours Réception configuré.
+
+**Besoin, prochaine étape, visibilité, prise en charge : cinq notions séparées** (ADR-177,
+amende ADR-030/053/068/135/146, remplace ADR-124). Le besoin explique la venue et reste facturé ;
+il **n'ouvre plus aucune file** Soins, Médecine ou Maternité. `PlanEpisodeRoutingAction` ne crée
+plus que les demandes techniques (analyses → `LabRequest` ; acte du bloc → `SurgicalRequest`) et,
+pour une urgence, les deux orientations Soins + Médecine de l'exception ADR-021/056. « Besoin à
+préciser » ne force plus les Soins. L'accueil compte six étapes (Besoin, Estimation, Patient,
+Passage, Prise en charge, Confirmation) : plus de « Routage » ni de « destination initiale ». À la
+Confirmation, une **prochaine étape suggérée** facultative et multiple (`episode_reception_next_steps`,
+`ReceptionNextStep`, `SetEpisodeReceptionNextStepsAction`, audit `episode.next_steps.update`) —
+indicative, sans aucun effet : ni orientation, ni visibilité ; corrigeable depuis le détail du
+passage (`PUT /reception/passages/{uuid}/prochaines-etapes`, `episodes.update`). **Tout passage
+ouvert et accueilli est visible** de Soins, Médecine et Maternité par le tableau partagé
+`ActiveEpisodeBoard` / `ActivePassageBoard.vue`, en **trois blocs exclusifs** — En attente (par
+défaut, chaque patient numéroté par ordre d'arrivée, n° 1 « Prochain », urgence non vue épinglée
+sans numéro), En cours chez moi, Terminés chez moi — plus deux filtres (Suggérés pour moi, dans la
+file ; Urgences) ; comptes serveur, une ligne par passage sans rien de clinique ni de financier,
+gestes donnés par adresses serveur. La **prise en charge**
+est un vrai geste (`TakeChargeOfEpisodeAction`, `POST /{care|medicine|maternity}/passages/{uuid}/prendre-en-charge`)
+qui accepte l'orientation qui attend ou en crée une ; regarder ne crée ni orientation, ni
+consultation, ni fiche. Le n° de file (`ActiveEpisodeBoard::queueNumbers()`) couvre toute la file
+d'attente, par ordre d'arrivée à la clinique : c'est le seul calcul de numéro de l'application.
+`EpisodeOrientation` reste : elle ne dit plus que les orientations et prises en charge réelles.
+
+**Par où le passage devrait entrer** (ADR-177, amendement du 2026-09-23). `App\Support\EpisodeEntryPath`
+lit la suggestion de l'accueil et le parcours du besoin (ADR-030), la suggestion l'emportant.
+La Médecine qui prend un patient attendu aux Soins reçoit une fenêtre (`CARE_FIRST`) : « Faire les
+soins moi-même » (seulement avec `care.create` + `care.update` + `care.view`, adresse servie par le
+serveur), « Consulter quand même » (puis le garde-fou de la file, ADR-121) ou Annuler — rien n'est
+refusé. Les Soins devant un patient attendu directement en Médecine (`MEDICINE_ONLY`, rien ne
+désignant les Soins) ne reçoivent qu'une information, et `TakeChargeOfEpisodeAction` refuse sous
+verrou (`refusalMessage()`). Jamais soumis : l'urgence, une vraie orientation en attente vers ce
+service (soin demandé par le médecin), et côté Médecine des Soins déjà en cours ou terminés. La ligne
+porte `pathway` (servi à qui pourrait prendre) et un mot sous l'état ; un patient attendu ailleurs
+reste visible des Soins, sans adresse, sans n° de file et hors du garde-fou (`status` NONE).
+Composant : `EntryPathConfirm.vue`. Aucune permission nouvelle, aucune migration.
 
 **Le panier d'arrivée porte deux rayons** (ADR-104, amende ADR-053, ADR-028
 et ADR-049/050) : les désignations/consultations avec leur tarif, et la
@@ -1739,7 +1798,7 @@ en **texte riche** assaini côté serveur (`ClinicalRichTextSanitizer`) et lu en
 assaini (`transmission_reason_html`) par Médecine, le détail du passage, le dossier
 imprimé et Chirurgie.
 
-**La file Soins n'a que deux onglets** (ADR-124) : « À prendre aux Soins » et
+**La file Soins n'a que deux onglets** (ADR-124, **remplacée par l'ADR-177** : la page Soins lit le tableau partagé des passages) : « À prendre aux Soins » et
 
 **La suite des Soins se choisit à l'étape Terminer** (ADR-166, amende ADR-030/032/123). La désignation d'arrivée **propose**, l'infirmier **décide** : « Suite après les soins » offre « Transmettre au médecin » et « Terminer aux Soins », la suite prévue pré-cochée (« Prévu à l'arrivée »), vide pour un besoin inconnu. `CompleteCareAndOrientToMedicineAction` reçoit `care_outcome` (`MEDICINE`/`FINISH`, absent = suivre le parcours) : la carte prévue se lit seulement (bordure bleue), la carte non prévue demande un motif **dans les deux sens** (amendement du 2026-09-21) : `care_outcome_reason`, gardé sur `episode_orientations.completion_reason`, audité `care.orientation.finish_at_care` ou `care.orientation.send_to_medicine`, repris dans la raison de l'orientation Médecine, relu sur la fiche et dans le parcours du passage avec son sens (`EpisodeOrientation::offPlanOutcome()`) ; un parcours Soins seuls terminé garde son acte obligatoire ; envoyer au médecin un patient prévu aux Soins seuls ouvre la transmission (`expectsMedicalTransmission($episode, $chosen)`). Rien à choisir quand un ordre de soins du médecin est actif (ADR-055) ou que Médecine a déjà le patient (`CareWorkflow::medicineAlreadyInvolved()`, ADR-085). **La consultation prévue reste facturée** (arbitrage du propriétaire) : rien n'est annulé par les Soins (ADR-012). Changer seulement la suite termine par `POST …/complete` sans écrire de fiche vide ; le brouillon (ADR-073) garde le choix. `orient_to_medicine` : vrai = Médecine, faux = suivre le parcours. Aucune permission nouvelle.
 
@@ -1780,7 +1839,7 @@ dépendent. Les seuils vivent dans `VitalSignAgeReference`, servis par
 
 **Soins réunit trois profils** (ADR-134, complète ADR-067/048) : le menu latéral porte une seule entrée mère « Soins » (Infirmière `/care`, Maternité `/maternity`, Anesthésie `/anesthesia`) et les trois pages affichent la même barre d'onglets (`Components/Care/SoinsTabs.vue`). Chaque onglet reste une **vraie page** avec son contrôleur, ses données et sa permission (`care.update`, `maternity.view`, `anesthesia.view`) : un onglet n'apparaît que si le compte peut ouvrir sa page, et la page courante s'affiche toujours. La barre n'est qu'ergonomie, les routes revérifient. Aucune permission nouvelle.
 
-**Les files Maternité et Anesthésie suivent le parcours réel** (ADR-135, complète ADR-134/124). Vues **exclusives** dont la somme des comptes est le nombre de dossiers, comptes calculés par le serveur, carte = filtre, valeur inconnue → travail à faire. Maternité (`App\Services\Maternity\MaternityQueue`) : « À prendre » (en attente) / « En cours » (prises en charge) / « Orientées vers Médecine » (Maternité terminée + orientation Médecine source Maternité encore en attente/en cours) / « Terminées » ; chaque ligne porte l'état chez le médecin et la césarienne demandée. `CompleteMaternityOrientationAction` a deux issues explicites — terminer (le passage passe `PENDING_SETTLEMENT` si plus aucun service n'a la patiente, ADR-054) ou terminer et orienter vers Médecine (via `CreateEpisodeOrientationAction`, orientation active réutilisée, message facultatif) ; réservée à `maternity.complete`. Anesthésie (`AnesthesiaCaseStage`) : À évaluer / Transmis à Chirurgie / Au bloc / Terminés, lues sur `SurgicalRequestStatus` et les dates de validation de l'`AnesthesiaRecord`, demandes annulées masquées. Les trois pages partagent `SoinsWorkspaceHeader`. Aucune permission nouvelle, aucune migration.
+**Les files Maternité et Anesthésie suivent le parcours réel** (ADR-135, complète ADR-134/124 ; pour la Maternité, **amendée par l'ADR-177** : ses vues sont celles du tableau partagé, `MaternityQueue` ne sert plus que les suites — médecin, césarienne — lues sur chaque ligne). Vues **exclusives** dont la somme des comptes est le nombre de dossiers, comptes calculés par le serveur, carte = filtre, valeur inconnue → travail à faire. Maternité (`App\Services\Maternity\MaternityQueue`) : « À prendre » (en attente) / « En cours » (prises en charge) / « Orientées vers Médecine » (Maternité terminée + orientation Médecine source Maternité encore en attente/en cours) / « Terminées » ; chaque ligne porte l'état chez le médecin et la césarienne demandée. `CompleteMaternityOrientationAction` a deux issues explicites — terminer (le passage passe `PENDING_SETTLEMENT` si plus aucun service n'a la patiente, ADR-054) ou terminer et orienter vers Médecine (via `CreateEpisodeOrientationAction`, orientation active réutilisée, message facultatif) ; réservée à `maternity.complete`. Anesthésie (`AnesthesiaCaseStage`) : À évaluer / Transmis à Chirurgie / Au bloc / Terminés, lues sur `SurgicalRequestStatus` et les dates de validation de l'`AnesthesiaRecord`, demandes annulées masquées. Les trois pages partagent `SoinsWorkspaceHeader`. Aucune permission nouvelle, aucune migration.
 
 **Le dossier Maternité s'adapte à l'acte demandé** (ADR-136, complète ADR-067/068/073). Le CDC ne décrit aucun contenu clinique par acte : aucun champ n'est ajouté, aucune section verrouillée. `App\Support\MaternityActProfile` dit par **code d'acte** (jamais par libellé) quelles sections l'acte attend ; la page sert `plannedProcedures` (ce que la Réception a demandé, `done` compris), `actProfile` (sections mises en avant, `expected_newborns` — deux fiches vides pour un accouchement gémellaire) et `recordDraft`. Les actes demandés s'enregistrent en un clic par l'endpoint existant ; « Autres » exige sa précision (serveur et écran). La saisie est conservée côté serveur par compte (`maternity_record_drafts`, routes `/maternity/orientations/{o}/draft`, non auditée, supprimée à l'enregistrement, à l'annulation ou à la fin de prise en charge). Le catalogue Maternité compte 20 actes : Aspirateur bébé, IEC et Nursie (sans définition, à préciser) ajoutés, `FP-INJECTABLE` déplacé du Planning familial, sans changer de code. Un acte ajouté au-delà de la demande n'est pas facturé — règle non définie.
 
@@ -2041,7 +2100,7 @@ docs/ROADMAP.md
 
 Le dossier médical d'un bébé est une **feuille de nouveau-né**, pas celle d'un adulte (ADR-145, amendement du 2026-09-20) : identité (date et heure, sexe, lieu de naissance = la clinique, naissance unique ou multiple), mère à joindre (téléphone, adresse), **naissance et accouchement** (mode, terme, complications — lus chez la mère parce qu'ils décrivent la naissance de l'enfant), état à la naissance (poids, Apgar, état, soins) et suivi (allergies, diagnostic). Situation maritale, profession, adresse, tabac, traitements et antécédents familiaux n'y existent pas. Restent chez la mère : gestité, parité, facteurs de risque, travail, délivrance, soins maternels. Ce partage est à faire valider par les sages-femmes.
 
-**Le nouveau-né vit dans le dossier de sa mère, et devient patient à l'accueil** (ADR-146, amende ADR-144). Il n'est plus créé patient à l'accouchement : la Maternité le consigne (nom et prénom facultatifs dans sa fiche), et chaque fiche remplie reçoit son identité (`uuid`) **dès l'enregistrement** — c'est elle que la Réception retrouve. Son dossier médical s'ouvre dès sa fiche (`GET /passages/{episode}/nouveau-nes/{uuid}/dossier-medical`, `patients.view` + `newborns.medical_record.view`), même feuille de nouveau-né que s'il était patient, et redirige vers son dossier patient dès qu'il en a un. Au jour de sa consultation, la Réception demande « accouchement chez nous ou ailleurs ? » : chez nous, elle cherche la mère et choisit le bébé dans son arborescence (`GET /reception/newborns?mother=`, `POST /reception/newborns/{record}/{uuid}/patient`, `episodes.create` + `newborns.view`/`newborns.patient.create`) — il devient patient et repart dans le parcours d'arrivée ; ailleurs, c'est un nouveau patient avec une **identité de bébé**, jamais le formulaire d'adulte : nom, naissance/âge, sexe et éventuellement domicile familial ; téléphone, email, profession, pièce d'identité, situation maritale et nombre d'enfants sont masqués et refusés par le serveur. Le parent ou responsable reste le contact de l'Épisode (ADR-034). La Réception ne voit rien de clinique (ni poids, ni Apgar, ni soins). `App\Support\NewbornFiche::displayName()` nomme le bébé une fois pour toutes (« Bébé 2 de RAKOTO » à défaut de prénom). Les règles de l'ADR-144 (numéro dérivé, naissance jamais devinée, sexe exigé, jumeaux, idempotence) sont inchangées, mais la création ne dépend plus d'un passage ouvert. Le bouton « Créer le dossier » de la Maternité est retiré.
+**Le nouveau-né vit dans le dossier de sa mère** (ADR-146, amende ADR-144 ; **amendée par l'ADR-177** : son dossier patient s'ouvre **depuis la Maternité** — `NewbornDossiers` › « Créer le dossier patient », `POST /maternity/records/{record}/newborns/{uuid}/patient`, `maternity.view` + `newborns.patient.create` — et l'accueil n'a plus de mode « Nouveau-né » ni de routes `/reception/newborns*` ; un bébé né ailleurs est un nouveau patient ordinaire au profil enfant ; le paragraphe qui suit décrit l'état antérieur). Il n'est plus créé patient à l'accouchement : la Maternité le consigne (nom et prénom facultatifs dans sa fiche), et chaque fiche remplie reçoit son identité (`uuid`) **dès l'enregistrement** — c'est elle que la Réception retrouve. Son dossier médical s'ouvre dès sa fiche (`GET /passages/{episode}/nouveau-nes/{uuid}/dossier-medical`, `patients.view` + `newborns.medical_record.view`), même feuille de nouveau-né que s'il était patient, et redirige vers son dossier patient dès qu'il en a un. Au jour de sa consultation, la Réception demande « accouchement chez nous ou ailleurs ? » : chez nous, elle cherche la mère et choisit le bébé dans son arborescence (`GET /reception/newborns?mother=`, `POST /reception/newborns/{record}/{uuid}/patient`, `episodes.create` + `newborns.view`/`newborns.patient.create`) — il devient patient et repart dans le parcours d'arrivée ; ailleurs, c'est un nouveau patient avec une **identité de bébé**, jamais le formulaire d'adulte : nom, naissance/âge, sexe et éventuellement domicile familial ; téléphone, email, profession, pièce d'identité, situation maritale et nombre d'enfants sont masqués et refusés par le serveur. Le parent ou responsable reste le contact de l'Épisode (ADR-034). La Réception ne voit rien de clinique (ni poids, ni Apgar, ni soins). `App\Support\NewbornFiche::displayName()` nomme le bébé une fois pour toutes (« Bébé 2 de RAKOTO » à défaut de prénom). Les règles de l'ADR-144 (numéro dérivé, naissance jamais devinée, sexe exigé, jumeaux, idempotence) sont inchangées, mais la création ne dépend plus d'un passage ouvert. Le bouton « Créer le dossier » de la Maternité est retiré.
 
 **Le profil enfant suit la civilité à la Réception** (ADR-146, amendement du 2026-09-22). Dans « Nouveau Patient », `Enfant fille` et `Enfant garçon` conservent identité, naissance, sexe et domicile familial, mais retirent et font refuser côté serveur les attributs d'adulte : téléphone/email personnels, profession, pièce d'identité, situation maritale et nombre d'enfants. Aucune valeur du parent n'est copiée sur le Patient ; elle reste dans `episodes.emergency_contact_*` pour ce passage (ADR-034).
 

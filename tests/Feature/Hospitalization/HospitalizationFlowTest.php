@@ -955,6 +955,9 @@ class HospitalizationFlowTest extends TestCase
             'catalog_item_uuid' => $item->uuid,
             'quantity' => 1,
         ]], $doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $doctor);
         $medicine = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
             ->sole();

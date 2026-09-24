@@ -1,47 +1,53 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { computed, onMounted, ref, watch } from 'vue';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import {
-    ArchiveRestore,
-    Check,
-    Pencil,
-    Plus,
-    Info,
+    ArrowLeftRight,
+    CircleHelp,
+    KeyRound,
     Server,
     ShieldCheck,
-    Trash2,
     TriangleAlert,
     UserCog,
-    KeyRound,
-    Users,
+    WifiOff,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
-import Dialog from '@/Components/Shadcn/Dialog.vue';
-import FormField from '@/Components/Shadcn/FormField.vue';
-import Input from '@/Components/Shadcn/Input.vue';
-import Select from '@/Components/Shadcn/Select.vue';
-import Textarea from '@/Components/Shadcn/Textarea.vue';
-import FormError from '@/Components/UI/FormError.vue';
-import RoleBaselineEditor from '@/Components/Rbac/RoleBaselineEditor.vue';
-import UserPermissionOverrides from '@/Components/Rbac/UserPermissionOverrides.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import Popover from '@/Components/Shadcn/Popover.vue';
+import AccountDirectory from '@/Components/Rbac/AccountDirectory.vue';
+import AccountWorkspace from '@/Components/Rbac/AccountWorkspace.vue';
 import PermissionCatalog from '@/Components/Rbac/PermissionCatalog.vue';
+import RoleCreatePanel from '@/Components/Rbac/RoleCreatePanel.vue';
+import RoleDirectory from '@/Components/Rbac/RoleDirectory.vue';
+import RoleWorkspace from '@/Components/Rbac/RoleWorkspace.vue';
 import ErrorBoundary from '@/Components/UI/ErrorBoundary.vue';
 import { usePermissions } from '@/composables/usePermissions';
+import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
+import { buildPermissionModules } from '@/utilities/permissionWorkspace';
+import { roleInitials } from '@/utilities/roleDescriptions';
 import { cn } from '@/lib/cn';
 
 defineOptions({ layout: AppLayout });
 
 /**
- * « Rôles & permissions » — le référentiel des rôles d'un site, leur socle,
- * et les exceptions accordées compte par compte.
+ * « Rôles & permissions » — le centre de gestion des droits d'un site
+ * (ADR-100, ADR-178).
  *
- * Cet écran et « Utilisateurs » n'en faisaient qu'un. Deux gestes de portée
- * très différente s'y croisaient : créer un compte touche une personne,
- * modifier un socle touche tous ceux qui exercent ce métier. Ils sont
- * séparés (ADR-100), sans rien changer à la résolution des droits :
+ * L'écran précédent réglait un rôle en cinq gestes : choisir un onglet parmi
+ * quatre grandes cartes, ouvrir une fenêtre pour changer de rôle, choisir une
+ * catégorie parmi quatre-vingt-six dans un rail, cocher, puis chercher la
+ * barre d'enregistrement. Il n'affichait qu'une catégorie à la fois.
+ *
+ * Désormais : les rôles à gauche, toujours visibles et cherchables ; à droite,
+ * le rôle choisi, son résumé, et ses droits rangés en quatorze modules
+ * — Pharmacie, Chirurgie, Caisse — dont chacun se lit comme une grille
+ * « Voir | Créer | Modifier | Supprimer… ». Les exceptions d'un compte et le
+ * catalogue des droits restent à un onglet, avec la même allure.
+ *
+ * Rien ne change à la résolution des droits ni aux routes :
  *
  *     DENY individuel  >  ALLOW individuel  >  socle du rôle
  *
@@ -54,524 +60,559 @@ const props = defineProps({
 });
 
 const { can } = usePermissions();
+const page = usePage();
 
-const selectedSiteCode = ref(props.sites.find((site) => site.ok)?.site.code ?? props.sites[0]?.site.code);
-const tab = ref('baselines');
-const baselineDirty = ref(false);
-const overridesDirty = ref(false);
-
-const selectedSite = computed(() => props.sites.find((site) => site.site.code === selectedSiteCode.value) ?? props.sites[0]);
-const allRoles = computed(() => selectedSite.value?.data?.roles ?? []);
-const users = computed(() => selectedSite.value?.data?.users ?? []);
-const permissionCatalog = computed(() => selectedSite.value?.data?.permission_catalog ?? []);
+/* ------------------------------------------------------------------ */
+/* État initial, lu dans l'adresse                                     */
+/* ------------------------------------------------------------------ */
 
 /**
- * Le rôle Super Admin n'est jamais réglé ici : il reçoit automatiquement
- * toutes les permissions sur le portail et aucune sur un site (ADR-025,
- * ADR-027). Un rôle archivé n'est plus affectable, mais reste lisible.
+ * `?site=A&vue=comptes&compte=…` : une actualisation, un lien partagé ou le
+ * retour d'un enregistrement rouvrent exactement ce qu'on regardait. L'adresse
+ * est lue depuis la page Inertia — la même au rendu serveur et dans le
+ * navigateur, donc sans écart d'hydratation.
  */
-const editableRoles = computed(() => allRoles.value.filter((role) => ! role.protected && ! role.archived));
-const archivedRoles = computed(() => allRoles.value.filter((role) => role.archived));
+const VIEWS = { roles: 'roles', comptes: 'accounts', catalogue: 'catalog' };
+const SLUGS = { roles: 'roles', accounts: 'comptes', catalog: 'catalogue' };
+
+const initialQuery = new URLSearchParams(String(page.url ?? '').split('?')[1] ?? '');
+const firstReachableSite = props.sites.find((site) => site.ok)?.site.code ?? props.sites[0]?.site.code ?? '';
+const requestedSite = initialQuery.get('site');
+
+const selectedSiteCode = ref(props.sites.some((site) => site.site.code === requestedSite) ? requestedSite : firstReachableSite);
+const view = ref(VIEWS[initialQuery.get('vue')] ?? 'roles');
+const selectedRoleCode = ref(String(initialQuery.get('role') ?? '').toUpperCase());
+const selectedUserUuid = ref(initialQuery.get('compte') ?? '');
+const creating = ref(false);
+const accountRoleFilter = ref('');
+
+/** Le brouillon de l'espace ouvert (socle ou exceptions) porte des modifications. */
+const dirty = ref(false);
+/** Combien, pour le dire dans la confirmation plutôt que « des modifications ». */
+const pendingChanges = ref(0);
+
+/** Recherche, filtre et modules ouverts : gardés d'un rôle à l'autre pour comparer. */
+const roleSearch = ref('');
+const roleFilter = ref('all');
+const roleExpanded = ref([]);
+const accountSearch = ref('');
+const accountFilter = ref('all');
+const accountExpanded = ref([]);
+
+/* ------------------------------------------------------------------ */
+/* Données du site choisi                                              */
+/* ------------------------------------------------------------------ */
+
+const selectedSite = computed(() => props.sites.find((site) => site.site.code === selectedSiteCode.value) ?? props.sites[0]);
+const siteData = computed(() => selectedSite.value?.data ?? {});
+const roles = computed(() => siteData.value.roles ?? []);
+const users = computed(() => siteData.value.users ?? []);
+const catalog = computed(() => siteData.value.permission_catalog ?? []);
+const modules = computed(() => buildPermissionModules(catalog.value));
+
+const editableRoles = computed(() => roles.value.filter((role) => ! role.protected && ! role.archived));
+
+const activeRole = computed(() => roles.value.find((role) => role.code === selectedRoleCode.value)
+    ?? editableRoles.value[0]
+    ?? roles.value[0]
+    ?? null);
+
+const activeUser = computed(() => users.value.find((user) => user.uuid === selectedUserUuid.value)
+    ?? users.value.find((user) => ! accountRoleFilter.value || user.role?.code === accountRoleFilter.value)
+    ?? users.value[0]
+    ?? null);
+
+const activeUserRole = computed(() => roles.value.find((role) => role.code === activeUser.value?.role?.code) ?? null);
+
+/* ------------------------------------------------------------------ */
+/* Droits de l'administrateur connecté                                 */
+/* ------------------------------------------------------------------ */
 
 const canCreateRole = computed(() => can('roles.create'));
-const canUpdateRole = computed(() => can('roles.update'));
-const canArchiveRole = computed(() => can('roles.archive'));
-const canRestoreRole = computed(() => can('roles.restore'));
-const canManageBaselines = computed(() => can('users.manage'));
 const canAssignPermissions = computed(() => can('permissions.assign'));
+const roleAbilities = computed(() => ({
+    edit: can('users.manage'),
+    reset: can('users.manage'),
+    rename: can('roles.update'),
+    archive: can('roles.archive'),
+    restore: can('roles.restore'),
+}));
 const permissionCatalogAbilities = computed(() => ({
     create: can('permissions.create'),
     update: can('permissions.update'),
     remove: can('permissions.delete'),
 }));
 
-/**
- * Quatre gestes, du plus large au plus étroit. L'ordre n'est pas décoratif :
- * il dit qui est touché, et c'est la seule chose qu'on doit comprendre avant
- * de cliquer sur cet écran.
- */
+/* ------------------------------------------------------------------ */
+/* Sections                                                            */
+/* ------------------------------------------------------------------ */
+
 const tabs = computed(() => [
-    {
-        value: 'baselines',
-        label: 'Socle des rôles',
-        icon: ShieldCheck,
-        count: `${editableRoles.value.length} rôle${editableRoles.value.length > 1 ? 's' : ''}`,
-        hint: 'Ce que reçoit automatiquement tout compte du métier',
-        scope: `Une modification ici s’applique à **tous** les comptes du rôle choisi sur ${selectedSite.value?.site.name ?? 'ce site'}, y compris ceux créés plus tard.`,
-        dirty: baselineDirty.value,
-    },
-    {
-        value: 'accounts',
-        label: 'Exceptions par compte',
-        icon: UserCog,
-        count: `${users.value.length} compte${users.value.length > 1 ? 's' : ''}`,
-        hint: 'Un écart pour une seule personne',
-        scope: 'Une exception ne concerne que le compte choisi. Une interdiction individuelle l’emporte sur le socle de son rôle ; une autorisation s’y ajoute.',
-        dirty: overridesDirty.value,
-    },
-    {
-        value: 'roles',
-        label: 'Rôles du site',
-        icon: Users,
-        count: archivedRoles.value.length
-            ? `${editableRoles.value.length} actifs · ${archivedRoles.value.length} archivé${archivedRoles.value.length > 1 ? 's' : ''}`
-            : `${editableRoles.value.length} actif${editableRoles.value.length > 1 ? 's' : ''}`,
-        hint: 'Créer, renommer, archiver un métier',
-        scope: 'Un rôle encore porté par un compte ne s’archive pas : ses titulaires perdraient tout leur socle d’un coup.',
-        dirty: false,
-    },
-    {
-        value: 'permissions',
-        label: 'Catalogue des droits',
-        icon: KeyRound,
-        count: `${permissionCatalog.value.length} droit${permissionCatalog.value.length > 1 ? 's' : ''}`,
-        hint: 'Les mots que l’application sait vérifier',
-        scope: 'Créer une permission crée le mot, pas le contrôle : elle reste « pas encore vérifiée » tant qu’aucune route, règle serveur ou écran ne l’utilise.',
-        dirty: false,
-    },
+    { value: 'roles', label: 'Rôles', icon: ShieldCheck, count: editableRoles.value.length, hint: 'Ce que reçoit tout compte du métier' },
+    { value: 'accounts', label: 'Exceptions par compte', icon: UserCog, count: users.value.length, hint: 'Un écart pour une seule personne' },
+    { value: 'catalog', label: 'Catalogue des droits', icon: KeyRound, count: catalog.value.length, hint: 'Les mots que l’application sait vérifier' },
 ]);
 
-const currentTab = computed(() => tabs.value.find((item) => item.value === tab.value) ?? tabs.value[0]);
+const currentTab = computed(() => tabs.value.find((tab) => tab.value === view.value) ?? tabs.value[0]);
 
-/** `**gras**` dans les phrases de portée : un seul mot à mettre en avant. */
-const scopeParts = computed(() => currentTab.value.scope.split(/\*\*(.+?)\*\*/));
+/* ------------------------------------------------------------------ */
+/* Changer d'objet sans perdre un brouillon                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Changer de rôle, de compte, de section ou de site recrée l'espace de
+ * travail : un brouillon non enregistré y serait perdu sans un mot. On le dit
+ * avant — c'est la seule confirmation d'une simple navigation.
+ */
+const pendingSwitch = ref(null);
+
+const guarded = (target, run) => {
+    if (! dirty.value) {
+        run();
+
+        return;
+    }
+
+    pendingSwitch.value = { target, run };
+};
+
+const confirmSwitch = () => {
+    const next = pendingSwitch.value;
+
+    pendingSwitch.value = null;
+    dirty.value = false;
+    pendingChanges.value = 0;
+    next?.run();
+};
+
+const directoryOpen = ref(false);
 
 const selectSite = (code) => {
     if (code === selectedSiteCode.value) return;
-    selectedSiteCode.value = code;
-};
 
-/* ------------------------------------------------------------------ */
-/* Socle d'un rôle (ADR-064)                                          */
-/* ------------------------------------------------------------------ */
-
-const baselineForm = useForm({ permission_ids: [] });
-const resetRoleForm = useForm({});
-
-const saveBaseline = ({ role, permissionIds }) => {
-    baselineForm.permission_ids = permissionIds;
-    baselineForm.put(`/super-admin/workspaces/roles/${selectedSiteCode.value}/permissions/${role.code}`, {
-        preserveScroll: true,
+    guarded(`le site ${props.sites.find((site) => site.site.code === code)?.site.name ?? code}`, () => {
+        selectedSiteCode.value = code;
+        selectedRoleCode.value = '';
+        selectedUserUuid.value = '';
+        accountRoleFilter.value = '';
+        creating.value = false;
     });
 };
 
-const resetRole = ({ role }) => resetRoleForm.post(
-    `/super-admin/workspaces/roles/${selectedSiteCode.value}/permissions/${role.code}/reset`,
-    { preserveScroll: true },
-);
+const selectView = (value) => {
+    if (value === view.value && ! creating.value) return;
 
-/* ------------------------------------------------------------------ */
-/* Exceptions individuelles (ADR-022, ADR-033)                        */
-/* ------------------------------------------------------------------ */
-
-const overridesForm = useForm({ permission_overrides: [] });
-const resetAccountForm = useForm({});
-
-const saveOverrides = ({ user, overrides }) => {
-    overridesForm.permission_overrides = overrides;
-    overridesForm.put(
-        `/super-admin/workspaces/roles/${selectedSiteCode.value}/accounts/${user.uuid}/permissions`,
-        { preserveScroll: true },
-    );
+    guarded(`« ${tabs.value.find((tab) => tab.value === value)?.label} »`, () => {
+        view.value = value;
+        creating.value = false;
+    });
 };
 
-const resetAccount = ({ user }) => resetAccountForm.post(
-    `/super-admin/workspaces/roles/${selectedSiteCode.value}/accounts/${user.uuid}/permissions/reset`,
-    { preserveScroll: true },
-);
+const selectRole = (code) => {
+    directoryOpen.value = false;
 
-/* ------------------------------------------------------------------ */
-/* Référentiel des rôles (ADR-100)                                    */
-/* ------------------------------------------------------------------ */
+    if (code === activeRole.value?.code && ! creating.value) return;
 
-const creating = ref(false);
-const createForm = useForm({ site_code: '', code: '', name: '', permission_ids: [] });
-/** « Partir du socle de … » : la liste envoyée est celle réellement copiée. */
-const copyFrom = ref('');
+    const role = roles.value.find((item) => item.code === code);
 
-const copyOptions = computed(() => [
-    { value: '', label: 'Aucune permission pour commencer' },
-    ...editableRoles.value.map((role) => ({
-        value: role.code,
-        label: `Reprendre le socle de ${role.name} (${role.permissions.length})`,
-    })),
-]);
+    guarded(`le rôle « ${role?.name ?? code} »`, () => {
+        creating.value = false;
+        selectedRoleCode.value = code;
+        if (roleFilter.value === 'changed') roleFilter.value = 'all';
+    });
+};
 
-watch(copyFrom, (code) => {
-    const source = allRoles.value.find((role) => role.code === code);
+const startCreate = () => {
+    directoryOpen.value = false;
 
-    createForm.permission_ids = source
-        ? permissionCatalog.value
-            .filter((permission) => source.permissions.includes(permission.name))
-            .map((permission) => permission.id)
-        : [];
+    if (creating.value) return;
+
+    guarded('la création d’un rôle', () => { creating.value = true; });
+};
+
+const onRoleCreated = (code) => {
+    creating.value = false;
+    selectedRoleCode.value = code;
+};
+
+const selectUser = (uuid) => {
+    directoryOpen.value = false;
+
+    if (uuid === activeUser.value?.uuid) return;
+
+    const user = users.value.find((item) => item.uuid === uuid);
+
+    guarded(`le compte de ${user?.name ?? 'ce compte'}`, () => {
+        selectedUserUuid.value = uuid;
+        if (accountFilter.value === 'changed') accountFilter.value = 'all';
+    });
+};
+
+/** D'un rôle à ses comptes : la liste s'ouvre filtrée sur ce rôle. */
+const showAccountsOf = (role) => guarded('« Exceptions par compte »', () => {
+    view.value = 'accounts';
+    creating.value = false;
+    accountRoleFilter.value = role.code;
+    selectedUserUuid.value = users.value.find((user) => user.role?.code === role.code)?.uuid ?? selectedUserUuid.value;
 });
 
-const openCreate = () => {
-    createForm.reset();
-    createForm.clearErrors();
-    copyFrom.value = '';
-    createForm.site_code = selectedSiteCode.value;
-    creating.value = true;
-};
-
-const submitCreate = () => createForm.post('/super-admin/workspaces/roles', {
-    preserveScroll: true,
-    onSuccess: () => { creating.value = false; },
+/** D'un compte au socle de son rôle. */
+const showRole = (code) => guarded('le socle du rôle', () => {
+    view.value = 'roles';
+    creating.value = false;
+    selectedRoleCode.value = code;
 });
 
-const renaming = ref(null);
-const renameForm = useForm({ name: '' });
+/* ------------------------------------------------------------------ */
+/* Quitter la page                                                     */
+/* ------------------------------------------------------------------ */
 
-const openRename = (role) => {
-    renameForm.reset();
-    renameForm.clearErrors();
-    renameForm.name = role.name;
-    renaming.value = role;
+const leaveGuard = useUnsavedChangesGuard(dirty);
+
+/* ------------------------------------------------------------------ */
+/* L'adresse suit ce qu'on regarde                                     */
+/* ------------------------------------------------------------------ */
+
+const mounted = ref(false);
+
+const currentUrl = () => {
+    const params = new URLSearchParams();
+
+    if (selectedSiteCode.value) params.set('site', selectedSiteCode.value);
+    if (view.value !== 'roles') params.set('vue', SLUGS[view.value]);
+    if (view.value === 'roles' && activeRole.value && ! creating.value) params.set('role', activeRole.value.code);
+    if (view.value === 'accounts' && activeUser.value) params.set('compte', activeUser.value.uuid);
+
+    const query = params.toString();
+
+    return `${window.location.pathname}${query ? `?${query}` : ''}`;
 };
 
-const submitRename = () => renameForm.put(
-    `/super-admin/workspaces/roles/${selectedSiteCode.value}/${renaming.value.code}`,
-    { preserveScroll: true, onSuccess: () => { renaming.value = null; } },
-);
+/**
+ * Une visite côté client, sans requête : Inertia met l'adresse et son
+ * historique à jour sans recharger la page ni recréer ses composants.
+ */
+const syncUrl = () => {
+    if (! mounted.value) return;
 
-const archiving = ref(null);
-const archiveForm = useForm({ reason: '' });
+    const url = currentUrl();
 
-const openArchive = (role) => {
-    archiveForm.reset();
-    archiveForm.clearErrors();
-    archiving.value = role;
+    if (url === `${window.location.pathname}${window.location.search}`) return;
+
+    router.replace({ url, preserveState: true, preserveScroll: true });
 };
 
-const submitArchive = () => archiveForm.delete(
-    `/super-admin/workspaces/roles/${selectedSiteCode.value}/${archiving.value.code}`,
-    { preserveScroll: true, onSuccess: () => { archiving.value = null; } },
-);
+onMounted(() => {
+    mounted.value = true;
+    syncUrl();
+});
 
-const restore = (role) => router.post(
-    `/super-admin/workspaces/roles/${selectedSiteCode.value}/${role.code}/restore`,
-    {},
-    { preserveScroll: true },
+watch(
+    () => [selectedSiteCode.value, view.value, activeRole.value?.code, activeUser.value?.uuid, creating.value],
+    syncUrl,
 );
-
-const codeHint = 'Majuscules, sans accent ni espace : lettres, chiffres et « _ ». Il ne change plus ensuite.';
 </script>
 
 <template>
     <Head title="Rôles & permissions" />
 
     <div class="w-full space-y-5">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+        <header>
+            <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Super Administration</p>
                 <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">Rôles &amp; permissions</h1>
                 <p class="mt-1 max-w-2xl text-sm text-muted-foreground">
-                    Le socle d’un rôle s’applique à tous ses comptes ; une exception ne concerne qu’une personne.
-                    Une interdiction individuelle l’emporte toujours. Les comptes eux-mêmes se créent dans
+                    Définissez ce que chaque métier peut faire sur un site, puis, si besoin, l’écart d’un compte précis.
+                    Les comptes se créent dans
                     <a class="font-semibold text-primary hover:underline" href="/super-admin/workspaces/users">Utilisateurs</a>.
+                    <Popover width-class="w-[min(24rem,calc(100vw-2rem))]" align="start">
+                        <template #trigger>
+                            <button type="button" class="ms-1 inline-flex items-center gap-1 font-semibold text-primary hover:underline">
+                                <CircleHelp class="h-3.5 w-3.5" />Comment les droits s’appliquent
+                            </button>
+                        </template>
+                        <div class="space-y-3 p-4 text-sm">
+                            <p class="font-semibold text-foreground">Pour chaque permission, dans cet ordre :</p>
+                            <ol class="space-y-2">
+                                <li class="flex gap-2.5">
+                                    <span class="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-destructive text-[11px] font-bold text-destructive-foreground">1</span>
+                                    <span><strong class="text-foreground">Interdiction individuelle</strong> — l’emporte toujours, même si le rôle accorde le droit.</span>
+                                </li>
+                                <li class="flex gap-2.5">
+                                    <span class="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-600 text-[11px] font-bold text-white">2</span>
+                                    <span><strong class="text-foreground">Autorisation individuelle</strong> — s’ajoute à ce que le rôle accorde.</span>
+                                </li>
+                                <li class="flex gap-2.5">
+                                    <span class="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">3</span>
+                                    <span><strong class="text-foreground">Socle du rôle</strong> — ce que reçoit tout compte du métier, y compris ceux créés plus tard.</span>
+                                </li>
+                            </ol>
+                            <p class="border-t border-border pt-3 text-xs text-muted-foreground">
+                                Rien n’est écrit dans le portail : chaque enregistrement part vers l’API du site choisi, qui revérifie le droit et l’audite.
+                            </p>
+                        </div>
+                    </Popover>
                 </p>
             </div>
-            <Button
-                v-if="canCreateRole && selectedSite?.ok"
-                type="button"
-                variant="primary"
-                @click="openCreate"
-            >
-                <Plus class="h-4 w-4" />Nouveau rôle
-            </Button>
-        </div>
+        </header>
 
-        <Card class="overflow-hidden">
-            <div class="flex flex-col gap-3 border-b border-border px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
-                <div class="flex min-w-0 items-center gap-3">
-                    <span class="shrink-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Site</span>
-                    <div class="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1">
+        <!-- Les sections à gauche, le site à droite : on sait toujours quel
+             site on règle sans que son choix repousse le travail plus bas. -->
+        <div class="flex flex-col-reverse gap-2 border-b border-border lg:flex-row lg:items-end lg:justify-between">
+            <nav class="-mb-px flex min-w-0 gap-1 overflow-x-auto" aria-label="Sections">
+                <button
+                    v-for="tab in tabs"
+                    :key="tab.value"
+                    type="button"
+                    :class="cn(
+                        'inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                        view === tab.value ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+                    )"
+                    :aria-current="view === tab.value ? 'page' : undefined"
+                    :title="tab.hint"
+                    @click="selectView(tab.value)"
+                >
+                    <component :is="tab.icon" class="h-4 w-4" />
+                    {{ tab.label }}
+                    <span
+                        v-if="selectedSite?.ok"
+                        :class="cn('rounded-full px-2 py-px text-[11px] tabular-nums', view === tab.value ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')"
+                    >{{ tab.count }}</span>
+                    <span v-if="dirty && view === tab.value" class="h-2 w-2 rounded-full bg-amber-500" title="Modifications non enregistrées" />
+                </button>
+            </nav>
+            <div class="flex min-w-0 items-center gap-2.5 pb-2 lg:pb-1.5">
+                <span class="shrink-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Site</span>
+                <div class="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1" role="group" aria-label="Site">
                     <button
                         v-for="site in sites"
                         :key="site.site.code"
                         type="button"
                         :class="cn(
-                            'inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs font-bold transition-colors',
+                            'inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                             site.site.code === selectedSiteCode ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
                         )"
-                        :aria-current="site.site.code === selectedSiteCode ? 'true' : undefined"
+                        :aria-pressed="site.site.code === selectedSiteCode"
                         @click="selectSite(site.site.code)"
                     >
-                        <Server class="h-3.5 w-3.5" />{{ site.site.name }}
+                        <Server v-if="site.ok" class="h-3.5 w-3.5" />
+                        <WifiOff v-else class="h-3.5 w-3.5 text-destructive" />
+                        {{ site.site.name }}
                         <Badge v-if="! site.ok" variant="destructive" class="px-1.5 py-0 text-[10px]">Hors ligne</Badge>
                     </button>
-                    </div>
                 </div>
-
-                <p v-if="selectedSite?.ok" class="shrink-0 text-xs text-muted-foreground">
-                    Chaque site a ses propres rôles et son propre catalogue. Rien n’est écrit ici : tout part vers l’API du site.
-                </p>
             </div>
+        </div>
 
-            <p v-if="! selectedSite?.ok" class="px-4 py-10 text-center text-sm text-muted-foreground">
-                {{ selectedSite?.message ?? 'Ce site est injoignable.' }} Aucun rôle ne peut être lu ni modifié tant que son API ne répond pas.
-            </p>
-
-            <!-- Quatre gestes, du plus large au plus étroit. Une pastille
-                 ne dit ni ce qu'on va toucher, ni combien : la carte porte
-                 le compte, et le bandeau juste en dessous dit qui est
-                 concerné — avant le clic, pas après. -->
-            <nav v-else class="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-4" aria-label="Sections">
-                <button
-                    v-for="item in tabs"
-                    :key="item.value"
-                    type="button"
-                    :class="cn(
-                        'flex items-start gap-3 bg-card p-4 text-start transition-colors',
-                        tab === item.value ? 'bg-primary/5' : 'hover:bg-accent/60',
-                    )"
-                    :aria-current="tab === item.value ? 'true' : undefined"
-                    @click="tab = item.value"
-                >
-                    <span :class="cn(
-                        'grid h-10 w-10 shrink-0 place-items-center rounded-lg',
-                        tab === item.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
-                    )">
-                        <component :is="item.icon" class="h-5 w-5" />
-                    </span>
-                    <span class="min-w-0 flex-1">
-                        <span class="flex items-center gap-1.5">
-                            <span :class="cn('truncate text-sm font-bold', tab === item.value ? 'text-primary' : 'text-foreground')">{{ item.label }}</span>
-                            <span v-if="item.dirty" class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Modifications non enregistrées" />
-                        </span>
-                        <span class="mt-0.5 block truncate text-[11px] font-semibold tabular-nums text-muted-foreground">{{ item.count }}</span>
-                        <span class="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{{ item.hint }}</span>
-                    </span>
-                </button>
-            </nav>
-
-            <!-- Qui est touché par ce qu'on s'apprête à faire. C'est la
-                 seule chose à comprendre avant de cliquer ici. -->
-            <p v-if="selectedSite?.ok" class="flex items-start gap-2.5 border-t border-border bg-muted/40 px-4 py-3 text-xs leading-5 text-muted-foreground">
-                <Info class="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                    <template v-for="(part, index) in scopeParts" :key="index">
-                        <strong v-if="index % 2" class="text-foreground">{{ part }}</strong>
-                        <template v-else>{{ part }}</template>
-                    </template>
-                </span>
+        <Card v-if="! selectedSite?.ok" class="px-6 py-14 text-center">
+            <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-red-50 text-destructive dark:bg-red-950/40" aria-hidden="true">
+                <WifiOff class="h-5 w-5" />
+            </span>
+            <p class="mt-3 text-sm font-bold text-foreground">{{ selectedSite?.site?.name ?? 'Ce site' }} est injoignable</p>
+            <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                {{ selectedSite?.message ?? 'Son API ne répond pas.' }} Aucun rôle ne peut être lu ni modifié tant que son API ne répond pas.
             </p>
         </Card>
 
         <!-- Une section qui tombe ne doit pas emporter l'écran : sans cette
              garde, un rendu interrompu laissait la zone de contenu vide et
-             chaque changement d'onglet échouait ensuite à démonter l'enfant
-             à moitié monté — la page paraissait figée, sans un mot. La clé
-             par onglet redonne sa chance à la section suivante. -->
-        <ErrorBoundary v-if="selectedSite?.ok" :key="`${selectedSiteCode}-${tab}`" :section="currentTab.label">
-            <RoleBaselineEditor
-                v-if="tab === 'baselines'"
-                :roles="editableRoles"
-                :users="users"
-                :permission-catalog="permissionCatalog"
-                :site-name="selectedSite.site.name"
-                :can-reset="canManageBaselines"
-                :processing="baselineForm.processing || resetRoleForm.processing"
-                :errors="{ ...baselineForm.errors, ...resetRoleForm.errors }"
-                @save="saveBaseline"
-                @reset="resetRole"
-                @update:dirty="baselineDirty = $event"
-            />
+             chaque changement de section échouait ensuite à démonter l'enfant
+             à moitié monté. La clé par section redonne sa chance à la suivante. -->
+        <ErrorBoundary v-else :key="`${selectedSiteCode}-${view}`" :section="currentTab.label">
+            <div v-if="view === 'roles'" class="grid gap-5 lg:grid-cols-[16.5rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]">
+                <aside class="hidden lg:sticky lg:top-20 lg:block lg:h-[calc(100vh-6rem)] lg:self-start">
+                    <RoleDirectory
+                        :roles="roles"
+                        :selected-code="activeRole?.code ?? ''"
+                        :dirty-code="dirty ? activeRole?.code ?? '' : ''"
+                        :creating="creating"
+                        :can-create="canCreateRole"
+                        :catalog-size="catalog.length"
+                        @select="selectRole"
+                        @create="startCreate"
+                    />
+                </aside>
 
-            <UserPermissionOverrides
-                v-else-if="tab === 'accounts'"
-                :users="users"
-                :roles="allRoles"
-                :permission-catalog="permissionCatalog"
-                :site-name="selectedSite.site.name"
-                :can-assign="canAssignPermissions"
-                :processing="overridesForm.processing || resetAccountForm.processing"
-                :errors="{ ...overridesForm.errors, ...resetAccountForm.errors }"
-                @save="saveOverrides"
-                @reset="resetAccount"
-                @update:dirty="overridesDirty = $event"
-            />
+                <div class="min-w-0 space-y-4">
+                    <!-- Sous 1024 px, la liste passe dans un panneau : la grille
+                         garde toute la largeur de la tablette. -->
+                    <Popover
+                        :open="directoryOpen"
+                        align="start"
+                        width-class="w-[min(24rem,calc(100vw-2rem))]"
+                        @update:open="directoryOpen = $event"
+                    >
+                        <template #trigger>
+                            <button
+                                type="button"
+                                class="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-start shadow-sm lg:hidden"
+                            >
+                                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">{{ creating ? '+' : roleInitials(activeRole?.name) }}</span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Rôle</span>
+                                    <span class="block truncate text-sm font-bold text-foreground">{{ creating ? 'Nouveau rôle' : activeRole?.name }}</span>
+                                </span>
+                                <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"><ArrowLeftRight class="h-4 w-4" />Changer</span>
+                            </button>
+                        </template>
+                        <div class="h-[min(32rem,70vh)]">
+                            <RoleDirectory
+                                :roles="roles"
+                                :selected-code="activeRole?.code ?? ''"
+                                :dirty-code="dirty ? activeRole?.code ?? '' : ''"
+                                :creating="creating"
+                                :can-create="canCreateRole"
+                                :catalog-size="catalog.length"
+                                @select="selectRole"
+                                @create="startCreate"
+                            />
+                        </div>
+                    </Popover>
+
+                    <RoleCreatePanel
+                        v-if="creating"
+                        :site-code="selectedSiteCode"
+                        :site-name="selectedSite.site.name"
+                        :roles="roles"
+                        :catalog="catalog"
+                        @created="onRoleCreated"
+                        @cancel="creating = false"
+                    />
+
+                    <RoleWorkspace
+                        v-else-if="activeRole"
+                        :key="`${selectedSiteCode}:${activeRole.code}`"
+                        v-model:search="roleSearch"
+                        v-model:filter="roleFilter"
+                        v-model:expanded="roleExpanded"
+                        :site-code="selectedSiteCode"
+                        :site-name="selectedSite.site.name"
+                        :role="activeRole"
+                        :modules="modules"
+                        :catalog="catalog"
+                        :users="users"
+                        :abilities="roleAbilities"
+                        @update:dirty="dirty = $event"
+                        @update:pending="pendingChanges = $event"
+                        @show-accounts="showAccountsOf(activeRole)"
+                    />
+
+                    <Card v-else class="px-6 py-14 text-center text-sm text-muted-foreground">Aucun rôle sur ce site.</Card>
+                </div>
+            </div>
+
+            <div v-else-if="view === 'accounts'" class="grid gap-5 lg:grid-cols-[16.5rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]">
+                <template v-if="users.length">
+                    <aside class="hidden lg:sticky lg:top-20 lg:block lg:h-[calc(100vh-6rem)] lg:self-start">
+                        <AccountDirectory
+                            v-model:role-filter="accountRoleFilter"
+                            :users="users"
+                            :roles="roles"
+                            :selected-uuid="activeUser?.uuid ?? ''"
+                            :dirty-uuid="dirty ? activeUser?.uuid ?? '' : ''"
+                            @select="selectUser"
+                        />
+                    </aside>
+
+                    <div class="min-w-0 space-y-4">
+                        <Popover
+                            :open="directoryOpen"
+                            align="start"
+                            width-class="w-[min(24rem,calc(100vw-2rem))]"
+                            @update:open="directoryOpen = $event"
+                        >
+                            <template #trigger>
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-start shadow-sm lg:hidden"
+                                >
+                                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{{ roleInitials(activeUser?.name) }}</span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Compte</span>
+                                        <span class="block truncate text-sm font-bold text-foreground">{{ activeUser?.name }}</span>
+                                    </span>
+                                    <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"><ArrowLeftRight class="h-4 w-4" />Changer</span>
+                                </button>
+                            </template>
+                            <div class="h-[min(34rem,72vh)]">
+                                <AccountDirectory
+                                    v-model:role-filter="accountRoleFilter"
+                                    :users="users"
+                                    :roles="roles"
+                                    :selected-uuid="activeUser?.uuid ?? ''"
+                                    :dirty-uuid="dirty ? activeUser?.uuid ?? '' : ''"
+                                    @select="selectUser"
+                                />
+                            </div>
+                        </Popover>
+
+                        <AccountWorkspace
+                            v-if="activeUser"
+                            :key="`${selectedSiteCode}:${activeUser.uuid}`"
+                            v-model:search="accountSearch"
+                            v-model:filter="accountFilter"
+                            v-model:expanded="accountExpanded"
+                            :site-code="selectedSiteCode"
+                            :site-name="selectedSite.site.name"
+                            :user="activeUser"
+                            :role="activeUserRole"
+                            :modules="modules"
+                            :catalog="catalog"
+                            :can-assign="canAssignPermissions"
+                            @update:dirty="dirty = $event"
+                            @update:pending="pendingChanges = $event"
+                            @show-role="showRole"
+                        />
+                    </div>
+                </template>
+
+                <Card v-else class="px-6 py-14 text-center lg:col-span-2">
+                    <UserCog class="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                    <p class="mt-2 text-sm font-semibold text-foreground">Aucun compte sur ce site</p>
+                    <p class="mt-1 text-xs text-muted-foreground">Les exceptions se règlent sur un compte existant, créé depuis « Utilisateurs ».</p>
+                </Card>
+            </div>
 
             <PermissionCatalog
-                v-else-if="tab === 'permissions'"
-                :permissions="permissionCatalog"
+                v-else
+                :permissions="catalog"
                 :site-code="selectedSiteCode"
                 :site-name="selectedSite.site.name"
                 :can="permissionCatalogAbilities"
             />
-
-            <template v-else>
-                <Card class="overflow-hidden">
-                    <div class="border-b border-border px-4 py-3">
-                        <h2 class="text-sm font-bold text-foreground">Rôles de {{ selectedSite.site.name }}</h2>
-                        <p class="mt-0.5 text-xs text-muted-foreground">
-                            Un rôle porté par des comptes ne s’archive pas : ses titulaires perdraient tout leur socle.
-                            Réaffectez-les d’abord.
-                        </p>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="bg-muted/60 text-start text-[11px] uppercase tracking-wide text-muted-foreground">
-                                <tr>
-                                    <th class="px-4 py-2.5 text-start font-bold">Rôle</th>
-                                    <th class="px-4 py-2.5 text-start font-bold">Code</th>
-                                    <th class="px-4 py-2.5 text-end font-bold">Permissions</th>
-                                    <th class="px-4 py-2.5 text-end font-bold">Comptes</th>
-                                    <th class="px-4 py-2.5 text-end font-bold">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-border">
-                                <tr v-for="role in allRoles" :key="role.code" :class="role.archived ? 'bg-muted/30' : ''">
-                                    <td class="px-4 py-3">
-                                        <div class="flex flex-wrap items-center gap-1.5">
-                                            <span class="font-semibold text-foreground">{{ role.name }}</span>
-                                            <Badge v-if="role.protected" variant="secondary" class="px-1.5 py-0 text-[10px]">Architecture</Badge>
-                                            <Badge v-if="role.archived" variant="outline" class="px-1.5 py-0 text-[10px]">Archivé</Badge>
-                                        </div>
-                                        <p v-if="role.archived && role.archive_reason" class="mt-0.5 text-[11px] text-muted-foreground">{{ role.archive_reason }}</p>
-                                        <p v-else-if="role.profiles.length" class="mt-0.5 text-[11px] text-muted-foreground">
-                                            {{ role.profiles.map((profile) => profile.name).join(' · ') }}
-                                        </p>
-                                    </td>
-                                    <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{ role.code }}</td>
-                                    <td class="px-4 py-3 text-end tabular-nums text-foreground">{{ role.permissions.length }}</td>
-                                    <td class="px-4 py-3 text-end tabular-nums text-foreground">{{ role.users_count }}</td>
-                                    <td class="px-4 py-3">
-                                        <div class="flex items-center justify-end gap-1">
-                                            <template v-if="role.archived">
-                                                <Button v-if="canRestoreRole" type="button" size="sm" variant="outline" @click="restore(role)">
-                                                    <ArchiveRestore class="h-4 w-4" />Restaurer
-                                                </Button>
-                                            </template>
-                                            <template v-else-if="! role.protected">
-                                                <Button v-if="canManageBaselines" type="button" size="sm" variant="ghost" title="Régler le socle" @click="tab = 'baselines'">
-                                                    <ShieldCheck class="h-4 w-4" />
-                                                </Button>
-                                                <Button v-if="canUpdateRole" type="button" size="sm" variant="ghost" title="Renommer" @click="openRename(role)">
-                                                    <Pencil class="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    v-if="canArchiveRole"
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    :disabled="role.users_count > 0"
-                                                    :title="role.users_count > 0 ? `${role.users_count} compte(s) portent encore ce rôle` : 'Archiver'"
-                                                    @click="openArchive(role)"
-                                                >
-                                                    <Trash2 class="h-4 w-4" />
-                                                </Button>
-                                            </template>
-                                            <span v-else class="text-[11px] text-muted-foreground">Non modifiable</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
-
-                <p v-if="archivedRoles.length" class="text-xs text-muted-foreground">
-                    {{ archivedRoles.length }} rôle{{ archivedRoles.length > 1 ? 's' : '' }} archivé{{ archivedRoles.length > 1 ? 's' : '' }} :
-                    conservé{{ archivedRoles.length > 1 ? 's' : '' }} avec son socle, restaurable{{ archivedRoles.length > 1 ? 's' : '' }} tel quel.
-                </p>
-            </template>
         </ErrorBoundary>
 
-        <!-- Créer un rôle -->
-        <Dialog
-            :open="creating"
-            size="lg"
-            title="Nouveau rôle"
-            description="Le rôle est créé dans la base du site choisi, via son API."
-            :dismissible="! createForm.processing"
-            @update:open="creating = $event"
+        <ConfirmModal
+            :open="pendingSwitch !== null"
+            tone="warning"
+            title="Abandonner vos modifications ?"
+            :description="`Si vous ouvrez ${pendingSwitch?.target ?? 'autre chose'}, elles ne seront pas envoyées au site.`"
+            confirm-label="Abandonner et continuer"
+            cancel-label="Rester ici"
+            @update:open="pendingSwitch = $event ? pendingSwitch : null"
+            @confirm="confirmSwitch"
         >
-            <form class="space-y-4" @submit.prevent="submitCreate">
-                <FormError v-if="createForm.errors.site_code">{{ createForm.errors.site_code }}</FormError>
+            <template #confirm-icon><TriangleAlert class="h-4 w-4" /></template>
+            <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">
+                <strong class="tabular-nums">{{ pendingChanges }} modification{{ pendingChanges > 1 ? 's' : '' }}</strong>
+                en attente. Les droits restent exactement tels qu’ils sont aujourd’hui sur {{ selectedSite?.site?.name }}.
+            </p>
+        </ConfirmModal>
 
-                <FormField label="Site" :error="createForm.errors.site_code">
-                    <Select
-                        v-model="createForm.site_code"
-                        :options="sites.filter((site) => site.ok).map((site) => ({ value: site.site.code, label: site.site.name }))"
-                    />
-                </FormField>
-
-                <FormField label="Code" :error="createForm.errors.code" :hint="codeHint">
-                    <Input v-model="createForm.code" placeholder="KINESITHERAPEUTE" autocomplete="off" />
-                </FormField>
-
-                <FormField label="Libellé" :error="createForm.errors.name">
-                    <Input v-model="createForm.name" placeholder="Kinésithérapeute" autocomplete="off" />
-                </FormField>
-
-                <FormField
-                    label="Socle de départ"
-                    :error="createForm.errors.permission_ids"
-                    hint="Le socle se règle ensuite en détail. Reprendre celui d’un rôle existant copie ses permissions au moment du clic, sans lien entre les deux rôles ensuite."
-                >
-                    <Select v-model="copyFrom" :options="copyOptions" />
-                </FormField>
-
-                <p class="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    {{ createForm.permission_ids.length }} permission{{ createForm.permission_ids.length > 1 ? 's' : '' }} seront accordée{{ createForm.permission_ids.length > 1 ? 's' : '' }} à la création.
-                </p>
-            </form>
-
-            <template #footer>
-                <Button type="button" variant="outline" :disabled="createForm.processing" @click="creating = false">Annuler</Button>
-                <Button type="button" variant="primary" :disabled="createForm.processing" @click="submitCreate">
-                    <Check class="h-4 w-4" />{{ createForm.processing ? 'Création…' : 'Créer le rôle' }}
-                </Button>
-            </template>
-        </Dialog>
-
-        <!-- Renommer -->
-        <Dialog
-            :open="renaming !== null"
-            :title="`Renommer « ${renaming?.name ?? ''} »`"
-            description="Le code du rôle ne change jamais : il est l’identité que les socles et l’audit désignent."
-            :dismissible="! renameForm.processing"
-            @update:open="renaming = $event ? renaming : null"
+        <ConfirmModal
+            :open="leaveGuard.pendingVisit.value !== null"
+            tone="warning"
+            title="Quitter sans enregistrer ?"
+            description="Les modifications de cette page n’ont pas été envoyées au site."
+            confirm-label="Quitter sans enregistrer"
+            cancel-label="Rester ici"
+            @update:open="(open) => open || leaveGuard.stay()"
+            @confirm="leaveGuard.leave"
         >
-            <FormField label="Libellé" :error="renameForm.errors.name">
-                <Input v-model="renameForm.name" autocomplete="off" />
-            </FormField>
-
-            <template #footer>
-                <Button type="button" variant="outline" :disabled="renameForm.processing" @click="renaming = null">Annuler</Button>
-                <Button type="button" variant="primary" :disabled="renameForm.processing" @click="submitRename">
-                    <Check class="h-4 w-4" />{{ renameForm.processing ? 'Enregistrement…' : 'Enregistrer' }}
-                </Button>
-            </template>
-        </Dialog>
-
-        <!-- Archiver -->
-        <Dialog
-            :open="archiving !== null"
-            :title="`Archiver « ${archiving?.name ?? ''} » ?`"
-            description="Le rôle quitte les affectations possibles. Il n’est jamais supprimé : son socle est conservé et il reste restaurable."
-            :dismissible="! archiveForm.processing"
-            @update:open="archiving = $event ? archiving : null"
-        >
-            <div class="space-y-3">
-                <p class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
-                    <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
-                    Un motif est obligatoire : c’est ce que lira la personne qui retrouvera ce rôle archivé dans six mois.
-                </p>
-                <FormField label="Motif" :error="archiveForm.errors.reason">
-                    <Textarea v-model="archiveForm.reason" rows="3" placeholder="Métier repris par le rôle NURSE depuis le 01/09." />
-                </FormField>
-            </div>
-
-            <template #footer>
-                <Button type="button" variant="outline" :disabled="archiveForm.processing" @click="archiving = null">Annuler</Button>
-                <Button type="button" variant="destructive" :disabled="archiveForm.processing" @click="submitArchive">
-                    {{ archiveForm.processing ? 'Archivage…' : 'Archiver le rôle' }}
-                </Button>
-            </template>
-        </Dialog>
+            <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100">
+                <strong class="tabular-nums">{{ pendingChanges }} modification{{ pendingChanges > 1 ? 's' : '' }}</strong>
+                seront perdues : les droits resteront exactement tels qu’ils sont aujourd’hui.
+            </p>
+        </ConfirmModal>
     </div>
 </template>

@@ -399,8 +399,10 @@ const beneficiaryTypeLabels = {
     FAMILY_MEMBER: 'Membre de famille',
 };
 const administrativeStatusLabels = {
-    PENDING_ORIENTATION: 'En attente aux Soins',
-    ORIENTED: 'Orienté',
+    // ADR-177 — l'accueil ne décide plus d'une file : un passage accueilli
+    // attend qu'un service le prenne en charge.
+    PENDING_ORIENTATION: 'Accueil en cours',
+    ORIENTED: 'En attente de prise en charge',
     IN_CARE: 'En cours de soins',
     PENDING_SETTLEMENT: 'En attente de règlement',
     // CDC §33.3 — les trois sorties administratives réelles. DISCHARGED est

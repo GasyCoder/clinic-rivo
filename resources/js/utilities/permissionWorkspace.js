@@ -1,3 +1,15 @@
+import {
+    PERMISSION_MODULES,
+    permissionCategoryIcon,
+    permissionCategoryLabel,
+    permissionCategoryModule,
+    permissionCategoryOrder,
+    permissionModule,
+    permissionResourceIcon,
+    permissionResourceLabel,
+    permissionResourceOrder,
+} from './permissionCategories.js';
+
 export const normalizePermissionText = (value) => String(value ?? '')
     .toLowerCase()
     .normalize('NFD')
@@ -41,14 +53,24 @@ export const isSensitivePermission = (permission) => {
     return sensitiveActions.includes(action) || sensitiveModules.includes(permission.module);
 };
 
-export const permissionMatchesSearch = (permission, search, categoryLabel) => {
-    const term = normalizePermissionText(search.trim());
-    if (!term) return true;
+/**
+ * Tous les mots tapés doivent se retrouver, dans n'importe quel ordre :
+ * « supprimer patient » trouve « Supprimer définitivement un patient ».
+ */
+export const matchesSearchTerms = (haystack, search) => {
+    const terms = normalizePermissionText(search).split(/\s+/).filter(Boolean);
 
-    return normalizePermissionText(permissionLabel(permission)).includes(term)
-        || normalizePermissionText(permission.name).includes(term)
-        || normalizePermissionText(categoryLabel).includes(term);
+    if (terms.length === 0) return true;
+
+    const text = normalizePermissionText(haystack);
+
+    return terms.every((term) => text.includes(term));
 };
+
+export const permissionMatchesSearch = (permission, search, categoryLabel) => matchesSearchTerms(
+    `${permissionLabel(permission)} ${permission.name} ${categoryLabel ?? ''}`,
+    search,
+);
 
 export const permissionMatchesFilter = (permission, filter, effects, rolePermissionNames) => {
     const effect = permissionEffect(permission, effects);
@@ -81,21 +103,189 @@ export const summarizePermissionWorkspace = (catalog, effects, provenance, roleP
 };
 
 /**
- * Les permissions d'une catégorie regroupées par nature d'action.
+ * Les colonnes de la grille, dans le même ordre pour toutes les fonctionnalités
+ * (ADR-178) : « Voir | Créer | Modifier | Supprimer | Restaurer | Valider |
+ * Exporter ». On lit la colonne « Supprimer » de haut en bas pour savoir ce
+ * qu'un rôle peut retirer, au lieu de chercher le mot dans quarante listes.
  *
- * Une catégorie de vingt droits se lit mal à plat : « Consulter »,
- * « Créer », « Supprimer » ne portent pas le même risque, et c'est cette
- * distinction — pas l'ordre alphabétique — qui guide la décision.
+ * Une colonne peut réunir deux actions voisines — `delete` et `archive`
+ * retirent tous deux un élément, jamais les deux sur la même ressource. Le
+ * reste (imprimer, clôturer, encaisser…) garde son libellé complet à côté.
  */
-export const permissionActionGroup = (permission) => {
-    const action = String(permission.name).split('.').at(-1);
+export const PERMISSION_ACTION_COLUMNS = [
+    { key: 'view', label: 'Voir', title: 'Consulter', actions: ['view'] },
+    { key: 'create', label: 'Créer', title: 'Créer', actions: ['create'] },
+    { key: 'update', label: 'Modifier', title: 'Modifier', actions: ['update'] },
+    { key: 'delete', label: 'Supprimer', title: 'Supprimer ou archiver', actions: ['delete', 'archive'] },
+    { key: 'restore', label: 'Restaurer', title: 'Restaurer', actions: ['restore'] },
+    { key: 'validate', label: 'Valider', title: 'Valider ou approuver', actions: ['validate', 'approve'] },
+    { key: 'export', label: 'Exporter', title: 'Exporter', actions: ['export'] },
+];
 
-    if (['view', 'view_deleted', 'print', 'export'].includes(action)) return 'Consulter et exporter';
-    if (['create', 'import'].includes(action)) return 'Créer et importer';
-    if (['delete', 'force_delete', 'restore', 'archive', 'unarchive'].includes(action)) return 'Suppression et restauration';
-    if (['validate', 'approve', 'reject', 'cancel', 'close', 'open'].includes(action)) return 'Validation et opérations';
+/** `patients.medical_history.view` → `view`. */
+export const permissionAction = (permission) => String(permission?.name ?? '').split('.').at(-1);
 
-    return 'Gérer et mettre à jour';
+const categoryOf = (permission) => permission?.module || String(permission?.name ?? '').split('.')[0];
+
+/**
+ * Ce qu'une permission fait, en un mot, là où la colonne n'est pas là pour le
+ * dire : sur un téléphone, les cases deviennent des pastilles et portent
+ * leur verbe.
+ */
+export const permissionActionLabel = (permission) => {
+    const column = PERMISSION_ACTION_COLUMNS.find((item) => item.actions.includes(permissionAction(permission)));
+
+    return column?.label ?? permissionLabel(permission);
+};
+
+/**
+ * Le catalogue d'un site, rangé comme on le lit : modules → fonctionnalités →
+ * actions (ADR-178).
+ *
+ * Une fonctionnalité est une ressource — `patients`, mais aussi
+ * `surgery.report` ou `catalog.tariffs`, qui ont leurs propres Voir / Créer /
+ * Modifier —, avec son icône (la sienne, sinon celle de sa catégorie, sinon
+ * celle de son module). Chaque ligne range ses permissions dans les colonnes de
+ * `PERMISSION_ACTION_COLUMNS` ; ce qui n'y entre pas reste à côté, sous son
+ * libellé complet.
+ *
+ * Une permission qui porte le nom d'une sous-ressource — `pharmacy.dispense`,
+ * « Délivrer les médicaments » — rejoint la ligne de cette sous-ressource :
+ * c'est l'acte principal de ce que la ligne décrit.
+ *
+ * @returns {Array<{key, label, description, icon, groups, rows, permissions}>}
+ */
+export const buildPermissionModules = (catalog) => {
+    const resourceKeys = new Set(catalog
+        .map((permission) => String(permission.name).split('.').slice(0, -1).join('.'))
+        .filter((key) => key.includes('.')));
+
+    const rows = new Map();
+
+    for (const permission of catalog) {
+        const parts = String(permission.name).split('.');
+        const category = categoryOf(permission);
+        const resource = resourceKeys.has(permission.name)
+            ? permission.name
+            : (parts.slice(0, -1).join('.') || category);
+
+        if (! rows.has(resource)) {
+            rows.set(resource, { key: resource, category, nested: resource !== category, permissions: [] });
+        }
+
+        rows.get(resource).permissions.push(permission);
+    }
+
+    const finalized = Array.from(rows.values()).map((row) => {
+        const cells = {};
+        const placed = new Set();
+
+        for (const column of PERMISSION_ACTION_COLUMNS) {
+            for (const action of column.actions) {
+                const candidate = row.permissions.find((permission) => ! placed.has(permission.id)
+                    && permission.name !== row.key
+                    && permissionAction(permission) === action);
+
+                if (candidate) {
+                    cells[column.key] = candidate;
+                    placed.add(candidate.id);
+                    break;
+                }
+            }
+        }
+
+        const others = row.permissions.filter((permission) => ! placed.has(permission.id)).sort(comparePermissions);
+        const ordered = [
+            ...PERMISSION_ACTION_COLUMNS.map((column) => cells[column.key]).filter(Boolean),
+            ...others,
+        ];
+
+        return {
+            key: row.key,
+            category: row.category,
+            nested: row.nested,
+            label: permissionResourceLabel(row.key),
+            icon: permissionResourceIcon(row.key),
+            categoryLabel: permissionCategoryLabel(row.category),
+            cells,
+            others,
+            permissions: ordered,
+        };
+    });
+
+    const compareRows = (left, right) => (
+        permissionCategoryOrder(left.category) - permissionCategoryOrder(right.category)
+        || left.category.localeCompare(right.category)
+        || Number(left.nested) - Number(right.nested)
+        || permissionResourceOrder(left.key) - permissionResourceOrder(right.key)
+        || left.label.localeCompare(right.label, 'fr')
+    );
+
+    return PERMISSION_MODULES
+        .map((module) => {
+            const moduleRows = finalized
+                .filter((row) => permissionCategoryModule(row.category) === module.key)
+                .sort(compareRows);
+
+            const groups = [];
+
+            for (const row of moduleRows) {
+                let group = groups.find((candidate) => candidate.category === row.category);
+
+                if (! group) {
+                    group = {
+                        category: row.category,
+                        label: row.categoryLabel,
+                        icon: permissionCategoryIcon(row.category),
+                        base: null,
+                        children: [],
+                    };
+                    groups.push(group);
+                }
+
+                if (row.nested) group.children.push(row); else group.base = row;
+            }
+
+            return {
+                key: module.key,
+                label: module.label,
+                description: module.description,
+                icon: module.icon,
+                groups,
+                rows: moduleRows,
+                permissions: moduleRows.flatMap((row) => row.permissions),
+            };
+        })
+        .filter((module) => module.rows.length > 0);
+};
+
+/**
+ * Le texte dans lequel une recherche cherche une permission : son libellé, son
+ * nom, sa fonctionnalité et son verbe. On tape ce qu'on voit à l'écran
+ * — « Dossiers patients », « Supprimer » — autant que le code d'un 403.
+ *
+ * Le nom du module n'y est pas : « supprimer patient » ramenait toutes les
+ * suppressions du module « Accueil & patients », adresses comprises. Le module
+ * se voit déjà, replié, avec son compteur.
+ */
+export const permissionSearchIndex = (modules) => {
+    const index = new Map();
+
+    for (const module of modules) {
+        for (const row of module.rows) {
+            for (const permission of row.permissions) {
+                index.set(permission.id, normalizePermissionText([
+                    permissionLabel(permission),
+                    permission.name,
+                    row.label,
+                    row.categoryLabel,
+                    permissionActionLabel(permission),
+                ].join(' ')));
+            }
+        }
+    }
+
+    return index;
 };
 
 /**
@@ -119,3 +309,6 @@ export const diffPermissionSelection = (catalog, baselineIds, draftIds) => {
 
     return { added, removed, total: added.length + removed.length };
 };
+
+/** Le module d'une permission, pour regrouper un écart ou une liste. */
+export const permissionModuleOf = (permission) => permissionModule(permissionCategoryModule(categoryOf(permission)));

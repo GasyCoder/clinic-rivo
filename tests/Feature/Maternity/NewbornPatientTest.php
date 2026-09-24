@@ -5,6 +5,7 @@ namespace Tests\Feature\Maternity;
 use App\Actions\Episode\CreateEpisodeAction;
 use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
 use App\Models\BillableItem;
 use App\Models\Episode;
@@ -24,8 +25,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * ADR-144, ADR-146 — un nouveau-né consigné en Maternité vit dans le dossier de sa mère, puis devient un
- * patient relié à elle quand la Réception l'accueille.
+ * ADR-144, ADR-146, ADR-177 — un nouveau-né consigné en Maternité vit dans le dossier de sa mère, puis devient
+ * un patient relié à elle **depuis la Maternité** (ADR-177 : la Réception n'a plus de mode « Nouveau-né »).
  *
  * Numéro dérivé de celui de la mère, naissance jamais devinée, jumeaux acceptés (même nom, même date),
  * geste idempotent, aucun passage ouvert, et les soins du bébé restent sur le compte de la mère.
@@ -45,7 +46,7 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [$mother, $episode, $orientation] = $this->twinsRecord($midwife);
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', 'Faly')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', 'Faly')->assertSessionHasNoErrors();
 
         $baby = Patient::query()->where('patient_number', "{$mother->patient_number}-B1")->firstOrFail();
         $this->assertSame('Rasoa', $baby->last_name);
@@ -69,7 +70,7 @@ class NewbornPatientTest extends TestCase
         [, $episode, $orientation] = $this->twinsRecord($midwife);
         $before = BillableItem::query()->count();
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
 
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $this->assertSame(0, Episode::query()->where('patient_id', $baby->id)->count());
@@ -84,8 +85,8 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
-        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
+        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertSessionHasNoErrors();
 
         $numbers = Patient::query()->whereHas('newbornLink')->orderBy('patient_number')->pluck('patient_number')->all();
         $this->assertSame(["{$mother->patient_number}-B1", "{$mother->patient_number}-B2"], $numbers);
@@ -97,7 +98,7 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
 
-        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('patients', ['patient_number' => "{$mother->patient_number}-B2"]);
     }
@@ -112,7 +113,7 @@ class NewbornPatientTest extends TestCase
         ]);
         $taken->delete();
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('patients', ['patient_number' => "{$mother->patient_number}-B2"]);
     }
@@ -122,8 +123,8 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
 
         $this->assertSame(1, PatientNewbornLink::query()->count());
         $this->assertSame(1, Patient::query()->whereHas('newbornLink')->count());
@@ -134,7 +135,7 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
 
-        $this->createDossier($midwife, $orientation, 0, 'Andrianina')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Andrianina')->assertSessionHasNoErrors();
 
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $this->assertNull($baby->first_name);
@@ -145,7 +146,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
 
         $episode = app(CreateEpisodeAction::class)->execute($baby, actor: $midwife);
@@ -160,7 +161,7 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife, delivery: []);
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertJsonValidationErrors('newborn');
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasErrors('newborn');
 
         $this->assertSame(0, Patient::query()->whereHas('newbornLink')->count());
     }
@@ -173,21 +174,21 @@ class NewbornPatientTest extends TestCase
 
         $response = $this->createDossier($midwife, $orientation, 0, 'Rasoa');
 
-        $response->assertJsonValidationErrors('sex');
-        $this->assertStringContainsString('sexe', $response->json('errors.sex.0'));
+        $response->assertSessionHasErrors('sex');
+        $this->assertStringContainsString('sexe', session('errors')->first('sex'));
         $this->assertSame(0, PatientNewbornLink::query()->count());
     }
 
     /**
-     * La fiche n'a pas toujours le sexe : la Réception le donne en accueillant le bébé, et il se retrouve sur la
-     * fiche — le dossier du bébé et celui de sa mère ne se contredisent jamais.
+     * La fiche n'a pas toujours le sexe : la sage-femme le donne en ouvrant le dossier du bébé, et il se retrouve
+     * sur la fiche — le dossier du bébé et celui de sa mère ne se contredisent jamais.
      */
-    public function test_the_sex_can_be_chosen_at_the_reception_and_is_written_on_the_fiche(): void
+    public function test_the_sex_can_be_chosen_when_the_dossier_is_opened_and_is_written_on_the_fiche(): void
     {
         $midwife = $this->midwife();
         [, , $orientation, $record] = $this->twinsRecord($midwife, newborns: [['sex' => '', 'birth_weight_g' => 3000]]);
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', sex: 'F')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', sex: 'F')->assertSessionHasNoErrors();
 
         $this->assertSame('F', Patient::query()->whereHas('newbornLink')->sole()->sex->value);
         $this->assertSame('F', $record->fresh()->newborn_data['newborns'][0]['sex']);
@@ -198,7 +199,7 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [, , $orientation, $record] = $this->twinsRecord($midwife);
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', sex: 'M')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', sex: 'M')->assertSessionHasNoErrors();
 
         // La fiche disait Féminin : un navigateur ne la contredit pas.
         $this->assertSame('F', Patient::query()->whereHas('newbornLink')->sole()->sex->value);
@@ -210,9 +211,9 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
-        $orientation->forceFill(['status' => \App\Enums\EpisodeOrientationStatus::Completed])->save();
+        $orientation->forceFill(['status' => EpisodeOrientationStatus::Completed])->save();
 
-        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertSessionHasNoErrors();
 
         $this->assertSame(1, PatientNewbornLink::query()->count());
     }
@@ -227,16 +228,16 @@ class NewbornPatientTest extends TestCase
         ]);
 
         // Un bébé consigné sans sexe : c'est le sexe qui manque.
-        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertJsonValidationErrors('sex');
+        $this->createDossier($midwife, $orientation, 1, 'Rasoa')->assertSessionHasErrors('sex');
         // Une fiche jamais remplie n'est pas un bébé consigné : elle n'a pas d'identité.
         $this->assertArrayNotHasKey('uuid', $record->fresh()->newborn_data['newborns'][2]);
         // Un bébé qui n'est pas dans ce dossier.
-        $this->createDossier($midwife, $orientation, 5, 'Rasoa')->assertJsonValidationErrors('newborn');
+        $this->createDossier($midwife, $orientation, 5, 'Rasoa')->assertSessionHasErrors('newborn');
         $this->assertSame(0, Patient::query()->whereHas('newbornLink')->count());
     }
 
-    /** Le nom de la fiche, à défaut celui de la mère : la Réception n'a rien à saisir pour ouvrir le dossier. */
-    public function test_the_name_falls_back_from_the_reception_to_the_fiche_then_to_the_mother(): void
+    /** Le nom de la fiche, à défaut celui de la mère : rien n'est à ressaisir pour ouvrir le dossier. */
+    public function test_the_name_falls_back_from_the_form_to_the_fiche_then_to_the_mother(): void
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife, newborns: [
@@ -244,8 +245,8 @@ class NewbornPatientTest extends TestCase
             ['sex' => 'M', 'birth_weight_g' => 3100],
         ]);
 
-        $this->createDossier($midwife, $orientation, 0)->assertOk();
-        $this->createDossier($midwife, $orientation, 1)->assertOk();
+        $this->createDossier($midwife, $orientation, 0)->assertSessionHasNoErrors();
+        $this->createDossier($midwife, $orientation, 1)->assertSessionHasNoErrors();
 
         $first = Patient::query()->where('patient_number', "{$mother->patient_number}-B1")->firstOrFail();
         $second = Patient::query()->where('patient_number', "{$mother->patient_number}-B2")->firstOrFail();
@@ -253,15 +254,33 @@ class NewbornPatientTest extends TestCase
         $this->assertSame([$mother->last_name, null], [$second->last_name, $second->first_name]);
     }
 
-    public function test_making_the_baby_a_patient_needs_the_reception_and_patient_creation_rights(): void
+    /** ADR-177 — le geste appartient à la Maternité : il faut l'espace Maternité et le droit de créer ce dossier. */
+    public function test_making_the_baby_a_patient_needs_the_maternity_and_the_newborn_creation_rights(): void
     {
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
 
-        // La sage-femme n'ouvre plus de dossier patient : c'est l'accueil (ADR-146).
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $midwife)->assertForbidden();
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $this->userWithPermissions(['episodes.create']))->assertForbidden();
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $this->userWithPermissions(['patients.create']))->assertForbidden();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $this->userWithPermissions(['maternity.view', 'maternity.newborn.manage']))->assertForbidden();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $this->userWithPermissions(['newborns.patient.create', 'patients.create']))->assertForbidden();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $this->userWithPermissions(['episodes.create', 'patients.create', 'patients.view']))->assertForbidden();
+        $this->assertSame(0, PatientNewbornLink::query()->count());
+
+        // La sage-femme le peut : son profil recommande désormais `newborns.patient.create`.
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
+        $this->assertSame(1, PatientNewbornLink::query()->count());
+    }
+
+    /**
+     * Le socle du rôle RECEPTION garde `newborns.patient.create` (on ne retire pas un droit sans le dire), mais
+     * sans l'espace Maternité il n'ouvre plus rien : un poste d'accueil ne crée plus le dossier d'un bébé.
+     */
+    public function test_the_reception_role_no_longer_creates_a_newborn_dossier(): void
+    {
+        $midwife = $this->midwife();
+        [, , $orientation] = $this->twinsRecord($midwife);
+        $agent = User::factory()->create(['role_id' => Role::query()->where('code', 'RECEPTION')->value('id')]);
+
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $agent)->assertForbidden();
 
         $this->assertSame(0, PatientNewbornLink::query()->count());
     }
@@ -273,7 +292,7 @@ class NewbornPatientTest extends TestCase
         [, $episode, $orientation] = $this->twinsRecord($midwife);
         $episode->forceFill(['status' => EpisodeStatus::Closed])->save();
 
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
 
         $this->assertSame(1, PatientNewbornLink::query()->count());
         // Rien n'est touché au passage de la mère.
@@ -286,7 +305,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, , $orientation, $record] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $stored = $record->fresh()->newborn_data['newborns'];
 
         // Le navigateur renvoie uniquement le second bébé : le premier a pourtant son dossier.
@@ -348,7 +367,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, $episode, $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $uuid = PatientNewbornLink::query()->sole()->newborn_uuid;
 
         $props = $this->actingAs($midwife)->get("/maternity/orientations/{$orientation->uuid}")->viewData('page')['props'];
@@ -360,16 +379,44 @@ class NewbornPatientTest extends TestCase
         // Le second n'est pas patient : son dossier s'ouvre pourtant, depuis sa fiche (ADR-146).
         $this->assertNull($babies[1]['patient_number']);
         $this->assertSame("/passages/{$episode->uuid}/nouveau-nes/{$babies[1]['uuid']}/dossier-medical", $babies[1]['medical_record_url']);
-        // Plus aucun geste de création à la Maternité : le patient se crée à l'accueil.
-        $this->assertArrayNotHasKey('can_create', $props['babies']);
-        $this->assertArrayNotHasKey('create_url_base', $props['babies']);
+        // ADR-177 — le geste de création revient à la Maternité, bébé par bébé, seulement pour qui peut le faire.
+        $this->assertNull($babies[0]['create_patient_url']);
+        $this->assertSame(
+            route('maternity.newborns.patient.store', [MaternityRecord::query()->sole(), $babies[1]['uuid']]),
+            $babies[1]['create_patient_url'],
+        );
+        $this->assertSame('M', $babies[1]['sex_code']);
+    }
+
+    /** Sans le droit de créer, la Maternité montre le bébé mais ne propose pas un geste qui serait refusé. */
+    public function test_the_maternity_page_offers_no_creation_without_the_right(): void
+    {
+        $midwife = $this->midwife();
+        [, , $orientation] = $this->twinsRecord($midwife);
+        $reader = $this->userWithPermissions(['maternity.view', 'newborns.view', 'patients.view']);
+
+        $babies = $this->actingAs($reader)->get("/maternity/orientations/{$orientation->uuid}")->viewData('page')['props']['babies']['newborns'];
+
+        $this->assertNull($babies[0]['create_patient_url']);
+        $this->assertNull($babies[1]['create_patient_url']);
+    }
+
+    /** Le détail du passage relit les bébés, mais le geste de création n'y est pas : il est à la Maternité. */
+    public function test_the_passage_page_never_offers_the_creation(): void
+    {
+        $midwife = $this->midwife();
+        [, $episode] = $this->twinsRecord($midwife);
+
+        $babies = $this->actingAs($midwife)->get("/passages/{$episode->uuid}")->viewData('page')['props']['maternityBabies']['newborns'];
+
+        $this->assertNull($babies[0]['create_patient_url']);
     }
 
     public function test_the_patient_page_reads_the_link_in_both_directions_without_any_clinical_data(): void
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view']);
 
@@ -387,7 +434,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $episode = app(CreateEpisodeAction::class)->execute($baby, actor: $midwife);
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view', 'newborns.medical_record.view']);
@@ -418,7 +465,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $episode = app(CreateEpisodeAction::class)->execute($baby, actor: $midwife);
         $reader = $this->userWithPermissions(['patients.view']);
@@ -433,7 +480,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, $episode, $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $reader = $this->userWithPermissions(['patients.view', 'maternity.view', 'newborns.view', 'newborns.medical_record.view']);
 
         $newborns = $this->actingAs($reader)->get("/passages/{$episode->uuid}/dossier-medical")
@@ -451,7 +498,7 @@ class NewbornPatientTest extends TestCase
             ['sex' => 'M', 'birth_weight_g' => 3100],
             ['sex' => '', 'birth_weight_g' => '', 'apgar' => '', 'condition' => '', 'care_notes' => ''],
         ]);
-        $this->createDossier($midwife, $orientation, 0)->assertOk();
+        $this->createDossier($midwife, $orientation, 0)->assertSessionHasNoErrors();
 
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view', 'newborns.medical_record.view']);
 
@@ -498,7 +545,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa', 'Faly')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa', 'Faly')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view', 'newborns.medical_record.view']);
 
@@ -516,7 +563,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $episode = app(CreateEpisodeAction::class)->execute($baby, actor: $midwife);
         $reader = $this->userWithPermissions(['patients.view']);
@@ -539,7 +586,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, $episode, $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $secondUuid = MaternityRecord::query()->firstOrFail()->newborn_data['newborns'][1]['uuid'];
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view', 'newborns.medical_record.view']);
@@ -569,7 +616,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, $episode, $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $reader = $this->userWithPermissions(['patients.view']);
 
         $tabs = $this->actingAs($reader)->get("/passages/{$episode->uuid}/dossier-medical")->viewData('page')['props']['dossiers'];
@@ -591,80 +638,34 @@ class NewbornPatientTest extends TestCase
         $this->assertNull($props['birth']);
     }
 
-    // ── ADR-146 : la Réception retrouve le bébé chez sa mère ──────────────
+    // ── ADR-177 : la Réception n'a plus de mode « Nouveau-né » ─────────────
 
-    public function test_the_reception_lists_the_babies_of_a_mother_without_any_clinical_data(): void
+    /** L'arborescence de la mère et la création depuis l'accueil n'existent plus : aucune route ne répond. */
+    public function test_the_reception_has_no_newborn_mode_any_more(): void
     {
         $midwife = $this->midwife();
-        [$mother, , $orientation] = $this->twinsRecord($midwife, newborns: [
-            ['sex' => 'F', 'birth_weight_g' => 2900, 'apgar' => 8, 'first_name' => 'Faly'],
-            ['sex' => '', 'birth_weight_g' => 3100],
-            ['sex' => '', 'birth_weight_g' => '', 'apgar' => ''],
-        ]);
-        $this->createDossier($midwife, $orientation, 0)->assertOk();
+        [$mother, , , $record] = $this->twinsRecord($midwife);
+        $uuid = $record->fresh()->newborn_data['newborns'][0]['uuid'];
+        $agent = User::factory()->create(['role_id' => Role::query()->where('code', 'RECEPTION')->value('id')]);
 
-        $response = $this->actingAs($this->receptionist())->getJson("/reception/newborns?mother={$mother->uuid}")->assertOk();
-        $rows = $response->json('data');
+        $this->actingAs($agent)->getJson("/reception/newborns?mother={$mother->uuid}")->assertNotFound();
+        $this->actingAs($agent)->postJson("/reception/newborns/{$record->uuid}/{$uuid}/patient", ['last_name' => 'Rasoa'])->assertNotFound();
 
-        // Deux bébés consignés ; la fiche vide n'est pas listée.
-        $this->assertCount(2, $rows);
-        $this->assertSame("{$mother->last_name} Faly", $rows[0]['name']);
-        $this->assertSame("{$mother->patient_number}-B1", $rows[0]['patient']['patient_number']);
-        $this->assertSame("Bébé 2 de {$mother->last_name}", $rows[1]['name']);
-        $this->assertNull($rows[1]['patient']);
-        $this->assertNull($rows[1]['sex_code']);
-        $this->assertSame('2026-09-20T06:40', $rows[1]['born_at']);
-        // Un poste de Réception n'a pas maternity.view : ni poids, ni Apgar, ni soins ne sortent.
-        $json = json_encode($response->json());
-        foreach (['birth_weight', 'apgar', 'condition', 'care_notes', 'gravidity'] as $clinical) {
-            $this->assertStringNotContainsString($clinical, $json);
-        }
+        $this->assertSame(0, PatientNewbornLink::query()->count());
     }
 
-    public function test_only_the_babies_of_that_mother_are_listed(): void
-    {
-        $midwife = $this->midwife();
-        [$mother] = $this->twinsRecord($midwife);
-        [$other] = $this->twinsRecord($midwife, newborns: [['sex' => 'M', 'birth_weight_g' => 3300]]);
-
-        $rows = $this->actingAs($this->receptionist())->getJson("/reception/newborns?mother={$other->uuid}")->json('data');
-
-        $this->assertCount(1, $rows);
-        $this->assertNotSame($mother->id, $other->id);
-    }
-
-    public function test_a_baby_without_a_recorded_delivery_date_is_listed_as_blocked(): void
-    {
-        $midwife = $this->midwife();
-        [$mother] = $this->twinsRecord($midwife, delivery: []);
-
-        $rows = $this->actingAs($this->receptionist())->getJson("/reception/newborns?mother={$mother->uuid}")->json('data');
-
-        $this->assertNotNull($rows[0]['blocked']);
-    }
-
-    public function test_the_reception_list_needs_the_reception_right(): void
-    {
-        $midwife = $this->midwife();
-        [$mother] = $this->twinsRecord($midwife);
-
-        $this->actingAs($this->userWithPermissions(['patients.view']))->getJson("/reception/newborns?mother={$mother->uuid}")->assertForbidden();
-    }
-
-    /** Un clic, et le bébé repart dans le parcours d'arrivée comme n'importe quel patient existant. */
-    public function test_choosing_the_baby_returns_the_patient_the_arrival_screen_selects(): void
+    /** Un bébé né à la clinique, une fois patient, se retrouve à l'accueil comme n'importe quel patient existant. */
+    public function test_a_baby_made_a_patient_at_the_maternity_is_found_by_the_reception_search(): void
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
+        $this->createDossier($midwife, $orientation, 0)->assertSessionHasNoErrors();
+        $baby = Patient::query()->whereHas('newbornLink')->sole();
+        $agent = User::factory()->create(['role_id' => Role::query()->where('code', 'RECEPTION')->value('id')]);
 
-        $patient = $this->createDossier($midwife, $orientation, 0)->assertOk()->json('patient');
-
-        $this->assertSame("{$mother->patient_number}-B1", $patient['patient_number']);
-        $this->assertArrayHasKey('uuid', $patient);
-        $this->assertSame('F', $patient['sex']);
-        // Le dossier créé est bien celui de la recherche patient : l'écran ne distingue pas d'où il vient.
-        $this->actingAs($this->receptionist())->getJson('/reception/patients/search?q='.urlencode($patient['patient_number']))
-            ->assertOk()->assertJsonPath('data.0.uuid', $patient['uuid']);
+        $this->assertSame("{$mother->patient_number}-B1", $baby->patient_number);
+        $this->actingAs($agent)->getJson('/reception/patients/search?q='.urlencode($baby->patient_number))
+            ->assertOk()->assertJsonPath('data.0.uuid', $baby->uuid);
     }
 
     // ── ADR-146 : le dossier d'un bébé qui n'est pas encore patient ──────────
@@ -700,7 +701,7 @@ class NewbornPatientTest extends TestCase
         $midwife = $this->midwife();
         [, $episode, $orientation, $record] = $this->twinsRecord($midwife);
         $uuid = $record->fresh()->newborn_data['newborns'][0]['uuid'];
-        $this->createDossier($midwife, $orientation, 0)->assertOk();
+        $this->createDossier($midwife, $orientation, 0)->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view', 'newborns.medical_record.view']);
 
@@ -755,7 +756,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation, $record] = $this->twinsRecord($midwife, newborns: [['sex' => 'F', 'birth_weight_g' => 2900]]);
-        $this->createDossier($midwife, $orientation, 0, 'Andrianina', 'Faly')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Andrianina', 'Faly')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
 
         $this->revertMigration();
@@ -779,7 +780,7 @@ class NewbornPatientTest extends TestCase
         [, , $orientation, $record] = $this->twinsRecord($midwife, newborns: [
             ['sex' => 'F', 'birth_weight_g' => 2900, 'first_name' => 'Faly', 'last_name' => 'Andrianina'],
         ]);
-        $this->createDossier($midwife, $orientation, 0, 'Autre', 'Nom')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Autre', 'Nom')->assertSessionHasNoErrors();
 
         $this->revertMigration();
 
@@ -792,7 +793,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         app(CreateEpisodeAction::class)->execute($baby, actor: $midwife);
 
@@ -806,7 +807,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $baby->allergies()->create(['substance' => 'Pénicilline', 'recorded_by' => $midwife->id]);
 
@@ -820,7 +821,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view']);
 
@@ -844,7 +845,7 @@ class NewbornPatientTest extends TestCase
             ['sex' => 'M', 'birth_weight_g' => 3100],
             ['sex' => '', 'birth_weight_g' => '', 'apgar' => '', 'condition' => '', 'care_notes' => ''],
         ]);
-        $this->createDossier($midwife, $orientation, 0)->assertOk();
+        $this->createDossier($midwife, $orientation, 0)->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $secondUuid = $record->fresh()->newborn_data['newborns'][1]['uuid'];
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view', 'newborns.medical_record.view']);
@@ -868,7 +869,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $reader = $this->userWithPermissions(['patients.view', 'newborns.view']);
 
         $children = $this->actingAs($reader)->get("/patients/{$mother->uuid}")->viewData('page')['props']['family']['children'];
@@ -941,7 +942,7 @@ class NewbornPatientTest extends TestCase
     {
         $midwife = $this->midwife();
         [$mother, , $orientation] = $this->twinsRecord($midwife);
-        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertOk();
+        $this->createDossier($midwife, $orientation, 0, 'Rasoa')->assertSessionHasNoErrors();
         $baby = Patient::query()->whereHas('newbornLink')->sole();
         $reader = $this->userWithPermissions(['patients.view']);
 
@@ -954,47 +955,37 @@ class NewbornPatientTest extends TestCase
         $this->assertSame(0, $rows->firstWhere('uuid', $mother->uuid)['newborn_children']);
     }
 
-    /** L'arborescence de l'accueil et la création du dossier ont chacune leur droit. */
-    public function test_the_reception_arborescence_and_the_dossier_creation_have_their_own_rights(): void
+    /** Lire le bébé et ouvrir son dossier patient sont deux droits : `newborns.view` ne suffit pas à créer. */
+    public function test_reading_the_baby_does_not_allow_opening_its_patient_dossier(): void
     {
         $midwife = $this->midwife();
-        [$mother, , $orientation, $record] = $this->twinsRecord($midwife);
-        $uuid = $record->fresh()->newborn_data['newborns'][0]['uuid'];
-
-        $this->actingAs($this->userWithPermissions(['episodes.create']))
-            ->getJson("/reception/newborns?mother={$mother->uuid}")->assertForbidden();
+        [, , $orientation, $record] = $this->twinsRecord($midwife);
 
         $this->createDossier($midwife, $orientation, 0, 'Rasoa', as: $this->userWithPermissions([
-            'episodes.create', 'patients.create', 'patients.view', 'newborns.view',
+            'maternity.view', 'maternity.newborn.manage', 'patients.view', 'newborns.view', 'newborns.medical_record.view',
         ]))->assertForbidden();
 
         $this->assertDatabaseCount('patient_newborn_links', 0);
-        $this->assertNotNull($uuid);
+        $this->assertNotNull($record->fresh()->newborn_data['newborns'][0]['uuid']);
     }
 
     // ── Aides ────────────────────────────────────────────────────────────
 
     /**
-     * Ce que fait la Réception : choisir le bébé dans l'arborescence de sa mère (ADR-146). Le premier argument
-     * est conservé pour la lisibilité des scénarios — c'est un poste de Réception qui agit, pas la sage-femme.
+     * Ce que fait la sage-femme : ouvrir le dossier patient d'un bébé depuis sa fiche Maternité (ADR-177), par
+     * le formulaire de l'écran — une visite Inertia, qui revient sur la page avec son message ou ses erreurs.
      */
-    private function createDossier(User $unused, EpisodeOrientation $orientation, int $index, string $lastName = '', ?string $firstName = null, ?string $sex = null, ?User $as = null)
+    private function createDossier(User $midwife, EpisodeOrientation $orientation, int $index, string $lastName = '', ?string $firstName = null, ?string $sex = null, ?User $as = null)
     {
         $record = MaternityRecord::query()->where('episode_id', $orientation->episode_id)->firstOrFail();
         $uuid = $record->newborn_data['newborns'][$index]['uuid'] ?? '00000000-0000-4000-8000-000000000000';
 
-        return $this->actingAs($as ?? $this->receptionist())->postJson(
-            "/reception/newborns/{$record->uuid}/{$uuid}/patient",
-            array_filter(['last_name' => $lastName, 'first_name' => $firstName, 'sex' => $sex], fn ($value) => $value !== null && $value !== ''),
-        );
-    }
-
-    private function receptionist(): User
-    {
-        return $this->userWithPermissions([
-            'episodes.create', 'patients.create', 'patients.view',
-            'newborns.view', 'newborns.patient.create',
-        ]);
+        return $this->actingAs($as ?? $midwife)
+            ->from("/maternity/orientations/{$orientation->uuid}")
+            ->post(
+                route('maternity.newborns.patient.store', [$record, $uuid]),
+                array_filter(['last_name' => $lastName, 'first_name' => $firstName, 'sex' => $sex], fn ($value) => $value !== null && $value !== ''),
+            );
     }
 
     /**

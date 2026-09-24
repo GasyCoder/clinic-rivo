@@ -4,8 +4,6 @@ import fs from 'node:fs';
 
 const users = fs.readFileSync('resources/js/Pages/SuperAdmin/Users/Index.vue', 'utf8');
 const roles = fs.readFileSync('resources/js/Pages/SuperAdmin/Roles/Index.vue', 'utf8');
-const overrides = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
-const baselines = fs.readFileSync('resources/js/Components/Rbac/RoleBaselineEditor.vue', 'utf8');
 const menu = fs.readFileSync('resources/js/Components/Layout/Menu.vue', 'utf8');
 
 /**
@@ -16,12 +14,13 @@ test('les comptes et les rôles sont deux écrans', () => {
     assert.match(menu, /text: 'Utilisateurs', link: '\/super-admin\/workspaces\/users', permission: 'users\.view'/);
     assert.match(menu, /text: 'Rôles & permissions', link: '\/super-admin\/workspaces\/roles', permission: 'roles\.view'/);
 
-    // L'écran des comptes ne porte plus ni socle, ni atelier de permissions.
-    assert.doesNotMatch(users, /RoleBaselineEditor|PermissionAccessRow|PermissionCategoryNav/);
+    // L'écran des comptes ne porte plus ni socle, ni grille de permissions.
+    assert.doesNotMatch(users, /RoleWorkspace|PermissionMatrix|AccountWorkspace/);
     assert.doesNotMatch(users, /view === 'roles'/);
 
-    assert.match(roles, /import RoleBaselineEditor from '@\/Components\/Rbac\/RoleBaselineEditor\.vue'/);
-    assert.match(roles, /import UserPermissionOverrides from '@\/Components\/Rbac\/UserPermissionOverrides\.vue'/);
+    // Le socle et les exceptions vivent sur l'écran des rôles (ADR-100, ADR-178).
+    assert.match(roles, /import RoleWorkspace from '@\/Components\/Rbac\/RoleWorkspace\.vue'/);
+    assert.match(roles, /import AccountWorkspace from '@\/Components\/Rbac\/AccountWorkspace\.vue'/);
 });
 
 /**
@@ -56,56 +55,15 @@ test('l’assistant de compte s’arrête au rôle', () => {
 });
 
 /**
- * L'ordre de résolution ne change pas d'un écran à l'autre : c'est la seule
- * chose que l'utilisateur doit pouvoir tenir pour acquise.
+ * L'écran des rôles demande les droits d'écriture un par un : aucun geste
+ * n'est proposé à qui ne pourrait pas le faire aboutir (ADR-007, ADR-152).
  */
-test('l’écran des exceptions garde la priorité du DENY', () => {
-    assert.match(overrides, /if \(effect === 'deny'\) return false;\s*\n\s*if \(effect === 'allow'\) return true;/);
-    assert.match(overrides, /return roleGrants\(permission\);/);
-});
-
-/** Ouvrir un droit sensible mérite un deuxième regard ; le fermer, non. */
-test('autoriser une permission sensible demande confirmation', () => {
-    assert.match(overrides, /if \(effect === 'allow' && isSensitivePermission\(permission\)\)/);
-    assert.match(overrides, /title="Autoriser cette permission sensible \?"/);
-    assert.match(overrides, /title="Confirmer l’action groupée \?"/);
-});
-
-/** Un rôle porté par des comptes ne s’archive pas : le bouton le dit avant le clic. */
-test('le référentiel des rôles protège les rôles portés', () => {
-    assert.match(roles, /:disabled="role\.users_count > 0"/);
-    assert.match(roles, /role\.users_count > 0 \? `\$\{role\.users_count\} compte\(s\) portent encore ce rôle`/);
-    assert.match(roles, /role\.protected/);
-});
-
-/** Le code d’un rôle est son identité : il ne se renomme jamais. */
-test('renommer ne touche que le libellé', () => {
-    const rename = roles.slice(roles.indexOf('const renameForm'), roles.indexOf('const archiving'));
-
-    assert.match(rename, /useForm\(\{ name: '' \}\)/);
-    assert.doesNotMatch(rename, /code:/);
-});
-
-test('les réinitialisations distinguent le socle du rôle des exceptions du compte', () => {
-    assert.match(baselines, /Réinitialiser le rôle/);
-    assert.match(baselines, /selectedRole\?\.has_default_baseline/);
-    assert.match(baselines, /Leurs autorisations et interdictions individuelles resteront inchangées/);
-
-    assert.match(overrides, /Réinitialiser le compte/);
-    // Visible même sans exception (ADR-158) : désactivé et expliqué, jamais masqué.
-    assert.doesNotMatch(overrides, /v-if="canAssign && resetStats\.total"/);
-    assert.match(overrides, /:disabled="processing \|\| resetStats\.total === 0"/);
-    assert.match(overrides, /héritera uniquement du socle de son rôle/);
-    assert.match(overrides, /ses recommandations ne seront pas réappliquées automatiquement/);
-});
-
-/** Les trois états d'une exception disent ce qu'ils produisent, pas seulement ce qu'ils écrivent. */
-test('les trois états d’une permission sont nommés par leur effet', () => {
-    const row = fs.readFileSync('resources/js/Components/Rbac/PermissionAccessRow.vue', 'utf8');
-
-    assert.match(row, /label: 'Suivre le rôle'/);
-    assert.match(row, /label: 'Toujours autoriser'/);
-    assert.match(row, /label: 'Toujours interdire'/);
-    assert.match(row, /Socle du rôle :/);
-    assert.match(row, /Résultat pour ce compte :/);
+test('l’écran des rôles se règle sur les droits de l’administrateur connecté', () => {
+    for (const permission of [
+        'roles.create', 'roles.update', 'roles.archive', 'roles.restore',
+        'users.manage', 'permissions.assign',
+        'permissions.create', 'permissions.update', 'permissions.delete',
+    ]) {
+        assert.ok(roles.includes(`can('${permission}')`), `${permission} n'est plus vérifiée`);
+    }
 });

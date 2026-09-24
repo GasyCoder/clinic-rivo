@@ -12,12 +12,20 @@ const paper = fs.readFileSync('resources/js/Components/Clinical/PaperSheet.vue',
 const reception = fs.readFileSync('resources/js/Pages/Reception/Create.vue', 'utf8');
 
 /**
- * ADR-146 — le bébé vit dans le dossier de sa mère : un seul composant le montre partout, et il ne porte
- * plus aucun geste de création. C'est la Réception qui en fait un patient, en l'accueillant.
+ * ADR-146, ADR-177 — le bébé vit dans le dossier de sa mère : un seul composant le montre partout. Il devient
+ * patient depuis la Maternité, par un geste que le serveur propose (`create_patient_url`) ou non.
  */
-test('le composant des nouveau-nés ne crée plus aucun dossier', () => {
-    assert.doesNotMatch(component, /Créer le dossier|useForm|create_url_base|UserPlus/);
-    assert.doesNotMatch(maternity, /Créer le dossier du nouveau-né|creatingNewbornPatient|newbornPatientForm/);
+test('le composant des nouveau-nés crée le dossier patient seulement quand le serveur le propose', () => {
+    assert.match(component, /v-if="baby\.create_patient_url"/);
+    assert.match(component, /Créer le dossier patient/);
+    assert.match(component, /router\.post\(target\.value\.create_patient_url/);
+    // La fiche fait foi : le sexe n'est demandé que si elle ne le porte pas.
+    assert.match(component, /v-if="!target\.sex_code"/);
+    // Plus aucune adresse de l'accueil : ce geste appartient à la Maternité.
+    assert.doesNotMatch(component, /\/reception\/newborns|create_url_base/);
+    assert.doesNotMatch(maternity, /creatingNewbornPatient|newbornPatientForm/);
+    // Le serveur relit la fiche enregistrée : tant qu'elle ne l'est pas, la création attend.
+    assert.match(maternity, /:creation-blocked-reason="form\.isDirty/);
     for (const page of [maternity, episode]) {
         assert.match(page, /NewbornDossiers/);
     }
@@ -25,7 +33,7 @@ test('le composant des nouveau-nés ne crée plus aucun dossier', () => {
 
 test('un bébé pas encore patient a pourtant son dossier, et le dit', () => {
     assert.match(component, /baby\.medical_record_url/);
-    assert.match(component, /Pas encore patient — dossier ouvert à l’accueil/);
+    assert.match(component, /'Pas encore patient'/);
     // Le nom vient du serveur : un bébé non prénommé se dit par sa mère, jamais par un prénom inventé.
     assert.match(component, /\{\{ baby\.name \}\}/);
 });
@@ -47,45 +55,26 @@ test('le nom du bébé se saisit dans sa fiche, facultatif, avec celui de sa mè
     assert.match(maternity, /:placeholder="patient\.last_name"/);
 });
 
-/** ADR-146 — « accouchement chez nous ou externe ? », et le bébé choisi chez sa mère. */
-test('la Réception demande l\'origine de l\'accouchement et retrouve le bébé chez sa mère', () => {
-    const picker = fs.readFileSync('resources/js/Components/Reception/NewbornPicker.vue', 'utf8');
-
-    assert.match(picker, /Né à la clinique/);
-    assert.match(picker, /Né ailleurs/);
-    assert.match(picker, /\/reception\/newborns\?mother=\$\{patient\.uuid\}/);
-    assert.match(picker, /\/reception\/newborns\/\$\{baby\.record_uuid\}\/\$\{baby\.newborn_uuid\}\/patient/);
-    // Un bébé déjà patient se sélectionne sans rien créer.
-    assert.match(picker, /if \(baby\.patient\) \{\n        emit\('select', baby\.patient\);/);
-    // Le sexe n'est demandé que si la fiche ne le porte pas.
-    assert.match(picker, /const needsSex = \(baby\) => !baby\.patient && !baby\.sex_code;/);
-    // Rien de clinique n'est affiché par l'accueil.
-    assert.doesNotMatch(picker, /apgar|birth_weight|care_notes/);
-
-    // L'écran d'arrivée en fait un patient sélectionné, comme n'importe quel patient existant.
-    assert.match(reception, /patientMode === 'newborn'/);
-    assert.match(reception, /@select="newbornSelected"/);
-    assert.match(reception, /@internal="chooseInternalNewborn"/);
-    assert.match(reception, /@external="chooseExternalNewborn"/);
+/** ADR-177 — l'accueil ne connaît que « Patient existant » et « Nouveau patient » : plus de mode « Nouveau-né ». */
+test('la Réception n’a plus de mode nouveau-né', () => {
+    assert.equal(fs.existsSync('resources/js/Components/Reception/NewbornPicker.vue'), false);
+    assert.doesNotMatch(reception, /NewbornPicker|patientMode === 'newborn'|isExternalNewborn|EXTERNAL_NEWBORN|\/reception\/newborns/);
+    assert.match(reception, /Patient existant/);
+    assert.match(reception, /Nouveau Patient/);
 });
 
-test('un nouveau-né né ici ne voit aucun formulaire patient, celui né ailleurs reçoit une identité de bébé', () => {
-    const picker = fs.readFileSync('resources/js/Components/Reception/NewbornPicker.vue', 'utf8');
-
-    assert.match(reception, /v-if="patientMode === 'create' \|\| isExternalNewborn"/);
-    assert.match(reception, /registration_context: 'EXTERNAL_NEWBORN'/);
-    assert.match(reception, /Identité du nouveau-né né ailleurs/);
+/** Un bébé né ailleurs est un nouveau patient ordinaire, au profil enfant : aucun champ d'adulte, un parent à joindre. */
+test('un bébé né ailleurs se crée comme un nouveau patient, au profil enfant', () => {
+    assert.match(reception, /v-if="patientMode === 'create'"/);
     assert.match(reception, /v-if="!isDependentPatient" label="Téléphone"/);
     assert.match(reception, /v-if="!isDependentPatient" label="Email"/);
     assert.match(reception, /v-if="!isDependentPatient" label="Profession"/);
     assert.match(reception, /v-if="!isDependentPatient" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"/);
     assert.match(reception, /Parent ou responsable à joindre/);
-    assert.match(picker, /emit\('internal'\)/);
-    assert.match(picker, /emit\('external'\)/);
 });
 
 test('naissance, sexe et domicile du bébé restent sur la même rangée large', () => {
-    const birthAt = reception.indexOf(":label=\"isExternalNewborn ? 'Naissance du bébé' : 'Naissance ou âge'\"");
+    const birthAt = reception.indexOf('label="Naissance ou âge"');
     const rowStart = reception.lastIndexOf('<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
     const nextRow = reception.indexOf('<div v-if="!isDependentPatient" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">', birthAt);
     const row = reception.slice(rowStart, nextRow);
@@ -97,7 +86,7 @@ test('naissance, sexe et domicile du bébé restent sur la même rangée large',
 
 test('les civilités enfant activent le profil enfant et retirent les champs administratifs d’adulte', () => {
     assert.match(reception, /\['GIRL', 'BOY'\]\.includes\(patientForm\.civility\)/);
-    assert.match(reception, /const isDependentPatient = computed\(\(\) => isExternalNewborn\.value \|\| isChildPatient\.value\)/);
+    assert.match(reception, /const isDependentPatient = computed\(\(\) => isChildPatient\.value\)/);
     assert.match(reception, /if \(isChildPatient\.value\)/);
     assert.match(reception, /Parent ou responsable à joindre/);
     assert.match(reception, /Le téléphone et l’email sont ceux de l’adulte responsable, jamais ceux de l’enfant/);

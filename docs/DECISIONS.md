@@ -1005,7 +1005,9 @@ consultations.create
 
 # ADR-030 — Typologie patient et parcours piloté par les désignations
 
-**Status:** ACCEPTED (2026-08-22 — réunion client du 22/08/2026)
+**Status:** ACCEPTED (2026-08-22 — réunion client du 22/08/2026) ; le parcours d'une
+désignation **n'ouvre plus aucune file** depuis l'**ADR-177** (2026-09-23) : il ne propose
+plus que la suite des Soins (ADR-166), et la visibilité d'un passage ne dépend plus du besoin.
 
 Cette décision remplace la règle de parcours uniforme décrite par ADR-029.
 Elle ne modifie pas l'exception d'urgence : une urgence reste immédiatement
@@ -2371,7 +2373,9 @@ inter-sites et n’accède jamais directement à une base clinique.
 
 # ADR-053 — Expérience Réception progressive pilotée par le besoin
 
-**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-08-28 — exigence explicite du propriétaire) ; l'étape
+« Routage » est retirée par l'**ADR-177** (2026-09-23) : la confirmation n'oriente plus, elle
+propose une prochaine étape facultative.
 
 Pour un passage normal, l’accueil ne commence plus par une catégorie
 financière du Patient. L’ordre opérationnel est désormais :
@@ -3163,7 +3167,9 @@ des permissions et du workflow Chirurgie.
 
 # ADR-068 — Analyses et actes Maternité sélectionnables à la Réception
 
-**Status:** ACCEPTED (2026-09-01 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-01 — exigence explicite du propriétaire) ; un acte Maternité
+sélectionné n'ouvre plus d'orientation `RECEPTION -> MATERNITY` depuis l'**ADR-177** — la
+demande d'analyses (et la demande du bloc, ADR-159) restent créées.
 
 La sélection initiale de la Réception est étendue aux prestations actives et
 facturables des modules `LABORATORY` et `MATERNITY`. Cette décision remplace la
@@ -10279,7 +10285,8 @@ sinon le récapitulatif garde toute la largeur, points de vigilance compris.
 
 # ADR-124 — La file Soins ne montre que ce qui reste à faire : deux onglets
 
-**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire)
+**Status:** ACCEPTED (2026-09-19 — exigence explicite du propriétaire) ; **remplacée par
+l'ADR-177** (2026-09-23) : la page Soins lit le tableau partagé des passages et ses six vues.
 
 **Amende l'ADR-118** (la file Soins) sur ce que la page affiche. Aucune
 permission nouvelle, aucune migration.
@@ -10938,6 +10945,10 @@ ses données.
 ---
 
 # ADR-135 — Soins : des files qui suivent le parcours réel (Maternité, Anesthésie)
+
+> Amendée par l'**ADR-177** (2026-09-23) pour la Maternité : ses quatre vues deviennent les
+> six vues du tableau partagé ; « Orientées vers Médecine » se lit en pastille sur la ligne.
+> L'Anesthésie n'est pas touchée.
 
 **Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire : « filtre pour
 la patiente en cours ou déjà orientée vers le médecin » en Maternité, « orienté vers
@@ -11755,6 +11766,9 @@ valider par les sages-femmes. Aucune permission nouvelle.
 ---
 
 # ADR-146 — Le nouveau-né vit dans le dossier de sa mère, et devient patient à l'accueil
+
+> Amendée par l'**ADR-177** (2026-09-23) : le dossier patient du bébé ne s'ouvre plus à la
+> Réception mais **depuis la Maternité** ; l'accueil n'a plus de mode « Nouveau-né ».
 
 **Status:** ACCEPTED (2026-09-20 — exigence explicite du propriétaire, qui revient sur la création à
 l'accouchement : « il faut le bébé rajouter direct dans la dossier de sa mère […] quand arriver à la
@@ -15095,3 +15109,367 @@ l'a posée, et la Pharmacie n'encaisse toujours rien (ADR-013). Un produit
 jamais réceptionné reste sans lot, sans stock et sans prix de vente : il ne
 peut être ni délivré ni vendu (ADR-036, ADR-049), ce qui était déjà vrai —
 cela se voit désormais.
+
+---
+
+# ADR-177 — Besoin, prochaine étape, visibilité et prise en charge : cinq notions séparées
+
+**Status:** ACCEPTED (2026-09-23 — spécification explicite du propriétaire)
+
+**Amende** l'ADR-030 et l'ADR-053 (le parcours d'une désignation n'ouvre plus de file),
+l'ADR-068 (plus d'orientation Maternité à l'arrivée), l'ADR-135 pour la Maternité et
+l'ADR-146 (le dossier du bébé s'ouvre depuis la Maternité) ; **remplace** l'ADR-124. Le CDC
+décrit l'orientation (§12, §32) sans dire qu'un besoin d'arrivée décide qui voit le patient :
+les règles ci-dessous sont celles du propriétaire.
+
+## Le constat
+
+Une désignation choisie à l'accueil faisait trois choses à la fois : elle expliquait la
+venue, elle créait une orientation, et donc elle décidait **qui voyait le patient**. Un
+patient venu pour une injection n'existait pas pour la Médecine ; une consultation n'existait
+pas pour les Soins avant la fin de leur évaluation ; un besoin inconnu partait d'office aux
+Soins. L'accueil se faisait passer pour un tri clinique qu'il n'est pas.
+
+## Cinq notions, jamais confondues
+
+```text
+besoin              pourquoi le patient vient — catalogue, estimation, tarif, facture : inchangés
+prochaine étape     la suggestion de l'accueil — facultative, plusieurs choix, purement indicative
+visibilité          tout passage ouvert et accueilli, pour tout service clinique autorisé
+prise en charge     un vrai geste, tracé, qui crée ou accepte l'orientation
+orientation réelle  transmission, demande d'un médecin, urgence — inchangées
+```
+
+## La prochaine étape suggérée
+
+`episode_reception_next_steps` (`episode_id`, `module`, `created_by` ; unique
+`episode_next_steps_unique`), enum `ReceptionNextStep` : Soins, Médecine, Maternité,
+Laboratoire, Pharmacie, Chirurgie. Elle se coche à la **Confirmation** de l'accueil
+(`NextStepPicker`) et se corrige depuis le détail du passage (`EpisodeNextStepsCard`,
+`PUT /reception/passages/{uuid}/prochaines-etapes`, `episodes.update`, passage ouvert).
+`SetEpisodeReceptionNextStepsAction` normalise, refuse une valeur inconnue, n'écrit rien si
+rien ne change et audite `episode.next_steps.update` (ancien et nouveau choix).
+
+```text
+aucune case cochée   réponse valide — jamais d'erreur « obligatoire »
+plusieurs cases      valides — « Soins, Médecine »
+effet                aucun : ni orientation, ni visibilité, ni facturation
+```
+
+L'écran le dit : « Cette information est indicative. Elle n'empêche pas les autres services
+autorisés de voir le passage. » Aucune ancienne orientation n'est convertie en suggestion.
+
+## Ce que la confirmation de l'accueil crée encore
+
+`PlanEpisodeRoutingAction` conserve l'instantané du besoin (tarif, couverture, parcours) et ne
+crée plus que les **demandes techniques** que le patient est venu chercher :
+
+```text
+analyses         orientation RECEPTION -> LABORATORY + LabRequest (ADR-068)
+acte du bloc     orientation RECEPTION -> SURGERY + SurgicalRequest PENDING (ADR-159)
+Soins, Médecine, aucune orientation
+Maternité
+besoin inconnu   aucune orientation — « besoin à préciser » ne force plus les Soins
+```
+
+`ReceptionRoutingMode` reste une propriété du catalogue ; il ne sert plus qu'à vérifier la
+cohérence du référentiel, à nommer la demande technique (`technicalRequestModule()`) et à
+**proposer** la suite des Soins (ADR-166, `CareWorkflow::completionMode()`). L'étape
+« Routage » et la « destination initiale » de l'aperçu financier disparaissent.
+
+## L'urgence : l'exception assumée, inchangée
+
+Une urgence est une décision de prise en charge immédiate, pas une suggestion : Soins et
+Médecine reçoivent une vraie orientation d'emblée (ADR-021, ADR-056), par `CreateEpisodeAction`,
+`MarkEpisodeEmergencyAction` et le filet idempotent de `PlanEpisodeRoutingAction`. Rien n'est
+changé, et c'est écrit comme une exception.
+
+## La visibilité : un tableau partagé des passages
+
+`ActiveEpisodeBoard` sert à Soins (`/care`), Médecine (`/medicine`) et Maternité (`/maternity`)
+le même tableau. Un passage est **actif** s'il est ouvert, si son accueil est terminé
+(`service_plan_finalized_at`) — ou c'est une urgence, ou une vraie orientation existe — et s'il
+n'attend pas seulement la Réception (`PENDING_SETTLEMENT` sans orientation active). Rien de
+tout cela ne lit la suggestion.
+
+```text
+waiting      En attente — arrivés, pas encore pris en charge ici, chacun son n° de file (par défaut)
+in_progress  En cours chez moi
+completed    Terminés chez moi — passage encore ouvert
+
+suggested    filtre du bloc « En attente » : l'accueil a suggéré ce service
+emergency    filtre transversal : passages actifs en urgence, quel que soit leur état ici
+```
+
+Les trois blocs **ne se chevauchent pas** : un passage n'est que dans l'un d'eux, et la somme de
+leurs comptes est le nombre de passages vus par ce service (amendement du 2026-09-23, demande du
+propriétaire : une vue « Tous les passages » mêlait patients en attente et patients terminés).
+Les comptes viennent du serveur ; une vue inconnue ou ancienne (`all`, `requested`) retombe sur
+« En attente ».
+
+**Chaque patient en attente a son n° de file**, qu'une vraie orientation l'ait envoyé ici
+(« Orienté · en attente ») ou non (« En attente ») : les deux attendent, ils partagent la même
+file. `ActiveEpisodeBoard::queueNumbers()` numérote **toute** la file — jamais la page ni le
+filtre —, **par ordre d'arrivée à la clinique** (`episodes.started_at`) : le numéro ne recule pas
+quand un service transmet le patient. Le n° 1 est affiché « Prochain ». Une urgence que la
+Médecine n'a pas encore vue reste épinglée en tête, sans numéro (ADR-021, ADR-124). Un patient
+pris en charge ou terminé ne tient plus de place. Le numéro que les Soins lisent pour la Médecine
+est celui de la file du médecin. L'attente affichée se compte depuis l'arrivée. Un patient en
+attente ici mais pris en charge ailleurs à cet instant porte la pastille « Actuellement :
+Soins » : on ne l'appelle pas en plein soin. L'ancien calcul de `EpisodeQueuePresenter`, par
+orientation, est retiré — la numérotation n'existe plus qu'à un seul endroit.
+
+Une ligne ne porte que de quoi s'organiser — patient, heure d'arrivée, attente, priorité, besoin
+**sans montant**, suggestion (« Aucune suggestion » est un état normal), état chez ce service, où
+le patient est ailleurs — et les adresses des gestes permis, calculées côté serveur. **Voir un
+passage n'est pas lire son dossier** : aucune constante, aucun diagnostic, aucune allergie, aucun
+montant ; le détail reste gardé par ses propres droits. Les colonnes suivent le bloc : n°,
+arrivée et suggestion pour la file ; qui et depuis quand pour « En cours » ; quand et la suite
+pour « Terminés ». Un passage terminé se relit en un clic : journal de traitement du passage
+(`treatment_journal.view`), dossier médical du passage (`patients.view`) et le passage lui-même
+(icône du passage, la même que la recherche globale). Chaque adresse n'est servie qu'avec le
+droit que sa route exige.
+Chaque besoin porte l'icône de son service (la même que dans le menu et les suggestions),
+« Besoin à préciser » et « Aucune suggestion » une icône neutre — ce sont des états normaux.
+L'état chez ce service porte l'icône de son bloc — horloge « En attente », pouls « Pris en
+charge » (sablier « En attente de résultat »), coche « Terminé » — et son libellé reste écrit à
+côté : la couleur et l'icône ne portent jamais seules le sens.
+
+Les gestes d'une ligne tiennent **sur une seule ligne**, à la même hauteur : le geste de travail
+garde un libellé court (« Prendre », « Ouvrir » / « Consulter » / « Reprendre », « Remettre »),
+puis les liens de relecture — journal, dossier, journaux du patient aux Soins, passage — forment
+une barre d'icônes groupée, toujours à droite. Chaque icône est nommée au survol et pour les
+lecteurs d'écran (`aria-label`) ; le libellé complet d'un geste de travail l'est aussi (« Prendre
+en charge », « Remettre en file »). Le tableau tient sans défilement horizontal à 1600 px.
+
+`Components/Clinical/ActivePassageBoard.vue` (shadcn-vue, ADR-099) rend le tableau pour les trois
+espaces ; la Soins y ajoute la demande du médecin (ADR-118) et les journaux de traitement, la
+Maternité ce qui l'a suivie (médecin, césarienne, ADR-135).
+
+## La prise en charge : un vrai geste
+
+`TakeChargeOfEpisodeAction` (`POST /{care|medicine|maternity}/passages/{uuid}/prendre-en-charge`)
+accepte l'orientation qui attend, sinon en crée une (`RECEPTION -> module`, « Pris en charge
+depuis les passages en cours ») puis l'accepte par l'action du service — `AcceptCareOrientationAction`,
+`AcceptMedicineOrientationAction` (qui ouvre la consultation), `AcceptMaternityOrientationAction`.
+Refusé si le passage est clos, s'il n'attend que la Réception, si son accueil n'est pas terminé,
+ou si ce service a déjà **terminé** ce passage (une reprise par erreur ne rouvre rien). Déjà pris
+par un collègue : le message le nomme, rien n'est doublé.
+
+**Rien n'est créé en regardant** : ni orientation, ni consultation, ni fiche Soins, ni dossier
+Maternité, ni dossier d'anesthésie, ni demande chirurgicale. La fiche Soins et le dossier
+Maternité naissent toujours à la première saisie.
+
+```text
+Soins      care.create + care.update  (ADR-157)
+Médecine   consultations.create
+Maternité  maternity.update
+```
+
+`EpisodeOrientation` n'est pas supprimée : elle ne représente plus que les orientations
+réelles et les prises en charge réelles.
+
+## Le nouveau-né
+
+L'accueil n'a plus que « Patient existant » et « Nouveau patient » : `NewbornPicker`, le mode
+`newborn`, `EXTERNAL_NEWBORN` et les routes `/reception/newborns*` sont retirés. Un bébé **né à
+la clinique** devient patient depuis sa fiche Maternité (`NewbornDossiers` › « Créer le dossier
+patient », `POST /maternity/records/{record}/newborns/{uuid}/patient`, `maternity.view` +
+`newborns.patient.create`) ; les règles de `CreateNewbornPatientAction` sont inchangées (numéro
+dérivé, naissance jamais devinée, sexe exigé, idempotence). Un bébé **né ailleurs** est un
+nouveau patient ordinaire, au profil enfant (ADR-146, amendement du 2026-09-22). La migration
+`2026_10_27_100000` renomme le droit, l'ajoute aux recommandations du profil sage-femme et le
+recopie aux comptes qui détenaient `maternity.newborn.manage` en exception.
+
+## Ce qui ne change pas
+
+Catalogue, estimation, tarifs, facture et Caisse (ADR-012, ADR-028, ADR-031, ADR-051) ; les
+vraies orientations cliniques (Soins → Médecine, Médecine → Soins/Chirurgie/Maternité/…) ; la
+Pharmacie seule, qui n'ouvre aucune file et rejoint « Sorties & règlements » (ADR-104) ; les
+rapports centraux, qui comptent les orientations réelles (ADR-102).
+
+## Signalé, non tranché
+
+```text
+PENDING_SETTLEMENT     un passage qui n'attend que la Réception quitte « En attente » (il reste
+                       dans « Terminés » du service qui l'a vu) — à confirmer
+numéro de file         un patient en soin ailleurs garde son n° ici (pastille « Actuellement »)
+Maternité              voit tous les passages actifs, hommes compris : c'est la règle demandée,
+                       à confirmer pour la Maternité
+reprise après fin      refusée ; revoir un patient déjà terminé passe par une vraie orientation
+socle RECEPTION        garde newborns.patient.create, sans effet sans maternity.view ; le retirer
+                       est une décision du portail (ADR-064)
+Labo, Pharmacie, bloc  leurs files lisent toujours leurs demandes réelles ; une suggestion vers
+                       eux s'affiche mais n'a pas de tableau
+suite des Soins        le parcours de la désignation propose encore la suite (ADR-166)
+Anesthésie             non concernée : elle suit la demande chirurgicale (ADR-135)
+```
+
+## Amendement du 2026-09-23 — par où le passage devrait entrer
+
+Demande du propriétaire : un médecin qui prend un patient attendu aux Soins doit en être prévenu,
+et les Soins ne doivent pas prendre un patient attendu directement chez le médecin. Deux
+arbitrages : la Médecine décide (« Soins ou consulter »), les Soins sont informés et refusés.
+
+`App\Support\EpisodeEntryPath` lit, sans rien de clinique, les deux signaux déjà consignés à
+l'accueil — la **suggestion** (prochaine étape) et le **parcours du besoin** (ADR-030). La
+suggestion, choisie pour ce passage, l'emporte sur le parcours du catalogue.
+
+```text
+Médecine prend un patient attendu aux Soins     CARE_FIRST     fenêtre : « Faire les soins
+  (suggestion Soins, ou besoin CARE_ONLY /                      moi-même » (droits Soins requis),
+  CARE_THEN_MEDICINE sans suggestion Médecine,                  « Consulter quand même », Annuler.
+  ou orientation Soins en attente)                              Le serveur ne refuse rien.
+Soins prend un patient attendu en Médecine      MEDICINE_ONLY  fenêtre d'information seule
+  (suggestion Médecine ou besoin MEDICINE_DIRECT,               (« Compris ») ; refus serveur dans
+  et rien ne désigne les Soins)                                 TakeChargeOfEpisodeAction
+jamais soumis au rappel                          urgence (ADR-021) ; vraie orientation en attente
+                                                 vers ce service (soin demandé par le médecin) ;
+                                                 côté Médecine, Soins déjà en cours ou terminés
+```
+
+Le refus aux Soins applique l'ADR-030 — une prestation `MEDICINE_DIRECT` ne passe pas
+artificiellement par les Soins — et ne vaut que si **aucun** signal ne désigne les Soins. Il est
+revérifié sous verrou dans l'action : l'écran n'est jamais la seule garde. Le message est écrit une
+fois (`EpisodeEntryPath::refusalMessage()`).
+
+Sur la ligne du tableau, `pathway` (code, titre, message, raisons, `care_take_charge_url`) n'est
+servi qu'à qui pourrait prendre le patient ; un mot sous l'état le dit avant le clic (« Soins
+d'abord », « Attendu en Médecine »). Un patient attendu en Médecine reste **visible** des Soins
+(la visibilité ne dépend jamais du parcours) mais n'a ni adresse de prise en charge, ni n° de file,
+ni place pour le garde-fou « un patient attend avant celui-ci » (`status` NONE) : son bouton est
+verrouillé et ouvre l'information. Côté Médecine, « Consulter quand même » rejoint ce garde-fou
+(ADR-121) ; « Faire les soins moi-même » prend le patient aux Soins (`care.create`, `care.update`,
+`care.view`, ADR-157) et ouvre sa fiche. Composant : `Components/Clinical/EntryPathConfirm.vue`.
+
+Aucune permission nouvelle, aucune migration. Aucune donnée n'est déduite : un besoin inconnu sans
+suggestion ne déclenche rien, dans un sens comme dans l'autre.
+
+---
+
+# ADR-178 — « Rôles & permissions » devient un centre de gestion : modules, grille d'actions, un seul enregistrement
+
+**Status:** ACCEPTED (2026-09-24 — exigence explicite du propriétaire : refonte complète de
+`/super-admin/workspaces/roles`, jugé trop complexe pour un usage quotidien)
+
+**Amende la présentation** des ADR-100, ADR-101, ADR-150, ADR-153 et ADR-173. **Aucune règle ne
+change** : même résolution (`DENY individuel > ALLOW individuel > socle du rôle`, ADR-022/033), mêmes
+routes, mêmes Policies, mêmes endpoints de l'API du site, mêmes permissions (`roles.*`,
+`users.manage`, `permissions.assign`, `permissions.*`), même audit. Le portail n'écrit toujours dans
+aucune base clinique (ADR-004, ADR-027). Aucune migration.
+
+## Le constat
+
+L'écran empilait quatre sections (socle, exceptions, rôles du site, catalogue), choisissait le rôle
+dans une fenêtre, et présentait chaque catégorie comme une longue liste de cases sans ordre commun :
+pour savoir ce qu'un rôle peut supprimer, il fallait ouvrir quarante listes et y chercher le mot.
+Créer ou renommer un rôle ouvrait une fenêtre, chaque droit sensible coché en ouvrait une autre.
+
+## Trois onglets, un geste par onglet
+
+```text
+Rôles                   la liste des rôles à gauche, le socle du rôle choisi à droite ;
+                        créer, renommer, archiver, restaurer et réinitialiser s'y font sur place
+Exceptions par compte   la liste des comptes à gauche, ce que chaque compte a réellement à droite
+Catalogue des droits    les mots que l'application vérifie (ADR-101), rangés par module
+```
+
+« Rôles du site » n'est plus un onglet : un rôle se crée, se renomme ou s'archive là où on le lit.
+La liste des rôles est une **colonne** (recherche, clavier, nombre de comptes et de droits, rôles
+archivés repliés, rôle système signalé), plus une fenêtre : sous 1024 px elle s'ouvre dans un panneau
+« Changer ». L'adresse suit ce qu'on regarde (`?site=…&vue=comptes&compte=…`, `&role=…`) par une
+visite Inertia côté client : une actualisation, un lien partagé ou le retour d'un enregistrement
+rouvrent exactement le même rôle ou le même compte.
+
+## Modules, fonctionnalités, actions
+
+Les catégories du code sont rangées dans **14 modules** (Accueil & patients, Soins infirmiers,
+Médecine, Hospitalisation, Chirurgie & anesthésie, Maternité, Laboratoire & imagerie, Pharmacie,
+Caisse & facturation, Tarifs & mutuelles, Ressources humaines, Logistique & sécurité, Utilisateurs &
+accès, Administration & système) — `resources/js/utilities/permissionCategories.js`, une seule table.
+Une catégorie inconnue tombe dans « Administration & système » : aucun droit ne disparaît de l'écran
+faute d'être rangé. Onze
+catégories qui n'avaient pas de libellé en reçoivent un (commandes et factures fournisseurs,
+réceptions, catalogues et prix fournisseurs, registre des décès, journal de traitement, fiche de
+régime, feuilles d'imagerie, protocoles, transferts). Le `name` d'une permission ne change pas.
+
+Dans un module, chaque fonctionnalité — une ressource : `patients`, mais aussi `surgery.report` ou
+`catalog.tariffs` — est une ligne, et ses droits se rangent dans **sept colonnes communes** :
+
+```text
+Voir | Créer | Modifier | Supprimer (ou archiver) | Restaurer | Valider (ou approuver) | Exporter
+```
+
+Ce qui n'entre dans aucune colonne (imprimer, clôturer, encaisser…) reste sur la ligne, sous son
+libellé complet. **Chaque fonctionnalité porte son icône** (Dossier médical, Diagnostics, Ordonnances…) :
+la sienne pour une sous-ressource (`PERMISSION_RESOURCE_ICONS`), sinon celle de sa catégorie, sinon
+celle de son module — une fonctionnalité ajoutée plus tard n'apparaît jamais sans icône. Une
+sous-fonctionnalité (« Compte rendu opératoire » sous « Chirurgie ») est décalée, avec une icône plus
+petite ; le catalogue reprend les mêmes icônes. Un test vérifie que chaque catégorie et
+sous-ressource du seeder a la sienne. `buildPermissionModules()` place chaque permission du catalogue d'un site ; un test
+le vérifie sur les 377 permissions réelles. Sur un écran étroit, la grille devient des pastilles qui
+portent leur verbe (requête de conteneur, pas de défilement horizontal).
+
+Chaque module est un accordéon replié qui dit « N / total accordées » et « N modif. ». **Un seul
+module est ouvert à la fois** : en ouvrir un referme les autres, et l'en-tête cliqué reste exactement
+où il était à l'écran même si le module du dessus se replie (`composables/useExclusiveModules.js`,
+mêmes règles dans les trois onglets). Une recherche ouvre d'elle-même les modules qui ont un résultat ;
+en ouvrir un à la main referme les autres. Il n'y a plus de « Tout déplier », seulement « Tout
+replier » quand un module est ouvert. Ouvert, un module propose « Tout sélectionner » / « Tout
+désélectionner » (sur ce qui est affiché), chaque ligne a sa
+case à trois états et chaque en-tête de colonne coche la colonne. La recherche porte sur le libellé,
+le code, la fonctionnalité et le verbe — tous les mots, dans n'importe quel ordre ; le nom du module
+n'y est pas (« supprimer patient » ramenait toutes les suppressions du module). Filtres : toutes,
+accordées, non accordées, sensibles, modifiées.
+
+## Un brouillon, un seul enregistrement
+
+Cocher ne part pas au serveur : le socle (ou les exceptions) est un brouillon, relisible, jusqu'à
+« Enregistrer les modifications ». Une barre collante dit combien de droits changent (+ accordés,
+− retirés), à qui cela s'applique, propose « Revoir » (l'écart rangé par module) et « Annuler », puis
+confirme l'enregistrement (« Modifications enregistrées · HH:MM »). Un refus du serveur garde le
+brouillon et affiche l'erreur.
+
+**Les confirmations ne restent que là où elles pèsent :**
+
+```text
+enregistrer un socle qui accorde des droits sensibles       la liste des droits concernés
+enregistrer un compte qui s'autorise des droits sensibles   idem
+réinitialiser un rôle (ADR-173)                              ce qui est restauré, exceptions intactes
+réinitialiser un compte (ADR-173)                            héritage pur du rôle
+archiver un rôle                                             motif obligatoire (5 caractères au moins)
+quitter un brouillon (autre rôle, compte, onglet, site, page)  le nombre de modifications perdues
+```
+
+Cocher un droit sensible n'ouvre plus de fenêtre à chaque clic : on le confirme une fois, au moment
+où il part. Créer un rôle (code proposé depuis le libellé, point de départ vide ou copie d'un socle)
+et le renommer se font sur place, sans fenêtre.
+
+## Ce que chaque écran continue de dire
+
+```text
+ADR-150   « N comptes de ce rôle portent des exceptions qui l'emportent sur ce socle »
+ADR-153   sur chaque case : « Refusé à N comptes — le cocher ici ne l'ouvrira pas pour eux »
+ADR-154   un bouton inaccessible nomme le droit qui manque (users.manage, permissions.assign…)
+ADR-158   les gestes impossibles restent visibles, désactivés, avec leur raison
+            (archiver un rôle encore porté par des comptes : « réaffectez-les d'abord »)
+```
+
+Côté compte, une case montre le **résultat** (accès ou non) et sa provenance : pâle quand le rôle
+décide, pleine quand une exception décide, rouge quand une interdiction retire l'accès. Elle s'ouvre
+sur trois choix — Suivre le rôle, Toujours autoriser, Toujours interdire —, chacun disant ce qu'il
+produit pour ce compte. Un module entier se règle d'un choix.
+
+## Signalé, non tranché
+
+Un rôle n'a **aucune description en base**. Les rôles livrés portent une phrase fixe côté écran
+(`utilities/roleDescriptions.js`) ; un rôle créé depuis le portail dit seulement qu'il l'a été.
+Rendre la description éditable exigerait une colonne, une règle de validation et un champ dans l'API
+du site : à décider.
+
+Composants : `RoleDirectory`, `RoleOverviewCard`, `RoleCreatePanel`, `RoleWorkspace`,
+`AccountDirectory`, `AccountWorkspace`, `PermissionToolbar`, `PermissionModuleCard`,
+`PermissionMatrix`, `PermissionToggle`, `PermissionEffectCell`, `PermissionSaveBar`,
+`composables/useUnsavedChangesGuard.js`, et deux primitives shadcn (`DropdownMenu`, état
+intermédiaire de `Checkbox`). Retirés : `RoleBaselineEditor`, `UserPermissionOverrides`,
+`PermissionCategoryNav`, `PermissionAccessRow`. shadcn-vue seulement (ADR-099).

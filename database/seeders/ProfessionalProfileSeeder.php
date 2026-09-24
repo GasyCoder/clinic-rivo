@@ -32,6 +32,8 @@ class ProfessionalProfileSeeder extends Seeder
                     'maternity.prenatal.manage', 'maternity.labor.manage',
                     'maternity.delivery.manage', 'maternity.newborn.manage',
                     'maternity.procedures.manage',
+                    // ADR-177 — le bébé né ici devient patient depuis la Maternité.
+                    'newborns.patient.create',
                 ],
             ],
             'ANESTHETIST' => [

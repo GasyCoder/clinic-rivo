@@ -202,11 +202,9 @@ class MutualTariffFlowTest extends TestCase
         $this->assertNotNull($result->billingWarning);
         $this->assertStringContainsString('tarif Mutuelle', $result->billingWarning);
         $this->assertDatabaseCount('episode_service_requests', 1);
-        $this->assertDatabaseHas('episode_orientations', [
-            'episode_id' => $episode->id,
-            'destination_module' => CatalogModule::Medicine->value,
-            'status' => 'PENDING',
-        ]);
+        // ADR-177 — le besoin reste, sans orientation déduite : le passage est
+        // visible de tous les services autorisés, quel que soit son tarif.
+        $this->assertDatabaseMissing('episode_orientations', ['episode_id' => $episode->id]);
         $this->assertDatabaseCount('billable_items', 0);
         $this->assertDatabaseCount('invoices', 0);
     }

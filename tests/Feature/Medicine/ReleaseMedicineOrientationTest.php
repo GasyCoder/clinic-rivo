@@ -3,6 +3,7 @@
 namespace Tests\Feature\Medicine;
 
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Enums\CatalogItemType;
@@ -129,11 +130,14 @@ class ReleaseMedicineOrientationTest extends TestCase
         $doctor = $this->doctor();
         [, $orientation] = $this->takenPatient($doctor);
 
-        $this->actingAs($doctor)->get('/medicine?filter=all')
+        // ADR-177 — le tableau des passages dit qui a pris le patient, et
+        // propose « Remettre en file » à ce seul médecin.
+        $this->actingAs($doctor)->get('/medicine?view=in_progress')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.accepted_by_id', $doctor->id)
-                ->where('orientations.data.0.status', 'IN_PROGRESS'));
+                ->where('passages.data.0.module.accepted_by_id', $doctor->id)
+                ->where('passages.data.0.module.state', 'IN_PROGRESS')
+                ->where('passages.data.0.actions.release_url', route('medicine.orientations.release', $orientation)));
     }
 
     private function doctor(): User
@@ -175,6 +179,9 @@ class ReleaseMedicineOrientationTest extends TestCase
             'catalog_item_uuid' => $item->uuid,
             'quantity' => 1,
         ]], $doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $doctor);
         $orientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
             ->sole();

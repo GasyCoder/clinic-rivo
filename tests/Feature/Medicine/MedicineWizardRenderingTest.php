@@ -266,10 +266,10 @@ class MedicineWizardRenderingTest extends TestCase
         [, $orientation] = $this->normalMedicineConsultation($doctor);
 
         $this->actingAs($doctor)
-            ->get('/medicine')
+            ->get('/medicine?view=in_progress')
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.is_waiting_on_results', false)
-                ->where('orientations.data.0.pending_reasons', []));
+                ->where('passages.data.0.module.is_waiting_on_results', false)
+                ->where('passages.data.0.module.pending_reasons', []));
 
         $nfs = $this->labItem($doctor, 'NFS', 'NFS');
         $this->actingAs($doctor)->post("/medicine/orientations/{$orientation->uuid}/lab-requests", [
@@ -277,10 +277,10 @@ class MedicineWizardRenderingTest extends TestCase
         ]);
 
         $this->actingAs($doctor)
-            ->get('/medicine')
+            ->get('/medicine?view=in_progress')
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.is_waiting_on_results', true)
-                ->where('orientations.data.0.pending_reasons.0', '1 analyse en attente de résultat'));
+                ->where('passages.data.0.module.is_waiting_on_results', true)
+                ->where('passages.data.0.module.pending_reasons.0', '1 analyse en attente de résultat'));
 
         $item = LabRequest::query()->sole()->items()->sole();
         $this->actingAs($this->labTechnician())->post("/laboratory/items/{$item->uuid}/result", [
@@ -288,10 +288,10 @@ class MedicineWizardRenderingTest extends TestCase
         ]);
 
         $this->actingAs($doctor)
-            ->get('/medicine')
+            ->get('/medicine?view=in_progress')
             ->assertInertia(fn ($page) => $page
-                ->where('orientations.data.0.is_waiting_on_results', false)
-                ->where('orientations.data.0.pending_reasons', []));
+                ->where('passages.data.0.module.is_waiting_on_results', false)
+                ->where('passages.data.0.module.pending_reasons', []));
     }
 
     public function test_dossier_source_module_reflects_the_real_arrival_pathway(): void
@@ -393,6 +393,9 @@ class MedicineWizardRenderingTest extends TestCase
             'catalog_item_uuid' => $consultationItem->uuid,
             'quantity' => 1,
         ]], $doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $doctor);
         $medicineOrientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
             ->sole();

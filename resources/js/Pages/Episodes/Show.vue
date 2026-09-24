@@ -8,6 +8,7 @@ import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import ShadcnButton from '@/Components/Shadcn/Button.vue';
 import NewbornDossiers from '@/Components/Clinical/NewbornDossiers.vue';
+import EpisodeNextStepsCard from '@/Components/Reception/EpisodeNextStepsCard.vue';
 import { FileText, NotebookPen } from 'lucide-vue-next';
 import { formatDateTime } from '@/utilities/date';
 import { formatMoney } from '@/utilities/money';
@@ -21,6 +22,8 @@ const props = defineProps({
     /** ADR-144 — les bébés du dossier Maternité de ce passage ; `null` sans dossier Maternité ni droit `newborns.view`. */
     maternityBabies: { type: Object, default: null },
     capabilities: { type: Object, default: () => ({}) },
+    /** ADR-177 — les choix de la prochaine étape suggérée, servis par le serveur. */
+    nextStepOptions: { type: Array, default: () => [] },
 });
 
 const statusLabels = { OPEN: 'Ouvert', CLOSED: 'Clos', CANCELLED: 'Annulé' };
@@ -30,8 +33,10 @@ const statusBadgeClass = {
     CANCELLED: 'border-red-200 text-red-600 dark:border-red-900 dark:text-red-300',
 };
 const administrativeStatusLabels = {
-    PENDING_ORIENTATION: 'En attente aux Soins',
-    ORIENTED: 'Orienté',
+    // ADR-177 — l'accueil ne décide plus d'une file : un passage accueilli
+    // attend qu'un service le prenne en charge.
+    PENDING_ORIENTATION: 'Accueil en cours',
+    ORIENTED: 'En attente de prise en charge',
     IN_CARE: 'En cours de soins',
     PENDING_SETTLEMENT: 'En attente de règlement',
     // CDC §33.3 — les trois sorties administratives réelles. DISCHARGED est
@@ -156,11 +161,21 @@ const vitalsRows = computed(() => {
              (chaque demande distincte, avec la suite décidée par le médecin),
              Pharmacie, Caisse et sortie. La frise du dossier patient affiche les
              mêmes étapes. -->
-        <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950 xl:order-2 xl:col-span-1">
+        <div class="space-y-4 xl:order-2 xl:col-span-1">
+        <!-- ADR-177 : la suggestion de l'accueil, relue et corrigée ici. Indicative,
+             elle ne décide pas qui voit le passage ni ne crée d'orientation. -->
+        <EpisodeNextStepsCard
+            :episode-uuid="episode.uuid"
+            :next-steps="episode.next_steps ?? []"
+            :options="nextStepOptions"
+            :can-update="Boolean(capabilities.can_update_next_steps)"
+        />
+        <section class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-900 dark:bg-gray-950">
             <div class="border-b border-gray-200 px-5 py-4 dark:border-gray-900"><h2 class="text-sm font-bold text-slate-700 dark:text-white">Parcours du passage</h2><p class="mt-0.5 text-xs text-slate-400">De la Réception à la sortie : services, Pharmacie et Caisse.</p></div>
             <EpisodePathwayList :steps="episode.pathway" />
-            <p v-if="episode.pathway.length === 1" class="border-t border-gray-100 px-5 py-4 text-center text-sm text-slate-400 dark:border-gray-900">Aucun service n'a encore été orienté pour ce passage.</p>
+            <p v-if="episode.pathway.length === 1" class="border-t border-gray-100 px-5 py-4 text-center text-sm text-slate-400 dark:border-gray-900">Aucun service n'a encore pris ce passage en charge.</p>
         </section>
+        </div>
 
         <div class="space-y-4 xl:order-1 xl:col-span-2">
         <!-- ADR-145 : le même composant partout — état, liens et création du dossier de chaque bébé. -->

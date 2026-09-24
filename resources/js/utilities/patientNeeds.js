@@ -122,8 +122,10 @@ export const needFilterLabel = (key) => {
 };
 
 const STATE_TEXT = {
-    MEDICINE: { PENDING: 'en attente', IN_PROGRESS: 'en consultation' },
-    CARE: { PENDING: 'en attente', IN_PROGRESS: 'pris en charge' },
+    // ADR-177 — « suggéré » : la Réception l'a proposé, personne ne l'a encore
+    // pris en charge. Une indication, pas une orientation.
+    MEDICINE: { SUGGESTED: 'suggéré', PENDING: 'en attente', IN_PROGRESS: 'en consultation' },
+    CARE: { SUGGESTED: 'suggéré', PENDING: 'en attente', IN_PROGRESS: 'pris en charge' },
     // Un besoin auprès de la pharmacie ne dit pas s'il attend la facture, le
     // règlement ou la délivrance : cet état-là est financier, on ne le sert pas.
     PHARMACY: { PENDING: '', PARTIAL: 'délivrance partielle' },
@@ -134,10 +136,12 @@ export const needStateText = (need) => STATE_TEXT[need.service]?.[need.state] ??
 
 /**
  * La couleur d'une pastille : en attente (ambre), quelqu'un s'en occupe
- * maintenant (vert), la pharmacie (neutre).
+ * maintenant (vert), la pharmacie et une simple suggestion (neutre) — une
+ * suggestion n'est pas une attente, et « aucune suggestion » n'est jamais une
+ * anomalie (ADR-177).
  */
 export const needVariant = (need) => {
-    if (need.service === 'PHARMACY') {
+    if (need.service === 'PHARMACY' || need.state === 'SUGGESTED') {
         return 'secondary';
     }
 

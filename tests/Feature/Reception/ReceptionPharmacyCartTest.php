@@ -188,8 +188,9 @@ class ReceptionPharmacyCartTest extends TestCase
         $this->assertSame('1000.00', $dispense->invoice->total_amount);
         $this->assertNotSame($episodeInvoice->id, $dispense->invoice->id);
 
-        // Le parcours clinique de la prestation est bien ouvert.
-        $this->assertSame(1, EpisodeOrientation::query()->where('episode_id', $episode->id)->count());
+        // ADR-177 — la prestation garde le passage dans le circuit clinique :
+        // il est visible des services, sans orientation déduite de la prestation.
+        $this->assertSame(0, EpisodeOrientation::query()->where('episode_id', $episode->id)->count());
         $this->assertNotSame(
             EpisodeAdministrativeStatus::PendingSettlement,
             $episode->administrative_status,

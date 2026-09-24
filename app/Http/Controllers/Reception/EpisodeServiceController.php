@@ -6,6 +6,7 @@ use App\Actions\Reception\CompleteEpisodeServicesAction;
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\CashSessionStatus;
 use App\Enums\EpisodeFinancialMode;
+use App\Enums\ReceptionNextStep;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEpisodeServicesRequest;
 use App\Models\CashSession;
@@ -71,6 +72,8 @@ class EpisodeServiceController extends Controller
                 ],
             ],
             'billingCatalog' => $billingCatalog,
+            // ADR-177 — suggestion facultative, jamais une destination imposée.
+            'nextStepOptions' => ReceptionNextStep::options(),
             'pricingContext' => [
                 'category' => $tariffCategory,
                 'financial_mode' => $episode->financial_mode?->value,
@@ -144,6 +147,7 @@ class EpisodeServiceController extends Controller
             paymentMethodId: $request->integer('payment_method_id') ?: null,
             paymentReference: $request->validated('payment_reference'),
             cashRegisterUuid: $request->validated('cash_register_uuid'),
+            nextSteps: $request->validated('next_steps') ?? [],
         );
 
         $message = "Parcours du passage {$episode->episode_number} confirmé.";

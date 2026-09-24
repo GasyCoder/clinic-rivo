@@ -66,6 +66,9 @@ class EpisodeOrientationFlowTest extends TestCase
         $actor = User::factory()->create();
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $actor);
         $care = $episode->orientations()->sole();
 
         $this->expectException(ValidationException::class);
@@ -81,6 +84,9 @@ class EpisodeOrientationFlowTest extends TestCase
         $this->actingAs($actor);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $actor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $actor);
         $care = $episode->orientations()->sole();
 
         $this->app->make(AcceptCareOrientationAction::class)->execute($care, $actor);

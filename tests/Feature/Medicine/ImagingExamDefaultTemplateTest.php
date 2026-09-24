@@ -3,6 +3,7 @@
 namespace Tests\Feature\Medicine;
 
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CreateImagingRequestAction;
@@ -228,6 +229,9 @@ class ImagingExamDefaultTemplateTest extends TestCase
             'catalog_item_uuid' => $item->uuid,
             'quantity' => 1,
         ]], $doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $doctor);
 
         $orientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)

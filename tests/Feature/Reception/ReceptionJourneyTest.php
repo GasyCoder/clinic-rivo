@@ -198,7 +198,9 @@ class ReceptionJourneyTest extends TestCase
             ->assertJsonPath('preview.totals.gross_amount', '60000.00')
             ->assertJsonPath('preview.totals.coverage_amount', '45000.00')
             ->assertJsonPath('preview.totals.patient_amount', '15000.00')
-            ->assertJsonPath('preview.initial_destination.module', 'MEDICINE');
+            // ADR-177 — plus de « destination initiale » : la prestation ne
+            // décide pas qui voit le patient.
+            ->assertJsonMissingPath('preview.initial_destination');
 
         $this->actingAs($actor)->get(route('reception.passages.journey.show', $episode))
             ->assertOk()
@@ -227,7 +229,10 @@ class ReceptionJourneyTest extends TestCase
         $this->assertDatabaseCount('patients', 1);
         $this->assertDatabaseCount('episodes', 1);
         $this->assertDatabaseCount('episode_service_requests', 1);
-        $this->assertDatabaseCount('episode_orientations', 1);
+        // ADR-177 — aucune orientation n'est déduite du besoin, et aucune
+        // suggestion n'est obligatoire : le passage est confirmé sans elle.
+        $this->assertDatabaseCount('episode_orientations', 0);
+        $this->assertDatabaseCount('episode_reception_next_steps', 0);
         $this->assertDatabaseCount('billable_items', 1);
         $this->assertDatabaseCount('invoices', 1);
         $this->assertDatabaseCount('reception_journey_drafts', 0);

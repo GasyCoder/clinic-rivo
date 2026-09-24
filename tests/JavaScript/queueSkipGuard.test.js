@@ -94,49 +94,74 @@ test('passer devant une urgence se voit : elle est relevée à part', () => {
     assert.deepEqual(guard.skippedEmergencies.value.map((r) => r.uuid), ['a']);
 });
 
-test('les Soins et la Médecine passent tous deux par le même garde-fou, sans copie locale', () => {
-    for (const file of ['resources/js/Pages/Care/Index.vue', 'resources/js/Pages/Medicine/Index.vue']) {
+const BOARD = 'resources/js/Components/Clinical/ActivePassageBoard.vue';
+
+/** ADR-177 — Soins, Médecine et Maternité lisent le même tableau, qui porte le garde-fou une seule fois. */
+test('les Soins, la Médecine et la Maternité passent tous par le même garde-fou, sans copie locale', () => {
+    const board = fs.readFileSync(BOARD, 'utf8');
+
+    assert.match(board, /useQueueSkipGuard\(/, 'le tableau n’utilise pas le garde-fou partagé');
+    assert.match(board, /<QueueSkipConfirm/, 'le tableau n’affiche pas la confirmation partagée');
+    assert.doesNotMatch(board, /const pendingAhead/, 'le tableau garde une copie locale de la règle');
+
+    for (const file of ['resources/js/Pages/Care/Index.vue', 'resources/js/Pages/Medicine/Index.vue', 'resources/js/Pages/Maternity/Index.vue']) {
         const source = fs.readFileSync(file, 'utf8');
 
-        assert.match(source, /useQueueSkipGuard\(/, `${file} n’utilise pas le garde-fou partagé`);
-        assert.match(source, /<QueueSkipConfirm/, `${file} n’affiche pas la confirmation partagée`);
-        assert.doesNotMatch(source, /const pendingAhead/, `${file} garde une copie locale de la règle`);
+        assert.match(source, /<ActivePassageBoard/, `${file} ne lit pas le tableau partagé`);
+        assert.doesNotMatch(source, /const pendingAhead|useQueueSkipGuard/, `${file} garde une copie locale de la règle`);
     }
 });
 
-test('aucun bouton « Prendre en charge » des Soins ne poste sans passer par le garde-fou', () => {
-    const source = fs.readFileSync('resources/js/Pages/Care/Index.vue', 'utf8');
+test('aucun bouton « Prendre en charge » ne poste sans passer par le garde-fou', () => {
+    const board = fs.readFileSync(BOARD, 'utf8');
 
-    assert.doesNotMatch(source, /:href="`\/care\/orientations\/\$\{[^}]+\}\/accept`"/);
-    assert.equal((source.match(/skipGuard\.request\(/g) ?? []).length, 3);
+    // Le geste vient du serveur (`take_charge_url`) et passe toujours par le garde-fou :
+    // directement, ou après la fenêtre du parcours (« Consulter quand même »).
+    assert.equal((board.match(/skipGuard\.request\(/g) ?? []).length, 2);
+    assert.equal((board.match(/postTakeCharge\(row, row\.actions\?\.take_charge_url\)/g) ?? []).length, 1);
+    assert.match(board, /accept: takeCharge/);
+    assert.doesNotMatch(board, /@click="takeCharge\(/);
+    assert.doesNotMatch(board, /\/accept`/);
 });
 
-test('ADR-122 : la file et la fiche Soins proposent « Remettre en file », par un POST vers /release', () => {
-    const queue = fs.readFileSync('resources/js/Pages/Care/Index.vue', 'utf8');
+test('ADR-122, ADR-127 : « Remettre en file » est proposé seulement quand le serveur le permet', () => {
+    const board = fs.readFileSync(BOARD, 'utf8');
     const sheet = fs.readFileSync('resources/js/Pages/Care/Show.vue', 'utf8');
 
-    for (const source of [queue, sheet]) {
-        assert.match(source, /Remettre en file/);
-        assert.match(source, /\/release`/);
-    }
-    // Seul le soignant qui a pris le patient le voit dans la file.
-    assert.match(queue, /orientation\.accepted_by_id === page\.props\.auth\?\.user\?\.id/);
+    assert.match(board, /Remettre en file/);
+    // Seul le soignant qui a pris le patient reçoit l'adresse : l'écran ne recalcule pas la règle.
+    assert.match(board, /v-if="row\.actions\.release_url"/);
+    assert.match(board, /router\.post\(row\.actions\.release_url/);
+    assert.match(sheet, /Remettre en file/);
+    assert.match(sheet, /\/release`/);
 });
 
-test('ADR-124 : la file Soins n’a que deux onglets, sans les patients déjà accueillis par le médecin', () => {
-    const queue = fs.readFileSync('resources/js/Pages/Care/Index.vue', 'utf8');
+/**
+ * ADR-177 — trois blocs qui ne se mélangent pas (en attente, en cours, terminés),
+ * « En attente » en premier, et « Urgences » en filtre ; « Suggérés pour moi »
+ * est un filtre du bloc « En attente ».
+ */
+test('le tableau des passages a ses blocs, « En attente » en premier', () => {
+    const utility = fs.readFileSync('resources/js/utilities/activePassages.js', 'utf8');
+    const board = fs.readFileSync(BOARD, 'utf8');
+    const values = [...utility.matchAll(/\{ value: '([a-z_]+)', label: '/g)].map((match) => match[1]);
 
-    assert.match(queue, /role="tablist"/);
-    assert.match(queue, /value: 'active', label: 'À prendre aux Soins'/);
-    assert.match(queue, /value: 'waiting_doctor', label: 'Orientés · en attente du médecin'/);
-    assert.doesNotMatch(queue, /with_doctor|value: 'finished'|filter:oriented/);
+    assert.deepEqual(values, ['waiting', 'in_progress', 'completed', 'emergency']);
+    assert.match(utility, /label: 'En attente'/);
+    assert.match(utility, /label: 'En cours chez moi'/);
+    assert.match(utility, /label: 'Terminés chez moi'/);
+    assert.doesNotMatch(utility, /value: 'all'|value: 'requested'|Tous les passages/);
+    assert.match(board, /Suggérés pour moi · \{\{ counts\.suggested/);
 });
 
-test('ADR-124 : un patient en attente du médecin garde son n° d’ordre — celui de la file du médecin', () => {
-    const queue = fs.readFileSync('resources/js/Pages/Care/Index.vue', 'utf8');
+/** Un n° d'ordre n'existe que pour une vraie orientation qui attend : une suggestion n'est pas une place. */
+test('le n° d’ordre est celui du serveur, jamais recalculé', () => {
+    const board = fs.readFileSync(BOARD, 'utf8');
 
-    assert.match(queue, /const queueNumberOf = \(orientation\) => orientation\.queue_number \?\? \(isWaitingDoctor\(orientation\) \? orientation\.doctor\.queue_number : null\)/);
-    // Les deux vues (tableau et carte) affichent le n° par la même fonction.
-    assert.equal((queue.match(/queueNumberOf\(group\.orientations\[0\]\)\) class=/g) ?? []).length + (queue.match(/queueNumberOf\(group\.orientations\[0\]\)"/g) ?? []).length >= 2, true);
-    assert.doesNotMatch(queue, /group\.orientations\[0\]\.queue_number/);
+    assert.match(board, /v-if="row\.module\.queue_number"/);
+    assert.doesNotMatch(board, /queueNumberOf|index \+ 1/);
+    // Le n° 1 est le prochain patient, et le tableau le dit.
+    assert.match(board, /row\.module\.queue_number === 1/);
+    assert.match(board, />Prochain</);
 });
+

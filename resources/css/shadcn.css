@@ -56,6 +56,17 @@
     to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
+/*
+ * Un menu ou un panneau ancré s'ouvre directement à sa place : un fondu bref,
+ * aucun déplacement. `rivo-dialog-in` recentre une fenêtre (translate -50 %) :
+ * appliqué à un menu, il le faisait glisser d'une demi-largeur vers la gauche
+ * puis sauter à sa place à la fin de l'animation.
+ */
+@keyframes rivo-popover-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 @keyframes rivo-overlay-in {
     from { opacity: 0; }
     to { opacity: 1; }

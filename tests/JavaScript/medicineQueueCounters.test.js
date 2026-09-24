@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const queue = fs.readFileSync('resources/js/Pages/Medicine/Index.vue', 'utf8');
+// ADR-177 — la file Médecine est le tableau partagé des passages ouverts.
+const board = fs.readFileSync('resources/js/Components/Clinical/ActivePassageBoard.vue', 'utf8');
+const passages = fs.readFileSync('resources/js/utilities/activePassages.js', 'utf8');
 const users = fs.readFileSync('resources/js/Pages/Administration/Users/Index.vue', 'utf8');
 
 /** ADR-099 : tout écran retouché passe à shadcn-vue. */
@@ -21,6 +24,7 @@ test('les deux écrans utilisent les tokens sémantiques', () => {
     const palette = /(text|bg|border|divide|ring)-(slate|gray)-(50|100|200|300|400|500|600|700|800|900|1000)\b/;
 
     assert.doesNotMatch(queue, palette);
+    assert.doesNotMatch(board, palette);
     assert.doesNotMatch(users, palette);
 });
 
@@ -50,11 +54,12 @@ test('la carte filtre la file et annonce son état', () => {
     assert.match(counters, /clickable\(tile\) \? 'button' : 'div'/);
 });
 
-/** L'ancienne barre d'onglets a disparu de la file Médecine. */
+/** L'ancienne barre d'onglets a disparu : la file Médecine est le tableau partagé, qui rend les cartes. */
 test('la file Médecine utilise le composant partagé', () => {
-    assert.match(queue, /import QueueCounters from '@\/Components\/Clinical\/QueueCounters\.vue'/);
-    assert.match(queue, /<QueueCounters[\s\S]{0,300}?active: filter === tab\.value/);
-    assert.doesNotMatch(queue, /min-w-5 rounded px-1\.5 py-0\.5 text-center text-\[10px\] font-bold/);
+    assert.match(queue, /<ActivePassageBoard module="MEDICINE"/);
+    assert.match(board, /import QueueCounters from '@\/Components\/Clinical\/QueueCounters\.vue'/);
+    assert.match(board, /<QueueCounters [^>]*:tiles="tiles"/);
+    assert.doesNotMatch(board, /min-w-5 rounded px-1\.5 py-0\.5 text-center text-\[10px\] font-bold/);
 });
 
 /**
@@ -62,14 +67,17 @@ test('la file Médecine utilise le composant partagé', () => {
  * page affichée mentirait dès la deuxième page.
  */
 test('les compteurs restent ceux du serveur', () => {
-    assert.match(queue, /counts\[tab\.value\]/);
-    assert.doesNotMatch(queue, /counts\[tab\.value\] = /);
+    assert.match(board, /boardTiles\(props\.module, props\.counts, props\.view\)/);
+    assert.match(passages, /count: counts\[tile\.value\] \?\? 0/);
+    assert.doesNotMatch(passages, /count:[^,\n]*\.data\b/);
 });
 
 /** Un filtre actif doit pouvoir se retirer sans chercher le bon onglet. */
 test('un filtre actif se retire d’un clic', () => {
-    assert.match(queue, /tout afficher/);
-    assert.match(queue, /@click="selectFilter\('all'\)"/);
+    assert.match(board, /Voir la file d’attente/);
+    assert.match(board, /@click="selectView\('waiting'\)"/);
+    // Une carte déjà active se relâche vers la file d'attente.
+    assert.match(board, /view === props\.view && view !== 'waiting' \? 'waiting' : view/);
 });
 
 const QUEUES = {
@@ -86,8 +94,11 @@ test('toutes les files partagent le même composant de compteurs', () => {
     for (const [name, file] of Object.entries(QUEUES)) {
         const source = fs.readFileSync(file, 'utf8');
 
-        assert.match(source, /import QueueCounters from '@\/Components\/Clinical\/QueueCounters\.vue'/, `${name} n’utilise pas le composant`);
-        assert.match(source, /<QueueCounters/, `${name} ne rend pas les cartes`);
+        // ADR-177 — Soins, Médecine et Maternité rendent les cartes par le tableau partagé des passages.
+        const via = source.includes('<ActivePassageBoard') ? board : source;
+
+        assert.match(via, /import QueueCounters from '@\/Components\/Clinical\/QueueCounters\.vue'/, `${name} n’utilise pas le composant`);
+        assert.match(via, /<QueueCounters/, `${name} ne rend pas les cartes`);
     }
 });
 

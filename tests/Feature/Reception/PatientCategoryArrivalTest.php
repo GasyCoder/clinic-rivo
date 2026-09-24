@@ -57,13 +57,18 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertSame("{$patient->patient_number}-01", $episode->episode_number);
     }
 
-    public function test_an_external_newborn_arrival_keeps_only_the_babys_identity_and_the_passage_contact(): void
+    /**
+     * ADR-177 — plus de mode « Nouveau-né » à la Réception : un bébé né ailleurs
+     * est un nouveau patient ordinaire. La civilité « Enfant » porte seule le
+     * profil enfant, et le parent reste le contact du passage (ADR-034).
+     */
+    public function test_a_baby_born_elsewhere_is_registered_as_an_ordinary_new_patient(): void
     {
         $actor = $this->receptionist(['patients.create', 'episodes.create']);
 
         $response = $this->actingAs($actor)->post('/reception/patients', [
-            'registration_context' => 'EXTERNAL_NEWBORN',
             'patient_type' => PatientType::Standard->value,
+            'civility' => 'GIRL',
             'first_name' => 'Faly',
             'last_name' => 'Rakoto',
             'birth_date' => now()->subDays(8)->toDateString(),
@@ -85,38 +90,30 @@ class PatientCategoryArrivalTest extends TestCase
         $this->assertNull($patient->profession);
         $this->assertNull($patient->marital_status);
         $this->assertNull($patient->children_count);
+        // Un patient ordinaire : aucun lien vers une mère n'est inventé.
+        $this->assertDatabaseCount('patient_newborn_links', 0);
         $this->assertSame('Vola Rakoto', $episode->emergency_contact_name);
         $this->assertSame('0340000000', $episode->emergency_contact_phone);
         $this->assertSame('Mère', $episode->emergency_contact_relationship);
         $this->assertSame('vola@example.test', $episode->emergency_contact_email);
     }
 
-    public function test_an_external_newborn_arrival_rejects_adult_administrative_fields(): void
+    /** L'ancien marqueur « nouveau-né né ailleurs » n'ouvre plus aucun mode : il est simplement ignoré. */
+    public function test_the_former_external_newborn_marker_opens_no_third_mode(): void
     {
         $actor = $this->receptionist(['patients.create', 'episodes.create']);
 
-        $response = $this->actingAs($actor)->post('/reception/patients', [
+        $this->actingAs($actor)->post('/reception/patients', [
             'registration_context' => 'EXTERNAL_NEWBORN',
             'patient_type' => PatientType::Standard->value,
             'first_name' => 'Faly',
             'last_name' => 'Rakoto',
             'birth_date' => now()->subDays(8)->toDateString(),
             'sex' => 'F',
-            'phone' => '0340000000',
-            'email' => 'baby@example.test',
-            'profession' => 'Sans objet',
-            'marital_status' => 'SINGLE',
-            'children_count' => 0,
-            'identity_document_type' => 'CIN',
-            'identity_document_number' => '000000000000',
-        ]);
+        ])->assertSessionHasNoErrors();
 
-        $response->assertSessionHasErrors([
-            'phone', 'email', 'profession', 'marital_status', 'children_count',
-            'identity_document_type', 'identity_document_number',
-        ]);
-        $this->assertDatabaseCount('patients', 0);
-        $this->assertDatabaseCount('episodes', 0);
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseCount('patient_newborn_links', 0);
     }
 
     public function test_a_child_arrival_keeps_the_childs_identity_and_the_parents_passage_contact(): void
@@ -512,7 +509,10 @@ class PatientCategoryArrivalTest extends TestCase
             'couverture Personnel doit être calculée par RH / Finance',
         ));
         $this->assertDatabaseCount('episode_service_requests', 1);
-        $this->assertDatabaseCount('episode_orientations', 1);
+        // ADR-177 — le besoin est gardé et le passage est ouvert à tous les
+        // services autorisés : aucune orientation n'est déduite de la prestation.
+        $this->assertDatabaseCount('episode_orientations', 0);
+        $this->assertNotNull($episode->fresh()->service_plan_finalized_at);
         $this->assertDatabaseCount('invoices', 0);
         $this->assertDatabaseCount('payments', 0);
 

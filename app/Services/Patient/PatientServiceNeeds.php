@@ -3,10 +3,12 @@
 namespace App\Services\Patient;
 
 use App\Enums\CatalogModule;
+use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodeStatus;
 use App\Enums\PharmacyDispenseStatus;
 use App\Models\EpisodeOrientation;
+use App\Models\EpisodeReceptionNextStep;
 use App\Models\Patient;
 use App\Models\PharmacyDispense;
 use Carbon\CarbonImmutable;
@@ -25,6 +27,13 @@ use Illuminate\Database\Eloquent\Builder;
  * CARE      une orientation Soins en attente ou en cours, sur un passage ouvert
  * PHARMACY  une demande de dispensation que la Pharmacie n'a pas encore terminée
  * ```
+ *
+ * ADR-177 — une prestation choisie à l'accueil n'ouvre plus de file : un
+ * patient qui vient d'arriver n'a souvent aucune orientation. La prochaine
+ * étape que la Réception a **suggérée** vers Médecine ou Soins compte donc
+ * comme un besoin, à l'état `SUGGESTED`, tant qu'aucune vraie orientation vers
+ * ce service n'existe sur le passage. Ce n'est qu'une lecture : la suggestion
+ * n'autorise ni n'interdit rien, et une orientation réelle l'emporte toujours.
  *
  * Ce sont exactement les définitions des files de ces services (le passage
  * doit être ouvert comme aux Soins ; les statuts de dispensation sont ceux de
@@ -62,6 +71,8 @@ final class PatientServiceNeeds
 
     public const NONE = 'NONE';
 
+    public const SUGGESTED = 'SUGGESTED';
+
     public const PENDING = 'PENDING';
 
     public const IN_PROGRESS = 'IN_PROGRESS';
@@ -77,6 +88,7 @@ final class PatientServiceNeeds
     {
         $needs = new self;
         $needs->loadOrientations();
+        $needs->loadSuggestions();
         $needs->loadDispenses();
 
         return $needs;
@@ -271,6 +283,45 @@ final class PatientServiceNeeds
         }
     }
 
+    /**
+     * ADR-177 — la suggestion de la Réception vers Médecine ou Soins, sur un
+     * passage ouvert dont le parcours clinique n'est pas clos, et tant que ce
+     * service n'a aucune orientation (ni en attente, ni en cours, ni terminée)
+     * sur ce passage : dès qu'il en a une, c'est elle qui dit où en est le
+     * patient.
+     */
+    private function loadSuggestions(): void
+    {
+        $rows = EpisodeReceptionNextStep::query()
+            ->toBase()
+            ->join('episodes', 'episodes.id', '=', 'episode_reception_next_steps.episode_id')
+            ->where('episodes.status', EpisodeStatus::Open->value)
+            ->where('episodes.administrative_status', '!=', EpisodeAdministrativeStatus::PendingSettlement->value)
+            ->whereIn('episode_reception_next_steps.module', [CatalogModule::Medicine->value, CatalogModule::Care->value])
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('episode_orientations')
+                ->whereColumn('episode_orientations.episode_id', 'episodes.id')
+                ->whereColumn('episode_orientations.destination_module', 'episode_reception_next_steps.module')
+                ->where('episode_orientations.status', '!=', EpisodeOrientationStatus::Cancelled->value))
+            ->orderBy('episodes.started_at')
+            ->orderBy('episodes.id')
+            ->get([
+                'episodes.patient_id',
+                'episodes.episode_number',
+                'episodes.started_at',
+                'episode_reception_next_steps.module',
+            ]);
+
+        foreach ($rows as $row) {
+            $this->remember((int) $row->patient_id, $row->module === CatalogModule::Medicine->value ? self::MEDICINE : self::CARE, [
+                'state' => self::SUGGESTED,
+                'episode_number' => $row->episode_number,
+                'since' => self::iso($row->started_at),
+            ]);
+        }
+    }
+
     private function loadDispenses(): void
     {
         $rows = PharmacyDispense::query()
@@ -314,6 +365,8 @@ final class PatientServiceNeeds
     {
         return match ($state) {
             self::IN_PROGRESS, self::PARTIAL => 2,
+            // Une suggestion cède toujours la place à une vraie orientation.
+            self::SUGGESTED => 0,
             default => 1,
         };
     }

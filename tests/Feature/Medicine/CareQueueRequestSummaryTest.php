@@ -24,6 +24,10 @@ use Tests\TestCase;
  * numéro identique, sans rien pour les distinguer. Chaque orientation Soins
  * porte désormais sa demande — qui l'a faite, la suite décidée, les actes —,
  * lue par la même règle que le parcours du passage.
+ *
+ * ADR-177 — le tableau des passages n'affiche plus qu'une ligne par passage,
+ * qui porte la demande de l'orientation Soins en cours (l'active, sinon la
+ * dernière terminée). L'historique des demandes se lit sur le passage (ADR-117).
  */
 class CareQueueRequestSummaryTest extends TestCase
 {
@@ -97,7 +101,16 @@ class CareQueueRequestSummaryTest extends TestCase
             'active_key' => $activeKey,
             'oriented_by' => $this->doctor()->id,
             'oriented_at' => CarbonImmutable::parse($at),
+            'completed_at' => $status === 'COMPLETED' ? CarbonImmutable::parse($at)->addMinutes(20) : null,
         ]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function rows(User $nurse, string $view = 'all'): array
+    {
+        return $this->actingAs($nurse)->get("/care?view={$view}")
+            ->assertOk()
+            ->viewData('page')['props']['passages']['data'];
     }
 
     private function request(Episode $episode, Consultation $consultation, EpisodeOrientation $medicine, EpisodeOrientation $care, bool $returns, string $act): CareOrder
@@ -135,7 +148,7 @@ class CareQueueRequestSummaryTest extends TestCase
         return $order;
     }
 
-    public function test_each_soins_orientation_carries_its_own_request_so_two_requests_are_not_two_identical_passages(): void
+    public function test_two_requests_of_one_passage_are_one_row_carrying_the_latest_request(): void
     {
         [$episode, $medicine, $consultation] = $this->episodeInConsultation();
         $first = $this->careOrientation($episode, 'COMPLETED', '2026-09-18 12:57');
@@ -143,26 +156,25 @@ class CareQueueRequestSummaryTest extends TestCase
         $this->request($episode, $consultation, $medicine, $first, returns: true, act: 'Injection IM');
         $this->request($episode, $consultation, $medicine, $second, returns: false, act: 'Pansement');
 
-        // Ces deux orientations Soins terminées ne s'affichent que tant que le médecin
-        // n'a pas accueilli le patient (ADR-124) : il attend, ici, son retour.
+        // Le patient attend le retour du médecin : les Soins ont terminé.
         $medicine->forceFill(['status' => 'PENDING', 'accepted_by' => null, 'accepted_at' => null])->saveQuietly();
 
-        $rows = $this->actingAs($this->nurse(['care_orders.view']))->get('/care?filter=waiting_doctor')
-            ->assertOk()
-            ->viewData('page')['props']['orientations']['data'];
+        $rows = $this->rows($this->nurse(['care_orders.view']), 'completed');
 
-        $byUuid = collect($rows)->keyBy('uuid');
-        $firstRequest = $byUuid[$first->uuid]['care_request'];
-        $secondRequest = $byUuid[$second->uuid]['care_request'];
+        // Un passage, une ligne : deux demandes ne se lisent plus comme deux passages.
+        $this->assertCount(1, $rows);
+        $this->assertSame($episode->uuid, $rows[0]['uuid']);
+        $this->assertSame($second->uuid, $rows[0]['module']['orientation_uuid']);
 
-        // Même passage, deux orientations : c'est la demande qui les distingue.
-        $this->assertSame($byUuid[$first->uuid]['episode']['episode_number'], $byUuid[$second->uuid]['episode']['episode_number']);
-        $this->assertSame(['Dr Rakoto'], $firstRequest['requested_by']);
-        $this->assertSame('RETURN_TO_MEDICINE', $firstRequest['follow_up']['code']);
-        $this->assertSame('DIRECT_EXIT', $secondRequest['follow_up']['code']);
-        $this->assertSame(['Injection IM'], array_column($firstRequest['items'], 'name'));
-        $this->assertSame(['Pansement'], array_column($secondRequest['items'], 'name'));
-        $this->assertSame('À réaliser', $firstRequest['items'][0]['state_label']);
+        $request = $rows[0]['care_request'];
+        $this->assertSame(['Dr Rakoto'], $request['requested_by']);
+        $this->assertSame('DIRECT_EXIT', $request['follow_up']['code']);
+        $this->assertSame(['Pansement'], array_column($request['items'], 'name'));
+        $this->assertSame('À réaliser', $request['items'][0]['state_label']);
+
+        // Où le patient attend, ailleurs : le médecin, avec son n° de la file Médecine.
+        $this->assertSame('MEDICINE', $rows[0]['elsewhere'][0]['module']);
+        $this->assertSame(1, $rows[0]['elsewhere'][0]['queue_number']);
     }
 
     public function test_the_acts_need_care_orders_view_but_the_follow_up_is_routing_information(): void
@@ -171,8 +183,7 @@ class CareQueueRequestSummaryTest extends TestCase
         $care = $this->careOrientation($episode, 'PENDING', '2026-09-18 12:57', activeKey: "{$episode->id}:CARE");
         $this->request($episode, $consultation, $medicine, $care, returns: false, act: 'Injection IM');
 
-        $request = $this->actingAs($this->nurse())->get('/care')
-            ->viewData('page')['props']['orientations']['data'][0]['care_request'];
+        $request = $this->rows($this->nurse())[0]['care_request'];
 
         $this->assertSame('DIRECT_EXIT', $request['follow_up']['code']);
         $this->assertSame(['Dr Rakoto'], $request['requested_by']);
@@ -184,8 +195,7 @@ class CareQueueRequestSummaryTest extends TestCase
         [$episode] = $this->episodeInConsultation();
         $this->careOrientation($episode, 'PENDING', '2026-09-18 08:00', activeKey: "{$episode->id}:CARE");
 
-        $row = $this->actingAs($this->nurse(['care_orders.view']))->get('/care')
-            ->viewData('page')['props']['orientations']['data'][0];
+        $row = $this->rows($this->nurse(['care_orders.view']))[0];
 
         // Une orientation issue de l'arrivée n'a pas de suite à annoncer : elle ne l'invente pas.
         $this->assertNull($row['care_request']);
@@ -198,8 +208,7 @@ class CareQueueRequestSummaryTest extends TestCase
         $this->request($episode, $consultation, $medicine, $care, returns: false, act: 'Injection IM');
         $this->request($episode, $consultation, $medicine, $care, returns: true, act: 'Pansement');
 
-        $request = $this->actingAs($this->nurse(['care_orders.view']))->get('/care')
-            ->viewData('page')['props']['orientations']['data'][0]['care_request'];
+        $request = $this->rows($this->nurse(['care_orders.view']))[0]['care_request'];
 
         $this->assertSame(['Injection IM', 'Pansement'], array_column($request['items'], 'name'));
         $this->assertSame('RETURN_TO_MEDICINE', $request['follow_up']['code']);

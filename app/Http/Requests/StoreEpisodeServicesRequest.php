@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Enums\ArrivalPaymentChoice;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\ReceptionCartKind;
+use App\Enums\ReceptionNextStep;
 use App\Enums\StaffCoveragePolicy;
 use App\Models\CatalogItem;
 use App\Models\Episode;
@@ -86,6 +87,11 @@ class StoreEpisodeServicesRequest extends FormRequest
                 'max:9999.99',
                 'decimal:0,2',
             ],
+            // ADR-177 — la prochaine étape suggérée : facultative, plusieurs
+            // choix possibles, jamais une restriction. Aucune case cochée est
+            // une réponse valide ; il n'existe donc aucune règle « required ».
+            'next_steps' => ['sometimes', 'nullable', 'array', 'max:'.count(ReceptionNextStep::cases())],
+            'next_steps.*' => ['string', 'distinct', Rule::enum(ReceptionNextStep::class)],
             'payment_choice' => ['nullable', new Enum(ArrivalPaymentChoice::class)],
             'payment_method_id' => [
                 Rule::prohibitedIf($this->input('payment_choice') !== ArrivalPaymentChoice::Now->value),

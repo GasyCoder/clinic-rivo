@@ -241,7 +241,11 @@ final class MaternitySheetSection
      *
      * @return array<string, mixed>|null `null` : aucun dossier Maternité, ou pas le droit `newborns.view`
      */
-    public function forPassage(Episode $episode, User $user): ?array
+    /**
+     * `$withCreation` : servi seulement depuis la Maternité, qui est désormais le lieu où un bébé né à la
+     * clinique devient patient (ADR-177). La page d'un passage montre les bébés, elle n'en crée pas.
+     */
+    public function forPassage(Episode $episode, User $user, bool $withCreation = false): ?array
     {
         $record = $episode->relationLoaded('maternityRecord')
             ? $episode->maternityRecord
@@ -264,12 +268,13 @@ final class MaternitySheetSection
 
         $canOpenPatients = $user->can('patients.view');
         $canReadRecord = $user->can('newborns.medical_record.view');
+        $canCreatePatient = $withCreation && $user->can('newborns.patient.create') && $user->can('maternity.view');
         $motherLast = $episode->patient?->last_name;
 
         return [
             'maternity_url' => $orientation ? "/maternity/orientations/{$orientation->uuid}" : null,
             'newborns' => collect($record->newborn_data['newborns'] ?? [])
-                ->map(function (array $newborn, int $index) use ($links, $canOpenPatients, $canReadRecord, $episode, $motherLast): array {
+                ->map(function (array $newborn, int $index) use ($links, $canOpenPatients, $canReadRecord, $canCreatePatient, $record, $episode, $motherLast): array {
                     $uuid = $newborn['uuid'] ?? null;
                     // `get()` et non `[]` : un bébé sans identité (aucun dossier patient) n'est pas une erreur.
                     $patient = $links->get($uuid ?? '')?->patient;
@@ -294,6 +299,14 @@ final class MaternitySheetSection
                             : ($patient
                                 ? "/patients/{$patient->uuid}/dossier-medical"
                                 : ($canReadRecord ? $this->newbornRecordUrl($episode, $uuid) : null)),
+                        // ADR-177 — ouvrir son dossier patient, depuis la Maternité seulement. Le serveur rejuge
+                        // tout (naissance consignée, sexe) ; l'écran ne demande que ce que la fiche ne dit pas.
+                        'create_patient_url' => $canCreatePatient && ! $patient && $uuid && $filled
+                            ? route('maternity.newborns.patient.store', [$record, $uuid])
+                            : null,
+                        'sex_code' => in_array($newborn['sex'] ?? null, ['M', 'F'], true) ? $newborn['sex'] : null,
+                        'last_name' => $newborn['last_name'] ?? null,
+                        'first_name' => $newborn['first_name'] ?? null,
                     ];
                 })
                 ->values()

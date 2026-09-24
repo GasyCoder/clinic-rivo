@@ -764,7 +764,11 @@ const careBloodPressure = computed(() => {
                 <!-- ADR-145, ADR-146 : les bébés de cette mère, chacun avec son dossier médical — un seul endroit.
                      Hors du fieldset : un dossier terminé est en lecture seule, mais on doit pouvoir ouvrir le dossier d'un bébé. -->
                 <div v-if="activeSection === 'newborn' && babies" class="p-5 pb-0">
-                    <NewbornDossiers :babies="babies" :show-maternity-link="false" />
+                    <NewbornDossiers
+                        :babies="babies"
+                        :show-maternity-link="false"
+                        :creation-blocked-reason="form.isDirty ? 'Enregistrez d’abord le dossier Maternité : le dossier patient reprend la fiche enregistrée.' : ''"
+                    />
                 </div>
 
                 <fieldset class="min-w-0 space-y-5 p-5" :disabled="readOnly">

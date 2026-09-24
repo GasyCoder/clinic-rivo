@@ -4,6 +4,7 @@ namespace Tests\Feature\Care;
 
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\BillableItemStatus;
 use App\Enums\CareConsumableRequestStatus;
@@ -774,6 +775,9 @@ class CareConsumableFlowTest extends TestCase
             'catalog_item_uuid' => $procedure->uuid,
             'quantity' => 1,
         ]], $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
 

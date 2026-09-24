@@ -71,16 +71,18 @@ class MaternityWorkspaceTest extends TestCase
         $this->assertTrue($midwife->hasPermissionTo('maternity.view'));
         $this->actingAs($midwife)->get('/maternity')->assertOk();
 
-        // La file elle-même : compteurs servis par le serveur, filtre par
-        // défaut sur le travail à prendre, jamais sur l'historique.
+        // ADR-177 — le tableau des passages : compteurs servis par le serveur,
+        // vue par défaut sur tous les passages ouverts, jamais sur l'historique.
         $this->actingAs($midwife)->get('/maternity')
             ->assertInertia(fn ($page) => $page
                 ->component('Maternity/Index')
-                ->where('filter', 'waiting')
+                ->where('view', 'waiting')
                 ->has('counts.waiting')
-                ->has('counts.active')
+                ->has('counts.suggested')
+                ->has('counts.in_progress')
                 ->has('counts.completed')
-                ->has('orientations.data'));
+                ->has('counts.emergency')
+                ->has('passages.data'));
 
         $this->assertTrue($anesthetist->hasPermissionTo('care.update'));
         $this->assertTrue($anesthetist->hasPermissionTo('anesthesia.view'));

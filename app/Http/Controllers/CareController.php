@@ -10,11 +10,11 @@ use App\Actions\Care\ReleaseCareOrientationAction;
 use App\Actions\Care\SaveAndCompleteCareAction;
 use App\Actions\Care\SaveCareRecordAction;
 use App\Actions\Care\TakeOverCareOrientationAction;
+use App\Actions\Episode\TakeChargeOfEpisodeAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\DiagnosisType;
 use App\Enums\EpisodeOrientationStatus;
-use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
 use App\Http\Requests\Care\CompleteCareOrientationRequest;
@@ -29,13 +29,14 @@ use App\Models\CareOrderItem;
 use App\Models\CareRecordDraft;
 use App\Models\CatalogItem;
 use App\Models\Diagnosis;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
+use App\Services\Episode\ActiveEpisodeBoard;
 use App\Support\BloodPressureAssessment;
 use App\Support\BmiAssessment;
 use App\Support\CareHandlerGuard;
-use App\Support\CareRequestSummary;
 use App\Support\CareWorkflow;
 use App\Support\EpisodeQueuePresenter;
 use App\Support\HeartRateAssessment;
@@ -45,172 +46,43 @@ use App\Support\VitalSignAgeReference;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class CareController extends Controller
 {
-    /** Les files de la page Soins, dans l'ordre des onglets (ADR-124). */
-    private const QUEUE_FILTERS = ['active', 'waiting_doctor'];
-
     /**
-     * Depuis quand chaque patient orienté attend le médecin (ADR-124) : la
-     * plus récente orientation Médecine encore en attente. Une seule requête
-     * pour toute la page.
+     * ADR-177 — les passages ouverts, tels que les Soins les voient.
      *
-     * @param  Collection<int, EpisodeOrientation>  $orientations
-     * @param  array<int, int>  $medicineNumbers  n° d'ordre Médecine, indexé par orientation Médecine
-     * @return array<int, array{state: string, label: string, since: ?string, queue_number: ?int}>
+     * La page ne liste plus des orientations : tout passage accueilli est
+     * visible, avec ou sans suggestion de la Réception, et une suggestion
+     * « Médecine » ne le cache jamais aux Soins. Prendre en charge reste un
+     * geste (`takeCharge`) ; regarder ne crée rien.
      */
-    private function medicineStates($orientations, array $medicineNumbers): array
+    public function index(Request $request, ActiveEpisodeBoard $board): Response
     {
-        $episodeIds = $orientations->pluck('episode_id')->unique()->values();
-
-        if ($episodeIds->isEmpty()) {
-            return [];
-        }
-
-        return EpisodeOrientation::query()
-            ->where('destination_module', CatalogModule::Medicine->value)
-            ->whereIn('episode_id', $episodeIds)
-            ->where('status', EpisodeOrientationStatus::Pending->value)
-            ->orderBy('id')
-            ->get()
-            ->keyBy('episode_id')
-            ->map(fn (EpisodeOrientation $medicine) => [
-                'state' => $medicine->status->value,
-                'label' => 'En attente du médecin',
-                'since' => $medicine->oriented_at?->toIso8601String(),
-                'queue_number' => $medicineNumbers[$medicine->getKey()] ?? null,
-            ])
-            ->all();
-    }
-
-    public function index(Request $request, EpisodeQueuePresenter $presenter): Response
-    {
-        $filter = in_array($request->query('filter'), self::QUEUE_FILTERS, true)
-            ? (string) $request->query('filter')
-            : 'active';
+        $view = $board->normalizeView($request->query('view'));
         $search = trim((string) $request->query('q', ''));
-        $priority = in_array($request->query('priority'), ['emergency', 'normal'], true)
-            ? (string) $request->query('priority')
-            : null;
-
-        $baseQuery = EpisodeOrientation::query()
-            ->where('destination_module', CatalogModule::Care->value)
-            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'))
-            // A patient is never truly deletable (ADR-010) — under normal
-            // operation this can never fail to match. It only guards against
-            // data corruption bypassing Eloquent entirely (e.g. a raw
-            // TRUNCATE on patients), so an orphaned row disappears from the
-            // queue instead of fataling the whole page.
-            ->whereHas('episode.patient');
-
-        // ADR-124 : la file Soins ne montre que deux choses — les patients à
-        // prendre aux Soins, et ceux que les Soins ont orientés vers Médecine et
-        // qui attendent encore le médecin. Dès que le médecin les a accueillis, ou
-        // qu'ils ne vont pas vers un médecin, ils ne sont plus ici : ils vivent
-        // dans le module Patients.
-        $scopeToFilter = fn ($query, string $value) => match ($value) {
-            'waiting_doctor' => $query->where('status', EpisodeOrientationStatus::Completed->value)
-                ->whereHas('episode.orientations', fn ($orientation) => $orientation
-                    ->where('destination_module', CatalogModule::Medicine->value)
-                    ->where('status', EpisodeOrientationStatus::Pending->value)),
-            default => $query->whereIn('status', [
-                EpisodeOrientationStatus::Pending->value,
-                EpisodeOrientationStatus::InProgress->value,
-            ]),
-        };
-
-        $counts = collect(self::QUEUE_FILTERS)
-            ->mapWithKeys(fn (string $value) => [$value => $scopeToFilter(clone $baseQuery, $value)->count()])
-            ->all();
-
-        $scopeToCurrentStatus = fn ($query) => $scopeToFilter($query, $filter);
-        $priorityCounts = [
-            'all' => $scopeToCurrentStatus((clone $baseQuery))->count(),
-            'emergency' => $scopeToCurrentStatus((clone $baseQuery))
-                ->whereHas('episode', fn ($q) => $q->where('priority', EpisodePriority::Emergency->value))
-                ->count(),
-            'normal' => $scopeToCurrentStatus((clone $baseQuery))
-                ->whereHas('episode', fn ($q) => $q->where('priority', '!=', EpisodePriority::Emergency->value))
-                ->count(),
-        ];
-
-        $orientations = $baseQuery
-            ->with([
-                'episode.patient',
-                'episode.billableItems',
-                'episode.serviceRequests',
-                'acceptedBy:id,name',
-            ])
-            ->tap(fn ($query) => $scopeToFilter($query, $filter))
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->whereHas('episode', function ($episodeQuery) use ($search): void {
-                    $episodeQuery->where('episode_number', 'like', "%{$search}%")
-                        ->orWhereHas('patient', function ($patientQuery) use ($search): void {
-                            $patientQuery->where('patient_number', 'like', "%{$search}%")
-                                ->orWhere('first_name', 'like', "%{$search}%")
-                                ->orWhere('last_name', 'like', "%{$search}%");
-                        });
-                });
-            })
-            ->when($priority === 'emergency', fn ($query) => $query
-                ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
-                    ->where('priority', EpisodePriority::Emergency->value)))
-            ->when($priority === 'normal', fn ($query) => $query
-                ->whereHas('episode', fn ($episodeQuery) => $episodeQuery
-                    ->where('priority', '!=', EpisodePriority::Emergency->value)))
-            // Only a still fast-tracked Emergency (Médecine hasn't yet
-            // completed a first consultation for it) is pinned ahead of
-            // arrival order — matches EpisodeQueuePresenter::isQueueEligible
-            // below. Once eligible, first arrived is always first in the
-            // list, emergency or not.
-            ->orderByRaw(EpisodeQueuePresenter::PIN_UNSEEN_EMERGENCY_SQL)
-            // Oriented (completed) history reads best newest-first; the
-            // active/waiting queue must read oldest-first — first arrived,
-            // first served — to match the queue numbers below.
-            // Du plus ancien au plus récent : premier arrivé, premier servi — pour la
-            // file comme pour ceux qui attendent le médecin depuis le plus longtemps.
-            ->when(
-                $filter === 'waiting_doctor',
-                // Dans l'ordre de la file Médecine : ce n° d'ordre est le sien.
-                fn ($query) => $query->orderByRaw("(SELECT MIN(eo_doctor.oriented_at) FROM episode_orientations eo_doctor WHERE eo_doctor.episode_id = episode_orientations.episode_id AND eo_doctor.destination_module = 'MEDICINE' AND eo_doctor.status = 'PENDING')"),
-                fn ($query) => $query->orderBy('oriented_at'),
-            )
-            ->paginate(20)
-            ->withQueryString();
-
-        // Queue numbers only make sense for people still waiting, never for
-        // the already-oriented history.
-        $queueNumbers = $filter === 'active'
-            ? $presenter->assignQueueNumbers($orientations->getCollection())
-            : [];
-        $doctors = $filter === 'waiting_doctor'
-            ? $this->medicineStates($orientations->getCollection(), $presenter->medicineQueueNumbers())
-            : [];
-        // ADR-118 : ce que chaque orientation Soins demandée par le médecin
-        // contient (demandeur, suite décidée, actes). Sans cela deux demandes
-        // du même passage se lisaient comme deux passages identiques.
-        $careRequests = CareRequestSummary::forOrientations(
-            $orientations->getCollection()->map(fn (EpisodeOrientation $orientation) => $orientation->getKey()),
-            $request->user()->can('care_orders.view'),
-        );
-        $orientations->through(fn (EpisodeOrientation $orientation) => [
-            ...$presenter->present($orientation, $queueNumbers[$orientation->getKey()] ?? null),
-            'care_request' => $careRequests[$orientation->getKey()] ?? null,
-            'doctor' => $doctors[$orientation->episode_id] ?? null,
-        ]);
 
         return Inertia::render('Care/Index', [
-            'orientations' => $orientations,
-            'counts' => $counts,
-            'priorityCounts' => $priorityCounts,
-            'filter' => $filter,
+            'passages' => $board->page(CatalogModule::Care, $view, $search, $request->user()),
+            'counts' => $board->counts(CatalogModule::Care),
+            'view' => $view,
             'search' => $search,
-            'priority' => $priority,
         ]);
+    }
+
+    /**
+     * ADR-177 — la vraie prise en charge aux Soins, depuis le tableau : une
+     * orientation qui attendait est acceptée, sinon elle est créée à l'instant.
+     */
+    public function takeCharge(Request $request, Episode $episode, TakeChargeOfEpisodeAction $action): RedirectResponse
+    {
+        $orientation = $action->execute($episode, CatalogModule::Care, $request->user());
+
+        return redirect()->route('care.orientations.show', $orientation)->with('status', $orientation->accepted_by === $request->user()->getKey()
+            ? 'Patient pris en charge aux Soins.'
+            : 'Ce patient est déjà pris en charge aux Soins par '.($orientation->acceptedBy?->name ?? 'un autre soignant').'.');
     }
 
     public function show(

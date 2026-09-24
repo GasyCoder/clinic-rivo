@@ -7,6 +7,7 @@ use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeFinancialMode;
 use App\Enums\EpisodePriority;
 use App\Enums\PatientType;
+use App\Enums\ReceptionNextStep;
 use App\Enums\ReceptionPatientStep;
 use App\Exceptions\DuplicatePatientException;
 use App\Http\Requests\StoreArrivalRequest;
@@ -15,10 +16,10 @@ use App\Models\Episode;
 use App\Models\MutualOrganization;
 use App\Models\PartnerOrganization;
 use App\Models\Patient;
-use App\Support\Reception\PatientSearchPayload;
 use App\Models\VisitorVisit;
 use App\Services\Reception\ReceptionEstimateService;
 use App\Services\Reception\ReceptionFinancialPreviewService;
+use App\Support\Reception\PatientSearchPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -251,6 +252,9 @@ class ReceptionController extends Controller
                     'partner_organization_uuid' => $episode->partnerCoverage->organization_uuid_snapshot,
                 ] : null,
             ] : null,
+            // ADR-177 — la prochaine étape suggérée : la liste vient du serveur,
+            // l'écran ne la recopie pas. Aucun choix n'est obligatoire.
+            'nextStepOptions' => ReceptionNextStep::options(),
             'receptionDraft' => $draft ? [
                 'catalog_lines' => $draftLines,
                 'designation_deferred' => $draft->designation_deferred,

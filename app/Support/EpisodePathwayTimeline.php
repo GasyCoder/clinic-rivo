@@ -13,9 +13,11 @@ use App\Enums\PaymentStatus;
 use App\Enums\PharmacyDispenseStatus;
 use App\Enums\PharmacyDispenseType;
 use App\Enums\PrescriptionStatus;
+use App\Enums\ReceptionNextStep;
 use App\Models\CareOrder;
 use App\Models\Episode;
 use App\Models\EpisodeOrientation;
+use App\Models\EpisodeReceptionNextStep;
 use App\Models\EpisodeServiceRequest;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -124,6 +126,13 @@ final class EpisodePathwayTimeline
             ->get(['episode_id', 'designation', 'quantity'])
             ->groupBy('episode_id');
 
+        // ADR-177 — la suggestion de la Réception, lue comme telle : une
+        // indication, jamais une étape du parcours.
+        $nextSteps = EpisodeReceptionNextStep::query()
+            ->whereIn('episode_id', $ids)
+            ->get(['episode_id', 'module'])
+            ->groupBy('episode_id');
+
         // Les ordonnances, pour qui peut les voir : le médecin qui a prescrit
         // suit ce qu'elle devient à la Pharmacie sans avoir à en détenir le
         // droit — c'est son ordonnance, pas le stock ni la caisse de la Pharmacie.
@@ -167,7 +176,7 @@ final class EpisodePathwayTimeline
         foreach ($episodes as $episode) {
             $steps = [];
 
-            $steps[] = $this->receptionStep($episode, $needs->get($episode->getKey(), collect()), $names);
+            $steps[] = $this->receptionStep($episode, $needs->get($episode->getKey(), collect()), $nextSteps->get($episode->getKey(), collect()), $names);
 
             foreach ($this->orientationSteps($orientations->get($episode->getKey(), collect()), $careOrders, $canSeeCareOrderItems, $names) as $step) {
                 $steps[] = $step;
@@ -219,7 +228,7 @@ final class EpisodePathwayTimeline
     }
 
     /** @return array<string, mixed> */
-    private function receptionStep(Episode $episode, Collection $needs, Collection $names): array
+    private function receptionStep(Episode $episode, Collection $needs, Collection $nextSteps, Collection $names): array
     {
         $notes = [];
 
@@ -233,6 +242,17 @@ final class EpisodePathwayTimeline
                     ? $need->designation.' ×'.$this->quantity($need->quantity)
                     : $need->designation)
                 ->implode(', ');
+        }
+
+        if ($nextSteps->isNotEmpty()) {
+            $labels = array_map(
+                fn (string $value): string => ReceptionNextStep::from($value)->label(),
+                array_values(array_intersect(
+                    ReceptionNextStep::values(),
+                    $nextSteps->map(fn (EpisodeReceptionNextStep $step): string => $step->module->value)->all(),
+                )),
+            );
+            $notes[] = 'Prochaine étape suggérée : '.implode(', ', $labels);
         }
 
         if ($episode->priority === EpisodePriority::Emergency) {

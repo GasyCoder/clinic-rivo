@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Episode\TakeChargeOfEpisodeAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CancelCareOrderItemAction;
 use App\Actions\Medicine\CancelDiagnosisAction;
@@ -69,14 +70,15 @@ use App\Http\Requests\UpdateMedicinePrescriptionRequest;
 use App\Models\CareOrderItem;
 use App\Models\ConsultationDraft;
 use App\Models\Diagnosis;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\HospitalizationRequest;
 use App\Models\ImagingRequestItem;
 use App\Models\MedicalReferral;
 use App\Models\Prescription;
+use App\Services\Episode\ActiveEpisodeBoard;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
 use App\Support\ConsultationWorkflow;
-use App\Support\EpisodeQueuePresenter;
 use App\Support\ImagingReportDocument;
 use App\Support\MedicalReferralDocument;
 use App\Support\MedicineDossierPresenter;
@@ -89,95 +91,40 @@ use Inertia\Response;
 
 class MedicineController extends Controller
 {
-    public function index(Request $request, EpisodeQueuePresenter $presenter): Response
+    /**
+     * ADR-177 — les passages ouverts, tels que Médecine les voit.
+     *
+     * Un passage n'a plus besoin d'une orientation vers Médecine pour être
+     * vu : venu pour une injection et suggéré « Soins », il reste visible ici.
+     * Le médecin le voit sans le prendre ; « Prendre en charge » (`takeCharge`)
+     * est le seul geste qui ouvre une consultation.
+     */
+    public function index(Request $request, ActiveEpisodeBoard $board): Response
     {
-        $filter = in_array($request->query('filter'), ['all', 'waiting', 'in_progress', 'emergency'], true)
-            ? (string) $request->query('filter')
-            : 'all';
+        $view = $board->normalizeView($request->query('view'));
         $search = trim((string) $request->query('q', ''));
 
-        $baseQuery = EpisodeOrientation::query()
-            ->where('destination_module', CatalogModule::Medicine->value)
-            ->whereIn('status', [
-                EpisodeOrientationStatus::Pending->value,
-                EpisodeOrientationStatus::InProgress->value,
-            ])
-            ->whereHas('episode', fn ($query) => $query->where('status', 'OPEN'))
-            // A patient is never truly deletable (ADR-010) — under normal
-            // operation this can never fail to match. It only guards against
-            // data corruption bypassing Eloquent entirely (e.g. a raw
-            // TRUNCATE on patients), so an orphaned row disappears from the
-            // queue instead of fataling the whole page.
-            ->whereHas('episode.patient');
-
-        $counts = [
-            'all' => (clone $baseQuery)->count(),
-            'waiting' => (clone $baseQuery)
-                ->where('status', EpisodeOrientationStatus::Pending->value)
-                ->count(),
-            'in_progress' => (clone $baseQuery)
-                ->where('status', EpisodeOrientationStatus::InProgress->value)
-                ->count(),
-            'emergency' => (clone $baseQuery)
-                ->whereHas('episode', fn ($query) => $query->where('priority', 'EMERGENCY'))
-                ->count(),
-        ];
-
-        $orientations = $baseQuery
-            ->with([
-                'episode.patient',
-                'episode.billableItems',
-                'episode.serviceRequests',
-                'acceptedBy:id,name',
-                'consultation:id,episode_orientation_id',
-            ])
-            ->when(
-                $filter === 'waiting',
-                fn ($query) => $query->where('status', EpisodeOrientationStatus::Pending->value),
-            )
-            ->when(
-                $filter === 'in_progress',
-                fn ($query) => $query->where('status', EpisodeOrientationStatus::InProgress->value),
-            )
-            ->when(
-                $filter === 'emergency',
-                fn ($query) => $query->whereHas('episode', fn ($episodeQuery) => $episodeQuery->where('priority', 'EMERGENCY')),
-            )
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->whereHas('episode', function ($episodeQuery) use ($search): void {
-                    $episodeQuery->where('episode_number', 'like', "%{$search}%")
-                        ->orWhereHas('patient', function ($patientQuery) use ($search): void {
-                            $patientQuery->where('patient_number', 'like', "%{$search}%")
-                                ->orWhere('first_name', 'like', "%{$search}%")
-                                ->orWhere('last_name', 'like', "%{$search}%");
-                        });
-                });
-            })
-            // Only a still fast-tracked Emergency (Médecine hasn't yet
-            // completed a first consultation for it) is pinned ahead of
-            // arrival order — matches EpisodeQueuePresenter::isQueueEligible.
-            // Once eligible, first arrived is always first in the list.
-            ->orderByRaw(EpisodeQueuePresenter::PIN_UNSEEN_EMERGENCY_SQL)
-            ->orderBy('oriented_at')
-            ->paginate(20)
-            ->withQueryString();
-
-        // Sur toute la file, pas sur la page : le n° d'un patient ne change ni avec un filtre ni avec une
-        // recherche, et il est le même que celui que les Soins affichent pour lui (ADR-124).
-        $queueNumbers = $presenter->medicineQueueNumbers();
-        $pendingReasons = $presenter->pendingReasonsFor($orientations->getCollection());
-        $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present(
-            $orientation,
-            $queueNumbers[$orientation->getKey()] ?? null,
-            $pendingReasons[$orientation->getKey()] ?? [],
-        ));
-
         return Inertia::render('Medicine/Index', [
-            'orientations' => $orientations,
-            'counts' => $counts,
-            'filter' => $filter,
+            'passages' => $board->page(CatalogModule::Medicine, $view, $search, $request->user()),
+            'counts' => $board->counts(CatalogModule::Medicine),
+            'view' => $view,
             'search' => $search,
         ]);
+    }
+
+    /**
+     * ADR-177 — la vraie prise en charge en Médecine : l'orientation qui
+     * attendait est acceptée, sinon elle est créée ; la consultation s'ouvre
+     * à ce moment-là, jamais parce que le passage est visible.
+     */
+    public function takeCharge(Request $request, Episode $episode, TakeChargeOfEpisodeAction $action): RedirectResponse
+    {
+        $orientation = $action->execute($episode, CatalogModule::Medicine, $request->user());
+
+        return redirect()->route('medicine.orientations.step', [$orientation, 'dossier'])
+            ->with('status', $orientation->accepted_by === $request->user()->getKey()
+                ? 'Patient pris en charge en Médecine.'
+                : 'Ce patient est déjà en consultation avec '.($orientation->acceptedBy?->name ?? 'un autre médecin').'.');
     }
 
     public function accept(

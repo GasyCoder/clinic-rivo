@@ -7,6 +7,7 @@ import Button from '@/Components/UI/Button.vue';
 import Card from '@/Components/UI/Card.vue';
 import CheckBox from '@/Components/UI/CheckBox.vue';
 import FormError from '@/Components/UI/FormError.vue';
+import NextStepPicker from '@/Components/Reception/NextStepPicker.vue';
 import Icon from '@/Components/UI/Icon.vue';
 import IconInput from '@/Components/UI/IconInput.vue';
 import Input from '@/Components/UI/Input.vue';
@@ -22,6 +23,8 @@ const props = defineProps({
     pricingContext: { type: Object, default: () => ({}) },
     paymentMethods: { type: Array, default: () => [] },
     openCashSessions: { type: Array, default: () => [] },
+    /** ADR-177 — `[{ value, label }]` : les services que la Réception peut suggérer. */
+    nextStepOptions: { type: Array, default: () => [] },
 });
 
 const query = ref('');
@@ -33,6 +36,8 @@ const form = useForm({
     payment_method_id: props.paymentMethods[0]?.id ?? '',
     payment_reference: '',
     cash_register_uuid: props.openCashSessions.length === 1 ? props.openCashSessions[0].register_uuid ?? '' : '',
+    // ADR-177 — facultative et indicative : aucune case cochée est une réponse valide.
+    next_steps: [],
 });
 
 // Le mode choisi décide si sa référence externe est obligatoire : un
@@ -56,16 +61,6 @@ const patientTypeLabels = {
     STANDARD: 'Patient standard',
     MUTUAL: 'Patient mutualiste',
     STAFF: 'Personnel clinique',
-};
-const routeLabels = {
-    MEDICINE_DIRECT: 'Médecine directe',
-    CARE_THEN_MEDICINE: 'Soins puis Médecine',
-    CARE_ONLY: 'Soins uniquement',
-};
-const routeDescriptions = {
-    MEDICINE_DIRECT: 'Accès direct à la file Médecine.',
-    CARE_THEN_MEDICINE: 'Passage aux Soins, puis transmission à Médecine.',
-    CARE_ONLY: 'La prise en charge peut se terminer aux Soins.',
 };
 
 const isStaff = computed(() => props.episode.patient.patient_type === 'STAFF');
@@ -112,9 +107,6 @@ const canPayNow = computed(() => !isStaff.value
     && props.openCashSessions.length > 0
     && props.paymentMethods.length > 0);
 const complete = computed(() => selectedServices.value.length > 0 || form.defer_designation);
-const selectedRoutes = computed(() => Array.from(new Set(
-    selectedServices.value.map(({ item }) => item.routing_mode),
-)));
 
 const addService = (item) => {
     if (selectedIds.value.has(item.uuid)) return;
@@ -140,6 +132,7 @@ const submit = () => {
         payment_method_id: !isStaff.value && data.catalog_lines.length && data.payment_choice === 'NOW' ? data.payment_method_id : null,
         payment_reference: !isStaff.value && data.catalog_lines.length && data.payment_choice === 'NOW' ? data.payment_reference : null,
         cash_register_uuid: !isStaff.value && data.catalog_lines.length && data.payment_choice === 'NOW' ? data.cash_register_uuid : null,
+        next_steps: data.next_steps,
     })).post(`/reception/passages/${props.episode.uuid}/prestations`, { preserveScroll: true });
 };
 </script>
@@ -179,7 +172,7 @@ const submit = () => {
         <Card class="overflow-visible shadow-sm">
             <div class="flex items-center gap-3 border-b border-gray-200 px-5 py-3 dark:border-gray-900">
                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300"><Icon class="text-lg" name="activity" /></span>
-                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Prestations et parcours clinique</h2><p class="mt-0.5 text-xs text-slate-400">Sélectionnez le besoin connu ; le système calcule sa destination.</p></div>
+                <div><h2 class="text-sm font-bold text-slate-700 dark:text-white">Prestations du passage</h2><p class="mt-0.5 text-xs text-slate-400">Sélectionnez le besoin déclaré. Il ne décide pas qui voit le patient : tous les services autorisés voient le passage.</p></div>
             </div>
 
             <div v-if="mutualCoverageMissing || pricingContext.missing_tariffs_count" class="border-b border-gray-200 bg-amber-50/60 px-5 py-2.5 text-xs leading-5 text-amber-800 dark:border-gray-900 dark:bg-amber-950/15 dark:text-amber-300">
@@ -205,14 +198,14 @@ const submit = () => {
                         <button v-for="item in filteredCatalog" :key="item.uuid" type="button" class="grid w-full grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-start transition-colors last:border-0 hover:bg-gray-50 dark:border-gray-900 dark:hover:bg-gray-1000" @click="addService(item)">
                             <span :class="['flex h-8 w-8 items-center justify-center rounded border', item.tariff_available ? 'border-gray-200 text-primary-600 dark:border-gray-800' : 'border-amber-200 text-amber-600 dark:border-amber-900']"><Icon name="plus" /></span>
                             <span class="min-w-0"><span class="block truncate text-sm font-bold text-slate-700 dark:text-white">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-slate-400">{{ item.code }} · {{ item.module_label }} · {{ item.unit }}</span></span>
-                            <span class="ps-3 text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ item.tariff_available ? formatMoney(item.tariff_amount) : 'À configurer' }}</span><span v-if="isMutual && item.tariff_available" class="mt-0.5 block text-[11px] font-semibold text-emerald-600">Patient : {{ formatMoney(item.patient_amount) }}</span><span v-else class="mt-0.5 block text-[11px] font-semibold text-slate-400">{{ routeLabels[item.routing_mode] ?? 'Parcours à définir' }}</span></span>
+                            <span class="ps-3 text-end"><span :class="['block text-sm font-bold', item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ item.tariff_available ? formatMoney(item.tariff_amount) : 'À configurer' }}</span><span v-if="isMutual && item.tariff_available" class="mt-0.5 block text-[11px] font-semibold text-emerald-600">Patient : {{ formatMoney(item.patient_amount) }}</span><span v-else class="mt-0.5 block text-[11px] font-semibold text-slate-400">{{ item.module_label }}</span></span>
                         </button>
                         <div v-if="filteredCatalog.length === 0" class="px-4 py-9 text-center"><Icon class="text-2xl text-slate-300" name="search" /><p class="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-200">Aucune prestation trouvée</p><p class="mt-1 text-xs text-slate-400">Modifiez la recherche ou le filtre de service.</p></div>
                     </div>
 
                     <label class="mt-3 flex cursor-pointer items-start gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2.5 dark:border-gray-700">
                         <CheckBox id="defer_designation" :model-value="form.defer_designation" size="sm" :disabled="selectedServices.length > 0" @update:model-value="chooseDeferred" />
-                        <span><span class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Besoin à définir après évaluation</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">La prestation et son montant seront définis après l’évaluation par les Soins.</span></span>
+                        <span><span class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Besoin à préciser</span><span class="mt-0.5 block text-xs leading-5 text-slate-400">La prestation et son montant seront précisés plus tard. Aucun service n’est imposé.</span></span>
                     </label>
                     <FormError v-if="form.errors.catalog_lines || form.errors.defer_designation" class="mt-2">{{ form.errors.catalog_lines || form.errors.defer_designation }}</FormError>
 
@@ -254,7 +247,7 @@ const submit = () => {
                                 <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20" :aria-label="`Retirer ${selection.item.name}`" @click="removeService(selection.index)"><Icon name="trash" /></button>
                             </div>
                             <div class="mt-2 grid grid-cols-[minmax(0,1fr)_74px_auto] items-end gap-2">
-                                <div><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">Parcours</p><p class="mt-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">{{ routeLabels[selection.item.routing_mode] }}</p></div>
+                                <div><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">Service</p><p class="mt-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">{{ selection.item.module_label }}</p></div>
                                 <label><span class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-400">Qté</span><Input v-model="selection.line.quantity" class="!w-[74px] text-end" type="number" min="0.01" max="9999.99" step="0.01" /></label>
                                 <div class="min-w-[92px] text-end"><p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">{{ isMutual ? 'Part patient' : 'Montant' }}</p><p :class="['mt-1 text-sm font-bold', selection.item.tariff_available ? 'text-slate-700 dark:text-white' : 'text-amber-700 dark:text-amber-300']">{{ selection.item.tariff_available ? formatMoney(Number(selection.line.quantity || 0) * Number(selection.item.patient_amount ?? selection.item.tariff_amount)) : 'À configurer' }}</p><p v-if="isMutual && selection.item.tariff_available" class="mt-0.5 text-[10px] text-slate-400">Mutuelle {{ formatMoney(Number(selection.line.quantity || 0) * Number(selection.item.coverage_amount)) }}</p></div>
                             </div>
@@ -262,16 +255,17 @@ const submit = () => {
                     </div>
                     <div v-else class="px-5 py-10 text-center"><span class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-900"><Icon class="text-xl" name="cart" /></span><p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-200">Panier vide</p><p class="mt-1 text-xs leading-5 text-slate-400">Ajoutez une ou plusieurs prestations depuis la liste.</p></div>
 
-                    <div v-if="selectedRoutes.length" class="border-t border-gray-200 bg-gray-50/50 px-4 py-3 dark:border-gray-800 dark:bg-gray-1000/20">
-                        <p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Parcours calculé</p>
-                        <div class="mt-2 space-y-1.5"><p v-for="routeMode in selectedRoutes" :key="routeMode" class="flex items-start gap-2 text-xs leading-5 text-slate-500"><Icon class="mt-0.5 shrink-0 text-slate-400" name="check-circle" /><span><strong class="text-slate-600 dark:text-slate-300">{{ routeLabels[routeMode] }} :</strong> {{ routeDescriptions[routeMode] }}</span></p></div>
+                    <!-- ADR-177 — la suggestion facultative remplace le « parcours calculé » :
+                         la désignation ne décide plus qui voit le patient. -->
+                    <div class="border-t border-border p-3">
+                        <NextStepPicker v-model="form.next_steps" :options="nextStepOptions" :disabled="form.processing" compact />
                     </div>
                 </aside>
             </div>
 
             <div class="flex flex-col-reverse gap-3 border-t border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-gray-900">
                 <Button :as="Link" :href="`/patients/${episode.patient.uuid}`" size="rg" variant="white-outline"><Icon class="me-2" name="arrow-left" />Retour au patient</Button>
-                <div class="text-end"><p class="mb-2 text-xs text-slate-400">Le parcours et le barème utilisés seront historisés pour ce passage.</p><Button size="rg" :disabled="!complete || form.processing" @click="submit"><Icon class="me-2" name="check" />{{ form.processing ? 'Confirmation…' : 'Confirmer le parcours' }}</Button></div>
+                <div class="text-end"><p class="mb-2 text-xs text-slate-400">Les prestations et le barème utilisés seront historisés pour ce passage.</p><Button size="rg" :disabled="!complete || form.processing" @click="submit"><Icon class="me-2" name="check" />{{ form.processing ? 'Confirmation…' : 'Confirmer le passage' }}</Button></div>
             </div>
         </Card>
     </div>

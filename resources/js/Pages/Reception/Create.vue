@@ -7,7 +7,6 @@ import {
     AlertTriangle,
     ArrowLeft,
     ArrowRight,
-    Baby,
     Briefcase,
     Building2,
     CalendarDays,
@@ -57,7 +56,7 @@ import CardBody from '@/Components/UI/CardBody.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
-import NewbornPicker from '@/Components/Reception/NewbornPicker.vue';
+import NextStepPicker from '@/Components/Reception/NextStepPicker.vue';
 import { financialModeLabel } from '@/utilities/financialMode';
 import { formatMoney } from '@/utilities/money';
 import {
@@ -78,16 +77,19 @@ const props = defineProps({
     pharmacyCatalog: { type: Array, default: () => [] },
     receptionDraft: { type: Object, default: null },
     financialPreview: { type: Object, default: null },
+    /** ADR-177 — `[{ value, label }]` : les services que la Réception peut suggérer. */
+    nextStepOptions: { type: Array, default: () => [] },
 });
 
+// ADR-177 — plus d'étape « Routage » : l'accueil ne décide plus d'une file.
+// La prochaine étape suggérée, facultative, se coche à la Confirmation.
 const steps = [
     { number: 1, label: 'Besoin' },
     { number: 2, label: 'Estimation' },
     { number: 3, label: 'Patient' },
-    { number: 4, label: 'Épisode' },
+    { number: 4, label: 'Passage' },
     { number: 5, label: 'Prise en charge' },
     { number: 6, label: 'Confirmation' },
-    { number: 7, label: 'Routage' },
 ];
 const currentStep = ref(props.resumeEpisode ? (props.resumeEpisode.financial_mode ? 6 : 5) : 1);
 const catalogQuery = ref('');
@@ -110,7 +112,8 @@ const arrivalLoading = ref(false);
 const arrivalErrors = ref({});
 const arrivalMessage = ref('');
 const episode = ref(props.resumeEpisode ?? null);
-const isExternalNewborn = ref(false);
+// ADR-177 — indicative et facultative : aucune case cochée est une réponse valide.
+const nextSteps = ref([]);
 
 const birthMode = ref('date');
 const addressMode = ref('existing');
@@ -170,7 +173,9 @@ const partnerSelectOptions = computed(() => [
 const isChildPatient = computed(() => (
     patientMode.value === 'create' && ['GIRL', 'BOY'].includes(patientForm.civility)
 ));
-const isDependentPatient = computed(() => isExternalNewborn.value || isChildPatient.value);
+// Un bébé né ailleurs est un nouveau patient ordinaire (ADR-177) : seule la
+// civilité « Enfant fille / garçon » porte le profil enfant.
+const isDependentPatient = computed(() => isChildPatient.value);
 
 const resetAdultAdministrativeFields = () => {
     patientForm.identity_document_type = '';
@@ -214,6 +219,7 @@ const finalForm = useForm({
     defer_designation: false,
     catalog_lines: [],
     payment_choice: 'LATER',
+    next_steps: [],
 });
 const emergencyForm = useForm({});
 
@@ -536,7 +542,6 @@ const choosePatient = (patient) => {
 };
 const chooseExistingPatient = () => {
     patientMode.value = 'search';
-    isExternalNewborn.value = false;
     selectedPatient.value = null;
     duplicates.value = [];
     arrivalErrors.value = {};
@@ -614,54 +619,11 @@ const chooseAnotherPatient = () => {
     arrivalErrors.value = {};
     resetEpisodeContact();
 };
-// ADR-146 — un nouveau-né né chez nous : la Réception l'a choisi dans le dossier de sa mère, il est devenu
-// patient, et il repart comme n'importe quel patient existant.
-const chooseNewbornMode = () => {
-    patientMode.value = 'newborn';
-    isExternalNewborn.value = false;
-    selectedPatient.value = null;
-    duplicates.value = [];
-    arrivalErrors.value = {};
-    resetEpisodeContact();
-};
-const newbornSelected = (patient) => {
-    patientMode.value = 'search';
-    isExternalNewborn.value = false;
-    selectedPatient.value = patient;
-    duplicates.value = [];
-    arrivalErrors.value = {};
-};
 const chooseNewPatient = () => {
     patientMode.value = 'create';
-    isExternalNewborn.value = false;
     selectedPatient.value = null;
     duplicates.value = [];
     arrivalErrors.value = {};
-    resetEpisodeContact();
-};
-const chooseInternalNewborn = () => {
-    isExternalNewborn.value = false;
-    selectedPatient.value = null;
-    duplicates.value = [];
-    arrivalErrors.value = {};
-    arrivalMessage.value = '';
-    resetEpisodeContact();
-};
-const chooseExternalNewborn = () => {
-    patientMode.value = 'newborn';
-    isExternalNewborn.value = true;
-    selectedPatient.value = null;
-    duplicates.value = [];
-    arrivalErrors.value = {};
-    arrivalMessage.value = '';
-    birthMode.value = 'date';
-
-    // Un nouveau-né n'a pas de coordonnées ni de situation administrative
-    // d'adulte. Nettoyer ici évite de réutiliser une ancienne saisie lorsque
-    // l'agent bascule depuis « Nouveau Patient ».
-    patientForm.civility = '';
-    resetAdultAdministrativeFields();
-    patientForm.age = '';
     resetEpisodeContact();
 };
 const setBirthMode = (mode) => {
@@ -712,13 +674,6 @@ const arrivalPayload = (confirmDuplicate = false) => {
         ...journey,
     };
 
-    if (isExternalNewborn.value) {
-        return {
-            ...identity,
-            registration_context: 'EXTERNAL_NEWBORN',
-        };
-    }
-
     if (isChildPatient.value) {
         return {
             ...identity,
@@ -739,7 +694,7 @@ const arrivalPayload = (confirmDuplicate = false) => {
     };
 };
 const createEpisode = async (confirmDuplicate = false) => {
-    if (!selectedPatient.value && patientMode.value !== 'create' && !isExternalNewborn.value) return;
+    if (!selectedPatient.value && patientMode.value !== 'create') return;
     arrivalLoading.value = true;
     arrivalErrors.value = {};
     arrivalMessage.value = '';
@@ -846,18 +801,20 @@ const confirmMarkEmergency = () => {
 };
 
 /**
- * Le patient n'est venu que pour des médicaments : il ne verra ni médecin ni
- * infirmier, et aucune couverture ne s'applique à son ticket (ADR-104). Lui
- * faire traverser « Prise en charge », « Confirmation » et « Routage » lui
- * ferait répondre trois fois à des questions sans objet pour son passage.
+ * Le patient n'est venu que pour des médicaments : aucune couverture ne
+ * s'applique à son ticket (ADR-104), et lui faire traverser « Prise en
+ * charge » puis « Confirmation » lui ferait répondre deux fois à des
+ * questions sans objet pour son passage. Il n'est obligé de passer ni aux
+ * Soins ni en Médecine ; la suggestion « Pharmacie » reste possible, et
+ * facultative (ADR-177).
  *
- * Le serveur reste le seul à décider : il refera la même lecture du panier
- * et n'ouvrira aucune file clinique parce qu'il n'y a aucune prestation.
+ * Le serveur reste le seul à décider : il refera la même lecture du panier.
  */
 const finishToPharmacy = () => {
     finalForm.defer_designation = false;
     finalForm.catalog_lines = cartPayload();
     finalForm.payment_choice = 'LATER';
+    finalForm.next_steps = [...nextSteps.value];
     finalForm.post(`/reception/passages/${episode.value.uuid}/prestations`, { preserveScroll: true });
 };
 const confirmCare = () => {
@@ -866,6 +823,7 @@ const confirmCare = () => {
     finalForm.payment_choice = designationDeferred.value || financialMode.value === 'STAFF'
         ? null
         : 'LATER';
+    finalForm.next_steps = [...nextSteps.value];
     finalForm.post(`/reception/passages/${episode.value.uuid}/prestations`, { preserveScroll: true });
 };
 const firstError = (errors, key) => Array.isArray(errors?.[key]) ? errors[key][0] : errors?.[key];
@@ -901,7 +859,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
             </nav>
 
             <CardBody v-if="currentStep === 1" class="!p-5 lg:!p-7">
-                <div><div class="flex items-center gap-2"><Badge variant="secondary">Étape 1 sur 7</Badge><span class="text-xs font-medium text-muted-foreground">Besoin</span></div><h2 class="mt-3 font-heading text-2xl font-bold tracking-tight text-foreground">Quel est votre besoin aujourd’hui ?</h2><p class="mt-1 text-sm text-muted-foreground">Ajoutez au panier tout ce dont le patient a besoin. Aucun dossier patient n’est créé à cette étape.</p></div>
+                <div><div class="flex items-center gap-2"><Badge variant="secondary">Étape 1 sur 6</Badge><span class="text-xs font-medium text-muted-foreground">Besoin</span></div><h2 class="mt-3 font-heading text-2xl font-bold tracking-tight text-foreground">Quel est votre besoin aujourd’hui ?</h2><p class="mt-1 text-sm text-muted-foreground">Ajoutez au panier tout ce dont le patient a besoin. Aucun dossier patient n’est créé à cette étape.</p></div>
 
                 <!-- ADR-104 — deux rayons, un seul panier. Le basculement
                      n'efface jamais la sélection de l'autre rayon : c'est le
@@ -954,7 +912,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             <span v-if="!showUnavailable && hiddenUnavailableCount" class="text-xs text-muted-foreground">{{ hiddenUnavailableCount }} masquée{{ hiddenUnavailableCount > 1 ? 's' : '' }} · <button type="button" class="font-bold text-primary hover:text-primary" @click="showUnavailable = true">Afficher</button></span>
                         </div>
                         <div v-if="estimateCatalog.length && filteredCatalog.length" class="mt-3 max-h-[480px] overflow-y-auto rounded-md border border-border">
-                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" :disabled="!item.reception_ready" :class="['grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 text-start transition last:border-0', item.reception_ready ? 'hover:bg-accent' : 'cursor-not-allowed bg-muted/25 opacity-70']" @click="addService(item)"><span :class="['flex h-9 w-9 items-center justify-center rounded border', item.reception_ready ? 'border-border text-primary' : item.tariff_available ? 'border-border bg-muted text-muted-foreground ' : 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900 dark:bg-amber-950/20']"><component :is="item.reception_ready ? Plus : item.tariff_available ? Info : Lock" class="h-4 w-4" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-foreground">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ item.code }} · {{ item.module_label }} · {{ item.routing_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.reception_ready ? 'text-foreground' : item.tariff_available ? 'text-muted-foreground' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'Tarif requis' }}</span><span class="text-[11px] text-muted-foreground">{{ item.unit }}</span></span></button>
+                            <button v-for="item in filteredCatalog" :key="item.catalog_item_uuid" type="button" :disabled="!item.reception_ready" :class="['grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 text-start transition last:border-0', item.reception_ready ? 'hover:bg-accent' : 'cursor-not-allowed bg-muted/25 opacity-70']" @click="addService(item)"><span :class="['flex h-9 w-9 items-center justify-center rounded border', item.reception_ready ? 'border-border text-primary' : item.tariff_available ? 'border-border bg-muted text-muted-foreground ' : 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900 dark:bg-amber-950/20']"><component :is="item.reception_ready ? Plus : item.tariff_available ? Info : Lock" class="h-4 w-4" /></span><span class="min-w-0"><span class="block truncate text-sm font-bold text-foreground">{{ item.name }}</span><span class="mt-0.5 block truncate text-xs text-muted-foreground">{{ item.code }} · {{ item.module_label }}</span></span><span class="text-end"><span :class="['block text-sm font-bold', item.reception_ready ? 'text-foreground' : item.tariff_available ? 'text-muted-foreground' : 'text-amber-600']">{{ item.tariff_available ? formatMoney(item.unit_price) : 'Tarif requis' }}</span><span class="text-[11px] text-muted-foreground">{{ item.unit }}</span></span></button>
                         </div>
                         <div v-else-if="!estimateCatalog.length" class="rounded-md border border-amber-200 bg-amber-50/70 px-5 py-6 dark:border-amber-900 dark:bg-amber-950/20">
                             <div class="flex items-start gap-4">
@@ -1070,14 +1028,14 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             <p v-else class="px-4 py-9 text-center text-sm text-muted-foreground">Ajoutez au moins une prestation ou un médicament.</p>
                             <p v-if="pharmacyOnlyCart" class="flex items-start gap-2 border-t border-border bg-amber-50/70 px-4 py-2.5 text-[11px] leading-4 text-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
                                 <Info class="mt-px h-3.5 w-3.5 shrink-0" />
-                                <span>Médicaments seuls : après le dossier patient, le passage part directement à la Caisse avec son ticket. Aucun parcours clinique n’est ouvert.</span>
+                                <span>Médicaments seuls : après le dossier patient, le passage part directement à la Caisse avec son ticket. Le patient n’a à passer ni aux Soins ni en Médecine.</span>
                             </p>
                             <div class="border-t border-border p-3"><Button class="w-full" :disabled="!cart.length" @click="showEstimate">Voir l’estimation<ArrowRight class="h-4 w-4" /></Button></div>
                         </div>
                         <button type="button" class="group w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-start transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:bg-amber-50 hover:shadow-sm dark:border-amber-900 dark:bg-amber-950/20 dark:hover:border-amber-800" @click="continueWithoutKnownDesignation">
                             <span class="flex items-start gap-3">
                                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-100 text-lg text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><Info class="h-4 w-4" /></span>
-                                <span class="min-w-0 flex-1"><span class="block text-sm font-bold text-foreground">Besoin à préciser après évaluation</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">La prestation et son montant seront définis après l’évaluation par les Soins.</span></span>
+                                <span class="min-w-0 flex-1"><span class="block text-sm font-bold text-foreground">Besoin à préciser</span><span class="mt-1 block text-xs leading-5 text-muted-foreground">La prestation et son montant seront précisés plus tard. Aucun service n’est imposé : le passage est visible de tous les services autorisés.</span></span>
                                 <ArrowRight class="mt-1 h-4 w-4 shrink-0 text-amber-600 transition group-hover:translate-x-0.5" />
                             </span>
                         </button>
@@ -1170,19 +1128,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                 <div class="mt-5 inline-flex rounded-md border border-border bg-card p-1">
                     <button type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'search' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseExistingPatient"><Search class="h-4 w-4" />Patient existant</button>
                     <button v-if="capabilities.can_create_patient" type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'create' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseNewPatient"><UserRoundPlus class="h-4 w-4" />Nouveau Patient</button>
-                    <button v-if="capabilities.can_create_patient" type="button" :class="['inline-flex items-center gap-1.5 rounded px-5 py-2.5 text-sm font-semibold transition', patientMode === 'newborn' ? 'bg-muted text-foreground shadow-sm ' : 'text-muted-foreground hover:text-foreground']" @click="chooseNewbornMode"><Baby class="h-4 w-4" />Nouveau-né</button>
                 </div>
-
-                <!-- ADR-146 — « accouchement chez nous ou externe ? » : chez nous, le bébé se choisit dans le dossier
-                     de sa mère, sans seconde saisie d'identité ; ailleurs, seule son identité de bébé est demandée. -->
-                <section v-if="patientMode === 'newborn'" class="mt-5 w-full">
-                    <NewbornPicker
-                        :request="requestJson"
-                        @select="newbornSelected"
-                        @internal="chooseInternalNewborn"
-                        @external="chooseExternalNewborn"
-                    />
-                </section>
 
                 <section v-if="patientMode === 'search'" class="mt-5 w-full">
                     <div class="rounded-md border border-border bg-muted/25 p-4 sm:p-5">
@@ -1233,34 +1179,34 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <section v-if="patientMode === 'create' || isExternalNewborn" class="mt-5 w-full overflow-hidden rounded-md border border-border">
-                    <div :class="['border-b border-border px-5 py-4', isExternalNewborn ? 'bg-primary/5' : 'bg-muted/35']">
+                <!-- ADR-177 — deux modes seulement : patient existant, nouveau patient.
+                     Un bébé né ailleurs est un nouveau patient (civilité « Enfant ») ;
+                     un bébé né à la clinique devient patient depuis la Maternité. -->
+                <section v-if="patientMode === 'create'" class="mt-5 w-full overflow-hidden rounded-md border border-border">
+                    <div class="border-b border-border bg-muted/35 px-5 py-4">
                         <div class="flex items-start gap-3">
-                            <span v-if="isExternalNewborn" class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><Baby class="h-4 w-4" /></span>
                             <div>
-                                <h3 class="text-sm font-bold text-foreground">{{ isExternalNewborn ? 'Identité du nouveau-né né ailleurs' : 'Identité permanente du Patient' }}</h3>
+                                <h3 class="text-sm font-bold text-foreground">Identité permanente du Patient</h3>
                                 <p class="mt-1 text-xs text-muted-foreground">
-                                    {{ isExternalNewborn
-                                        ? 'Renseignez uniquement l’identité propre au bébé. Les coordonnées appartiennent au parent ou au responsable à joindre.'
-                                        : isChildPatient
-                                            ? 'Renseignez l’identité de l’enfant. Ses coordonnées de contact sont celles du parent ou du responsable.'
-                                            : 'Les informations ci-dessous seront conservées dans le dossier administratif.' }}
+                                    {{ isChildPatient
+                                        ? 'Renseignez l’identité de l’enfant. Ses coordonnées de contact sont celles du parent ou du responsable.'
+                                        : 'Les informations ci-dessous seront conservées dans le dossier administratif.' }}
                                 </p>
                             </div>
                         </div>
                     </div>
                     <div class="space-y-5 p-5">
-                        <div :class="['grid gap-4', isExternalNewborn ? 'md:grid-cols-2' : 'md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]']">
-                            <FormField v-if="!isExternalNewborn" label="Civilité">
+                        <div class="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]">
+                            <FormField label="Civilité">
                                 <!-- `min-w-0` : le Select impose 176 px par
                                      défaut, ce qui le faisait déborder de sa
                                      colonne et chevaucher le champ voisin. -->
                                 <Select class="h-11 w-full min-w-0" :model-value="patientForm.civility" :options="civilitySelectOptions" placeholder="Choisir" @update:model-value="chooseCivility" />
                             </FormField>
-                            <FormField :label="isExternalNewborn ? 'Nom du bébé' : 'Nom'" required :error="firstError(arrivalErrors, 'last_name')">
+                            <FormField label="Nom" required :error="firstError(arrivalErrors, 'last_name')">
                                 <IconInput v-model="patientForm.last_name" size="lg" :icon="UserRound" autocomplete="family-name" placeholder="Nom de famille" :aria-invalid="Boolean(firstError(arrivalErrors, 'last_name'))" />
                             </FormField>
-                            <FormField :label="isExternalNewborn ? 'Prénom(s) du bébé' : 'Prénom(s)'" :error="firstError(arrivalErrors, 'first_name')">
+                            <FormField label="Prénom(s)" :error="firstError(arrivalErrors, 'first_name')">
                                 <IconInput v-model="patientForm.first_name" size="lg" :icon="UserRound" autocomplete="given-name" placeholder="Prénom(s)" :aria-invalid="Boolean(firstError(arrivalErrors, 'first_name'))" />
                             </FormField>
                         </div>
@@ -1270,7 +1216,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                                  libellé, à hauteur fixe : c'est lui qui
                                  décalait tout le reste de la rangée. -->
                             <FormField
-                                :label="isExternalNewborn ? 'Naissance du bébé' : 'Naissance ou âge'"
+                                label="Naissance ou âge"
                                 required
                                 :error="firstError(arrivalErrors, 'birth_date') || firstError(arrivalErrors, 'age')"
                             >
@@ -1336,9 +1282,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                     </div>
                 </section>
 
-                <!-- ADR-146 : tant que la Réception choisit le bébé chez sa mère, rien d'autre n'est demandé —
-                     un formulaire de nouveau patient sous l'arborescence ferait saisir ce qu'on vient d'y trouver. -->
-                <section v-if="patientMode === 'create' || isExternalNewborn || (patientMode !== 'newborn' && selectedPatient)" class="mt-5 w-full overflow-hidden rounded-md border border-border">
+                <section v-if="patientMode === 'create' || selectedPatient" class="mt-5 w-full overflow-hidden rounded-md border border-border">
                     <div class="flex items-start gap-3 border-b border-border bg-muted/35 px-5 py-4">
                         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg text-primary"><UsersRound class="h-4 w-4" /></span>
                         <div>
@@ -1366,7 +1310,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                 <FormError v-if="arrivalMessage && !duplicates.length" class="mt-4 w-full">{{ arrivalMessage }}</FormError>
                 <div class="mt-6 flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                     <Button size="lg" variant="white-outline" @click="returnFromPatientStep"><ArrowLeft class="h-4 w-4" />{{ patientBackLabel }}</Button>
-                    <Button v-if="patientMode === 'create' || isExternalNewborn || (patientMode !== 'newborn' && selectedPatient)" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer l’Episode' }}<ArrowRight class="h-4 w-4" /></Button>
+                    <Button v-if="patientMode === 'create' || selectedPatient" size="lg" :disabled="arrivalLoading" @click="createEpisode(false)">{{ arrivalLoading ? 'Création du passage…' : 'Créer le passage' }}<ArrowRight class="h-4 w-4" /></Button>
                 </div>
             </CardBody>
 
@@ -1400,9 +1344,13 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             <h3 class="text-sm font-bold text-foreground">Ce passage ne contient que des médicaments</h3>
                             <p class="mt-1 text-xs leading-5 text-muted-foreground">
                                 Le ticket Pharmacie est réglé au tarif <strong class="font-semibold text-foreground">Sans mutuelle</strong> : aucun mode de prise en charge ne s’y applique.
-                                Le patient ne passera ni en Médecine ni aux Soins.
+                                Le patient n’est obligé de passer ni en Médecine ni aux Soins.
                             </p>
                         </div>
+                    </div>
+                    <div class="border-b border-border p-5">
+                        <!-- « Pharmacie » peut être suggérée, rien ne l'impose. -->
+                        <NextStepPicker v-model="nextSteps" :options="nextStepOptions" :disabled="finalForm.processing" />
                     </div>
                     <div class="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
                         <Button variant="white-outline" :disabled="finalForm.processing" @click="currentStep = 1">
@@ -1489,7 +1437,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
             <CardBody v-else-if="currentStep === 6" class="!p-5 lg:!p-7">
                 <div>
                     <h2 class="font-heading text-2xl font-bold text-foreground">Confirmer la prise en charge</h2>
-                    <p class="mt-1 text-sm text-muted-foreground">Montants recalculés depuis le contexte de l’Episode. La confirmation fige les prestations puis déclenche le routage.</p>
+                    <p class="mt-1 text-sm text-muted-foreground">Montants recalculés depuis le contexte du passage. La confirmation fige les prestations ; le passage est alors visible de tous les services autorisés.</p>
                 </div>
 
                 <div class="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -1529,8 +1477,8 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             <div v-if="designationDeferred" class="flex items-start gap-3 px-4 py-5">
                                 <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/30"><Info class="h-4 w-4" /></span>
                                 <div>
-                                    <p class="text-sm font-bold text-foreground">Besoin à définir après évaluation</p>
-                                    <p class="mt-1 text-xs text-muted-foreground">Prestation et montant à définir après l’évaluation. Destination initiale : Soins.</p>
+                                    <p class="text-sm font-bold text-foreground">Besoin à préciser</p>
+                                    <p class="mt-1 text-xs text-muted-foreground">Prestation et montant à préciser plus tard. Aucune destination n’est imposée : le passage est visible de tous les services autorisés.</p>
                                 </div>
                             </div>
                             <template v-else>
@@ -1540,7 +1488,7 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                                 <div v-for="line in previewLines" :key="line.catalog_item_uuid" class="grid gap-1 border-b border-border px-4 py-3 last:border-0 sm:grid-cols-[minmax(0,1fr)_60px_repeat(3,minmax(90px,110px))] sm:gap-3 sm:items-center">
                                     <div class="min-w-0">
                                         <p class="truncate text-sm font-bold text-foreground">{{ line.name }}</p>
-                                        <p class="truncate text-xs text-muted-foreground">{{ line.code }} · {{ line.routing_label }}</p>
+                                        <p class="truncate text-xs text-muted-foreground">{{ line.code }}</p>
                                     </div>
                                     <p class="text-xs text-muted-foreground sm:text-center sm:text-sm">× {{ Number(line.quantity).toLocaleString('fr-FR') }}</p>
                                     <p class="text-sm font-semibold text-foreground sm:text-end"><span class="text-[10px] font-bold uppercase text-muted-foreground sm:hidden">Brut </span>{{ line.gross_amount ? formatMoney(line.gross_amount) : 'En attente' }}</p>
@@ -1551,8 +1499,13 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                         </div>
 
                         <div v-if="preview?.totals.resolution_pending" class="rounded-md border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
-                            <p class="flex items-start gap-2 text-xs leading-5 text-amber-800 dark:text-amber-200"><CircleAlert class="h-4 w-4 mt-0.5 shrink-0" /><span>Une ligne reste financièrement en attente (tarif manquant ou politique Personnel non classifiée). Sa demande clinique et son routage seront conservés ; aucun montant ne sera inventé.</span></p>
+                            <p class="flex items-start gap-2 text-xs leading-5 text-amber-800 dark:text-amber-200"><CircleAlert class="h-4 w-4 mt-0.5 shrink-0" /><span>Une ligne reste financièrement en attente (tarif manquant ou politique Personnel non classifiée). Le besoin déclaré sera conservé ; aucun montant ne sera inventé.</span></p>
                         </div>
+
+                        <!-- ADR-177 — facultatif et indicatif : aucune case cochée est une
+                             réponse valide, et aucune ne cache le passage à un service. -->
+                        <NextStepPicker v-model="nextSteps" :options="nextStepOptions" :disabled="finalForm.processing" />
+                        <FormError v-if="firstError(finalForm.errors, 'next_steps')">{{ firstError(finalForm.errors, 'next_steps') }}</FormError>
                     </section>
 
                     <aside class="space-y-3 self-start xl:sticky xl:top-20">
@@ -1565,13 +1518,6 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                             <div class="border-t border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900 dark:bg-amber-950/30">
                                 <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">Reste à la charge du patient</p>
                                 <p class="mt-1 font-heading text-3xl font-bold text-amber-800 dark:text-amber-200">{{ preview && preview.totals.patient_amount !== null ? formatMoney(preview.totals.patient_amount) : '—' }}</p>
-                            </div>
-                            <div class="flex items-center gap-3 border-t border-border px-5 py-3">
-                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><ArrowRight class="h-4 w-4" /></span>
-                                <div>
-                                    <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Destination initiale</p>
-                                    <p class="font-bold text-foreground">{{ designationDeferred ? 'Soins' : (preview?.initial_destination?.label || 'À calculer') }}</p>
-                                </div>
                             </div>
                         </div>
 

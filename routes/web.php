@@ -40,6 +40,7 @@ use App\Http\Controllers\HospitalStaySelectionController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
+use App\Http\Controllers\MaternityNewbornController;
 use App\Http\Controllers\Medicine\ClinicalProtocolController;
 use App\Http\Controllers\Medicine\ImagingReportTemplateController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
@@ -65,10 +66,10 @@ use App\Http\Controllers\Pharmacy\SupplierInvoiceController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
+use App\Http\Controllers\Reception\EpisodeNextStepController;
 use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
-use App\Http\Controllers\Reception\ReceptionNewbornController;
 use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
@@ -700,14 +701,6 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/reception/patients/search', [ReceptionController::class, 'searchPatients'])
         ->name('reception.patients.search')
         ->middleware('can:episodes.create');
-    // ADR-146 — « accouchement chez nous » : les bébés d'une mère, puis le bébé devenu patient d'un clic.
-    Route::get('/reception/newborns', [ReceptionNewbornController::class, 'index'])
-        ->name('reception.newborns.index')
-        ->middleware(['can:episodes.create', 'can:newborns.view']);
-    Route::post('/reception/newborns/{maternityRecord}/{newbornUuid}/patient', [ReceptionNewbornController::class, 'store'])
-        ->whereUuid('newbornUuid')
-        ->name('reception.newborns.patient.store')
-        ->middleware(['can:episodes.create', 'can:newborns.patient.create']);
     Route::post('/reception/estimates', ReceptionEstimateController::class)
         ->name('reception.estimates.store')
         ->middleware('can:episodes.create');
@@ -736,6 +729,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->middleware('can:episodes.update');
     Route::post('/reception/passages/{episode}/prestations', [EpisodeServiceController::class, 'store'])
         ->name('reception.passages.services.store')
+        ->middleware('can:episodes.update');
+    // ADR-177 — la prochaine étape suggérée, modifiable tant que le passage est
+    // ouvert. Indicative : elle ne crée aucune orientation et ne cache le
+    // passage à aucun service.
+    Route::put('/reception/passages/{episode}/prochaines-etapes', [EpisodeNextStepController::class, 'update'])
+        ->name('reception.passages.next-steps.update')
         ->middleware('can:episodes.update');
     // CDC §33.3 — sortie administrative. Réception's own decision on the
     // passages Médecine has finished with: control the account (§33.2),
@@ -888,6 +887,9 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/care/orientations/{episodeOrientation}', [CareController::class, 'show'])->name('care.orientations.show')->middleware('can:care.view');
     Route::put('/care/orientations/{episodeOrientation}/record', [CareController::class, 'saveRecord'])->name('care.orientations.record.update')->middleware('can:care.view');
     Route::put('/care/orientations/{episodeOrientation}/record-and-complete', [CareController::class, 'saveAndComplete'])->name('care.orientations.record-and-complete')->middleware('can:care.complete');
+    // ADR-177 — prendre en charge un passage vu dans le tableau : l'orientation
+    // qui attendait est acceptée, sinon elle est créée à l'instant.
+    Route::post('/care/passages/{episode}/prendre-en-charge', [CareController::class, 'takeCharge'])->name('care.passages.take-charge')->middleware(['can:care.create', 'can:care.update']);
     Route::post('/care/orientations/{episodeOrientation}/accept', [CareController::class, 'accept'])->name('care.orientations.accept')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/release', [CareController::class, 'release'])->name('care.orientations.release')->middleware('can:care.update');
     Route::post('/care/orientations/{episodeOrientation}/take-over', [CareController::class, 'takeOver'])->name('care.orientations.take-over')->middleware('can:care.complete');
@@ -904,6 +906,13 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/care/orientations/{episodeOrientation}/care-order-items/{careOrderItem}/not-performed', [CareController::class, 'markCareOrderItemNotPerformed'])->name('care.care-order-items.not-performed')->middleware('can:care.update');
 
     Route::get('/maternity', [MaternityController::class, 'index'])->name('maternity.index')->middleware('can:maternity.view');
+    Route::post('/maternity/passages/{episode}/prendre-en-charge', [MaternityController::class, 'takeCharge'])->name('maternity.passages.take-charge')->middleware('can:maternity.update');
+    // ADR-177 — un bébé né à la clinique devient patient depuis la Maternité, là
+    // où il est consigné ; la Réception n'a plus de mode « Nouveau-né ».
+    Route::post('/maternity/records/{maternityRecord}/newborns/{newbornUuid}/patient', [MaternityNewbornController::class, 'store'])
+        ->whereUuid('newbornUuid')
+        ->name('maternity.newborns.patient.store')
+        ->middleware(['can:maternity.view', 'can:newborns.patient.create']);
     Route::get('/maternity/orientations/{episodeOrientation}', [MaternityController::class, 'show'])->name('maternity.orientations.show')->middleware('can:maternity.view');
     Route::post('/maternity/orientations/{episodeOrientation}/accept', [MaternityController::class, 'accept'])->name('maternity.orientations.accept')->middleware('can:maternity.update');
     Route::put('/maternity/orientations/{episodeOrientation}/record', [MaternityController::class, 'save'])->name('maternity.orientations.record.update')->middleware('can:maternity.view');
@@ -1022,6 +1031,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // discarded only by the doctor.
     Route::put('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'saveDraft'])->name('medicine.orientations.draft.update')->middleware('can:consultations.view');
     Route::delete('/medicine/orientations/{episodeOrientation}/draft', [MedicineController::class, 'discardDraft'])->name('medicine.orientations.draft.destroy')->middleware('can:consultations.view');
+    Route::post('/medicine/passages/{episode}/prendre-en-charge', [MedicineController::class, 'takeCharge'])->name('medicine.passages.take-charge')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/accept', [MedicineController::class, 'accept'])->name('medicine.orientations.accept')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/release', [MedicineController::class, 'release'])->name('medicine.orientations.release')->middleware('can:consultations.create');
     Route::post('/medicine/orientations/{episodeOrientation}/urgence', [EpisodeEmergencyController::class, 'fromMedicine'])

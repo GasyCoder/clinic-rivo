@@ -29,7 +29,7 @@ defineEmits(['update:open']);
 
 const contentClassName = computed(() => cn(
     'z-[1500] rounded-xl border border-border bg-popover p-0 text-popover-foreground shadow-2xl focus:outline-none',
-    'data-[state=open]:animate-[rivo-dialog-in_140ms_ease-out]',
+    'data-[state=open]:animate-[rivo-popover-in_90ms_ease-out]',
     props.widthClass,
     props.contentClass,
 ));

@@ -40,8 +40,11 @@ enum EpisodeAdministrativeStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::PendingOrientation => 'En attente d’orientation',
-            self::Oriented => 'Orienté',
+            // ADR-177 — ces deux valeurs gardent leur nom technique, mais un
+            // passage n'est plus « orienté » par l'accueil : il est accueilli,
+            // visible des services, et attend qu'un service le prenne en charge.
+            self::PendingOrientation => 'Accueil en cours',
+            self::Oriented => 'En attente de prise en charge',
             self::InCare => 'En cours de soins',
             self::PendingSettlement => 'En attente de règlement',
             self::Discharged => 'Sorti',

@@ -5,6 +5,7 @@ namespace App\Actions\Reception;
 use App\Actions\Billing\CreateInvoiceAction;
 use App\Actions\Billing\ValidateInvoiceAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
+use App\Actions\Episode\SetEpisodeReceptionNextStepsAction;
 use App\Actions\Payment\RecordPaymentAction;
 use App\Actions\Pharmacy\CreateExternalDispenseAction;
 use App\DTOs\Reception\ArrivalRegistrationResult;
@@ -24,10 +25,14 @@ use Illuminate\Validation\ValidationException;
 use Throwable;
 
 /**
- * Finalizes the clinical request first, then attempts billing separately.
- * A cash problem can therefore never erase a route already sent to a care
- * team. This is especially important for emergencies, but is safer for all
- * arrivals.
+ * Finalizes the declared need first, then attempts billing separately.
+ * A cash problem can therefore never erase a need or a technical request
+ * already recorded. This is especially important for emergencies, but is
+ * safer for all arrivals.
+ *
+ * ADR-177 — the Reception's next step is recorded here too, as an optional
+ * and purely informative suggestion: no orientation is derived from it, and
+ * an empty suggestion is a normal, valid answer.
  */
 class CompleteEpisodeServicesAction
 {
@@ -37,10 +42,12 @@ class CompleteEpisodeServicesAction
         private readonly ValidateInvoiceAction $validateInvoice,
         private readonly RecordPaymentAction $recordPayment,
         private readonly CreateExternalDispenseAction $createPharmacySale,
+        private readonly SetEpisodeReceptionNextStepsAction $nextSteps,
     ) {}
 
     /**
      * @param  array<int, array{catalog_item_uuid: string, quantity: int|string}>  $catalogLines
+     * @param  list<string>  $nextSteps  ADR-177 — suggestion facultative, vide par défaut
      */
     public function execute(
         Episode $episode,
@@ -51,9 +58,11 @@ class CompleteEpisodeServicesAction
         ?int $paymentMethodId = null,
         ?string $paymentReference = null,
         ?string $cashRegisterUuid = null,
+        array $nextSteps = [],
     ): ArrivalRegistrationResult {
         if ($designationDeferred) {
             $episode = $this->planRouting->planUnknownNeed($episode, $actor);
+            $this->nextSteps->execute($episode, $nextSteps, $actor);
             $episode->receptionJourneyDraft()->delete();
 
             return new ArrivalRegistrationResult($episode);
@@ -75,6 +84,10 @@ class CompleteEpisodeServicesAction
         if ($serviceLines !== []) {
             $this->planRouting->execute($episode, $serviceLines, $actor);
         }
+
+        // Indicative seulement : enregistrée avec le besoin, avant la
+        // facturation, pour qu'un échec de caisse ne la perde pas.
+        $this->nextSteps->execute($episode, $nextSteps, $actor);
 
         $episode->receptionJourneyDraft()->delete();
         $episode = $episode->fresh(['patient', 'serviceRequests', 'orientations']);

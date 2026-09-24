@@ -73,7 +73,6 @@ class StoreArrivalRequest extends FormRequest
                     'uuid',
                     Rule::exists('patients', 'uuid')->whereNull('deleted_at'),
                 ],
-                'registration_context' => ['prohibited'],
                 // Emergency is a decision on the stable Episode UUID, never
                 // an arrival flag carried before the passage exists.
                 'is_emergency' => ['prohibited'],
@@ -85,7 +84,9 @@ class StoreArrivalRequest extends FormRequest
         $type = (string) $this->input('patient_type');
         $isStaff = $type === PatientType::Staff->value;
         $isMutual = $type === PatientType::Mutual->value;
-        $isExternalNewborn = $this->input('registration_context') === 'EXTERNAL_NEWBORN';
+        // ADR-177 — plus de troisième mode « Nouveau-né » : un bébé né ailleurs
+        // est un nouveau patient, et la civilité « Enfant fille / garçon »
+        // porte seule le profil enfant (ADR-146, amendement du 2026-09-22).
         $isChild = in_array($this->input('civility'), [
             PatientCivility::Girl->value,
             PatientCivility::Boy->value,
@@ -96,19 +97,15 @@ class StoreArrivalRequest extends FormRequest
             ...$rules,
         ];
         $adultOnlyRule = fn (array $rules): array => [
-            Rule::prohibitedIf($isStaff || $isExternalNewborn || $isChild),
+            Rule::prohibitedIf($isStaff || $isChild),
             ...$rules,
         ];
         $civilityRule = fn (array $rules): array => [
-            Rule::prohibitedIf($isStaff || $isExternalNewborn),
+            Rule::prohibitedIf($isStaff),
             ...$rules,
         ];
 
         return [
-            // ADR-146 (amendement 2026-09-22) : ce marqueur ne devient pas
-            // une donnée du Patient. Il borne uniquement le formulaire et
-            // interdit au serveur les attributs administratifs d'un adulte.
-            'registration_context' => ['sometimes', Rule::in(['EXTERNAL_NEWBORN'])],
             'patient_type' => ['required', new Enum(PatientType::class)],
             'employee_uuid' => [
                 Rule::requiredIf($isStaff),
@@ -319,7 +316,6 @@ class StoreArrivalRequest extends FormRequest
     {
         return [
             'patient_type' => 'type de patient',
-            'registration_context' => 'contexte d’enregistrement',
             'employee_uuid' => 'membre du personnel',
             'last_name' => 'nom',
             'first_name' => 'prénom(s)',

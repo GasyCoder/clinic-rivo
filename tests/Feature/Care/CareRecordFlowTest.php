@@ -4,6 +4,7 @@ namespace Tests\Feature\Care;
 
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\AllergenCategory;
 use App\Enums\CatalogItemType;
@@ -625,6 +626,9 @@ class CareRecordFlowTest extends TestCase
         $patient = $this->patient();
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($patient);
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
 
         $this->actingAs($nurse)->put("/care/orientations/{$orientation->uuid}/record", [
@@ -785,6 +789,9 @@ class CareRecordFlowTest extends TestCase
         ]);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
 
@@ -859,6 +866,9 @@ class CareRecordFlowTest extends TestCase
             'catalog_item_uuid' => $procedure->uuid,
             'quantity' => 1,
         ]], $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
 
         $careOrientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Care->value)
@@ -897,6 +907,9 @@ class CareRecordFlowTest extends TestCase
         ]);
         $episode = $this->app->make(CreateEpisodeAction::class)->execute($this->patient());
         $this->app->make(PlanEpisodeRoutingAction::class)->planUnknownNeed($episode, $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
         $this->assertSame('IN_CARE', Episode::find($episode->id)->administrative_status->value);
@@ -1324,6 +1337,9 @@ class CareRecordFlowTest extends TestCase
             'catalog_item_uuid' => $procedure->uuid,
             'quantity' => 1,
         ]], $nurse);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $nurse);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $nurse);
 

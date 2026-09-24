@@ -3,6 +3,7 @@
 namespace Tests\Feature\Medicine;
 
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Actions\Medicine\CreateImagingRequestAction;
@@ -644,7 +645,7 @@ class ComplementaryExamDecisionTest extends TestCase
             'Diagnostic',
             collect($props['closure_blockers'])->pluck('message')->implode(' '),
         );
-        $this->assertNull(app(\App\Support\ConsultationWorkflow::class)->diagnosisNote($orientation->consultation()->firstOrFail()));
+        $this->assertNull(app(ConsultationWorkflow::class)->diagnosisNote($orientation->consultation()->firstOrFail()));
     }
 
     /** Nothing is pre-selected here either. */
@@ -868,6 +869,9 @@ class ComplementaryExamDecisionTest extends TestCase
             'catalog_item_uuid' => $item->uuid,
             'quantity' => 1,
         ]], $doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $doctor);
         $orientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)
             ->sole();

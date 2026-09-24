@@ -9,7 +9,6 @@ use App\Enums\CatalogModule;
 use App\Enums\CatalogTariffCategory;
 use App\Enums\EpisodeAdministrativeStatus;
 use App\Enums\EpisodeFinancialMode;
-use App\Enums\EpisodeOrientationStatus;
 use App\Enums\EpisodePriority;
 use App\Enums\EpisodeStatus;
 use App\Models\CatalogItem;
@@ -26,10 +25,20 @@ use InvalidArgumentException;
 use OverflowException;
 
 /**
- * Records the immutable routing snapshot for known arrival designations and
- * opens the first operational queue(s). Unknown need is intentionally not
- * represented here by a fake designation; its Care orientation is created by
- * the caller through CreateEpisodeOrientationAction.
+ * Records the immutable snapshot of the needs declared at Reception — tariff,
+ * coverage, routing nature — and creates the technical requests the patient
+ * actually came for.
+ *
+ * ADR-177 — the need says *why* the patient came; it no longer decides who
+ * may see them. No Soins, Médecine or Maternité queue is opened here any more:
+ * every authorised clinical service sees the open passage (`ActiveEpisodeBoard`)
+ * and takes it in charge through a real business action
+ * (`TakeChargeOfEpisodeAction`). The Reception's next step is a separate,
+ * optional and purely informative suggestion (`SetEpisodeReceptionNextStepsAction`).
+ *
+ * Unknown need is intentionally not represented by a fake designation, and it
+ * no longer forces Soins either: the passage is simply open, need to be
+ * specified.
  */
 class PlanEpisodeRoutingAction
 {
@@ -171,7 +180,7 @@ class PlanEpisodeRoutingAction
 
             /** @var Collection<int, EpisodeServiceRequest> $requests */
             $requests = $lockedEpisode->serviceRequests()->lockForUpdate()->get();
-            $this->openInitialQueues($lockedEpisode, $requests, $actor);
+            $this->createTechnicalRequests($lockedEpisode, $requests, $actor);
 
             $updates = [
                 'designation_deferred' => false,
@@ -191,6 +200,11 @@ class PlanEpisodeRoutingAction
     /**
      * Finalize an arrival whose clinical designation is not yet known.
      * No catalog item, billable item or amount is fabricated.
+     *
+     * ADR-177 — « besoin à préciser » no longer means « obligatoirement Soins »:
+     * no orientation is created. The passage is open and visible to every
+     * authorised service; the Reception may suggest Soins as its next step,
+     * which stays informative.
      */
     public function planUnknownNeed(Episode $episode, User $actor): Episode
     {
@@ -213,13 +227,11 @@ class PlanEpisodeRoutingAction
                 ]);
             }
 
-            $this->createOrientation->execute(
-                $lockedEpisode,
-                CatalogModule::Reception,
-                CatalogModule::Care,
-                $actor,
-                'Besoin à définir après évaluation aux Soins.',
-            );
+            // ADR-021/056 — une urgence a déjà ses files Soins et Médecine ;
+            // ce filet de sécurité reste celui d'avant, rien d'autre n'est ouvert.
+            if ($lockedEpisode->priority === EpisodePriority::Emergency) {
+                $this->openEmergencyQueues($lockedEpisode, $actor);
+            }
 
             $updates = [
                 'designation_deferred' => true,
@@ -302,89 +314,80 @@ class PlanEpisodeRoutingAction
         return $requests;
     }
 
-    /** @param Collection<int, EpisodeServiceRequest> $requests */
-    private function openInitialQueues(Episode $episode, Collection $requests, User $actor): void
+    /**
+     * ADR-177 — ce que la sélection de la Réception crée encore, et rien d'autre.
+     *
+     * Les deux demandes techniques qu'un service doit exécuter parce que le
+     * patient est venu les chercher : les analyses (une `LabRequest`, ADR-068)
+     * et l'acte du bloc (une `SurgicalRequest`, ADR-159). Chacune garde
+     * l'orientation qui la porte : ce sont de vraies demandes, pas un moyen de
+     * rendre le passage visible.
+     *
+     * @param  Collection<int, EpisodeServiceRequest>  $requests
+     */
+    private function createTechnicalRequests(Episode $episode, Collection $requests, User $actor): void
     {
-        $directDestinations = $requests
-            ->map(fn (EpisodeServiceRequest $request) => $request->routing_mode->directDestination())
+        if ($episode->priority === EpisodePriority::Emergency) {
+            $this->openEmergencyQueues($episode, $actor);
+        }
+
+        $modules = $requests
+            ->map(fn (EpisodeServiceRequest $request) => $request->routing_mode->technicalRequestModule())
             ->filter()
             ->unique(fn (CatalogModule $module) => $module->value)
             ->values();
 
-        if ($episode->priority === EpisodePriority::Emergency) {
-            $this->createOrientation->execute(
-                $episode,
-                CatalogModule::Reception,
-                CatalogModule::Care,
-                $actor,
-                'Admission en urgence.',
-            );
-            $this->createOrientation->execute(
-                $episode,
-                CatalogModule::Reception,
-                CatalogModule::Medicine,
-                $actor,
-                'Admission en urgence.',
-            );
-
-        } else {
-            $requiresCare = $requests->contains(
-                fn (EpisodeServiceRequest $request) => $request->routing_mode->startsWithCare(),
-            );
-            $requiresMedicine = $requests->contains(
-                fn (EpisodeServiceRequest $request) => $request->routing_mode->requiresMedicine(),
-            );
-
-            // Safe aggregation for a physical patient: if any selected
-            // service needs Care, Medicine is handed off when Care completes.
-            if ($requiresCare) {
-                $this->createOrientation->execute(
+        foreach ($modules as $module) {
+            if ($module === CatalogModule::Laboratory) {
+                $orientation = $this->createOrientation->execute(
                     $episode,
                     CatalogModule::Reception,
-                    CatalogModule::Care,
+                    CatalogModule::Laboratory,
                     $actor,
-                    'Parcours calculé depuis les désignations d’arrivée.',
+                    'Analyses demandées à la Réception.',
                 );
-            } elseif ($requiresMedicine) {
-                $activeCare = $episode->orientations()
-                    ->where('destination_module', CatalogModule::Care->value)
-                    ->whereIn('status', [
-                        EpisodeOrientationStatus::Pending->value,
-                        EpisodeOrientationStatus::InProgress->value,
-                    ])
-                    ->exists();
 
-                if (! $activeCare) {
-                    $this->createOrientation->execute(
-                        $episode,
-                        CatalogModule::Reception,
-                        CatalogModule::Medicine,
-                        $actor,
-                        'Accès direct selon les désignations d’arrivée.',
-                    );
-                }
-            }
-        }
-
-        foreach ($directDestinations as $destination) {
-            $orientation = $this->createOrientation->execute(
-                $episode,
-                CatalogModule::Reception,
-                $destination,
-                $actor,
-                "Accès direct {$destination->label()} selon les désignations d’arrivée.",
-            );
-
-            if ($destination === CatalogModule::Laboratory) {
                 $this->createReceptionLabRequest->execute($episode, $requests, $orientation, $actor);
             }
 
-            // ADR-159 — même principe pour le bloc : l'orientation seule ne dit
-            // pas ce qu'on vient opérer. La demande accompagne l'orientation,
-            // et c'est le bloc qui la programme ensuite.
-            if ($destination === CatalogModule::Surgery) {
+            // ADR-159 — l'orientation seule ne dit pas ce qu'on vient opérer.
+            // La demande l'accompagne, et c'est le bloc qui la programme ensuite.
+            if ($module === CatalogModule::Surgery) {
+                $this->createOrientation->execute(
+                    $episode,
+                    CatalogModule::Reception,
+                    CatalogModule::Surgery,
+                    $actor,
+                    'Acte du bloc demandé à la Réception.',
+                );
+
                 $this->createReceptionSurgicalRequest->execute($episode, $requests);
             }
         }
+    }
+
+    /**
+     * L'exception assumée (ADR-021, ADR-056, ADR-177) : une urgence est une
+     * décision de prise en charge immédiate, pas une suggestion. Soins et
+     * Médecine reçoivent une vraie orientation d'emblée — que
+     * `CreateEpisodeAction` et `MarkEpisodeEmergencyAction` ont déjà créée ;
+     * l'`active_key` rend cet appel idempotent.
+     */
+    private function openEmergencyQueues(Episode $episode, User $actor): void
+    {
+        $this->createOrientation->execute(
+            $episode,
+            CatalogModule::Reception,
+            CatalogModule::Care,
+            $actor,
+            'Admission en urgence.',
+        );
+        $this->createOrientation->execute(
+            $episode,
+            CatalogModule::Reception,
+            CatalogModule::Medicine,
+            $actor,
+            'Admission en urgence.',
+        );
     }
 }

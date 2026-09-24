@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EpisodeStatus;
+use App\Enums\ReceptionNextStep;
 use App\Models\BillableItem;
 use App\Models\Episode;
+use App\Models\EpisodeReceptionNextStep;
 use App\Models\Patient;
 use App\Models\PatientNewbornLink;
 use App\Services\Medicine\ClinicalRichTextSanitizer;
@@ -118,6 +121,11 @@ class EpisodeController extends Controller
                     'first_name' => $episode->patient->first_name,
                     'last_name' => $episode->patient->last_name,
                 ],
+                // ADR-177 — la prochaine étape suggérée par la Réception :
+                // indicative, jamais une restriction ni une orientation.
+                'next_steps' => $episode->receptionNextSteps()->get()
+                    ->map(fn (EpisodeReceptionNextStep $step) => $step->module->value)
+                    ->pipe(fn ($values) => array_values(array_intersect(ReceptionNextStep::values(), $values->all()))),
                 // ADR-117 : le parcours complet — Réception, services, Pharmacie,
                 // Caisse, sortie — composé une seule fois, et le même que celui
                 // que le dossier du patient résume en frise.
@@ -220,7 +228,9 @@ class EpisodeController extends Controller
                 'can_view_prescriptions' => $canViewPrescriptions,
                 'can_view_billing' => $canViewBilling,
                 'can_view_treatment_journal' => $user->can('treatment_journal.view'),
+                'can_update_next_steps' => $episode->status === EpisodeStatus::Open && $user->can('episodes.update'),
             ],
+            'nextStepOptions' => ReceptionNextStep::options(),
         ]);
     }
 

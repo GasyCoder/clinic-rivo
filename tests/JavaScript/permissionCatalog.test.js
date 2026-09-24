@@ -59,23 +59,38 @@ test('le balayage ne compte que les vraies vérifications d’interface', () => 
 });
 
 /**
- * Quatre gestes de portée croissante sur un même écran : une pastille ne dit
- * ni ce qu'on va toucher, ni combien.
+ * Trois sections sur un même écran, chacune avec son compte et une phrase qui
+ * dit ce qu'on y touche (ADR-178) : le socle d'un métier, l'écart d'une
+ * personne, les mots que l'application sait vérifier.
  */
-test('la navigation annonce la portée de chaque section', () => {
-    for (const label of ['Socle des rôles', 'Exceptions par compte', 'Rôles du site', 'Catalogue des droits']) {
+test('la navigation annonce ce que chaque section touche', () => {
+    for (const label of ['Rôles', 'Exceptions par compte', 'Catalogue des droits']) {
         assert.ok(roles.includes(`label: '${label}'`), `section « ${label} » absente`);
     }
 
-    assert.match(roles, /scope: /);
-    assert.match(roles, /const scopeParts = computed\(/);
+    assert.match(roles, /hint: 'Ce que reçoit tout compte du métier'/);
+    assert.match(roles, /hint: 'Un écart pour une seule personne'/);
     assert.match(roles, /aria-label="Sections"/);
+    // L'ordre de résolution, à un clic, plutôt qu'un bandeau répété sous chaque section.
+    assert.match(roles, /Comment les droits s’appliquent/);
+    assert.match(roles, /Interdiction individuelle/);
+});
+
+/** Le catalogue se range dans les mêmes modules que la grille des rôles. */
+test('le catalogue se lit par module, replié', () => {
+    assert.match(catalog, /import PermissionModuleCard from '@\/Components\/Rbac\/PermissionModuleCard\.vue'/);
+    assert.match(catalog, /PERMISSION_MODULES/);
+    assert.match(catalog, /active-label="vérifiées par l’application"/);
+    assert.doesNotMatch(catalog, /PERMISSION_DOMAINS|permissionCategoryDomain/);
 });
 
 const workspace = fs.readFileSync('resources/js/utilities/permissionWorkspace.js', 'utf8');
-const baseline = fs.readFileSync('resources/js/Components/Rbac/RoleBaselineEditor.vue', 'utf8');
-const overrides = fs.readFileSync('resources/js/Components/Rbac/UserPermissionOverrides.vue', 'utf8');
-const row = fs.readFileSync('resources/js/Components/Rbac/PermissionAccessRow.vue', 'utf8');
+const builder = workspace.slice(workspace.indexOf('export const buildPermissionModules'), workspace.indexOf('export const permissionSearchIndex'));
+const cells = [
+    fs.readFileSync('resources/js/Components/Rbac/PermissionToggle.vue', 'utf8'),
+    fs.readFileSync('resources/js/Components/Rbac/PermissionEffectCell.vue', 'utf8'),
+    fs.readFileSync('resources/js/Components/Rbac/PermissionMatrix.vue', 'utf8'),
+];
 
 /**
  * Une permission sans libellé existait vraiment en base
@@ -87,27 +102,23 @@ test('un libellé manquant ne peut plus faire tomber un écran', () => {
     assert.match(workspace, /export const permissionLabel = \(permission\) => \{/);
     assert.match(workspace, /export const comparePermissions = \(left, right\)/);
 
-    for (const [name, source] of [
-        ['le catalogue', catalog],
-        ['le socle des rôles', baseline],
-        ['les exceptions', overrides],
-    ]) {
-        assert.match(source, /items\.sort\(comparePermissions\)/, `${name} trie sans repli`);
-    }
+    assert.match(catalog, /items\.sort\(comparePermissions\)/);
+    assert.match(builder, /\.sort\(comparePermissions\)/);
 
     // Plus aucun tri de permission ne lit `.label` directement.
-    for (const source of [catalog, baseline, overrides]) {
-        assert.doesNotMatch(source, /items\.sort\(\([^)]*\) => [a-z]+\.label\.localeCompare/);
+    for (const source of [catalog, builder]) {
+        assert.doesNotMatch(source, /sort\(\([^)]*\) => [a-z]+\.label\.localeCompare/);
     }
 });
 
 /** Le nom est le repli : c'est ce que le code écrit, et c'est lisible. */
 test('les écrans affichent le nom à défaut du libellé', () => {
-    for (const source of [catalog, baseline, overrides, row]) {
-        assert.match(source, /permissionLabel\(permission\)/);
-    }
+    assert.match(catalog, /permissionLabel\(permission\)/);
 
-    assert.doesNotMatch(row, /\{\{ permission\.label \}\}/);
+    for (const source of cells) {
+        assert.match(source, /permissionLabel\(/);
+        assert.doesNotMatch(source, /\{\{ permission\.label \}\}/);
+    }
 });
 
 import { comparePermissions, permissionLabel, permissionMatchesSearch } from '../../resources/js/utilities/permissionWorkspace.js';
@@ -152,5 +163,5 @@ test('une section qui tombe n’emporte plus l’écran', () => {
     assert.match(boundary, /return false;/);
     assert.match(boundary, /n’a pas pu s’afficher/);
 
-    assert.match(roles, /<ErrorBoundary v-if="selectedSite\?\.ok" :key="`\$\{selectedSiteCode\}-\$\{tab\}`"/);
+    assert.match(roles, /<ErrorBoundary v-else :key="`\$\{selectedSiteCode\}-\$\{view\}`"/);
 });

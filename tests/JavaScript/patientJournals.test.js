@@ -76,34 +76,25 @@ test('le document réuni est en lecture seule : aucune saisie n’y est proposé
     assert.doesNotMatch(combinedPage, /useForm|<textarea|<Textarea|router\.post/);
 });
 
-/** La file Soins renvoie vers le même document depuis la fenêtre du patient. */
-test('la fenêtre du patient, aux Soins, ouvre les journaux de ce patient', () => {
+/** La file Soins renvoie vers le même document depuis la ligne du passage. */
+test('la ligne d’un passage, aux Soins, ouvre les journaux de ce patient', () => {
     assert.match(carePage, /can\('treatment_journal\.view'\)/);
-    assert.match(carePage, /`\/patients\/\$\{openGroup\.patient\.uuid\}\/journaux-de-traitement`/);
+    assert.match(carePage, /`\/patients\/\$\{row\.episode\.patient\.uuid\}\/journaux-de-traitement`/);
 });
 
 /**
- * Une demande de soins n'est pas un passage : deux demandes du même passage
- * s'affichaient comme deux passages au numéro identique.
+ * Une demande de soins n'est pas un passage (ADR-118). ADR-177 : le tableau sert une ligne par passage,
+ * qui porte la demande de l'orientation Soins en cours — l'écran n'a plus rien à regrouper.
  */
 test('la file Soins compte les passages, pas les demandes', () => {
-    assert.match(carePage, /const passagesOf = \(group\)/);
-    assert.match(carePage, /const groupSummary = \(group\)/);
-    assert.match(carePage, /orientation\.care_request/);
+    assert.match(carePage, /row\.care_request/);
+    assert.doesNotMatch(carePage, /groupedRows|passagesOf|orientations\.data/);
 });
 
-/** « 2. Injection IM » d'une demande retirée ne doit pas se lire comme une seconde injection. */
+/** « Injection IM » d'une demande retirée ne doit pas se lire comme un acte à faire. */
 test('un acte retiré par le médecin est signalé dans la ligne de la file', () => {
-    assert.match(carePage, /item\.state === 'CANCELLED' \? '\(retiré\)' : null/);
+    assert.match(carePage, /CANCELLED: 'text-muted-foreground line-through'/);
+    assert.match(carePage, /\{\{ item\.state_label \}\}/);
 });
 
-/**
- * « 1. » et « 2. » de la ligne de la file sont les mêmes rangs que « Demande 1 »
- * et « Demande 2 » de la fenêtre : dans l'ordre où le médecin les a faites.
- */
-test('la ligne de la file et la fenêtre numérotent les demandes dans le même ordre', () => {
-    assert.match(carePage, /const requestsInOrder = \(group\)/);
-    assert.match(carePage, /requestsInOrder\(group\)\.slice\(0, 2\)/);
-    assert.doesNotMatch(carePage, /group\.orientations\.slice\(0, 2\)/);
-});
 

@@ -81,6 +81,9 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Passage « médicaments seuls » : aucune file clinique, `PENDING_SETTLEMENT` et bascule directe à la Caisse avec son ticket
 - [x] Vente comptoir anonyme retirée : toute vente de médicament passe par la Réception sur un dossier patient ; `pharmacy.counter_sales.create` déplacée de PHARMACY vers RECEPTION
 - [x] Un acte du bloc peut être la raison de la venue : la Réception l'inscrit et le bloc reçoit sa demande à programmer (ADR-159) ; sans tarif configuré, la demande part et la facturation attend (ADR-031)
+- [x] Le besoin n'ouvre plus aucune file Soins / Médecine / Maternité : il reste facturé, seules les analyses et l'acte du bloc créent leur demande ; « besoin à préciser » ne force plus les Soins ; l'urgence garde ses deux orientations (ADR-177)
+- [x] Étape « Routage » retirée : six étapes, et une prochaine étape suggérée facultative et multiple à la Confirmation, indicative, auditée, corrigeable depuis le détail du passage (ADR-177)
+- [x] Mode « Nouveau-né » retiré de l'accueil : « Patient existant » et « Nouveau patient » seulement ; un bébé né ailleurs est un nouveau patient au profil enfant (ADR-177)
 - [ ] Conventions tarifaires spécifiques par organisme mutualiste (si validées)
 - [x] Taux de couverture par organisme et répartition figée part mutuelle / part patient
 - [x] Import/export Excel des tarifs Standard/Mutuelle et des organismes mutualistes
@@ -197,6 +200,13 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Suite prévue affichée seulement (bordure bleue) ; la suite non prévue demande un motif dans les deux sens, et un seul motif suffit quand il faut aussi reprendre le patient (ADR-166, ADR-167, amendements du 2026-09-21)
 - [x] Une seule fenêtre de reprise : un motif, puis la case « Reprendre la prise en charge » ; bandeau jaune retiré, reprise sans changer la suite depuis le pied de l'étape Terminer (ADR-167, amendement bis du 2026-09-21)
 - [x] File Soins réduite à deux onglets — À prendre aux Soins / Orientés en attente du médecin : les patients déjà accueillis par le médecin quittent la page pour le module Patients (ADR-124)
+- [x] Tableau partagé des passages pour Soins, Médecine et Maternité (`ActiveEpisodeBoard`) : tout passage ouvert et accueilli est visible, aucune donnée clinique ni financière sur la ligne ; remplace les files par orientation (ADR-177)
+- [x] Trois blocs exclusifs — En attente (chaque patient numéroté par ordre d'arrivée, n° 1 « Prochain »), En cours chez moi, Terminés chez moi — plus les filtres « Suggérés pour moi » et « Urgences » ; colonnes adaptées à chaque bloc, « Actuellement : Soins » pour un patient en soin ailleurs (ADR-177, amendement du 2026-09-23)
+- [x] Passage terminé relu depuis le tableau : Consulter, Journal, Dossier et Passage sur une ligne, chaque bouton servi selon son droit (ADR-177)
+- [x] Prise en charge réelle et tracée depuis le tableau (`TakeChargeOfEpisodeAction`) : regarder ne crée ni orientation, ni consultation, ni fiche ; reprise après fin refusée (ADR-177)
+- [x] Par où le passage devrait entrer : la Médecine est prévenue d'un patient attendu aux Soins et choisit (faire les soins elle-même avec les droits Soins, ou consulter quand même) ; les Soins sont informés et refusés côté serveur pour un patient attendu directement en Médecine — urgence et soin demandé par le médecin jamais soumis (ADR-177, amendement du 2026-09-23)
+- [x] Dossier patient d'un bébé né à la clinique ouvert depuis la Maternité (« Créer le dossier patient »), droit recommandé au profil sage-femme (ADR-177)
+- [ ] À confirmer : passages en attente de règlement hors de « Tous », Maternité voyant tous les passages, socle RECEPTION gardant `newborns.patient.create`, tableaux Labo / Pharmacie / bloc pour la suggestion (ADR-177)
 - [x] File Soins : prendre un patient qui n'est pas le premier demande confirmation, comme en Médecine — règle et fenêtre partagées, rien n'est bloqué (ADR-121)
 - [x] Ordres de soins Médecine → Soins (CareOrder), retour Médecine optionnel sans nouvel Episode
 - [x] Consommables déclarés aux Soins, notifiés à la Pharmacie, facturés séparément et sortis du stock sans attendre le règlement
@@ -700,6 +710,13 @@ admin.rivo.mg
 - [x] Écrans « Utilisateurs » et « Rôles & permissions » séparés (ADR-100) : les comptes d'un côté, le socle des rôles et les exceptions individuelles de l'autre, sans changer la résolution DENY > ALLOW > socle
 - [x] Socle des rôles refondu (shadcn, ADR-099) : rail des rôles et des catégories sans pagination, recherche sur tout le catalogue, écart « accordées / retirées » relisible avant envoi, barre d'enregistrement collante et garde-fou sur le brouillon
 - [x] Réinitialisation confirmée des droits (ADR-173) : rôle standard vers son socle livré, sans toucher aux exceptions ; compte vers l'héritage pur de son rôle, sans réappliquer silencieusement les recommandations du profil ; API et audit distincts
+- [x] « Rôles & permissions » refondu en centre de gestion (ADR-178) : trois onglets (Rôles, Exceptions par compte, Catalogue), liste des rôles en colonne avec recherche et compteurs, rôle créé et renommé sur place, adresse qui suit la sélection
+- [x] Permissions rangées en 14 modules et une grille à sept colonnes communes (Voir, Créer, Modifier, Supprimer, Restaurer, Valider, Exporter), accordéons avec compteurs, « Tout sélectionner / désélectionner », pastilles sur écran étroit (ADR-178)
+- [x] Une icône par fonctionnalité dans chaque module (Dossier médical, Diagnostics, Ordonnances…), sous-fonctionnalités décalées, mêmes icônes dans le catalogue (ADR-178)
+- [x] Un seul module ouvert à la fois : en ouvrir un referme les autres, l'en-tête cliqué reste en place ; « Tout déplier » retiré (ADR-178)
+- [x] Menus ancrés (exceptions, « Tout le module », panneaux) ouverts directement à leur place : l'animation des fenêtres centrées les faisait glisser vers la gauche (ADR-178)
+- [x] Un brouillon, un seul enregistrement : barre collante (nombre de changements, Revoir, Annuler, Enregistrer), confirmation seulement pour les droits sensibles à l'enregistrement, les réinitialisations, l'archivage et l'abandon d'un brouillon (ADR-178)
+- [ ] Description d'un rôle éditable (colonne, validation, API du site) — aujourd'hui phrase fixe pour les rôles livrés (ADR-178)
 - [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail

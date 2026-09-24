@@ -3,6 +3,7 @@
 namespace Tests\Feature\Medicine;
 
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Enums\BillableItemStatus;
@@ -212,6 +213,9 @@ class ParaclinicalBillingTest extends TestCase
             'catalog_item_uuid' => $consultationItem->uuid,
             'quantity' => 1,
         ]], $this->doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        app(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $this->doctor);
 
         $orientation = $episode->orientations()
             ->where('destination_module', CatalogModule::Medicine->value)

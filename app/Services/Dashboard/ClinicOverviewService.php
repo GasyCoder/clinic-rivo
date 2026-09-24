@@ -53,12 +53,12 @@ class ClinicOverviewService
             );
             $metrics[] = $this->metric(
                 key: 'pending_orientation',
-                label: 'À orienter',
+                label: 'Accueil à terminer',
                 value: Episode::query()
                     ->where('status', EpisodeStatus::Open->value)
                     ->where('administrative_status', EpisodeAdministrativeStatus::PendingOrientation->value)
                     ->count(),
-                description: 'Passages ouverts encore en attente de routage.',
+                description: 'Passages ouverts dont l’accueil n’est pas encore confirmé à la Réception.',
                 icon: 'arrow-right-round',
                 tone: 'yellow',
                 href: $permissions->contains('reception.view') ? '/reception?filter=pending' : null,

@@ -4,6 +4,7 @@ namespace Tests\Feature\Medicine;
 
 use App\Actions\Billing\CreateInvoiceAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Actions\Medicine\AcceptMedicineOrientationAction;
 use App\Enums\BillableItemStatus;
@@ -214,6 +215,9 @@ class PlannedParaclinicalBillingTest extends TestCase
             'catalog_item_uuid' => $exam->uuid,
             'quantity' => 1,
         ]], $this->doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        app(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $this->doctor);
 
         // La Réception confirme, ce qui facture la prestation planifiée
         // (ADR-068) : c'est ce chemin, et non le seul routage, qui crée le

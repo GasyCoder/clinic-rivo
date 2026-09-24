@@ -14,11 +14,11 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-144, ADR-146 — fait d'un nouveau-né consigné en Maternité un patient relié à sa mère.
+ * ADR-144, ADR-146, ADR-177 — fait d'un nouveau-né consigné en Maternité un patient relié à sa mère.
  *
  * Le bébé vit d'abord dans le dossier de sa mère (ADR-146) : il n'est **pas** créé patient à l'accouchement.
- * Il le devient quand la Réception l'accueille, en le choisissant dans l'arborescence de sa mère — un clic,
- * et il repart dans le parcours d'arrivée comme tout patient existant.
+ * Il le devient par un geste explicite **depuis la Maternité**, là où il est consigné (ADR-177) — la
+ * Réception n'a plus de mode « Nouveau-né » ; un bébé né ailleurs y est un nouveau patient ordinaire.
  *
  * ```text
  * numéro    dérivé de celui de la mère — A-26-0009-B1 (rang de naissance)
@@ -31,9 +31,10 @@ use Illuminate\Validation\ValidationException;
  * nom, même date de naissance. L'unicité (dossier Maternité, bébé) est ici la garde contre le doublon, et elle
  * est exacte : un double clic retrouve le patient déjà créé.
  *
- * Elle ne dépend d'aucun passage : le bébé peut revenir des jours après, quand celui de sa mère est clos, et
- * elle n'y touche pas. Aucun passage n'est ouvert non plus — c'est l'arrivée en cours qui le fait. Les soins
- * du bébé consignés en Maternité restent sur le compte de la mère (choix du propriétaire).
+ * Elle ne dépend d'aucun passage : le dossier peut s'ouvrir des jours après, quand celui de sa mère est clos, et
+ * elle n'y touche pas. Aucun passage n'est ouvert non plus — la Réception en ouvrira un, comme pour tout patient
+ * existant, le jour où le bébé reviendra. Les soins du bébé consignés en Maternité restent sur le compte de la
+ * mère (choix du propriétaire).
  */
 class CreateNewbornPatientAction
 {
@@ -43,7 +44,7 @@ class CreateNewbornPatientAction
     ) {}
 
     /**
-     * @param  array{last_name?: ?string, first_name?: ?string, sex?: ?string}  $identity  ce que la Réception confirme ou complète
+     * @param  array{last_name?: ?string, first_name?: ?string, sex?: ?string}  $identity  ce que la Maternité confirme ou complète
      */
     public function execute(MaternityRecord $record, string $newbornUuid, array $identity, User $actor): PatientNewbornLink
     {
@@ -80,7 +81,7 @@ class CreateNewbornPatientAction
                 throw ValidationException::withMessages(['newborn' => 'La date et l’heure de l’accouchement ne sont pas consignées à la Maternité : la naissance du bébé n’est jamais devinée.']);
             }
 
-            // Le sexe de la fiche fait foi. Quand elle ne le porte pas, la Réception le donne — et il est alors
+            // Le sexe de la fiche fait foi. Quand elle ne le porte pas, la Maternité le donne — et il est alors
             // écrit sur la fiche, pour que le dossier du bébé et celui de sa mère ne se contredisent jamais.
             $sex = in_array($newborn['sex'] ?? null, ['M', 'F'], true) ? $newborn['sex'] : ($identity['sex'] ?? null);
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Care\CancelCareConsumableRequestAction;
+use App\Actions\Episode\TakeChargeOfEpisodeAction;
 use App\Actions\Maternity\AcceptMaternityOrientationAction;
 use App\Actions\Maternity\CompleteMaternityOrientationAction;
 use App\Actions\Maternity\ModifyMaternityProcedureAction;
@@ -14,23 +15,24 @@ use App\Enums\BillableItemStatus;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\EpisodeOrientationStatus;
-use App\Enums\EpisodeStatus;
-use App\Models\MaternityRecord;
-use App\Models\User;
 use App\Http\Requests\Care\CancelCareConsumableRequestRequest;
 use App\Http\Requests\SaveMaternityRecordDraftRequest;
 use App\Http\Requests\UpdateMaternityRecordRequest;
 use App\Models\CareConsumableRequest;
 use App\Models\CatalogItem;
+use App\Models\Episode;
 use App\Models\EpisodeOrientation;
 use App\Models\MaternityProcedure;
+use App\Models\MaternityRecord;
 use App\Models\MaternityRecordDraft;
 use App\Models\PatientNewbornLink;
+use App\Models\User;
 use App\Services\Care\CareConsumableDirectory;
 use App\Services\Care\CareRecordReadModel;
+use App\Services\Episode\ActiveEpisodeBoard;
 use App\Services\Maternity\MaternityQueue;
-use App\Support\EpisodeQueuePresenter;
 use App\Support\Documents\MaternitySheetSection;
+use App\Support\EpisodeQueuePresenter;
 use App\Support\MaternityActProfile;
 use App\Support\MaternityReference;
 use Illuminate\Http\JsonResponse;
@@ -42,34 +44,51 @@ use Inertia\Response;
 
 class MaternityController extends Controller
 {
-    public function index(Request $request, EpisodeQueuePresenter $presenter, MaternityQueue $queue): Response
+    /**
+     * ADR-177 — les passages ouverts, tels que la Maternité les voit.
+     *
+     * Un acte Maternité choisi à la Réception n'ouvre plus d'orientation qui
+     * seule rendait la patiente visible : tout passage accueilli se voit ici,
+     * suggéré « Maternité » ou non. La prise en charge reste un geste
+     * (`takeCharge`) ; aucun dossier Maternité ne naît d'un regard.
+     *
+     * Ce qui suit la Maternité — le médecin, la césarienne — reste lu par
+     * `MaternityQueue::followUps()`, deux requêtes pour toute la page.
+     */
+    public function index(Request $request, ActiveEpisodeBoard $board, MaternityQueue $queue): Response
     {
-        $filter = $queue->normalize($request->query('filter'));
+        $view = $board->normalizeView($request->query('view'));
         $search = trim((string) $request->query('q', ''));
-        $counts = $queue->counts();
-        $workView = in_array($filter, ['waiting', 'active'], true);
-        $orientations = $queue->constrain($queue->base(), $filter)
-            ->with(['episode.patient', 'episode.billableItems', 'episode.serviceRequests', 'acceptedBy:id,name'])
-            ->when($search !== '', fn ($q) => $q->whereHas('episode', fn ($episode) => $episode
-                ->where('episode_number', 'like', "%{$search}%")
-                ->orWhereHas('patient', fn ($patient) => $patient
-                    ->where('patient_number', 'like', "%{$search}%")
-                    ->orWhere('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%"))))
-            // Le travail à faire se lit dans l'ordre d'arrivée ; ce qui est fini,
-            // du plus récent au plus ancien.
-            ->orderBy($workView ? 'oriented_at' : 'completed_at', $workView ? 'asc' : 'desc')
-            ->paginate(20)->withQueryString();
-        // Le n° de file n'a de sens que pour celles que personne n'a encore prises.
-        $queueNumbers = $filter === 'waiting' ? $presenter->assignQueueNumbers($orientations->getCollection()) : [];
-        $followUps = $queue->followUps($orientations->getCollection()->pluck('episode_id'));
-        $orientations->through(fn (EpisodeOrientation $orientation) => $presenter->present($orientation, $queueNumbers[$orientation->id] ?? null)
-            + [
-                'completed_at' => $orientation->completed_at,
-                'follow_up' => $followUps[$orientation->episode_id] ?? ['medicine' => null, 'cesarean' => null],
-            ]);
+        $passages = $board->page(CatalogModule::Maternity, $view, $search, $request->user());
+        // Une requête pour relier les UUID de la page à leurs identifiants
+        // locaux, qui ne quittent jamais le serveur (ADR-005).
+        $ids = Episode::query()
+            ->whereIn('uuid', collect($passages->items())->pluck('uuid'))
+            ->pluck('id', 'uuid');
+        $followUps = $queue->followUps($ids->values());
 
-        return Inertia::render('Maternity/Index', compact('orientations', 'counts', 'filter', 'search'));
+        return Inertia::render('Maternity/Index', [
+            'passages' => $passages,
+            'counts' => $board->counts(CatalogModule::Maternity),
+            'view' => $view,
+            'search' => $search,
+            'followUps' => $ids
+                ->mapWithKeys(fn (int $id, string $uuid) => [$uuid => $followUps[$id] ?? ['medicine' => null, 'cesarean' => null]])
+                ->all(),
+        ]);
+    }
+
+    /**
+     * ADR-177 — la vraie prise en charge à la Maternité : l'orientation qui
+     * attendait est acceptée, sinon elle est créée à l'instant.
+     */
+    public function takeCharge(Request $request, Episode $episode, TakeChargeOfEpisodeAction $action): RedirectResponse
+    {
+        $orientation = $action->execute($episode, CatalogModule::Maternity, $request->user());
+
+        return redirect()->route('maternity.orientations.show', $orientation)->with('status', $orientation->accepted_by === $request->user()->getKey()
+            ? 'Prise en charge Maternité commencée.'
+            : 'Cette patiente est déjà prise en charge à la Maternité par '.($orientation->acceptedBy?->name ?? 'une collègue').'.');
     }
 
     public function show(
@@ -192,7 +211,7 @@ class MaternityController extends Controller
             // ADR-144 — les bébés de ce dossier qui ont déjà leur dossier patient, par identité de fiche.
             'newbornPatients' => $this->newbornPatients($record, $user),
             // ADR-145 — la même projection que le détail du passage : état, liens et création du dossier de chaque bébé.
-            'babies' => $maternitySheet->forPassage($episode, $user),
+            'babies' => $maternitySheet->forPassage($episode, $user, withCreation: true),
             'consumableRequests' => $canViewConsumables
                 ? $consumables->forOrientation($episodeOrientation->getKey())
                 : [],
@@ -449,7 +468,7 @@ class MaternityController extends Controller
         $toMedicine = (bool) ($data['orient_to_medicine'] ?? false);
         $action->execute($episodeOrientation, $request->user(), $toMedicine, $data['medicine_note'] ?? null);
 
-        return redirect()->route('maternity.index', $toMedicine ? ['filter' => 'doctor'] : [])
+        return redirect()->route('maternity.index', ['view' => 'completed'])
             ->with('status', $toMedicine
                 ? 'Prise en charge Maternité terminée — la patiente est orientée vers Médecine.'
                 : 'Prise en charge Maternité terminée.');

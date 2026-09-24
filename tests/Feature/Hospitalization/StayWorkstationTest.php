@@ -380,6 +380,9 @@ class StayWorkstationTest extends TestCase
         $this->app->make(PlanEpisodeRoutingAction::class)->execute($episode, [[
             'catalog_item_uuid' => $item->uuid, 'quantity' => 1,
         ]], $this->doctor);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Medicine, $this->doctor);
         $episode->update(['financial_mode' => 'SELF', 'financial_context_completed_at' => now(), 'financial_context_completed_by' => $this->doctor->id]);
         $orientation = EpisodeOrientation::query()
             ->where('episode_id', $episode->id)

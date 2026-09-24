@@ -4,6 +4,7 @@ namespace Tests\Feature\Care;
 
 use App\Actions\Care\AcceptCareOrientationAction;
 use App\Actions\Episode\CreateEpisodeAction;
+use App\Actions\Episode\CreateEpisodeOrientationAction;
 use App\Actions\Episode\PlanEpisodeRoutingAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
@@ -192,6 +193,9 @@ class CareTakeOverTest extends TestCase
             'catalog_item_uuid' => $service->uuid,
             'quantity' => 1,
         ]], $handler);
+        // ADR-177 — une prestation d'arrivée n'ouvre plus de file : l'orientation
+        // vers ce service est désormais un geste réel, posé ici explicitement.
+        $this->app->make(CreateEpisodeOrientationAction::class)->execute($episode, CatalogModule::Reception, CatalogModule::Care, $handler);
         $orientation = $episode->orientations()->sole();
         $this->app->make(AcceptCareOrientationAction::class)->execute($orientation, $handler);
 

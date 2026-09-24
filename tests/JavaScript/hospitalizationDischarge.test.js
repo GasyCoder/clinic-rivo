@@ -139,11 +139,12 @@ test('la consultation dit que le patient est hospitalisé', () => {
 
 /** ADR-150 — un socle à zéro ne veut pas dire « personne n'y a accès ». */
 test('l’éditeur de socle signale les comptes qui portent des exceptions', () => {
-    const editor = fs.readFileSync('resources/js/Components/Rbac/RoleBaselineEditor.vue', 'utf8');
+    // ADR-178 : le rappel vit dans l'en-tête du rôle, au-dessus de la grille.
+    const overview = fs.readFileSync('resources/js/Components/Rbac/RoleOverviewCard.vue', 'utf8');
 
-    assert.match(editor, /selectedRole\?\.users_with_exceptions_count/);
-    assert.match(editor, /qui l’emportent sur ce socle/);
-    assert.match(editor, /Exceptions par compte/);
+    assert.match(overview, /role\.users_with_exceptions_count/);
+    assert.match(overview, /qui l’emportent sur ce socle/);
+    assert.match(overview, /Exceptions par compte/);
 });
 
 /** ADR-151 — un droit se cherche sous le nom que l'écran lui donne. */
@@ -161,15 +162,17 @@ test('les droits qui agissent dans plusieurs modules le disent', () => {
 
 /** ADR-153 — cocher un droit au socle n'ouvre rien à un compte qui le refuse. */
 test('l’éditeur de socle marque les droits refusés individuellement', () => {
-    const editor = fs.readFileSync('resources/js/Components/Rbac/RoleBaselineEditor.vue', 'utf8');
+    // ADR-178 : le compte se fait dans l'espace du rôle, le repère sur la case.
+    const workspace = fs.readFileSync('resources/js/Components/Rbac/RoleWorkspace.vue', 'utf8');
+    const toggle = fs.readFileSync('resources/js/Components/Rbac/PermissionToggle.vue', 'utf8');
     const page = fs.readFileSync('resources/js/Pages/SuperAdmin/Roles/Index.vue', 'utf8');
 
-    assert.match(editor, /const overridesByPermission = computed/);
-    assert.match(editor, /Refusé à \{\{ overridesByPermission\.get\(permission\.id\)\.deny \}\} compte/);
+    assert.match(workspace, /const overridesByPermission = computed/);
+    assert.match(toggle, /Refusé à \{\{ denyCount \}\} compte/);
     // Le repère ne compte que les comptes du rôle réglé.
-    assert.match(editor, /user\.role\?\.code !== selectedRoleCode\.value/);
+    assert.match(workspace, /user\.role\?\.code !== props\.role\.code/);
     // Et la page lui passe bien les comptes.
-    assert.match(page, /:users="users"\n\s*:permission-catalog/);
+    assert.match(page, /<RoleWorkspace[\s\S]*?:users="users"/);
 });
 
 /**

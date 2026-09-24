@@ -17,6 +17,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Feature\Pharmacy\Concerns\ReceivesDeliveries;
 use Tests\TestCase;
 
 /**
@@ -25,7 +26,7 @@ use Tests\TestCase;
  */
 class PharmacySalePriceTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, ReceivesDeliveries;
 
     private User $pharmacist;
 
@@ -110,43 +111,37 @@ class PharmacySalePriceTest extends TestCase
         $this->assertSame(0, $consultation->tariffs()->count());
     }
 
+    /** ADR-182 — le prix de vente se fixe en rangeant une livraison réceptionnée. */
     public function test_the_sale_price_can_be_set_while_recording_a_stock_entry(): void
     {
         $medicine = $this->medicine();
-        $entry = fn (array $extra) => [
-            'origin' => 'Fournisseur', 'destination' => 'Stock pharmacie', 'reason' => 'Livraison du jour',
-            'entries' => [[
-                'medicine_uuid' => $medicine->uuid, 'operation' => 'ENTREE',
-                'lot_number' => 'LOT-'.uniqid(), 'expires_at' => now()->addYear()->toDateString(),
-                'quantity' => 10, ...$extra,
-            ]],
-        ];
+        [$first] = $this->receiveDelivery([[$medicine, 10, 'LOT-A']]);
+        [$second] = $this->receiveDelivery([[$medicine, 10, 'LOT-B']]);
 
-        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', $entry(['sale_price' => '1200']))
-            ->assertSessionHasNoErrors();
+        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', [
+            'lines' => [$this->stockLine($first, ['sale_price' => '1200'])],
+        ])->assertSessionHasNoErrors();
         $this->assertSame('1200.00', $medicine->catalogItem->fresh()->currentStandardTariff->amount);
 
-        // Same price again: nothing rewritten.
-        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', $entry(['sale_price' => '1200']))
-            ->assertSessionHasNoErrors();
-        $this->assertSame(1, $medicine->catalogItem->tariffs()->count());
+        // The purchase price comes from the reception: it is never entered while shelving.
+        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', [
+            'lines' => [$this->stockLine($second, ['unit_purchase_price' => '800'])],
+        ])->assertSessionHasErrors('lines.0.unit_purchase_price');
 
-        // The purchase price stays out of reach of the pharmacy.
-        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', $entry(['unit_purchase_price' => '800']))
-            ->assertForbidden();
+        // Same price again: nothing rewritten.
+        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', [
+            'lines' => [$this->stockLine($second, ['sale_price' => '1200'])],
+        ])->assertSessionHasNoErrors();
+        $this->assertSame(1, $medicine->catalogItem->tariffs()->count());
     }
 
     public function test_the_pharmacy_can_give_a_product_its_own_sale_name_at_stock_entry(): void
     {
         $medicine = $this->medicine();
+        [$line] = $this->receiveDelivery([[$medicine, 5, 'LOT-N1']]);
 
         $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', [
-            'origin' => 'Fournisseur', 'destination' => 'Stock pharmacie', 'reason' => 'Livraison du jour',
-            'entries' => [[
-                'medicine_uuid' => $medicine->uuid, 'operation' => 'ENTREE', 'lot_number' => 'LOT-N1',
-                'expires_at' => now()->addYear()->toDateString(), 'quantity' => 5,
-                'sale_name' => 'Paracétamol 500 mg boîte de 20',
-            ]],
+            'lines' => [$this->stockLine($line, ['sale_name' => 'Paracétamol 500 mg boîte de 20'])],
         ])->assertSessionHasNoErrors();
 
         $this->assertSame('Paracétamol 500 mg boîte de 20', $medicine->catalogItem->fresh()->name);

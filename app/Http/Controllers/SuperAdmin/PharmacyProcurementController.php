@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * ADR-098 — orders and supplier invoices of one site's supplier, written
@@ -36,6 +37,9 @@ class PharmacyProcurementController extends Controller
             'targetSite' => $result['site'],
             'suppliers' => data_get($result, 'data.suppliers', []),
             'medicines' => data_get($result, 'data.medicines', []),
+            // ADR-181 — combien de lignes de catalogue ressemblent à un
+            // produit déjà tenu par la clinique, sous un autre nom.
+            'toReconcile' => (int) data_get($result, 'data.to_reconcile', 0),
             'selectedSuppliers' => $selected,
             'error' => $result['ok'] ? null : $result['message'],
         ]);
@@ -142,6 +146,12 @@ class PharmacyProcurementController extends Controller
                 'submit' => $user->can('purchase_orders.submit'),
                 'cancel' => $user->can('purchase_orders.cancel'),
                 'create_invoice' => $user->can('supplier_invoices.create') && ! data_get($result, 'data.supplier.archived', false),
+                // ADR-179 — le portail passe les commandes : l'accusé du
+                // fournisseur y arrive, et renoncer à un reliquat y est une
+                // décision d'acheteur. Constater une rupture ligne à ligne
+                // reste au site, avec la marchandise sous les yeux (ADR-176).
+                'confirm' => $user->can('purchase_orders.confirm'),
+                'close' => $user->can('purchase_orders.cancel'),
             ],
         ]);
     }
@@ -252,6 +262,82 @@ class PharmacyProcurementController extends Controller
         return $this->respond(
             $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders/'.rawurlencode($order).'/cancel', $validated),
             'Commande annulée.',
+        );
+    }
+
+    /**
+     * ADR-179 — la confirmation que le fournisseur a envoyée : une trace, et
+     * rien n'en dépend. Son document part en multipart et reste sur le site,
+     * comme un fichier de catalogue (ADR-098).
+     */
+    public function confirmOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate([
+            'confirmed_at' => ['required', 'date', 'before_or_equal:today'],
+            'reference' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
+        ], [
+            'confirmed_at.required' => 'Indiquez la date de la confirmation du fournisseur.',
+            'confirmed_at.before_or_equal' => 'La confirmation ne peut pas être datée dans le futur.',
+        ]);
+
+        return $this->respond(
+            $client->pharmacyProcurement(
+                $site,
+                $supplier,
+                $request->user(),
+                'POST',
+                'orders/'.rawurlencode($order).'/confirmation',
+                collect($validated)->except('attachment')->all(),
+                $request->file('attachment'),
+            ),
+            'Confirmation du fournisseur enregistrée.',
+        );
+    }
+
+    public function unconfirmOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'DELETE', 'orders/'.rawurlencode($order).'/confirmation'),
+            'Confirmation du fournisseur retirée.',
+        );
+    }
+
+    /** Le document reste sur son site ; le portail ne fait que le relayer. */
+    public function confirmationDocument(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): StreamedResponse
+    {
+        $this->assertSite($site);
+        $name = (string) $request->query('name', 'confirmation');
+        $file = $client->pharmacyOrderConfirmationFile($site, $supplier, $order, $request->user(), $name);
+
+        abort_unless($file['ok'], 404, $file['message']);
+
+        return response()->streamDownload(
+            fn () => print ($file['body']),
+            preg_replace('/[^\w .\-]/u', '_', $name) ?: 'confirmation',
+            ['Content-Type' => $file['content_type'], 'X-Content-Type-Options' => 'nosniff'],
+        );
+    }
+
+    /**
+     * ADR-179 — solder les reliquats d'une commande que le fournisseur
+     * n'honorera plus. Ce n'est pas une annulation : la commande a été
+     * envoyée, souvent livrée en partie, et peut porter une facture.
+     */
+    public function closeOrder(Request $request, string $site, string $supplier, string $order, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']], [
+            'reason.required' => 'Indiquez pourquoi cette commande est clôturée sans être complète.',
+        ]);
+
+        return $this->respond(
+            $client->pharmacyProcurement($site, $supplier, $request->user(), 'POST', 'orders/'.rawurlencode($order).'/close', $validated),
+            'Commande clôturée. Ses reliquats ne sont plus attendus.',
         );
     }
 

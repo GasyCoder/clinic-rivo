@@ -161,6 +161,103 @@ class PharmacyProcurementSiteApiTest extends TestCase
     }
 
     /**
+     * ADR-179 — the portal places the orders, so the supplier's acknowledgement
+     * arrives there, and writing off a backorder is a buyer's decision. Both
+     * go through the clinic's own Actions, and the remote Super Admin never
+     * becomes a local author. Marking one line short stays at the site: that
+     * is a reception finding, made with the delivery in hand (ADR-176).
+     */
+    public function test_a_supplier_confirmation_and_a_close_are_written_from_the_portal(): void
+    {
+        $order = $this->orderedFromPortal();
+
+        $this->withHeaders($this->headers(['purchase_orders.view']))
+            ->post("{$this->base()}/orders/{$order->uuid}/confirmation", [
+                'confirmed_at' => now()->subDay()->toDateString(),
+            ])
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers(['purchase_orders.confirm']))
+            ->post("{$this->base()}/orders/{$order->uuid}/confirmation", [
+                'confirmed_at' => now()->subDay()->toDateString(),
+                'reference' => 'AC-2026-118',
+                'attachment' => UploadedFile::fake()->create('confirmation.pdf', 20, 'application/pdf'),
+            ])
+            ->assertOk();
+
+        $order->refresh();
+        $this->assertTrue($order->isSupplierConfirmed());
+        $this->assertSame('AC-2026-118', $order->supplier_confirmation_reference);
+        $this->assertNull($order->supplier_confirmed_by);
+        $this->assertSame($this->actorUuid, $order->external_supplier_confirmed_by_uuid);
+        $this->assertSame('Direction centrale', $order->external_supplier_confirmed_by_name);
+        Storage::disk('local')->assertExists($order->supplier_confirmation_attachment_path);
+
+        // Le document reste sur le site ; le portail ne fait que le relayer.
+        $this->withHeaders($this->headers(['purchase_orders.view']))
+            ->get("{$this->base()}/orders/{$order->uuid}/confirmation/document")
+            ->assertOk()
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+
+        $this->withHeaders($this->headers(['purchase_orders.view']))
+            ->getJson("{$this->base()}/orders/{$order->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.order.supplier_confirmation.reference', 'AC-2026-118')
+            ->assertJsonPath('data.order.supplier_confirmation.recorded_by', 'Direction centrale');
+
+        // Solder le reliquat : une décision d'acheteur, avec son motif.
+        $this->withHeaders($this->headers(['purchase_orders.cancel']))
+            ->postJson("{$this->base()}/orders/{$order->uuid}/close", ['reason' => ''])
+            ->assertStatus(422);
+
+        $this->withHeaders($this->headers(['purchase_orders.confirm']))
+            ->postJson("{$this->base()}/orders/{$order->uuid}/close", ['reason' => 'Le fournisseur a cessé son activité.'])
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers(['purchase_orders.cancel']))
+            ->postJson("{$this->base()}/orders/{$order->uuid}/close", ['reason' => 'Le fournisseur a cessé son activité.'])
+            ->assertOk();
+
+        $order->refresh();
+        $this->assertSame(PurchaseOrderStatus::Closed, $order->status);
+        $this->assertSame('Le fournisseur a cessé son activité.', $order->lines()->first()->shortage_reason);
+        $this->assertNull($order->lines()->first()->shortage_by);
+        $this->assertSame($this->actorUuid, $order->lines()->first()->external_shortage_by_uuid);
+
+        // Une commande clôturée n'est pas une commande annulée : elle a été
+        // envoyée, et ne se jette pas (ADR-179).
+        $this->withHeaders($this->headers(['purchase_orders.cancel']))
+            ->postJson("{$this->base()}/orders/{$order->uuid}/cancel", ['reason' => 'Finalement annulée.'])
+            ->assertStatus(422);
+
+        // Retirer la trace : l'écriture et le document s'en vont ensemble.
+        $path = $order->supplier_confirmation_attachment_path;
+        $this->withHeaders($this->headers(['purchase_orders.confirm']))
+            ->deleteJson("{$this->base()}/orders/{$order->uuid}/confirmation")
+            ->assertOk();
+
+        $this->assertFalse($order->refresh()->isSupplierConfirmed());
+        Storage::disk('local')->assertMissing($path);
+    }
+
+    /** Une commande envoyée, écrite depuis le portail comme les autres. */
+    private function orderedFromPortal(): PurchaseOrder
+    {
+        $uuid = $this->withHeaders($this->headers(['purchase_orders.create']))
+            ->postJson("{$this->base()}/orders", ['lines' => [
+                ['medicine_uuid' => $this->medicine->uuid, 'quantity_ordered' => 10, 'unit_price' => '250'],
+            ]])
+            ->assertCreated()
+            ->json('data.uuid');
+
+        $this->withHeaders($this->headers(['purchase_orders.submit']))
+            ->postJson("{$this->base()}/orders/{$uuid}/submit")
+            ->assertOk();
+
+        return PurchaseOrder::query()->where('uuid', $uuid)->sole();
+    }
+
+    /**
      * ADR-098 — the owner's own case, end to end: a supplier whose catalogue
      * is imported but whose products the clinic does not hold. The catalogue
      * line must be orderable from the portal, and the order must really

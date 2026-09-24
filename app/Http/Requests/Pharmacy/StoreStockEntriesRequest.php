@@ -2,15 +2,22 @@
 
 namespace App\Http\Requests\Pharmacy;
 
-use App\Enums\PharmacyStockEntryOperation;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
 /**
- * ADR-098 — one delivery (supplier, date, origin, destination, reason) and
- * the list of medicines it brought. Each line obeys the rules of a single
- * stock entry; the whole list is recorded at once or not at all.
+ * ADR-182 — ce qui entre au stock vient d'une livraison réceptionnée, et
+ * de rien d'autre.
+ *
+ * La réception a constaté ce qui est arrivé ; ici le pharmacien le relit,
+ * corrige ce qu'il a sous les yeux, et le range. Aucune entrée libre : un
+ * don, un stock de départ ou le dépannage d'un confrère n'ont plus de chemin
+ * local — c'est la décision du propriétaire du 2026-09-23, qui revient sur
+ * l'ADR-179 §7 et l'ADR-180.
+ *
+ * Les champs de l'ancienne entrée libre sont explicitement refusés plutôt
+ * qu'ignorés : un envoi forgé reçoit une erreur nommée, et l'interface n'est
+ * jamais la seule protection. Il en va de même du prix d'achat, qui vient de
+ * la réception et ne se saisit jamais en rangeant (ADR-174).
  */
 class StoreStockEntriesRequest extends FormRequest
 {
@@ -23,65 +30,36 @@ class StoreStockEntriesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'received_at' => ['nullable', 'date'],
-            'supplier_uuid' => ['nullable', 'uuid', 'exists:medicine_suppliers,uuid'],
-            'origin' => ['required', 'string', 'min:3', 'max:150'],
-            'destination' => ['nullable', 'string', 'max:150'],
-            'reason' => ['nullable', 'string', 'min:3', 'max:2000'],
-            'entries' => ['required', 'array', 'min:1', 'max:200'],
-            'entries.*.medicine_uuid' => ['required', 'uuid', 'exists:medicines,uuid'],
-            'entries.*.operation' => ['required', Rule::enum(PharmacyStockEntryOperation::class)],
-            'entries.*.lot_number' => ['required', 'string', 'max:100'],
-            'entries.*.expires_at' => [
-                'required',
-                'date',
-                Rule::when($this->filled('received_at'), ['after_or_equal:received_at']),
-            ],
-            'entries.*.quantity' => ['required', 'integer', 'min:1'],
-            'entries.*.unit_purchase_price' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
+            'lines' => ['required', 'array', 'min:1', 'max:200'],
+            'lines.*.uuid' => ['required', 'uuid', 'distinct', 'exists:goods_receipt_lines,uuid'],
+            'lines.*.quantity' => ['required', 'integer', 'min:1'],
+            'lines.*.lot_number' => ['required', 'string', 'max:100'],
+            'lines.*.expires_at' => ['required', 'date', 'after_or_equal:today'],
             // ADR-174 — le prix de vente peut se fixer à l'entrée, par qui en a le droit.
-            'entries.*.sale_price' => ['nullable', 'numeric', 'gt:0', 'max:999999999999.99'],
-            'entries.*.sale_name' => ['nullable', 'string', 'max:255'],
+            'lines.*.sale_price' => ['nullable', 'numeric', 'gt:0', 'max:999999999999.99', 'decimal:0,2'],
+            'lines.*.sale_name' => ['nullable', 'string', 'max:255'],
+            // ADR-174 — le prix d'achat est celui de la réception.
+            'lines.*.unit_purchase_price' => ['prohibited'],
+
+            // Ce qui appartenait à l'entrée sans commande.
+            'entries' => ['prohibited'],
+            'origin' => ['prohibited'],
+            'supplier_uuid' => ['prohibited'],
+            'destination' => ['prohibited'],
+            'reason' => ['prohibited'],
+            'received_at' => ['prohibited'],
         ];
-    }
-
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function (Validator $validator): void {
-            $seen = [];
-
-            foreach ($this->input('entries', []) as $index => $entry) {
-                $key = mb_strtolower(($entry['medicine_uuid'] ?? '').'|'.trim((string) ($entry['lot_number'] ?? '')));
-
-                if (isset($seen[$key])) {
-                    $validator->errors()->add(
-                        "entries.{$index}.lot_number",
-                        sprintf('Ligne %d : ce lot figure déjà à la ligne %d. Modifiez cette ligne plutôt que de l’ajouter deux fois.', $index + 1, $seen[$key] + 1),
-                    );
-                }
-
-                $seen[$key] ??= $index;
-            }
-        });
     }
 
     protected function passedValidation(): void
     {
-        $priced = collect($this->input('entries', []))->contains(fn ($entry) => filled($entry['unit_purchase_price'] ?? null));
+        $lines = collect($this->input('lines', []));
 
-        if ($priced && ! $this->user()?->can('stock.cost.record')) {
-            abort(403, 'Vous ne pouvez pas enregistrer un prix d’achat.');
-        }
-
-        $salePriced = collect($this->input('entries', []))->contains(fn ($entry) => filled($entry['sale_price'] ?? null));
-
-        if ($salePriced && ! $this->user()?->can('medicines.sale_price.update')) {
+        if ($lines->contains(fn (array $line) => filled($line['sale_price'] ?? null)) && ! $this->user()?->can('medicines.sale_price.update')) {
             abort(403, 'Vous ne pouvez pas fixer un prix de vente.');
         }
 
-        $renamed = collect($this->input('entries', []))->contains(fn ($entry) => filled($entry['sale_name'] ?? null));
-
-        if ($renamed && ! $this->user()?->can('medicines.name.update')) {
+        if ($lines->contains(fn (array $line) => filled($line['sale_name'] ?? null)) && ! $this->user()?->can('medicines.name.update')) {
             abort(403, 'Vous ne pouvez pas renommer un médicament.');
         }
     }
@@ -90,17 +68,20 @@ class StoreStockEntriesRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'entries.required' => 'Ajoutez au moins un médicament à la liste.',
-            'entries.*.medicine_uuid.required' => 'Sélectionnez un médicament.',
-            'entries.*.lot_number.required' => 'Le numéro de lot est obligatoire.',
-            'entries.*.expires_at.required' => 'La date de péremption est obligatoire.',
-            'entries.*.expires_at.after_or_equal' => 'La péremption ne peut pas précéder la réception.',
-            'entries.*.quantity.min' => 'La quantité doit être supérieure à zéro.',
-            'entries.*.sale_price.gt' => 'Le prix de vente doit être supérieur à zéro.',
-            'origin.required' => 'La provenance est obligatoire.',
-            'destination.required' => 'Le lieu de rangement est obligatoire.',
-            'reason.required' => 'Le motif de l’entrée est obligatoire.',
-            'reason.min' => 'Le motif doit comporter au moins 3 caractères.',
+            'lines.required' => 'Cochez au moins une ligne à faire entrer en stock.',
+            'lines.*.uuid.exists' => 'Cette ligne de réception n’existe plus.',
+            'lines.*.uuid.distinct' => 'Cette ligne de réception est envoyée deux fois.',
+            'lines.*.quantity.min' => 'La quantité doit être d’au moins 1.',
+            'lines.*.lot_number.required' => 'Le numéro de lot est obligatoire.',
+            'lines.*.expires_at.required' => 'La date de péremption est obligatoire.',
+            'lines.*.expires_at.after_or_equal' => 'La péremption ne peut pas précéder l’entrée en stock.',
+            'lines.*.unit_purchase_price.prohibited' => 'Le prix d’achat vient de la réception : il ne se saisit pas en rangeant.',
+            'entries.prohibited' => 'Le stock n’entre que depuis une livraison réceptionnée : réceptionnez d’abord la commande.',
+            'origin.prohibited' => 'La provenance vient de la réception : elle ne se saisit plus.',
+            'supplier_uuid.prohibited' => 'Le fournisseur vient de la commande réceptionnée.',
+            'destination.prohibited' => 'Le rangement est le stock de la pharmacie : il ne se saisit plus.',
+            'reason.prohibited' => 'Le motif vient de la réception : il ne se saisit plus.',
+            'received_at.prohibited' => 'La date d’entrée est posée par le serveur.',
         ];
     }
 }

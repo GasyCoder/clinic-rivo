@@ -44,12 +44,17 @@ class DevelopmentTestAccountSeeder extends Seeder
         'supplier_catalogs.delete', 'supplier_catalogs.restore',
         'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'medicine_supplier_offers.update',
         'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
-        'purchase_orders.submit', 'purchase_orders.cancel',
+        'purchase_orders.submit', 'purchase_orders.cancel', 'purchase_orders.confirm',
         // ADR-175 — corbeille d'un brouillon, et entrée en stock de ce qui a été reçu.
         'purchase_orders.delete', 'purchase_orders.restore',
         'goods_receipts.view', 'goods_receipts.create',
         'supplier_invoices.view', 'supplier_invoices.create',
         'supplier_invoices.update', 'supplier_invoices.delete', 'supplier_invoices.restore',
+        // ADR-174 — le prix d'achat est confidentiel : `stock.cost.*`
+        // n'appartient à aucun rôle. Sans ces deux lignes, le compte de test
+        // s'arrête à la réception, qui porte le prix payé — or il existe
+        // justement pour parcourir toute la chaîne (ADR-086, ADR-098).
+        'stock.cost.view', 'stock.cost.record',
     ];
 
     public function run(): void

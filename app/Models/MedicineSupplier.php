@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\HasUuid;
 use App\Models\Concerns\SoftDeletable;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 #[Fillable([
     'code', 'name', 'contact_name', 'phone', 'email', 'address',
@@ -52,6 +54,36 @@ class MedicineSupplier extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(SupplierInvoice::class);
+    }
+
+    /**
+     * Les médicaments de la clinique que ce fournisseur vend : un prix en
+     * cours, le lien « peut fournir », une ligne de son catalogue actif qui
+     * les désigne, ou une commande déjà passée chez lui.
+     *
+     * ADR-182 — un produit livré se choisit là-dedans, jamais dans tout le
+     * catalogue de la pharmacie : le livreur apporte ce que son fournisseur
+     * vend. Une seule définition, lue par la liste proposée et par la garde
+     * du serveur, pour qu'elles ne se contredisent pas.
+     *
+     * @return Collection<int, int>
+     */
+    public function suppliedMedicineIds(): Collection
+    {
+        return $this->offers()->where('active_key', 'CURRENT')->pluck('medicine_id')
+            ->merge($this->medicines()->pluck('medicines.id'))
+            ->merge(SupplierCatalogItem::query()
+                ->whereIn('supplier_catalog_id', $this->catalogs()->where('active_key', 'ACTIVE')->select('id'))
+                ->whereNotNull('linked_medicine_id')
+                ->pluck('linked_medicine_id'))
+            ->merge(PurchaseOrderLine::query()
+                ->whereIn('purchase_order_id', $this->purchaseOrders()
+                    ->where('status', '!=', PurchaseOrderStatus::Cancelled->value)
+                    ->select('id'))
+                ->pluck('medicine_id'))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
     }
 
     public function creator(): BelongsTo

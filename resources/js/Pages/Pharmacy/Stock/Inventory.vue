@@ -7,7 +7,7 @@ import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import Button from '@/Components/UI/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Check, Printer, Search } from 'lucide-vue-next';
 import { formatDate } from '@/utilities/date';
 import { formatNumber, statusTone } from '@/utilities/pharmacyStatus';
 import { escapeHtml, openPrintWindow, writeAndPrint } from '@/utilities/printWindow';
@@ -111,7 +111,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                 <p class="mt-1 text-sm text-slate-500">Comptez ce qui est réellement sur l’étagère et saisissez-le. Seuls les lots avec un écart sont corrigés, tous en une fois ; chaque correction est tracée avec votre motif.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <Button type="button" size="rg" variant="white-outline" :disabled="!visible.length" @click="printSheet"><Icon name="printer" /><span class="ms-2">Imprimer la feuille</span></Button>
+                <Button type="button" size="rg" variant="white-outline" :disabled="!visible.length" @click="printSheet"><Printer class="h-4 w-4" /><span class="ms-2">Imprimer la feuille</span></Button>
             </div>
         </div>
 
@@ -129,7 +129,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                 <div class="flex flex-col gap-3 border-b border-gray-200 p-4 dark:border-gray-900 lg:flex-row lg:items-center">
                     <label class="relative block flex-1">
                         <span class="sr-only">Rechercher</span>
-                        <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" />
+                        <Search class="pointer-events-none absolute inset-y-0 start-3 my-auto text-slate-400 h-4 w-4" />
                         <input v-model="search" type="search" class="h-10 w-full rounded-lg border border-gray-200 bg-gray-50 ps-10 pe-3 text-sm outline-none focus:border-primary-500 focus:bg-white dark:border-gray-800 dark:bg-gray-900 dark:text-white" placeholder="Médicament, code ou lot…">
                     </label>
                     <select v-if="categories.length" v-model="family" class="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white lg:w-60" aria-label="Filtrer par famille">
@@ -197,14 +197,13 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                 <div class="flex gap-2">
                     <Button :as="Link" href="/pharmacy/stock" size="lg" variant="white-outline">Annuler</Button>
                     <Button type="button" size="lg" :disabled="form.processing || !counted.length || form.reason.trim().length < 3" @click="confirming = true">
-                        <Icon name="check" /><span class="ms-2">{{ form.processing ? 'Validation…' : `Valider l’inventaire (${counted.length})` }}</span>
+                        <Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : `Valider l’inventaire (${counted.length})` }}</span>
                     </Button>
                 </div>
             </section>
         </template>
 
-        <ConfirmModal
-            v-model:open="confirming"
+        <ConfirmModal v-model:open="confirming"
             title="Valider l’inventaire ?"
             description="Chaque écart devient une correction de stock tracée, avec son motif. Un lot conforme ne crée aucun mouvement."
             confirm-label="Valider l’inventaire"

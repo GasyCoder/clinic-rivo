@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
 use App\Actions\Pharmacy\ArchiveSupplierInvoiceAction;
 use App\Actions\Pharmacy\CancelPurchaseOrderAction;
+use App\Actions\Pharmacy\ClosePurchaseOrderAction;
+use App\Actions\Pharmacy\ConfirmPurchaseOrderAction;
 use App\Actions\Pharmacy\CreatePurchaseOrderAction;
 use App\Actions\Pharmacy\RecordSupplierInvoiceAction;
 use App\Actions\Pharmacy\RestoreSupplierInvoiceAction;
@@ -24,8 +26,10 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\MessageBag;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * ADR-098 — orders and supplier invoices written from the central portal.
@@ -76,9 +80,9 @@ class PharmacyProcurementController extends Controller
         $this->authorizeActor($request, ['purchase_orders.view', 'medicine_suppliers.view']);
         $supplier = $this->supplier($supplierUuid, withArchived: true);
         $order = $this->order($supplier, $orderUuid)->load([
-            'supplier:id,uuid,name,code',
+            'supplier:id,uuid,name,code,email',
             'creator:id,name',
-            'lines.medicine.catalogItem:id,code,name',
+            'lines.medicine.catalogItem:id,code,name,unit',
             'receipts.lines',
             'receipts.receivedBy:id,name',
             'invoices',
@@ -126,6 +130,79 @@ class PharmacyProcurementController extends Controller
     }
 
     /**
+     * ADR-179 — la confirmation que le fournisseur a envoyée. C'est le portail
+     * qui passe les commandes (ADR-098) : c'est donc là qu'arrive le plus
+     * souvent l'accusé du fournisseur, et le droit `purchase_orders.confirm`
+     * y est accordé au Super Admin. La règle reste celle du site : l'Action
+     * refuse une commande annulée, ici comme à la clinique.
+     */
+    public function confirmOrder(Request $request, string $supplierUuid, string $orderUuid, ConfirmPurchaseOrderAction $action): JsonResponse
+    {
+        $validated = $request->validate([
+            'confirmed_at' => ['required', 'date', 'before_or_equal:today'],
+            'reference' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,xlsx', 'max:10240'],
+        ]);
+
+        $order = $action->execute(
+            $this->order($this->supplier($supplierUuid), $orderUuid),
+            [...$validated, 'attachment' => $request->file('attachment')],
+            CatalogActor::fromRemoteRequest($request),
+        );
+
+        return response()->json(['message' => "Confirmation du fournisseur enregistrée sur la commande {$order->order_number}."]);
+    }
+
+    public function unconfirmOrder(Request $request, string $supplierUuid, string $orderUuid, ConfirmPurchaseOrderAction $action): JsonResponse
+    {
+        $order = $action->revert(
+            $this->order($this->supplier($supplierUuid, withArchived: true), $orderUuid),
+            CatalogActor::fromRemoteRequest($request),
+        );
+
+        return response()->json(['message' => "Confirmation retirée de la commande {$order->order_number}."]);
+    }
+
+    /**
+     * Le document du fournisseur reste sur son site : le portail ne fait que
+     * le relayer au navigateur, comme un fichier de catalogue (ADR-098). Sans
+     * cela, un Super Admin déposerait une pièce qu'il ne pourrait plus ouvrir.
+     */
+    public function orderConfirmationDocument(Request $request, string $supplierUuid, string $orderUuid): StreamedResponse
+    {
+        $this->authorizeActor($request, ['purchase_orders.view', 'medicine_suppliers.view']);
+        $order = $this->order($this->supplier($supplierUuid, withArchived: true), $orderUuid);
+
+        abort_unless(filled($order->supplier_confirmation_attachment_path), 404);
+        abort_unless(Storage::disk('local')->exists($order->supplier_confirmation_attachment_path), 404);
+
+        return Storage::disk('local')->download(
+            $order->supplier_confirmation_attachment_path,
+            $order->supplier_confirmation_attachment_original_name ?: 'confirmation',
+            ['X-Content-Type-Options' => 'nosniff'],
+        );
+    }
+
+    /**
+     * ADR-179 — solder les reliquats d'une commande que le fournisseur
+     * n'honorera plus. Renoncer à ce qui reste dû est une décision d'acheteur,
+     * et l'acheteur est ici. Constater une rupture ligne à ligne reste au
+     * site : c'est un constat de réception (ADR-176).
+     */
+    public function closeOrder(Request $request, string $supplierUuid, string $orderUuid, ClosePurchaseOrderAction $action): JsonResponse
+    {
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+        $order = $action->execute(
+            $this->order($this->supplier($supplierUuid), $orderUuid),
+            $validated['reason'],
+            CatalogActor::fromRemoteRequest($request),
+        );
+
+        return response()->json(['message' => "Commande {$order->order_number} clôturée."]);
+    }
+
+    /**
      * ADR-176 — un brouillon ou une commande annulée part à la corbeille,
      * restaurable (ADR-061). Une commande vivante s'annule d'abord :
      * l'Action le refuse, ici comme à la clinique.
@@ -170,7 +247,7 @@ class PharmacyProcurementController extends Controller
         $this->authorizeActor($request, ['supplier_invoices.view', 'medicine_suppliers.view']);
         $supplier = $this->supplier($supplierUuid, withArchived: true);
         $invoice = $this->invoice($supplier, $invoiceUuid, withArchived: true)
-            ->load(['supplier:id,uuid,name', 'lines.medicine.catalogItem:id,code,name', 'purchaseOrder', 'goodsReceipt', 'creator:id,name']);
+            ->load(['supplier:id,uuid,name', 'lines.medicine.catalogItem:id,code,name,unit', 'purchaseOrder', 'goodsReceipt', 'creator:id,name']);
 
         return response()->json(['data' => [
             'supplier' => $this->presenter->identity($supplier),

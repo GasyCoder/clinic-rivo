@@ -5,7 +5,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import Button from '@/Components/UI/Button.vue';
 import FolderCard from '@/Components/UI/FolderCard.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { lucideIcon } from '@/lib/icons';
+import { Folder, Plus } from 'lucide-vue-next';
 
 defineOptions({ layout: AppLayout });
 
@@ -68,20 +69,20 @@ const details = computed(() => [
         <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-4">
-                    <Icon name="folder-fill" class="text-5xl leading-none text-amber-400" />
+                    <Folder class="text-5xl leading-none text-amber-400 h-4 w-4" />
                     <div class="min-w-0">
                         <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">{{ supplier.name }}</h1>
                         <p class="font-mono text-xs text-slate-400">{{ supplier.code }}</p>
                     </div>
                 </div>
                 <Button v-if="can.create_order" :as="Link" :href="`/pharmacy/purchase-orders/create?supplier=${supplier.uuid}`" size="rg">
-                    <Icon name="plus" /><span class="ms-2">Passer une commande</span>
+                    <Plus class="h-4 w-4" /><span class="ms-2">Passer une commande</span>
                 </Button>
             </div>
 
             <dl class="mt-5 grid gap-3 border-t border-gray-100 pt-5 dark:border-gray-900 sm:grid-cols-2 lg:grid-cols-4">
                 <div v-for="detail in details" :key="detail.label" class="flex items-start gap-2.5">
-                    <Icon :name="detail.icon" class="mt-0.5 text-lg text-slate-400" />
+                    <component :is="lucideIcon(detail.icon)" class="mt-0.5 text-slate-400 h-4 w-4" />
                     <div class="min-w-0">
                         <dt class="text-xs text-slate-500">{{ detail.label }}</dt>
                         <dd class="mt-0.5 break-words text-sm font-medium text-slate-800 dark:text-white">
@@ -97,8 +98,7 @@ const details = computed(() => [
             <h2 class="mb-2 px-1 text-sm font-semibold text-slate-500">Contenu du dossier</h2>
             <div class="rounded-xl border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-900 dark:bg-gray-1000/40">
                 <div v-if="folders.length" class="grid grid-cols-2 gap-1 sm:grid-cols-4">
-                    <FolderCard
-                        v-for="folder in folders"
+                    <FolderCard v-for="folder in folders"
                         :key="folder.href"
                         :href="folder.href"
                         :title="folder.title"

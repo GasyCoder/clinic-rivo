@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { CircleCheck, Package, User, X } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatDate } from '@/utilities/date';
 import { formatMoney } from '@/utilities/pharmacyStatus';
@@ -73,19 +73,19 @@ const plannedLots = (item) => {
                 <header class="shrink-0 border-b border-gray-200 bg-white px-4 py-4 dark:border-gray-900 dark:bg-gray-950 sm:px-6">
                     <div class="flex items-start justify-between gap-4">
                         <div class="flex min-w-0 items-start gap-3">
-                            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300"><Icon name="package" /></span>
+                            <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300"><Package class="h-4 w-4" /></span>
                             <div class="min-w-0">
                                 <h2 id="delivery-title" class="truncate font-heading text-xl font-bold text-slate-800 dark:text-white">Remettre les médicaments</h2>
                                 <p class="mt-0.5 text-sm text-slate-500">{{ target.customer_name }} · {{ target.type === 'EXTERNAL' ? 'client externe' : 'patient de la clinique' }} · ticket {{ target.invoice?.number }}</p>
                             </div>
                         </div>
-                        <button type="button" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:bg-gray-950 dark:hover:text-white" aria-label="Fermer" @click="emit('close')"><Icon class="text-xl" name="cross" /></button>
+                        <button type="button" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-gray-800 dark:bg-gray-950 dark:hover:text-white" aria-label="Fermer" @click="emit('close')"><X class="h-4 w-4" /></button>
                     </div>
 
                     <div class="mt-4 grid gap-2 sm:grid-cols-3">
                         <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 dark:border-emerald-900 dark:bg-emerald-950/20">
                             <p class="text-xs text-emerald-700 dark:text-emerald-300">Caisse</p>
-                            <p class="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200"><Icon name="check-circle" />Ticket réglé</p>
+                            <p class="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200"><CircleCheck class="h-4 w-4" />Ticket réglé</p>
                         </div>
                         <div class="rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-gray-800 dark:bg-gray-950">
                             <p class="text-xs text-slate-500">Montant du ticket</p>
@@ -102,7 +102,7 @@ const plannedLots = (item) => {
                     <ValidationErrorSummary class="mb-4" :errors="form.errors" />
 
                     <section v-if="target.type === 'EXTERNAL'" class="mb-4 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
-                        <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-white"><Icon name="user" />Client</h3>
+                        <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-white"><User class="h-4 w-4" />Client</h3>
                         <dl class="mt-2 grid gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
                             <div><dt class="inline text-slate-500">Nom : </dt><dd class="inline text-slate-800 dark:text-white">{{ target.customer_name }}</dd></div>
                             <div><dt class="inline text-slate-500">Téléphone : </dt><dd class="inline text-slate-800 dark:text-white">{{ target.customer_phone || 'Non renseigné' }}</dd></div>
@@ -162,7 +162,7 @@ const plannedLots = (item) => {
                     </div>
                     <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                         <Button variant="white-outline" size="lg" type="button" @click="emit('close')">Annuler</Button>
-                        <Button size="lg" type="submit" :disabled="form.processing || selectedQuantity < 1"><Icon name="check-circle" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Confirmer la remise' }}</span></Button>
+                        <Button size="lg" type="submit" :disabled="form.processing || selectedQuantity < 1"><CircleCheck class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Confirmer la remise' }}</span></Button>
                     </div>
                 </footer>
             </form>

@@ -10,8 +10,6 @@ use App\Models\MedicineSupplier;
 use App\Models\PharmacyStockAlert;
 use App\Models\User;
 use App\Services\Care\CareConsumableDirectory;
-use App\Support\Money;
-use Illuminate\Support\Facades\DB;
 
 /**
  * ADR-098 — one method per Pharmacy screen: a page loads only what it shows,
@@ -24,6 +22,7 @@ class PharmacyWorkspaceService
         private readonly MedicineStockOverviewService $stockOverview,
         private readonly PharmacyPrescriptionQueueService $prescriptionQueue,
         private readonly CareConsumableDirectory $careConsumables,
+        private readonly ReceivedStockQueue $receivedStock,
     ) {}
 
     /** @return array<string, bool> */
@@ -89,15 +88,17 @@ class PharmacyWorkspaceService
             'careConsumableCount' => $capabilities['can_view_care_consumables']
                 ? $this->careConsumables->openRequestCount()
                 : 0,
+            'awaitingStockCount' => $this->awaitingStockCount($capabilities),
             'alerts' => $this->alertsFor($capabilities),
         ];
     }
 
-    /** @return array<string, mixed> */
     /**
      * ADR-098 — « Médicaments & stock »: one list of the clinic's medicines
      * (family, sale price, delivery rule) with their stock when the account
      * may see it. An account with medicines.view only gets no quantity.
+     *
+     * @return array<string, mixed>
      */
     public function stock(User $user): array
     {
@@ -123,6 +124,9 @@ class PharmacyWorkspaceService
         return [
             'capabilities' => $capabilities,
             'stock' => $stock,
+            // ADR-182 — ce qui est réceptionné mais pas encore rangé : c'est ce
+            // que l'écran « Entrée en stock » attend, et rien d'autre.
+            'awaitingStockCount' => $this->awaitingStockCount($capabilities),
             'alerts' => $this->alertsFor($capabilities),
             // Archived families included, so they can be restored from the same panel.
             'categories' => $capabilities['can_view_categories']
@@ -174,42 +178,17 @@ class PharmacyWorkspaceService
         return ['capabilities' => $capabilities, 'medicine' => $row];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * ADR-182 — l'écran d'entrée en stock ne déroule plus le catalogue : ce
+     * qui entre au stock vient d'une livraison réceptionnée, et c'est la file
+     * des réceptions (ReceivedStockQueue) qui la sert. Il ne reste ici que ce
+     * que le compte a le droit de faire en rangeant.
+     *
+     * @return array<string, mixed>
+     */
     public function stockEntryForm(User $user): array
     {
-        $capabilities = $this->capabilities($user);
-        [$supplierUuids, $supplierPrices] = $capabilities['can_view_suppliers']
-            ? $this->suppliersByMedicine(
-                withPrices: $capabilities['can_record_cost'] && $user->can('medicine_supplier_offers.view'),
-            )
-            : [[], []];
-
-        return [
-            'capabilities' => $capabilities,
-            'medicines' => collect($this->stockFor($capabilities)['medicines'])
-                ->where('active', true)
-                ->map(fn (array $medicine): array => [
-                    'uuid' => $medicine['uuid'],
-                    'code' => $medicine['code'],
-                    'name' => $medicine['name'],
-                    'unit' => $medicine['unit'],
-                    'sale_price' => $medicine['sale_price'] ?? null,
-                    // ADR-098 — lets the form list only what the chosen
-                    // supplier provides; « Tous » keeps the whole catalog.
-                    'supplier_uuids' => $supplierUuids[$medicine['uuid']] ?? [],
-                    'supplier_prices' => (object) ($supplierPrices[$medicine['uuid']] ?? []),
-                    'lots' => collect($medicine['lots'])->map(fn (array $lot): array => [
-                        'uuid' => $lot['uuid'],
-                        'lot_number' => $lot['lot_number'],
-                        'expires_at' => $lot['expires_at'],
-                    ])->values()->all(),
-                ])
-                ->values()
-                ->all(),
-            'suppliers' => $capabilities['can_view_suppliers']
-                ? MedicineSupplier::query()->orderBy('name')->get(['uuid', 'code', 'name'])
-                : [],
-        ];
+        return ['capabilities' => $this->capabilities($user)];
     }
 
     /** @return array<string, mixed> */
@@ -279,6 +258,17 @@ class PharmacyWorkspaceService
     }
 
     /**
+     * ADR-175, ADR-182 — les lignes réceptionnées qui attendent d'être
+     * rangées. Seul un compte qui peut les faire entrer au stock les compte.
+     *
+     * @param  array<string, bool>  $capabilities
+     */
+    private function awaitingStockCount(array $capabilities): int
+    {
+        return $capabilities['can_record_entry'] ? $this->receivedStock->count() : 0;
+    }
+
+    /**
      * @param  array<string, bool>  $capabilities
      * @return array<int, array<string, mixed>>
      */
@@ -309,42 +299,6 @@ class PharmacyWorkspaceService
     }
 
     /** @param array<string, bool> $capabilities */
-    /**
-     * Which active suppliers provide each medicine: the simple « can supply »
-     * link or a current supplier price — the offer keeps the link in sync,
-     * so either one is enough. Prices are the current quoted ones only.
-     *
-     * @return array{0: array<string, array<int, string>>, 1: array<string, array<string, string>>}
-     */
-    private function suppliersByMedicine(bool $withPrices): array
-    {
-        $links = DB::table('medicine_supplier')
-            ->join('medicines', 'medicines.id', '=', 'medicine_supplier.medicine_id')
-            ->join('medicine_suppliers', 'medicine_suppliers.id', '=', 'medicine_supplier.medicine_supplier_id')
-            ->whereNull('medicine_suppliers.deleted_at')
-            ->get(['medicines.uuid as medicine_uuid', 'medicine_suppliers.uuid as supplier_uuid']);
-
-        $offers = DB::table('medicine_supplier_offers')
-            ->join('medicines', 'medicines.id', '=', 'medicine_supplier_offers.medicine_id')
-            ->join('medicine_suppliers', 'medicine_suppliers.id', '=', 'medicine_supplier_offers.medicine_supplier_id')
-            ->where('medicine_supplier_offers.active_key', 'CURRENT')
-            ->whereNull('medicine_suppliers.deleted_at')
-            ->get(['medicines.uuid as medicine_uuid', 'medicine_suppliers.uuid as supplier_uuid', 'medicine_supplier_offers.quoted_price']);
-
-        $uuids = $links->concat($offers)
-            ->groupBy('medicine_uuid')
-            ->map(fn ($rows) => $rows->pluck('supplier_uuid')->unique()->values()->all())
-            ->all();
-
-        $prices = $withPrices
-            ? $offers->groupBy('medicine_uuid')
-                ->map(fn ($rows) => $rows->pluck('quoted_price', 'supplier_uuid')->map(fn ($price) => Money::normalize((string) $price))->all())
-                ->all()
-            : [];
-
-        return [$uuids, $prices];
-    }
-
     private function stockFor(array $capabilities): array
     {
         $stock = $this->stockOverview->overview();

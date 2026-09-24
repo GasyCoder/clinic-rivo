@@ -908,23 +908,42 @@ class PortalSiteApiClient
     }
 
     /**
-     * The catalogue file of a site, fetched as bytes so the portal can hand
-     * it to the browser. Nothing is stored centrally: the file keeps living
-     * on its site (ADR-098).
+     * A catalogue file of a site (ADR-098).
      *
      * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
      */
     public function pharmacySupplierCatalogFile(string $siteCode, string $supplierUuid, string $catalogUuid, User $actor, string $filename): array
     {
+        return $this->pharmacySupplierFile($siteCode, $supplierUuid, 'catalogs/'.rawurlencode($catalogUuid).'/download', $actor, $filename);
+    }
+
+    /**
+     * ADR-179 — the confirmation document a supplier sent for an order.
+     *
+     * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
+     */
+    public function pharmacyOrderConfirmationFile(string $siteCode, string $supplierUuid, string $orderUuid, User $actor, string $filename): array
+    {
+        return $this->pharmacySupplierFile($siteCode, $supplierUuid, 'orders/'.rawurlencode($orderUuid).'/confirmation/document', $actor, $filename);
+    }
+
+    /**
+     * A supplier file of a site, fetched as bytes so the portal can hand it
+     * to the browser. Nothing is stored centrally: the file keeps living on
+     * its site (ADR-098).
+     *
+     * @return array{ok: bool, message: string, body: ?string, content_type: string, filename: string}
+     */
+    private function pharmacySupplierFile(string $siteCode, string $supplierUuid, string $path, User $actor, string $filename): array
+    {
         $site = $this->site($siteCode);
         $apiUrl = trim((string) ($site['api_url'] ?? ''));
         $token = trim((string) ($site['api_token'] ?? ''));
+        $failure = fn (string $message) => ['ok' => false, 'message' => $message, 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
 
         if ($apiUrl === '' || $token === '') {
-            return ['ok' => false, 'message' => 'L’URL ou le jeton API de ce site n’est pas configuré.', 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+            return $failure('L’URL ou le jeton API de ce site n’est pas configuré.');
         }
-
-        $path = 'super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/catalogs/'.rawurlencode($catalogUuid).'/download';
 
         try {
             $response = Http::withToken($token)
@@ -935,13 +954,13 @@ class PortalSiteApiClient
                     'X-Rivo-Actor-Permissions' => $actor->effectivePermissionNames()->implode(','),
                 ])
                 ->timeout(max(5, (int) config('rivo.site_api.timeout', 5)))
-                ->get(rtrim($apiUrl, '/').'/'.$path);
+                ->get(rtrim($apiUrl, '/').'/super-admin/pharmacy/suppliers/'.rawurlencode($supplierUuid).'/'.ltrim($path, '/'));
         } catch (Throwable $exception) {
-            return ['ok' => false, 'message' => 'Le site est injoignable : '.$exception->getMessage(), 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+            return $failure('Le site est injoignable : '.$exception->getMessage());
         }
 
         if (! $response->successful()) {
-            return ['ok' => false, 'message' => 'Le site a refusé le téléchargement de ce fichier.', 'body' => null, 'content_type' => 'application/octet-stream', 'filename' => $filename];
+            return $failure('Le site a refusé le téléchargement de ce fichier.');
         }
 
         return [

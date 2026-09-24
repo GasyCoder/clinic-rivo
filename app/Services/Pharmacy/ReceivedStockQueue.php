@@ -49,22 +49,33 @@ class ReceivedStockQueue
             ->orderBy('id')
             ->get();
 
-        $stocked = MedicineLot::query()
+        // Tous les lots des produits en attente, en une requête : ils disent si
+        // un produit a déjà été rangé, et quels lots la pharmacie tient déjà.
+        $lots = MedicineLot::query()
             ->whereIn('medicine_id', $lines->pluck('medicine_id')->unique())
-            ->pluck('medicine_id')
-            ->flip();
+            ->orderBy('expires_at')
+            ->get(['uuid', 'medicine_id', 'lot_number', 'expires_at', 'active'])
+            ->groupBy('medicine_id');
         $seeCost = $user->can('stock.cost.view');
+        $seeLots = $user->can('stock.lots.view');
+        $seeExpiry = $user->can('stock.expiration.view');
 
         return $lines
             ->groupBy(fn (GoodsReceiptLine $line) => $line->goodsReceipt->purchaseOrder->supplier->uuid)
-            ->map(function (Collection $supplierLines) use ($stocked, $seeCost): array {
+            ->map(function (Collection $supplierLines) use ($lots, $seeCost, $seeLots, $seeExpiry): array {
                 $supplier = $supplierLines->first()->goodsReceipt->purchaseOrder->supplier;
                 $orders = $supplierLines
                     ->groupBy(fn (GoodsReceiptLine $line) => $line->goodsReceipt->purchaseOrder->uuid)
                     ->map(fn (Collection $orderLines): array => [
                         'uuid' => $orderLines->first()->goodsReceipt->purchaseOrder->uuid,
                         'order_number' => $orderLines->first()->goodsReceipt->purchaseOrder->order_number,
-                        'lines' => $orderLines->map(fn (GoodsReceiptLine $line) => $this->present($line, $stocked, $seeCost))->values()->all(),
+                        'lines' => $orderLines->map(fn (GoodsReceiptLine $line) => $this->present(
+                            $line,
+                            $lots->get($line->medicine_id, collect()),
+                            $seeCost,
+                            $seeLots,
+                            $seeExpiry,
+                        ))->values()->all(),
                     ])
                     ->values();
 
@@ -82,10 +93,10 @@ class ReceivedStockQueue
     }
 
     /**
-     * @param  Collection<int, int>  $stocked
+     * @param  Collection<int, MedicineLot>  $lots  les lots déjà connus de ce produit
      * @return array<string, mixed>
      */
-    private function present(GoodsReceiptLine $line, Collection $stocked, bool $seeCost): array
+    private function present(GoodsReceiptLine $line, Collection $lots, bool $seeCost, bool $seeLots, bool $seeExpiry): array
     {
         return [
             'uuid' => $line->uuid,
@@ -98,16 +109,35 @@ class ReceivedStockQueue
             'lot_number' => $line->lot_number,
             'expires_at' => $line->expires_at?->toDateString(),
             'quantity' => $line->quantity_received,
-            // Ce que la commande permet encore pour cette ligne.
-            'max_quantity' => $line->purchaseOrderLine->quantity_ordered
-                - $line->purchaseOrderLine->quantity_received
-                + $line->quantity_received,
+            // Ce que la commande permet encore pour cette ligne ; rien ne
+            // borne un article livré hors commande.
+            'max_quantity' => $line->purchaseOrderLine
+                ? $line->purchaseOrderLine->quantity_ordered
+                    - $line->purchaseOrderLine->quantity_received
+                    + $line->quantity_received
+                : null,
             'notes' => $line->notes,
+            // ADR-179 — un article livré hors commande ne solde aucune ligne
+            // de commande : rien ne le borne.
+            'off_order' => $line->purchase_order_line_id === null,
             // ADR-174 — le prix d'achat est confidentiel.
             'unit_purchase_price' => $seeCost ? $line->unit_purchase_price : null,
             'sale_price' => $line->medicine->catalogItem?->currentStandardTariff?->amount,
             // Jamais entré au stock : il n'a encore aucun lot.
-            'is_new' => ! $stocked->has($line->medicine_id),
+            'is_new' => $lots->isEmpty(),
+            /*
+             * ADR-176 — le lot et la péremption se lisent sur la boîte ; la
+             * seule chose que le système sache, ce sont les lots que la
+             * pharmacie tient déjà. Un lot inactif ne reçoit plus d'entrée :
+             * il n'est pas proposé. Les droits de lecture restent ceux du stock.
+             */
+            'known_lots' => $seeLots
+                ? $lots->where('active', true)->map(fn (MedicineLot $lot): array => [
+                    'uuid' => $lot->uuid,
+                    'lot_number' => $lot->lot_number,
+                    'expires_at' => $seeExpiry ? $lot->expires_at?->toDateString() : null,
+                ])->values()->all()
+                : [],
         ];
     }
 }

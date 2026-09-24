@@ -3,7 +3,8 @@ import { computed, ref, watch } from 'vue';
 import { medicineFamily, medicineMatches, medicineSubtitle } from '@/utilities/medicine';
 import Badge from '@/Components/UI/Badge.vue';
 import Button from '@/Components/UI/Button.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { lucideIcon } from '@/lib/icons';
+import { ChevronDown, FileText, LayoutGrid, List, Pill, Plus, Search, ShieldCheck, ShoppingCart, Trash2, User } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney as money, formatNumber as number } from '@/utilities/pharmacyStatus';
 
@@ -139,7 +140,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
             <header class="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-4 dark:border-gray-900 dark:bg-gray-950 sm:px-6">
                 <div class="flex min-w-0 items-center gap-3">
                     <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300">
-                        <Icon name="cart" />
+                        <ShoppingCart class="h-4 w-4" />
                     </span>
                     <div class="min-w-0">
                         <h2 id="external-sale-title" class="truncate font-heading text-xl font-bold text-slate-800 dark:text-white sm:text-2xl">Vente comptoir</h2>
@@ -147,15 +148,15 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                     </div>
                 </div>
                 <span class="hidden items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300 md:inline-flex">
-                    <Icon name="shield-check" />Le client paie à la Caisse
+                    <ShieldCheck class="h-4 w-4" />Le client paie à la Caisse
                 </span>
             </header>
 
             <ValidationErrorSummary class="mx-4 mt-3 shrink-0 sm:mx-6" :errors="form.errors" @select="focusInvalidField" />
 
             <nav class="grid shrink-0 grid-cols-2 gap-1 border-b border-gray-200 bg-white p-2 dark:border-gray-900 dark:bg-gray-950 lg:hidden" aria-label="Étapes de la vente">
-                <button type="button" :class="['flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition', mobileStep === 'catalog' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'catalog'"><Icon name="capsule" />Médicaments</button>
-                <button type="button" :class="['flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition', mobileStep === 'cart' ? 'bg-slate-700 text-white shadow-sm' : 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'cart'"><Icon name="cart" />Panier <span :class="['rounded-full px-1.5 text-xs', mobileStep === 'cart' ? 'bg-white/20' : 'bg-white dark:bg-gray-950']">{{ cartQuantity }}</span></button>
+                <button type="button" :class="['flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition', mobileStep === 'catalog' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'catalog'"><Pill class="h-4 w-4" />Médicaments</button>
+                <button type="button" :class="['flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition', mobileStep === 'cart' ? 'bg-slate-700 text-white shadow-sm' : 'bg-gray-100 text-slate-600 dark:bg-gray-900 dark:text-slate-300']" @click="mobileStep = 'cart'"><ShoppingCart class="h-4 w-4" />Panier <span :class="['rounded-full px-1.5 text-xs', mobileStep === 'cart' ? 'bg-white/20' : 'bg-white dark:bg-gray-950']">{{ cartQuantity }}</span></button>
             </nav>
 
             <div class="grid lg:grid-cols-[minmax(0,1fr)_460px]">
@@ -164,7 +165,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                         <div class="flex flex-col gap-2 sm:flex-row">
                             <label class="relative block flex-1">
                                 <span class="sr-only">Rechercher un médicament</span>
-                                <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" />
+                                <Search class="pointer-events-none absolute inset-y-0 start-3 my-auto text-slate-400 h-4 w-4" />
                                 <input
                                     v-model="search"
                                     type="search"
@@ -186,7 +187,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                     :aria-pressed="catalogView === 'grid'"
                                     @click="catalogView = 'grid'"
                                 >
-                                    <Icon name="grid" /><span class="hidden sm:inline">Vignettes</span>
+                                    <LayoutGrid class="h-4 w-4" /><span class="hidden sm:inline">Vignettes</span>
                                 </button>
                                 <button
                                     type="button"
@@ -194,7 +195,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                     :aria-pressed="catalogView === 'list'"
                                     @click="catalogView = 'list'"
                                 >
-                                    <Icon name="list" /><span class="hidden sm:inline">Liste</span>
+                                    <List class="h-4 w-4" /><span class="hidden sm:inline">Liste</span>
                                 </button>
                             </div>
                         </div>
@@ -219,7 +220,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                         <Badge v-if="medicine.prescription_required" tone="warning">Sur ordonnance</Badge>
                                         <span v-else />
                                         <span v-if="lineFor(medicine)" class="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-bold text-white">{{ lineFor(medicine).quantity }} au panier</span>
-                                        <span v-else class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-slate-400 transition group-hover:bg-emerald-600 group-hover:text-white dark:bg-gray-900"><Icon name="plus" /></span>
+                                        <span v-else class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-slate-400 transition group-hover:bg-emerald-600 group-hover:text-white dark:bg-gray-900"><Plus class="h-4 w-4" /></span>
                                     </div>
                                     <p class="mt-2 line-clamp-2 text-base font-semibold text-slate-800 dark:text-white">{{ medicine.name }}</p>
                                     <p class="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{{ medicineSubtitle(medicine) }}</p>
@@ -243,13 +244,13 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                         </div>
                                     </div>
                                     <span v-if="lineFor(medicine)" class="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-bold text-white">{{ lineFor(medicine).quantity }}</span>
-                                    <span v-else class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-400 transition group-hover:bg-emerald-600 group-hover:text-white dark:bg-gray-900"><Icon name="plus" /></span>
+                                    <span v-else class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-slate-400 transition group-hover:bg-emerald-600 group-hover:text-white dark:bg-gray-900"><Plus class="h-4 w-4" /></span>
                                 </template>
                             </button>
                         </div>
 
                         <div v-if="!filteredMedicines.length" class="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center dark:border-gray-800 dark:bg-gray-950">
-                            <span class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Icon name="search" /></span>
+                            <span class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-xl text-slate-400 dark:bg-gray-900"><Search class="h-4 w-4" /></span>
                             <p class="mt-3 text-sm font-semibold text-slate-800 dark:text-white">Aucun médicament trouvé</p>
                             <p class="mt-1 max-w-sm text-sm text-slate-500">Seuls les médicaments en stock et ayant un prix de vente apparaissent ici.</p>
                             <p v-if="unpricedCount" class="mt-3 max-w-sm rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
@@ -275,8 +276,8 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
 
                         <details class="group mt-4 rounded-lg border border-gray-200 bg-gray-50 open:bg-white dark:border-gray-800 dark:bg-gray-900 dark:open:bg-gray-950">
                             <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
-                                <span class="inline-flex items-center gap-2"><Icon name="user" />Nom du client <span class="font-normal text-slate-400">(facultatif)</span></span>
-                                <Icon class="text-sm text-slate-400 transition-transform group-open:rotate-180" name="chevron-down" />
+                                <span class="inline-flex items-center gap-2"><User class="h-4 w-4" />Nom du client <span class="font-normal text-slate-400">(facultatif)</span></span>
+                                <ChevronDown class="text-sm text-slate-400 transition-transform group-open:rotate-180 h-4 w-4" />
                             </summary>
                             <div class="grid gap-3 border-t border-gray-200 p-3 dark:border-gray-800">
                                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-200">Nom du client
@@ -300,7 +301,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                                         <p class="truncate text-sm font-semibold text-slate-800 dark:text-white">{{ item.medicine.name }}</p>
                                         <p class="mt-0.5 text-xs text-slate-500">{{ money(item.medicine.sale_price) }} l’unité</p>
                                     </div>
-                                    <button type="button" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20" :aria-label="`Retirer ${item.medicine.name}`" @click="removeLine(item.medicine.uuid)"><Icon name="trash" /></button>
+                                    <button type="button" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20" :aria-label="`Retirer ${item.medicine.name}`" @click="removeLine(item.medicine.uuid)"><Trash2 class="h-4 w-4" /></button>
                                 </div>
                                 <div class="mt-3 flex items-center gap-2">
                                     <button type="button" class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-lg text-slate-600 hover:bg-gray-50 dark:border-gray-800 dark:text-slate-300 dark:hover:bg-gray-900" :aria-label="`Retirer une unité de ${item.medicine.name}`" @click="changeQuantity(item, -1)">−</button>
@@ -319,7 +320,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                         </div>
 
                         <div v-else class="flex h-full min-h-52 flex-col items-center justify-center text-center">
-                            <span class="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-2xl text-slate-300 dark:bg-gray-900"><Icon name="cart" /></span>
+                            <span class="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-2xl text-slate-300 dark:bg-gray-900"><ShoppingCart class="h-4 w-4" /></span>
                             <p class="mt-3 text-sm font-semibold text-slate-800 dark:text-white">Le panier est vide</p>
                             <p class="mt-1 max-w-xs text-sm text-slate-500">Touchez un médicament pour l’ajouter.</p>
                         </div>
@@ -327,7 +328,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
 
                     <footer class="shrink-0 border-t border-gray-200 bg-gray-50 p-4 dark:border-gray-900 dark:bg-gray-1000 sm:p-5">
                         <Button class="w-full justify-center" size="lg" type="submit" :disabled="!canSubmit">
-                            <Icon name="file-text" /><span class="ms-2">{{ form.processing ? 'Transmission…' : 'Créer et transmettre à la Caisse' }}</span>
+                            <FileText class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Transmission…' : 'Créer et transmettre à la Caisse' }}</span>
                         </Button>
                     </footer>
                 </aside>
@@ -345,7 +346,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
             >
                 <section class="w-full max-w-md overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950">
                     <header class="flex items-start gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-xl text-primary-600 dark:bg-primary-950/30 dark:text-primary-300"><Icon name="shield-check" /></span>
+                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-xl text-primary-600 dark:bg-primary-950/30 dark:text-primary-300"><ShieldCheck class="h-4 w-4" /></span>
                         <div>
                             <h2 id="counter-sale-confirmation-title" class="text-lg font-bold text-slate-800 dark:text-white">Confirmer la vente</h2>
                             <p class="mt-1 text-sm text-slate-500">Le ticket sera créé et transmis à la Caisse, où le client paiera.</p>
@@ -367,7 +368,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                     <footer class="flex flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-800 dark:bg-gray-900/40 sm:flex-row sm:justify-end">
                         <Button variant="white-outline" size="rg" type="button" @click="showCreateConfirmation = false">Annuler</Button>
                         <Button size="rg" type="button" @click="confirmCreation">
-                            <Icon :name="canPrintTicket ? 'printer' : 'file-text'" />
+                            <component :is="lucideIcon(canPrintTicket ? 'printer' : 'file-text')" class="h-4 w-4" />
                             <span class="ms-2">{{ canPrintTicket ? 'Imprimer et transmettre à la Caisse' : 'Créer et transmettre à la Caisse' }}</span>
                         </Button>
                     </footer>

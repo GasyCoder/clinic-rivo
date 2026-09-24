@@ -6,7 +6,7 @@ import Button from '@/Components/Shadcn/Button.vue';
 import FormSection from '@/Components/UI/FormSection.vue';
 import { CalendarDays, CloudUpload, Copy, FileCheck, Info, ListPlus, Plus, Save, Trash2, X } from 'lucide-vue-next';
 import { cn } from '@/lib/cn';
-import { formatDate } from '@/utilities/date';
+import { formatDate, localToday, toLocalDateInput } from '@/utilities/date';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
@@ -40,7 +40,7 @@ const initial = props.invoice;
 
 const form = useForm({
     invoice_number: initial?.invoice_number ?? '',
-    invoice_date: initial?.invoice_date ?? new Date().toISOString().slice(0, 10),
+    invoice_date: initial?.invoice_date ?? localToday(),
     due_date: initial?.due_date ?? '',
     purchase_order_uuid: initial
         ? (initial.purchase_order_uuid ?? '')
@@ -97,14 +97,14 @@ const canSubmit = computed(() => Boolean(supplierUuid.value && form.invoice_numb
 
 // ADR-175 — la date d'une facture est celle du jour, sauf si le papier du
 // fournisseur en porte une autre ; l'échéance se choisit par délai.
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
 const customDate = ref(Boolean(initial?.invoice_date) && initial.invoice_date !== today);
 const customDue = ref(Boolean(initial?.due_date));
 const addDays = (days) => {
     const date = new Date(`${form.invoice_date || today}T00:00:00`);
     date.setDate(date.getDate() + days);
 
-    return date.toISOString().slice(0, 10);
+    return toLocalDateInput(date);
 };
 const dueTerms = [
     { label: 'À réception', value: () => '' },

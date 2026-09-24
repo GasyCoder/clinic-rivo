@@ -5,7 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Paperclip, Pencil, Plus, Search } from 'lucide-vue-next';
 import PurchasesHeader from '@/Components/Pharmacy/PurchasesHeader.vue';
 import { formatDate } from '@/utilities/date';
 import { formatMoney } from '@/utilities/pharmacyStatus';
@@ -28,7 +28,7 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
         <PurchasesHeader active="invoices" :purchases="purchases">
             <template #actions>
                 <Button v-if="can.create" :as="Link" href="/pharmacy/supplier-invoices/create" size="rg">
-                    <Icon name="plus" /><span class="ms-2">Enregistrer une facture</span>
+                    <Plus class="h-4 w-4" /><span class="ms-2">Enregistrer une facture</span>
                 </Button>
             </template>
         </PurchasesHeader>
@@ -41,8 +41,7 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
             </span>
         </div>
 
-        <ExplorerView
-            storage-key="pharmacy-invoices"
+        <ExplorerView storage-key="pharmacy-invoices"
             :count="invoices.data.length"
             count-label="facture"
             empty-icon="file-text"
@@ -53,7 +52,7 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
                 <form class="flex w-full gap-2 sm:w-auto" @submit.prevent="submitSearch">
                     <label class="relative block flex-1 sm:w-72">
                         <span class="sr-only">Rechercher une facture</span>
-                        <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" />
+                        <Search class="pointer-events-none absolute inset-y-0 start-3 my-auto text-slate-400 h-4 w-4" />
                         <input v-model="search" type="search" class="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 ps-10 pe-3 text-sm outline-none focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-900 dark:text-white" placeholder="Numéro ou fournisseur…">
                     </label>
                     <Button type="submit" size="sm" variant="white-outline">Rechercher</Button>
@@ -61,8 +60,7 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
             </template>
 
             <template #grid>
-                <ExplorerTile
-                    v-for="invoice in invoices.data"
+                <ExplorerTile v-for="invoice in invoices.data"
                     :key="invoice.uuid"
                     :href="`/pharmacy/supplier-invoices/${invoice.uuid}`"
                     icon="file-text"
@@ -74,8 +72,8 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
                     :meta="formatDate(invoice.invoice_date)"
                 >
                     <template v-if="can.update || invoice.has_attachment" #actions>
-                        <Button v-if="invoice.has_attachment" as="a" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Icon name="clip" /></Button>
-                        <Button v-if="can.update" :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/edit`" size="sm" variant="white-outline" title="Modifier"><Icon name="edit" /></Button>
+                        <Button v-if="invoice.has_attachment" as="a" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Paperclip class="h-4 w-4" /></Button>
+                        <Button v-if="can.update" :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/edit`" size="sm" variant="white-outline" title="Modifier"><Pencil class="h-4 w-4" /></Button>
                     </template>
                 </ExplorerTile>
             </template>
@@ -100,8 +98,8 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
                             <td class="px-5 py-3.5">
                                 <div class="flex justify-end gap-1.5 whitespace-nowrap">
                                     <Button :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}`" size="sm" variant="white-outline">Voir</Button>
-                                    <Button v-if="can.update" :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${invoice.invoice_number}`"><Icon name="edit" /></Button>
-                                    <Button v-if="invoice.has_attachment" as="a" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Icon name="clip" /></Button>
+                                    <Button v-if="can.update" :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${invoice.invoice_number}`"><Pencil class="h-4 w-4" /></Button>
+                                    <Button v-if="invoice.has_attachment" as="a" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Paperclip class="h-4 w-4" /></Button>
                                 </div>
                             </td>
                         </tr>

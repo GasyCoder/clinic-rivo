@@ -15,6 +15,8 @@ import {
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
+import { openSupplierOrderMail } from '@/utilities/supplierOrderMail';
+import { usePage } from '@inertiajs/vue3';
 
 /**
  * ADR-098 — le formulaire de commande d'achat, partagé par la clinique et le
@@ -162,11 +164,33 @@ const rowErrors = computed(() => {
 
 // --- Envoi ------------------------------------------------------------------
 const confirmingSend = ref(false);
+/*
+ * L'e-mail au fournisseur : un brouillon ouvert dans la messagerie de la
+ * personne, jamais un envoi par le serveur (voir utilities/supplierOrderMail).
+ * Il accompagne l'envoi, il ne le conditionne pas : sans adresse au dossier du
+ * fournisseur, la commande part exactement comme avant et rien n'est proposé.
+ */
+const page = usePage();
+const supplierEmail = computed(() => currentSupplier.value?.email ?? null);
+const openMailDraft = (lines, amount) => openSupplierOrderMail(supplierEmail.value, {
+    order_number: props.order?.order_number ?? null,
+    ordered_on: formatDate(new Date().toISOString().slice(0, 10)),
+    expected_delivery_on: form.expected_delivery_at ? formatDate(form.expected_delivery_at) : null,
+    total: formatMoney(amount),
+    notes: form.notes,
+    lines,
+}, {
+    clinic: page.props.site?.name ?? null,
+    author: page.props.auth?.user?.name ?? null,
+});
+
 const save = (send) => {
     if (!ready.value) return;
     form.send = send;
     submitted.value = chosen.value.map((row) => row.key);
-    const transformed = form.transform(({ supplier_uuid, lines, ...data }) => ({
+    const lines = chosen.value.map((row) => ({ quantity: row.quantity, unit: row.unit, name: row.name, code: row.code }));
+    const amount = total.value;
+    const transformed = form.transform(({ supplier_uuid, lines: _lines, ...data }) => ({
         ...data,
         lines: chosen.value.map((row) => ({
             ...splitKey(row.key),
@@ -176,7 +200,12 @@ const save = (send) => {
     }));
     const options = {
         preserveScroll: true,
-        onSuccess: () => { confirmingSend.value = false; },
+        onSuccess: () => {
+            confirmingSend.value = false;
+            // La commande est partie : on ouvre le brouillon avec ce qui vient
+            // d'être envoyé, pas avec un formulaire déjà vidé.
+            if (send) openMailDraft(lines, amount);
+        },
         onError: () => { confirmingSend.value = false; },
     };
     if (props.order) transformed.put(props.submitUrl(form.supplier_uuid), options);
@@ -412,6 +441,16 @@ const chip = (active) => cn(
                 <div v-if="newProducts" class="flex justify-between gap-3"><dt class="text-muted-foreground">Nouveaux au catalogue</dt><dd class="font-semibold tabular-nums text-foreground">{{ newProducts }}</dd></div>
                 <div class="flex justify-between gap-3 border-t border-border pt-2"><dt class="text-muted-foreground">Montant total</dt><dd class="text-base font-bold tabular-nums text-foreground">{{ formatMoney(total) }}</dd></div>
             </dl>
+            <!-- L'e-mail accompagne l'envoi : il s'ouvre dans la messagerie
+                 de la personne, qui relit et envoie depuis sa propre adresse. -->
+            <p v-if="supplierEmail" class="mt-3 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-100">
+                <Mail class="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Votre messagerie s’ouvrira avec la commande déjà écrite, pour <span class="font-semibold">{{ supplierEmail }}</span>. Relisez-la avant de l’envoyer.</span>
+            </p>
+            <p v-else class="mt-3 flex items-start gap-2 text-sm text-muted-foreground">
+                <Mail class="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Aucune adresse e-mail au dossier de ce fournisseur : la commande part dans RIVO, mais aucun brouillon ne s’ouvrira.</span>
+            </p>
             <p class="mt-3 text-sm text-muted-foreground">Une fois envoyée, la commande ne peut plus être modifiée : seule une annulation motivée reste possible.</p>
         </ConfirmModal>
     </form>

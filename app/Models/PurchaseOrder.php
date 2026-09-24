@@ -15,6 +15,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'order_number', 'medicine_supplier_id', 'status', 'ordered_at', 'expected_delivery_at',
     'total_amount', 'currency', 'notes', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
     'created_by', 'updated_by',
+    'supplier_confirmed_at', 'supplier_confirmation_reference', 'supplier_confirmation_notes',
+    'supplier_confirmation_attachment_path', 'supplier_confirmation_attachment_original_name',
+    'supplier_confirmation_attachment_mime_type', 'supplier_confirmation_attachment_size',
+    'supplier_confirmed_by', 'external_supplier_confirmed_by_uuid', 'external_supplier_confirmed_by_name',
     'external_created_by_uuid', 'external_created_by_name',
     'external_updated_by_uuid', 'external_updated_by_name',
     'external_cancelled_by_uuid', 'external_cancelled_by_name',
@@ -43,7 +47,19 @@ class PurchaseOrder extends Model
             'expected_delivery_at' => 'date',
             'total_amount' => 'decimal:2',
             'cancelled_at' => 'datetime',
+            'supplier_confirmed_at' => 'datetime',
         ];
+    }
+
+    /** ADR-179 — le fournisseur a accusé cette commande. Jamais obligatoire. */
+    public function isSupplierConfirmed(): bool
+    {
+        return $this->supplier_confirmed_at !== null;
+    }
+
+    public function supplierConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'supplier_confirmed_by');
     }
 
     public function supplier(): BelongsTo
@@ -87,12 +103,21 @@ class PurchaseOrder extends Model
      */
     public function refreshReceptionStatus(): void
     {
+        if ($this->status === PurchaseOrderStatus::Cancelled) {
+            return;
+        }
+
         $this->load('lines');
         $fullyReceived = $this->lines->every(fn (PurchaseOrderLine $line) => $line->quantity_received >= $line->quantity_ordered);
+        // ADR-179 — une ligne en rupture n'attend plus rien : sans elle, une
+        // seule ligne jamais livrée laissait la commande « Partiellement
+        // reçue » à vie, donc éternellement dans « À réceptionner ».
+        $settled = $this->lines->every(fn (PurchaseOrderLine $line) => $line->isSettled());
         $anyReceived = $this->lines->contains(fn (PurchaseOrderLine $line) => $line->quantity_received > 0);
 
         $status = match (true) {
             $fullyReceived => PurchaseOrderStatus::Received,
+            $settled => PurchaseOrderStatus::Closed,
             $anyReceived => PurchaseOrderStatus::PartiallyReceived,
             default => PurchaseOrderStatus::Ordered,
         };
@@ -100,6 +125,12 @@ class PurchaseOrder extends Model
         if ($status !== $this->status) {
             $this->update(['status' => $status]);
         }
+    }
+
+    /** Ce que la commande attend encore, ruptures déduites. */
+    public function hasOutstandingLines(): bool
+    {
+        return $this->lines()->get()->contains(fn (PurchaseOrderLine $line) => ! $line->isSettled());
     }
 
     protected function auditModule(): ?string

@@ -8,7 +8,7 @@ import PageHeader from '@/Components/UI/PageHeader.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import SupplierInvoiceFields from '@/Components/Pharmacy/SupplierInvoiceFields.vue';
-import { formatDateTime } from '@/utilities/date';
+import { formatDateTime, localToday } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 
 defineOptions({ layout: AppLayout });
@@ -20,7 +20,7 @@ defineOptions({ layout: AppLayout });
  */
 const props = defineProps({ receipt: Object });
 
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
 const confirming = ref(false);
 const form = useForm({
     invoice_number: '',

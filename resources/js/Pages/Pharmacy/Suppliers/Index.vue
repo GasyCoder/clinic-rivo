@@ -5,7 +5,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import FolderCard from '@/Components/UI/FolderCard.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { lucideIcon } from '@/lib/icons';
+import { FolderPlus, Search } from 'lucide-vue-next';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 
@@ -40,8 +41,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
     <Head title="Fournisseurs" />
 
     <div class="w-full space-y-5">
-        <PageHeader
-            eyebrow="Pharmacie"
+        <PageHeader eyebrow="Pharmacie"
             title="Fournisseurs"
             description="Chaque fournisseur a son dossier : ses catalogues, ses commandes, ses factures et ses prix. Ouvrez un dossier pour y entrer."
             icon="building"
@@ -50,11 +50,11 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
             <template #actions>
                 <label class="relative block w-full sm:w-72">
                     <span class="sr-only">Rechercher un fournisseur</span>
-                    <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" />
+                    <Search class="pointer-events-none absolute inset-y-0 start-3 my-auto text-slate-400 h-4 w-4" />
                     <input v-model="search" type="search" class="h-10 w-full rounded-lg border border-gray-200 bg-white ps-10 pe-3 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white" placeholder="Nom du fournisseur…">
                 </label>
                 <Button v-if="can.create" size="rg" @click="creating = !creating">
-                    <Icon :name="creating ? 'cross' : 'folder-plus'" /><span class="ms-2">{{ creating ? 'Fermer' : 'Ajouter un fournisseur' }}</span>
+                    <component :is="lucideIcon(creating ? 'cross' : 'folder-plus')" class="h-4 w-4" /><span class="ms-2">{{ creating ? 'Fermer' : 'Ajouter un fournisseur' }}</span>
                 </Button>
             </template>
         </PageHeader>
@@ -72,14 +72,13 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
             </div>
             <div class="flex justify-end gap-2">
                 <Button type="button" size="rg" variant="white-outline" @click="creating = false">Annuler</Button>
-                <Button type="submit" size="rg" :disabled="form.processing"><Icon name="folder-plus" /><span class="ms-2">Créer le dossier</span></Button>
+                <Button type="submit" size="rg" :disabled="form.processing"><FolderPlus class="h-4 w-4" /><span class="ms-2">Créer le dossier</span></Button>
             </div>
         </form>
 
         <section class="rounded-xl border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-900 dark:bg-gray-1000/40">
             <div v-if="visible.length" class="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-                <FolderCard
-                    v-for="supplier in visible"
+                <FolderCard v-for="supplier in visible"
                     :key="supplier.uuid"
                     :href="`/pharmacy/suppliers/${supplier.uuid}`"
                     :title="supplier.name"
@@ -87,8 +86,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
                     :meta="supplier.catalogs_count ? `${supplier.catalogs_count} catalogue${supplier.catalogs_count > 1 ? 's' : ''}` : 'Aucun catalogue'"
                 />
             </div>
-            <EmptyState
-                v-else
+            <EmptyState v-else
                 icon="folder"
                 :title="suppliers.length ? 'Aucun fournisseur trouvé' : 'Aucun fournisseur'"
                 :description="suppliers.length ? 'Modifiez la recherche.' : 'Les dossiers fournisseurs apparaîtront ici.'"

@@ -54,7 +54,7 @@ class DevelopmentProcurementSeeder extends Seeder
         'supplier_catalogs.view', 'supplier_catalogs.create', 'supplier_catalogs.update',
         'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'medicine_supplier_offers.update',
         'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
-        'purchase_orders.submit', 'purchase_orders.cancel',
+        'purchase_orders.submit', 'purchase_orders.cancel', 'purchase_orders.confirm',
         // ADR-175 — un brouillon jamais envoyé part à la corbeille.
         'purchase_orders.delete', 'purchase_orders.restore', 'trash.view', 'trash.restore',
         'goods_receipts.view', 'goods_receipts.create',
@@ -171,6 +171,10 @@ class DevelopmentProcurementSeeder extends Seeder
     private function offers(User $actor, Collection $suppliers, Collection $medicines): void
     {
         $action = app(SetMedicineSupplierOfferAction::class);
+        // ADR-098 (2026-09-18) — prix fournisseur et rattachement d'une ligne
+        // de catalogue reçoivent un CatalogActor, comme le reste du domaine
+        // catalogue : ils s'écrivent aussi depuis le portail.
+        $catalogActor = CatalogActor::fromUser($actor);
 
         foreach (self::OFFERS as [$medicineCode, $supplierCode, $earlier, $current]) {
             $medicine = $medicines->get($medicineCode);
@@ -180,10 +184,10 @@ class DevelopmentProcurementSeeder extends Seeder
             }
 
             if ($earlier !== null) {
-                $action->execute($medicine, $suppliers[$supplierCode], (string) $earlier, 'Tarif fictif du trimestre précédent.', $actor, "{$supplierCode}-{$medicineCode}");
+                $action->execute($medicine, $suppliers[$supplierCode], (string) $earlier, 'Tarif fictif du trimestre précédent.', $catalogActor, "{$supplierCode}-{$medicineCode}");
             }
 
-            $action->execute($medicine, $suppliers[$supplierCode], (string) $current, $earlier !== null ? 'Hausse fictive du fournisseur.' : 'Tarif fictif de démonstration.', $actor, "{$supplierCode}-{$medicineCode}");
+            $action->execute($medicine, $suppliers[$supplierCode], (string) $current, $earlier !== null ? 'Hausse fictive du fournisseur.' : 'Tarif fictif de démonstration.', $catalogActor, "{$supplierCode}-{$medicineCode}");
         }
     }
 
@@ -216,7 +220,7 @@ class DevelopmentProcurementSeeder extends Seeder
             $medicineCode = $references->get($item->reference)[4] ?? null;
 
             if ($medicineCode && $medicines->has($medicineCode)) {
-                $link->execute($item, $medicines[$medicineCode], 'Rattachement du tarif Centrale de septembre (simulation).', $actor);
+                $link->execute($item, $medicines[$medicineCode], 'Rattachement du tarif Centrale de septembre (simulation).', $catalogActor);
             }
         }
 

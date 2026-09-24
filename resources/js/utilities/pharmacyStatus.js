@@ -23,6 +23,9 @@ const TONES = {
     ORDERED: 'info',
     PARTIALLY_RECEIVED: 'warning',
     RECEIVED: 'success',
+    // ADR-179 — clôturée : plus rien n'est attendu, mais elle n'a pas été
+    // livrée en entier. Ni « Reçue », ni « Annulée ».
+    CLOSED: 'neutral',
     CANCELLED: 'danger',
     // Care consumables
     PENDING: 'warning',

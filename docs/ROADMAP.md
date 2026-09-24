@@ -495,7 +495,7 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Deux prix seulement : prix d'achat repris de la commande à la réception et confidentiel ; prix de vente fixé par la Pharmacie (`medicines.sale_price.update`, ADR-174)
 - [x] Réceptionner n'entre plus rien au stock : la livraison est constatée (quantité, lot, péremption, remarque), puis rangée par un second geste (ADR-175)
 - [x] Entrée en stock corrigeable tant que rien n'est rangé : quantité, lot et péremption mettent à jour la réception et la commande ; une ligne n'entre qu'une fois
-- [x] Écran unique d'entrée en stock : « Marchandise réceptionnée » (déjà remplie) et « Entrée sans commande » (catalogue à cocher), plus deux formulaires redondants
+- [x] ~~Écran unique d'entrée en stock : « Marchandise réceptionnée » (déjà remplie) et « Entrée sans commande » (catalogue à cocher), plus deux formulaires redondants~~ — remplacé par l'ADR-180, puis l'ADR-182 (plus d'entrée sans commande)
 - [x] Aucune date du système saisie : commande, envoi, réception et entrée en stock sont datés par le serveur ; les dates externes (péremption, facture, échéance, livraison attendue) se choisissent par raccourci
 - [x] Réception en deux étapes avec la facture du fournisseur dans le même geste, ou « Facture en attente » et saisie plus tard au même formulaire
 - [x] Échéance de facture fournisseur (`supplier_invoices.due_date`), facultative, sans workflow de paiement inventé
@@ -514,6 +514,42 @@ AUCUN ENCAISSEMENT DANS LE LABORATOIRE
 - [x] Péremption reprise d'un lot déjà détenu quand le n° de lot saisi le désigne, et liste des lots connus proposée — à la réception comme à l'entrée en stock (ADR-176)
 - [x] Défaut corrigé : ce remplissage existait à l'entrée en stock et ne marchait jamais (`@input` lu avant `v-model`, recherche sur le caractère précédent)
 - [ ] Automatiser le n° de lot et la péremption eux-mêmes — **refusé** : ils sont imprimés sur la boîte, les inventer fausserait le FEFO et rendrait un rappel de lot intraçable (ADR-175, ADR-036)
+- [x] Les quinze écrans Pharmacie passent aux icônes lucide comme Médecine et Hospitalisation ; 19 noms ajoutés à la table partagée, sans quoi `lucideIcon()` retombait sur `Inbox` (ADR-176, ADR-099)
+- [ ] Reste ~65 fichiers sur la police d'icônes DashWind, dont 46 dans Administration/RH — écran par écran (ADR-091, ADR-099)
+- [x] Confirmation du fournisseur enregistrée comme une trace (date, référence, document), corrigeable et retirable — jamais un passage obligé : une commande sans elle se réceptionne comme avant (ADR-179)
+- [x] Un article commandé mais jamais livré se signale « en rupture » avec motif : son reliquat cesse d'être attendu, et la commande peut enfin se clore — une seule ligne la bloquait à vie (ADR-179)
+- [x] Statut « Clôturée » distinct de « Reçue » et d'« Annulée » : plus rien n'est attendu, mais la commande n'a pas été livrée en entier (ADR-179)
+- [x] Une commande clôturée ne s'annule plus, donc ne se jette plus : elle a été envoyée et souvent livrée en partie ; retirer ses ruptures la rouvre, puis elle s'annule (ADR-179, ADR-176)
+- [x] Confirmation du fournisseur et clôture des reliquats enregistrables **depuis le portail**, par l'API du site : sans ce chemin, `purchase_orders.confirm` accordé au Super Admin ne commandait rien (ADR-179, ADR-101)
+- [x] Document de confirmation relayé au portail comme un fichier de catalogue : il reste sur le site, mais une pièce déposée là peut être rouverte (ADR-179, ADR-098)
+- [x] Clôture globale d'une commande : tous les reliquats abandonnés d'un geste, avec un motif commun (`purchase_orders.cancel`)
+- [x] Rupture réversible : le fournisseur livre finalement, la ligne redevient attendue et la commande se rouvre
+- [x] Descendre la quantité à 0 décoche la ligne et dit « pas dans cette livraison » ; elle était bornée à 1 sans que rien ne l'explique (ADR-179)
+- [x] Les autres fournisseurs du même produit nommés quand un article n'arrive pas — le même médicament, jamais un équivalent deviné (ADR-179, ADR-052)
+- [x] Article livré hors commande constaté sur la réception, sans réécrire la commande ni son montant (ADR-179, ADR-098)
+- [x] Écart entre le montant facturé et ce qui est réellement arrivé signalé à la saisie, avec le montant commandé et le déjà-facturé à côté — jamais bloquant (ADR-179, ADR-175)
+- [x] Commande envoyée au fournisseur par un brouillon ouvert dans la messagerie de la personne (à l'envoi, et « Envoyer par e-mail » depuis la commande) ; sans adresse au dossier, rien n'est proposé et la commande part comme avant (ADR-179)
+- [x] Numéro de commande gardant sa casse dans le brouillon : la phrase mettait la référence entière en minuscule, alors que le fournisseur la cite en retour (ADR-179)
+- [ ] Envoi réel par le serveur (SMTP par site, expéditeur, pièce jointe, file d'attente, accusé) — RIVO ne peut pas savoir qu'un e-mail est parti : décision à part (ADR-179)
+- [x] ~~« Entrée sans commande » conservée après analyse : don, stock de départ et dépannage n'ont aucun fournisseur — les rattacher à une réception fausserait l'origine du mouvement et les statistiques d'achat (ADR-179)~~ — renversé par l'ADR-182, arbitrage du propriétaire
+- [ ] UUID sur les lignes de commande : les routes de rupture exposent leur id SQL, contrairement à l'esprit de l'ADR-050 (ADR-179)
+- [ ] Commander depuis la fenêtre de rupture : l'écran nomme les autres fournisseurs mais ne crée pas le brouillon (ADR-179)
+- [ ] Délai de livraison par fournisseur — aucune donnée de délai au référentiel (ADR-179)
+- [x] Simulation locale d'approvisionnement exercée par un test : elle ne se parsait plus, passait un `User` là où un `CatalogActor` est attendu depuis l'ADR-098, et son compte de test ne pouvait plus enregistrer un prix d'achat depuis l'ADR-174 (ADR-179, ADR-098, ADR-086)
+- [x] Entrée en stock en un seul écran et un seul envoi, tout ou rien (ADR-180)
+- [x] Le stock n'entre que depuis une livraison réceptionnée : catalogue à cocher, provenance, « Stock de départ », entrée unitaire (`POST /pharmacy/stock/entries`) et boutons « Entrée de stock pour … » retirés ; champs forgés et prix d'achat refusés en les nommant (ADR-182, renverse ADR-179 §7)
+- [x] « Entrée en stock · N à ranger » sur « Médicaments & stock » et sur l'accueil Pharmacie : ce qui est rangé quitte l'écran d'entrée et apparaît dans le stock ; avant toute réception, l'écran d'entrée est vide (ADR-182)
+- [x] Lots déjà détenus proposés pour les lignes réceptionnées, servis par la file des réceptions avec les droits de lecture du stock (ADR-182, ADR-176)
+- [x] Article livré hors commande choisi dans le catalogue actif du fournisseur, et lui seul ; un produit de la clinique hors commande doit être vendu par ce fournisseur (ADR-182, amendement du 2026-09-24)
+- [x] Réceptionner suffit à faire entrer au catalogue un produit livré depuis le catalogue du fournisseur (délégation étroite, DENY prioritaire, sans famille ni prix de vente) — amende ADR-024/098 pour la réception (ADR-182)
+- [x] Entrée en stock restructurée : livraisons à gauche (la plus ancienne d'abord), cartes-filtres À ranger / Nouveaux produits / Sans prix de vente, « Ranger cette livraison » (ADR-182)
+- [x] Date de facture et échéances fournisseur calculées en heure locale : « 30 jours » tombait un jour trop tôt à Madagascar (ADR-182)
+- [ ] Autres champs date encore calculés par toISOString() (5 écrans hors facture fournisseur) — même correctif à appliquer
+- [ ] Don et dépannage d'un confrère : plus aucun chemin local — à décider si le cas se présente ; le stock de départ passe par l'import central (ADR-182, ADR-042)
+- [x] Rapprocher deux libellés que les fournisseurs n'écrivent pas pareil : proposition, fenêtre « C'est le même produit ? », rattachement depuis le portail (ADR-181)
+- [x] Règle de rapprochement corrigée : un libellé doit dire tout ce que dit l'autre, mots et nombres dans le même sens — « Alcool 125ml 70° » n'est plus proposé pour « Alcool iodé salicylé 125 ml » (ADR-181, amendement du 2026-09-24)
+- [x] Comparateur filtré par couverture (« Chez les deux fournisseurs », « Seulement chez X », chaque produit dans une seule case) et par famille, liste rangée par famille (ADR-181, amendement du 2026-09-24)
+- [x] Mettre un catalogue ou une ligne fournisseur à la corbeille clôt les prix d'achat qu'ils avaient fournis ; restaurer les rétablit sans écraser un prix fixé depuis ; reprise des catalogues déjà à la corbeille, auditée (ADR-183)
 - [ ] Transfert stock
 - [ ] Rapports
 

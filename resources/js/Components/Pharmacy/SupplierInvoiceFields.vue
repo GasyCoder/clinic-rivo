@@ -6,7 +6,7 @@ import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import Textarea from '@/Components/Shadcn/Textarea.vue';
 import { cn } from '@/lib/cn';
-import { formatDate } from '@/utilities/date';
+import { formatDate, localToday, toLocalDateInput } from '@/utilities/date';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
 /**
@@ -28,7 +28,7 @@ const props = defineProps({
     proposedTotal: { type: [String, Number], default: null },
 });
 
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
 const customDate = ref(props.form.invoice_date !== today);
 const error = (field) => props.errors[props.prefix ? `${props.prefix}.${field}` : field];
 
@@ -36,7 +36,7 @@ const addDays = (days) => {
     const date = new Date(`${props.form.invoice_date || today}T00:00:00`);
     date.setDate(date.getDate() + days);
 
-    return date.toISOString().slice(0, 10);
+    return toLocalDateInput(date);
 };
 const terms = [
     { label: 'À réception', value: () => '' },

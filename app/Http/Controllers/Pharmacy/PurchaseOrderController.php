@@ -3,18 +3,25 @@
 namespace App\Http\Controllers\Pharmacy;
 
 use App\Actions\Pharmacy\CancelPurchaseOrderAction;
+use App\Actions\Pharmacy\ClosePurchaseOrderAction;
+use App\Actions\Pharmacy\ConfirmPurchaseOrderAction;
 use App\Actions\Pharmacy\CreatePurchaseOrderAction;
+use App\Actions\Pharmacy\MarkPurchaseOrderLineShortageAction;
 use App\Actions\Pharmacy\SubmitPurchaseOrderAction;
 use App\Actions\Pharmacy\TrashPurchaseOrderAction;
 use App\Actions\Pharmacy\UpdatePurchaseOrderAction;
 use App\Enums\PurchaseOrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\CancelPurchaseOrderRequest;
+use App\Http\Requests\Pharmacy\ClosePurchaseOrderRequest;
+use App\Http\Requests\Pharmacy\ConfirmPurchaseOrderRequest;
+use App\Http\Requests\Pharmacy\MarkPurchaseOrderLineShortageRequest;
 use App\Http\Requests\Pharmacy\StorePurchaseOrderRequest;
 use App\Http\Requests\Pharmacy\TrashPurchaseOrderRequest;
 use App\Http\Requests\Pharmacy\UpdatePurchaseOrderRequest;
 use App\Models\MedicineSupplier;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderLine;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Pharmacy\ProcurementFormOptions;
 use App\Services\Pharmacy\PurchasesOverview;
@@ -22,8 +29,10 @@ use App\Services\Pharmacy\SupplierPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PurchaseOrderController extends Controller
 {
@@ -143,8 +152,10 @@ class PurchaseOrderController extends Controller
         abort_unless($request->user()?->can('view-supplier-orders'), 403);
 
         $purchaseOrder->load([
-            'supplier:id,uuid,name,code',
-            'lines.medicine.catalogItem:id,code,name',
+            'supplier:id,uuid,name,code,email',
+            'lines.medicine.catalogItem:id,code,name,unit',
+            'lines.shortageBy:id,name',
+            'supplierConfirmedBy:id,name',
             'receipts.lines',
             'receipts.receivedBy:id,name',
             'invoices',
@@ -157,6 +168,11 @@ class PurchaseOrderController extends Controller
                 'submit' => $request->user()->can('purchase_orders.submit'),
                 'cancel' => $request->user()->can('purchase_orders.cancel'),
                 'receive' => $request->user()->can('goods_receipts.create'),
+                // ADR-179 — enregistrer la confirmation du fournisseur,
+                // constater une rupture, solder les reliquats.
+                'confirm' => $request->user()->can('purchase_orders.confirm'),
+                'shortage' => $request->user()->can('goods_receipts.create'),
+                'close' => $request->user()->can('purchase_orders.cancel'),
             ],
         ]);
     }
@@ -169,7 +185,7 @@ class PurchaseOrderController extends Controller
                 ->withErrors(['status' => 'Seule une commande en brouillon peut être modifiée.']);
         }
 
-        $purchaseOrder->load(['supplier' => fn ($query) => $query->withTrashed(), 'lines.medicine.catalogItem:id,code,name', 'receipts.lines', 'invoices']);
+        $purchaseOrder->load(['supplier' => fn ($query) => $query->withTrashed(), 'lines.medicine.catalogItem:id,code,name,unit', 'receipts.lines', 'invoices']);
 
         return Inertia::render('Pharmacy/PurchaseOrders/Edit', [
             'order' => app(SupplierPresenter::class)->orderDetail($purchaseOrder),
@@ -206,6 +222,75 @@ class PurchaseOrderController extends Controller
         $action->execute($purchaseOrder, $request->validated('reason'), CatalogActor::fromUser($request->user()));
 
         return back()->with('status', 'Commande annulée.');
+    }
+
+    /**
+     * ADR-179 — la confirmation du fournisseur : une trace, jamais un passage
+     * obligé. Une commande sans elle se réceptionne exactement comme avant.
+     */
+    public function confirm(ConfirmPurchaseOrderRequest $request, PurchaseOrder $purchaseOrder, ConfirmPurchaseOrderAction $action): RedirectResponse
+    {
+        $action->execute($purchaseOrder, [
+            ...$request->validated(),
+            'attachment' => $request->file('attachment'),
+        ], CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Confirmation du fournisseur enregistrée.');
+    }
+
+    public function unconfirm(Request $request, PurchaseOrder $purchaseOrder, ConfirmPurchaseOrderAction $action): RedirectResponse
+    {
+        $action->revert($purchaseOrder, CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Confirmation du fournisseur retirée.');
+    }
+
+    /** Le document que le fournisseur a envoyé : privé, jamais servi publiquement. */
+    public function confirmationDocument(Request $request, PurchaseOrder $purchaseOrder): StreamedResponse
+    {
+        abort_unless($request->user()?->can('view-supplier-orders'), 403);
+        abort_unless(filled($purchaseOrder->supplier_confirmation_attachment_path), 404);
+
+        return Storage::disk('local')->download(
+            $purchaseOrder->supplier_confirmation_attachment_path,
+            $purchaseOrder->supplier_confirmation_attachment_original_name ?: 'confirmation',
+        );
+    }
+
+    /** ADR-179 — un article que le fournisseur ne livrera pas. */
+    public function shortage(
+        MarkPurchaseOrderLineShortageRequest $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderLine $line,
+        MarkPurchaseOrderLineShortageAction $action,
+    ): RedirectResponse {
+        abort_unless($line->purchase_order_id === $purchaseOrder->getKey(), 404);
+
+        $action->execute($line, $request->validated('reason'), CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Article signalé en rupture. Son reliquat n’est plus attendu.');
+    }
+
+    /** Le fournisseur livre finalement, ou la rupture a été signalée par erreur. */
+    public function revertShortage(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderLine $line,
+        MarkPurchaseOrderLineShortageAction $action,
+    ): RedirectResponse {
+        abort_unless($line->purchase_order_id === $purchaseOrder->getKey(), 404);
+
+        $action->revert($line, CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', 'Rupture retirée : l’article est de nouveau attendu.');
+    }
+
+    /** ADR-179 — solder d'un geste tous les reliquats d'une commande. */
+    public function close(ClosePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder, ClosePurchaseOrderAction $action): RedirectResponse
+    {
+        $action->execute($purchaseOrder, $request->validated('reason'), CatalogActor::fromUser($request->user()));
+
+        return back()->with('status', "Commande {$purchaseOrder->order_number} clôturée. Ses reliquats ne sont plus attendus.");
     }
 
     /** ADR-175 — un brouillon jamais envoyé part à la corbeille, avec son motif. */

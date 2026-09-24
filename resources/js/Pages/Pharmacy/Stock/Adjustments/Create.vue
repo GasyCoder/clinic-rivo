@@ -5,7 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import Button from '@/Components/UI/Button.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Save } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatDate } from '@/utilities/date';
 
@@ -88,7 +88,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
 
             <div class="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 dark:border-gray-900 sm:flex-row sm:justify-end">
                 <Button :as="Link" href="/pharmacy/stock" size="lg" variant="white-outline">Annuler</Button>
-                <Button type="submit" size="lg" :disabled="form.processing"><Icon name="save" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la correction' }}</span></Button>
+                <Button type="submit" size="lg" :disabled="form.processing"><Save class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la correction' }}</span></Button>
             </div>
         </form>
     </div>

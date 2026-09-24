@@ -455,7 +455,7 @@ class PurchaseOrderLifecycleTest extends TestCase
                 'expires_at' => $line->expires_at->toDateString(),
             ])->all();
 
-        return $this->actingAs($actor ?? $this->pharmacist)->post('/pharmacy/stock/entries/received', ['lines' => $lines]);
+        return $this->actingAs($actor ?? $this->pharmacist)->post('/pharmacy/stock/entries/batch', ['lines' => $lines]);
     }
 
     public function test_receiving_records_the_delivery_without_touching_stock_and_each_line_enters_once(): void
@@ -486,7 +486,7 @@ class PurchaseOrderLifecycleTest extends TestCase
         $this->assertSame($this->pharmacist->id, $receiptLine->stocked_by);
 
         // Rejouée, la même ligne est refusée : une livraison n'entre qu'une fois.
-        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/received', [
+        $this->actingAs($this->pharmacist)->post('/pharmacy/stock/entries/batch', [
             'lines' => [[
                 'uuid' => $receiptLine->uuid,
                 'quantity' => $receiptLine->quantity_received,

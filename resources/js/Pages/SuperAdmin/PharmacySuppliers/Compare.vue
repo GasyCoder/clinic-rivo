@@ -1,6 +1,6 @@
 <script setup>
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
@@ -10,8 +10,17 @@ import IconInput from '@/Components/Shadcn/IconInput.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
-import { Check, PackageCheck, Search, ShoppingCart, TriangleAlert, Trash2 } from 'lucide-vue-next';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import Textarea from '@/Components/Shadcn/Textarea.vue';
+import {
+    Check, Layers, Link2, PackageCheck, Scale, Search, ShoppingCart, Store, TriangleAlert, Trash2, X,
+} from 'lucide-vue-next';
+import { cn } from '@/lib/cn';
 import { formatMoney } from '@/utilities/pharmacyStatus';
+import {
+    SEVERAL, compareFamilies, countBy, coverageOf, familyOf, groupByFamily, suppliersOf,
+} from '@/utilities/supplierComparison';
 
 defineOptions({ layout: AppLayout });
 
@@ -24,6 +33,7 @@ const props = defineProps({
     targetSite: { type: Object, required: true },
     suppliers: { type: Array, default: () => [] },
     medicines: { type: Array, default: () => [] },
+    toReconcile: { type: Number, default: 0 },
     selectedSuppliers: { type: Array, default: () => [] },
     error: { type: String, default: null },
 });
@@ -39,13 +49,131 @@ const toggleSupplier = (uuid) => {
     });
 };
 
-const visible = computed(() => {
+/*
+ * ADR-181 — deux fournisseurs ne nomment pas un produit de la même façon.
+ * Tant que leurs deux libellés restent deux lignes, leurs prix ne se
+ * comparent pas, et commander la ligne du fournisseur créerait un second
+ * produit avec son propre stock. Ce filtre montre ce qu'il y a à rapprocher.
+ */
+const onlyToReconcile = ref(false);
+
+/*
+ * ADR-181, amendement du 2026-09-24 — ce qui se compare, et par famille
+ * (règles dans utilities/supplierComparison.js). Chaque produit tombe dans
+ * une seule case — « chez plusieurs fournisseurs » ou « seulement chez X » —,
+ * et la liste se range par famille au lieu de dérouler l'alphabet.
+ */
+const coverage = ref('ALL');
+const family = ref('');
+
+const matchesSearch = (medicine) => {
     const needle = search.value.trim().toLowerCase();
 
-    return needle
-        ? props.medicines.filter((medicine) => `${medicine.name} ${medicine.code} ${medicine.quotes.map((quote) => quote.reference ?? '').join(' ')}`.toLowerCase().includes(needle))
-        : props.medicines;
+    return !needle || `${medicine.name} ${medicine.code} ${medicine.quotes.map((quote) => quote.reference ?? '').join(' ')}`.toLowerCase().includes(needle);
+};
+const matchesReconcile = (medicine) => !onlyToReconcile.value || Boolean(medicine.suggestions?.length);
+const matchesCoverage = (medicine) => coverage.value === 'ALL' || coverageOf(medicine) === coverage.value;
+const matchesFamily = (medicine) => !family.value || familyOf(medicine) === family.value;
+
+// Chaque compte est ce que donnerait un clic sur sa case, les autres filtres
+// restant appliqués : une case qui annonce 5 n'ouvre jamais une liste vide.
+const coverageCounts = computed(() => {
+    const pool = props.medicines.filter((medicine) => matchesSearch(medicine) && matchesReconcile(medicine) && matchesFamily(medicine));
+
+    return { total: pool.length, byCoverage: countBy(pool, coverageOf) };
 });
+
+const quotingSuppliers = computed(() => {
+    const quoting = new Set(props.medicines.flatMap(suppliersOf));
+
+    return props.suppliers.filter((supplier) => quoting.has(supplier.uuid));
+});
+// Avec deux fournisseurs seulement, « plusieurs » veut dire « les deux ».
+const severalLabel = computed(() => (quotingSuppliers.value.length === 2 ? 'Chez les deux fournisseurs' : 'Chez plusieurs fournisseurs'));
+const coverageOptions = computed(() => [
+    { value: 'ALL', label: 'Tous', count: coverageCounts.value.total },
+    {
+        value: SEVERAL,
+        label: severalLabel.value,
+        count: coverageCounts.value.byCoverage.get(SEVERAL) ?? 0,
+        hint: 'Proposés par au moins deux fournisseurs : leurs prix se comparent.',
+    },
+    ...quotingSuppliers.value.map((supplier) => ({
+        value: `ONLY:${supplier.uuid}`,
+        label: `Seulement chez ${supplier.name}`,
+        count: coverageCounts.value.byCoverage.get(`ONLY:${supplier.uuid}`) ?? 0,
+        hint: 'Aucun autre fournisseur ne propose ces produits : il n’y a rien à comparer.',
+    })),
+]);
+// Un fournisseur retiré de la comparaison emporte sa case : on revient à « Tous ».
+watch(coverageOptions, (options) => {
+    if (!options.some((option) => option.value === coverage.value)) coverage.value = 'ALL';
+});
+
+const familyOptions = computed(() => {
+    const counts = countBy(
+        props.medicines.filter((medicine) => matchesSearch(medicine) && matchesReconcile(medicine) && matchesCoverage(medicine)),
+        familyOf,
+    );
+
+    // Une famille choisie reste proposée même quand un autre filtre l'a vidée :
+    // sinon on ne pourrait plus la quitter.
+    if (family.value && !counts.has(family.value)) counts.set(family.value, 0);
+
+    return [...counts.entries()]
+        .sort(([first], [second]) => compareFamilies(first, second))
+        .map(([label, count]) => ({ label, count }));
+});
+const familySelectOptions = computed(() => [
+    { value: '', label: 'Toutes les familles' },
+    ...familyOptions.value.map((option) => ({ value: option.label, label: `${option.label} · ${option.count}` })),
+]);
+
+const visible = computed(() => props.medicines.filter(
+    (medicine) => matchesSearch(medicine) && matchesReconcile(medicine) && matchesCoverage(medicine) && matchesFamily(medicine),
+));
+
+// La liste est rangée par famille, puis par nom : on va à la sienne au lieu de
+// parcourir tout l'alphabet. « Sans famille » ferme la marche.
+const visibleByFamily = computed(() => groupByFamily(visible.value));
+
+const filtered = computed(() => coverage.value !== 'ALL' || Boolean(family.value) || onlyToReconcile.value || Boolean(search.value.trim()));
+const resetFilters = () => {
+    coverage.value = 'ALL';
+    family.value = '';
+    onlyToReconcile.value = false;
+    search.value = '';
+};
+
+// Le produit que la clinique tient déjà, tel que le comparateur le montre :
+// c'est lui qui porte les prix auxquels celui-ci viendra se comparer.
+const rowOf = (medicineUuid) => props.medicines.find((medicine) => medicine.medicine_uuid === medicineUuid) ?? null;
+
+// Une ligne de catalogue sans prix n'a rien à rattacher : le rattachement est
+// justement ce qui crée le prix d'achat (ADR-098).
+const linkableQuotes = (medicine) => medicine.quotes.filter((quote) => quote.supplier_catalog_item_uuid && quote.can_link);
+
+const reconcile = ref(null);
+const reconcileForm = useForm({ medicine_uuid: '', change_reason: '' });
+
+const openReconcile = (medicine, suggestion) => {
+    const quotes = linkableQuotes(medicine);
+    reconcile.value = { medicine, suggestion, quotes, quote: quotes[0] ?? null };
+    reconcileForm.clearErrors();
+    reconcileForm.medicine_uuid = suggestion.medicine_uuid;
+    reconcileForm.change_reason = `Même produit que « ${suggestion.name} », que ce fournisseur nomme « ${medicine.name} ».`;
+};
+
+const submitReconcile = () => {
+    const { quote } = reconcile.value;
+    const site = props.targetSite.code;
+    const path = `/super-admin/pharmacy-suppliers/${site}/${quote.supplier_uuid}/catalogs/${quote.supplier_catalog_uuid}/items/${quote.supplier_catalog_item_uuid}/link`;
+
+    reconcileForm.post(path, {
+        preserveScroll: true,
+        onSuccess: () => { reconcile.value = null; },
+    });
+};
 
 // key: `${row}|${supplier}` — the same product can be ordered from two
 // suppliers at once, each with its own quantity. A supplier listing the same
@@ -157,11 +285,63 @@ const stockTone = (medicine) => {
                         <h2 class="font-heading text-base font-bold text-foreground">2 · Comparer les prix</h2>
                         <p class="mt-0.5 text-sm text-muted-foreground">{{ visible.length }} médicament{{ visible.length > 1 ? 's' : '' }} proposé{{ visible.length > 1 ? 's' : '' }}</p>
                     </div>
-                    <IconInput v-model="search" :icon="Search" placeholder="Rechercher un médicament…" class="w-full sm:w-72" />
+                    <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                        <button
+                            v-if="toReconcile"
+                            type="button"
+                            :class="['inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                                     onlyToReconcile ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/30']"
+                            :title="'Des lignes de catalogue ressemblent à un produit que la clinique tient déjà sous un autre nom : leurs prix ne se comparent pas tant qu’ils ne sont pas rapprochés.'"
+                            @click="onlyToReconcile = !onlyToReconcile"
+                        >
+                            <Link2 class="h-3.5 w-3.5" />À rapprocher · {{ toReconcile }}
+                        </button>
+                        <IconInput v-model="search" :icon="Search" placeholder="Rechercher un médicament…" class="w-full sm:w-72" />
+                    </div>
                 </header>
 
+                <!-- Où le produit est proposé, et sa famille : chaque produit
+                     tombe dans une seule case, et la liste se range par famille. -->
+                <div v-if="medicines.length" class="flex flex-col gap-3 border-b border-border px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="flex max-w-full gap-1.5 overflow-x-auto" role="group" aria-label="Où le produit est proposé">
+                        <button
+                            v-for="option in coverageOptions"
+                            :key="option.value"
+                            type="button"
+                            :aria-pressed="coverage === option.value"
+                            :title="option.hint"
+                            :class="cn('inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                                       coverage === option.value ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:bg-muted',
+                                       !option.count && coverage !== option.value && 'opacity-60')"
+                            @click="coverage = option.value"
+                        >
+                            <Scale v-if="option.value === SEVERAL" class="h-3.5 w-3.5" aria-hidden="true" />
+                            <Store v-else-if="option.value !== 'ALL'" class="h-3.5 w-3.5" aria-hidden="true" />
+                            {{ option.label }}<span class="tabular-nums opacity-80">· {{ option.count }}</span>
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <Select
+                            v-model="family"
+                            :icon="Layers"
+                            :options="familySelectOptions"
+                            placeholder="Toutes les familles"
+                            class="w-full sm:w-72"
+                            aria-label="Famille"
+                        />
+                        <Button v-if="filtered" type="button" variant="ghost" size="sm" @click="resetFilters"><X class="h-4 w-4" />Effacer</Button>
+                    </div>
+                </div>
+
+                <div v-if="!visible.length && medicines.length" class="px-6 py-12 text-center">
+                    <Search class="mx-auto h-8 w-8 text-muted-foreground" />
+                    <p class="mt-3 font-semibold text-foreground">Aucun produit ne correspond</p>
+                    <p class="mt-1 text-sm text-muted-foreground">Changez de famille, de fournisseur ou de recherche.</p>
+                    <Button type="button" variant="outline" size="sm" class="mt-4" @click="resetFilters"><X class="h-4 w-4" />Effacer les filtres</Button>
+                </div>
+
                 <EmptyState
-                    v-if="!visible.length"
+                    v-else-if="!visible.length"
                     icon="package"
                     title="Aucun produit fournisseur"
                     description="Importez et activez le catalogue d’un fournisseur : ses produits apparaîtront ici."
@@ -177,10 +357,38 @@ const stockTone = (medicine) => {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="medicine in visible" :key="medicine.key" class="border-b border-border/70 align-top last:border-0">
+                            <template v-for="group in visibleByFamily" :key="group.label">
+                            <tr class="bg-muted/40">
+                                <td colspan="3" class="px-5 py-2">
+                                    <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground"><Layers class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />{{ group.label }}</span>
+                                    <span class="ms-2 text-[11px] text-muted-foreground">{{ group.rows.length }} produit{{ group.rows.length > 1 ? 's' : '' }}</span>
+                                </td>
+                            </tr>
+                            <tr v-for="medicine in group.rows" :key="medicine.key" class="border-b border-border/70 align-top last:border-0">
                                 <td class="px-5 py-4">
                                     <p class="font-semibold text-foreground">{{ medicine.name }}</p>
                                     <p class="mt-0.5 font-mono text-xs text-muted-foreground">{{ medicine.code }}<span v-if="medicine.unit"> · {{ medicine.unit }}</span></p>
+
+                                    <!-- ADR-181 — la clinique tient peut-être déjà ce produit sous
+                                         un autre nom. On le demande, on ne le décide jamais. -->
+                                    <div v-if="medicine.suggestions?.length" class="mt-2 space-y-1 border-s-2 border-amber-300 ps-2.5 dark:border-amber-800">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">Peut-être déjà au catalogue</p>
+                                        <template v-for="suggestion in medicine.suggestions" :key="suggestion.medicine_uuid">
+                                            <button
+                                                v-if="linkableQuotes(medicine).length"
+                                                type="button"
+                                                class="flex w-full items-start gap-1.5 rounded-md px-1.5 py-1 text-start text-xs text-foreground transition hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                                                @click="openReconcile(medicine, suggestion)"
+                                            >
+                                                <Link2 class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                                                <span>« {{ suggestion.name }} » <span class="font-mono text-muted-foreground">{{ suggestion.code }}</span>
+                                                    <span class="block font-semibold text-amber-700 dark:text-amber-400">C’est le même produit ?</span></span>
+                                            </button>
+                                            <p v-else class="px-1.5 text-xs text-muted-foreground">
+                                                « {{ suggestion.name }} » — prix non communiqué par ce fournisseur : renseignez-le dans son catalogue pour pouvoir rapprocher.
+                                            </p>
+                                        </template>
+                                    </div>
                                 </td>
                                 <td class="px-5 py-4">
                                     <Badge v-if="medicine.in_clinic_catalog" :variant="stockTone(medicine)">{{ medicine.in_stock }}<span v-if="medicine.minimum_stock"> / {{ medicine.minimum_stock }}</span></Badge>
@@ -208,6 +416,7 @@ const stockTone = (medicine) => {
                                     </div>
                                 </td>
                             </tr>
+                            </template>
                         </tbody>
                     </table>
                 </div>
@@ -281,5 +490,72 @@ const stockTone = (medicine) => {
                 <ShoppingCart class="mt-0.5 h-4 w-4" />Cliquez sur l’offre d’un fournisseur pour l’ajouter à la commande.
             </p>
         </template>
+
+        <!-- ADR-181 — on lit les deux libellés avant de dire que c'est le même
+             produit : un rapprochement faux crée un prix d'achat sur le mauvais
+             article, et le stock suit. -->
+        <ConfirmModal
+            :open="Boolean(reconcile)"
+            title="C’est le même produit ?"
+            confirm-label="Oui, c’est le même produit"
+            tone="warning"
+            :processing="reconcileForm.processing"
+            :disabled="!reconcile?.quote || reconcileForm.change_reason.trim().length < 3"
+            @update:open="(value) => { if (!value) reconcile = null; }"
+            @confirm="submitReconcile"
+        >
+            <template v-if="reconcile">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div class="rounded-lg border border-border p-3">
+                        <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Chez le fournisseur</p>
+                        <p class="mt-1 font-semibold text-foreground">{{ reconcile.medicine.name }}</p>
+                        <p class="font-mono text-xs text-muted-foreground">{{ reconcile.medicine.code }}<span v-if="reconcile.medicine.unit"> · {{ reconcile.medicine.unit }}</span></p>
+                    </div>
+                    <div class="rounded-lg border border-border p-3">
+                        <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Au catalogue de la clinique</p>
+                        <p class="mt-1 font-semibold text-foreground">{{ reconcile.suggestion.name }}</p>
+                        <p class="font-mono text-xs text-muted-foreground">{{ reconcile.suggestion.code }}<span v-if="reconcile.suggestion.unit"> · {{ reconcile.suggestion.unit }}</span></p>
+                    </div>
+                </div>
+
+                <p class="mt-3 text-sm text-muted-foreground">
+                    Lisez les deux libellés : un dosage, un volume ou un calibre différent en fait deux produits.
+                    Rapprochés, ils n’en font qu’un — et leurs prix se comparent sur une seule ligne.
+                </p>
+
+                <!-- Plusieurs fournisseurs écrivent ce libellé : on rattache
+                     une ligne de catalogue à la fois, celle qu'on désigne. -->
+                <div v-if="reconcile.quotes.length > 1" class="mt-3">
+                    <p class="mb-1.5 text-sm font-semibold text-foreground">Quelle ligne rattacher ?</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            v-for="quote in reconcile.quotes"
+                            :key="quote.key"
+                            type="button"
+                            :class="['rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
+                                     reconcile.quote?.key === quote.key ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:border-primary/40']"
+                            @click="reconcile.quote = quote"
+                        >{{ quote.supplier_name }}<span v-if="quote.price !== null"> · {{ formatMoney(quote.price) }}</span></button>
+                    </div>
+                </div>
+
+                <!-- Ce que la clinique paie déjà ce produit : si ce fournisseur
+                     y figure, le rapprochement remplacera son prix. -->
+                <p v-if="rowOf(reconcile.suggestion.medicine_uuid)?.quotes?.length" class="mt-3 text-xs text-muted-foreground">
+                    Prix déjà connus pour « {{ reconcile.suggestion.name }} » :
+                    <span v-for="(quote, index) in rowOf(reconcile.suggestion.medicine_uuid).quotes" :key="quote.key">
+                        <span v-if="index"> · </span>{{ quote.supplier_name }} {{ quote.price === null ? '—' : formatMoney(quote.price) }}
+                    </span>
+                </p>
+
+                <label class="mt-3 block">
+                    <span class="mb-1.5 block text-sm font-semibold text-foreground">Motif <span class="text-red-500">*</span></span>
+                    <Textarea v-model="reconcileForm.change_reason" rows="2" maxlength="1000" />
+                    <span class="mt-1 block text-xs text-muted-foreground">Conservé avec le prix d’achat créé par ce rapprochement.</span>
+                </label>
+                <p v-if="reconcileForm.errors.change_reason" class="mt-1 text-xs font-medium text-red-600">{{ reconcileForm.errors.change_reason }}</p>
+                <p v-if="reconcileForm.errors.medicine_uuid" class="mt-1 text-xs font-medium text-red-600">{{ reconcileForm.errors.medicine_uuid }}</p>
+            </template>
+        </ConfirmModal>
     </div>
 </template>

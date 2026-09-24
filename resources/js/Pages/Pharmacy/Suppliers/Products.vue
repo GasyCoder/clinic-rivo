@@ -2,7 +2,7 @@
 import { Head } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Folder } from 'lucide-vue-next';
 import SupplierOfferTables from '@/Components/Pharmacy/SupplierOfferTables.vue';
 
 defineOptions({ layout: AppLayout });
@@ -21,7 +21,7 @@ defineProps({
         <Breadcrumb :items="[{ label: 'Fournisseurs', href: '/pharmacy/suppliers' }, { label: supplier.name, href: `/pharmacy/suppliers/${supplier.uuid}` }, { label: 'Produits et prix' }]" />
 
         <div class="flex items-center gap-3">
-            <Icon name="folder-fill" class="text-4xl leading-none text-emerald-500" />
+            <Folder class="text-4xl leading-none text-emerald-500 h-4 w-4" />
             <div>
                 <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Produits et prix</h1>
                 <p class="text-sm text-slate-500">Les médicaments de la clinique que {{ supplier.name }} fournit, et le prix d’achat qu’il pratique. Un ancien prix n’est jamais effacé.</p>

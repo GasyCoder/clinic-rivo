@@ -177,6 +177,11 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/pharmacy-suppliers/{site}/{supplier}/orders/{order}', [SuperAdminPharmacyProcurementController::class, 'updateOrder'])->name('pharmacy-suppliers.orders.update')->middleware('can:purchase_orders.update');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/orders/{order}/submit', [SuperAdminPharmacyProcurementController::class, 'submitOrder'])->name('pharmacy-suppliers.orders.submit')->middleware('can:purchase_orders.submit');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/orders/{order}/cancel', [SuperAdminPharmacyProcurementController::class, 'cancelOrder'])->name('pharmacy-suppliers.orders.cancel')->middleware('can:purchase_orders.cancel');
+        // ADR-179 — la confirmation du fournisseur et la clôture des reliquats.
+        Route::post('/pharmacy-suppliers/{site}/{supplier}/orders/{order}/confirmation', [SuperAdminPharmacyProcurementController::class, 'confirmOrder'])->name('pharmacy-suppliers.orders.confirm')->middleware('can:purchase_orders.confirm');
+        Route::delete('/pharmacy-suppliers/{site}/{supplier}/orders/{order}/confirmation', [SuperAdminPharmacyProcurementController::class, 'unconfirmOrder'])->name('pharmacy-suppliers.orders.unconfirm')->middleware('can:purchase_orders.confirm');
+        Route::get('/pharmacy-suppliers/{site}/{supplier}/orders/{order}/confirmation/document', [SuperAdminPharmacyProcurementController::class, 'confirmationDocument'])->name('pharmacy-suppliers.orders.confirmation.document')->middleware('can:view-supplier-orders');
+        Route::post('/pharmacy-suppliers/{site}/{supplier}/orders/{order}/close', [SuperAdminPharmacyProcurementController::class, 'closeOrder'])->name('pharmacy-suppliers.orders.close')->middleware('can:purchase_orders.cancel');
         Route::delete('/pharmacy-suppliers/{site}/{supplier}/orders/{order}', [SuperAdminPharmacyProcurementController::class, 'trashOrder'])->name('pharmacy-suppliers.orders.trash')->middleware('can:purchase_orders.delete');
         Route::get('/pharmacy-suppliers/{site}/{supplier}/invoices/create', [SuperAdminPharmacyProcurementController::class, 'createInvoice'])->name('pharmacy-suppliers.invoices.create')->middleware('can:supplier_invoices.create');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/invoices', [SuperAdminPharmacyProcurementController::class, 'storeInvoice'])->name('pharmacy-suppliers.invoices.store')->middleware('can:supplier_invoices.create');
@@ -195,6 +200,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}', [SuperAdminPharmacySupplierController::class, 'updateCatalogItem'])->name('pharmacy-suppliers.catalogs.items.update')->middleware('can:supplier_catalogs.update');
         Route::delete('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}', [SuperAdminPharmacySupplierController::class, 'archiveCatalogItem'])->name('pharmacy-suppliers.catalogs.items.destroy')->middleware('can:supplier_catalogs.delete');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}/restore', [SuperAdminPharmacySupplierController::class, 'restoreCatalogItem'])->name('pharmacy-suppliers.catalogs.items.restore')->middleware('can:supplier_catalogs.restore');
+        Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}/link', [SuperAdminPharmacySupplierController::class, 'linkCatalogItem'])->name('pharmacy-suppliers.catalogs.items.link')->middleware('can:set-medicine-supplier-offer');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/items/{item}/unlink', [SuperAdminPharmacySupplierController::class, 'unlinkCatalogItem'])->name('pharmacy-suppliers.catalogs.items.unlink')->middleware('can:medicine_supplier_offers.update');
         Route::patch('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}', [SuperAdminPharmacySupplierController::class, 'updateCatalog'])->name('pharmacy-suppliers.catalogs.update')->middleware('can:supplier_catalogs.update');
         Route::post('/pharmacy-suppliers/{site}/{supplier}/catalogs/{catalog}/activate', [SuperAdminPharmacySupplierController::class, 'activateCatalog'])->name('pharmacy-suppliers.catalogs.activate')->middleware('can:supplier_catalogs.update');
@@ -456,14 +462,10 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.stock.index')->middleware('can:view-pharmacy-catalog');
     Route::get('/pharmacy/stock/entries/create', [PharmacyStockController::class, 'createEntry'])
         ->name('pharmacy.stock.entries.create')->middleware('can:stock.entry');
-    Route::post('/pharmacy/stock/entries', [PharmacyStockController::class, 'storeEntry'])
-        ->name('pharmacy.stock.entries.store')->middleware('can:stock.entry');
-    // ADR-098 — a whole delivery, checked line by line, recorded at once.
+    // ADR-180, ADR-182 — l'écran d'entrée en stock est unique, et n'y entre que
+    // la marchandise réceptionnée : aucune entrée hors d'une livraison.
     Route::post('/pharmacy/stock/entries/batch', [PharmacyStockController::class, 'storeEntries'])
         ->name('pharmacy.stock.entries.batch')->middleware('can:stock.entry');
-    // ADR-175 — les lignes réceptionnées entrent au stock.
-    Route::post('/pharmacy/stock/entries/received', [PharmacyStockController::class, 'storeReceived'])
-        ->name('pharmacy.stock.entries.received')->middleware('can:stock.entry');
     Route::get('/pharmacy/stock/inventory', [PharmacyStockController::class, 'inventory'])
         ->name('pharmacy.stock.inventory')->middleware('can:stock.adjust');
     Route::post('/pharmacy/stock/inventory', [PharmacyStockController::class, 'storeInventory'])
@@ -602,6 +604,20 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
         ->name('pharmacy.purchase-orders.cancel')->middleware('can:purchase_orders.cancel');
     Route::delete('/pharmacy/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'destroy'])
         ->name('pharmacy.purchase-orders.destroy')->middleware('can:purchase_orders.delete');
+
+    // ADR-179 — la confirmation du fournisseur, les ruptures et la clôture.
+    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/confirmation', [PurchaseOrderController::class, 'confirm'])
+        ->name('pharmacy.purchase-orders.confirm')->middleware('can:purchase_orders.confirm');
+    Route::delete('/pharmacy/purchase-orders/{purchaseOrder}/confirmation', [PurchaseOrderController::class, 'unconfirm'])
+        ->name('pharmacy.purchase-orders.unconfirm')->middleware('can:purchase_orders.confirm');
+    Route::get('/pharmacy/purchase-orders/{purchaseOrder}/confirmation/document', [PurchaseOrderController::class, 'confirmationDocument'])
+        ->name('pharmacy.purchase-orders.confirmation.document')->middleware('can:view-supplier-orders');
+    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/lines/{line}/shortage', [PurchaseOrderController::class, 'shortage'])
+        ->name('pharmacy.purchase-orders.lines.shortage')->middleware('can:goods_receipts.create');
+    Route::delete('/pharmacy/purchase-orders/{purchaseOrder}/lines/{line}/shortage', [PurchaseOrderController::class, 'revertShortage'])
+        ->name('pharmacy.purchase-orders.lines.shortage.revert')->middleware('can:goods_receipts.create');
+    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/close', [PurchaseOrderController::class, 'close'])
+        ->name('pharmacy.purchase-orders.close')->middleware('can:purchase_orders.cancel');
 
     Route::get('/pharmacy/purchase-orders/{purchaseOrder}/receive', [GoodsReceiptController::class, 'create'])
         ->name('pharmacy.purchase-orders.receive')->middleware('can:goods_receipts.create');

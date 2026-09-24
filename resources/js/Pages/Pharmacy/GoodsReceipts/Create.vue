@@ -1,8 +1,9 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
-    ArrowLeft, ArrowRight, Building2, CalendarDays, Check, ClipboardCheck, FileText, Hash, Minus, PackageCheck, Pencil, Plus, Sparkles, X,
+    ArrowLeft, ArrowRight, Banknote, Building2, CalendarDays, Check, ClipboardCheck, FileSpreadsheet, FileText, Hash, Minus,
+    PackageCheck, PackagePlus, PackageX, Pencil, Pill, Plus, Search, Sparkles, TriangleAlert, X,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
@@ -13,9 +14,10 @@ import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 import SupplierInvoiceFields from '@/Components/Pharmacy/SupplierInvoiceFields.vue';
 import { cn } from '@/lib/cn';
-import { formatDate } from '@/utilities/date';
+import { formatDate, localToday } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
 
 defineOptions({ layout: AppLayout });
@@ -29,11 +31,23 @@ defineOptions({ layout: AppLayout });
  * livraison ; sinon la réception reste « facture en attente ». La date de
  * réception est celle du serveur : elle n'est pas demandée.
  */
-const props = defineProps({ order: Object, can: Object });
+const props = defineProps({
+    order: Object,
+    can: Object,
+    // ADR-179 — chez qui d'autre trouver un article que ce fournisseur ne
+    // livrera pas, et ce qu'il peut livrer sans qu'on l'ait commandé.
+    alternatives: { type: Object, default: () => ({}) },
+    offOrderProducts: { type: Array, default: () => [] },
+});
 
 const step = ref(1);
 const confirming = ref(false);
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
+
+/* ADR-179 — une ligne hors commande n'a pas d'identifiant de commande : il lui
+ * faut sa propre clé de rendu, stable tant que la page vit. */
+let nextKey = 0;
+const keyFor = () => `off-${nextKey += 1}`;
 
 /*
  * ADR-176 — le n° de lot et la péremption se recopient de la boîte : rien ne
@@ -54,7 +68,10 @@ const onLotInput = async (line) => {
 const form = useForm({
     notes: '',
     lines: props.order.lines.map((line) => ({
+        _key: `order-${line.id}`,
         purchase_order_line_id: line.id,
+        medicine_uuid: null,
+        supplier_catalog_item_uuid: null,
         quantity_received: line.quantity_remaining,
         lot_number: '',
         expires_at: '',
@@ -71,6 +88,8 @@ const form = useForm({
         _ordered: line.quantity_ordered,
         _unit_price: line.unit_price,
         _known_lots: line.known_lots ?? [],
+        _off_order: false,
+        _medicine_uuid: line.medicine_uuid,
     })),
     invoice: {
         invoice_number: '',
@@ -88,13 +107,17 @@ const receivedValue = computed(() => kept.value.reduce(
     (sum, line) => sum + (Number(line.quantity_received) || 0) * (Number(line.unit_purchase_price ?? line._unit_price) || 0), 0,
 ));
 const newProducts = computed(() => kept.value.filter((line) => line._is_new).length);
-const partial = computed(() => kept.value.length < form.lines.length
-    || kept.value.some((line) => Number(line.quantity_received) < line._remaining));
+const partial = computed(() => form.lines.some((line) => !line._off_order && !line._received)
+    || kept.value.some((line) => !line._off_order && Number(line.quantity_received) < line._remaining));
+const offOrderLines = computed(() => kept.value.filter((line) => line._off_order));
 
 const step1Error = computed(() => {
     if (!kept.value.length) return 'Cochez au moins un produit réellement arrivé.';
     const incomplete = kept.value.filter((line) => !line.lot_number.trim() || !line.expires_at
-        || !(Number(line.quantity_received) >= 1) || Number(line.quantity_received) > line._remaining).length;
+        || !(Number(line.quantity_received) >= 1)
+        // Rien ne borne un article livré hors commande : aucune ligne de
+        // commande ne dit ce qui était attendu.
+        || (!line._off_order && Number(line.quantity_received) > line._remaining)).length;
 
     return incomplete ? `${incomplete} produit${incomplete > 1 ? 's' : ''} sans lot, sans péremption ou avec une quantité impossible.` : '';
 });
@@ -107,11 +130,133 @@ const invoiceError = computed(() => {
     return '';
 });
 
-const stepLine = (line, delta) => {
-    line.quantity_received = Math.min(line._remaining, Math.max(1, (Number(line.quantity_received) || 0) + delta));
+/*
+ * ADR-179 — descendre à 0 veut dire « ce produit n'est pas dans la
+ * livraison » : la ligne se décoche d'elle-même, au lieu de rester cochée
+ * avec une quantité que le serveur refuserait. Recocher rétablit ce que la
+ * commande attend encore.
+ */
+const ceilingOf = (line) => (line._off_order ? Number.POSITIVE_INFINITY : line._remaining);
+
+const setQuantity = (line, value) => {
+    const next = Math.min(ceilingOf(line), Math.max(0, Number(value) || 0));
+    line.quantity_received = next;
+    if (next === 0) line._received = false;
+};
+
+const stepLine = (line, delta) => setQuantity(line, (Number(line.quantity_received) || 0) + delta);
+const onQuantityInput = (line) => setQuantity(line, line.quantity_received);
+
+const toggleLine = (line, received) => {
+    line._received = received;
+    if (received && !(Number(line.quantity_received) >= 1)) {
+        line.quantity_received = line._off_order ? 1 : line._remaining;
+    }
+};
+
+/* Point 4 — un article livré qui n'était pas commandé. La commande n'est pas
+ * réécrite (ADR-098) : la réception constate ce qui est arrivé. */
+const offOrderPicker = ref(false);
+const offOrderSearch = ref('');
+/*
+ * ADR-182 — il se choisit dans le catalogue actif de ce fournisseur, et
+ * nulle part ailleurs : le livreur apporte ce que son fournisseur vend. Une
+ * ligne pas encore reprise par la clinique l'y fait entrer : réceptionner
+ * suffit. Seul un refus individuel la laisse montrée mais pas proposée.
+ */
+const alreadyOnReceipt = computed(() => new Set(form.lines.map((line) => line._catalog_item_uuid).filter(Boolean)));
+const offOrderChoices = computed(() => {
+    const needle = offOrderSearch.value.trim().toLocaleLowerCase();
+
+    return props.offOrderProducts
+        .filter((product) => !alreadyOnReceipt.value.has(product.catalog_item_uuid))
+        .filter((product) => !needle
+            || `${product.name ?? ''} ${product.code ?? ''} ${product.family ?? ''}`.toLocaleLowerCase().includes(needle));
+});
+const offOrderShown = computed(() => offOrderChoices.value.slice(0, 60));
+const canPick = (product) => product.linked || props.can.create_medicine;
+const offOrderTotal = computed(() => offOrderChoices.value.length);
+
+const addOffOrder = (product) => {
+    form.lines.push({
+        _key: keyFor(),
+        purchase_order_line_id: null,
+        medicine_uuid: null,
+        supplier_catalog_item_uuid: product.catalog_item_uuid,
+        quantity_received: 1,
+        lot_number: '',
+        expires_at: '',
+        unit_purchase_price: props.can.record_cost ? product.quoted_price : null,
+        notes: '',
+        sale_name: '',
+        _received: true,
+        _renaming: false,
+        _name: product.name,
+        _code: product.code,
+        _unit: product.unit,
+        _is_new: !product.linked,
+        _remaining: null,
+        _ordered: null,
+        _unit_price: product.quoted_price,
+        _known_lots: [],
+        _off_order: true,
+        _catalog_item_uuid: product.catalog_item_uuid,
+    });
+    offOrderPicker.value = false;
+    offOrderSearch.value = '';
+};
+
+const removeOffOrder = (line) => {
+    form.lines = form.lines.filter((candidate) => candidate._key !== line._key);
 };
 
 const proposedTotal = computed(() => (props.can.see_cost && receivedValue.value ? receivedValue.value.toFixed(2) : null));
+
+/*
+ * Point 5 — le montant proposé reste celui de ce qui est RÉELLEMENT arrivé :
+ * sur une livraison partielle, c'est lui qui est juste. Ce que la commande
+ * engage est montré à côté, et l'écart signalé — jamais bloqué : le papier du
+ * fournisseur fait foi (ADR-175).
+ */
+const orderTotal = computed(() => (props.order.total_amount === null ? null : Number(props.order.total_amount)));
+const alreadyInvoiced = computed(() => Number(props.order.invoiced_amount ?? 0));
+const invoiceGap = computed(() => {
+    const typed = Number(form.invoice.total_amount);
+    if (!props.can.see_cost || !(typed > 0) || orderTotal.value === null) return null;
+
+    const outstanding = orderTotal.value - alreadyInvoiced.value;
+    const gap = typed - receivedValue.value;
+    if (Math.abs(gap) < 0.01) return null;
+
+    return { gap, outstanding, received: receivedValue.value };
+});
+
+/* Point 2 — l'article n'est pas venu : le signaler, et voir chez qui d'autre
+ * le trouver. Le geste appartient à la réception (ADR-176). */
+const shortage = ref(null);
+const shortageReason = ref('');
+const shortageSending = ref(false);
+const openShortage = (line) => {
+    shortage.value = line;
+    shortageReason.value = '';
+};
+const alternativesFor = (line) => props.alternatives?.[line._medicine_uuid] ?? [];
+
+const submitShortage = () => {
+    if (!shortageReason.value.trim() || shortageSending.value) return;
+    shortageSending.value = true;
+    router.post(
+        `/pharmacy/purchase-orders/${props.order.uuid}/lines/${shortage.value.purchase_order_line_id}/shortage`,
+        { reason: shortageReason.value.trim() },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                shortageSending.value = false;
+                shortage.value = null;
+            },
+        },
+    );
+};
 
 const submit = () => {
     form.transform((data) => ({
@@ -120,6 +265,8 @@ const submit = () => {
             .filter((line) => line._received)
             .map((line) => ({
                 purchase_order_line_id: line.purchase_order_line_id,
+                medicine_uuid: line.medicine_uuid,
+                supplier_catalog_item_uuid: line.supplier_catalog_item_uuid,
                 quantity_received: Number(line.quantity_received),
                 lot_number: line.lot_number.trim(),
                 expires_at: line.expires_at,
@@ -227,23 +374,34 @@ const steps = [
                     <thead class="bg-muted/50 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                         <tr>
                             <th class="w-10 px-4 py-3" />
-                            <th class="px-4 py-3 text-start">Produit</th>
-                            <th class="w-44 px-3 py-3 text-start">Quantité arrivée</th>
-                            <th class="w-40 px-3 py-3 text-start">N° de lot</th>
-                            <th class="w-40 px-3 py-3 text-start">Péremption</th>
-                            <th v-if="can.record_cost" class="w-36 px-3 py-3 text-start">Prix d’achat</th>
+                            <th scope="col" class="px-4 py-3 text-start"><span class="inline-flex items-center gap-1.5"><Pill class="h-3.5 w-3.5" aria-hidden="true" />Produit</span></th>
+                            <th scope="col" class="w-44 px-3 py-3 text-start"><span class="inline-flex items-center gap-1.5"><PackageCheck class="h-3.5 w-3.5" aria-hidden="true" />Quantité arrivée</span></th>
+                            <th scope="col" class="w-40 px-3 py-3 text-start"><span class="inline-flex items-center gap-1.5"><Hash class="h-3.5 w-3.5" aria-hidden="true" />N° de lot</span></th>
+                            <th scope="col" class="w-40 px-3 py-3 text-start"><span class="inline-flex items-center gap-1.5"><CalendarDays class="h-3.5 w-3.5" aria-hidden="true" />Péremption</span></th>
+                            <th v-if="can.record_cost" scope="col" class="w-36 px-3 py-3 text-start"><span class="inline-flex items-center gap-1.5"><Banknote class="h-3.5 w-3.5" aria-hidden="true" />Prix d’achat</span></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-border">
-                        <template v-for="(line, index) in form.lines" :key="line.purchase_order_line_id">
+                        <template v-for="(line, index) in form.lines" :key="line._key">
                             <tr :class="cn('align-top transition-colors', line._received ? 'hover:bg-muted/20' : 'bg-muted/30 opacity-60')">
-                                <td class="px-4 py-3.5"><Checkbox v-model="line._received" :aria-label="`${line._name} est arrivé`" /></td>
+                                <td class="px-4 py-3.5">
+                                    <Checkbox
+                                        :model-value="line._received"
+                                        :aria-label="`${line._name} est arrivé`"
+                                        @update:model-value="toggleLine(line, $event)"
+                                    />
+                                </td>
                                 <td class="px-4 py-3">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <p class="font-semibold text-foreground">{{ line.sale_name?.trim() || line._name }}</p>
                                         <Badge v-if="line._is_new" tone="warning"><Sparkles class="h-3 w-3" />Nouveau produit</Badge>
+                                        <Badge v-if="line._off_order" tone="info">Hors commande</Badge>
                                     </div>
-                                    <p class="mt-0.5 text-xs text-muted-foreground"><span class="font-mono">{{ line._code }}</span><span v-if="line._unit"> · {{ line._unit }}</span> · commandé {{ formatNumber(line._ordered) }}</p>
+                                    <p class="mt-0.5 text-xs text-muted-foreground">
+                                        <span class="font-mono">{{ line._code }}</span><span v-if="line._unit"> · {{ line._unit }}</span>
+                                        <span v-if="line._off_order"> · n’était pas dans la commande</span>
+                                        <span v-else> · commandé {{ formatNumber(line._ordered) }}</span>
+                                    </p>
                                     <div v-if="can.rename && line._received && line._is_new" class="mt-1.5">
                                         <div v-if="line._renaming" class="flex max-w-sm items-center gap-1.5">
                                             <Input v-model="line.sale_name" class="h-9 text-sm" maxlength="255" :placeholder="line._name" aria-label="Nom à la pharmacie" />
@@ -254,21 +412,47 @@ const steps = [
                                         </button>
                                     </div>
                                     <Input v-if="line._received" v-model="line.notes" class="mt-2 h-8 max-w-sm text-xs" maxlength="500" placeholder="Remarque sur ce produit (ex. 1 boîte abîmée)" />
+
+                                    <!-- ADR-179 — l'article n'est pas venu du tout : son reliquat
+                                         cesse d'être attendu, et la commande peut se clore. -->
+                                    <div v-if="!line._off_order && !line._received && can.shortage" class="mt-2 flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 text-xs font-semibold text-destructive hover:underline"
+                                            @click="openShortage(line)"
+                                        >
+                                            <PackageX class="h-3.5 w-3.5" />Le fournisseur ne le livrera pas
+                                        </button>
+                                        <span v-if="alternativesFor(line).length" class="text-[11px] text-muted-foreground">
+                                            {{ alternativesFor(line).length }} autre{{ alternativesFor(line).length > 1 ? 's' : '' }} fournisseur{{ alternativesFor(line).length > 1 ? 's' : '' }} le propose{{ alternativesFor(line).length > 1 ? 'nt' : '' }}
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        v-if="line._off_order"
+                                        type="button"
+                                        class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-destructive hover:underline"
+                                        @click="removeOffOrder(line)"
+                                    >
+                                        <X class="h-3.5 w-3.5" />Retirer de la réception
+                                    </button>
                                 </td>
                                 <td class="px-3 py-3">
                                     <div class="flex items-center">
-                                        <Button type="button" size="icon-xs" variant="outline" class="rounded-e-none" tabindex="-1" :disabled="!line._received || Number(line.quantity_received) <= 1" aria-label="Moins" @click="stepLine(line, -1)"><Minus class="h-3 w-3" /></Button>
+                                        <Button type="button" size="icon-xs" variant="outline" class="rounded-e-none" tabindex="-1" :disabled="Number(line.quantity_received) <= 0" aria-label="Moins" @click="stepLine(line, -1)"><Minus class="h-3 w-3" /></Button>
                                         <input
                                             v-model.number="line.quantity_received"
                                             type="number"
-                                            min="1"
-                                            :max="line._remaining"
-                                            :disabled="!line._received"
-                                            :class="cn('h-7 w-16 border-y border-input bg-card text-center text-sm font-semibold tabular-nums text-foreground outline-none focus:border-primary', Number(line.quantity_received) > line._remaining && 'border-red-400 text-red-600')"
+                                            min="0"
+                                            :max="line._off_order ? undefined : line._remaining"
+                                            :class="cn('h-7 w-16 border-y border-input bg-card text-center text-sm font-semibold tabular-nums text-foreground outline-none focus:border-primary', !line._off_order && Number(line.quantity_received) > line._remaining && 'border-red-400 text-red-600')"
+                                            @input="onQuantityInput(line)"
                                         >
-                                        <Button type="button" size="icon-xs" variant="outline" class="rounded-s-none" tabindex="-1" :disabled="!line._received || Number(line.quantity_received) >= line._remaining" aria-label="Plus" @click="stepLine(line, 1)"><Plus class="h-3 w-3" /></Button>
+                                        <Button type="button" size="icon-xs" variant="outline" class="rounded-s-none" tabindex="-1" :disabled="!line._off_order && Number(line.quantity_received) >= line._remaining" aria-label="Plus" @click="stepLine(line, 1)"><Plus class="h-3 w-3" /></Button>
                                     </div>
-                                    <p class="mt-1 text-[11px] text-muted-foreground">{{ formatNumber(line._remaining) }} encore attendu{{ line._remaining > 1 ? 's' : '' }}</p>
+                                    <p v-if="line._off_order" class="mt-1 text-[11px] text-muted-foreground">livré sans avoir été commandé</p>
+                                    <p v-else-if="!line._received" class="mt-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400">pas dans cette livraison</p>
+                                    <p v-else class="mt-1 text-[11px] text-muted-foreground">{{ formatNumber(line._remaining) }} encore attendu{{ line._remaining > 1 ? 's' : '' }}</p>
                                     <p v-if="lineError(index, 'quantity_received')" class="mt-1 text-[11px] text-destructive">{{ lineError(index, 'quantity_received') }}</p>
                                 </td>
                                 <td class="px-3 py-3">
@@ -294,12 +478,91 @@ const steps = [
                                         <Input v-model="line.unit_purchase_price" type="number" min="0" step="0.01" class="h-9 pe-11 text-end text-sm tabular-nums" :disabled="!line._received" />
                                         <span class="pointer-events-none absolute inset-y-0 end-2.5 flex items-center text-[11px] text-muted-foreground">MGA</span>
                                     </span>
-                                    <p class="mt-1 text-[11px] text-muted-foreground">Repris de la commande</p>
+                                    <p class="mt-1 text-[11px] text-muted-foreground">{{ line._off_order ? 'Prix du fournisseur' : 'Repris de la commande' }}</p>
                                 </td>
                             </tr>
                         </template>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Point 4 — un article arrivé sans avoir été commandé. Il se
+                 choisit dans les mêmes deux sources qu'à la commande (ADR-098) :
+                 ce que la clinique tient, et le catalogue ACTIF du fournisseur. -->
+            <div v-if="can.shortage" class="border-t border-border p-5">
+                <div v-if="!offOrderPicker" class="flex flex-wrap items-center gap-3">
+                    <Button type="button" variant="outline" size="sm" @click="offOrderPicker = true">
+                        <PackagePlus class="h-4 w-4" />Ajouter un article livré hors commande
+                    </Button>
+                    <p class="text-xs text-muted-foreground">
+                        Il est constaté sur cette réception ; la commande n’est pas modifiée.
+                    </p>
+                </div>
+
+                <div v-else class="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+                    <header class="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
+                        <div class="flex min-w-0 items-start gap-3">
+                            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                                <PackagePlus class="h-4.5 w-4.5" />
+                            </span>
+                            <div class="min-w-0">
+                                <p class="text-sm font-semibold text-foreground">Que le fournisseur a-t-il livré en plus ?</p>
+                                <p class="text-xs text-muted-foreground">
+                                    Produits de {{ order.supplier }} — {{ formatNumber(offOrderTotal) }} proposé{{ offOrderTotal > 1 ? 's' : '' }}.
+                                    La commande garde ses lignes et son montant.
+                                </p>
+                            </div>
+                        </div>
+                        <Button type="button" size="icon-xs" variant="ghost" aria-label="Fermer" @click="offOrderPicker = false; offOrderSearch = ''">
+                            <X class="h-3.5 w-3.5" />
+                        </Button>
+                    </header>
+
+                    <div class="px-4 py-3">
+                        <IconInput v-model="offOrderSearch" :icon="Search" placeholder="Chercher par nom ou référence…" />
+                    </div>
+
+                    <div v-if="offOrderShown.length" class="max-h-80 overflow-y-auto border-t border-border">
+                        <h4 class="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-muted/60 px-4 py-2 backdrop-blur">
+                            <FileSpreadsheet class="h-3.5 w-3.5 text-muted-foreground" />
+                            <span class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Catalogue de {{ order.supplier }}</span>
+                            <Badge variant="outline" class="px-1.5 py-0 text-[10px]">{{ formatNumber(offOrderTotal) }}</Badge>
+                        </h4>
+                        <ul class="divide-y divide-border">
+                            <li v-for="product in offOrderShown" :key="product.catalog_item_uuid">
+                                <button
+                                    type="button"
+                                    :disabled="!canPick(product)"
+                                    class="flex w-full items-center gap-3 px-4 py-2.5 text-start transition hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                                    @click="addOffOrder(product)"
+                                >
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-sm font-medium text-foreground">{{ product.name }}</span>
+                                        <span class="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                                            <span class="font-mono">{{ product.code }}</span>
+                                            <span v-if="product.unit"> · {{ product.unit }}</span>
+                                            <span v-if="product.family"> · {{ product.family }}</span>
+                                            <span v-if="!canPick(product)"> · nouveau produit : refusé à votre compte (medicines.create)</span>
+                                        </span>
+                                    </span>
+                                    <span v-if="can.see_cost && product.quoted_price" class="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                                        {{ formatMoney(product.quoted_price) }}
+                                    </span>
+                                    <Plus class="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </button>
+                            </li>
+                        </ul>
+                        <p v-if="offOrderTotal > offOrderShown.length" class="px-4 py-2 text-[11px] text-muted-foreground">
+                            {{ formatNumber(offOrderTotal - offOrderShown.length) }} autre{{ offOrderTotal - offOrderShown.length > 1 ? 's' : '' }} — affinez la recherche.
+                        </p>
+                    </div>
+                    <p v-else-if="!offOrderProducts.length" class="border-t border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                        {{ order.supplier }} n’a pas de catalogue actif : importez-le dans son dossier fournisseur pour pouvoir y choisir un produit livré.
+                    </p>
+                    <p v-else class="border-t border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                        Aucun produit de ce fournisseur ne correspond.
+                    </p>
+                </div>
             </div>
 
             <footer class="flex flex-col gap-3 border-t border-border p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -317,7 +580,37 @@ const steps = [
                 <p class="text-sm text-muted-foreground">Si la facture accompagne la livraison, recopiez-la ici. Sinon, passez : la réception restera « facture en attente » et la facture pourra être enregistrée plus tard.</p>
             </header>
             <div class="p-5">
+                <!-- Point 5 — ce que la commande engage, à côté de ce qui est
+                     réellement arrivé. Un écart se signale, il ne bloque rien. -->
+                <dl v-if="can.see_cost && orderTotal !== null" class="mb-5 grid gap-3 sm:grid-cols-3">
+                    <div class="rounded-xl border border-border bg-muted/30 p-3">
+                        <dt class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Commande</dt>
+                        <dd class="mt-0.5 font-semibold tabular-nums text-foreground">{{ formatMoney(orderTotal) }}</dd>
+                    </div>
+                    <div class="rounded-xl border border-border bg-muted/30 p-3">
+                        <dt class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Reçu sur cette livraison</dt>
+                        <dd class="mt-0.5 font-semibold tabular-nums text-foreground">{{ formatMoney(receivedValue) }}</dd>
+                    </div>
+                    <div class="rounded-xl border border-border bg-muted/30 p-3">
+                        <dt class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Déjà facturé</dt>
+                        <dd class="mt-0.5 font-semibold tabular-nums text-foreground">{{ formatMoney(alreadyInvoiced) }}</dd>
+                    </div>
+                </dl>
+
                 <SupplierInvoiceFields :form="form.invoice" :errors="form.errors" prefix="invoice" :proposed-total="proposedTotal" />
+
+                <p
+                    v-if="invoiceGap"
+                    class="mt-3 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+                >
+                    <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                        Le montant saisi diffère de <strong>{{ formatMoney(Math.abs(invoiceGap.gap)) }}</strong>
+                        de ce qui est arrivé ({{ formatMoney(invoiceGap.received) }}).
+                        C’est normal sur une livraison partielle, un article hors commande ou un prix renégocié —
+                        le papier du fournisseur fait foi. Vérifiez seulement que c’est bien ce qu’il facture.
+                    </span>
+                </p>
                 <p v-if="invoiceError" class="mt-3 text-sm text-amber-600 dark:text-amber-400">{{ invoiceError }}</p>
             </div>
         </section>
@@ -366,7 +659,52 @@ const steps = [
                     <dt class="text-muted-foreground">Facture</dt>
                     <dd class="text-end font-semibold text-foreground">{{ invoiceStarted ? `${form.invoice.invoice_number} · ${formatMoney(form.invoice.total_amount)}` : 'En attente' }}</dd>
                 </div>
+                <div v-if="offOrderLines.length" class="flex justify-between gap-4 px-4 py-2.5">
+                    <dt class="text-muted-foreground">Hors commande</dt>
+                    <dd class="font-semibold text-foreground">{{ offOrderLines.length }} article{{ offOrderLines.length > 1 ? 's' : '' }}</dd>
+                </div>
             </dl>
+        </ConfirmModal>
+
+        <!-- ADR-179 — l'article ne viendra pas : son reliquat cesse d'être
+             attendu, et la commande peut se clore. Rien n'est effacé. -->
+        <ConfirmModal
+            :open="shortage !== null"
+            title="Cet article ne sera pas livré ?"
+            description="Son reliquat cesse d’être attendu sur cette commande, qui pourra alors se clore. La ligne reste visible avec sa quantité commandée et son prix ; rien n’est effacé."
+            confirm-label="Signaler la rupture"
+            tone="danger"
+            :processing="shortageSending"
+            :disabled="!shortageReason.trim()"
+            @update:open="shortage = $event ? shortage : null"
+            @confirm="submitShortage"
+        >
+            <div v-if="shortage" class="space-y-4">
+                <p class="text-sm font-semibold text-foreground">{{ shortage._name }}</p>
+
+                <label class="block">
+                    <span class="mb-1.5 block text-sm font-semibold text-foreground">Pourquoi ne sera-t-il pas livré ?</span>
+                    <Input v-model="shortageReason" maxlength="1000" placeholder="Ex. rupture chez le fournisseur jusqu’en décembre" />
+                </label>
+
+                <div v-if="alternativesFor(shortage).length" class="rounded-xl border border-border bg-muted/30 p-3">
+                    <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Ce produit chez d’autres fournisseurs</p>
+                    <ul class="mt-2 space-y-1.5">
+                        <li v-for="option in alternativesFor(shortage)" :key="option.supplier_uuid" class="flex items-center justify-between gap-3 text-sm">
+                            <span class="min-w-0 truncate text-foreground">{{ option.supplier_name }}</span>
+                            <span class="shrink-0 font-semibold tabular-nums text-muted-foreground">
+                                {{ option.quoted_price ? formatMoney(option.quoted_price) : (option.has_price ? '—' : 'prix à définir') }}
+                            </span>
+                        </li>
+                    </ul>
+                    <p class="mt-2 text-[11px] text-muted-foreground">
+                        Le même produit, jamais un équivalent deviné. Passer commande reste un geste à part, depuis le dossier du fournisseur.
+                    </p>
+                </div>
+                <p v-else class="text-xs text-muted-foreground">
+                    Aucun autre fournisseur ne propose ce produit dans le référentiel.
+                </p>
+            </div>
         </ConfirmModal>
     </div>
 </template>

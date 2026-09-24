@@ -2,12 +2,19 @@
 
 namespace Tests\Feature\Seeders;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\AnalysisCatalog;
 use App\Models\CashRegister;
+use App\Models\GoodsReceipt;
+use App\Models\MedicineSupplierOffer;
 use App\Models\Permission;
+use App\Models\PurchaseOrder;
+use App\Models\SupplierInvoice;
 use App\Models\User;
 use Database\Seeders\DevelopmentCashRegisterSeeder;
 use Database\Seeders\DevelopmentLegacyAnalysisCatalogSeeder;
+use Database\Seeders\DevelopmentMedicineStockSeeder;
+use Database\Seeders\DevelopmentProcurementSeeder;
 use Database\Seeders\DevelopmentSeeder;
 use Database\Seeders\DevelopmentTestAccountSeeder;
 use Database\Seeders\PermissionSeeder;
@@ -70,6 +77,42 @@ class DevelopmentSeederTest extends TestCase
         $this->assertDatabaseCount('medicines', 0);
         $this->assertDatabaseCount('medicine_lots', 0);
         $this->assertDatabaseCount('medicine_suppliers', 0);
+    }
+
+    /**
+     * ADR-098 — la simulation d'approvisionnement passe par les vraies
+     * Actions et ne s'exécute qu'une fois. Elle n'est appelée par aucun autre
+     * seeder (ADR-086 : la Pharmacie se saisit avec de vraies données), donc
+     * rien ne l'exerçait : une faute de frappe y est restée jusqu'à ce qu'un
+     * `db:seed` échoue sur le poste du développeur. Ce test la lance.
+     */
+    public function test_the_procurement_simulation_runs_on_top_of_the_demo_stock(): void
+    {
+        $this->seed([
+            DevelopmentTestAccountSeeder::class,
+            DevelopmentMedicineStockSeeder::class,
+            DevelopmentProcurementSeeder::class,
+        ]);
+
+        // Les cinq états d'une commande, écrits par les Actions de la clinique.
+        $this->assertEqualsCanonicalizing(
+            [
+                PurchaseOrderStatus::Draft,
+                PurchaseOrderStatus::Ordered,
+                PurchaseOrderStatus::PartiallyReceived,
+                PurchaseOrderStatus::Received,
+                PurchaseOrderStatus::Cancelled,
+            ],
+            PurchaseOrder::query()->get()->pluck('status')->all(),
+        );
+        $this->assertTrue(MedicineSupplierOffer::query()->whereNotNull('effective_until')->exists());
+        $this->assertTrue(GoodsReceipt::query()->exists());
+        $this->assertTrue(SupplierInvoice::query()->exists());
+
+        // Elle ne s'exécute qu'une fois : rien n'est dupliqué.
+        $orders = PurchaseOrder::query()->count();
+        $this->seed(DevelopmentProcurementSeeder::class);
+        $this->assertSame($orders, PurchaseOrder::query()->count());
     }
 
     public function test_re_seeding_never_gives_back_access_someone_removed(): void

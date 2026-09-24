@@ -674,6 +674,185 @@ alerte »** : elle comptait 0 pendant que trois produits avaient du stock,
 comptés sous « Péremption proche » — les catégories restent exclusives
 (ADR-119, ADR-120), c'est le libellé qui mentait.
 
+**Ce qu'une livraison réelle fait subir à une commande** (ADR-179, complète
+ADR-097/175/176). **La confirmation du fournisseur est une trace** — date,
+référence, document, auteur — sur `purchase_orders`, enregistrable dès le
+brouillon, corrigeable et retirable : **rien n'en dépend**, une commande sans
+elle se réceptionne exactement comme avant (un test le fixe), parce que
+beaucoup de fournisseurs ne confirment jamais. Droit `purchase_orders.confirm`,
+accordé à aucun rôle du site par défaut (ADR-098) ; la *lire* suit
+`purchase_orders.view`. **Elle s'enregistre aussi depuis le portail** — qui
+passe les commandes, donc reçoit l'accusé (ADR-098) : sans ce chemin, le droit
+accordé au Super Admin n'aurait commandé rien (ADR-101). L'API du site
+(`orders/{uuid}/confirmation`, POST et DELETE) appelle l'Action de la clinique
+avec un `CatalogActor` distant ; le document part en multipart, reste sur le
+site, et le portail ne fait que le relayer au navigateur (`pharmacySupplierFile`,
+partagé avec le fichier de catalogue). Constater une rupture ligne à ligne
+n'existe qu'au site : c'est un constat de réception (ADR-176). Clôturer toute
+la commande existe des deux côtés — c'est une décision d'acheteur.
+
+**Un article jamais livré ne bloque plus la commande à vie** : `purchase_order_lines`
+porte `shortage_at/_reason/_by`, et `refreshReceptionStatus()` traite une ligne
+en rupture comme soldée. Avant, une seule ligne non livrée laissait la commande
+« Partiellement reçue » pour toujours, donc éternellement dans « À
+réceptionner », sans aucun moyen d'abandonner un reliquat. Rien n'est effacé :
+quantité commandée, prix et reçu restent. La ligne quitte l'écran de réception
+(`quantityRemaining()` renvoie 0) et **ne peut plus être reçue** — la recevoir
+rouvrirait en silence un reliquat déclaré perdu ; il faut d'abord revenir sur
+la rupture, ce qui rouvre la commande. `PurchaseOrderStatus::Closed`
+(« Clôturée ») est ajouté parce qu'aucun statut ne disait la vérité : ni
+« Reçue » (la commande n'a pas été livrée en entier), ni « Annulée » (elle a
+été envoyée, souvent livrée en partie, et peut porter une facture). Elle quitte
+« À réceptionner » d'elle-même et les filtres la reprennent sans code nouveau
+(`PurchaseOrderStatus::cases()`). Constater une rupture relève de
+`goods_receipts.create` (ADR-176 : qui a la livraison sous les yeux voit ce qui
+manque) ; clôturer toute la commande de `purchase_orders.cancel` (renoncer à ce
+qui reste dû est une décision d'acheteur). Le droit étant le même que pour
+annuler, `CancelPurchaseOrderAction` refuse désormais les trois états de
+`PurchaseOrderStatus::isClosedOut()` : annuler une commande clôturée dirait
+qu'elle n'a jamais eu lieu et la rendrait jetable (ADR-176), alors qu'elle a été
+envoyée et souvent livrée en partie. La sortie existe et le message la nomme —
+retirer les ruptures rouvre la commande, puis elle s'annule. **Descendre la quantité à 0 décoche
+la ligne** et dit « pas dans cette livraison » — elle était bornée à 1 sans que
+rien ne l'explique.
+
+**Chez qui d'autre trouver l'article** : `SupplierAlternatives` nomme les
+fournisseurs qui proposent **le même médicament** — prix d'achat versionnés et
+catalogues actifs —, jamais un équivalent de la même famille : le référentiel
+ne porte aucune équivalence thérapeutique, et la deviner serait une
+substitution qu'ADR-052 interdit. Le service ne commande rien ; passer commande
+reste un geste du dossier fournisseur.
+
+**Un article livré hors commande se constate, il ne réécrit pas la commande** :
+`goods_receipt_lines.purchase_order_line_id` devient nullable, la commande
+garde ses lignes, son montant et son statut (ADR-098 — une commande envoyée ne
+se modifie plus). Le produit se désigne comme à la commande (médicament de la
+clinique, ou ligne du catalogue actif de ce fournisseur, qui entre alors au
+catalogue sous `medicines.create`) ; son prix est celui que le fournisseur cote
+aujourd'hui, sinon celui lu sur le bon de livraison (`stock.cost.record`). Rien
+ne le borne en quantité. Il entre au stock comme les autres (ADR-175).
+
+**L'écart de montant à la facture s'affiche, il ne bloque pas** : le montant
+proposé reste celui de **ce qui est réellement arrivé** — sur une livraison
+partielle c'est lui qui est juste — et ce que la commande engage, avec le
+déjà-facturé, est servi à côté pour que l'écart se voie. Le papier du
+fournisseur fait foi (ADR-175). Les trois montants exigent `stock.cost.view`
+(ADR-174).
+
+**La commande part par la messagerie de la personne** : à l'envoi, et depuis la
+page d'une commande (« Envoyer par e-mail », jamais sur un brouillon ni sur une
+commande annulée), un brouillon `mailto:` s'ouvre avec l'objet et le corps déjà
+écrits — référence, date, livraison souhaitée, un produit par ligne avec son
+unité et son code, total, remarque, signature de qui écrit et de son site
+(`utilities/supplierOrderMail.js`). RIVO n'envoie rien : un envoi par le serveur
+demanderait SMTP par site, expéditeur, pièces jointes et file d'attente, et une
+commande « envoyée » ne prouverait toujours pas qu'un e-mail est parti — décision
+à part, signalée. Sans adresse au dossier du fournisseur, rien n'est proposé et
+la commande part comme avant : l'e-mail accompagne l'envoi, il ne le conditionne
+pas. Le numéro garde sa casse — la phrase mettait la référence entière en
+minuscule (« notre commande abc-000012 »), alors que c'est l'identifiant que le
+fournisseur cite en retour. Aucune permission nouvelle (`purchase_orders.submit`).
+
+**« Entrée sans commande » est retirée** (ADR-182, 2026-09-24 — renverse
+l'ADR-179 §7, qui l'avait conservée après analyse pour le don, le stock de départ
+et le dépannage d'un confrère ; arbitrage explicite du propriétaire). Plus rien
+n'entre au stock hors d'une livraison réceptionnée ; l'article livré hors
+commande (ADR-179 §4) reste, puisqu'il fait partie d'une livraison. Un stock de
+départ ne se reprend plus que par l'import Excel central (ADR-042).
+
+**L'entrée en stock est un seul écran, donc un seul geste** (ADR-180, amende
+ADR-175 ; ADR-182). Ce qui a été réceptionné y arrive rempli et coché
+(fournisseur, commande, lot, péremption, quantité), regroupé par livraison, et
+rien d'autre : ni catalogue à cocher, ni provenance à saisir. Avant toute
+réception l'écran est vide et renvoie aux commandes à réceptionner ; une ligne
+rangée le quitte et apparaît dans « Médicaments & stock » — les deux écrans se
+suivent. L'accès dit ce qui attend (« Entrée en stock · N à ranger », sur
+« Médicaments & stock » et l'accueil Pharmacie, `ReceivedStockQueue::count()`).
+`POST /pharmacy/stock/entries/batch` n'accepte que `lines` (lignes de
+réception), dans **une transaction** : une ligne refusée n'en laisse entrer
+aucune. Les champs de l'ancienne entrée libre (`entries`, `origin`,
+`supplier_uuid`, `destination`, `reason`, `received_at`) et le prix d'achat
+(`lines.*.unit_purchase_price`, ADR-174) sont **refusés en les nommant**.
+Retirés : `POST /pharmacy/stock/entries`, `StoreStockEntryRequest`,
+`RecordStockEntriesAction`, `/entries/received`, `StoreReceivedStockRequest`, et
+les boutons « Entrée de stock pour … » de chaque produit (ils promettaient une
+entrée par produit). Le moteur `RecordStockEntryAction` reste, appelé par
+`RecordReceivedStockAction`. Les lots déjà détenus restent proposés à l'entrée
+(ADR-176) : la file des réceptions sert `known_lots` par ligne, avec les droits
+`stock.lots.view` / `stock.expiration.view`. Les tests qui ont besoin de stock
+passent par le vrai chemin (`tests/Feature/Pharmacy/Concerns/ReceivesDeliveries`).
+Aucune permission nouvelle (`stock.entry`).
+
+**L'article livré se choisit dans le catalogue du fournisseur, et réceptionner
+suffit** (ADR-182, amendement du 2026-09-24). À la réception, l'« article livré
+hors commande » propose le catalogue ACTIF du fournisseur, et lui seul
+(`ProcurementFormOptions::deliveredCatalogLines`) ; un produit de la clinique
+ajouté hors commande doit être vendu par ce fournisseur
+(`MedicineSupplier::suppliedMedicineIds()`). Réceptionner une ligne non reprise
+fait entrer le produit au catalogue de la clinique avec le seul
+`goods_receipts.create` : `CatalogActor::receivingDelivery()` délègue
+`medicines.create`, `catalog.items.create` et `medicine_supplier_offers.*`
+pour ce geste seulement — ni famille nouvelle, ni prix de vente, et un DENY
+individuel l'emporte (amende ADR-024/098 pour la réception ; la commande garde
+sa règle). Une ligne déjà rattachée ne crée rien. L'entrée en stock se lit par
+livraison (rail à gauche, la plus ancienne d'abord) et par état (cartes « À
+ranger », « Nouveaux produits », « Sans prix de vente ») ; « Ranger cette
+livraison » n'envoie que les lignes cochées de la livraison choisie. Les dates
+de facture fournisseur sont calculées en heure locale (`localToday()`,
+`toLocalDateInput()` dans `utilities/date.js`), jamais par `toISOString()`.
+
+**Comparer deux produits que les fournisseurs ne nomment pas pareil** (ADR-181,
+complète ADR-098 et ADR-179). Le comparateur ne réunissait deux fournisseurs
+sur une ligne que si leurs libellés se normalisaient à l'identique : « ALCOOL
+ETHYLIQUE 70% 1L » et « Alcool 1l 70° » restaient deux lignes, deux prix,
+aucune comparaison — et commander la ligne du fournisseur aurait créé un
+**second produit** avec son propre stock. `ProductLabel::looksLikeSameProduct()`
+propose le rapprochement sans jamais le décider : les nombres font le produit
+(500 mg ≠ 1 g, 125 ml ≠ 250 ml, 18G ≠ 25G), une négation d'un seul côté écarte
+(« non stérile »), les mots doivent s'emboîter (« Gants taille M » ≠ « taille
+L »), et « 500mg » vaut « 500 mg ». Elle ne lit ni DCI ni dosage : une ligne de
+catalogue n'en porte pas. Le comparateur affiche « À rapprocher · N » (compté
+par le serveur), et sur la ligne concernée « C'est le même produit ? » ouvre une
+fenêtre qui met les deux libellés côte à côte, montre les prix déjà connus du
+produit visé et exige un motif. Une ligne **sans prix** n'est pas proposée :
+rattacher est ce qui crée le prix d'achat, et l'action le refuse sans montant.
+`POST /api/v1/super-admin/pharmacy/suppliers/{f}/catalogs/{c}/items/{i}/link`
+appelle l'Action de la clinique avec un `CatalogActor` distant — le portail
+pouvait jusqu'ici **défaire** un rattachement sans jamais en faire un. Aucune
+permission nouvelle : `medicine_supplier_offers.create`/`.update`, revues par
+l'Action sur l'acteur distant. **Amendement du 2026-09-24** : la règle vérifiait
+nombres et mots séparément, chacun dans le sens qui l'arrangeait, et proposait
+« Alcool 125ml 70° » ≈ « ALCOOL IODE SALICYLE IMRA 125ML » (70° d'un seul côté,
+iodé salicylé de l'autre) ; elle exige désormais qu'un libellé dise tout ce que
+dit l'autre, mots **et** nombres dans le même sens. Le comparateur filtre aussi
+par couverture — « Chez les deux fournisseurs » (« chez plusieurs » au-delà) ou
+« Seulement chez X », chaque produit dans une seule case — et par famille (celle
+de la clinique, sinon celle que déclare le fournisseur, écrite comme celle de la
+clinique quand elles se ressemblent), la liste rangée par famille. Règles dans
+`utilities/supplierComparison.js`.
+
+**Un prix d'achat ne survit pas au retrait de son catalogue** (ADR-183).
+Pharmalife restait au comparateur (« 5 produits ») alors que ses catalogues
+étaient à la corbeille : c'étaient les prix que ses lignes avaient créés en étant
+rattachées, restés « en cours ». `SupplierCatalogPrices` porte la règle pour les
+quatre actions (corbeille / restauration d'un catalogue, d'une ligne), qu'utilisent
+clinique, portail et Corbeille : retirer **clôt** ces prix (jamais supprimés, comme
+« Défaire un rattachement ») ; restaurer rétablit, en nouvelle version au même
+montant, le prix d'une ligne encore rattachée si la paire (médicament, fournisseur)
+n'a plus de prix en cours et que son dernier prix venait de cette ligne — un prix
+fixé depuis n'est jamais écrasé. Migration `2026_10_28_090000` : les prix des
+catalogues déjà à la corbeille sont clos à la date du retrait, audités
+(`pharmacy.supplier_offer.withdraw`).
+
+**La simulation locale d'approvisionnement est enfin exercée par un test.**
+`DevelopmentProcurementSeeder` (ADR-098) n'est appelé par aucun autre seeder,
+et rien ne l'exerçait : il ne se parsait plus (virgule manquante), passait un
+`User` là où `SetMedicineSupplierOfferAction` et `LinkSupplierCatalogItemAction`
+exigent un `CatalogActor` depuis l'ADR-098, et son compte de test avait perdu
+`stock.cost.*` depuis l'ADR-174 — donc ne pouvait plus enregistrer un prix
+d'achat à la réception, alors qu'il existe pour parcourir toute la chaîne
+(ADR-086). Les trois sont réparés et un test lance la simulation.
+
 ---
 
 # Laboratoire

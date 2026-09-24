@@ -96,3 +96,20 @@ export function formatRelativeTime(value) {
         duration /= division.amount;
     }
 }
+
+/**
+ * AAAA-MM-JJ dans le fuseau du poste, pour un champ date.
+ *
+ * Jamais `toISOString().slice(0, 10)` : il passe en UTC, et à Madagascar
+ * (UTC+3) il donne la veille entre minuit et 3 h — et un minuit local
+ * (« AAAA-MM-JJT00:00:00 ») y recule toujours d'un jour.
+ */
+export function toLocalDateInput(date = new Date()) {
+    const pad = (number) => String(number).padStart(2, '0');
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function localToday() {
+    return toLocalDateInput(new Date());
+}

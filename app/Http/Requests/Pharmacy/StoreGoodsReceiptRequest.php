@@ -4,6 +4,7 @@ namespace App\Http\Requests\Pharmacy;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StoreGoodsReceiptRequest extends FormRequest
 {
@@ -18,9 +19,21 @@ class StoreGoodsReceiptRequest extends FormRequest
         return [
             'notes' => ['nullable', 'string', 'max:2000'],
             'lines' => ['required', 'array', 'min:1'],
+            // ADR-179 — une ligne solde une ligne de commande, ou constate un
+            // article livré sans avoir été commandé. Dans ce second cas elle
+            // nomme le produit : un médicament de la clinique, ou une ligne du
+            // catalogue de ce fournisseur (même résolution qu'à la commande).
             'lines.*.purchase_order_line_id' => [
-                'required', 'integer',
+                'nullable', 'integer',
                 Rule::exists('purchase_order_lines', 'id')->where('purchase_order_id', $this->route('purchaseOrder')?->id),
+            ],
+            'lines.*.medicine_uuid' => [
+                'nullable', 'uuid',
+                Rule::exists('medicines', 'uuid')->where('active', true),
+            ],
+            'lines.*.supplier_catalog_item_uuid' => [
+                'nullable', 'uuid',
+                Rule::exists('supplier_catalog_items', 'uuid')->whereNull('deleted_at'),
             ],
             'lines.*.quantity_received' => ['required', 'integer', 'min:1'],
             'lines.*.lot_number' => ['required', 'string', 'max:100'],
@@ -41,8 +54,35 @@ class StoreGoodsReceiptRequest extends FormRequest
         ];
     }
 
+    /**
+     * ADR-179 — chaque ligne doit désigner quelque chose. Une règle
+     * `required_without_all` sur `lines.*` compare des champs littéraux et non
+     * ceux de la même ligne : le contrôle se fait donc ligne par ligne.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            foreach (array_values($this->input('lines', [])) as $index => $line) {
+                $designates = filled($line['purchase_order_line_id'] ?? null)
+                    || filled($line['medicine_uuid'] ?? null)
+                    || filled($line['supplier_catalog_item_uuid'] ?? null);
+
+                if (! $designates) {
+                    $validator->errors()->add(
+                        "lines.{$index}.medicine_uuid",
+                        'Indiquez le produit reçu : une ligne de la commande, ou un article livré hors commande.',
+                    );
+                }
+            }
+        });
+    }
+
     protected function passedValidation(): void
     {
+        // ADR-182, amendement du 2026-09-24 — faire entrer au catalogue un
+        // produit livré depuis le catalogue du fournisseur ne demande que le
+        // droit de réceptionner ; l'action le vérifie, refus individuel compris.
+
         $hasPrice = collect($this->input('lines', []))->contains(fn (array $line) => filled($line['unit_purchase_price'] ?? null));
 
         if ($hasPrice && ! $this->user()?->can('stock.cost.record')) {

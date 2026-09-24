@@ -389,6 +389,25 @@ class PharmacySupplierController extends Controller
         );
     }
 
+    /**
+     * ADR-181 — « c'est le même produit » : la ligne du fournisseur rejoint le
+     * médicament de la clinique, et son prix vient se placer à côté des autres
+     * sur une seule ligne du comparateur.
+     */
+    public function linkCatalogItem(Request $request, string $site, string $supplier, string $catalog, string $item, PortalSiteApiClient $client): RedirectResponse
+    {
+        $this->assertSite($site);
+        $data = $request->validate([
+            'medicine_uuid' => ['required', 'uuid'],
+            'change_reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        return $this->respond(
+            $client->pharmacySupplierCatalogItem($site, $supplier, $catalog, $item, $request->user(), 'POST', '/link', $data),
+            'Produit rattaché : ses prix se comparent désormais sur une seule ligne.',
+        );
+    }
+
     public function unlinkCatalogItem(Request $request, string $site, string $supplier, string $catalog, string $item, PortalSiteApiClient $client): RedirectResponse
     {
         $this->assertSite($site);

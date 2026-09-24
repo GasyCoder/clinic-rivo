@@ -58,6 +58,13 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}', [PharmacyProcurementController::class, 'updateOrder'])->name('pharmacy.suppliers.orders.update');
         Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/submit', [PharmacyProcurementController::class, 'submitOrder'])->name('pharmacy.suppliers.orders.submit');
         Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/cancel', [PharmacyProcurementController::class, 'cancelOrder'])->name('pharmacy.suppliers.orders.cancel');
+        // ADR-179 — la confirmation du fournisseur et la clôture des reliquats :
+        // deux gestes d'acheteur, là où les commandes se passent. Constater une
+        // rupture ligne à ligne reste au site (ADR-176).
+        Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/confirmation', [PharmacyProcurementController::class, 'confirmOrder'])->name('pharmacy.suppliers.orders.confirm');
+        Route::delete('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/confirmation', [PharmacyProcurementController::class, 'unconfirmOrder'])->name('pharmacy.suppliers.orders.unconfirm');
+        Route::get('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/confirmation/document', [PharmacyProcurementController::class, 'orderConfirmationDocument'])->name('pharmacy.suppliers.orders.confirmation.document');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}/close', [PharmacyProcurementController::class, 'closeOrder'])->name('pharmacy.suppliers.orders.close');
         Route::delete('/pharmacy/suppliers/{supplierUuid}/orders/{orderUuid}', [PharmacyProcurementController::class, 'trashOrder'])->name('pharmacy.suppliers.orders.trash');
         Route::get('/pharmacy/suppliers/{supplierUuid}/invoice-form', [PharmacyProcurementController::class, 'invoiceForm'])->name('pharmacy.suppliers.invoices.form');
         Route::post('/pharmacy/suppliers/{supplierUuid}/invoices', [PharmacyProcurementController::class, 'storeInvoice'])->name('pharmacy.suppliers.invoices.store');
@@ -78,6 +85,7 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}', [PharmacySupplierController::class, 'updateCatalogItem'])->name('pharmacy.suppliers.catalogs.items.update');
         Route::delete('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}', [PharmacySupplierController::class, 'archiveCatalogItem'])->name('pharmacy.suppliers.catalogs.items.destroy');
         Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}/restore', [PharmacySupplierController::class, 'restoreCatalogItem'])->name('pharmacy.suppliers.catalogs.items.restore');
+        Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}/link', [PharmacySupplierController::class, 'linkCatalogItem'])->name('pharmacy.suppliers.catalogs.items.link');
         Route::post('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}/items/{itemUuid}/unlink', [PharmacySupplierController::class, 'unlinkCatalogItem'])->name('pharmacy.suppliers.catalogs.items.unlink');
         Route::patch('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}', [PharmacySupplierController::class, 'updateCatalog'])->name('pharmacy.suppliers.catalogs.update');
         Route::delete('/pharmacy/suppliers/{supplierUuid}/catalogs/{catalogUuid}', [PharmacySupplierController::class, 'archiveCatalog'])->name('pharmacy.suppliers.catalogs.destroy');

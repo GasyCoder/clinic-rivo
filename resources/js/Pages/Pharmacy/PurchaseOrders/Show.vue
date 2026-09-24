@@ -14,6 +14,13 @@ const links = computed(() => ({
     submit: `/pharmacy/purchase-orders/${props.order.uuid}/submit`,
     cancel: `/pharmacy/purchase-orders/${props.order.uuid}/cancel`,
     receive: `/pharmacy/purchase-orders/${props.order.uuid}/receive`,
+    // ADR-179 — la confirmation du fournisseur, la clôture des reliquats et le
+    // constat de rupture. Le portail passe les deux premières (il commande) ;
+    // la rupture est un constat de réception et n'existe qu'ici (ADR-176).
+    confirm: `/pharmacy/purchase-orders/${props.order.uuid}/confirmation`,
+    confirmationDocument: `/pharmacy/purchase-orders/${props.order.uuid}/confirmation/document`,
+    close: `/pharmacy/purchase-orders/${props.order.uuid}/close`,
+    shortage: (lineId) => `/pharmacy/purchase-orders/${props.order.uuid}/lines/${lineId}/shortage`,
     supplier: `/pharmacy/suppliers/${props.order.supplier_uuid}`,
     receipt: (uuid) => `/pharmacy/receipts/${uuid}`,
     invoice: (uuid) => `/pharmacy/supplier-invoices/${uuid}`,

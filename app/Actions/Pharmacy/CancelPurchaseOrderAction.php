@@ -20,9 +20,19 @@ class CancelPurchaseOrderAction
         return DB::transaction(function () use ($order, $reason, $actor): PurchaseOrder {
             $order = PurchaseOrder::query()->lockForUpdate()->findOrFail($order->id);
 
-            if ($order->status === PurchaseOrderStatus::Received || $order->status === PurchaseOrderStatus::Cancelled) {
+            // ADR-179 — une commande CLÔTURÉE a réellement été envoyée, souvent
+            // livrée en partie, et peut porter une facture : l'annuler dirait
+            // qu'elle n'a jamais eu lieu, et la rendrait au passage jetable
+            // (ADR-176 : une commande annulée part à la corbeille). Pour
+            // revenir dessus, on retire d'abord ses ruptures — elle redevient
+            // attendue — puis on l'annule.
+            if ($order->status->isClosedOut()) {
                 throw ValidationException::withMessages([
-                    'status' => 'Une commande déjà reçue ou annulée ne peut pas être annulée à nouveau.',
+                    'status' => match ($order->status) {
+                        PurchaseOrderStatus::Cancelled => 'Cette commande est déjà annulée.',
+                        PurchaseOrderStatus::Closed => 'Cette commande est clôturée : elle a été envoyée, et souvent livrée en partie. Retirez ses ruptures pour la rouvrir avant de l’annuler.',
+                        default => 'Une commande déjà reçue ne peut plus être annulée.',
+                    },
                 ]);
             }
 

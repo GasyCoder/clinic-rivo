@@ -103,17 +103,43 @@ class SupplierPresenter
             'notes' => $order->notes,
             'cancellation_reason' => $order->cancellation_reason,
             'supplier_uuid' => $order->supplier->uuid,
+            // L'adresse du fournisseur : c'est elle qui permet de rouvrir le
+            // brouillon d'e-mail de la commande après l'envoi, si la messagerie
+            // ne s'est pas ouverte sur le moment. Rien n'est envoyé par RIVO.
+            'supplier_email' => $order->supplier->email,
             'created_by_name' => $order->creator?->name ?? $order->external_created_by_name,
+            // ADR-179 — la confirmation du fournisseur, quand il en a envoyé
+            // une. Son absence ne veut pas dire « pas confirmée » : beaucoup
+            // de fournisseurs ne confirment jamais.
+            'supplier_confirmation' => $order->isSupplierConfirmed() ? [
+                'confirmed_at' => $order->supplier_confirmed_at?->toIso8601String(),
+                'reference' => $order->supplier_confirmation_reference,
+                'notes' => $order->supplier_confirmation_notes,
+                'recorded_by' => $order->supplierConfirmedBy?->name ?? $order->external_supplier_confirmed_by_name,
+                'has_document' => filled($order->supplier_confirmation_attachment_path),
+                'document_name' => $order->supplier_confirmation_attachment_original_name,
+            ] : null,
+            'has_outstanding_lines' => $order->lines->contains(fn ($line) => ! $line->isSettled()),
             'lines' => $order->lines->map(fn ($line) => [
                 'id' => $line->id,
                 'medicine_uuid' => $line->medicine->uuid,
                 'medicine_name' => $line->medicine->catalogItem?->name,
                 'medicine_code' => $line->medicine->catalogItem?->code,
+                // Le conditionnement se lit à côté du nombre, jamais collé à
+                // lui : « 4 » et « boîte de 100 » sont deux informations.
+                'unit' => $line->medicine->catalogItem?->unit,
                 'quantity_ordered' => $line->quantity_ordered,
                 'quantity_received' => $line->quantity_received,
                 'quantity_remaining' => $line->quantityRemaining(),
                 'unit_price' => $line->unit_price,
                 'line_total' => $line->line_total,
+                // ADR-179 — ce que le fournisseur ne livrera pas.
+                'shortage' => $line->isShort() ? [
+                    'at' => $line->shortage_at?->toIso8601String(),
+                    'reason' => $line->shortage_reason,
+                    'by' => $line->shortageBy?->name ?? $line->external_shortage_by_name,
+                ] : null,
+                'settled' => $line->isSettled(),
             ])->values(),
             'receipts' => $order->receipts->map(fn ($receipt) => [
                 'uuid' => $receipt->uuid,

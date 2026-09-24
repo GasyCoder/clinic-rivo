@@ -4,6 +4,7 @@ namespace App\Actions\Pharmacy;
 
 use App\Models\SupplierCatalogItem;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Pharmacy\SupplierCatalogPrices;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -12,12 +13,15 @@ use Illuminate\Support\Facades\DB;
  * proposes, or that the import invented from a stray row. Soft Delete with
  * a reason: the line leaves the screens and comes back if it was a mistake.
  *
- * Nothing is destroyed. A purchase price already created from this line
- * keeps pointing at it, and the medicine it produced is untouched — what is
- * withdrawn is the supplier's offer of it, not the clinic's product.
+ * Nothing is destroyed. The medicine the line produced is untouched — what is
+ * withdrawn is the supplier's offer of it, not the clinic's product. ADR-183:
+ * the purchase price the line had created is therefore closed, as a price
+ * revision closes the previous one; it stays readable in the history.
  */
 class ArchiveSupplierCatalogItemAction
 {
+    public function __construct(private readonly SupplierCatalogPrices $prices) {}
+
     public function execute(SupplierCatalogItem $item, string $reason, CatalogActor $actor): void
     {
         if ($actor->cannot('supplier_catalogs.delete')) {
@@ -30,6 +34,8 @@ class ArchiveSupplierCatalogItemAction
             $item->delete_reason = trim($reason);
             $item->deleted_by = $actor->localUserId();
             $item->delete();
+
+            $this->prices->withdraw([$item->getKey()], $actor);
         });
     }
 }

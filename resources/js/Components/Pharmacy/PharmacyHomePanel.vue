@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
-import Icon from '@/Components/UI/Icon.vue';
+import { lucideIcon } from '@/lib/icons';
+import { ChevronRight, CircleCheck, Pill } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import { formatNumber } from '@/utilities/pharmacyStatus';
@@ -16,6 +17,8 @@ const props = defineProps({
     stockSummary: { type: Object, default: null },
     dispenseCount: { type: Number, default: 0 },
     careConsumableCount: { type: Number, default: 0 },
+    // ADR-182 — les lignes réceptionnées qui attendent d'être rangées.
+    awaitingStockCount: { type: Number, default: 0 },
     alerts: { type: Array, default: () => [] },
 });
 
@@ -44,8 +47,9 @@ const actions = computed(() => [
         show: props.capabilities.can_record_entry,
         href: '/pharmacy/stock/entries/create',
         icon: 'plus',
-        title: 'Enregistrer une entrée',
-        text: 'Ajouter au stock des médicaments reçus.',
+        title: 'Entrée en stock',
+        text: 'Ranger au stock ce qui a été réceptionné.',
+        count: props.awaitingStockCount,
         tone: 'sky',
     },
     {
@@ -87,21 +91,20 @@ const watchList = computed(() => props.stockSummary ? [
         <div class="flex flex-wrap items-end justify-between gap-2">
             <div>
                 <h2 id="pharmacy-home-title" class="flex items-center gap-2 font-heading text-base font-bold text-foreground">
-                    <Icon name="capsule" class="text-emerald-600" />Pharmacie — que voulez-vous faire ?
+                    <Pill class="text-emerald-600 h-4 w-4" />Pharmacie — que voulez-vous faire ?
                 </h2>
                 <p class="mt-0.5 text-xs text-muted-foreground">Choisissez une tâche. L’encaissement et les reçus restent toujours à la Caisse.</p>
             </div>
         </div>
 
         <div v-if="actions.length" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <Card
-                v-for="action in actions"
+            <Card v-for="action in actions"
                 :key="action.href"
                 class="group overflow-hidden transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
             >
                 <Link :href="action.href" class="flex h-full items-center gap-4 p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
                     <span :class="['flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl', TILE_TONES[action.tone]]">
-                        <Icon :name="action.icon" />
+                        <component :is="lucideIcon(action.icon)" class="h-4 w-4" />
                     </span>
                     <span class="min-w-0 flex-1">
                         <span class="flex items-center gap-2">
@@ -110,7 +113,7 @@ const watchList = computed(() => props.stockSummary ? [
                         </span>
                         <span class="mt-0.5 block text-sm text-muted-foreground">{{ action.text }}</span>
                     </span>
-                    <Icon name="chevron-right" class="text-lg text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                    <ChevronRight class="text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary h-4 w-4" />
                 </Link>
             </Card>
         </div>
@@ -148,7 +151,7 @@ const watchList = computed(() => props.stockSummary ? [
                     </li>
                 </ul>
                 <p v-else class="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                    <Icon name="check-circle" class="text-lg text-emerald-500" />Aucun médicament sous son seuil minimal.
+                    <CircleCheck class="text-emerald-500 h-4 w-4" />Aucun médicament sous son seuil minimal.
                 </p>
             </Card>
         </div>

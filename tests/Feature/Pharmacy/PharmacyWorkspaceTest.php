@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Pharmacy;
 
-use App\Actions\Pharmacy\SetMedicineSupplierOfferAction;
 use App\Enums\CatalogItemType;
 use App\Enums\CatalogModule;
 use App\Enums\MedicineForm;
@@ -16,7 +15,6 @@ use App\Models\Episode;
 use App\Models\Medicine;
 use App\Models\MedicineLot;
 use App\Models\MedicineStockReservation;
-use App\Models\MedicineSupplier;
 use App\Models\Patient;
 use App\Models\Permission;
 use App\Models\PharmacyStockMovement;
@@ -24,18 +22,19 @@ use App\Models\Prescription;
 use App\Models\PrescriptionLine;
 use App\Models\Role;
 use App\Models\User;
-use App\Services\Catalog\CatalogActor;
 use App\Services\Pharmacy\MedicineStockOverviewService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use LogicException;
+use Tests\Feature\Pharmacy\Concerns\ReceivesDeliveries;
 use Tests\TestCase;
 
 class PharmacyWorkspaceTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, ReceivesDeliveries;
 
     private User $pharmacist;
 
@@ -109,49 +108,19 @@ class PharmacyWorkspaceTest extends TestCase
         ]);
     }
 
-    /** @return array<string, mixed> */
-    private function entryPayload(Medicine $medicine, array $overrides = []): array
+    /**
+     * ADR-182 — le stock n'entre que depuis une livraison réceptionnée : le
+     * moteur de lots se vérifie par ce chemin-là, le seul qui existe.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    private function enterReceived(User $actor, Medicine $medicine, string $lot = 'LOT-NEW-001', int $quantity = 12, array $overrides = []): TestResponse
     {
-        return array_merge([
-            'medicine_uuid' => $medicine->uuid,
-            'operation' => 'STOCK_INITIAL',
-            'lot_number' => 'LOT-NEW-001',
-            'received_at' => now()->toDateString(),
-            'expires_at' => now()->addYear()->toDateString(),
-            'quantity' => 12,
-            'origin' => 'Bon de livraison BL-001',
-            'destination' => 'Stock Pharmacie — Mampikony',
-            'reason' => 'Stock initial contrôlé à la réception',
-        ], $overrides);
-    }
+        [$line] = $this->receiveDelivery([[$medicine, $quantity, $lot]]);
 
-    public function test_the_stock_entry_form_knows_which_suppliers_provide_each_medicine(): void
-    {
-        $this->pharmacist->permissions()->attach(
-            Permission::query()->whereIn('name', [
-                'medicine_suppliers.view', 'medicine_supplier_offers.view', 'medicine_supplier_offers.create', 'stock.cost.record',
-            ])->pluck('id'),
-            ['effect' => 'allow'],
-        );
-        $pharmacist = $this->pharmacist->fresh();
-        $linked = $this->medicine('Paracétamol 500 mg');
-        $priced = $this->medicine('Amoxicilline 500 mg');
-        $unrelated = $this->medicine('Ibuprofène 400 mg');
-        $distrib = MedicineSupplier::query()->create(['code' => 'DISTRIB', 'name' => 'Distrib']);
-        $centrale = MedicineSupplier::query()->create(['code' => 'CENTRALE', 'name' => 'Centrale']);
-        $linked->suppliers()->attach($distrib->id);
-        app(SetMedicineSupplierOfferAction::class)
-            ->execute($priced, $centrale, '600', 'Tarif initial', CatalogActor::fromUser($pharmacist));
-
-        $medicines = collect($this->actingAs($pharmacist)->get('/pharmacy/stock/entries/create')
-            ->assertOk()
-            ->viewData('page')['props']['medicines'])
-            ->keyBy('uuid');
-
-        $this->assertSame([$distrib->uuid], $medicines[$linked->uuid]['supplier_uuids']);
-        $this->assertSame([$centrale->uuid], $medicines[$priced->uuid]['supplier_uuids']);
-        $this->assertSame('600.00', ((array) $medicines[$priced->uuid]['supplier_prices'])[$centrale->uuid]);
-        $this->assertSame([], $medicines[$unrelated->uuid]['supplier_uuids']);
+        return $this->actingAs($actor)->post('/pharmacy/stock/entries/batch', [
+            'lines' => [$this->stockLine($line, $overrides)],
+        ]);
     }
 
     public function test_pharmacy_workspace_requires_the_dynamic_pharmacy_view_permission(): void
@@ -205,12 +174,11 @@ class PharmacyWorkspaceTest extends TestCase
                 ->where('stock.medicines.0.lots', []));
     }
 
-    public function test_stock_initial_creates_a_lot_and_an_immutable_audited_movement(): void
+    public function test_a_received_line_creates_its_lot_and_an_audited_movement(): void
     {
         $medicine = $this->medicine();
 
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries', $this->entryPayload($medicine))
+        $this->enterReceived($this->pharmacist, $medicine)
             ->assertRedirect()
             ->assertSessionHas('status');
 
@@ -218,11 +186,11 @@ class PharmacyWorkspaceTest extends TestCase
         $movement = PharmacyStockMovement::query()->sole();
 
         $this->assertSame(12, $lot->quantity_on_hand);
-        $this->assertSame(PharmacyStockMovementType::Opening, $movement->type);
+        $this->assertSame(PharmacyStockMovementType::Entry, $movement->type);
         $this->assertSame(12, $movement->quantity_delta);
         $this->assertSame(12, $movement->balance_after);
-        $this->assertSame('Bon de livraison BL-001', $movement->origin);
-        $this->assertSame('Stock Pharmacie — Mampikony', $movement->destination);
+        $this->assertStringStartsWith('Réception ', $movement->origin);
+        $this->assertSame('Stock pharmacie', $movement->destination);
         $this->assertSame($this->pharmacist->id, $movement->performed_by);
         $this->assertDatabaseHas('audit_logs', [
             'user_id' => $this->pharmacist->id,
@@ -239,14 +207,9 @@ class PharmacyWorkspaceTest extends TestCase
         $medicine = $this->medicine();
         $lot = $this->lot($medicine, 10, 'LOT-EXISTING');
 
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries', $this->entryPayload($medicine, [
-                'operation' => 'ENTREE',
-                'lot_number' => 'LOT-EXISTING',
-                'expires_at' => $lot->expires_at->toDateString(),
-                'quantity' => 5,
-            ]))
-            ->assertRedirect();
+        $this->enterReceived($this->pharmacist, $medicine, 'LOT-EXISTING', 5)
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
 
         $movement = PharmacyStockMovement::query()->sole();
         $this->assertSame(15, $lot->fresh()->quantity_on_hand);
@@ -258,32 +221,13 @@ class PharmacyWorkspaceTest extends TestCase
     {
         $medicine = $this->medicine();
 
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries', $this->entryPayload($medicine, [
-                'quantity' => 0,
-                'origin' => '',
-                'destination' => '',
-                'reason' => '',
-            ]))
-            ->assertSessionHasErrors(['quantity', 'origin', 'destination', 'reason']);
+        $this->enterReceived($this->pharmacist, $medicine, overrides: [
+            'quantity' => 0,
+            'lot_number' => '',
+            'expires_at' => '',
+        ])->assertSessionHasErrors(['lines.0.quantity', 'lines.0.lot_number', 'lines.0.expires_at']);
 
         $this->assertDatabaseCount('medicine_lots', 0);
-        $this->assertDatabaseCount('pharmacy_stock_movements', 0);
-    }
-
-    public function test_stock_initial_is_rejected_for_an_existing_lot_without_partial_change(): void
-    {
-        $medicine = $this->medicine();
-        $lot = $this->lot($medicine, 8, 'LOT-EXISTING');
-
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries', $this->entryPayload($medicine, [
-                'lot_number' => 'LOT-EXISTING',
-                'expires_at' => $lot->expires_at->toDateString(),
-            ]))
-            ->assertSessionHasErrors('lot_number');
-
-        $this->assertSame(8, $lot->fresh()->quantity_on_hand);
         $this->assertDatabaseCount('pharmacy_stock_movements', 0);
     }
 
@@ -298,11 +242,7 @@ class PharmacyWorkspaceTest extends TestCase
         $user = User::factory()->create(['role_id' => $role->id]);
         $medicine = $this->medicine();
 
-        $this->actingAs($user)
-            ->post('/pharmacy/stock/entries', $this->entryPayload($medicine, [
-                'operation' => 'ENTREE',
-            ]))
-            ->assertForbidden();
+        $this->enterReceived($user, $medicine)->assertForbidden();
 
         $this->assertDatabaseCount('medicine_lots', 0);
         $this->assertDatabaseCount('pharmacy_stock_movements', 0);
@@ -375,10 +315,9 @@ class PharmacyWorkspaceTest extends TestCase
     public function test_validated_stock_movements_cannot_be_updated_or_deleted_through_models_or_bulk_queries(): void
     {
         $medicine = $this->medicine();
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries', $this->entryPayload($medicine))
-            ->assertRedirect();
+        $this->enterReceived($this->pharmacist, $medicine)->assertRedirect()->assertSessionHasNoErrors();
         $movement = PharmacyStockMovement::query()->sole();
+        $reason = $movement->reason;
 
         foreach ([
             fn () => $movement->update(['reason' => 'Réécriture interdite']),
@@ -394,7 +333,7 @@ class PharmacyWorkspaceTest extends TestCase
             }
         }
 
-        $this->assertSame('Stock initial contrôlé à la réception', $movement->fresh()->reason);
+        $this->assertSame($reason, $movement->fresh()->reason);
         $this->assertDatabaseCount('pharmacy_stock_movements', 1);
         $this->assertGreaterThan(0, AuditLog::query()->where('module', 'pharmacy')->count());
     }

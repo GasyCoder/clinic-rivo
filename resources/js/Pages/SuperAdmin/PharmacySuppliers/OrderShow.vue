@@ -20,11 +20,20 @@ const listHref = computed(() => `/super-admin/pharmacy-suppliers?site=${props.ta
 const folderHref = computed(() => `/super-admin/pharmacy-suppliers/${props.targetSite.code}/${props.supplier?.uuid}`);
 const orderHref = computed(() => `${folderHref.value}/orders/${props.order?.uuid}`);
 
-// Receiving is absent on purpose: it stays at the site's pharmacy (ADR-098).
+/*
+ * Receiving is absent on purpose: it stays at the site's pharmacy (ADR-098),
+ * and so is marking a line short — that is a reception finding, made with the
+ * delivery in hand (ADR-176). Recording the supplier's acknowledgement and
+ * writing off a backorder are buyer's acts, and the buyer is here (ADR-179).
+ */
+const confirmationName = computed(() => props.order?.supplier_confirmation?.document_name || 'confirmation');
 const links = computed(() => ({
     edit: `${orderHref.value}/edit`,
     submit: `${orderHref.value}/submit`,
     cancel: `${orderHref.value}/cancel`,
+    confirm: `${orderHref.value}/confirmation`,
+    confirmationDocument: `${orderHref.value}/confirmation/document?name=${encodeURIComponent(confirmationName.value)}`,
+    close: `${orderHref.value}/close`,
     supplier: folderHref.value,
     invoice: (uuid) => `${folderHref.value}/invoices/${uuid}`,
     newInvoice: `${folderHref.value}/invoices/create?order=${props.order?.uuid}`,

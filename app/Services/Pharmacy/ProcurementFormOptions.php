@@ -40,9 +40,7 @@ class ProcurementFormOptions
     public function orderMedicines(MedicineSupplier $supplier): array
     {
         $prices = $supplier->offers()->where('active_key', 'CURRENT')->pluck('quoted_price', 'medicine_id');
-        $supplied = $prices->keys()
-            ->merge($supplier->medicines()->pluck('medicines.id'))
-            ->unique();
+        $supplied = $supplier->suppliedMedicineIds();
 
         $medicines = Medicine::query()->where('active', true)
             ->when($supplied->isNotEmpty(), fn ($query) => $query->whereIn('id', $supplied))
@@ -105,6 +103,46 @@ class ProcurementFormOptions
                 'in_clinic_catalog' => false,
                 'product_group' => ProductLabel::normalize($item->medicine_label),
             ]);
+    }
+
+    /**
+     * ADR-182 — un produit **livré** se choisit dans le catalogue actif de
+     * celui qui livre, et nulle part ailleurs : ni dans le catalogue de la
+     * pharmacie, ni dans une liste « déjà tenu par la clinique ». Le livreur
+     * apporte ce que son fournisseur vend ; la liste le dit ligne à ligne, avec
+     * la référence et la présentation que le fournisseur leur donne.
+     *
+     * Une ligne déjà rattachée à un médicament de la clinique le désigne
+     * (`linked` vrai) : la choisir ne crée rien. Les autres feront entrer le
+     * produit au catalogue de la clinique, sous les droits de la commande
+     * (ADR-098). Lue par la réception et par l'entrée en stock : une seule
+     * définition, pour que les deux écrans proposent la même chose.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function deliveredCatalogLines(MedicineSupplier $supplier): array
+    {
+        $catalog = $supplier->catalogs()->where('active_key', 'ACTIVE')->first();
+
+        if (! $catalog) {
+            return [];
+        }
+
+        return $catalog->items()
+            ->with('linkedMedicine:id,uuid,active')
+            ->get()
+            ->map(fn (SupplierCatalogItem $item) => [
+                'catalog_item_uuid' => $item->uuid,
+                'code' => $item->reference,
+                'name' => $item->medicine_label,
+                'unit' => $item->presentation,
+                'family' => $item->family_label,
+                'quoted_price' => filled($item->supplier_price) ? Money::normalize((string) $item->supplier_price) : null,
+                'linked' => (bool) $item->linkedMedicine?->active,
+            ])
+            ->sortBy(fn (array $line) => mb_strtolower((string) $line['name']))
+            ->values()
+            ->all();
     }
 
     /** @return array{medicines: array<int, array<string, mixed>>, orders: array<int, array<string, mixed>>} */

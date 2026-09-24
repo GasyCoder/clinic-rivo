@@ -6,7 +6,7 @@ import Badge from '@/Components/UI/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import Button from '@/Components/UI/Button.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { ArrowLeft, Pencil } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
 
@@ -38,10 +38,7 @@ defineProps({
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="rg" variant="white-outline">
-                        <Icon name="edit" /><span class="ms-2">Modifier la fiche</span>
-                    </Button>
-                    <Button v-if="capabilities.can_record_entry" :as="Link" :href="`/pharmacy/stock/entries/create?medicine=${medicine.uuid}`" size="rg">
-                        <Icon name="plus" /><span class="ms-2">Enregistrer une entrée</span>
+                        <Pencil class="h-4 w-4" /><span class="ms-2">Modifier la fiche</span>
                     </Button>
                 </div>
             </div>
@@ -115,7 +112,7 @@ defineProps({
             <div class="flex flex-wrap items-center gap-2 px-5 py-3 text-sm">
                 <span class="text-slate-500">Nom standard :</span>
                 <span class="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{{ medicine.name }}</span>
-                <Icon v-if="supplierNames.length" name="arrow-left" class="text-slate-300" />
+                <ArrowLeft v-if="supplierNames.length" class="text-slate-300 h-4 w-4" />
                 <span v-for="entry in supplierNames" :key="entry.supplier_uuid" class="rounded-full border border-gray-200 px-3 py-1 text-slate-600 dark:border-gray-800 dark:text-slate-300" :title="entry.supplier">{{ entry.label }}</span>
             </div>
             <div v-if="supplierNames.length" class="overflow-x-auto border-t border-gray-100 dark:border-gray-900">

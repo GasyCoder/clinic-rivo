@@ -146,54 +146,8 @@ class StockWorkflowTest extends TestCase
         return User::factory()->create(['role_id' => $role->id]);
     }
 
-    private function delivery(array $entries): array
-    {
-        return [
-            // ADR-175 — la date d'entrée est celle du serveur ; le rangement
-            // et le motif se déduisent de la provenance quand ils manquent.
-            'origin' => 'Bon de livraison BL-204',
-            'entries' => $entries,
-        ];
-    }
-
-    public function test_a_delivery_of_several_medicines_is_recorded_at_once_or_not_at_all(): void
-    {
-        $paracetamol = $this->medicine('Paracétamol');
-        $amoxicillin = $this->medicine('Amoxicilline');
-        $this->lot($amoxicillin, 5, 'AMX-01');
-
-        // The second line contradicts the expiry already known for its lot: nothing is recorded.
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries/batch', $this->delivery([
-                ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYears(2)->toDateString(), 'quantity' => 10],
-                ['medicine_uuid' => $amoxicillin->uuid, 'operation' => 'ENTREE', 'lot_number' => 'AMX-01', 'expires_at' => now()->addYears(3)->toDateString(), 'quantity' => 4],
-            ]))
-            ->assertSessionHasErrors('entries.1.expires_at');
-        $this->assertFalse(MedicineLot::query()->where('lot_number', 'PARA-01')->exists());
-
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries/batch', $this->delivery([
-                ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYears(2)->toDateString(), 'quantity' => 10],
-                ['medicine_uuid' => $amoxicillin->uuid, 'operation' => 'ENTREE', 'lot_number' => 'AMX-01', 'expires_at' => now()->addYear()->toDateString(), 'quantity' => 4],
-            ]))
-            ->assertRedirect('/pharmacy/stock/entries/create?mode=manuelle')
-            ->assertSessionHas('status', '2 entrée(s) de stock enregistrée(s).');
-
-        $this->assertSame(10, MedicineLot::query()->where('lot_number', 'PARA-01')->value('quantity_on_hand'));
-        $this->assertSame(9, MedicineLot::query()->where('lot_number', 'AMX-01')->value('quantity_on_hand'));
-    }
-
-    public function test_the_same_lot_cannot_appear_twice_in_one_delivery(): void
-    {
-        $paracetamol = $this->medicine('Paracétamol');
-        $line = ['medicine_uuid' => $paracetamol->uuid, 'operation' => 'ENTREE', 'lot_number' => 'PARA-01', 'expires_at' => now()->addYear()->toDateString(), 'quantity' => 3];
-
-        $this->actingAs($this->pharmacist)
-            ->post('/pharmacy/stock/entries/batch', $this->delivery([$line, $line]))
-            ->assertSessionHasErrors('entries.1.lot_number');
-
-        $this->assertSame(0, PharmacyStockMovement::query()->count());
-    }
+    // ADR-182 — une livraison entrée d'un coup ou pas du tout se vérifie
+    // désormais sur les lignes réceptionnées : StockEntryFromReceptionTest.
 
     public function test_the_counting_sheet_adjusts_only_the_lots_whose_count_differs(): void
     {

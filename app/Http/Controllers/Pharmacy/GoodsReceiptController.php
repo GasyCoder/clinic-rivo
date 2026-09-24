@@ -14,7 +14,9 @@ use App\Models\MedicineLot;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Services\Catalog\CatalogActor;
+use App\Services\Pharmacy\ProcurementFormOptions;
 use App\Services\Pharmacy\PurchasesOverview;
+use App\Services\Pharmacy\SupplierAlternatives;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -93,6 +95,12 @@ class GoodsReceiptController extends Controller
             ->pluck('medicine_id')
             ->flip();
         $seeCost = $user->can('stock.cost.view');
+        // ADR-179 — ce que la commande attend encore, ruptures déduites : une
+        // ligne abandonnée n'a plus à être proposée à la réception.
+        $outstanding = $purchaseOrder->lines->filter(fn ($line) => $line->quantityRemaining() > 0);
+        // Point 2 — quand un article n'arrive pas, chez qui d'autre le trouver.
+        $alternatives = app(SupplierAlternatives::class)
+            ->forMedicines($outstanding->map->medicine, $purchaseOrder->supplier, $user);
 
         return Inertia::render('Pharmacy/GoodsReceipts/Create', [
             'order' => [
@@ -100,11 +108,21 @@ class GoodsReceiptController extends Controller
                 'order_number' => $purchaseOrder->order_number,
                 'ordered_at' => $purchaseOrder->ordered_at?->toIso8601String(),
                 'supplier' => $purchaseOrder->supplier->name,
+                'supplier_uuid' => $purchaseOrder->supplier->uuid,
                 'supplier_contact' => collect([$purchaseOrder->supplier->contact_name, $purchaseOrder->supplier->phone])->filter()->implode(' · '),
-                'lines' => $purchaseOrder->lines
-                    ->filter(fn ($line) => $line->quantityRemaining() > 0)
+                // ADR-179 — ce que la commande engage, pour que l'écart avec
+                // le livré se voie à la saisie de la facture. Le montant
+                // révèle le coût d'achat : réservé à `stock.cost.view`
+                // (ADR-174).
+                'total_amount' => $seeCost ? $purchaseOrder->total_amount : null,
+                'invoiced_amount' => $seeCost
+                    ? $purchaseOrder->invoices()->sum('total_amount')
+                    : null,
+                'supplier_confirmed_at' => $purchaseOrder->supplier_confirmed_at?->toIso8601String(),
+                'lines' => $outstanding
                     ->map(fn ($line) => [
                         'id' => $line->id,
+                        'medicine_uuid' => $line->medicine->uuid,
                         'medicine_name' => $line->medicine->catalogItem?->name,
                         'medicine_code' => $line->medicine->catalogItem?->code,
                         'unit' => $line->medicine->catalogItem?->unit,
@@ -122,11 +140,28 @@ class GoodsReceiptController extends Controller
                         'unit_price' => $seeCost ? $line->unit_price : null,
                     ])->values(),
             ],
+            // ADR-179 — chez qui d'autre trouver ce que ce fournisseur ne
+            // livrera pas. Le même produit, jamais un équivalent deviné.
+            'alternatives' => $alternatives,
+            // Point 4 — un article livré qui n'était pas commandé. La commande
+            // n'est pas réécrite : la réception constate ce qui est arrivé.
+            // ADR-182 — il se choisit dans le catalogue actif de ce fournisseur,
+            // jamais dans celui de la pharmacie.
+            'offOrderProducts' => $user->can('goods_receipts.create')
+                ? collect(app(ProcurementFormOptions::class)->deliveredCatalogLines($purchaseOrder->supplier))
+                    // ADR-174 — le prix d'achat reste confidentiel.
+                    ->map(fn (array $line) => [...$line, 'quoted_price' => $seeCost ? $line['quoted_price'] : null])
+                    ->all()
+                : [],
             'can' => [
                 'record_cost' => $user->can('stock.cost.record'),
                 'see_cost' => $seeCost,
                 'rename' => $user->can('medicines.name.update'),
                 'record_invoice' => $user->can('supplier_invoices.create'),
+                // ADR-182 — réceptionner suffit à faire entrer au catalogue le
+                // produit livré ; seul un refus individuel l'interdit encore.
+                'create_medicine' => CatalogActor::fromUser($user)->receivingDelivery()->can('medicines.create'),
+                'shortage' => $user->can('goods_receipts.create'),
             ],
         ]);
     }

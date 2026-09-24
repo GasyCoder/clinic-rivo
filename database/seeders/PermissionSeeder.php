@@ -271,6 +271,8 @@ class PermissionSeeder extends Seeder
         'purchase_orders.update' => 'Modifier une commande fournisseur en brouillon',
         'purchase_orders.submit' => 'Passer une commande fournisseur',
         'purchase_orders.cancel' => 'Annuler une commande fournisseur',
+        // ADR-179 — la confirmation que le fournisseur envoie sur une commande.
+        'purchase_orders.confirm' => 'Enregistrer la confirmation du fournisseur sur une commande (achats)',
         'purchase_orders.delete' => 'Mettre à la corbeille une commande fournisseur en brouillon',
         'purchase_orders.restore' => 'Restaurer une commande fournisseur mise à la corbeille',
         'goods_receipts.view' => 'Voir les réceptions de commandes',

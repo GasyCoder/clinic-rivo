@@ -7,6 +7,7 @@ use App\Actions\Pharmacy\ArchiveMedicineSupplierAction;
 use App\Actions\Pharmacy\ArchiveSupplierCatalogAction;
 use App\Actions\Pharmacy\ArchiveSupplierCatalogItemAction;
 use App\Actions\Pharmacy\CreateMedicineSupplierAction;
+use App\Actions\Pharmacy\LinkSupplierCatalogItemAction;
 use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
 use App\Actions\Pharmacy\RestoreSupplierCatalogAction;
 use App\Actions\Pharmacy\RestoreSupplierCatalogItemAction;
@@ -17,6 +18,7 @@ use App\Actions\Pharmacy\UpdateSupplierCatalogItemAction;
 use App\Actions\Pharmacy\UploadSupplierCatalogAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Pharmacy\UpdateSupplierCatalogItemRequest;
+use App\Models\Medicine;
 use App\Models\MedicineSupplier;
 use App\Models\MedicineSupplierOffer;
 use App\Models\PurchaseOrder;
@@ -358,6 +360,29 @@ class PharmacySupplierController extends Controller
         $action->execute($item, CatalogActor::fromRemoteRequest($request));
 
         return response()->json(['message' => 'Ligne restaurée.']);
+    }
+
+    /**
+     * ADR-181 — rattacher la ligne d'un fournisseur au produit que la clinique
+     * tient déjà sous un autre nom. Le portail pouvait défaire un
+     * rattachement sans jamais pouvoir en faire un : deux libellés différents
+     * y restaient donc deux produits, dont les prix ne se comparaient pas.
+     */
+    public function linkCatalogItem(Request $request, string $supplierUuid, string $catalogUuid, string $itemUuid, LinkSupplierCatalogItemAction $action): JsonResponse
+    {
+        $data = $request->validate([
+            'medicine_uuid' => ['required', 'uuid', 'exists:medicines,uuid'],
+            'change_reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        $item = $this->catalogItem($supplierUuid, $catalogUuid, $itemUuid);
+        $medicine = Medicine::query()->where('uuid', $data['medicine_uuid'])->firstOrFail();
+
+        // La permission est revue par l'Action, sur l'acteur distant :
+        // créer un premier prix et en réviser un ne sont pas le même droit.
+        $action->execute($item, $medicine, $data['change_reason'], CatalogActor::fromRemoteRequest($request));
+
+        return response()->json(['message' => 'Ligne rattachée au produit de la clinique, avec son prix fournisseur.']);
     }
 
     public function unlinkCatalogItem(Request $request, string $supplierUuid, string $catalogUuid, string $itemUuid, UnlinkSupplierCatalogItemAction $action): JsonResponse

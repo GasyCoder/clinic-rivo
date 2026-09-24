@@ -64,13 +64,22 @@ fois — une ligne refusée annule le fichier entier.
 Un fournisseur n'a **qu'un catalogue actif** à la fois. Un nouveau tarif est
 un nouveau catalogue, jamais un fichier remplacé : l'ancien reste lisible.
 
+**Mettre un catalogue à la corbeille retire aussi ses prix.** Les prix d'achat
+que ses lignes avaient donnés (en étant rattachées à un produit) cessent d'être
+proposés au comparateur et à la commande ; ils restent lisibles dans
+l'historique. Restaurer le catalogue les rétablit, sauf si un autre prix a été
+fixé entre-temps.
+
 ---
 
 ## 3 · Passer une commande d'achat
 
 **Où** : Pharmacie › Achats › *Nouvelle commande* (site), ou dossier du
 fournisseur › Commandes (portail). Le comparateur du portail montre, pour un
-même produit, le prix de chaque fournisseur et ce qu'il en reste en stock.
+même produit, le prix de chaque fournisseur et ce qu'il en reste en stock. Il
+se filtre sur ce qui se compare — **« Chez les deux fournisseurs »** — ou sur
+**« Seulement chez X »**, et par **famille** : la liste est rangée par famille,
+inutile de la parcourir de A à Z.
 
 Le formulaire propose **ce que ce fournisseur vend** : les produits déjà au
 catalogue de la clinique, et les lignes de son catalogue actif que la
@@ -130,8 +139,9 @@ constatée, pas encore rangée.
 
 ## 5 · Entrer la marchandise au stock
 
-**Où** : Pharmacie › Médicaments & stock › *Enregistrer une entrée*, ou le
-bouton **« Entrer en stock »** de la réception.
+**Où** : Pharmacie › Médicaments & stock › *Entrée en stock* (le bouton dit
+combien de lignes attendent : « N à ranger »), ou le bouton **« Entrer en
+stock »** de la réception.
 
 C'est ce geste qui crée les **lots** et les **mouvements de stock**, et qui
 rend la marchandise disponible. L'écran arrive **déjà rempli** de ce qui a
@@ -144,15 +154,30 @@ fois l'entrée validée, le mouvement est définitif : une erreur se corrige
 par un **ajustement** tracé, jamais en réécrivant l'historique. Une ligne
 n'entre qu'une seule fois.
 
-Le même écran porte un second onglet, **« Entrée sans commande »** : un don,
-un stock de départ à la mise en service, un dépannage d'un confrère. On y
-coche dans le catalogue de la pharmacie, et la provenance est obligatoire.
+**Rien d'autre n'entre au stock.** Un produit y arrive toujours par une
+commande réceptionnée : il n'y a plus d'entrée « sans commande » (décision du
+2026-09-24). Un stock de départ se reprend par l'import Excel du portail
+(Stock médicaments). Avant la première réception, cet écran est vide.
 
-> **Deux écrans, deux choses.** `/pharmacy/receipts/{…}` est **la
+**Plusieurs livraisons attendent ?** L'écran les liste à gauche, la plus
+ancienne d'abord : choisissez-en une, relisez ses lignes, puis **« Ranger cette
+livraison »** — seules ses lignes cochées partent. En haut, les cartes filtrent
+la livraison choisie : **Nouveaux produits** (jamais vendus : donnez-leur leur
+nom à la pharmacie et leur prix de vente) et **Sans prix de vente** (rangés
+sans prix, ils ne se vendent pas encore).
+
+**Un produit livré mais pas commandé** se constate à la réception (« Ajouter un
+article livré hors commande »), choisi dans **le catalogue du fournisseur**. Un
+produit que la pharmacie ne tient pas encore y entre à ce moment — le droit de
+réceptionner suffit — sans prix de vente : fixez-le à l'entrée en stock.
+
+> **Trois écrans, trois moments.** `/pharmacy/receipts/{…}` est **la
 > réception** : ce qui est arrivé, avec son état d'entrée en stock et sa
-> facture. `/pharmacy/stock/entries/create` est **le rangement** : ce qui
-> fait entrer la marchandise. Ce n'est pas une redondance — entre les deux,
-> la livraison est constatée mais pas encore disponible.
+> facture. `/pharmacy/stock/entries/create` est **le rangement** : ce qui a
+> été réceptionné et attend d'entrer au stock — une ligne rangée en disparaît.
+> `/pharmacy/stock` est **le stock** : ce que la pharmacie tient ; un produit
+> n'y apparaît qu'une fois rangé. Entre la réception et le rangement, la
+> livraison est constatée mais pas encore disponible.
 
 ---
 
@@ -271,10 +296,20 @@ Il a été créé par une commande (étape 3). Il est dans l'onglet
 « Commandés, jamais reçus », sans lot, sans stock et sans prix : il ne peut
 être ni délivré ni vendu.
 
-**L'écran d'entrée en stock me montre tout le catalogue**
-C'est l'onglet « Entrée sans commande ». Si vous arrivez d'une livraison déjà
-rangée, l'écran vous le dit et bascule sur cet onglet — il n'y a plus rien à
-faire entrer pour cette commande.
+**L'écran d'entrée en stock est vide**
+Rien n'a été réceptionné, ou tout est déjà rangé. Le stock n'entre que depuis
+une livraison réceptionnée : réceptionnez d'abord la commande (étape 4). Si
+vous arrivez d'une livraison déjà rangée, l'écran vous le dit.
+
+**Je veux entrer un don ou un dépannage d'un confrère**
+Ce n'est plus possible depuis la Pharmacie. Un stock de départ passe par
+l'import Excel du portail ; pour un don ou un dépannage, voyez avec
+l'administration.
+
+**Un fournisseur supprimé du catalogue apparaît encore au comparateur**
+Vérifiez qu'il n'a pas un autre catalogue actif. Les prix donnés par un
+catalogue à la corbeille ne sont plus proposés ; un prix saisi à la main pour
+ce fournisseur, lui, reste en cours.
 
 **Un médicament en stock n'est pas proposé à la vente**
 Il n'a pas de prix de vente (étape 6), ou il est épuisé.

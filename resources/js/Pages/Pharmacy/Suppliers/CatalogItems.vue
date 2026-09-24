@@ -5,7 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/UI/Badge.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import { Check, FileSpreadsheet, Plus, Search } from 'lucide-vue-next';
 import { formatMoney } from '@/utilities/pharmacyStatus';
 
 defineOptions({ layout: AppLayout });
@@ -71,7 +71,7 @@ const addToCatalogHref = (item) => `/pharmacy/medicines/create?${new URLSearchPa
         ]" />
 
         <div class="flex items-start gap-3">
-            <Icon name="file-xls" class="text-4xl leading-none text-emerald-500" />
+            <FileSpreadsheet class="text-4xl leading-none text-emerald-500 h-4 w-4" />
             <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                     <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">{{ catalog.original_name }}</h1>
@@ -98,7 +98,7 @@ const addToCatalogHref = (item) => `/pharmacy/medicines/create?${new URLSearchPa
                 </div>
                 <label class="relative block lg:w-80">
                     <span class="sr-only">Rechercher un produit</span>
-                    <Icon class="pointer-events-none absolute inset-y-0 start-3 my-auto text-lg text-slate-400" name="search" />
+                    <Search class="pointer-events-none absolute inset-y-0 start-3 my-auto text-slate-400 h-4 w-4" />
                     <input v-model="search" type="search" class="h-10 w-full rounded-lg border border-gray-200 bg-gray-50 ps-10 pe-3 text-sm outline-none focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-900 dark:text-white" placeholder="Référence ou nom…">
                 </label>
             </div>
@@ -120,7 +120,7 @@ const addToCatalogHref = (item) => `/pharmacy/medicines/create?${new URLSearchPa
                             </td>
                             <td class="px-4 py-3.5 text-end font-semibold tabular-nums text-slate-800 dark:text-white">{{ formatMoney(item.supplier_price) }}</td>
                             <td class="px-5 py-3.5">
-                                <Badge v-if="item.linked_medicine_uuid" tone="success"><Icon name="check" />{{ item.linked_medicine_name }}</Badge>
+                                <Badge v-if="item.linked_medicine_uuid" tone="success"><Check class="h-4 w-4" />{{ item.linked_medicine_name }}</Badge>
                                 <div v-else-if="can.link || can.add_to_catalog" class="flex flex-wrap items-center gap-2">
                                     <form v-if="can.link && medicines.length" class="flex items-center gap-1.5" @submit.prevent="submitLink(item)">
                                         <select v-model="linkForm(item).medicine_uuid" required class="h-9 max-w-56 rounded-lg border border-gray-200 bg-white px-2 text-sm dark:border-gray-800 dark:bg-gray-950 dark:text-white" :aria-label="`Médicament de la clinique correspondant à ${item.medicine_label}`">
@@ -130,7 +130,7 @@ const addToCatalogHref = (item) => `/pharmacy/medicines/create?${new URLSearchPa
                                         <button type="submit" class="h-9 rounded-lg bg-primary-600 px-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50" :disabled="linkForm(item).processing || !linkForm(item).medicine_uuid">Rattacher</button>
                                     </form>
                                     <Link v-if="can.add_to_catalog" :href="addToCatalogHref(item)" class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-sm font-semibold text-slate-700 hover:border-primary-400 hover:text-primary-600 dark:border-gray-800 dark:text-slate-200">
-                                        <Icon name="plus" />Ajouter au catalogue
+                                        <Plus class="h-4 w-4" />Ajouter au catalogue
                                     </Link>
                                     <p v-if="linkForm(item).errors.medicine_uuid || linkForm(item).errors.quoted_price" class="w-full text-xs text-red-600">{{ linkForm(item).errors.medicine_uuid || linkForm(item).errors.quoted_price }}</p>
                                 </div>

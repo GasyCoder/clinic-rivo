@@ -117,7 +117,9 @@ class RecordReceivedStockAction
             ]);
         }
 
-        if ($quantity !== $line->quantity_received) {
+        // ADR-179 — un article livré hors commande ne solde aucune ligne de
+        // commande : rien à borner, rien à mettre à jour en amont.
+        if ($quantity !== $line->quantity_received && $line->purchase_order_line_id !== null) {
             $orderLine = PurchaseOrderLine::query()->lockForUpdate()->findOrFail($line->purchase_order_line_id);
             $received = $orderLine->quantity_received - $line->quantity_received + $quantity;
 

@@ -108,13 +108,23 @@ class EmploymentContractController extends Controller
     {
         $contract = $action->execute($request->validated(), $request->user());
 
+        // ADR-184 — un stage ramène à la liste des stages, où il apparaît.
+        if ($contract->isInternship()) {
+            return to_route('administration.internships.index', ['status' => 'all'])
+                ->with('status', "Stage de {$contract->employee->last_name} enregistré ({$contract->internshipField?->label}).");
+        }
+
         return to_route('administration.contracts.index')
             ->with('status', "Contrat {$contract->contractType->label} enregistré.");
     }
 
     public function update(UpdateContractRequest $request, EmploymentContract $contract, UpdateEmploymentContractAction $action): RedirectResponse
     {
-        $action->execute($contract, $request->validated(), $request->user());
+        $contract = $action->execute($contract, $request->validated(), $request->user());
+
+        if ($contract->isInternship()) {
+            return to_route('administration.internships.index', ['status' => 'all'])->with('status', 'Stage mis à jour.');
+        }
 
         return to_route('administration.contracts.index')->with('status', 'Contrat mis à jour.');
     }

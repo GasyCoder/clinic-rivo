@@ -27,7 +27,7 @@ class HrReferenceController extends Controller
     {
         Gate::forUser($request->user())->authorize('viewAny', HrReferenceValue::class);
 
-        // ADR-183 — départements et fonctions ont leur propre module : les
+        // ADR-188 — départements et fonctions ont leur propre module : les
         // lister ici aussi donnerait deux écrans pour la même liste.
         $types = collect(HrReferenceType::cases())
             ->reject(fn (HrReferenceType $type) => in_array($type, [HrReferenceType::Department, HrReferenceType::JobTitle], true));

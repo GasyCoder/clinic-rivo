@@ -7,7 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * ADR-182 — l'auteur d'un geste fait depuis le portail, pour une fiche qui
+ * ADR-187 — l'auteur d'un geste fait depuis le portail, pour une fiche qui
  * affiche son auteur.
  *
  * Le Super Admin distant n'a pas de compte sur le site : la colonne `*_by`

@@ -140,7 +140,7 @@ export const CLINIC_WORKSPACES = [
             { code: 'hr-planning', icon: CalendarRange, label: 'Planning', link: '/administration/planning', activeLinks: ['/administration/planning'], permission: 'planning.view' },
             { code: 'hr-reports', icon: BarChart3, label: 'Rapports', link: '/administration/reports', activeLinks: ['/administration/reports'], permission: 'hr_reports.view' },
             { code: 'hr-block-credit', icon: Wallet, label: 'Crédit Bloc', link: '/administration/staff-block-credits', activeLinks: ['/administration/staff-block-credits'], permission: 'staff_block_credits.view' },
-            // ADR-183 — les deux référentiels de structure ont leur module.
+            // ADR-188 — les deux référentiels de structure ont leur module.
             { code: 'hr-departments', icon: Network, label: 'Départements', link: '/administration/departments', activeLinks: ['/administration/departments'], permission: 'hr_settings.view' },
             { code: 'hr-job-titles', icon: BriefcaseBusiness, label: 'Fonctions', link: '/administration/job-titles', activeLinks: ['/administration/job-titles'], permission: 'hr_settings.view' },
             { code: 'hr-settings', icon: Settings, label: 'Paramètres', link: '/administration/settings', activeLinks: ['/administration/settings'], permission: 'hr_settings.view' },

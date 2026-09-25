@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * ADR-182 — le Super Admin du portail gère les Ressources humaines d'un site
+ * ADR-187 — le Super Admin du portail gère les Ressources humaines d'un site
  * par son API : mêmes routes, mêmes droits, mêmes actions que /administration.
  */
 class SiteHrThroughPortalApiTest extends TestCase

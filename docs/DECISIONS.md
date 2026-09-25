@@ -14024,7 +14024,7 @@ chirurgien lui-même, il coche Moi-même, mais il peut ajouter d'autres ; si c'e
 ou Médecine, il sélectionne les disponibles, un, deux, trois… » ; trois arbitrages : un principal
 et des aides, disponibilité selon le planning RH, profil métier dans le rôle Chirurgie)
 ; le lien compte ↔ fiche Employé ne se pose plus depuis le formulaire Employé mais depuis
-« Utilisateurs », à la création du compte (**ADR-183**).
+« Utilisateurs », à la création du compte (**ADR-188**).
 
 **Complète l'ADR-048** (la programmation du bloc), **amende l'ADR-033** (le rôle SURGERY reçoit
 ses profils métier) et s'appuie sur **l'ADR-066** (planning RH). Le CDC nomme les fonctions du bloc
@@ -16496,7 +16496,7 @@ Les pages hors mise en page principale (connexion, feuilles plein écran) n'en o
 
 ---
 
-# ADR-181 — Le Super Admin du portail détient réellement toutes les permissions
+# ADR-186 — Le Super Admin du portail détient réellement toutes les permissions
 
 **Status:** ACCEPTED (2026-09-25 — signalement du propriétaire : « le Super Admin contrôle tout, pourquoi ne voit-il pas certains modules ? »)
 
@@ -16546,7 +16546,7 @@ les droits autrement, est à décider avant la mise en production.
 
 ---
 
-# ADR-182 — Le Super Admin gère les Ressources humaines d'un site depuis le portail
+# ADR-187 — Le Super Admin gère les Ressources humaines d'un site depuis le portail
 
 **Status:** ACCEPTED (2026-09-25 — arbitrage explicite du propriétaire : « Consulter et gérer », après
 signalement de l'écart avec le CDC)
@@ -16642,12 +16642,12 @@ RH du site, la barre RH et cette page.
 ## Signalé, non tranché
 
 - Les écrans RH sont encore en DashWind : seules leurs adresses ont été touchées (ADR-099).
-- Les pages imprimées affichent la marque du portail (ADR-179), le nom du site étant, lui, celui du site.
-- L'en-tête des droits transmis (ADR-181) grossit avec le catalogue : même réserve.
+- Les pages imprimées affichent la marque du portail (ADR-184), le nom du site étant, lui, celui du site.
+- L'en-tête des droits transmis (ADR-186) grossit avec le catalogue : même réserve.
 
 ---
 
-# ADR-183 — Départements et Fonctions en modules ; le compte se relie à sa fiche depuis « Utilisateurs »
+# ADR-188 — Départements et Fonctions en modules ; le compte se relie à sa fiche depuis « Utilisateurs »
 
 **Status:** ACCEPTED (2026-09-25 — exigence explicite du propriétaire : « on va créer modules
 Départements, Fonctions, et je pense on doit supprimer Compte de connexion car dans la RH rien à voir,
@@ -16660,7 +16660,7 @@ rattachement d'un compte à une fiche Employé : les règles ci-dessous sont cel
 
 ## Départements et Fonctions, chacun son module
 
-Deux entrées dans le menu RH, au site comme au portail (ADR-182) : `/administration/departments` et
+Deux entrées dans le menu RH, au site comme au portail (ADR-187) : `/administration/departments` et
 `/administration/job-titles`. Ils gèrent le **même référentiel** que les Paramètres RH
 (`hr_reference_values`, types `DEPARTMENT` et `JOB_TITLE`), avec les **mêmes actions** et les **mêmes
 droits** (`hr_settings.*`) — aucune permission nouvelle, aucune migration.

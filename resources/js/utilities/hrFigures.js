@@ -2,7 +2,7 @@
  * ADR-066 — les chiffres RH, dans le même ordre et avec les mêmes mots partout
  * où ils paraissent : l'accueil du site, l'espace RH, le portail. `href` est
  * l'adresse de la liste derrière le chiffre, telle qu'elle est sur le site ;
- * le portail la ramène à l'espace RH d'un site (`mapHrPath`, ADR-182).
+ * le portail la ramène à l'espace RH d'un site (`mapHrPath`, ADR-187).
  *
  * `todo` : ce qui attend une décision. `headcount` : l'effectif du jour.
  * `label` est la phrase complète ; `tile` tient sur une ligne dans une tuile ;

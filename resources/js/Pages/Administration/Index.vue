@@ -34,7 +34,7 @@ defineOptions({ layout: AppLayout });
 
 /**
  * L'accueil RH d'un site (ADR-066), le même sur le site et sur le portail
- * (ADR-182) : ce qui attend une décision, l'effectif, puis chaque rubrique.
+ * (ADR-187) : ce qui attend une décision, l'effectif, puis chaque rubrique.
  */
 const props = defineProps({
     summary: { type: Object, required: true },

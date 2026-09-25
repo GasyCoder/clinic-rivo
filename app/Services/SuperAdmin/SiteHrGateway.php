@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 /**
- * ADR-182 — le passage du portail vers l'espace RH d'un site.
+ * ADR-187 — le passage du portail vers l'espace RH d'un site.
  *
  * Le portail n'a ni les données ni les règles RH : il transmet la requête du
  * Super Admin à `/api/v1/super-admin/hr/...` du site, avec son identité et ses

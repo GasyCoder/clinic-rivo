@@ -49,7 +49,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'site.type' => EnsureSiteType::class,
             'rivo.site-api' => AuthenticateRivoSiteApi::class,
             'api.idempotent' => EnsureApiIdempotency::class,
-            // ADR-182 — les Ressources humaines d'un site, gérées depuis le portail.
+            // ADR-187 — les Ressources humaines d'un site, gérées depuis le portail.
             'rivo.remote-actor' => ActAsRemoteSuperAdmin::class,
             'rivo.hr-screens' => ServeHrScreensAsJson::class,
         ]);

@@ -368,7 +368,7 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::delete('/workspaces/roles/{site}/catalog/{permission}', [SuperAdminRoleController::class, 'destroyPermission'])->name('workspaces.permissions.destroy')->middleware('can:permissions.delete');
 
         Route::get('/workspaces/hr', SuperAdminHumanResourcesController::class)->name('workspaces.hr')->middleware('can:employees.view');
-        // ADR-182 — l'espace RH d'un site, géré depuis le portail par son API :
+        // ADR-187 — l'espace RH d'un site, géré depuis le portail par son API :
         // les écrans et les règles de /administration, relayés tels quels.
         Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/rh/{path?}', SiteHumanResourcesController::class)
             ->where('path', '.*')
@@ -389,7 +389,7 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::get('/trash', [TrashController::class, 'index'])->name('trash.index')->middleware('can:trash.view');
     Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore')->middleware('can:trash.restore');
 
-    // ADR-182 — l'espace RH, partagé avec l'API du portail (routes/hr.php).
+    // ADR-187 — l'espace RH, partagé avec l'API du portail (routes/hr.php).
     Route::prefix('administration')->name('administration.')->group(base_path('routes/hr.php'));
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
     // ADR-098 — Pharmacie : une vraie page par tâche, le menu latéral comme

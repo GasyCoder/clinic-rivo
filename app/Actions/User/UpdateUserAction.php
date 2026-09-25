@@ -94,7 +94,7 @@ class UpdateUserAction
 
             $user->save();
 
-            // ADR-183 — personnel clinique relié à sa fiche Employé, ou externe.
+            // ADR-188 — personnel clinique relié à sa fiche Employé, ou externe.
             $this->employeeLinker->apply($user, $data, $actorUser);
 
             $profileSync = $this->syncProfilePermissions->execute(

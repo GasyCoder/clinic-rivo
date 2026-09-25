@@ -16,7 +16,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 /**
- * ADR-182 — le Super Admin gère les Ressources humaines d'un site depuis le
+ * ADR-187 — le Super Admin gère les Ressources humaines d'un site depuis le
  * portail : les écrans du site, relayés par son API, jamais par sa base.
  */
 class SiteHumanResourcesPortalTest extends TestCase

@@ -663,18 +663,18 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Le gardien constate une sortie déjà prononcée par la Caisse, ne la décide jamais ; un seul contrôle par passage, aucun motif exigé
 - [ ] Journal et rapports de gardiennage (`guarding.reports.*`) — catalogue seedé, écran non construit
 - [x] Rapports RH
-- [x] RH d'un site gérées depuis le portail : les mêmes écrans, règles et actions que l'accueil RH du site, par son API, chaque geste signé du Super Admin (ADR-182)
-- [x] Page « Ressources humaines » du portail refaite en shadcn : vue d'ensemble avec « À traiter » et comparatif des sites (chaque chiffre ouvre sa liste), vue d'un site avec accès direct aux rubriques, site gardé dans l'adresse (ADR-182)
-- [x] Accueil RH en shadcn : compteurs compacts en deux groupes, rubriques rangées en Personnel / Temps de travail / Pilotage, cartes avec bordure et ombre, pastille de ce qui attend une décision (ADR-099, ADR-182)
+- [x] RH d'un site gérées depuis le portail : les mêmes écrans, règles et actions que l'accueil RH du site, par son API, chaque geste signé du Super Admin (ADR-187)
+- [x] Page « Ressources humaines » du portail refaite en shadcn : vue d'ensemble avec « À traiter » et comparatif des sites (chaque chiffre ouvre sa liste), vue d'un site avec accès direct aux rubriques, site gardé dans l'adresse (ADR-187)
+- [x] Accueil RH en shadcn : compteurs compacts en deux groupes, rubriques rangées en Personnel / Temps de travail / Pilotage, cartes avec bordure et ombre, pastille de ce qui attend une décision (ADR-099, ADR-187)
 - [x] Rubriques de l'accueil RH arrangeables : « Personnaliser », glisser-déposer d'une colonne à l'autre, flèches pour le tactile et le clavier, disposition gardée sur le poste, « Réinitialiser »
 - [x] Liste des employés en shadcn-vue, au site comme au portail : bouton « Modèle Excel » à côté d'Importer et Exporter (même droit que l'import), cartes-compteurs qui filtrent (Tous, Actifs, Inactifs, Archivés, avec leur part), recherche lancée d'elle-même, pastilles d'état, contacts cliquables, dates en jj/mm/aaaa, actions en icônes, état vide qui propose de créer, d'importer ou de télécharger le modèle ; pagination RH en shadcn
-- [x] Création et modification d’un employé en shadcn-vue, au site comme au portail : parcours guidé en cinq étapes avec icônes, champs shadcn (listes, dates, cases), référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ fautif, en-tête « Créer un employé » avec sa vraie icône (ADR-099, ADR-182)
-- [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-182)
+- [x] Création et modification d’un employé en shadcn-vue, au site comme au portail : parcours guidé en cinq étapes avec icônes, champs shadcn (listes, dates, cases), référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ fautif, en-tête « Créer un employé » avec sa vraie icône (ADR-099, ADR-187)
+- [ ] Autres écrans RH à passer en shadcn-vue (contrats, présences, congés, planning, rapports, paramètres, documents, crédit Bloc) — seules leurs adresses ont été touchées (ADR-187)
 - [x] Espace RH : menu latéral en groupe, panneau « à traiter » sur la Vue d'ensemble, accueil et liste des employés refondus
 - [x] Présences et congés : chevauchements refusés pour un même employé
 - [x] Fiche Employé reliée au compte de connexion (un compte, une fiche) : son planning RH dit quand la personne est disponible, sans créer de compte ni donner de droit (ADR-168)
-- [x] Modules « Départements » et « Fonctions » dans le menu RH, au site comme au portail : liste avec nombre de dossiers, compteurs-filtres, création (code déduit du libellé), modification, archivage avec motif, restauration — même référentiel et mêmes droits que les Paramètres RH (ADR-183)
-- [x] « Compte de connexion » retiré du formulaire Employé ; à la création d'un compte, choix « Personnel clinique » (fiche Employé, nom et email proposés) ou « Externe », dans l'assistant du portail et l'écran Utilisateurs du site ; une fiche, un compte ; audité (ADR-183)
+- [x] Modules « Départements » et « Fonctions » dans le menu RH, au site comme au portail : liste avec nombre de dossiers, compteurs-filtres, création (code déduit du libellé), modification, archivage avec motif, restauration — même référentiel et mêmes droits que les Paramètres RH (ADR-188)
+- [x] « Compte de connexion » retiré du formulaire Employé ; à la création d'un compte, choix « Personnel clinique » (fiche Employé, nom et email proposés) ou « Externe », dans l'assistant du portail et l'écran Utilisateurs du site ; une fiche, un compte ; audité (ADR-188)
 - [x] Formulaire Employé (création et modification) en shadcn-vue : parcours en cinq étapes avec icônes, référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ
 
 ---
@@ -747,8 +747,8 @@ admin.rivo.mg
 - [x] Panneaux redimensionnables à la barre (clavier, double-clic, largeur conservée par poste) sur le socle des rôles et les exceptions par compte
 - [x] Choix du rôle et du compte en fenêtre cherchable, colonne de gauche rendue aux catégories et filtre propre au rail (ADR-101)
 - [x] Les droits qui agissent dans plusieurs modules le disent dans leur libellé et leur catégorie : chercher « hospitalisation » trouve enfin `medical_discharge.create`, qui gouverne « Prononcer la sortie » d'un séjour (ADR-151)
-- [x] Le Super Admin du portail détient réellement toutes les permissions : rétabli à chaque `php artisan migrate` du portail — 44 droits lui manquaient, dont les canevas de documents RH (ADR-181)
-- [ ] Taille de l'en-tête `X-Rivo-Actor-Permissions` (7,7 Ko, limite nginx par défaut 8 Ko) — tampon à élargir ou transmission à revoir avant la production (ADR-181)
+- [x] Le Super Admin du portail détient réellement toutes les permissions : rétabli à chaque `php artisan migrate` du portail — 44 droits lui manquaient, dont les canevas de documents RH (ADR-186)
+- [ ] Taille de l'en-tête `X-Rivo-Actor-Permissions` (7,7 Ko, limite nginx par défaut 8 Ko) — tampon à élargir ou transmission à revoir avant la production (ADR-186)
 - [x] Un 403 nomme le droit manquant et où l'accorder ; s'il s'agit d'un refus nominatif, il le dit et renvoie vers « Exceptions par compte » — vaut pour toutes les routes gardées par `can:` (ADR-154)
 - [x] Chaque case du socle porte « Refusé à N comptes » quand des comptes du rôle la refusent individuellement : cocher un droit sans effet visible ne se lit plus comme un défaut (ADR-153, ADR-033)
 - [x] L'éditeur de socle signale les comptes du rôle qui portent des exceptions individuelles : un socle à zéro ne se lit plus « personne n'y a accès » alors qu'un ALLOW nominatif l'emporte (ADR-150, ADR-033)

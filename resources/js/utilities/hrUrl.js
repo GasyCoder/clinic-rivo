@@ -2,7 +2,7 @@ import { usePage } from '@inertiajs/vue3';
 import { HR_SITE_BASE, mapHrPath } from './hrPath.js';
 
 /**
- * ADR-182 — l'adresse d'un écran RH, où qu'il soit affiché.
+ * ADR-187 — l'adresse d'un écran RH, où qu'il soit affiché.
  *
  * Les écrans RH sont les mêmes sur le site (`/administration/...`) et sur le
  * portail, qui les sert pour un site précis (`/super-admin/sites/A/rh/...`).

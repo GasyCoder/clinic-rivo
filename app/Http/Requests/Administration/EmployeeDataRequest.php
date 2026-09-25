@@ -143,7 +143,7 @@ abstract class EmployeeDataRequest extends FormRequest
             'new_address_label' => ['nullable', 'string', 'max:255'],
             'observation' => ['nullable', 'string', 'max:5000'],
             'active' => ['required', 'boolean'],
-            // ADR-183 — le compte de connexion se relie depuis « Utilisateurs »,
+            // ADR-188 — le compte de connexion se relie depuis « Utilisateurs »,
             // à la création du compte, plus depuis la fiche : refusé en clair
             // plutôt qu'ignoré, pour qu'un ancien client le sache.
             'user_uuid' => ['prohibited'],

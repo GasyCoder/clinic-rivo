@@ -17,7 +17,7 @@ const props = defineProps({
     roles: Array,
     permissionCatalog: Array,
     filters: Object,
-    /** ADR-183 — les fiches Employé qu'un compte peut relier. */
+    /** ADR-188 — les fiches Employé qu'un compte peut relier. */
     employees: { type: Array, default: () => [] },
 });
 
@@ -42,7 +42,7 @@ const form = useForm({
     password_confirmation: '',
     permission_overrides: [],
     sync_profile_permissions: false,
-    // ADR-183 — personnel clinique (une fiche Employé) ou externe : choisi, jamais par défaut.
+    // ADR-188 — personnel clinique (une fiche Employé) ou externe : choisi, jamais par défaut.
     account_kind: '',
     employee_uuid: '',
 });

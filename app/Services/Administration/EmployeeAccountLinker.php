@@ -10,7 +10,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Validation\ValidationException;
 
 /**
- * ADR-183 — relier un compte de connexion à la fiche Employé de la personne.
+ * ADR-188 — relier un compte de connexion à la fiche Employé de la personne.
  *
  * Le lien (`employees.user_id`, ADR-168) se pose désormais à la création ou à
  * la modification du compte : « Personnel clinique » choisit une fiche,

@@ -41,10 +41,10 @@ import { cn } from '@/lib/cn';
 import { hrUrl } from '@/utilities/hrUrl';
 
 /**
- * ADR-066 / ADR-182 — le dossier Employé, en cinq étapes, identique au site et
+ * ADR-066 / ADR-187 — le dossier Employé, en cinq étapes, identique au site et
  * sur le portail. Seuls le genre, le nom et le matricule sont exigés ; le reste
  * se complète plus tard depuis la fiche. Le compte de connexion ne se relie plus
- * ici mais depuis « Utilisateurs », à la création du compte (ADR-183).
+ * ici mais depuis « Utilisateurs », à la création du compte (ADR-188).
  */
 const props = defineProps({
     form: Object,

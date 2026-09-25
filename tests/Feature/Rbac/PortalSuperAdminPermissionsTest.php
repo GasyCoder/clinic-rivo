@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * ADR-181 — le Super Admin du portail détient réellement toutes les
+ * ADR-186 — le Super Admin du portail détient réellement toutes les
  * permissions. Constat : 18 permissions n'existaient pas dans la base du
  * portail et 26 n'étaient pas accordées au rôle ; « Canevas de documents »
  * avait disparu de son menu, et le site refusait les commandes

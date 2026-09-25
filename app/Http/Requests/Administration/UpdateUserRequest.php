@@ -27,7 +27,7 @@ class UpdateUserRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // ADR-183 — personnel clinique (une fiche Employé) ou externe.
+            // ADR-188 — personnel clinique (une fiche Employé) ou externe.
             ...AccountKindRules::rules(creating: false),
             'name' => ['required', 'string', 'max:255'],
             'email' => [

@@ -73,7 +73,7 @@ const restore = (item) => router.post(hrUrl(`/administration/settings/${item.uui
     <div class="space-y-5">
         <HrPageHeader eyebrow="Référentiels et règles configurables" title="Paramètres RH" description="Gérez les types de contrat, de congé et d’attestation. Les règles de congé sont appliquées par le serveur, sans calcul dupliqué dans les formulaires." icon="setting" tone="slate" />
 
-        <!-- ADR-183 — départements et fonctions ont chacun leur module. -->
+        <!-- ADR-188 — départements et fonctions ont chacun leur module. -->
         <nav class="grid gap-3 sm:grid-cols-2" aria-label="Structure RH">
             <Link
                 v-for="module in [{ href: hrUrl('/administration/departments'), label: 'Départements', hint: 'Services de la clinique', icon: Network }, { href: hrUrl('/administration/job-titles'), label: 'Fonctions', hint: 'Postes et métiers', icon: BriefcaseBusiness }]"

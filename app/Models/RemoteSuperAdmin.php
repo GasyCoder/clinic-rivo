@@ -6,7 +6,7 @@ use Illuminate\Support\Collection;
 use LogicException;
 
 /**
- * ADR-182 — le Super Administrateur du portail, tel qu'un site le voit
+ * ADR-187 — le Super Administrateur du portail, tel qu'un site le voit
  * pendant un seul appel d'API.
  *
  * Le portail gère les Ressources humaines d'un site par son API (CDC §2,

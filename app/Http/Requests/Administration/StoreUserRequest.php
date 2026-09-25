@@ -27,7 +27,7 @@ class StoreUserRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // ADR-183 — personnel clinique (une fiche Employé) ou externe.
+            // ADR-188 — personnel clinique (une fiche Employé) ou externe.
             ...AccountKindRules::rules(creating: true),
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],

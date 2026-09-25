@@ -6,7 +6,7 @@ use App\Enums\AccountKind;
 use Illuminate\Validation\Rule;
 
 /**
- * ADR-183 — la même règle pour tous les chemins qui créent ou modifient un
+ * ADR-188 — la même règle pour tous les chemins qui créent ou modifient un
  * compte : l'API du site (portail) et l'écran Utilisateurs du site.
  *
  * À la création, le choix est obligatoire : un compte reçoit ce qu'on lui a

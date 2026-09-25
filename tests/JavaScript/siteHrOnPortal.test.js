@@ -5,7 +5,7 @@ import path from 'node:path';
 import { HR_SITE_BASE, mapHrPath } from '../../resources/js/utilities/hrPath.js';
 
 /**
- * ADR-182 — les écrans RH du site sont aussi ceux du portail. Ils écrivent
+ * ADR-187 — les écrans RH du site sont aussi ceux du portail. Ils écrivent
  * leurs adresses telles qu'elles sont sur le site ; `hrUrl` les ramène à la
  * base où l'écran est ouvert.
  */
@@ -148,7 +148,7 @@ test('the employee form and its pages are written in shadcn and keep their HR ad
     assert.match(form, /@select="focusField"/);
 });
 
-test('Départements et Fonctions sont deux modules RH, servis aussi au portail (ADR-183)', () => {
+test('Départements et Fonctions sont deux modules RH, servis aussi au portail (ADR-188)', () => {
     const gateway = fs.readFileSync('app/Services/SuperAdmin/SiteHrGateway.php', 'utf8');
     const menu = fs.readFileSync('resources/js/utilities/clinicWorkspaces.js', 'utf8');
     const page = fs.readFileSync('resources/js/Pages/Administration/HrStructure/Index.vue', 'utf8');

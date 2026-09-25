@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Route;
 
 /*
  * Les Ressources humaines d'un site (ADR-066), écrites une seule fois et
- * servies deux fois (ADR-182) :
+ * servies deux fois (ADR-187) :
  *
  *   /administration/...               l'espace RH du site, pour ses comptes
  *   /api/v1/super-admin/hr/...        le même espace, pour le Super Admin du
@@ -93,7 +93,7 @@ Route::get('/reports', [HrReportController::class, 'index'])->name('reports.inde
 Route::get('/reports/export', [HrReportController::class, 'export'])->name('reports.export')->middleware('can:hr_reports.export');
 Route::get('/reports/print', [HrReportController::class, 'print'])->name('reports.print')->middleware('can:hr_reports.print');
 
-// ADR-183 — Départements et Fonctions, chacun son module : même référentiel et
+// ADR-188 — Départements et Fonctions, chacun son module : même référentiel et
 // mêmes droits que les Paramètres RH, le type se lisant sur l'adresse.
 foreach (['departments', 'job-titles'] as $structure) {
     Route::prefix($structure)->name("{$structure}.")->controller(HrStructureController::class)->group(function (): void {

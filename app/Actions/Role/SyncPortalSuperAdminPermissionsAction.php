@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * ADR-181 — sur le portail, le rôle SUPER_ADMIN détient réellement toutes les
+ * ADR-186 — sur le portail, le rôle SUPER_ADMIN détient réellement toutes les
  * permissions.
  *
  * Les ADR-025, ADR-027 et ADR-064 l'affirment (« il reçoit automatiquement

@@ -51,7 +51,7 @@ test('la page ne choisit plus un chirurgien par le nom de son rôle', () => {
     assert.match(header, /aide\$\{assistants\.value\.length > 1 \? 's' : ''\}/);
 });
 
-test('le compte se relie à sa fiche depuis « Utilisateurs », plus depuis le formulaire RH (ADR-183)', () => {
+test('le compte se relie à sa fiche depuis « Utilisateurs », plus depuis le formulaire RH (ADR-188)', () => {
     const picker = fs.readFileSync('resources/js/Components/Users/AccountKindPicker.vue', 'utf8');
 
     assert.doesNotMatch(employeeForm, /Compte de connexion"|user_uuid/);

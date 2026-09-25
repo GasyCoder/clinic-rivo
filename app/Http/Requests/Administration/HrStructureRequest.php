@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
- * ADR-183 — un département ou une fonction, saisi depuis son module.
+ * ADR-188 — un département ou une fonction, saisi depuis son module.
  *
  * Le type ne vient jamais du navigateur : c'est l'adresse (« /departments »,
  * « /job-titles ») qui le fixe. Le code, s'il est laissé vide, est tiré du

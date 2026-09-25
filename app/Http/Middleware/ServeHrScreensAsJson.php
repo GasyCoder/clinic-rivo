@@ -10,7 +10,7 @@ use Illuminate\Support\ViewErrorBag;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * ADR-182 — les écrans RH du site, lus par le portail.
+ * ADR-187 — les écrans RH du site, lus par le portail.
  *
  * Les contrôleurs RH répondent comme à un navigateur : une page Inertia, une
  * redirection avec un message, un fichier. Le portail, lui, a besoin de

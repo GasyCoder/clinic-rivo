@@ -35,7 +35,7 @@ import { cn } from '@/lib/cn';
 import { hrUrl } from '@/utilities/hrUrl';
 
 /**
- * ADR-183 — les modules Départements et Fonctions, une même page pour deux
+ * ADR-188 — les modules Départements et Fonctions, une même page pour deux
  * référentiels. Mêmes droits que les Paramètres RH (`hr_settings.*`), mêmes
  * actions : l'écran ne décide rien, le serveur revérifie tout.
  */
@@ -75,7 +75,7 @@ const COPY = {
     },
 };
 const copy = computed(() => COPY[props.kind] ?? COPY.departments);
-/** L'adresse du module, ramenée au site choisi quand l'écran est ouvert sur le portail (ADR-182). */
+/** L'adresse du module, ramenée au site choisi quand l'écran est ouvert sur le portail (ADR-187). */
 const basePath = computed(() => hrUrl(`/administration/${props.kind}`));
 
 /* Filtres : tout est servi, la liste est courte — le filtre ne recharge rien. */

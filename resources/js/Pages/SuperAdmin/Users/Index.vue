@@ -85,7 +85,7 @@ const form = useForm({
     professional_profile_id: '',
     password: '',
     password_confirmation: '',
-    // ADR-183 — personnel clinique (une fiche Employé) ou externe : choisi, jamais par défaut.
+    // ADR-188 — personnel clinique (une fiche Employé) ou externe : choisi, jamais par défaut.
     account_kind: '',
     employee_uuid: '',
 });

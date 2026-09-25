@@ -14,7 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * ADR-183 — Départements et Fonctions, chacun son module, sur le même
+ * ADR-188 — Départements et Fonctions, chacun son module, sur le même
  * référentiel et avec les mêmes droits que les Paramètres RH.
  */
 class HrStructureModuleTest extends TestCase

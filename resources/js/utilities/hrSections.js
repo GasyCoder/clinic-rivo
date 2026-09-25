@@ -2,7 +2,7 @@ import { CLINIC_WORKSPACES } from './clinicWorkspaces.js';
 import { mapHrPath } from './hrPath.js';
 
 /**
- * ADR-182 — les rubriques de l'espace RH d'un site (Employés, Contrats…), une
+ * ADR-187 — les rubriques de l'espace RH d'un site (Employés, Contrats…), une
  * seule liste : celle du menu RH du site. Sur le portail, chaque adresse est
  * ramenée à l'espace RH du site choisi, et chaque rubrique garde son droit.
  */

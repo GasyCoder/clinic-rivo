@@ -120,7 +120,7 @@ class PortalDirectory
             'integration_status' => $site['integration_status'],
             'modules' => collect($this->modules())->map(fn (array $module) => [
                 ...$module,
-                // ADR-182 — les RH d'un site se gèrent réellement depuis le
+                // ADR-187 — les RH d'un site se gèrent réellement depuis le
                 // portail : l'entrée mène à son espace RH, pas à une vitrine.
                 'link' => $module['code'] === 'HR'
                     ? '/super-admin/sites/'.$site['code'].'/rh'

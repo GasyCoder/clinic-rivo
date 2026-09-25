@@ -5,7 +5,7 @@ namespace App\Enums;
 use Illuminate\Routing\Route;
 
 /**
- * ADR-183 — les deux modules de structure RH : Départements et Fonctions.
+ * ADR-188 — les deux modules de structure RH : Départements et Fonctions.
  *
  * Chacun gère un type du référentiel RH (`hr_reference_values`) déjà utilisé
  * par les dossiers Employé, le planning et l'import. Le type se lit sur

@@ -44,7 +44,7 @@ class Auditor
         $localId = $actor?->getAuthIdentifier();
 
         // Sans compte local — un acteur système, ou le Super Admin du portail
-        // qui agit par l'API du site (ADR-182) —, c'est son identité distante
+        // qui agit par l'API du site (ADR-187) —, c'est son identité distante
         // qui signe l'entrée : jamais une ligne d'audit sans auteur.
         $external = $localId === null ? $this->externalIdentity($actor) : ['uuid' => null, 'name' => null];
 

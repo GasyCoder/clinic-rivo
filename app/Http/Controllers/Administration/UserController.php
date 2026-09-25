@@ -71,7 +71,7 @@ class UserController extends Controller
                 'last_login_at' => $user->last_login_at,
                 'deactivated_at' => $user->deactivated_at,
                 'deactivation_reason' => $user->deactivation_reason,
-                // ADR-183 — personnel clinique (relié à sa fiche) ou externe.
+                // ADR-188 — personnel clinique (relié à sa fiche) ou externe.
                 'account_kind' => ($user->employee ? AccountKind::Staff : AccountKind::External)->value,
                 'employee' => EmployeeAccountLinker::summary($user->employee),
                 'is_current' => $request->user()->is($user),

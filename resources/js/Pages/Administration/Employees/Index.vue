@@ -35,7 +35,7 @@ defineOptions({ layout: AppLayout });
 
 /**
  * L'annuaire du personnel d'un site (ADR-066), le même sur le site et sur le
- * portail (ADR-182). Les compteurs sont aussi les filtres ; les échanges Excel
+ * portail (ADR-187). Les compteurs sont aussi les filtres ; les échanges Excel
  * (modèle, import, export) sont réunis au même endroit.
  */
 const props = defineProps({ employees: Object, filters: Object, summary: Object });

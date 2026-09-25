@@ -26,7 +26,7 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
     ->prefix('v1/super-admin')
     ->name('api.v1.super-admin.')
     ->group(function () {
-        // ADR-182 — l'espace RH du site, géré depuis le portail : les mêmes
+        // ADR-187 — l'espace RH du site, géré depuis le portail : les mêmes
         // routes, contrôleurs et droits que /administration (routes/hr.php).
         Route::prefix('hr')
             ->name('hr.')

@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * ADR-183 (amende ADR-168) — un compte se relie à la fiche Employé de la
+ * ADR-188 (amende ADR-168) — un compte se relie à la fiche Employé de la
  * personne depuis « Utilisateurs », au moment de le créer ou de le modifier :
  * « Personnel clinique » choisit une fiche, « Externe » n'en a aucune. La fiche
  * Employé ne relie plus rien. Un compte, une fiche ; une fiche, un compte.

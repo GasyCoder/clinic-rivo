@@ -25,7 +25,7 @@ useThemeSync();
 // annulée, elle réapparaît telle qu'elle était, saisie comprise.
 const pageLoading = usePageLoading();
 
-// ADR-182 — un écran RH d'un site, affiché par le portail : sa navigation RH.
+// ADR-187 — un écran RH d'un site, affiché par le portail : sa navigation RH.
 const page = usePage();
 
 const sidebarVisibility = ref(false);

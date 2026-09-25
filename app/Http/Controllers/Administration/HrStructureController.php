@@ -19,13 +19,13 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * ADR-183 — les modules Départements et Fonctions de l'espace RH.
+ * ADR-188 — les modules Départements et Fonctions de l'espace RH.
  *
  * Ils écrivent le même référentiel que les Paramètres RH (ADR-066) avec les
  * mêmes actions et les mêmes droits (`hr_settings.*`) : un module ne crée pas
  * une seconde règle, il donne sa propre page à deux listes que les dossiers
  * Employé, le planning et l'import utilisent chaque jour. Servi au site et au
- * portail par `routes/hr.php` (ADR-182).
+ * portail par `routes/hr.php` (ADR-187).
  */
 class HrStructureController extends Controller
 {

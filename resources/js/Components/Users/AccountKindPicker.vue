@@ -8,7 +8,7 @@ import FormError from '@/Components/UI/FormError.vue';
 import { cn } from '@/lib/cn';
 
 /**
- * ADR-183 — qui est derrière le compte : du personnel de la clinique, relié à
+ * ADR-188 — qui est derrière le compte : du personnel de la clinique, relié à
  * sa fiche Employé, ou une personne externe, sans fiche.
  *
  * Le même composant sert l'assistant du portail et l'écran Utilisateurs du

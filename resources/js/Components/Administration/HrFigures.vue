@@ -11,7 +11,7 @@ import { HR_FIGURE_TONES as TONES, HR_FIGURES, isVisibleFigure } from '@/utiliti
  * ADR-066 — the HR figures, identical wherever they appear: the site overview,
  * the HR space and the central portal. Same order, same words, same colours.
  * Each tile may open its list: the clinic HR space, or on the portal the HR
- * space of the chosen site (ADR-182).
+ * space of the chosen site (ADR-187).
  * A null figure means the account may not see it, and the tile is hidden.
  *
  * One compact block in two groups — what waits for a decision, then the day's
@@ -23,7 +23,7 @@ const props = defineProps({
     linkable: { type: Boolean, default: false },
     // 'todo' = only what waits for a decision; 'all' adds the headcount group.
     show: { type: String, default: 'all' },
-    // ADR-182 — where the lists live: the clinic HR space, or a site's HR
+    // ADR-187 — where the lists live: the clinic HR space, or a site's HR
     // space on the portal (`/super-admin/sites/A/rh`).
     base: { type: String, default: HR_SITE_BASE },
 });

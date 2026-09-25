@@ -16,7 +16,7 @@ use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
- * ADR-182 — l'espace RH d'un site, géré depuis le portail (CDC §2, §18).
+ * ADR-187 — l'espace RH d'un site, géré depuis le portail (CDC §2, §18).
  *
  * Le Super Admin voit et fait ce que l'accueil RH du site propose : les mêmes
  * écrans Vue, servis par le site à travers son API, avec ses règles et son

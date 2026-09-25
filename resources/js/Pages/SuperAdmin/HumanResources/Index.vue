@@ -29,7 +29,7 @@ import { hrSections } from '@/utilities/hrSections';
 defineOptions({ layout: AppLayout });
 
 /**
- * ADR-066 / ADR-182 — les Ressources humaines des sites, vues du portail.
+ * ADR-066 / ADR-187 — les Ressources humaines des sites, vues du portail.
  *
  * La vue d'ensemble compare les sites et dit où une décision attend ; chaque
  * chiffre ouvre sa liste dans l'espace RH du site. La vue d'un site donne ses

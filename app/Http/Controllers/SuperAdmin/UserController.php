@@ -147,7 +147,7 @@ class UserController extends Controller
             'permission_overrides' => ['nullable', 'array'],
             'permission_overrides.*.permission_id' => ['required_with:permission_overrides', 'integer'],
             'permission_overrides.*.effect' => ['required_with:permission_overrides', Rule::in(['allow', 'deny'])],
-            // ADR-183 — la fiche Employé vit dans la base du site : le site
+            // ADR-188 — la fiche Employé vit dans la base du site : le site
             // vérifie qu'elle existe, qu'elle est libre et en poste.
             'account_kind' => ['sometimes', Rule::enum(AccountKind::class)],
             'employee_uuid' => ['nullable', 'uuid'],

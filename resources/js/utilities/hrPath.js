@@ -1,5 +1,5 @@
 /**
- * ADR-182 — une adresse RH ramenée à la base où l'écran est ouvert : le site
+ * ADR-187 — une adresse RH ramenée à la base où l'écran est ouvert : le site
  * (`/administration`) ou, sur le portail, l'espace RH d'un site
  * (`/super-admin/sites/A/rh`). Sans dépendance, pour être testée seule.
  */

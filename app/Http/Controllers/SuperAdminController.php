@@ -18,7 +18,7 @@ class SuperAdminController extends Controller
 
         abort_unless($module, 404);
 
-        // ADR-182 — un ancien lien vers la vitrine RH mène à l'espace RH du site.
+        // ADR-187 — un ancien lien vers la vitrine RH mène à l'espace RH du site.
         if ($module['code'] === 'HR') {
             return redirect()->route('super-admin.sites.hr', ['site' => $siteData['code']]);
         }

@@ -53,7 +53,7 @@ class RbacPresenter
             'last_login_at' => $user->last_login_at?->toIso8601String(),
             'deactivated_at' => $user->deactivated_at?->toIso8601String(),
             'deactivation_reason' => $user->deactivation_reason,
-            // ADR-183 — personnel clinique (relié à sa fiche Employé) ou externe.
+            // ADR-188 — personnel clinique (relié à sa fiche Employé) ou externe.
             // Lu seulement si la fiche a été chargée : une liste la charge en
             // une requête, jamais une par compte.
             ...$this->accountKind($user),

@@ -183,7 +183,7 @@ const isChildActive = (item, child) => {
     if (isAdminPortal.value) {
         return page.url === child.link
             || (child.code === 'OVERVIEW' && currentPath.value === child.link.split('?')[0])
-            // ADR-182 — l'espace RH d'un site a ses propres pages.
+            // ADR-187 — l'espace RH d'un site a ses propres pages.
             || (child.code === 'HR' && (currentPath.value === child.link || currentPath.value.startsWith(`${child.link}/`)));
     }
 

@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * ADR-182 — pour un appel du portail, le Super Admin devient l'utilisateur de
+ * ADR-187 — pour un appel du portail, le Super Admin devient l'utilisateur de
  * la requête, avec les seuls droits que le portail a transmis.
  *
  * Posé après `rivo.site-api`, qui a vérifié le jeton du site et lu l'identité

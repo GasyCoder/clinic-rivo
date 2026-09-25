@@ -84,7 +84,7 @@ class UserController extends Controller
 
         $permissions = $this->presenter->permissionCatalog();
 
-        // ADR-183 — les fiches Employé qu'un compte peut relier, pour l'assistant.
+        // ADR-188 — les fiches Employé qu'un compte peut relier, pour l'assistant.
         $employees = $actor->can('users.create') || $actor->can('users.update')
             ? $this->employeeLinker->linkableEmployees()
             : [];
@@ -257,7 +257,7 @@ class UserController extends Controller
     private function validated(Request $request, ?int $ignoreUserId = null): array
     {
         return $request->validate([
-            // ADR-183 — personnel clinique (une fiche Employé) ou externe.
+            // ADR-188 — personnel clinique (une fiche Employé) ou externe.
             ...AccountKindRules::rules(creating: $ignoreUserId === null),
             'name' => ['required', 'string', 'max:255'],
             'email' => [

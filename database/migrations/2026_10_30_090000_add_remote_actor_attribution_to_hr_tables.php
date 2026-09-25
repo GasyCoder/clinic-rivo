@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * ADR-182 — le Super Admin du portail agit sur les Ressources humaines d'un
+ * ADR-187 — le Super Admin du portail agit sur les Ressources humaines d'un
  * site sans y avoir de compte : là où une fiche affiche son auteur (« décidé
  * par », « déposé par »), l'UUID et le nom du Super Admin sont conservés, sur
  * le modèle des commandes et factures fournisseur (ADR-098).

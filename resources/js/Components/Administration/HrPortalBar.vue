@@ -8,7 +8,7 @@ import { hrSections } from '@/utilities/hrSections';
 import { cn } from '@/lib/cn';
 
 /**
- * ADR-182 — la navigation de l'espace RH d'un site, quand le portail l'affiche.
+ * ADR-187 — la navigation de l'espace RH d'un site, quand le portail l'affiche.
  *
  * Sur le site, les rubriques RH vivent dans le menu latéral. Le portail a son
  * propre menu : cette barre les rend ici, dans le même ordre et avec les mêmes

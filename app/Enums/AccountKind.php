@@ -3,7 +3,7 @@
 namespace App\Enums;
 
 /**
- * ADR-183 — ce qu'est la personne derrière un compte de connexion.
+ * ADR-188 — ce qu'est la personne derrière un compte de connexion.
  *
  * Jamais stocké sur le compte : il se lit sur le lien `employees.user_id`. Un
  * compte relié à une fiche Employé est du personnel de la clinique ; un compte

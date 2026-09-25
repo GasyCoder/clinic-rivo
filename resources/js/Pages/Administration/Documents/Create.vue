@@ -4,6 +4,8 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/UI/Button.vue';
 import Icon from '@/Components/UI/Icon.vue';
+import Checkbox from '@/Components/Shadcn/Checkbox.vue';
+import { PenLine } from 'lucide-vue-next';
 
 defineOptions({ layout: AppLayout });
 
@@ -14,7 +16,12 @@ const props = defineProps({
     leavesByEmployee: { type: Object, default: () => ({}) },
     formFieldsByContext: { type: Object, default: () => ({}) },
     prefill: { type: Object, default: () => ({}) },
+    /** ADR-184 — `{ name, title, has_signature }` réglé pour le site. */
+    director: { type: Object, default: () => ({ name: null, title: 'Directeur général', has_signature: false }) },
 });
+
+/** Un directeur est réglé pour ce site : son nom ou sa signature. */
+const directorConfigured = computed(() => Boolean(props.director?.name || props.director?.has_signature));
 
 // Initial values do not trigger the reset watchers below, so a page opened
 // from a contract keeps its canevas, employee and contract.
@@ -24,6 +31,8 @@ const form = useForm({
     employment_contract_uuid: props.prefill.employment_contract_uuid || '',
     leave_request_uuid: '',
     form_data: {},
+    // Cochée d'office dès qu'un directeur est réglé ; la décocher reste possible.
+    with_director_signature: Boolean(props.director?.name || props.director?.has_signature),
 });
 
 const selectedTemplate = computed(() => props.templates.find((template) => template.uuid === form.document_template_uuid));
@@ -89,6 +98,7 @@ const loadPreview = async () => {
                 employment_contract_uuid: form.employment_contract_uuid || null,
                 leave_request_uuid: form.leave_request_uuid || null,
                 form_data: form.form_data,
+                with_director_signature: form.with_director_signature,
             }),
         });
         const data = await response.json().catch(() => ({}));
@@ -121,7 +131,7 @@ const loadPreview = async () => {
 };
 
 watch(
-    () => [form.document_template_uuid, form.employee_uuid, form.employment_contract_uuid, form.leave_request_uuid, JSON.stringify(form.form_data)],
+    () => [form.document_template_uuid, form.employee_uuid, form.employment_contract_uuid, form.leave_request_uuid, JSON.stringify(form.form_data), form.with_director_signature],
     () => {
         clearTimeout(previewTimer);
         previewTimer = setTimeout(loadPreview, 350);
@@ -202,6 +212,29 @@ const submit = () => {
                         </div>
                     </div>
                     <p v-if="form.errors.form_data" class="mt-2 text-xs text-red-600">{{ form.errors.form_data }}</p>
+                </section>
+
+                <!-- ADR-184 — la signature du directeur général, réglée pour ce site depuis le portail. -->
+                <section class="rounded-xl border border-border bg-card p-4 shadow-sm">
+                    <div class="flex items-start gap-3">
+                        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><PenLine class="h-4 w-4" /></span>
+                        <div class="min-w-0 flex-1">
+                            <label v-if="directorConfigured" class="flex cursor-pointer items-start gap-2.5">
+                                <Checkbox v-model="form.with_director_signature" class="mt-0.5" aria-label="Apposer la signature du directeur général" />
+                                <span>
+                                    <span class="block text-sm font-semibold text-foreground">Apposer la signature du {{ (director.title || 'Directeur général').toLowerCase() }}</span>
+                                    <span class="mt-0.5 block text-xs text-muted-foreground">
+                                        <template v-if="director.name">{{ director.name }}</template><template v-if="director.name && director.has_signature"> · </template><template v-if="director.has_signature">signature enregistrée</template><template v-else> · aucune signature enregistrée : un espace est laissé pour signer à la main</template>.
+                                        Le bloc est ajouté au bas du document et figé avec lui.
+                                    </span>
+                                </span>
+                            </label>
+                            <template v-else>
+                                <p class="text-sm font-semibold text-foreground">Signature du directeur général</p>
+                                <p class="mt-0.5 text-xs text-muted-foreground">Aucun directeur n’est renseigné pour ce site. Le Super Administrateur le règle dans Paramètres › Direction.</p>
+                            </template>
+                        </div>
+                    </div>
                 </section>
 
                 <div class="flex justify-end gap-2">

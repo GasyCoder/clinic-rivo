@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Settings\AppSettings;
 use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -38,6 +39,8 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
 
+        $settings = app(AppSettings::class);
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -61,15 +64,25 @@ class HandleInertiaRequests extends Middleware
                 && $user->can('super_admin.portal.view')
                     ? app(PortalDirectory::class)->navigation()
                     : [],
+            // ADR-184 — nom, devise, icône, identité légale, écriture de l'Ariary et
+            // tranches d'âge : les paramètres du site, à défaut sa configuration.
             'site' => [
-                'brand' => config('rivo.brand'),
+                'brand' => $settings->brand(),
+                'tagline' => $settings->tagline(),
                 'code' => config('rivo.site.code'),
                 'name' => config('rivo.site.name'),
                 'type' => config('rivo.site.type'),
                 'gatewayUrl' => config('rivo.gateway_url'),
                 'publicUrl' => config('rivo.public_url'),
-                'authCoverUrl' => config('rivo.auth_cover_url'),
-                'documents' => config('rivo.documents'),
+                // ADR-184 — l'image de fond et le modèle des pages d'authentification,
+                // et le modèle de « Mon profil ».
+                'authCoverUrl' => $settings->authBackgroundUrl(),
+                'authTemplate' => $settings->authTemplate()->value,
+                'profileTemplate' => $settings->profileTemplate()->value,
+                'documents' => $settings->documents(),
+                'iconUrl' => $settings->iconUrl(),
+                'currency' => $settings->currency(),
+                'ageBands' => $settings->ageBands(),
             ],
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),

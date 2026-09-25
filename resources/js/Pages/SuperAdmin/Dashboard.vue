@@ -1,4 +1,5 @@
 <script setup>
+import { formatMoney } from '@/utilities/money';
 import { computed, onMounted, ref, watch } from 'vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import {
@@ -139,7 +140,7 @@ const number = (value) => (value === null || value === undefined
 
 const money = (value) => (value === null || value === undefined
     ? '—'
-    : `${new Intl.NumberFormat('fr-FR').format(Math.round(value))} Ar`);
+    : formatMoney(Math.round(value)));
 
 /* ------------------------------------------------------------------ */
 /* Compteurs de tête                                                   */

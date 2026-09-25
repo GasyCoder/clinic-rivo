@@ -2,6 +2,7 @@
 
 namespace App\Services\Administration;
 
+use App\Services\Settings\AppSettings;
 use App\Enums\DocumentDataContext;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
@@ -64,6 +65,35 @@ class DocumentFormDataResolver
     }
 
     /** @param array<string, string> $values */
+    /**
+     * ADR-184 — le bloc de signature du directeur général, au bas du document.
+     *
+     * La signature y est copiée (`data:`) : un document remis garde la
+     * signature du jour où il a été produit, même si elle est remplacée ensuite.
+     * Sans nom ni signature réglés pour le site, il n'y a pas de bloc — jamais
+     * une signature ni un nom inventés.
+     */
+    public function renderDirectorSignature(AppSettings $settings): string
+    {
+        $director = $settings->director();
+        $signature = $settings->signatureDataUri();
+
+        if ($director['name'] === null && $signature === null) {
+            return '';
+        }
+
+        $image = $signature !== null
+            ? '<img src="'.e($signature).'" alt="Signature" style="display:block;max-height:5rem;max-width:14rem;margin:0.5rem auto;object-fit:contain">'
+            : '<div style="height:4rem"></div>';
+
+        return '<div data-director-signature class="canevas-signature" style="margin-top:2.5rem;display:flex;justify-content:flex-end;page-break-inside:avoid;break-inside:avoid">'
+            .'<div style="min-width:14rem;text-align:center">'
+            .'<p style="margin:0;font-weight:600">'.e($director['title']).'</p>'
+            .$image
+            .($director['name'] !== null ? '<p style="margin:0;font-weight:700">'.e($director['name']).'</p>' : '')
+            .'</div></div>';
+    }
+
     public function renderPageOne(DocumentDataContext $context, array $values): string
     {
         $rows = collect($this->catalog->fieldsForContext($context))

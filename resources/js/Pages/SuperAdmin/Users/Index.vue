@@ -1,26 +1,35 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft,
     ArrowRight,
     Briefcase,
     Check,
+    ChevronRight,
+    Circle,
     CircleCheck,
+    ExternalLink,
     Eye,
     EyeOff,
+    IdCard,
+    Info,
+    KeyRound,
     LayoutGrid,
     List,
+    Loader2,
     Lock,
     LockOpen,
     Mail,
     Pencil,
     Search,
+    Send,
     Server,
     ShieldCheck,
     Trash2,
     TriangleAlert,
     UserPlus,
+    UserRound,
     Users,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
@@ -37,6 +46,8 @@ import Select from '@/Components/Shadcn/Select.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { usePermissions } from '@/composables/usePermissions';
 import { cn } from '@/lib/cn';
+import { matchesSearchTerms } from '@/utilities/permissionWorkspace';
+import { roleDescription, roleInitials } from '@/utilities/roleDescriptions';
 
 defineOptions({ layout: AppLayout });
 
@@ -61,8 +72,8 @@ const showPassword = ref(false);
 const showPasswordConfirmation = ref(false);
 
 const steps = [
-    { n: 1, label: 'Informations', icon: UserPlus },
-    { n: 2, label: 'Rôle', icon: Briefcase },
+    { n: 1, label: 'Informations', description: 'Identité et email de connexion', icon: UserRound },
+    { n: 2, label: 'Rôle', description: 'Rôle et profil métier', icon: Briefcase },
 ];
 
 const form = useForm({
@@ -152,8 +163,33 @@ const submitFilters = () => {
     }, { preserveState: true, preserveScroll: true, replace: true });
 };
 
+/**
+ * Une adresse plausible. Le site valide l'email de toute façon ; ce contrôle
+ * empêche seulement « Suivant » de s'ouvrir sur une faute de frappe.
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const emailValid = computed(() => EMAIL_PATTERN.test(form.email.trim()));
+const emailTouched = ref(false);
+const emailHint = computed(() => (emailTouched.value && form.email.trim() !== '' && ! emailValid.value
+    ? 'Adresse invalide : vérifiez le « @ » et le domaine.'
+    : ''));
+
+const passwordOpen = ref(false);
+const passwordTooShort = computed(() => form.password !== '' && form.password.length < 12);
+const passwordMismatch = computed(() => form.password !== '' && form.password_confirmation !== '' && form.password !== form.password_confirmation);
+
+/** Refermer le changement de mot de passe l'abandonne : le mot de passe actuel reste. */
+const togglePassword = () => {
+    passwordOpen.value = ! passwordOpen.value;
+
+    if (! passwordOpen.value) {
+        form.password = '';
+        form.password_confirmation = '';
+    }
+};
+
 const step1Valid = computed(() => {
-    if (form.name.trim() === '' || form.email.trim() === '') return false;
+    if (form.name.trim() === '' || ! emailValid.value) return false;
     // Password is only ever set here when editing — creation never asks
     // for one, the account is provisioned by email invitation instead.
     if (isEditing.value && form.password !== '' && form.password.length < 12) return false;
@@ -162,18 +198,55 @@ const step1Valid = computed(() => {
 });
 const step2Valid = computed(() => form.role_id !== '' && (!selectedRoleProfiles.value.length || form.professional_profile_id !== ''));
 
+/** Ce qui retient le bouton de l'étape : dit en clair, jamais un bouton grisé muet (ADR-154). */
+const blocker = computed(() => {
+    if (step.value === 1) {
+        if (form.name.trim() === '') return 'Renseignez le nom complet.';
+        if (form.email.trim() === '') return 'Renseignez l’email professionnel.';
+        if (! emailValid.value) return 'L’adresse email n’est pas valide.';
+        if (passwordTooShort.value) return 'Le mot de passe doit compter au moins 12 caractères.';
+        if (form.password !== '' && form.password !== form.password_confirmation) return 'La confirmation ne correspond pas au mot de passe.';
+
+        return '';
+    }
+
+    if (form.role_id === '') return 'Choisissez un rôle métier.';
+    if (selectedRoleProfiles.value.length && form.professional_profile_id === '') return 'Choisissez le profil professionnel.';
+
+    return '';
+});
+
+const checklist = computed(() => [
+    { key: 'name', label: 'Nom complet', done: form.name.trim() !== '' },
+    { key: 'email', label: 'Email professionnel valide', done: emailValid.value },
+    { key: 'role', label: 'Rôle métier', done: form.role_id !== '' },
+    ...(selectedRoleProfiles.value.length ? [{ key: 'profile', label: 'Profil professionnel', done: form.professional_profile_id !== '' }] : []),
+]);
+
+/** Plus de six rôles : une recherche plutôt qu'une grille à parcourir. */
+const roleSearch = ref('');
+const shownRoles = computed(() => roles.value.filter((role) => matchesSearchTerms(
+    `${role.name} ${role.code} ${roleDescription(role.code)}`,
+    roleSearch.value,
+)));
+
+/** Le lien vers le socle d'un rôle, ou les exceptions d'un compte, dans « Rôles & permissions ». */
+const rolesScreenUrl = (params) => `/super-admin/workspaces/roles?${new URLSearchParams({ site: selectedSiteCode.value, ...params })}`;
+
 const openCreate = () => {
     editingUser.value = null;
     form.reset();
     form.clearErrors();
     form.site_code = selectedSiteCode.value;
-    form.role_id = roles.value.find((role) => role.code !== 'SUPER_ADMIN')?.id ?? roles.value[0]?.id ?? '';
+    // Aucun rôle présélectionné : un compte reçoit le rôle qu'on lui choisit,
+    // jamais le premier de la liste par défaut.
+    form.role_id = '';
     form.professional_profile_id = '';
-    showPassword.value = false;
-    showPasswordConfirmation.value = false;
+    resetFormHelpers();
     step.value = 1;
     maxStepReached.value = 1;
     view.value = 'form';
+    focusField('user-name');
 };
 
 const openEdit = (user) => {
@@ -186,12 +259,27 @@ const openEdit = (user) => {
     form.professional_profile_id = user.professional_profile?.id ?? '';
     form.password = '';
     form.password_confirmation = '';
-    showPassword.value = false;
-    showPasswordConfirmation.value = false;
+    resetFormHelpers();
     step.value = 1;
     maxStepReached.value = 2;
     view.value = 'form';
+    focusField('user-name');
 };
+
+function resetFormHelpers() {
+    showPassword.value = false;
+    showPasswordConfirmation.value = false;
+    passwordOpen.value = false;
+    emailTouched.value = false;
+    roleSearch.value = '';
+}
+
+/** Le formulaire remplace la liste : on repart du haut, le curseur dans le premier champ. */
+async function focusField(id) {
+    window.scrollTo({ top: 0 });
+    await nextTick();
+    document.getElementById(id)?.focus();
+}
 
 /**
  * Leaving the form never silently discards staged permission decisions.
@@ -254,6 +342,42 @@ const nextStep = () => {
 const prevStep = () => { step.value = Math.max(1, step.value - 1); };
 
 /**
+ * Entrée valide l'étape en cours, jamais le compte : à l'étape 1, elle mène au
+ * rôle au lieu d'envoyer un compte dont personne n'a encore choisi le rôle.
+ */
+const onFormSubmit = () => {
+    if (step.value < 2) {
+        nextStep();
+        return;
+    }
+
+    submitUser();
+};
+
+/** Changer d'étape ramène en haut du formulaire, sur son titre. */
+const stepHeading = ref(null);
+
+watch(step, async () => {
+    await nextTick();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    stepHeading.value?.focus({ preventScroll: true });
+});
+
+/**
+ * Une erreur du site sur le nom, l'email ou le mot de passe (« email déjà
+ * utilisé ») arrive pendant qu'on est à l'étape 2 : on revient là où se
+ * corrige le champ, au lieu de laisser un bouton qui échoue sans rien dire.
+ */
+const STEP_ONE_FIELDS = ['name', 'email', 'password', 'password_confirmation'];
+
+watch(() => form.errors, (errors) => {
+    if (step.value === 2 && STEP_ONE_FIELDS.some((field) => errors?.[field])) {
+        step.value = 1;
+        if (errors.password) passwordOpen.value = true;
+    }
+}, { deep: true });
+
+/**
  * Changer de rôle repart sans profil : un profil n'appartient qu'à son rôle.
  *
  * Les permissions recommandées du nouveau profil ne sont plus « préparées »
@@ -263,12 +387,57 @@ const prevStep = () => { step.value = Math.max(1, step.value - 1); };
  * écraser une décision individuelle déjà prise (ADR-033).
  */
 const selectRole = (roleId) => {
-    form.role_id = roleId;
+    const role = roles.value.find((item) => Number(item.id) === Number(roleId));
+
+    if (! role) return;
+
+    // Un rôle à profils se choisit avec son profil, dans une fenêtre : le
+    // compte ne porte jamais un rôle sans le profil qu'il exige.
+    if (role.profiles?.length) {
+        openProfileDialog(role);
+        return;
+    }
+
+    form.role_id = role.id;
     form.professional_profile_id = '';
 };
 
+/**
+ * La fenêtre du profil. Rien n'est écrit dans le formulaire avant
+ * « Valider » : annuler (bouton, Échap, clic à côté) rend exactement le rôle
+ * et le profil d'avant.
+ */
+const pendingRole = ref(null);
+const profileDraft = ref('');
+
+const openProfileDialog = (role) => {
+    pendingRole.value = role;
+    profileDraft.value = Number(form.role_id) === Number(role.id) ? form.professional_profile_id : '';
+};
+
+const pendingProfiles = computed(() => pendingRole.value?.profiles ?? []);
+const draftProfile = computed(() => pendingProfiles.value.find((profile) => Number(profile.id) === Number(profileDraft.value)) ?? null);
+
+/** En modification, choisir un autre profil retire ce qu'apportait l'ancien (ADR-033) : on le dit avant. */
+const draftProfileChanged = computed(() => isEditing.value
+    && draftProfile.value !== null
+    && Number(editingUser.value?.professional_profile?.id ?? 0) !== Number(draftProfile.value.id));
+
 const selectProfile = (profileId) => {
-    form.professional_profile_id = profileId;
+    profileDraft.value = profileId;
+};
+
+const confirmProfile = () => {
+    if (! pendingRole.value || ! draftProfile.value) return;
+
+    form.role_id = pendingRole.value.id;
+    form.professional_profile_id = draftProfile.value.id;
+    pendingRole.value = null;
+};
+
+const cancelProfile = () => {
+    pendingRole.value = null;
+    profileDraft.value = '';
 };
 
 const roleRequiresProfile = (roleId) => Boolean(roles.value.find((item) => Number(item.id) === Number(roleId))?.profiles?.length);
@@ -601,185 +770,447 @@ const pageTitle = computed(() => {
         </template>
 
         <template v-else-if="view === 'form'">
-            <div class="flex items-center gap-3">
-                <Button type="button" size="icon" variant="outline" class="h-10 w-10" aria-label="Retour à la liste" @click="closeForm"><ArrowLeft class="h-4.5 w-4.5" /></Button>
+            <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex min-w-0 items-center gap-3">
+                    <Button type="button" size="icon" variant="outline" class="h-10 w-10 shrink-0" aria-label="Retour à la liste" @click="closeForm"><ArrowLeft class="h-4.5 w-4.5" /></Button>
+                    <div class="min-w-0">
+                        <nav class="flex items-center gap-1 text-xs font-medium text-muted-foreground" aria-label="Fil d’Ariane">
+                            <button type="button" class="rounded hover:text-foreground hover:underline" @click="closeForm">Utilisateurs</button>
+                            <ChevronRight class="h-3.5 w-3.5" aria-hidden="true" />
+                            <span class="truncate">{{ selectedSite?.site.name }}</span>
+                        </nav>
+                        <h1 class="mt-0.5 truncate font-heading text-2xl font-bold tracking-tight text-foreground">{{ isEditing ? `Modifier ${editingUser.name}` : 'Créer un utilisateur' }}</h1>
+                    </div>
+                </div>
+                <Badge variant="outline" class="self-start sm:self-auto">
+                    <Server class="h-3.5 w-3.5" />Enregistré sur {{ selectedSite?.site.name }}, via l’API du site
+                </Badge>
+            </header>
+
+            <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[minmax(0,1fr)_21rem]">
+                <form class="min-w-0 space-y-5" novalidate @submit.prevent="onFormSubmit">
+                    <nav class="overflow-hidden rounded-xl border border-border bg-card shadow-sm" aria-label="Étapes">
+                        <ol class="grid grid-cols-2">
+                            <li v-for="(s, index) in steps" :key="s.n" :class="index > 0 ? 'border-s border-border' : ''">
+                                <button
+                                    type="button"
+                                    :disabled="s.n > maxStepReached"
+                                    :aria-current="step === s.n ? 'step' : undefined"
+                                    :class="cn(
+                                        'relative flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors sm:px-5',
+                                        s.n > maxStepReached ? 'cursor-not-allowed' : 'hover:bg-accent/50',
+                                        step === s.n ? 'bg-primary/5' : '',
+                                    )"
+                                    @click="goToStep(s.n)"
+                                >
+                                    <span :class="cn(
+                                        'grid h-9 w-9 shrink-0 place-items-center rounded-full ring-1 transition-colors',
+                                        step === s.n ? 'bg-primary text-primary-foreground ring-primary'
+                                            : s.n < step ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900'
+                                                : 'bg-muted text-muted-foreground ring-border',
+                                    )">
+                                        <Check v-if="s.n < step" class="h-4 w-4" :stroke-width="3" />
+                                        <component :is="s.icon" v-else class="h-4 w-4" />
+                                    </span>
+                                    <span class="min-w-0">
+                                        <span :class="cn('block text-[11px] font-semibold uppercase tracking-wide', step === s.n ? 'text-primary' : 'text-muted-foreground')">
+                                            Étape {{ s.n }} sur {{ steps.length }}<template v-if="s.n < step"> · terminée</template>
+                                        </span>
+                                        <span :class="cn('block truncate text-sm font-bold', s.n > maxStepReached ? 'text-muted-foreground' : 'text-foreground')">{{ s.label }}</span>
+                                        <span class="hidden truncate text-xs text-muted-foreground sm:block">{{ s.description }}</span>
+                                    </span>
+                                    <span v-if="step === s.n" class="absolute inset-x-0 bottom-0 h-0.5 bg-primary" aria-hidden="true" />
+                                </button>
+                            </li>
+                        </ol>
+                    </nav>
+
+                    <div
+                        v-if="form.errors.site_code || form.errors.user"
+                        class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                        role="alert"
+                    >
+                        <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{{ form.errors.site_code || form.errors.user }}</span>
+                    </div>
+
+                    <!-- Étape 1 — qui est la personne. -->
+                    <Card v-if="step === 1" class="overflow-hidden">
+                        <div class="flex items-start gap-3 border-b border-border px-5 py-4 sm:px-6">
+                            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><UserRound class="h-5 w-5" /></span>
+                            <div class="min-w-0">
+                                <h2 ref="stepHeading" tabindex="-1" class="text-base font-bold text-foreground focus:outline-none">Informations du compte</h2>
+                                <p class="mt-0.5 text-sm text-muted-foreground">Un compte nominatif, pour une seule personne — jamais générique ni partagé.</p>
+                            </div>
+                        </div>
+
+                        <div class="space-y-6 px-5 py-5 sm:px-6">
+                            <div class="grid gap-5 md:grid-cols-2">
+                                <div>
+                                    <FormField label="Nom complet" required :error="form.errors.name">
+                                        <IconInput
+                                            id="user-name"
+                                            v-model="form.name"
+                                            :icon="UserRound"
+                                            placeholder="Ex. Rakoto Andry"
+                                            autocomplete="name"
+                                            :aria-invalid="Boolean(form.errors.name)"
+                                        />
+                                    </FormField>
+                                    <p v-if="! form.errors.name" class="mt-1.5 text-xs text-muted-foreground">Prénom et nom, tels qu’ils apparaîtront dans l’audit.</p>
+                                </div>
+                                <div>
+                                    <FormField label="Email professionnel" required :error="form.errors.email || emailHint">
+                                        <IconInput
+                                            id="user-email"
+                                            v-model="form.email"
+                                            :icon="Mail"
+                                            type="email"
+                                            inputmode="email"
+                                            placeholder="prenom.nom@exemple.mg"
+                                            autocomplete="off"
+                                            spellcheck="false"
+                                            :aria-invalid="Boolean(form.errors.email || emailHint)"
+                                            @blur="emailTouched = true"
+                                        />
+                                    </FormField>
+                                    <p v-if="! form.errors.email && ! emailHint" class="mt-1.5 text-xs text-muted-foreground">Sert d’identifiant de connexion sur {{ selectedSite?.site.name }}.</p>
+                                </div>
+                            </div>
+
+                            <!-- Création : pas de mot de passe, une invitation. -->
+                            <section v-if="! isEditing" class="rounded-xl border border-border bg-muted/30 p-4" aria-labelledby="invitation-title">
+                                <div class="flex items-start gap-3">
+                                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Send class="h-4 w-4" /></span>
+                                    <div class="min-w-0">
+                                        <p id="invitation-title" class="text-sm font-bold text-foreground">Aucun mot de passe à saisir</p>
+                                        <p class="mt-0.5 text-xs leading-5 text-muted-foreground">Le compte s’active par invitation : la personne choisit elle-même son mot de passe.</p>
+                                    </div>
+                                </div>
+                                <ol class="mt-4 grid gap-2 sm:grid-cols-3">
+                                    <li class="flex items-start gap-2.5 rounded-lg border border-border bg-card p-3">
+                                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">1</span>
+                                        <span class="text-xs leading-5 text-muted-foreground"><strong class="block text-foreground">Compte créé</strong>sur {{ selectedSite?.site.name }}, avec le rôle choisi.</span>
+                                    </li>
+                                    <li class="flex items-start gap-2.5 rounded-lg border border-border bg-card p-3">
+                                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">2</span>
+                                        <span class="min-w-0 text-xs leading-5 text-muted-foreground"><strong class="block text-foreground">Email envoyé</strong>à <span class="break-all font-medium text-foreground">{{ emailValid ? form.email.trim() : 'l’adresse renseignée' }}</span>, avec l’identifiant et un lien.</span>
+                                    </li>
+                                    <li class="flex items-start gap-2.5 rounded-lg border border-border bg-card p-3">
+                                        <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">3</span>
+                                        <span class="text-xs leading-5 text-muted-foreground"><strong class="block text-foreground">Mot de passe choisi</strong>par la personne elle-même, en suivant le lien.</span>
+                                    </li>
+                                </ol>
+                            </section>
+
+                            <!-- Modification : le mot de passe ne change que si on le demande. -->
+                            <section v-else class="rounded-xl border border-border">
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-accent/40"
+                                    :aria-expanded="passwordOpen"
+                                    aria-controls="user-password-fields"
+                                    @click="togglePassword"
+                                >
+                                    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true"><KeyRound class="h-4 w-4" /></span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block text-sm font-bold text-foreground">Mot de passe</span>
+                                        <span class="block text-xs text-muted-foreground">{{ passwordOpen ? 'Un nouveau mot de passe remplacera l’actuel à l’enregistrement.' : 'Inchangé — le mot de passe actuel est conservé.' }}</span>
+                                    </span>
+                                    <span class="shrink-0 text-xs font-semibold text-primary">{{ passwordOpen ? 'Ne pas changer' : 'Changer' }}</span>
+                                </button>
+                                <div v-if="passwordOpen" id="user-password-fields" class="grid gap-5 border-t border-border px-4 py-4 md:grid-cols-2">
+                                    <div>
+                                        <FormField as="div" label="Nouveau mot de passe" :error="form.errors.password">
+                                            <div class="relative">
+                                                <IconInput v-model="form.password" :icon="KeyRound" :type="showPassword ? 'text' : 'password'" class="pe-10" autocomplete="new-password" :aria-invalid="Boolean(form.errors.password || passwordTooShort)" aria-label="Nouveau mot de passe" />
+                                                <button type="button" class="absolute inset-y-0 end-0 z-10 grid w-10 place-items-center text-muted-foreground hover:text-foreground" :aria-label="showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'" @click="showPassword = !showPassword">
+                                                    <component :is="showPassword ? EyeOff : Eye" class="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        </FormField>
+                                        <p :class="cn('mt-1.5 flex items-center gap-1.5 text-xs', form.password.length >= 12 ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground')">
+                                            <component :is="form.password.length >= 12 ? CircleCheck : Info" class="h-3.5 w-3.5" />12 caractères au moins<template v-if="form.password"> · {{ form.password.length }}</template>
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <FormField as="div" label="Confirmation" :error="passwordMismatch ? 'Ne correspond pas au mot de passe.' : ''">
+                                            <div class="relative">
+                                                <IconInput v-model="form.password_confirmation" :icon="KeyRound" :type="showPasswordConfirmation ? 'text' : 'password'" class="pe-10" autocomplete="new-password" :aria-invalid="passwordMismatch" aria-label="Confirmation du mot de passe" />
+                                                <button type="button" class="absolute inset-y-0 end-0 z-10 grid w-10 place-items-center text-muted-foreground hover:text-foreground" :aria-label="showPasswordConfirmation ? 'Masquer le mot de passe' : 'Afficher le mot de passe'" @click="showPasswordConfirmation = !showPasswordConfirmation">
+                                                    <component :is="showPasswordConfirmation ? EyeOff : Eye" class="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        </FormField>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </Card>
+
+                    <!-- Étape 2 — ce que la personne fait à la clinique. -->
+                    <Card v-else-if="step === 2" class="overflow-hidden">
+                        <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+                            <div class="flex min-w-0 items-start gap-3">
+                                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Briefcase class="h-5 w-5" /></span>
+                                <div class="min-w-0">
+                                    <h2 ref="stepHeading" tabindex="-1" class="text-base font-bold text-foreground focus:outline-none">Rôle et profil métier</h2>
+                                    <p class="mt-0.5 text-sm text-muted-foreground">Le rôle donne le socle de droits commun au service. Les exceptions de ce compte se règlent ensuite dans « Rôles &amp; permissions ».</p>
+                                </div>
+                            </div>
+                            <div v-if="roles.length > 6" class="w-full sm:w-60 sm:shrink-0">
+                                <IconInput v-model="roleSearch" :icon="Search" type="search" placeholder="Rechercher un rôle…" autocomplete="off" aria-label="Rechercher un rôle" @keydown.enter.prevent />
+                            </div>
+                        </div>
+
+                        <div class="space-y-6 px-5 py-5 sm:px-6">
+                            <fieldset>
+                                <legend class="mb-2.5 text-sm font-semibold text-foreground">Rôle métier<span class="ms-0.5 text-destructive">*</span></legend>
+                                <div class="grid gap-2 sm:grid-cols-2 2xl:grid-cols-3" role="radiogroup" aria-label="Rôle métier">
+                                    <button
+                                        v-for="role in shownRoles"
+                                        :key="role.id"
+                                        type="button"
+                                        role="radio"
+                                        :aria-checked="Number(form.role_id) === Number(role.id)"
+                                        :aria-haspopup="role.profiles.length ? 'dialog' : undefined"
+                                        :title="roleDescription(role.code) || 'Rôle créé depuis le portail.'"
+                                        :class="cn(
+                                            'group flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-start transition-[border-color,background-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                            Number(form.role_id) === Number(role.id) ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/40 hover:bg-accent/30',
+                                        )"
+                                        @click="selectRole(role.id)"
+                                    >
+                                        <span :class="cn(
+                                            'grid h-8 w-8 shrink-0 place-items-center rounded-md text-[11px] font-bold',
+                                            Number(form.role_id) === Number(role.id) ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground group-hover:text-foreground',
+                                        )" aria-hidden="true">{{ roleInitials(role.name) }}</span>
+                                        <span class="min-w-0 flex-1">
+                                            <span class="flex items-baseline justify-between gap-2">
+                                                <span class="truncate text-sm font-semibold text-foreground">{{ role.name }}</span>
+                                                <span class="inline-flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
+                                                    <span class="inline-flex items-center gap-0.5" :title="`${role.permissions.length} droit(s) par défaut`"><ShieldCheck class="h-3 w-3" />{{ role.permissions.length }}</span>
+                                                    <span v-if="role.profiles.length" class="inline-flex items-center gap-0.5" :title="`${role.profiles.length} profil(s) métier`"><IdCard class="h-3 w-3" />{{ role.profiles.length }}</span>
+                                                </span>
+                                            </span>
+                                            <span
+                                                v-if="Number(form.role_id) === Number(role.id) && selectedProfile"
+                                                class="mt-0.5 block truncate text-xs font-medium text-primary"
+                                            >Profil : {{ selectedProfile.name }}</span>
+                                            <span
+                                                v-else-if="Number(form.role_id) === Number(role.id) && role.profiles.length"
+                                                class="mt-0.5 block truncate text-xs font-medium text-amber-700 dark:text-amber-300"
+                                            >Profil à choisir</span>
+                                            <span v-else class="mt-0.5 block truncate text-xs text-muted-foreground">{{ roleDescription(role.code) || 'Rôle créé depuis le portail.' }}</span>
+                                        </span>
+                                        <CircleCheck v-if="Number(form.role_id) === Number(role.id)" class="h-4 w-4 shrink-0 text-primary" />
+                                        <Circle v-else class="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                                    </button>
+                                </div>
+                                <p v-if="! shownRoles.length" class="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+                                    Aucun rôle ne correspond à « {{ roleSearch }} ».
+                                    <button type="button" class="font-semibold text-primary hover:underline" @click="roleSearch = ''">Tout afficher</button>
+                                </p>
+                                <FormError v-if="form.errors.role_id">{{ form.errors.role_id }}</FormError>
+                                <p class="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                    <IdCard class="h-3 w-3" />Un rôle marqué d’un nombre de profils demande de choisir le profil métier : une fenêtre s’ouvre à la sélection.
+                                </p>
+                            </fieldset>
+
+                            <!-- Le profil choisi, rappelé en une ligne ; il se change dans sa fenêtre. -->
+                            <div
+                                v-if="selectedRoleProfiles.length"
+                                :class="cn(
+                                    'flex flex-col gap-3 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
+                                    selectedProfile ? 'border-border bg-muted/30' : 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/25',
+                                )"
+                            >
+                                <div class="flex min-w-0 items-center gap-3">
+                                    <span :class="cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', selectedProfile ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300')" aria-hidden="true"><IdCard class="h-4 w-4" /></span>
+                                    <div class="min-w-0">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Profil professionnel</p>
+                                        <p class="truncate text-sm font-bold text-foreground">{{ selectedProfile?.name ?? `À choisir pour ${selectedRole?.name}` }}</p>
+                                        <FormError v-if="form.errors.professional_profile_id">{{ form.errors.professional_profile_id }}</FormError>
+                                    </div>
+                                </div>
+                                <Button type="button" size="sm" :variant="selectedProfile ? 'outline' : 'primary'" class="shrink-0" @click="openProfileDialog(selectedRole)">
+                                    <IdCard class="h-4 w-4" />{{ selectedProfile ? 'Changer de profil' : 'Choisir le profil' }}
+                                </Button>
+                            </div>
+                            <p v-if="profileChanged" class="-mt-3 flex items-start gap-2 px-1 text-xs leading-5 text-amber-800 dark:text-amber-200">
+                                <TriangleAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                <span>Profil modifié ({{ oldProfileName }} → {{ newProfileName }}) : à l’enregistrement, les droits venus de l’ancien profil sont retirés et ceux du nouveau ajoutés, sans toucher aux décisions individuelles.</span>
+                            </p>
+
+                            <div v-if="selectedRole" class="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                                <p class="text-xs leading-5 text-muted-foreground">
+                                    <strong class="text-foreground">{{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }}</strong>
+                                    accordée{{ selectedRole.permissions.length > 1 ? 's' : '' }} par défaut au rôle « {{ selectedRole.name }} », sur tous ses comptes.
+                                </p>
+                                <a
+                                    v-if="canManageRoleBaselines"
+                                    :href="rolesScreenUrl({ role: selectedRole.code })"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                                >Voir le socle du rôle<ExternalLink class="h-3.5 w-3.5" /></a>
+                            </div>
+                        </div>
+                    </Card>
+
+                    <footer class="z-20 flex flex-col gap-3 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/85 sm:sticky sm:bottom-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex min-w-0 items-center gap-3">
+                            <Button type="button" variant="ghost" :disabled="form.processing" @click="closeForm">Annuler</Button>
+                            <p v-if="blocker" class="flex min-w-0 items-start gap-1.5 text-xs leading-4 text-muted-foreground" aria-live="polite">
+                                <Info class="mt-px h-3.5 w-3.5 shrink-0" /><span>{{ blocker }}</span>
+                            </p>
+                        </div>
+                        <div class="flex flex-col-reverse gap-2 sm:flex-row">
+                            <Button v-if="step > 1" type="button" variant="outline" :disabled="form.processing" @click="prevStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
+                            <Button v-if="isEditing && step === 1" type="button" variant="outline" :disabled="!step1Valid || form.processing" @click="submitUser">
+                                <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : 'Mettre à jour les informations' }}
+                            </Button>
+                            <Button v-if="step < 2" type="submit" variant="primary" :disabled="!step1Valid">{{ isEditing ? 'Continuer vers le rôle' : 'Suivant : le rôle' }}<ArrowRight class="h-4 w-4" /></Button>
+                            <Button v-else type="submit" variant="primary" :disabled="form.processing || !step2Valid">
+                                <Loader2 v-if="form.processing" class="h-4 w-4 animate-spin" />
+                                <Check v-else class="h-4 w-4" />
+                                {{ form.processing ? 'Enregistrement…' : (isEditing ? 'Enregistrer' : 'Créer le compte et envoyer l’invitation') }}
+                            </Button>
+                        </div>
+                    </footer>
+                </form>
+
+                <!-- Aperçu : ce qui sera enregistré, relu sans changer d'étape. -->
+                <aside class="space-y-4 lg:sticky lg:top-20" aria-label="Aperçu du compte">
+                    <Card class="overflow-hidden">
+                        <div class="flex flex-col items-center gap-1.5 border-b border-border bg-muted/30 px-5 py-5 text-center">
+                            <span
+                                :class="cn(
+                                    'grid h-14 w-14 place-items-center rounded-full text-base font-bold ring-4 ring-card',
+                                    form.name.trim() ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                                )"
+                                aria-hidden="true"
+                            >
+                                <template v-if="form.name.trim()">{{ initials(form.name) }}</template>
+                                <UserRound v-else class="h-6 w-6" />
+                            </span>
+                            <p :class="cn('mt-1 max-w-full truncate text-sm font-bold', form.name.trim() ? 'text-foreground' : 'text-muted-foreground')">{{ form.name.trim() || 'Nom à renseigner' }}</p>
+                            <p :class="cn('max-w-full break-all text-xs', emailValid ? 'text-muted-foreground' : 'text-muted-foreground/70')">{{ form.email.trim() || 'email à renseigner' }}</p>
+                        </div>
+                        <dl class="divide-y divide-border text-sm">
+                            <div class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><Server class="h-3.5 w-3.5" />Site</dt>
+                                <dd class="text-end font-medium text-foreground">{{ selectedSite?.site.name }}</dd>
+                            </div>
+                            <div class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><Briefcase class="h-3.5 w-3.5" />Rôle</dt>
+                                <dd :class="cn('text-end font-medium', selectedRole ? 'text-foreground' : 'text-muted-foreground')">{{ selectedRole?.name ?? 'À choisir' }}</dd>
+                            </div>
+                            <div class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><IdCard class="h-3.5 w-3.5" />Profil</dt>
+                                <dd :class="cn('text-end font-medium', selectedProfile ? 'text-foreground' : 'text-muted-foreground')">
+                                    {{ ! selectedRole ? '—' : selectedRoleProfiles.length ? (selectedProfile?.name ?? 'À choisir') : 'Aucun pour ce rôle' }}
+                                </dd>
+                            </div>
+                            <div class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><ShieldCheck class="h-3.5 w-3.5" />Socle</dt>
+                                <dd class="text-end font-medium text-foreground">{{ selectedRole ? `${selectedRole.permissions.length} droit${selectedRole.permissions.length > 1 ? 's' : ''}` : '—' }}</dd>
+                            </div>
+                            <div class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><KeyRound class="h-3.5 w-3.5" />Mot de passe</dt>
+                                <dd class="text-end font-medium text-foreground">{{ ! isEditing ? 'Par invitation' : form.password ? 'Nouveau' : 'Inchangé' }}</dd>
+                            </div>
+                            <div v-if="isEditing" class="flex items-start justify-between gap-3 px-5 py-2.5">
+                                <dt class="flex items-center gap-2 text-muted-foreground"><Lock class="h-3.5 w-3.5" />Exceptions</dt>
+                                <dd class="text-end font-medium text-foreground">{{ editingUser.permission_overrides.length }} · conservées</dd>
+                            </div>
+                        </dl>
+                    </Card>
+
+                    <Card class="p-4">
+                        <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">{{ isEditing ? 'Avant d’enregistrer' : 'Avant de créer le compte' }}</p>
+                        <ul class="mt-3 space-y-2">
+                            <li v-for="item in checklist" :key="item.key" class="flex items-center gap-2.5 text-sm">
+                                <CircleCheck v-if="item.done" class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                <Circle v-else class="h-4 w-4 shrink-0 text-muted-foreground/50" />
+                                <span :class="item.done ? 'text-foreground' : 'text-muted-foreground'">{{ item.label }}</span>
+                            </li>
+                        </ul>
+                        <p v-if="isEditing" class="mt-3 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
+                            Les exceptions individuelles de ce compte ne sont pas modifiées ici.
+                            <a
+                                v-if="canAssignPermissions"
+                                :href="rolesScreenUrl({ vue: 'comptes', compte: editingUser.uuid })"
+                                target="_blank"
+                                rel="noopener"
+                                class="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                            >Les régler<ExternalLink class="h-3 w-3" /></a>
+                        </p>
+                    </Card>
+                </aside>
+            </div>
+        </template>
+
+        <Dialog
+            :open="pendingRole !== null"
+            :title="`Profil professionnel — ${pendingRole?.name ?? ''}`"
+            description="Ce rôle regroupe plusieurs métiers : choisissez celui de la personne. Le profil classe le métier ; il ne donne aucun droit automatiquement."
+            size="lg"
+            @update:open="(open) => open || cancelProfile()"
+        >
+            <template #icon>
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><IdCard class="h-5 w-5" /></span>
+            </template>
+
+            <div class="space-y-2" role="radiogroup" aria-label="Profil professionnel">
+                <button
+                    v-for="profile in pendingProfiles"
+                    :key="profile.id"
+                    type="button"
+                    role="radio"
+                    :aria-checked="Number(profileDraft) === Number(profile.id)"
+                    :class="cn(
+                        'flex w-full items-start gap-3 rounded-lg border px-3.5 py-3 text-start transition-[border-color,background-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        Number(profileDraft) === Number(profile.id) ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/40 hover:bg-accent/30',
+                    )"
+                    @click="selectProfile(profile.id)"
+                    @dblclick="selectProfile(profile.id); confirmProfile()"
+                >
+                    <span :class="cn(
+                        'grid h-8 w-8 shrink-0 place-items-center rounded-md',
+                        Number(profileDraft) === Number(profile.id) ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                    )" aria-hidden="true"><IdCard class="h-4 w-4" /></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-semibold text-foreground">{{ profile.name }}</span>
+                            <span v-if="profile.recommended_permissions?.length" class="shrink-0 text-[11px] tabular-nums text-muted-foreground">{{ profile.recommended_permissions.length }} droit{{ profile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ profile.recommended_permissions.length > 1 ? 's' : '' }}</span>
+                        </span>
+                        <span class="mt-0.5 block text-xs leading-4 text-muted-foreground">{{ profile.description }}</span>
+                    </span>
+                    <CircleCheck v-if="Number(profileDraft) === Number(profile.id)" class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <Circle v-else class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" />
+                </button>
+            </div>
+
+            <p v-if="draftProfile" class="mt-4 text-xs leading-5 text-muted-foreground">
+                <template v-if="draftProfile.recommended_permissions?.length">Ses {{ draftProfile.recommended_permissions.length }} droit{{ draftProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ draftProfile.recommended_permissions.length > 1 ? 's' : '' }} sont ajouté{{ draftProfile.recommended_permissions.length > 1 ? 's' : '' }} à l’enregistrement lorsque le profil change, puis restent ajustables dans « Rôles &amp; permissions ».</template>
+                <template v-else>Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</template>
+            </p>
+            <div v-if="draftProfileChanged" class="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+                <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ selectedSite?.site.name }}</p>
-                    <h1 class="mt-0.5 font-heading text-2xl font-bold tracking-tight text-foreground">{{ isEditing ? `Modifier ${editingUser.name}` : 'Créer un utilisateur' }}</h1>
+                    <p class="font-bold">Le profil professionnel change : {{ oldProfileName }} → {{ draftProfile.name }}</p>
+                    <p class="mt-0.5">À l’enregistrement, les permissions venues de l’ancien profil seront retirées et les recommandations du nouveau ajoutées. Une permission attribuée individuellement n’est jamais écrasée.</p>
                 </div>
             </div>
 
-            <nav class="overflow-hidden rounded-xl border border-border bg-card shadow-sm" aria-label="Étapes">
-                <ol class="grid grid-cols-2">
-                    <li v-for="(s, index) in steps" :key="s.n">
-                        <button
-                            type="button"
-                            :disabled="s.n > maxStepReached"
-                            :class="cn(
-                                'flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors',
-                                index > 0 ? 'border-s border-border' : '',
-                                s.n > maxStepReached ? 'cursor-not-allowed opacity-50' : 'hover:bg-accent/50',
-                            )"
-                            @click="goToStep(s.n)"
-                        >
-                            <span :class="cn(
-                                'grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold',
-                                step === s.n ? 'bg-primary text-primary-foreground'
-                                    : s.n < step ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                        : 'bg-muted text-muted-foreground',
-                            )">
-                                <Check v-if="s.n < step" class="h-4 w-4" />
-                                <template v-else>{{ s.n }}</template>
-                            </span>
-                            <span class="min-w-0">
-                                <span :class="cn('block text-xs font-bold uppercase tracking-wide', step === s.n ? 'text-primary' : 'text-muted-foreground')">Étape {{ s.n }}</span>
-                                <span class="block truncate text-sm font-bold text-foreground">{{ s.label }}</span>
-                            </span>
-                        </button>
-                    </li>
-                </ol>
-            </nav>
-
-            <form @submit.prevent="submitUser">
-                <Card v-if="step === 1" class="p-6">
-                    <h2 class="text-sm font-bold text-foreground">Informations du compte</h2>
-                    <p class="mt-1 text-xs leading-5 text-muted-foreground">Un compte nominatif, jamais générique ni partagé.</p>
-
-                    <div v-if="form.errors.site_code || form.errors.user" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{{ form.errors.site_code || form.errors.user }}</div>
-
-                    <div class="mt-5 grid gap-4 sm:grid-cols-2">
-                        <FormField label="Nom complet" required :error="form.errors.name">
-                            <Input v-model="form.name" autocomplete="name" :aria-invalid="Boolean(form.errors.name)" />
-                        </FormField>
-                        <FormField label="Email professionnel" required :error="form.errors.email">
-                            <Input v-model="form.email" type="email" autocomplete="off" :aria-invalid="Boolean(form.errors.email)" />
-                        </FormField>
-                    </div>
-
-                    <div v-if="!isEditing" class="mt-6 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-                        <Mail class="mt-0.5 h-4.5 w-4.5 shrink-0 text-primary" />
-                        <div>
-                            <p class="text-sm font-bold text-foreground">Aucun mot de passe à saisir</p>
-                            <p class="mt-1 text-xs leading-5 text-muted-foreground">Un email sera envoyé à <strong>{{ form.email || "l'adresse renseignée" }}</strong> avec son identifiant de connexion et un lien pour créer son propre mot de passe.</p>
-                        </div>
-                    </div>
-
-                    <div v-else class="mt-6 border-t border-border pt-5">
-                        <h3 class="text-sm font-bold text-foreground">Nouveau mot de passe</h3>
-                        <p class="mt-1 text-xs text-muted-foreground">Laissez vide pour conserver le mot de passe actuel.</p>
-                        <div class="mt-3 grid gap-4 sm:grid-cols-2">
-                            <FormField as="div" label="Mot de passe" :error="form.errors.password">
-                                <div class="relative">
-                                    <Input v-model="form.password" :type="showPassword ? 'text' : 'password'" class="pe-10" autocomplete="new-password" :aria-invalid="Boolean(form.errors.password)" />
-                                    <button type="button" class="absolute inset-y-0 end-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground" :aria-label="showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'" @click="showPassword = !showPassword">
-                                        <component :is="showPassword ? EyeOff : Eye" class="h-4 w-4" />
-                                    </button>
-                                </div>
-                            </FormField>
-                            <FormField as="div" label="Confirmation">
-                                <div class="relative">
-                                    <Input v-model="form.password_confirmation" :type="showPasswordConfirmation ? 'text' : 'password'" class="pe-10" autocomplete="new-password" />
-                                    <button type="button" class="absolute inset-y-0 end-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground" :aria-label="showPasswordConfirmation ? 'Masquer le mot de passe' : 'Afficher le mot de passe'" @click="showPasswordConfirmation = !showPasswordConfirmation">
-                                        <component :is="showPasswordConfirmation ? EyeOff : Eye" class="h-4 w-4" />
-                                    </button>
-                                </div>
-                            </FormField>
-                        </div>
-                    </div>
-                </Card>
-
-                <Card v-else-if="step === 2" class="p-6">
-                    <h2 class="text-sm font-bold text-foreground">Rôle métier</h2>
-                    <p class="mt-1 text-xs leading-5 text-muted-foreground">Le rôle donne uniquement le socle de droits commun au service — il ne fige pas les permissions du compte, ajustables à l'étape suivante.</p>
-
-                    <div class="mt-5">
-                        <p class="mb-2 text-sm font-medium text-foreground">Rôle métier <span class="text-destructive">*</span></p>
-                        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                            <button
-                                v-for="role in roles"
-                                :key="role.id"
-                                type="button"
-                                :class="cn(
-                                    'rounded-lg border p-4 text-start transition-colors',
-                                    Number(form.role_id) === Number(role.id) ? 'border-primary bg-primary/5 ring-1 ring-ring/25' : 'border-border hover:border-primary/40',
-                                )"
-                                :aria-pressed="Number(form.role_id) === Number(role.id)"
-                                @click="selectRole(role.id)"
-                            >
-                                <div class="flex items-start justify-between gap-2">
-                                    <p class="text-sm font-bold text-foreground">{{ role.name }}</p>
-                                    <CircleCheck v-if="Number(form.role_id) === Number(role.id)" class="h-4.5 w-4.5 shrink-0 text-primary" />
-                                </div>
-                                <p class="mt-1 text-xs text-muted-foreground">{{ role.permissions.length }} permission{{ role.permissions.length > 1 ? 's' : '' }} par défaut</p>
-                                <p v-if="role.profiles.length" class="mt-0.5 text-[11px] text-muted-foreground">{{ role.profiles.length }} profil{{ role.profiles.length > 1 ? 's' : '' }} métier</p>
-                            </button>
-                        </div>
-                        <FormError v-if="form.errors.role_id">{{ form.errors.role_id }}</FormError>
-                    </div>
-
-                    <div v-if="selectedRoleProfiles.length" class="mt-6">
-                        <p class="mb-2 text-sm font-medium text-foreground">Profil professionnel <span class="text-destructive">*</span></p>
-                        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                            <button
-                                v-for="profile in selectedRoleProfiles"
-                                :key="profile.id"
-                                type="button"
-                                :class="cn(
-                                    'rounded-lg border p-4 text-start transition-colors',
-                                    Number(form.professional_profile_id) === Number(profile.id) ? 'border-primary bg-primary/5 ring-1 ring-ring/25' : 'border-border hover:border-primary/40',
-                                )"
-                                :aria-pressed="Number(form.professional_profile_id) === Number(profile.id)"
-                                @click="selectProfile(profile.id)"
-                            >
-                                <div class="flex items-start justify-between gap-2">
-                                    <p class="text-sm font-bold text-foreground">{{ profile.name }}</p>
-                                    <CircleCheck v-if="Number(form.professional_profile_id) === Number(profile.id)" class="h-4.5 w-4.5 shrink-0 text-primary" />
-                                </div>
-                                <p class="mt-1 line-clamp-2 text-xs text-muted-foreground">{{ profile.description }}</p>
-                            </button>
-                        </div>
-                        <FormError v-if="form.errors.professional_profile_id">{{ form.errors.professional_profile_id }}</FormError>
-                    </div>
-
-                    <div v-if="selectedProfile" class="mt-5 rounded-lg border border-border bg-muted/40 px-4 py-3">
-                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                                <p class="text-sm font-bold text-foreground">{{ selectedProfile.name }}</p>
-                                <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ selectedProfile.description }}</p>
-                                <p class="mt-1 text-[11px] text-muted-foreground">Le profil classe le métier ; il ne donne aucun droit automatiquement.</p>
-                            </div>
-                        </div>
-                        <p v-if="selectedProfile.recommended_permissions?.length" class="mt-2 text-[11px] text-muted-foreground">{{ selectedProfile.recommended_permissions.length }} droit{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} recommandé{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} par ce profil, ajouté{{ selectedProfile.recommended_permissions.length > 1 ? 's' : '' }} à l’enregistrement lorsque le profil change. Ils restent ensuite ajustables dans « Rôles &amp; permissions ».</p>
-                        <p v-else class="mt-2 text-[11px] text-muted-foreground">Aucun droit supplémentaire recommandé : le socle du rôle reste applicable.</p>
-                        <div v-if="profileChanged" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
-                            <p class="font-bold">Le profil professionnel a changé.</p>
-                            <p>{{ oldProfileName }} → {{ newProfileName }}</p>
-                            <p class="mt-1">À l’enregistrement, les permissions venues de l’ancien profil seront retirées et les recommandations du nouveau ajoutées. Une permission attribuée individuellement n’est jamais écrasée.</p>
-                        </div>
-                    </div>
-
-                    <div v-if="selectedRole" class="mt-5 border-t border-border pt-4">
-                        <p class="text-xs font-bold uppercase tracking-wide text-muted-foreground">Socle du rôle « {{ selectedRole.name }} »</p>
-                        <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ selectedRole.permissions.length }} permission{{ selectedRole.permissions.length > 1 ? 's' : '' }} accordée{{ selectedRole.permissions.length > 1 ? 's' : '' }} par défaut à ce rôle, sur tous ses comptes. Le socle lui-même et les exceptions de ce compte se règlent dans « Rôles &amp; permissions ».</p>
-                    </div>
-                </Card>
-                <footer class="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div class="flex flex-wrap items-center gap-3">
-                        <Button type="button" variant="outline" :disabled="form.processing" @click="closeForm">Annuler</Button>
-                    </div>
-                    <div class="flex flex-col-reverse gap-3 sm:flex-row">
-                        <Button v-if="step > 1" type="button" variant="outline" :disabled="form.processing" @click="prevStep"><ArrowLeft class="h-4 w-4" />Précédent</Button>
-                        <Button v-if="isEditing && step === 1" type="button" variant="outline" :disabled="!step1Valid || form.processing" @click="submitUser">
-                            <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : 'Mettre à jour les informations' }}
-                        </Button>
-                        <Button v-if="step < 2" type="button" variant="primary" :disabled="!step1Valid" @click="nextStep">{{ isEditing ? 'Continuer vers le rôle' : 'Suivant' }}<ArrowRight class="h-4 w-4" /></Button>
-                        <Button v-else type="submit" variant="primary" :disabled="form.processing || !step2Valid">
-                            <Check class="h-4 w-4" />{{ form.processing ? 'Enregistrement…' : (isEditing ? 'Enregistrer' : 'Créer le compte') }}
-                        </Button>
-                    </div>
-                </footer>
-            </form>
-        </template>
+            <template #footer>
+                <Button type="button" variant="outline" @click="cancelProfile">Annuler</Button>
+                <Button type="button" variant="primary" :disabled="! draftProfile" @click="confirmProfile">
+                    <Check class="h-4 w-4" />Valider le profil
+                </Button>
+            </template>
+        </Dialog>
 
         <Dialog
             :open="confirmingDiscard"

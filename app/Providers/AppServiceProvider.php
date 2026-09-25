@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Permission;
 use App\Models\User;
+use App\Services\Settings\AppSettings;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -18,7 +19,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Les paramètres du site sont lus à chaque page : une seule lecture
+        // par requête, jamais d'une requête à l'autre (ADR-184).
+        $this->app->scoped(AppSettings::class);
     }
 
     /**

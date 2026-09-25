@@ -1,12 +1,14 @@
 <script setup>
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
-import { computed, onMounted, reactive, ref } from 'vue';
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { AGE_BAND_LABELS, DEFAULT_AGE_BANDS, ageBandFor, bandRange, civilityFor, describeAgeBands, isMinorBand, yearsFromBirthDate } from '@/utilities/patientAge';
 import {
     Activity,
     AlertTriangle,
     ArrowLeft,
     ArrowRight,
+    Baby,
     Briefcase,
     Building2,
     CalendarDays,
@@ -137,10 +139,14 @@ const maritalStatusOptions = [
     { value: 'DIVORCED', label: 'Divorcé(e)' },
     { value: 'WIDOWED', label: 'Veuf / Veuve' },
 ];
-const civilitySelectOptions = [
+// Une tranche connue ne propose que les civilités qui lui conviennent.
+const civilitySelectOptions = computed(() => [
     { value: '', label: 'Choisir' },
-    ...civilityOptions.map((option) => ({ value: option.value, label: option.label })),
-];
+    ...civilityOptions
+        .filter((option) => (patientBand.value === null
+            || (isMinorBand(patientBand.value) ? ['GIRL', 'BOY'] : ['MR', 'MRS']).includes(option.value)))
+        .map((option) => ({ value: option.value, label: option.label })),
+]);
 const identityDocumentOptions = [
     { value: '', label: 'Type' },
     { value: 'CIN', label: 'CIN' },
@@ -170,8 +176,24 @@ const partnerSelectOptions = computed(() => [
     ...(props.partnerOrganizations ?? []).map((organization) => ({ value: organization.uuid, label: organization.name })),
 ]);
 
+/**
+ * ADR-184 — la tranche d'âge du patient, d'après la naissance ou l'âge saisi et
+ * les bornes réglées pour ce site. Bébé ou enfant : profil enfant et civilité
+ * « Enfant » ; adulte : M. ou Mme. Le serveur refuse ce qui se contredit.
+ */
+const page = usePage();
+const ageBands = computed(() => page.props.site?.ageBands ?? DEFAULT_AGE_BANDS);
+const patientYears = computed(() => (birthMode.value === 'date'
+    ? yearsFromBirthDate(patientForm.birth_date)
+    : (patientForm.age !== '' && patientForm.age !== null ? Number(patientForm.age) : null)));
+const patientBand = computed(() => (patientMode.value === 'create' ? ageBandFor(patientYears.value, ageBands.value) : null));
+const ageBandsHint = computed(() => describeAgeBands(ageBands.value));
+/** Un bébé se déclare avec sa date de naissance exacte : « 0 an » ne dit pas s'il a trois semaines ou onze mois. */
+const babyNeedsBirthDate = computed(() => patientBand.value === 'BABY' && birthMode.value === 'age');
+
 const isChildPatient = computed(() => (
-    patientMode.value === 'create' && ['GIRL', 'BOY'].includes(patientForm.civility)
+    patientMode.value === 'create'
+    && (['GIRL', 'BOY'].includes(patientForm.civility) || isMinorBand(patientBand.value))
 ));
 // Un bébé né ailleurs est un nouveau patient ordinaire (ADR-177) : seule la
 // civilité « Enfant fille / garçon » porte le profil enfant.
@@ -195,6 +217,17 @@ const chooseCivility = (value) => {
         resetAdultAdministrativeFields();
     }
 };
+
+// La civilité suit la tranche d'âge et le sexe : proposée d'office, jamais
+// laissée en contradiction avec l'âge saisi.
+watch([patientBand, () => patientForm.sex], ([band]) => {
+    if (band === null) return;
+
+    const civility = civilityFor(band, patientForm.sex);
+
+    if (civility && civility !== patientForm.civility) chooseCivility(civility);
+    if (isMinorBand(band)) resetAdultAdministrativeFields();
+});
 
 const financialMode = ref(props.resumeEpisode?.financial_mode ?? 'SELF');
 const financialLoading = ref(false);
@@ -665,7 +698,8 @@ const arrivalPayload = (confirmDuplicate = false) => {
         first_name: patientForm.first_name || null,
         last_name: patientForm.last_name,
         birth_date: birthMode.value === 'date' ? patientForm.birth_date || null : null,
-        age: birthMode.value === 'age' ? Number(patientForm.age) || null : null,
+        // `0` est un âge : un bébé de quelques mois a 0 an, jamais « pas d'âge ».
+        age: birthMode.value === 'age' && patientForm.age !== '' && patientForm.age !== null ? Number(patientForm.age) : null,
         sex: patientForm.sex,
         address_entry_uuid: addressMode.value === 'new' ? null : (patientForm.address_entry_uuid || null),
         new_address_label: addressMode.value === 'new' ? (patientForm.new_address_label || null) : null,
@@ -1227,7 +1261,21 @@ const modeLabel = computed(() => financialModeLabel(financialMode.value));
                                     </span>
                                 </template>
                                 <DatePicker v-if="birthMode === 'date'" v-model="patientForm.birth_date" size="lg" :invalid="Boolean(firstError(arrivalErrors, 'birth_date'))" />
-                                <Input v-else v-model="patientForm.age" size="lg" type="number" min="0" max="130" placeholder="Âge déclaré" :aria-invalid="Boolean(firstError(arrivalErrors, 'age'))" />
+                                <Input v-else v-model="patientForm.age" size="lg" type="number" min="0" max="130" placeholder="Âge déclaré" :aria-invalid="Boolean(firstError(arrivalErrors, 'age') || babyNeedsBirthDate)" />
+                                <!-- ADR-184 — la tranche d'âge, d'après les bornes réglées pour ce site. -->
+                                <p v-if="babyNeedsBirthDate" class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-amber-700 dark:text-amber-300" role="status">
+                                    <Baby class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    Bébé ({{ bandRange('BABY', ageBands) }}) : la date de naissance exacte est obligatoire.
+                                    <button type="button" class="font-semibold text-primary hover:underline" @click="setBirthMode('date')">Saisir la date</button>
+                                </p>
+                                <p v-else-if="patientBand" class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground" :title="ageBandsHint">
+                                    <span :class="['inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold', patientBand === 'ADULT' ? 'border-border bg-muted text-foreground' : 'border-primary/30 bg-primary/10 text-primary']">
+                                        <Baby v-if="patientBand !== 'ADULT'" class="h-3 w-3" aria-hidden="true" />
+                                        {{ AGE_BAND_LABELS[patientBand] }}
+                                    </span>
+                                    <span>{{ patientYears }} an{{ patientYears > 1 ? 's' : '' }} · {{ bandRange(patientBand, ageBands) }}<template v-if="patientBand !== 'ADULT'"> : profil enfant, contact du parent</template></span>
+                                </p>
+                                <p v-else class="mt-1.5 text-xs text-muted-foreground">{{ ageBandsHint }}</p>
                             </FormField>
 
                             <!-- `as="div"` : un <label> enveloppant deux radios

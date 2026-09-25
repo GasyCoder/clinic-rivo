@@ -1,4 +1,5 @@
 <script setup>
+import { currencyLabel } from '@/utilities/money';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
@@ -175,7 +176,7 @@ const submit = () => {
                         <span :class="labelClass">Montant total <span class="text-red-500">*</span></span>
                         <span class="relative block">
                             <input v-model="form.total_amount" type="number" min="0.01" step="0.01" :class="[inputClass, 'pe-14 text-end font-semibold tabular-nums']" placeholder="0" required>
-                            <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
+                            <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">{{ currencyLabel() }}</span>
                         </span>
                     </label>
                     <label :class="['block', suppliers ? 'md:col-span-3' : 'md:col-span-2']">
@@ -257,7 +258,7 @@ const submit = () => {
                                 <span :class="labelClass">Prix d’achat unitaire</span>
                                 <span class="relative block">
                                     <input v-model="line.unit_price" type="number" min="0.01" step="0.01" :class="[inputClass, 'pe-14 text-end']" required>
-                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
+                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">{{ currencyLabel() }}</span>
                                 </span>
                             </label>
                             <div class="text-end">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Administration;
 
+use App\Services\Settings\AppSettings;
 use App\Actions\Administration\AllocateStaffBlockCreditAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Administration\AllocateStaffBlockCreditRequest;
@@ -97,6 +98,6 @@ class StaffBlockCreditController extends Controller
             $request->user(),
         );
 
-        return back()->with('status', "Crédit Bloc alloué. Nouveau solde : {$movement->balance_after} Ar.");
+        return back()->with('status', 'Crédit Bloc alloué. Nouveau solde : '.app(AppSettings::class)->formatMoney($movement->balance_after).'.');
     }
 }

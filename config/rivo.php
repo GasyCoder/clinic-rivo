@@ -62,6 +62,16 @@ return [
     */
 
     'brand' => env('RIVO_BRAND', 'Clinique Saint Georges'),
+    // La devise de l'établissement, sous la marque sur la page de connexion
+    // (ADR-184). Un site la remplace depuis le portail ; RIVO_TAGLINE vide n'en
+    // affiche aucune pour les sites qui n'ont rien réglé.
+    'tagline' => env('RIVO_TAGLINE', 'Ny fahasalamana no loharanon-karena'),
+    // ADR-184 — une application clinique n'a rien à montrer aux moteurs de
+    // recherche : masquée par défaut (robots.txt, balise et en-tête « noindex »).
+    // Réglable par site depuis le portail.
+    'search_engines' => [
+        'hidden' => (bool) env('RIVO_HIDE_FROM_SEARCH_ENGINES', true),
+    ],
     'auth_cover_url' => env('RIVO_AUTH_COVER_URL') ?: '/images/brand/clinic-saint-georges-cover.jpg',
 
     /*

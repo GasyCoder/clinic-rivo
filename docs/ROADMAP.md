@@ -753,6 +753,19 @@ admin.rivo.mg
 - [x] Menus ancrés (exceptions, « Tout le module », panneaux) ouverts directement à leur place : l'animation des fenêtres centrées les faisait glisser vers la gauche (ADR-178)
 - [x] Un brouillon, un seul enregistrement : barre collante (nombre de changements, Revoir, Annuler, Enregistrer), confirmation seulement pour les droits sensibles à l'enregistrement, les réinitialisations, l'archivage et l'abandon d'un brouillon (ADR-178)
 - [ ] Description d'un rôle éditable (colonne, validation, API du site) — aujourd'hui phrase fixe pour les rôles livrés (ADR-178)
+- [x] Paramètres de l'application propres à chaque site et au portail (ADR-184) : nom, logo, icône (favicon + barre latérale), couleur principale déclinée clair/sombre avec contrôle de contraste, écriture de l'Ariary, identité légale (NIF, STAT, adresse, téléphone, email, banque, compte), directeur général et signature — par l'API du site, audités
+- [x] Tranches d'âge réglables par site (bébé, enfant, adulte) appliquées au formulaire « Nouveau patient » : profil enfant d'office, date de naissance exacte pour un bébé, civilité contraire à l'âge refusée par le serveur (ADR-184)
+- [x] Signature du directeur général apposée sur demande au bas des documents RH, copiée dans le document au moment où il est produit (ADR-184)
+- [ ] Tranches d'âge à la modification d'un dossier patient existant — non contraintes aujourd'hui (ADR-184)
+- [x] Devise ou slogan réglable par site, sur la page de connexion, à la place de la phrase écrite en dur (ADR-184, amendement du 2026-09-24)
+- [x] Case « Masquer l'application des moteurs de recherche », cochée par défaut : robots.txt « Disallow: / », balise et en-tête « noindex » sur chaque réponse (ADR-184, amendement du 2026-09-24)
+- [ ] Devise imprimée sur les documents (factures, reçus, ordonnances) — non fait : changerait d'office tous les en-têtes, à décider (ADR-184)
+- [x] Modèles des pages d'authentification choisis par site (Couverture, Partagé, Centré — inspirés de DashWind, en shadcn), un pour toutes les pages ; image de fond de connexion déposée par site (ADR-184, amendement bis)
+- [x] Page « Mon profil » : identité, rôle, droits effectifs, et changement de son mot de passe (ancien exigé, autres sessions fermées, audité) ; deux modèles choisis par site (ADR-184, amendement bis)
+- [x] Apparence Clair / Système / Sombre (barre du haut à côté de la cloche, menu du compte sur téléphone, pages de connexion), « Système » suivant l'appareil en direct, sans éclair au chargement (ADR-185)
+- [x] Squelette de chargement shadcn sur toutes les pages de la mise en page principale, à la forme de la page qui arrive (tableau de bord, liste, fiche, formulaire, document, réglages) (ADR-185)
+- [x] Assistant « Créer / Modifier un utilisateur » refondu en shadcn : étapes iconées, champs avec aide en ligne et contrôle de l'email, rôles en cartes compactes (recherche au-delà de six rôles), profil choisi dans une fenêtre quand le rôle en a (Annuler rend le choix précédent), aperçu du compte et liste de contrôle, barre d'actions qui dit ce qui manque ; mot de passe replié en modification
+- [x] Défauts corrigés dans l'assistant : Entrée à l'étape 1 envoyait le compte avec le premier rôle de la liste — elle mène désormais au rôle, aucun rôle n'est présélectionné ; une erreur du site sur le nom ou l'email ramène à l'étape 1 au lieu de rester invisible
 - [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail

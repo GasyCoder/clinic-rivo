@@ -626,6 +626,10 @@ onBeforeUnmount(() => {
                                     <span>NIF : {{ legalDetails.nif || '—' }}</span>
                                     <span>STAT : {{ legalDetails.stat || '—' }}</span>
                                 </div>
+                                <!-- ADR-184 — le compte où régler, quand le site l'a renseigné. -->
+                                <p v-if="legalDetails.bank_account" class="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                    Compte bancaire : <template v-if="legalDetails.bank_name">{{ legalDetails.bank_name }} · </template>{{ legalDetails.bank_account }}
+                                </p>
                             </div>
                         </div>
 

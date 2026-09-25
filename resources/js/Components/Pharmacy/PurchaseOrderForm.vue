@@ -1,4 +1,5 @@
 <script setup>
+import { currencyLabel } from '@/utilities/money';
 import { computed, ref, watch } from 'vue';
 import { Link, useForm } from '@inertiajs/vue3';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -371,7 +372,7 @@ const chip = (active) => cn(
                                 <template v-else>
                                     <div class="relative ms-auto w-40">
                                         <Input v-model="row.unit_price" type="number" min="0.01" step="0.01" inputmode="decimal" :class="cn('pe-12 text-end', !(Number(row.unit_price) > 0) && 'border-amber-400')" :aria-label="`Prix d’achat unitaire de ${row.name}`" />
-                                        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
+                                        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">{{ currencyLabel() }}</span>
                                     </div>
                                     <p v-if="!row.supplier_price" class="mt-1 text-xs text-amber-600">Pas de prix au catalogue : indiquez-le.</p>
                                     <p v-else-if="String(row.unit_price) !== String(row.supplier_price)" class="mt-1 text-xs text-amber-600">Prix négocié · catalogue : {{ formatMoney(row.supplier_price) }}</p>

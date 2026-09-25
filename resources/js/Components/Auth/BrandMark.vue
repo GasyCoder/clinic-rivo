@@ -21,10 +21,10 @@ const monogram = computed(() => monogramOf(site.value.brand));
             class="h-auto w-full max-w-[270px] object-contain object-left"
         />
         <div v-else class="flex items-center gap-3">
-            <span class="flex h-11 w-11 flex-none items-center justify-center rounded-md bg-primary-800 font-heading text-sm font-bold text-white">
+            <span class="flex h-11 w-11 flex-none items-center justify-center rounded-lg bg-primary font-heading text-sm font-bold text-primary-foreground">
                 {{ monogram }}
             </span>
-            <div class="font-heading text-sm font-bold text-slate-700 dark:text-white">{{ site.brand }}</div>
+            <div class="font-heading text-sm font-bold text-foreground">{{ site.brand }}</div>
         </div>
     </div>
 </template>

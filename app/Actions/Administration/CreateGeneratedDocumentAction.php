@@ -2,6 +2,7 @@
 
 namespace App\Actions\Administration;
 
+use App\Services\Settings\AppSettings;
 use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
@@ -15,7 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class CreateGeneratedDocumentAction
 {
-    public function __construct(private readonly DocumentFormDataResolver $resolver) {}
+    public function __construct(
+        private readonly DocumentFormDataResolver $resolver,
+        private readonly AppSettings $settings,
+    ) {}
 
     /** @param array<string, string> $formData */
     public function execute(
@@ -25,6 +29,7 @@ class CreateGeneratedDocumentAction
         ?LeaveRequest $leave,
         array $formData,
         User $actor,
+        bool $withDirectorSignature = false,
     ): GeneratedDocument {
         Gate::forUser($actor)->authorize('create', GeneratedDocument::class);
 
@@ -36,7 +41,7 @@ class CreateGeneratedDocumentAction
             throw ValidationException::withMessages(['leave_request_uuid' => 'Cette demande de congé n’appartient pas à cet employé.']);
         }
 
-        return DB::transaction(function () use ($template, $employee, $contract, $leave, $formData, $actor): GeneratedDocument {
+        return DB::transaction(function () use ($template, $employee, $contract, $leave, $formData, $actor, $withDirectorSignature): GeneratedDocument {
             $this->resolver->assertContext($template->data_context, $contract, $leave);
             $resolution = $this->resolver->resolve($template->data_context, $employee, $contract, $leave, $formData);
 
@@ -61,7 +66,8 @@ class CreateGeneratedDocumentAction
                 'employment_contract_id' => $contract?->getKey(),
                 'leave_request_id' => $leave?->getKey(),
                 'form_data_snapshot' => $resolution['values'],
-                'rendered_html_snapshot' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html,
+                'rendered_html_snapshot' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html
+                    .($withDirectorSignature ? $this->resolver->renderDirectorSignature($this->settings) : ''),
                 'generated_by' => $actor->getKey(),
             ]);
         });

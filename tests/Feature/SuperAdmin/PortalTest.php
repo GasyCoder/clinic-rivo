@@ -152,11 +152,15 @@ class PortalTest extends TestCase
     {
         $actor = $this->user('SUPER_ADMIN');
 
-        foreach (['finance', 'logistics', 'guarding', 'settings', 'audit'] as $workspace) {
+        foreach (['finance', 'logistics', 'guarding', 'audit'] as $workspace) {
             $this->actingAs($actor)->get("/super-admin/workspaces/{$workspace}")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component('SuperAdmin/Workspace'));
         }
+
+        // ADR-184 — les paramètres ont leur écran ; l'ancien espace y mène.
+        $this->actingAs($actor)->get('/super-admin/workspaces/settings')
+            ->assertRedirect('/super-admin/settings');
 
         $this->actingAs($actor)->get('/super-admin/workspaces/hr')
             ->assertOk()

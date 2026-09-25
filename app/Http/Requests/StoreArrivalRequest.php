@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Settings\AppSettings;
+use App\Support\Patients\PatientAgeRules;
 use App\Enums\IdentityDocumentType;
 use App\Enums\MaritalStatus;
 use App\Enums\MutualBeneficiaryType;
@@ -86,11 +88,18 @@ class StoreArrivalRequest extends FormRequest
         $isMutual = $type === PatientType::Mutual->value;
         // ADR-177 — plus de troisième mode « Nouveau-né » : un bébé né ailleurs
         // est un nouveau patient, et la civilité « Enfant fille / garçon »
-        // porte seule le profil enfant (ADR-146, amendement du 2026-09-22).
+        // porte le profil enfant (ADR-146, amendement du 2026-09-22).
+        // ADR-184 — l'âge aussi : un bébé ou un enfant, d'après les tranches
+        // réglées pour ce site, n'a pas de champs d'adulte.
+        $band = $isStaff ? null : PatientAgeRules::band(
+            $this->input('birth_date'),
+            $this->input('age'),
+            app(AppSettings::class)->ageBands(),
+        );
         $isChild = in_array($this->input('civility'), [
             PatientCivility::Girl->value,
             PatientCivility::Boy->value,
-        ], true);
+        ], true) || ($band?->isMinor() ?? false);
 
         $commonRule = fn (array $rules): array => [
             Rule::prohibitedIf($isStaff),
@@ -308,6 +317,22 @@ class StoreArrivalRequest extends FormRequest
                     'age',
                     'Saisissez la date de naissance ou l’âge, pas les deux.',
                 );
+
+                return;
+            }
+
+            // ADR-184 — l'âge et la civilité doivent se dire la même chose.
+            if ($this->input('patient_type') !== PatientType::Staff->value) {
+                $violations = PatientAgeRules::violations(
+                    $this->input('birth_date'),
+                    $this->input('age'),
+                    $this->input('civility'),
+                    app(AppSettings::class)->ageBands(),
+                );
+
+                foreach ($violations as $field => $message) {
+                    $validator->errors()->add($field, $message);
+                }
             }
         }];
     }

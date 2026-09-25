@@ -220,6 +220,45 @@ sans sortie administrative prononcée, une sortie « évadé » (déjà partie s
 passer la porte) et un second contrôle du même passage (contrainte d'unicité
 sur `episode_id`). Voir ADR-116.
 
+**Paramètres de l'application, propres à chaque site** (ADR-184). `app_settings`
+(une ligne par base) porte nom, logo, icône, couleur principale, écriture de
+l'Ariary (Ar / Ariary / MGA, position, décimales — aucun montant converti),
+tranches d'âge des patients, directeur général et signature, NIF, STAT,
+coordonnées et compte bancaire. Une colonne vide laisse `config/rivo.php`
+s'appliquer ; `App\Services\Settings\AppSettings` résout et alimente les props
+partagées `site.*` (`brand`, `documents`, `iconUrl`, `currency`, `ageBands`),
+l'en-tête HTML (favicon, variables CSS de la couleur) et `formatMoney`. Le
+portail règle un site par `/api/v1/super-admin/app-settings` (`settings.view` /
+`settings.update`, audité) et se règle lui-même dans sa base ;
+`/super-admin/settings`. Le logo et l'icône sont servis par `/branding/{kind}`
+sans connexion ; la signature n'a aucune adresse publique et entre copiée
+(`data:`) dans les documents RH, sur la case « Apposer la signature ». Tranches
+d'âge : bébé ≤ 1 an, enfant ≤ 15 ans par défaut ; à la création d'un patient,
+bébé ou enfant → profil enfant (champs d'adulte refusés), bébé → date de
+naissance exacte exigée, civilité contraire à l'âge refusée
+(`PatientAgeRules`, `utilities/patientAge.js`). Amendement du 2026-09-24 :
+`app_tagline` (devise, `site.tagline`, page de connexion ; défaut = l'ancienne
+phrase en dur) et `search_engines_hidden` (masquée par défaut, `rivo.search_engines.hidden`) :
+robots.txt servi par `RobotsTxtController` (`public/robots.txt` retiré), balise
+`<meta name="robots">` et en-tête `X-Robots-Tag` sur chaque réponse
+(`ApplySearchEngineVisibility`, middleware global). Amendement bis : modèles
+d'écran par site — `auth_template` (COVER / SPLIT / CENTERED, enveloppe unique
+`Components/Auth/AuthShell.vue`, props `site.authTemplate` et `site.authCoverUrl`),
+image de fond (`background`, `/branding/background`), `profile_template`
+(SIDEBAR / BANNER, `site.profileTemplate`). « Mon profil » `/profil`
+(`ProfileController`) : lecture du compte et des droits effectifs, et
+changement de son mot de passe (`ChangeOwnPasswordAction` : ancien exigé,
+`SecurePassword`, autres sessions fermées, audit `user.password.change`) ;
+nom, email, rôle et droits restent à l'administration (ADR-022).
+
+**Apparence et chargement** (ADR-185). Le thème se choisit Clair / Système / Sombre
+(`ThemeModeSwitcher`, `stores/theme.js` : `mode` gardé sur le poste, `resolved`
+suit l'appareil pour « Système ») ; `app.blade.php` pose `dark` avant le premier
+affichage. Pendant un changement de page (GET sans `preserveState`, ni partiel,
+ni préchargement), `AppLayout` montre `PageSkeleton` — forme choisie par
+`utilities/pageSkeleton.js` sur l'adresse visée — après 200 ms, l'ancienne page
+restant montée et cachée (`usePageLoading`, installé dans `app.js`).
+
 Le socle RH opérationnel utilise des UUID publics et des référentiels locaux
 configurables pour les départements, fonctions, types de contrat et types
 d'attestation. Les formulaires Employé, Contrat, Présence, Congé et Planning

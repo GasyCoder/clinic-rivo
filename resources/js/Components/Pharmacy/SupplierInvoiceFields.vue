@@ -1,4 +1,5 @@
 <script setup>
+import { currencyLabel } from '@/utilities/money';
 import { computed, ref } from 'vue';
 import { CalendarDays, FileText, Paperclip, X } from 'lucide-vue-next';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -67,7 +68,7 @@ const chip = (active) => cn(
             <span class="mb-1.5 block text-sm font-semibold text-foreground">Montant total <span class="text-red-500">*</span></span>
             <span class="relative block">
                 <Input v-model="form.total_amount" type="number" min="0.01" step="0.01" class="pe-14 text-end font-semibold tabular-nums" placeholder="0" />
-                <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">MGA</span>
+                <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-muted-foreground">{{ currencyLabel() }}</span>
             </span>
             <button
                 v-if="proposedTotal && Number(form.total_amount) !== Number(proposedTotal)"

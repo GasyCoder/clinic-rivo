@@ -67,3 +67,33 @@ test('l’écran des rôles se règle sur les droits de l’administrateur conne
         assert.ok(roles.includes(`can('${permission}')`), `${permission} n'est plus vérifiée`);
     }
 });
+
+/**
+ * L'assistant de compte : Entrée à l'étape 1 mène au rôle, jamais à l'envoi
+ * d'un compte dont personne n'a choisi le rôle ; aucun rôle n'est présélectionné ;
+ * un bouton grisé dit ce qui manque ; une erreur du site sur l'email ramène à
+ * l'étape où il se corrige.
+ */
+test('l’assistant de compte guide sans jamais envoyer trop tôt', () => {
+    assert.match(users, /<form class="min-w-0 space-y-5" novalidate @submit\.prevent="onFormSubmit">/);
+    assert.match(users, /const onFormSubmit = \(\) => \{\s*if \(step\.value < 2\) \{\s*nextStep\(\);\s*return;\s*\}\s*submitUser\(\);/);
+    assert.match(users, /form\.role_id = '';/);
+    assert.doesNotMatch(users, /form\.role_id = roles\.value\.find/);
+    assert.match(users, /const blocker = computed\(/);
+    assert.match(users, /STEP_ONE_FIELDS = \['name', 'email', 'password', 'password_confirmation'\]/);
+    assert.match(users, /role="radiogroup" aria-label="Rôle métier"/);
+    assert.match(users, /aria-label="Aperçu du compte"/);
+});
+
+/**
+ * Un rôle à profils se choisit avec son profil, dans une fenêtre : rien n'est
+ * écrit dans le formulaire avant « Valider le profil », et annuler rend
+ * exactement le rôle et le profil d'avant.
+ */
+test('un rôle à profils ouvre la fenêtre du profil, sans rien écrire avant validation', () => {
+    assert.match(users, /if \(role\.profiles\?\.length\) \{\s*openProfileDialog\(role\);\s*return;\s*\}/);
+    assert.match(users, /:open="pendingRole !== null"/);
+    assert.match(users, /@update:open="\(open\) => open \|\| cancelProfile\(\)"/);
+    assert.match(users, /const confirmProfile = \(\) => \{\s*if \(! pendingRole\.value \|\| ! draftProfile\.value\) return;\s*form\.role_id = pendingRole\.value\.id;\s*form\.professional_profile_id = draftProfile\.value\.id;/);
+    assert.doesNotMatch(users, /<fieldset v-if="selectedRoleProfiles\.length">/);
+});

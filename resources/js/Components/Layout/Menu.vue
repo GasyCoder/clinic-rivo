@@ -132,7 +132,7 @@ const adminMenu = computed(() => [
     { icon: Users, text: 'Utilisateurs', link: '/super-admin/workspaces/users', permission: 'users.view' },
     { icon: ShieldCheck, text: 'Rôles & permissions', link: '/super-admin/workspaces/roles', permission: 'roles.view' },
     { icon: Trash2, text: 'Corbeille', link: '/super-admin/trash', permission: 'trash.view' },
-    { icon: Settings, text: 'Paramètres', link: '/super-admin/workspaces/settings', permission: 'settings.view' },
+    { icon: Settings, text: 'Paramètres', link: '/super-admin/settings', permission: 'settings.view' },
     { icon: History, text: 'Audit & APIs', link: '/super-admin/workspaces/audit', permission: 'audit.view' },
 ]);
 

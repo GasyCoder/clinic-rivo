@@ -19,6 +19,9 @@ const page = usePage();
 const site = computed(() => page.props.site);
 const brand = computed(() => site.value?.brand ?? '');
 const monogram = computed(() => monogramOf(brand.value));
+// ADR-184 — l'icône carrée réglée pour le site remplace les initiales ; sans
+// elle, la pastille garde les initiales du nom.
+const iconUrl = computed(() => site.value?.iconUrl ?? null);
 
 // Sous l'enseigne : le site où l'on travaille, ou le portail central. Résolu
 // ici et non par l'appelant, pour que la barre du haut et le bandeau latéral
@@ -34,7 +37,15 @@ const title = computed(() => [brand.value, subtitle.value].filter(Boolean).join(
         :aria-label="title"
         class="flex min-w-0 items-center gap-2.5"
     >
+        <img
+            v-if="iconUrl"
+            :src="iconUrl"
+            alt=""
+            class="h-8 w-8 shrink-0 rounded-lg bg-card object-contain shadow-sm ring-1 ring-border"
+            aria-hidden="true"
+        />
         <span
+            v-else
             class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-primary/80 font-heading text-[10px] font-bold uppercase leading-none tracking-tight text-primary-foreground shadow-sm ring-1 ring-inset ring-primary-foreground/15"
             aria-hidden="true"
         >{{ monogram }}</span>

@@ -25,6 +25,8 @@ class StoreGeneratedDocumentRequest extends FormRequest
             'leave_request_uuid' => ['nullable', 'uuid', Rule::exists('leave_requests', 'uuid')],
             'form_data' => ['nullable', 'array'],
             'form_data.*' => ['nullable', 'string', 'max:2000'],
+            // ADR-184 — signature du directeur général, au bas du document.
+            'with_director_signature' => ['sometimes', 'boolean'],
         ];
     }
 }

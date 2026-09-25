@@ -2,6 +2,7 @@
 
 namespace App\Services\Trash;
 
+use App\Services\Settings\AppSettings;
 use App\Actions\Catalog\RestoreCatalogItemAction;
 use App\Actions\Patient\RestorePatientAction;
 use App\Actions\Pharmacy\RestoreMedicineSupplierAction;
@@ -360,12 +361,12 @@ class TrashDirectory
             TrashCategory::SupplierInvoice => [
                 'Facture '.$model->invoice_number,
                 $model->invoice_number,
-                ($model->supplier?->name ?? 'Fournisseur archivé').' · '.$model->total_amount.' MGA',
+                ($model->supplier?->name ?? 'Fournisseur archivé').' · '.app(AppSettings::class)->formatMoney($model->total_amount),
             ],
             TrashCategory::PurchaseOrder => [
                 'Commande '.$model->order_number,
                 $model->order_number,
-                'Brouillon · '.($model->supplier?->name ?? 'Fournisseur archivé').' · '.$model->total_amount.' MGA',
+                'Brouillon · '.($model->supplier?->name ?? 'Fournisseur archivé').' · '.app(AppSettings::class)->formatMoney($model->total_amount),
             ],
         };
 

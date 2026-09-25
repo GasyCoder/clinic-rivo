@@ -37,4 +37,5 @@ export const statusTone = (status) => TONES[status] ?? 'neutral';
 
 export const formatNumber = (value) => new Intl.NumberFormat('fr-FR').format(value ?? 0);
 
-export const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(Number(value || 0))} MGA`;
+/** Un montant, écrit comme le site l'a réglé (ADR-184) : une seule écriture pour toute l'application. */
+export { formatMoney } from './money.js';

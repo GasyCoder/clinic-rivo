@@ -276,6 +276,34 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'PUT', 'super-admin/patient-vip-settings', $data, $actor);
     }
 
+    /** ADR-184 — les paramètres de l'application de chaque site. @return array<int, array<string, mixed>> */
+    public function appSettingsForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/app-settings', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateAppSettings(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/app-settings', $data, $actor);
+    }
+
+    /** Le fichier part tel quel, en multipart, jamais converti. @return array<string, mixed> */
+    public function storeAppSettingAsset(string $siteCode, string $kind, UploadedFile $file, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/assets/'.rawurlencode($kind), [], $actor, $file, 'file');
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteAppSettingAsset(string $siteCode, string $kind, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/assets/'.rawurlencode($kind), [], $actor);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function usersForAllSites(User $actor, array $query = []): array
     {

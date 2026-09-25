@@ -1,15 +1,15 @@
 <script setup>
 import { computed } from 'vue';
-import { Menu, MenuButton, MenuItems } from '@headlessui/vue';
-import { router, usePage } from '@inertiajs/vue3';
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/vue';
+import { Link, router, usePage } from '@inertiajs/vue3';
+import { UserRound } from 'lucide-vue-next';
 import Icon from '@/Components/UI/Icon.vue';
 import Avatar from '@/Components/UI/Avatar.vue';
-import { useThemeStore } from '@/stores/theme';
 import HeaderSearch from '@/Components/Layout/HeaderSearch.vue';
 import HeaderAttention from '@/Components/Layout/HeaderAttention.vue';
 import BrandLockup from '@/Components/Layout/BrandLockup.vue';
+import ThemeModeSwitcher from '@/Components/Layout/ThemeModeSwitcher.vue';
 
-const theme = useThemeStore();
 const page = usePage();
 
 const visibility = defineModel('visibility');
@@ -61,6 +61,10 @@ const logout = () => {
                     </div>
 
                     <div class="px-1 py-3.5 ms-auto flex items-center gap-2 sm:gap-3">
+                        <!-- Clair, Système (l'appareil) ou Sombre, à côté de la cloche. Sur un
+                             téléphone la barre n'a pas la place : le choix reste dans le menu du compte. -->
+                        <ThemeModeSwitcher variant="header" class="hidden sm:inline-flex" />
+                        <span class="hidden h-6 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
                         <HeaderAttention />
 
                         <!-- Un filet entre la cloche et le compte : deux
@@ -94,32 +98,22 @@ const logout = () => {
                                         </div>
                                         <ul class="py-3">
                                             <li>
-                                                <div class="relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-400 cursor-default">
-                                                    <Icon class="text-lg leading-none w-7" name="user-alt" />
-                                                    <span>Mon profil</span>
-                                                    <span class="ms-auto rounded bg-gray-100 px-1.5 py-0.5 text-xxs dark:bg-gray-900">
-                                                        Bientôt
-                                                    </span>
-                                                </div>
+                                                <!-- ADR-184 — « Mon profil » : identité, droits et mot de passe. -->
+                                                <MenuItem v-slot="{ close }">
+                                                    <Link
+                                                        href="/profil"
+                                                        class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
+                                                        @click="close"
+                                                    >
+                                                        <span class="w-7" aria-hidden="true"><UserRound class="h-[18px] w-[18px]" /></span>
+                                                        <span>Mon profil</span>
+                                                    </Link>
+                                                </MenuItem>
                                             </li>
-                                            <li>
-                                                <button
-                                                    type="button"
-                                                    class="w-full relative px-7 py-2.5 flex items-center rounded-[inherit] text-sm leading-5 font-medium text-slate-600 dark:text-slate-300 hover:text-primary-600 hover:dark:text-primary-600 transition-all duration-300"
-                                                    @click="theme.updateMode"
-                                                >
-                                                    <div class="flex dark:hidden items-center">
-                                                        <Icon class="text-start text-lg leading-none w-7" name="moon" />
-                                                        <span>Mode sombre</span>
-                                                    </div>
-                                                    <div class="hidden dark:flex items-center">
-                                                        <Icon class="text-start text-lg leading-none w-7" name="sun" />
-                                                        <span>Mode clair</span>
-                                                    </div>
-                                                    <div class="ms-auto relative h-6 w-12 rounded-full border-2 border-gray-200 dark:border-primary-600 bg-white dark:bg-primary-600">
-                                                        <div class="absolute start-0.5 dark:start-6.5 top-0.5 h-4 w-4 rounded-full bg-gray-200 dark:bg-white transition-all duration-300" />
-                                                    </div>
-                                                </button>
+                                            <li class="px-7 py-2.5 sm:hidden">
+                                                <!-- Sur un téléphone seulement : ailleurs, le choix est dans la barre, à côté de la cloche. -->
+                                                <p class="mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Apparence</p>
+                                                <ThemeModeSwitcher variant="menu" />
                                             </li>
                                             <li class="block border-t border-gray-200 dark:border-gray-800 my-3" />
                                             <li>

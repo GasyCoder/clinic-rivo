@@ -1,4 +1,5 @@
 <script setup>
+import { formatMoney } from '@/utilities/money';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import Badge from '@/Components/UI/Badge.vue';
 import Button from '@/Components/UI/Button.vue';
@@ -120,7 +121,6 @@ onBeforeUnmount(clearTicketPrintFrame);
 const formatDate = (value) => value
     ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
     : '—';
-const formatMoney = (value) => `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(Number(value || 0))} MGA`;
 </script>
 
 <template>

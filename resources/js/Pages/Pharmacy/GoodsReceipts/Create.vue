@@ -1,4 +1,5 @@
 <script setup>
+import { currencyLabel } from '@/utilities/money';
 import { computed, nextTick, ref } from 'vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
@@ -476,7 +477,7 @@ const steps = [
                                 <td v-if="can.record_cost" class="px-3 py-3">
                                     <span class="relative block">
                                         <Input v-model="line.unit_purchase_price" type="number" min="0" step="0.01" class="h-9 pe-11 text-end text-sm tabular-nums" :disabled="!line._received" />
-                                        <span class="pointer-events-none absolute inset-y-0 end-2.5 flex items-center text-[11px] text-muted-foreground">MGA</span>
+                                        <span class="pointer-events-none absolute inset-y-0 end-2.5 flex items-center text-[11px] text-muted-foreground">{{ currencyLabel() }}</span>
                                     </span>
                                     <p class="mt-1 text-[11px] text-muted-foreground">{{ line._off_order ? 'Prix du fournisseur' : 'Repris de la commande' }}</p>
                                 </td>

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Administration;
 
+use App\Services\Settings\AppSettings;
 use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
@@ -10,7 +11,10 @@ use App\Services\Administration\DocumentFormDataResolver;
 
 class PreviewGeneratedDocumentAction
 {
-    public function __construct(private readonly DocumentFormDataResolver $resolver) {}
+    public function __construct(
+        private readonly DocumentFormDataResolver $resolver,
+        private readonly AppSettings $settings,
+    ) {}
 
     /**
      * @param  array<string, string>  $formData
@@ -22,6 +26,7 @@ class PreviewGeneratedDocumentAction
         ?EmploymentContract $contract,
         ?LeaveRequest $leave,
         array $formData,
+        bool $withDirectorSignature = false,
     ): array {
         $this->resolver->assertContext($template->data_context, $contract, $leave);
         $resolution = $this->resolver->resolve($template->data_context, $employee, $contract, $leave, $formData);
@@ -30,7 +35,8 @@ class PreviewGeneratedDocumentAction
         return [
             'form_values' => $resolution['values'],
             'missing_required_fields' => $resolution['missing_required'],
-            'rendered_html' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html,
+            'rendered_html' => $pageOneHtml.DocumentFormDataResolver::PAGE_BREAK_HTML.$template->content_html
+                .($withDirectorSignature ? $this->resolver->renderDirectorSignature($this->settings) : ''),
         ];
     }
 }

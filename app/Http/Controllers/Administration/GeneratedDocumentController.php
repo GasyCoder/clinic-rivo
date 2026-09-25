@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Administration;
 
+use App\Services\Settings\AppSettings;
 use App\Actions\Administration\CreateGeneratedDocumentAction;
 use App\Actions\Administration\PreviewGeneratedDocumentAction;
 use App\Enums\DocumentDataContext;
@@ -49,7 +50,7 @@ class GeneratedDocumentController extends Controller
         ]);
     }
 
-    public function create(Request $request, DocumentFormFieldCatalog $catalog): Response
+    public function create(Request $request, DocumentFormFieldCatalog $catalog, AppSettings $settings): Response
     {
         Gate::forUser($request->user())->authorize('create', GeneratedDocument::class);
 
@@ -72,6 +73,8 @@ class GeneratedDocumentController extends Controller
             'templates' => $templates,
             'contractsByEmployee' => $contracts,
             'leavesByEmployee' => $this->leavesByEmployee(),
+            // ADR-184 — le directeur général réglé pour ce site, s'il l'est.
+            'director' => $settings->director(),
             'formFieldsByContext' => collect(DocumentDataContext::cases())
                 ->mapWithKeys(fn (DocumentDataContext $context) => [$context->value => $catalog->fieldsForContext($context)])
                 ->all(),
@@ -88,6 +91,7 @@ class GeneratedDocumentController extends Controller
             $contract,
             $leave,
             $request->validated('form_data', []) ?? [],
+            $request->boolean('with_director_signature'),
         ));
     }
 
@@ -101,6 +105,7 @@ class GeneratedDocumentController extends Controller
             $leave,
             $request->validated('form_data', []) ?? [],
             $request->user(),
+            $request->boolean('with_director_signature'),
         );
 
         return to_route('administration.generated-documents.print', $document->uuid)

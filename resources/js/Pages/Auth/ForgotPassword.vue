@@ -1,22 +1,15 @@
 <script setup>
-import { Head, useForm, usePage } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
+import { ArrowLeft, Loader2, Mail, Send } from 'lucide-vue-next';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
-import BrandMark from '@/Components/Auth/BrandMark.vue';
-import IdentityPanel from '@/Components/Auth/IdentityPanel.vue';
-import FormGroup from '@/Components/UI/FormGroup.vue';
-import FormLabel from '@/Components/UI/FormLabel.vue';
-import FormError from '@/Components/UI/FormError.vue';
-import InputWrap from '@/Components/UI/InputWrap.vue';
-import Input from '@/Components/UI/Input.vue';
-import Button from '@/Components/UI/Button.vue';
-import Copyright from '@/Components/UI/Copyright.vue';
-import Icon from '@/Components/UI/Icon.vue';
+import AuthShell from '@/Components/Auth/AuthShell.vue';
+import Button from '@/Components/Shadcn/Button.vue';
+import FormField from '@/Components/Shadcn/FormField.vue';
+import IconInput from '@/Components/Shadcn/IconInput.vue';
 
 defineOptions({
     layout: GuestLayout,
 });
-
-const page = usePage();
 
 const form = useForm({
     email: '',
@@ -30,68 +23,39 @@ const submit = () => {
 <template>
     <Head title="Mot de passe oublié" />
 
-    <div class="relative flex min-h-screen">
-        <div class="relative z-10 flex w-full flex-shrink-0 flex-col bg-white dark:bg-gray-950 lg:w-[45%]">
-            <div class="m-auto w-full max-w-[420px] p-5 2xl:me-[90px]">
-                <BrandMark />
+    <AuthShell
+        eyebrow="Mot de passe"
+        title="Mot de passe oublié"
+        description="Indiquez votre adresse email : si elle correspond à un compte, un lien de réinitialisation vous sera envoyé."
+    >
+        <!-- En colonne flex : FormField est un <label>, en ligne, sur lequel space-y ne s'applique pas. -->
+        <form class="flex flex-col gap-5" @submit.prevent="submit">
+            <FormField label="Adresse email" :error="form.errors.email">
+                <IconInput
+                    id="email"
+                    v-model="form.email"
+                    :icon="Mail"
+                    type="email"
+                    size="lg"
+                    placeholder="votre.email@clinique.mg"
+                    autocomplete="username"
+                    :aria-invalid="Boolean(form.errors.email)"
+                    autofocus
+                    required
+                />
+            </FormField>
 
-                <div class="mb-8">
-                    <h1 class="font-heading text-xl font-bold -tracking-snug leading-tighter text-slate-700 dark:text-white">
-                        Mot de passe oublié
-                    </h1>
-                    <p class="mt-2 text-sm leading-6 text-slate-400">
-                        Indiquez votre adresse email : si elle correspond à un compte, un lien de réinitialisation vous sera envoyé.
-                    </p>
-                </div>
+            <Button type="submit" size="lg" variant="primary" class="w-full" :disabled="form.processing">
+                <Loader2 v-if="form.processing" class="h-4 w-4 animate-spin" /><Send v-else class="h-4 w-4" />
+                {{ form.processing ? 'Envoi…' : 'Envoyer le lien de réinitialisation' }}
+            </Button>
+        </form>
 
-                <form @submit.prevent="submit">
-                    <FormGroup>
-                        <FormLabel for="email" class="mb-2 block">Email</FormLabel>
-                        <InputWrap>
-                            <Input
-                                id="email"
-                                v-model="form.email"
-                                type="email"
-                                size="lg"
-                                autocomplete="username"
-                                autofocus
-                                required
-                            />
-                        </InputWrap>
-                        <FormError v-if="form.errors.email">{{ form.errors.email }}</FormError>
-                    </FormGroup>
-
-                    <FormGroup>
-                        <Button
-                            type="submit"
-                            size="lg"
-                            variant="primary"
-                            block
-                            :disabled="form.processing"
-                        >
-                            <span
-                                v-if="form.processing"
-                                class="me-2 inline-block h-4 w-4 flex-none animate-spin rounded-full border-2 border-white/40 border-t-white"
-                            />
-                            {{ form.processing ? 'Envoi…' : 'Envoyer le lien de réinitialisation' }}
-                        </Button>
-                    </FormGroup>
-                </form>
-
-                <a
-                    href="/login"
-                    class="mt-6 inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors duration-300 hover:text-primary-600 dark:hover:text-primary-500"
-                >
-                    <Icon name="arrow-left" class="text-sm leading-none rtl:-scale-x-100" />
-                    Retour à la connexion
-                </a>
-            </div>
-
-            <div class="mx-auto w-full max-w-[420px] px-5 pb-10 pt-7 text-center text-xs text-slate-400 2xl:me-[90px]">
-                <Copyright :brand="page.props.site.brand" />
-            </div>
-        </div>
-
-        <IdentityPanel />
-    </div>
+        <template #footer>
+            <a href="/login" class="mt-6 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-primary">
+                <ArrowLeft class="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
+                Retour à la connexion
+            </a>
+        </template>
+    </AuthShell>
 </template>

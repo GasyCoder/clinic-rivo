@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\RedirectResponse;
 use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -23,9 +24,14 @@ class SuperAdminController extends Controller
         ]);
     }
 
-    public function workspace(string $workspace, PortalDirectory $directory): Response
+    public function workspace(string $workspace, PortalDirectory $directory): Response|RedirectResponse
     {
         $code = mb_strtoupper($workspace);
+
+        // ADR-184 — les paramètres ont leur écran : un ancien lien y mène.
+        if ($code === 'SETTINGS') {
+            return redirect()->route('super-admin.settings.index');
+        }
         $permission = match ($code) {
             'FINANCE' => 'reports.financial.view',
             'HR' => 'employees.view',
@@ -34,7 +40,6 @@ class SuperAdminController extends Controller
             'TARIFFS' => 'catalog.items.view',
             'USERS' => 'users.view',
             'ROLES' => 'roles.view',
-            'SETTINGS' => 'settings.view',
             'AUDIT' => 'audit.view',
             default => abort(404),
         };

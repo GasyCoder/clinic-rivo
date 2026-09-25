@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyProcurementController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
+use App\Http\Controllers\Api\V1\SuperAdmin\AppSettingsController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
 use App\Http\Controllers\Api\V1\SuperAdmin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -150,6 +151,12 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::post('/hospital-beds/beds/{bedUuid}/in-service', [HospitalBedController::class, 'inService'])->name('hospital-beds.beds.in-service');
         Route::delete('/hospital-beds/beds/{bedUuid}', [HospitalBedController::class, 'archiveBed'])->name('hospital-beds.beds.archive');
         Route::post('/hospital-beds/beds/{bedUuid}/restore', [HospitalBedController::class, 'restoreBed'])->name('hospital-beds.beds.restore');
+
+        // ADR-184 — paramètres de l'application de ce site.
+        Route::get('/app-settings', [AppSettingsController::class, 'show'])->name('app-settings.show');
+        Route::put('/app-settings', [AppSettingsController::class, 'update'])->name('app-settings.update');
+        Route::post('/app-settings/assets/{kind}', [AppSettingsController::class, 'storeAsset'])->name('app-settings.assets.store');
+        Route::delete('/app-settings/assets/{kind}', [AppSettingsController::class, 'destroyAsset'])->name('app-settings.assets.destroy');
 
         // ADR-133 — seuils des patients VIP de ce site.
         Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');

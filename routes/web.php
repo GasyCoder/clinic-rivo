@@ -25,6 +25,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\BrandingAssetController;
 use App\Http\Controllers\CareController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\DeathRegisterController;
@@ -63,6 +64,7 @@ use App\Http\Controllers\Pharmacy\SupplierCatalogController;
 use App\Http\Controllers\Pharmacy\SupplierCatalogTemplateController;
 use App\Http\Controllers\Pharmacy\SupplierController;
 use App\Http\Controllers\Pharmacy\SupplierInvoiceController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
 use App\Http\Controllers\Reception\EpisodeFinancialContextController;
@@ -71,8 +73,10 @@ use App\Http\Controllers\Reception\EpisodeServiceController;
 use App\Http\Controllers\Reception\EpisodeSettlementController;
 use App\Http\Controllers\Reception\ReceptionEstimateController;
 use App\Http\Controllers\ReceptionController;
+use App\Http\Controllers\RobotsTxtController;
 use App\Http\Controllers\SuperAdmin\AddressEntryController as SuperAdminAddressEntryController;
 use App\Http\Controllers\SuperAdmin\AnalysisCatalogController as SuperAdminAnalysisCatalogController;
+use App\Http\Controllers\SuperAdmin\AppSettingsController as SuperAdminAppSettingsController;
 use App\Http\Controllers\SuperAdmin\CashRegisterController as SuperAdminCashRegisterController;
 use App\Http\Controllers\SuperAdmin\CatalogController as SuperAdminCatalogController;
 use App\Http\Controllers\SuperAdmin\DocumentTemplateController as SuperAdminDocumentTemplateController;
@@ -113,6 +117,15 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('dashboard')->middleware('account.deployment');
 
+// ADR-184 — logo et icône du déploiement, sans connexion (page de connexion,
+// favicon). La signature du directeur n'a aucune adresse publique.
+Route::get('/branding/{kind}', BrandingAssetController::class)
+    ->whereIn('kind', BrandingAssetController::PUBLIC_KINDS)
+    ->name('branding.show');
+
+// ADR-184 — robots.txt suit le réglage « moteurs de recherche » du site.
+Route::get('/robots.txt', RobotsTxtController::class)->name('robots');
+
 Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store']);
@@ -125,6 +138,12 @@ Route::middleware(['site.type:clinic,admin', 'guest'])->group(function () {
 
 Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.deployment'])->group(function () {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+    // ADR-184 — « Mon profil » : chacun lit son compte et change son mot de passe.
+    Route::get('/profil', [ProfileController::class, 'show'])->name('profile.show');
+    Route::put('/profil/mot-de-passe', [ProfileController::class, 'updatePassword'])
+        ->name('profile.password.update')
+        ->middleware('throttle:6,1');
 });
 
 // Portail central : navigation et vues de supervision uniquement. Les données
@@ -244,6 +263,11 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         Route::put('/cash-registers/{site}/{cashRegister}/payment-methods', [SuperAdminCashRegisterController::class, 'updatePaymentMethods'])->name('cash-registers.payment-methods.update')->middleware('can:cash_registers.update');
 
         // ADR-133 — seuils des patients VIP, réglés site par site par l'API du site.
+        // ADR-184 — paramètres de l'application, site par site et pour le portail.
+        Route::get('/settings', [SuperAdminAppSettingsController::class, 'index'])->name('settings.index')->middleware('can:settings.view');
+        Route::put('/settings', [SuperAdminAppSettingsController::class, 'update'])->name('settings.update')->middleware('can:settings.update');
+        Route::post('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'storeAsset'])->name('settings.assets.store')->middleware('can:settings.update');
+        Route::delete('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'destroyAsset'])->name('settings.assets.destroy')->middleware('can:settings.update');
         Route::get('/patient-vip', [SuperAdminPatientVipSettingsController::class, 'index'])->name('patient-vip.index')->middleware('can:patient_vip.view');
         Route::post('/patient-vip/preview', [SuperAdminPatientVipSettingsController::class, 'preview'])->name('patient-vip.preview')->middleware('can:patient_vip.view');
         Route::put('/patient-vip', [SuperAdminPatientVipSettingsController::class, 'update'])->name('patient-vip.update')->middleware('can:patient_vip.update');

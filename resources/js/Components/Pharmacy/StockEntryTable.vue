@@ -1,4 +1,5 @@
 <script setup>
+import { currencyLabel } from '@/utilities/money';
 import { computed, nextTick } from 'vue';
 import { Banknote, Boxes, CalendarDays, Hash, Minus, Pencil, Pill, Plus, Sparkles, Tag, X } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
@@ -216,7 +217,7 @@ const cellInput = 'h-9 text-sm';
                                     :data-entry-cell="`${flatIndex.get(row.key)}-price`"
                                     @keydown.enter="onEnter($event, flatIndex.get(row.key), 'price')"
                                 />
-                                <span class="pointer-events-none absolute inset-y-0 end-2.5 flex items-center text-[11px] text-muted-foreground">MGA</span>
+                                <span class="pointer-events-none absolute inset-y-0 end-2.5 flex items-center text-[11px] text-muted-foreground">{{ currencyLabel() }}</span>
                             </div>
                             <p v-if="missingPrice(row)" class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Sans prix, invendable</p>
                             <p v-else-if="priceChanged(row)" class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Était {{ formatMoney(row.current_sale_price) }}</p>

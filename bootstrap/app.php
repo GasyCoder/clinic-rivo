@@ -4,6 +4,7 @@ use App\Support\RequiredAbilities;
 use Illuminate\Auth\Access\AuthorizationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
+use App\Http\Middleware\ApplySearchEngineVisibility;
 use App\Http\Middleware\AuthenticateRivoSiteApi;
 use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\EnsureApiIdempotency;
@@ -26,6 +27,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleInertiaRequests::class,
         ]);
+
+        // ADR-184 — masquée aux moteurs de recherche, l'application le dit sur
+        // chaque réponse : pages, images, documents, API et robots.txt.
+        $middleware->append(ApplySearchEngineVisibility::class);
 
         // A care worksheet draft is a faithful snapshot of what the nurse
         // has on screen: an empty field must come back as an empty string,

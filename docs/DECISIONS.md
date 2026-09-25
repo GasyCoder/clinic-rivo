@@ -16260,3 +16260,234 @@ catalogue restauré   il ne redevient pas actif : ses lignes non rattachées ne
 ```
 
 Aucune permission nouvelle.
+
+---
+
+# ADR-184 — Paramètres de l'application, propres à chaque site ; tranches d'âge des patients
+
+**Status:** ACCEPTED (2026-09-24 — exigence explicite du propriétaire, arbitrages question par question)
+
+Le CDC nomme `settings.*` parmi les droits du Super Admin (§18) mais ne décrit aucun paramètre ;
+ADR-025 annonçait « paramètres globaux, dont le nom de l'application » sans les construire — l'écran
+`/super-admin/workspaces/settings` n'était qu'une coquille. Les règles ci-dessous viennent du
+propriétaire. **Amende ADR-146** (le profil enfant ne dépend plus seulement de la civilité) et
+**complète ADR-108/113/116** (identité imprimée sur les documents).
+
+## Arbitrages du propriétaire
+
+```text
+portée           TOUT par site : chaque site a son nom, logo, icône, couleur, devise,
+                 tranches d'âge, identité légale et direction ; le portail a les siens
+devise           l'écriture de l'Ariary seulement (Ar / Ariary / MGA, avant ou après,
+                 décimales) — aucun montant converti, aucune autre devise
+âge              calculé et contrôlé : bébé ou enfant → profil enfant ; un bébé se
+                 déclare avec sa date de naissance exacte ; civilité incohérente refusée
+signature du DG  sur les documents administratifs RH (attestations, contrats…) ;
+                 factures et reçus restent signés par la caisse
+```
+
+## Une ligne par base, un repli sur la configuration
+
+`app_settings` (une seule ligne, `AppSetting`) porte : nom de l'application, couleur principale,
+logo, icône, écriture de l'Ariary, tranches d'âge (`baby_max_age` = 1, `child_max_age` = 15 par
+défaut), directeur général (nom, titre, signature), NIF, STAT, adresse, téléphone, email, banque,
+n° de compte. **Une colonne vide laisse la configuration de déploiement s'appliquer**
+(`config/rivo.php`) : un site que personne n'a réglé s'affiche exactement comme avant.
+`App\Services\Settings\AppSettings` (liaison `scoped`, une lecture par requête) résout chaque valeur ;
+une base sans la table retombe sur la configuration au lieu de rendre l'application inaccessible
+(constat de l'ADR-100).
+
+Le portail règle un site **uniquement par son API** (`/api/v1/super-admin/app-settings`, fichiers en
+multipart sur `/assets/{logo|icon|signature}`), réautorisée par `settings.view` / `settings.update`,
+idempotente et auditée avec l'identité du Super Administrateur (`app_settings.update`,
+`app_settings.asset.update`, `app_settings.asset.remove`). Le portail se règle lui-même par les mêmes
+actions, dans sa propre base (cible « Portail Super Admin »). Les deux permissions existaient au
+catalogue sans être vérifiées ; elles le sont désormais et restent au seul `SUPER_ADMIN` du portail.
+
+## Ce que chaque réglage change
+
+```text
+nom           titre des onglets, barre latérale, connexion, documents (props partagées `site.brand`)
+logo          connexion, factures, reçus, documents (`site.documents.logo_url`), servi par
+              /branding/logo?v=… sans connexion, version changée à chaque remplacement
+icône         favicon et pastille de la barre latérale (à défaut : les initiales)
+couleur       variables --primary, --ring, --accent (clair et sombre) injectées dans l'en-tête ;
+              texte blanc ou foncé choisi par contraste WCAG ; les couleurs d'état ne changent pas
+Ariary        formatMoney (une seule écriture pour toute l'application) ; « si besoin » n'arrondit
+              jamais un prix à centimes
+légal         NIF, STAT, adresse, téléphone, email sur les documents ; compte bancaire sur la facture
+direction     bloc de signature au bas des documents RH (case « Apposer la signature », cochée
+              d'office quand un directeur est réglé)
+âges          formulaire « Nouveau patient » (ci-dessous)
+```
+
+## Les tranches d'âge dans le formulaire patient
+
+En années révolues : bébé jusqu'à `baby_max_age`, enfant jusqu'à `child_max_age`, adulte au-delà
+(`App\Enums\PatientAgeBand`, `App\Support\Patients\PatientAgeRules`, et la même règle à l'écran dans
+`utilities/patientAge.js`). À l'arrivée d'un nouveau patient :
+
+```text
+bébé ou enfant   profil enfant : téléphone, email, profession, pièce d'identité, situation
+                 maritale et enfants non demandés, et refusés par le serveur ; civilité
+                 « Enfant fille / garçon » proposée d'office selon le sexe
+bébé             la date de naissance exacte est exigée : « 0 an » ne dit pas s'il a trois
+                 semaines ou vingt-trois mois
+adulte           civilité M. ou Mme ; « Enfant » refusée
+```
+
+La civilité proposée suit la tranche et le sexe ; une civilité qui contredit l'âge est **refusée
+côté serveur, jamais corrigée en silence**. Seuls les nouveaux patients suivent ces tranches :
+aucun dossier existant n'est réécrit, et la modification d'un dossier n'est pas contrainte (signalé).
+Les tranches cliniques des constantes (ADR-125) restent distinctes et ne sont pas touchées.
+
+## La signature ne se publie jamais
+
+Le logo et l'icône ont une adresse publique ; la signature n'en a aucune. Elle entre dans un
+document RH **copiée** (`data:`) au moment où il est produit : la remplacer ou la retirer ensuite ne
+change aucun document déjà remis. Sans nom ni signature réglés, aucun bloc n'est ajouté — jamais un
+signataire inventé. SVG refusé pour tous les fichiers (servi tel quel, il pourrait porter un script) ;
+logo 1 Mo, icône et signature 512 Ko au plus.
+
+## Écran
+
+`/super-admin/settings` (ancienne adresse redirigée) : choix du site ou du portail, sommaire, six
+sections — Identité, Couleurs, Monnaie, Âges des patients, Identité légale, Direction — avec
+aperçus en direct (barre latérale, bouton et pastille, montants, frise des âges), une barre
+d'enregistrement qui compte les modifications, et la confirmation avant d'abandonner un brouillon ou
+de quitter la page. Un fichier se dépose, se relit, puis s'enregistre seul ; le retirer demande
+confirmation. Un site injoignable le dit. shadcn-vue seulement (ADR-099).
+
+## Signalé, non tranché
+
+```text
+modification d'un dossier   les tranches d'âge ne contraignent que la création
+patient existant
+autres devises              hors périmètre (arbitrage) : aucune conversion n'est prévue
+portail et couleurs         le portail recharge sa page après un réglage pour appliquer
+                            couleurs et icône ; un site les applique à sa page suivante
+```
+
+Migration `2026_10_28_090000_create_app_settings_table`, à jouer sur chaque site et sur le portail.
+
+## Amendement du 2026-09-24 — devise de l'établissement et moteurs de recherche
+
+Demande du propriétaire : « ajouter devise ou slogan, et une case à cocher pour que l'application ne
+soit strictement pas vue par les moteurs de recherche ». La migration n'ayant encore été jouée sur
+aucune base, elle est complétée sur place (deux colonnes nullables).
+
+**Devise.** `app_tagline` (150 caractères) remplace la phrase écrite en dur sur la page de connexion
+(« Ny fahasalamana no loharanon-karena »), qui devient la valeur par défaut (`rivo.tagline`,
+`RIVO_TAGLINE`) : un site que personne n'a réglé s'affiche exactement comme avant. Servie par
+`site.tagline` ; sans devise nulle part, la ligne disparaît. Elle n'est **pas** ajoutée aux documents
+imprimés : ce serait changer d'office l'en-tête de toutes les factures et de tous les reçus.
+
+**Moteurs de recherche.** `search_engines_hidden`, case cochée = masquée. Vide, la configuration du
+déploiement décide (`rivo.search_engines.hidden`, `RIVO_HIDE_FROM_SEARCH_ENGINES`), **masquée par
+défaut** : une application clinique n'a rien à montrer à un moteur. C'est un changement par rapport
+au comportement d'avant (le `public/robots.txt` de Laravel autorisait tout), signalé ici. Masquée :
+
+```text
+robots.txt       servi par Laravel (RobotsTxtController) : « Disallow: / » ; le fichier fixe
+                 public/robots.txt est retiré, sinon le serveur web le servirait à sa place
+balise           <meta name="robots" content="noindex, nofollow, noarchive, nosnippet,
+                 noimageindex"> dans chaque page
+en-tête HTTP     X-Robots-Tag, même consigne, sur chaque réponse : images, documents, API,
+                 robots.txt (ApplySearchEngineVisibility, middleware global)
+```
+
+Décochée, les trois disparaissent et robots.txt redevient celui de Laravel. Limite, dite à l'écran :
+une page déjà référencée peut rester visible quelque temps (et un robot qui respecte « Disallow » ne
+relit plus la page pour y voir « noindex ») ; le retrait se demande dans l'outil du moteur (Google
+Search Console). Les fichiers statiques servis directement par le serveur web (`public/build`,
+`public/images`) ne passent pas par Laravel : seul robots.txt les couvre.
+
+Écran : champ « Devise ou slogan » et aperçu de la page de connexion dans Identité ; septième section
+« Moteurs de recherche » (case à cocher, état Masquée / Visible, ce qui est appliqué, aperçu du
+robots.txt). Mêmes droits (`settings.view` / `settings.update`), même audit. Le sommaire des
+sections passe à droite du formulaire.
+
+**Base non migrée.** Lire se passait déjà de la table ; écrire renvoyait l'erreur SQL brute
+(« Table 'app_settings' doesn't exist »). `AppSettings::ensureInstalled()` — table et dernière colonne
+ajoutée — répond désormais par une phrase qui dit de jouer les migrations (422, clé `site_code`, ou
+`file` pour un fichier). Un refus sans
+champ — base non migrée, site qui refuse — s'affiche dans la barre d'enregistrement, où il n'était lu
+nulle part auparavant.
+
+## Amendement du 2026-09-24 (bis) — modèles d'écran, image de fond et « Mon profil »
+
+Demande du propriétaire : choisir depuis le portail les modèles des pages d'authentification et du
+profil utilisateur, rendre l'image de fond de la connexion modifiable, en s'inspirant des modèles
+DashWind réécrits en shadcn-vue. Trois arbitrages : **un modèle pour toutes les pages
+d'authentification**, **une image de fond par site**, et « Mon profil » **en lecture, plus le
+changement de son mot de passe**. Le CDC ne décrit ni ces écrans ni un profil utilisateur.
+
+```text
+auth_template      COVER (défaut, l'écran d'avant) · SPLIT (DashWind v1/v3) · CENTERED (DashWind v2)
+                   connexion, mot de passe oublié, réinitialisation et activation de compte
+auth_background    fichier « background » (JPG/PNG/WEBP, 2 Mo) servi par /branding/background ;
+                   sans fichier, l'image du déploiement (rivo.auth_cover_url). CENTERED n'en montre pas
+profile_template   SIDEBAR (défaut, DashWind « user-profile-regular ») · BANNER (bandeau et onglets)
+```
+
+Une valeur inconnue retombe sur le défaut : un modèle retiré ne casse jamais la connexion. Les pages
+passent par une enveloppe unique (`AuthShell`) et quittent DashWind (ADR-099) ; `IdentityPanel` est
+retiré. L'aperçu de l'image envoyé au portail est réduit à 640 px (JPEG) par le site, sans quoi la
+page du portail porterait plusieurs photos entières. Migration
+`2026_10_29_090000_add_screen_templates_to_app_settings`.
+
+**« Mon profil »** (`/profil`, remplace « Bientôt » dans le menu du compte) : identité, rôle, profil
+métier, établissement, dernière connexion, et les droits effectifs rangés par les modules de
+l'ADR-178 — en lecture. Le nom, l'email, le rôle et les droits restent à l'administration (ADR-022).
+Seul le mot de passe se change (`PUT /profil/mot-de-passe`, limité à 6 essais par minute) :
+l'ancien est exigé, la politique commune s'applique (`SecurePassword`), le nouveau doit différer ;
+les autres sessions du compte sont fermées, celle en cours est gardée, le jeton « se souvenir de
+moi » est renouvelé, et l'action est auditée (`user.password.change`) sans jamais écrire le mot de
+passe. Aucune permission : c'est son propre compte. La garde « base non migrée » vérifie désormais
+aussi la dernière colonne ajoutée.
+
+---
+
+# ADR-185 — Apparence Clair / Système / Sombre et squelette de chargement des pages
+
+**Status:** ACCEPTED (2026-09-24 — exigence explicite du propriétaire)
+
+Présentation seulement : aucune route, permission ni règle métier. shadcn-vue (ADR-099).
+
+## Apparence
+
+Le bouton « Mode sombre » (une bascule clair ↔ sombre) devient un choix à trois options — **Clair**,
+**Système**, **Sombre** (`ThemeModeSwitcher`) : dans la barre du haut, trois icônes juste à côté de
+la cloche des notifications (demande du propriétaire, même jour) ; sur un téléphone, où la barre
+n'a pas la place, dans le menu du compte ; sur les pages de connexion, en pastille d'icônes. « Système » suit le réglage de l'appareil **en direct**
+(`usePreferredDark`) : changer le thème de l'ordinateur change celui de RIVO sans recharger.
+
+```text
+choix gardé        sur le poste (`rivo:theme:mode`), comme avant ; défaut inchangé : Clair
+avant l'affichage  un script de app.blade.php pose la classe `dark` : plus d'éclair de thème clair
+                   au chargement d'un poste réglé en sombre
+rendu serveur      le choix n'est lu qu'après l'hydratation (`initOnMounted`) : le serveur ne le
+                   connaît pas, et un HTML divergent ne serait pas réparé par Vue
+```
+
+## Squelette de chargement
+
+Pendant qu'Inertia va chercher la page suivante, la mise en page affiche un squelette à la forme
+de la page qui arrive, lue sur l'adresse visée (`skeletonFor`) : tableau de bord, liste, fiche,
+formulaire, document imprimable ou réglages. Il couvre toutes les pages de la mise en page
+principale, site et portail, sans qu'aucune page n'ait à le déclarer.
+
+```text
+quand      seulement un vrai changement de page : visite GET qui ne garde pas l'état de la page.
+           Recherche au fil de la frappe, filtre, rechargement partiel, envoi de formulaire,
+           préchargement : jamais de squelette
+délai      200 ms : une page servie vite s'affiche directement, sans clignotement
+page       l'ancienne reste montée, cachée : une visite annulée la rend telle qu'elle était,
+           saisie comprise
+lecteurs   « Chargement de la page… » (role="status") ; les blocs gris sont masqués
+d'écran
+```
+
+Limite : la forme est déduite de l'adresse, pas de la page elle-même (Inertia ne connaît le
+composant d'arrivée qu'avec la réponse). Une page à l'adresse atypique reçoit la forme « liste ».
+Les pages hors mise en page principale (connexion, feuilles plein écran) n'en ont pas.

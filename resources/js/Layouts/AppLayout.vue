@@ -5,6 +5,8 @@ import Sidebar from '@/Components/Layout/Sidebar.vue';
 import Header from '@/Components/Layout/Header.vue';
 import Footer from '@/Components/Layout/Footer.vue';
 import ToastContainer from '@/Components/UI/ToastContainer.vue';
+import PageSkeleton from '@/Components/Layout/PageSkeleton.vue';
+import { usePageLoading } from '@/composables/usePageLoading';
 
 import { useThemeSync } from '@/composables/useThemeSync';
 
@@ -16,6 +18,10 @@ defineProps({
 });
 
 useThemeSync();
+
+// La page reste montée pendant le chargement (cachée) : si la visite est
+// annulée, elle réapparaît telle qu'elle était, saisie comprise.
+const pageLoading = usePageLoading();
 
 const sidebarVisibility = ref(false);
 const sidebarCompact = ref(false);
@@ -31,7 +37,10 @@ const sidebarCompact = ref(false);
 
             <div class="nk-content mt-16 px-1.5 sm:px-5 py-6 sm:py-8">
                 <div :class="{ container: true, 'max-w-none': !container }">
-                    <slot />
+                    <PageSkeleton v-if="pageLoading.active" :path="pageLoading.path" />
+                    <div v-show="! pageLoading.active">
+                        <slot />
+                    </div>
                 </div>
             </div>
 

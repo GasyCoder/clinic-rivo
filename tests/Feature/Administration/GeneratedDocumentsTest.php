@@ -4,6 +4,7 @@ namespace Tests\Feature\Administration;
 
 use App\Enums\DocumentDataContext;
 use App\Enums\HrReferenceType;
+use App\Models\AppSetting;
 use App\Models\DocumentTemplate;
 use App\Models\Employee;
 use App\Models\EmploymentContract;
@@ -12,11 +13,14 @@ use App\Models\HrReferenceValue;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Administration\DocumentFormFieldCatalog;
+use App\Services\Settings\AppSettings;
 use Database\Seeders\HrReferenceSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -126,6 +130,52 @@ class GeneratedDocumentsTest extends TestCase
 
         $document = GeneratedDocument::query()->sole();
         $this->assertStringContainsString('Texte libre contenant littéralement {{nom}} et {{prenom}}.', $document->rendered_html_snapshot);
+    }
+
+    /**
+     * ADR-184 — le directeur général signe au bas du document, sur demande. La
+     * signature y est copiée : la remplacer ensuite ne change aucun document
+     * déjà produit.
+     */
+    public function test_the_director_signature_is_frozen_into_the_document_when_requested(): void
+    {
+        Storage::fake(AppSettings::DISK);
+        $first = UploadedFile::fake()->image('signature.png', 200, 80)->store('branding', AppSettings::DISK);
+        AppSetting::query()->create(['director_name' => 'Dr Rakoto Jean', 'director_title' => 'Directeur général', 'signature_path' => $first]);
+        app(AppSettings::class)->forget();
+
+        $employee = $this->employee();
+        $template = $this->template(DocumentDataContext::EmployeeOnly, '<p>Attestation.</p>');
+
+        $this->actingAs($this->administration)
+            ->get('/administration/generated-documents/create')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('director.name', 'Dr Rakoto Jean')
+                ->where('director.has_signature', true));
+
+        $this->actingAs($this->administration)->post('/administration/generated-documents', [
+            'document_template_uuid' => $template->uuid,
+            'employee_uuid' => $employee->uuid,
+            'with_director_signature' => true,
+        ])->assertSessionHasNoErrors();
+
+        $snapshot = GeneratedDocument::query()->sole()->rendered_html_snapshot;
+        $this->assertStringContainsString('data-director-signature', $snapshot);
+        $this->assertStringContainsString('Dr Rakoto Jean', $snapshot);
+        $this->assertStringContainsString('src="data:image/png;base64,', $snapshot);
+
+        // Une nouvelle signature ne réécrit pas le document déjà remis.
+        $second = UploadedFile::fake()->image('other.png', 120, 40)->store('branding', AppSettings::DISK);
+        AppSetting::query()->update(['signature_path' => $second]);
+        $this->assertSame($snapshot, GeneratedDocument::query()->sole()->rendered_html_snapshot);
+
+        // Sans la demande, pas de bloc.
+        $this->actingAs($this->administration)->post('/administration/generated-documents', [
+            'document_template_uuid' => $template->uuid,
+            'employee_uuid' => $employee->uuid,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertStringNotContainsString('data-director-signature', GeneratedDocument::query()->latest('id')->first()->rendered_html_snapshot);
     }
 
     public function test_document_form_field_catalog_returns_expected_fields_per_data_context(): void

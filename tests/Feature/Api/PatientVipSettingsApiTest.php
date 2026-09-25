@@ -120,6 +120,49 @@ class PatientVipSettingsApiTest extends TestCase
         $this->assertSame(0, PatientVipSetting::query()->count());
     }
 
+    public function test_the_vip_discount_is_saved_with_the_thresholds_and_removed_with_its_value(): void
+    {
+        $headers = fn () => $this->headers(['patient_vip.update'], (string) Str::uuid());
+
+        $this->withHeaders($headers())
+            ->putJson(self::URL, [...$this->valid(), 'discount_type' => 'PERCENT', 'discount_value' => 10])
+            ->assertOk()
+            ->assertJsonPath('data.discount_type', 'PERCENT')
+            ->assertJsonPath('data.discount_value', '10.00')
+            ->assertJsonPath('data.discount', '10 %');
+
+        $this->assertDatabaseHas('audit_logs', ['action' => 'patient_vip.settings.update']);
+
+        // « Aucune remise » : le type et la valeur partent ensemble.
+        $this->withHeaders($headers())
+            ->putJson(self::URL, [...$this->valid(), 'discount_type' => null, 'discount_value' => null])
+            ->assertOk()
+            ->assertJsonPath('data.discount', null);
+
+        $setting = PatientVipSetting::query()->sole();
+        $this->assertNull($setting->discount_type);
+        $this->assertNull($setting->discount_value);
+    }
+
+    public function test_an_incomplete_or_absurd_vip_discount_is_refused(): void
+    {
+        $headers = fn () => $this->headers(['patient_vip.update'], (string) Str::uuid());
+
+        foreach ([
+            ['discount_type' => 'PERCENT', 'discount_value' => 150],
+            ['discount_type' => 'PERCENT', 'discount_value' => null],
+            ['discount_type' => 'AMOUNT', 'discount_value' => 0],
+            ['discount_type' => 'AMOUNT', 'discount_value' => '5000.125'],
+            ['discount_type' => 'GRATUIT', 'discount_value' => 10],
+        ] as $bad) {
+            $this->withHeaders($headers())
+                ->putJson(self::URL, [...$this->valid(), ...$bad])
+                ->assertUnprocessable();
+        }
+
+        $this->assertSame(0, PatientVipSetting::query()->count());
+    }
+
     public function test_a_preview_counts_without_writing_anything(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-09-19 12:00'));

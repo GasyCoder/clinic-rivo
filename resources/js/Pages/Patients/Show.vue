@@ -50,6 +50,7 @@ import EmptyState from '@/Components/UI/EmptyState.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import PatientDiscountCard from '@/Components/Billing/PatientDiscountCard.vue';
 import Card from '@/Components/Shadcn/Card.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
@@ -74,6 +75,8 @@ const props = defineProps({
     paymentMethods: Array,
     openCashSessions: { type: Array, default: () => [] },
     billingCatalog: Array,
+    /** ADR-192 — ses remises, seulement avec `discounts.view`. */
+    discounts: { type: Object, default: null },
 });
 
 const { can } = usePermissions();
@@ -1076,6 +1079,7 @@ const administrativeFields = computed(() => [
                     <p class="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reste à payer</p><p :class="['mt-1 text-2xl font-bold tabular-nums', account.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground']">{{ formatMoney(account.balance_amount) }}</p>
                     <div class="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-3 text-xs"><div><p class="text-muted-foreground">Facturé</p><p class="mt-1 font-bold text-foreground">{{ formatMoney(account.total_amount) }}</p></div><div><p class="text-muted-foreground">Payé</p><p class="mt-1 font-bold text-emerald-600 dark:text-emerald-400">{{ formatMoney(account.paid_amount) }}</p></div></div>
                 </Card>
+                <PatientDiscountCard v-if="discounts" :patient-uuid="patient.uuid" :discounts="discounts" />
             </aside>
         </div>
 

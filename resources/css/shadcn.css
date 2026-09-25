@@ -26,6 +26,13 @@
         --input: 217 36% 88%;
         --ring: 197 60% 39%;
         --radius: 0.75rem;
+
+        /* ADR-191 — réglages « Avancé » : hauteur des champs et boutons, arrondis.
+           Les valeurs par défaut sont celles d'avant ; <html data-*> les change. */
+        --control-h: 2.5rem;
+        --control-h-sm: 2.25rem;
+        --control-h-lg: 2.75rem;
+        --radius-scale: 1;
     }
 
     .dark {
@@ -70,4 +77,51 @@
 @keyframes rivo-overlay-in {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+/*
+ * ADR-191 — densité, arrondis et animations, posés en attributs sur <html>
+ * (site, puis ce que chacun choisit dans « Mon profil »). Les sélecteurs ne
+ * visent pas <html> seul : un aperçu peut les poser sur un bloc de la page.
+ */
+[data-density="compact"] {
+    --control-h: 2.25rem;
+    --control-h-sm: 2rem;
+    --control-h-lg: 2.5rem;
+}
+
+[data-density="comfortable"] {
+    --control-h: 2.75rem;
+    --control-h-sm: 2.5rem;
+    --control-h-lg: 3rem;
+}
+
+[data-radius="square"] {
+    --radius-scale: 0.35;
+}
+
+[data-radius="round"] {
+    --radius-scale: 1.6;
+}
+
+[data-motion="reduce"],
+[data-motion="reduce"] *,
+[data-motion="reduce"] *::before,
+[data-motion="reduce"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-motion="system"],
+    [data-motion="system"] *,
+    [data-motion="system"] *::before,
+    [data-motion="system"] *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }

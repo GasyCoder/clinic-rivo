@@ -112,11 +112,30 @@ const accountKindLabel = (user) => (user.account_kind === 'STAFF' ? 'Personnel c
  * choisie juste avant.
  */
 const prefilled = ref({ name: '', email: '' });
+// ADR-188 — la fiche choisie donne le nom et l'email du compte. Une saisie
+// faite à la main n'est jamais écrasée ; une valeur reprise d'une fiche
+// précédente, si : changer de personne ne garde pas l'email de l'autre.
 const onEmployeePick = (employee) => {
     if (form.name.trim() === '' || form.name === prefilled.value.name) form.name = employee.name;
-    if (employee.email && (form.email.trim() === '' || form.email === prefilled.value.email)) form.email = employee.email;
+    if (form.email.trim() === '' || form.email === prefilled.value.email) form.email = employee.email ?? '';
     prefilled.value = { name: employee.name, email: employee.email ?? '' };
+    emailTouched.value = false;
+    // La fiche RH n'a pas d'email : c'est la seule chose qui reste à saisir.
+    if (! employee.email) nextTick(() => document.getElementById('user-email')?.focus());
 };
+/** Le nom et l'email se montrent quand on sait de qui il s'agit — jamais avant d'avoir cherché la personne. */
+const identityVisible = computed(() => isEditing.value
+    || form.account_kind === 'EXTERNAL'
+    || (form.account_kind === 'STAFF' && form.employee_uuid !== '')
+    || Boolean(form.errors.name || form.errors.email));
+const fromStaffRecord = computed(() => form.account_kind === 'STAFF' && form.employee_uuid !== '');
+// Passer à « Externe » : ce qui venait d'une fiche, et n'a pas été retouché, ne suit pas vers une autre personne.
+watch(() => form.account_kind, (kind) => {
+    if (kind !== 'EXTERNAL') return;
+    if (prefilled.value.name !== '' && form.name === prefilled.value.name) form.name = '';
+    if (prefilled.value.email !== '' && form.email === prefilled.value.email) form.email = '';
+    prefilled.value = { name: '', email: '' };
+});
 const kindReady = computed(() => form.account_kind === 'EXTERNAL' || (form.account_kind === 'STAFF' && form.employee_uuid !== ''));
 
 // Selection is scoped to the visible, active users of the current site —
@@ -900,7 +919,7 @@ const pageTitle = computed(() => {
                                 @pick="onEmployeePick"
                             />
 
-                            <div class="grid gap-5 md:grid-cols-2">
+                            <div v-if="identityVisible" class="grid gap-5 md:grid-cols-2">
                                 <div>
                                     <FormField label="Nom complet" required :error="form.errors.name">
                                         <IconInput
@@ -912,7 +931,8 @@ const pageTitle = computed(() => {
                                             :aria-invalid="Boolean(form.errors.name)"
                                         />
                                     </FormField>
-                                    <p v-if="! form.errors.name" class="mt-1.5 text-xs text-muted-foreground">Prénom et nom, tels qu’ils apparaîtront dans l’audit.</p>
+                                    <p v-if="! form.errors.name && fromStaffRecord && form.name === prefilled.name" class="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300"><CircleCheck class="h-3.5 w-3.5" />Repris de la fiche RH — modifiable.</p>
+                                    <p v-else-if="! form.errors.name" class="mt-1.5 text-xs text-muted-foreground">Prénom et nom, tels qu’ils apparaîtront dans l’audit.</p>
                                 </div>
                                 <div>
                                     <FormField label="Email professionnel" required :error="form.errors.email || emailHint">
@@ -929,7 +949,11 @@ const pageTitle = computed(() => {
                                             @blur="emailTouched = true"
                                         />
                                     </FormField>
-                                    <p v-if="! form.errors.email && ! emailHint" class="mt-1.5 text-xs text-muted-foreground">Sert d’identifiant de connexion sur {{ selectedSite?.site.name }}.</p>
+                                    <template v-if="! form.errors.email && ! emailHint">
+                                        <p v-if="fromStaffRecord && prefilled.email === '' && form.email.trim() === ''" class="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300"><Info class="h-3.5 w-3.5 shrink-0" />La fiche RH n’a pas d’email : saisissez l’adresse professionnelle.</p>
+                                        <p v-else-if="fromStaffRecord && prefilled.email !== '' && form.email === prefilled.email" class="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300"><CircleCheck class="h-3.5 w-3.5 shrink-0" />Repris de la fiche RH — sert d’identifiant de connexion sur {{ selectedSite?.site.name }}.</p>
+                                        <p v-else class="mt-1.5 text-xs text-muted-foreground">Sert d’identifiant de connexion sur {{ selectedSite?.site.name }}.</p>
+                                    </template>
                                 </div>
                             </div>
 

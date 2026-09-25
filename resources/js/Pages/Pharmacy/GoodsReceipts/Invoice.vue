@@ -10,6 +10,7 @@ import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import SupplierInvoiceFields from '@/Components/Pharmacy/SupplierInvoiceFields.vue';
 import { formatDateTime, localToday } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -32,7 +33,7 @@ const form = useForm({
 });
 
 const ready = computed(() => form.invoice_number.trim() && Number(form.total_amount) > 0);
-const submit = () => form.post(`/pharmacy/receipts/${props.receipt.uuid}/invoice`, {
+const submit = () => form.post(pharmacyUrl(`/pharmacy/receipts/${props.receipt.uuid}/invoice`), {
     forceFormData: true,
     onError: () => { confirming.value = false; },
 });
@@ -43,9 +44,9 @@ const submit = () => form.post(`/pharmacy/receipts/${props.receipt.uuid}/invoice
 
     <div class="w-full space-y-5">
         <Breadcrumb :items="[
-            { label: 'Achats', href: '/pharmacy/purchase-orders' },
-            { label: 'Réceptions', href: '/pharmacy/receipts' },
-            { label: receipt.receipt_number, href: `/pharmacy/receipts/${receipt.uuid}` },
+            { label: 'Achats', href: pharmacyUrl('/pharmacy/purchase-orders') },
+            { label: 'Réceptions', href: pharmacyUrl('/pharmacy/receipts') },
+            { label: receipt.receipt_number, href: pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}`) },
             { label: 'Facture' },
         ]" />
 
@@ -73,7 +74,7 @@ const submit = () => form.post(`/pharmacy/receipts/${props.receipt.uuid}/invoice
                 </div>
                 <div class="space-y-2 border-t border-border pt-4">
                     <Button type="submit" class="w-full" size="lg" :disabled="!ready || form.processing"><Receipt class="h-4 w-4" />Enregistrer la facture</Button>
-                    <Button :as="Link" :href="`/pharmacy/receipts/${receipt.uuid}`" variant="outline" class="w-full">Annuler</Button>
+                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}`)" variant="outline" class="w-full">Annuler</Button>
                 </div>
             </aside>
         </form>

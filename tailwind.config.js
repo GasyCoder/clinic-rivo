@@ -24,6 +24,17 @@ export default {
       fontSize: {
         'xxs':'11px',
       },
+      // ADR-191 — l'arrondi réglé par site : chaque arrondi est multiplié par
+      // --radius-scale (1 par défaut, donc identique à Tailwind).
+      borderRadius: {
+        sm: 'calc(0.125rem * var(--radius-scale, 1))',
+        DEFAULT: 'calc(0.25rem * var(--radius-scale, 1))',
+        md: 'calc(0.375rem * var(--radius-scale, 1))',
+        lg: 'calc(0.5rem * var(--radius-scale, 1))',
+        xl: 'calc(0.75rem * var(--radius-scale, 1))',
+        '2xl': 'calc(1rem * var(--radius-scale, 1))',
+        '3xl': 'calc(1.5rem * var(--radius-scale, 1))',
+      },
       lineHeight:{
         'tighter' : '1.1',
         '3.5': '0.875rem',
@@ -184,5 +195,15 @@ export default {
     require('@tailwindcss/forms'),
     require('@tailwindcss/typography'),
     require('@headlessui/tailwindcss'),
+    // Requêtes de conteneur : `cq` fait d'un bloc un conteneur, `cq-2xl:` / `cq-4xl:` / `cq-6xl:`
+    // s'appliquent selon SA largeur, pas celle de l'écran — une carte à côté d'un menu latéral
+    // est bien plus étroite que la fenêtre (paramètres de l'application, ADR-191). Le sélecteur
+    // `.cq &` les fait l'emporter sur `sm:`/`md:`, que Tailwind écrit après elles dans la feuille.
+    require('tailwindcss/plugin')(({ addUtilities, addVariant }) => {
+      addUtilities({ '.cq': { 'container-type': 'inline-size' } });
+      for (const [name, width] of Object.entries({ '2xl': '42rem', '4xl': '56rem', '6xl': '72rem' })) {
+        addVariant(`cq-${name}`, `@container (min-width: ${width}) { .cq & }`);
+      }
+    }),
   ],
 }

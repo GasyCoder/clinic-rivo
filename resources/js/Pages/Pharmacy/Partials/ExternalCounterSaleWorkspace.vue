@@ -7,6 +7,7 @@ import { lucideIcon } from '@/lib/icons';
 import { ChevronDown, FileText, LayoutGrid, List, Pill, Plus, Search, ShieldCheck, ShoppingCart, Trash2, User } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatMoney as money, formatNumber as number } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 const props = defineProps({
     visible: { type: Boolean, default: false },
@@ -255,7 +256,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
                             <p class="mt-1 max-w-sm text-sm text-slate-500">Seuls les médicaments en stock et ayant un prix de vente apparaissent ici.</p>
                             <p v-if="unpricedCount" class="mt-3 max-w-sm rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
                                 {{ unpricedCount }} médicament{{ unpricedCount > 1 ? 's sont' : ' est' }} en stock mais sans prix de vente : un produit reçu d’un fournisseur n’en a pas encore un.
-                                Fixez-le depuis <a href="/pharmacy/stock?status=NO_SALE_PRICE" class="font-semibold underline">Médicaments &amp; stock</a>.
+                                Fixez-le depuis <a :href="pharmacyUrl('/pharmacy/stock?status=NO_SALE_PRICE')" class="font-semibold underline">Médicaments &amp; stock</a>.
                             </p>
                         </div>
 

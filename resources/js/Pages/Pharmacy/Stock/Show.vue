@@ -9,6 +9,8 @@ import EmptyState from '@/Components/UI/EmptyState.vue';
 import { ArrowLeft, Pencil } from 'lucide-vue-next';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -24,7 +26,7 @@ defineProps({
     <Head :title="`Stock · ${medicine.name}`" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: '/pharmacy/stock' }, { label: medicine.name }]" />
+        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: pharmacyUrl('/pharmacy/stock') }, { label: medicine.name }]" />
 
         <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-900 dark:bg-gray-950">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -37,7 +39,7 @@ defineProps({
                     <Badge v-if="medicineFamily(medicine)" tone="neutral" class="mt-1.5">{{ medicineFamily(medicine) }}</Badge>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="rg" variant="white-outline">
+                    <Button v-if="capabilities.can_update_medicine" :as="Link" :href="pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}/edit`)" size="rg" variant="white-outline">
                         <Pencil class="h-4 w-4" /><span class="ms-2">Modifier la fiche</span>
                     </Button>
                 </div>
@@ -89,7 +91,9 @@ defineProps({
                             </td>
                             <td class="px-4 py-3.5"><Badge :tone="statusTone(lot.status)">{{ lot.status_label }}</Badge></td>
                             <td v-if="capabilities.can_adjust_stock" class="px-5 py-3.5 text-end">
-                                <Link :href="`/pharmacy/stock/adjustments/create?lot=${lot.uuid}`" class="text-sm font-semibold text-primary-600 hover:underline">Corriger</Link>
+                                <SiteOnlyAction label="Corriger" size="xs" variant="ghost">
+                                    <Link :href="pharmacyUrl(`/pharmacy/stock/adjustments/create?lot=${lot.uuid}`)" class="text-sm font-semibold text-primary-600 hover:underline">Corriger</Link>
+                                </SiteOnlyAction>
                             </td>
                         </tr>
                     </tbody>

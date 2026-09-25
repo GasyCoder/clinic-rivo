@@ -7,6 +7,7 @@ import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import EmptyState from '@/Components/UI/EmptyState.vue';
 import { Check, FileSpreadsheet, Plus, Search } from 'lucide-vue-next';
 import { formatMoney } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -49,14 +50,14 @@ const linkForm = (item) => {
     return linkForms[item.uuid];
 };
 const submitLink = (item) => linkForm(item).post(
-    `/pharmacy/suppliers/${props.supplier.uuid}/catalog-items/${item.uuid}/link`,
+    pharmacyUrl(`/pharmacy/suppliers/${props.supplier.uuid}/catalog-items/${item.uuid}/link`),
     { preserveScroll: true },
 );
 
-const addToCatalogHref = (item) => `/pharmacy/medicines/create?${new URLSearchParams({
+const addToCatalogHref = (item) => pharmacyUrl(`/pharmacy/medicines/create?${new URLSearchParams({
     supplier_catalog_item: item.uuid,
     name: item.medicine_label,
-}).toString()}`;
+}).toString()}`);
 </script>
 
 <template>
@@ -64,9 +65,9 @@ const addToCatalogHref = (item) => `/pharmacy/medicines/create?${new URLSearchPa
 
     <div class="w-full space-y-5">
         <Breadcrumb :items="[
-            { label: 'Fournisseurs', href: '/pharmacy/suppliers' },
-            { label: supplier.name, href: `/pharmacy/suppliers/${supplier.uuid}` },
-            { label: 'Catalogues', href: `/pharmacy/suppliers/${supplier.uuid}/catalogs` },
+            { label: 'Fournisseurs', href: pharmacyUrl('/pharmacy/suppliers') },
+            { label: supplier.name, href: pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}`) },
+            { label: 'Catalogues', href: pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}/catalogs`) },
             { label: catalog.original_name },
         ]" />
 

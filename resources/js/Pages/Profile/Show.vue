@@ -1,10 +1,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { Head, usePage } from '@inertiajs/vue3';
-import { IdCard, KeyRound, ShieldCheck } from 'lucide-vue-next';
+import { IdCard, KeyRound, Palette, ShieldCheck } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import ProfileAppearance from '@/Components/Profile/ProfileAppearance.vue';
 import ProfileIdentity from '@/Components/Profile/ProfileIdentity.vue';
 import ProfilePermissions from '@/Components/Profile/ProfilePermissions.vue';
 import ProfileSecurity from '@/Components/Profile/ProfileSecurity.vue';
@@ -32,6 +33,7 @@ const SECTIONS = [
     { id: 'identite', label: 'Mon compte', description: 'Qui vous êtes dans RIVO.', icon: IdCard },
     { id: 'droits', label: 'Mes droits', description: 'Ce que votre compte peut faire.', icon: ShieldCheck },
     { id: 'securite', label: 'Sécurité', description: 'Changer votre mot de passe.', icon: KeyRound },
+    { id: 'apparence', label: 'Apparence', description: 'Taille du texte, animations et contraste.', icon: Palette },
 ];
 
 const page = usePage();
@@ -102,6 +104,7 @@ const initials = computed(() => props.account.name
                 <div class="px-5 py-5">
                     <ProfileIdentity v-if="active === 'identite'" :account="account" />
                     <ProfilePermissions v-else-if="active === 'droits'" :permissions="grantedPermissions" />
+                    <ProfileAppearance v-else-if="active === 'apparence'" />
                     <ProfileSecurity v-else />
                 </div>
             </Card>
@@ -142,6 +145,7 @@ const initials = computed(() => props.account.name
             <Card class="px-5 py-5">
                 <ProfileIdentity v-if="active === 'identite'" :account="account" />
                 <ProfilePermissions v-else-if="active === 'droits'" :permissions="grantedPermissions" />
+                <ProfileAppearance v-else-if="active === 'apparence'" />
                 <ProfileSecurity v-else />
             </Card>
         </div>

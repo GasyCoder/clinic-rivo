@@ -12,8 +12,9 @@ const emit = defineEmits(['update:modelValue']);
 const attrs = useAttrs();
 
 const componentClass = computed(() => cn(
-    'flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50',
-    props.size === 'lg' && 'h-11 px-4',
+    'flex h-[var(--control-h)] w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50',
+    props.size === 'sm' && 'h-[var(--control-h-sm)] px-2.5',
+    props.size === 'lg' && 'h-[var(--control-h-lg)] px-4',
     attrs.class,
 ));
 const forwardedAttrs = computed(() => {

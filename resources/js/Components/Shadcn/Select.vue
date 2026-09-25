@@ -47,7 +47,7 @@ const model = computed({
     set: (value) => emit('update:modelValue', value === EMPTY_VALUE ? '' : value),
 });
 const triggerClass = computed(() => cn(
-    'flex h-10 min-w-[176px] items-center justify-between gap-3 rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50',
+    'flex h-[var(--control-h)] min-w-[176px] items-center justify-between gap-3 rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50',
     attrs.class,
 ));
 const forwardedAttrs = computed(() => {
@@ -56,6 +56,15 @@ const forwardedAttrs = computed(() => {
 });
 const itemValue = (option) => option.value || EMPTY_VALUE;
 const isGroup = (option) => Array.isArray(option?.items);
+
+/**
+ * L'option choisie, pour le slot `leading` : un repère visuel devant chaque
+ * option (une vignette de couleurs, un logo…), repris dans le champ fermé. Il
+ * reste hors du texte de l'option, que le clavier et le champ fermé lisent.
+ */
+const selectedOption = computed(() => props.options
+    .flatMap((option) => (isGroup(option) ? option.items : [option]))
+    .find((option) => (option.value || '') === (props.modelValue || '')) ?? null);
 </script>
 
 <template>
@@ -63,7 +72,14 @@ const isGroup = (option) => Array.isArray(option?.items);
         <SelectTrigger :class="triggerClass" v-bind="forwardedAttrs">
             <span class="flex min-w-0 items-center gap-2">
                 <component :is="icon" v-if="icon" class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <SelectValue class="truncate" :placeholder="placeholder" />
+                <SelectValue class="truncate" :placeholder="placeholder">
+                    <template v-if="$slots.leading" #default="{ selectedLabel }">
+                        <span class="flex min-w-0 items-center gap-2">
+                            <slot v-if="selectedOption" name="leading" :option="selectedOption" />
+                            <span class="truncate">{{ selectedLabel.length ? selectedLabel.join(', ') : placeholder }}</span>
+                        </span>
+                    </template>
+                </SelectValue>
             </span>
             <SelectIcon as-child><ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" /></SelectIcon>
         </SelectTrigger>
@@ -87,8 +103,9 @@ const isGroup = (option) => Array.isArray(option?.items);
                                 :key="itemValue(item)"
                                 :value="itemValue(item)"
                                 :disabled="Boolean(item.disabled)"
-                                class="relative flex cursor-default select-none items-center rounded-md py-2 pe-8 ps-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                                class="relative flex cursor-default select-none items-center gap-2 rounded-md py-2 pe-8 ps-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                             >
+                                <slot name="leading" :option="item" />
                                 <SelectItemText>{{ item.label }}</SelectItemText>
                                 <SelectItemIndicator class="absolute end-2 grid place-items-center">
                                     <Check class="h-4 w-4 text-primary" />
@@ -99,8 +116,9 @@ const isGroup = (option) => Array.isArray(option?.items);
                             v-else
                             :value="itemValue(option)"
                             :disabled="Boolean(option.disabled)"
-                            class="relative flex cursor-default select-none items-center rounded-md py-2 pe-8 ps-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                            class="relative flex cursor-default select-none items-center gap-2 rounded-md py-2 pe-8 ps-3 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                         >
+                            <slot name="leading" :option="option" />
                             <SelectItemText>{{ option.label }}</SelectItemText>
                             <SelectItemIndicator class="absolute end-2 grid place-items-center">
                                 <Check class="h-4 w-4 text-primary" />

@@ -84,6 +84,10 @@ class HandleInertiaRequests extends Middleware
                 'currency' => $settings->currency(),
                 'ageBands' => $settings->ageBands(),
             ],
+            // ADR-191 — taille du texte, densité, arrondis, animations, contraste :
+            // ceux du site, ajustés par l'utilisateur. Appliqués sur <html> dès le rendu
+            // serveur ; la page les réapplique quand l'utilisateur les change.
+            'appearance' => $settings->appearance($user),
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),
                 // Optional tone for the status toast (success/warning/danger/

@@ -24,8 +24,9 @@ test('un seul tableau, un seul envoi, fait des seules lignes réceptionnées', (
     assert.doesNotMatch(PAGE, /role="tablist"/, 'le sélecteur de mode est revenu');
     assert.equal(PAGE.match(/<StockEntryTable/g)?.length, 1);
 
-    const posts = PAGE.match(/\.post\('([^']+)'/g) ?? [];
-    assert.deepEqual(posts, [".post('/pharmacy/stock/entries/batch'"]);
+    // ADR-189 — l'adresse passe par pharmacyUrl() : c'est toujours un seul envoi.
+    const posts = PAGE.match(/\.post\((?:pharmacyUrl\()?'([^']+)'/g) ?? [];
+    assert.deepEqual(posts, [".post(pharmacyUrl('/pharmacy/stock/entries/batch'"]);
     assert.ok(PAGE.includes('lines: selected.map('), PAGE);
     assert.ok(!PAGE.includes('entries:'), 'l’écran envoie encore des entrées libres');
 });

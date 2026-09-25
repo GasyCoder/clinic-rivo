@@ -180,7 +180,7 @@ class CashController extends Controller
                 ->get([
                     'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
                     'customer_type', 'customer_name', 'customer_phone', 'source_module',
-                    'status', 'total_amount', 'paid_amount', 'balance_amount',
+                    'status', 'discount_amount', 'total_amount', 'paid_amount', 'balance_amount',
                     'created_at', 'validated_at',
                 ])
             : collect();
@@ -305,7 +305,7 @@ class CashController extends Controller
             ->get([
                 'id', 'uuid', 'patient_id', 'episode_id', 'invoice_number',
                 'customer_type', 'customer_name', 'customer_phone', 'source_module',
-                'status', 'total_amount', 'paid_amount', 'balance_amount',
+                'status', 'discount_amount', 'total_amount', 'paid_amount', 'balance_amount',
                 'created_at', 'validated_at',
             ]);
 

@@ -8,6 +8,8 @@ import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import { lucideIcon } from '@/lib/icons';
 import { CircleCheck, Clock, Eye, FileText, Info, Package, Printer, Search, X } from 'lucide-vue-next';
 import { statusTone } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 const props = defineProps({
     dispenses: { type: Array, default: () => [] },
@@ -110,7 +112,7 @@ const printTicket = (dispense) => {
     frame.addEventListener('load', () => {
         frame.contentWindow?.addEventListener('afterprint', clearTicketPrintFrame, { once: true });
     }, { once: true });
-    frame.src = `/pharmacy/dispenses/${encodeURIComponent(dispense.uuid)}/ticket?print=1&embedded=1`;
+    frame.src = pharmacyUrl(`/pharmacy/dispenses/${encodeURIComponent(dispense.uuid)}/ticket?print=1&embedded=1`);
     document.body.appendChild(frame);
     ticketPrintFrame = frame;
     ticketPrintCleanupTimer = window.setTimeout(clearTicketPrintFrame, 120000);
@@ -193,8 +195,8 @@ const formatDate = (value) => value
                 >
                     <template #actions>
                         <Button size="sm" type="button" variant="white-outline" @click="showDispense(dispense)"><Eye class="h-4 w-4" /></Button>
-                        <Button v-if="dispense.can_prepare_invoice && capabilities.can_prepare_invoice" size="sm" type="button" title="Préparer le ticket" @click="emit('prepare-invoice', dispense)"><FileText class="h-4 w-4" /></Button>
-                        <Button v-if="dispense.can_dispense && capabilities.can_dispense" size="sm" type="button" title="Délivrer" @click="emit('deliver', dispense)"><Package class="h-4 w-4" /></Button>
+                        <SiteOnlyAction v-if="dispense.can_prepare_invoice && capabilities.can_prepare_invoice" label="Préparer le ticket" icon><Button size="sm" type="button" title="Préparer le ticket" @click="emit('prepare-invoice', dispense)"><FileText class="h-4 w-4" /></Button></SiteOnlyAction>
+                        <SiteOnlyAction v-if="dispense.can_dispense && capabilities.can_dispense" label="Délivrer" icon><Button size="sm" type="button" title="Délivrer" @click="emit('deliver', dispense)"><Package class="h-4 w-4" /></Button></SiteOnlyAction>
                     </template>
                 </ExplorerTile>
             </template>
@@ -235,8 +237,8 @@ const formatDate = (value) => value
                         <td class="px-5 py-3">
                             <div class="flex items-center justify-end gap-2">
                                 <Button size="rg" type="button" variant="white-outline" title="Voir les détails et les actions documentaires" :aria-label="`Voir les détails de ${dispense.customer_name}`" @click="showDispense(dispense)"><Eye class="text-base h-4 w-4" /><span class="ms-2">Voir</span></Button>
-                                <Button v-if="dispense.can_prepare_invoice && capabilities.can_prepare_invoice" icon size="rg" type="button" title="Préparer le ticket" aria-label="Préparer le ticket" @click="emit('prepare-invoice', dispense)"><FileText class="text-base h-4 w-4" /></Button>
-                                <Button v-if="dispense.can_dispense && capabilities.can_dispense" icon size="rg" type="button" title="Ouvrir la délivrance" :aria-label="`Délivrer les produits de ${dispense.customer_name}`" @click="emit('deliver', dispense)"><Package class="text-base h-4 w-4" /></Button>
+                                <SiteOnlyAction v-if="dispense.can_prepare_invoice && capabilities.can_prepare_invoice" label="Préparer le ticket" size="rg" icon><Button icon size="rg" type="button" title="Préparer le ticket" aria-label="Préparer le ticket" @click="emit('prepare-invoice', dispense)"><FileText class="text-base h-4 w-4" /></Button></SiteOnlyAction>
+                                <SiteOnlyAction v-if="dispense.can_dispense && capabilities.can_dispense" label="Délivrer" size="rg" icon><Button icon size="rg" type="button" title="Ouvrir la délivrance" :aria-label="`Délivrer les produits de ${dispense.customer_name}`" @click="emit('deliver', dispense)"><Package class="text-base h-4 w-4" /></Button></SiteOnlyAction>
                             </div>
                         </td>
                     </tr>
@@ -285,8 +287,8 @@ const formatDate = (value) => value
                 <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-5 py-3 dark:border-gray-900 dark:bg-gray-1000">
                     <Button variant="white-outline" size="rg" type="button" @click="closeDispense">Fermer</Button>
                     <div class="flex items-center gap-2">
-                        <Button v-if="selectedDispense.invoice && capabilities.can_print_ticket" size="rg" variant="white-outline" type="button" :disabled="printingDispenseUuid === selectedDispense.uuid" @click="printTicket(selectedDispense)"><Printer class="h-4 w-4" /><span class="ms-2">{{ printingDispenseUuid === selectedDispense.uuid ? 'Préparation…' : 'Imprimer le ticket' }}</span></Button>
-                        <Button v-if="selectedDispense.can_dispense && capabilities.can_dispense" size="rg" type="button" @click="deliverDispense(selectedDispense)"><Package class="h-4 w-4" /><span class="ms-2">Délivrer</span></Button>
+                        <SiteOnlyAction v-if="selectedDispense.invoice && capabilities.can_print_ticket" label="Imprimer le ticket" size="rg" variant="white-outline"><Button size="rg" variant="white-outline" type="button" :disabled="printingDispenseUuid === selectedDispense.uuid" @click="printTicket(selectedDispense)"><Printer class="h-4 w-4" /><span class="ms-2">{{ printingDispenseUuid === selectedDispense.uuid ? 'Préparation…' : 'Imprimer le ticket' }}</span></Button></SiteOnlyAction>
+                        <SiteOnlyAction v-if="selectedDispense.can_dispense && capabilities.can_dispense" label="Délivrer" size="rg" variant="default"><Button size="rg" type="button" @click="deliverDispense(selectedDispense)"><Package class="h-4 w-4" /><span class="ms-2">Délivrer</span></Button></SiteOnlyAction>
                     </div>
                 </footer>
             </section>

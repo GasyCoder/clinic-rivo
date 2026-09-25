@@ -1,5 +1,20 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+@php($appSettings = app(\App\Services\Settings\AppSettings::class))
+{{-- ADR-191 — densité, arrondis, animations, contraste et taille du texte : ceux du site,
+     ajustés par ce que l'utilisateur a choisi dans « Mon profil ». Posés dès le rendu
+     serveur, pour qu'aucun éclair ne précède leur application. Une taille en %, jamais
+     en px : la taille choisie dans le navigateur reste respectée. --}}
+@php($appearance = $appSettings->appearance(auth()->user())['effective'])
+<html
+    lang="{{ str_replace('_', '-', app()->getLocale()) }}"
+    data-density="{{ $appearance['density'] }}"
+    data-radius="{{ $appearance['radius'] }}"
+    data-motion="{{ $appearance['motion'] }}"
+    data-contrast="{{ $appearance['contrast'] }}"
+    @if ($appearance['font_size'] !== \App\Support\Settings\UiOptions::DEFAULT_FONT_SIZE)
+        style="font-size: {{ round($appearance['font_size'] / 16 * 100, 3) }}%"
+    @endif
+>
 <head>
     <meta charset="utf-8">
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -8,8 +23,6 @@
         name="viewport"
         content="width=device-width, initial-scale=1"
     >
-
-    @php($appSettings = app(\App\Services\Settings\AppSettings::class))
 
     {{-- ADR-184 — masquée aux moteurs de recherche : la même consigne part aussi en en-tête HTTP et dans robots.txt. --}}
     @if ($appSettings->hiddenFromSearchEngines())
@@ -44,15 +57,14 @@
         'resources/js/app.js',
     ])
 
-    @if ($themeCss = $appSettings->themeCss())
-        {{-- Construit depuis une couleur #RRVVBB validée : seulement des chiffres et des %. --}}
-        <style id="rivo-theme">{!! $themeCss !!}</style>
-    @endif
+    {{-- ADR-191 — le thème du site (couleurs des modes clair et sombre, contraste renforcé).
+         Construit depuis des couleurs #RRVVBB validées : seulement des chiffres et des %. --}}
+    <style id="rivo-theme">{!! $appSettings->themeCss() !!}</style>
 
     <x-inertia::head />
 </head>
 
-<body class="min-w-[320px] bg-gray-50 font-body text-sm font-normal leading-relaxed text-slate-600 dark:bg-gray-1000 dark:text-slate-300">
+<body class="min-w-[320px] bg-background font-body text-sm font-normal leading-relaxed text-slate-600 dark:text-slate-300">
     <x-inertia::app />
 </body>
 </html>

@@ -27,6 +27,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\HospitalizationController;
 use App\Http\Controllers\HospitalStayOrderController;
 use App\Http\Controllers\HospitalStaySelectionController;
+use App\Http\Controllers\InvoiceDiscountController;
 use App\Http\Controllers\LaboratoryController;
 use App\Http\Controllers\LogisticsController;
 use App\Http\Controllers\MaternityController;
@@ -36,23 +37,12 @@ use App\Http\Controllers\Medicine\ImagingReportTemplateController;
 use App\Http\Controllers\Medicine\ParaclinicalRequestDirectoryController;
 use App\Http\Controllers\MedicineController;
 use App\Http\Controllers\PatientController;
+use App\Http\Controllers\PatientDiscountController;
 use App\Http\Controllers\PatientMutualCoverageAttachmentController;
 use App\Http\Controllers\PatientTreatmentJournalController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PediatricsController;
-use App\Http\Controllers\Pharmacy\CareConsumableController as PharmacyCareConsumableController;
-use App\Http\Controllers\Pharmacy\DashboardController as PharmacyDashboardController;
-use App\Http\Controllers\Pharmacy\DispenseController as PharmacyDispenseController;
-use App\Http\Controllers\Pharmacy\GoodsReceiptController;
-use App\Http\Controllers\Pharmacy\MedicineController as PharmacyMedicineController;
-use App\Http\Controllers\Pharmacy\MedicineSupplierOfferController;
-use App\Http\Controllers\Pharmacy\PurchaseOrderController;
-use App\Http\Controllers\Pharmacy\PurchasesController as PharmacyPurchasesController;
-use App\Http\Controllers\Pharmacy\StockController as PharmacyStockController;
-use App\Http\Controllers\Pharmacy\SupplierCatalogController;
 use App\Http\Controllers\Pharmacy\SupplierCatalogTemplateController;
-use App\Http\Controllers\Pharmacy\SupplierController;
-use App\Http\Controllers\Pharmacy\SupplierInvoiceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\Reception\EmployeePatientLookupController;
@@ -78,8 +68,10 @@ use App\Http\Controllers\SuperAdmin\PaymentMethodController as SuperAdminPayment
 use App\Http\Controllers\SuperAdmin\PharmacyCatalogController as SuperAdminPharmacyCatalogController;
 use App\Http\Controllers\SuperAdmin\PharmacyProcurementController as SuperAdminPharmacyProcurementController;
 use App\Http\Controllers\SuperAdmin\PharmacySupplierController as SuperAdminPharmacySupplierController;
+use App\Http\Controllers\SuperAdmin\ProfessionalEmailController as SuperAdminProfessionalEmailController;
 use App\Http\Controllers\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\SuperAdmin\SiteHumanResourcesController;
+use App\Http\Controllers\SuperAdmin\SitePharmacyController;
 use App\Http\Controllers\SuperAdmin\TrashController as SuperAdminTrashController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Controllers\SuperAdminController;
@@ -134,6 +126,8 @@ Route::middleware(['site.type:clinic,admin', 'auth', 'account.active', 'account.
     Route::put('/profil/mot-de-passe', [ProfileController::class, 'updatePassword'])
         ->name('profile.password.update')
         ->middleware('throttle:6,1');
+    // ADR-191 — taille du texte, animations et contraste propres à ce compte.
+    Route::put('/profil/apparence', [ProfileController::class, 'updateAppearance'])->name('profile.appearance.update');
 });
 
 // Portail central : navigation et vues de supervision uniquement. Les données
@@ -255,9 +249,27 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-133 — seuils des patients VIP, réglés site par site par l'API du site.
         // ADR-184 — paramètres de l'application, site par site et pour le portail.
         Route::get('/settings', [SuperAdminAppSettingsController::class, 'index'])->name('settings.index')->middleware('can:settings.view');
+        // ADR-191 — une page par module ; « /settings » ouvre le premier.
+        Route::get('/settings/{section}', [SuperAdminAppSettingsController::class, 'index'])
+            ->whereIn('section', SuperAdminAppSettingsController::SECTIONS)
+            ->name('settings.section')
+            ->middleware('can:settings.view');
         Route::put('/settings', [SuperAdminAppSettingsController::class, 'update'])->name('settings.update')->middleware('can:settings.update');
         Route::post('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'storeAsset'])->name('settings.assets.store')->middleware('can:settings.update');
         Route::delete('/settings/assets/{kind}', [SuperAdminAppSettingsController::class, 'destroyAsset'])->name('settings.assets.destroy')->middleware('can:settings.update');
+        // ADR-192 — les coupons de remise d'un site.
+        Route::post('/settings/coupons', [SuperAdminAppSettingsController::class, 'storeCoupon'])->name('settings.coupons.store')->middleware('can:discount_coupons.create');
+        Route::post('/settings/coupons/{coupon}/archive', [SuperAdminAppSettingsController::class, 'archiveCoupon'])->name('settings.coupons.archive')->middleware('can:discount_coupons.archive');
+        // ADR-190 — adresses email professionnelles : le portail seul parle à l'hébergeur.
+        Route::get('/professional-emails', [SuperAdminProfessionalEmailController::class, 'index'])->name('professional-emails.index')->middleware('can:professional_emails.view');
+        Route::post('/professional-emails/check', [SuperAdminProfessionalEmailController::class, 'check'])->name('professional-emails.check')->middleware('can:professional_emails.create');
+        Route::post('/professional-emails/prepare', [SuperAdminProfessionalEmailController::class, 'prepare'])->name('professional-emails.prepare');
+        Route::post('/professional-emails/{site}/direct', [SuperAdminProfessionalEmailController::class, 'direct'])->name('professional-emails.direct')->middleware('can:professional_emails.create');
+        Route::post('/professional-emails/{site}/{mailbox}/create', [SuperAdminProfessionalEmailController::class, 'create'])->name('professional-emails.create')->middleware('can:professional_emails.create');
+        Route::post('/professional-emails/{site}/{mailbox}/reject', [SuperAdminProfessionalEmailController::class, 'reject'])->name('professional-emails.reject')->middleware('can:professional_emails.reject');
+        Route::post('/professional-emails/{site}/{mailbox}/suspend', [SuperAdminProfessionalEmailController::class, 'suspend'])->name('professional-emails.suspend')->middleware('can:professional_emails.deactivate');
+        Route::post('/professional-emails/{site}/{mailbox}/reactivate', [SuperAdminProfessionalEmailController::class, 'reactivate'])->name('professional-emails.reactivate')->middleware('can:professional_emails.activate');
+        Route::post('/professional-emails/{site}/{mailbox}/password', [SuperAdminProfessionalEmailController::class, 'resetPassword'])->name('professional-emails.password')->middleware('can:professional_emails.update');
         Route::get('/patient-vip', [SuperAdminPatientVipSettingsController::class, 'index'])->name('patient-vip.index')->middleware('can:patient_vip.view');
         Route::post('/patient-vip/preview', [SuperAdminPatientVipSettingsController::class, 'preview'])->name('patient-vip.preview')->middleware('can:patient_vip.view');
         Route::put('/patient-vip', [SuperAdminPatientVipSettingsController::class, 'update'])->name('patient-vip.update')->middleware('can:patient_vip.update');
@@ -374,6 +386,13 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
             ->where('path', '.*')
             ->name('sites.hr')
             ->middleware('can:employees.view');
+        // ADR-189 — la Pharmacie d'un site, vue et administrée depuis le portail :
+        // les écrans et les règles de /pharmacy, relayés ; les actes physiques
+        // restent au site.
+        Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/sites/{site}/pharmacie/{path?}', SitePharmacyController::class)
+            ->where('path', '.*')
+            ->name('sites.pharmacy')
+            ->middleware('can:pharmacy.view');
 
         Route::get('/workspaces/{workspace}', [SuperAdminController::class, 'workspace'])->name('workspaces.show');
     });
@@ -392,204 +411,8 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     // ADR-187 — l'espace RH, partagé avec l'API du portail (routes/hr.php).
     Route::prefix('administration')->name('administration.')->group(base_path('routes/hr.php'));
     Route::get('/logistics', LogisticsController::class)->name('logistics.index')->middleware('can:logistics.view');
-    // ADR-098 — Pharmacie : une vraie page par tâche, le menu latéral comme
-    // seule navigation. Chaque page porte la permission de l'écran qu'elle ouvre.
-    Route::get('/pharmacy', PharmacyDashboardController::class)->name('pharmacy.index')->middleware('can:pharmacy.view');
-
-    Route::get('/pharmacy/stock', [PharmacyStockController::class, 'index'])
-        ->name('pharmacy.stock.index')->middleware('can:view-pharmacy-catalog');
-    Route::get('/pharmacy/stock/entries/create', [PharmacyStockController::class, 'createEntry'])
-        ->name('pharmacy.stock.entries.create')->middleware('can:stock.entry');
-    // ADR-180, ADR-182 — l'écran d'entrée en stock est unique, et n'y entre que
-    // la marchandise réceptionnée : aucune entrée hors d'une livraison.
-    Route::post('/pharmacy/stock/entries/batch', [PharmacyStockController::class, 'storeEntries'])
-        ->name('pharmacy.stock.entries.batch')->middleware('can:stock.entry');
-    Route::get('/pharmacy/stock/inventory', [PharmacyStockController::class, 'inventory'])
-        ->name('pharmacy.stock.inventory')->middleware('can:stock.adjust');
-    Route::post('/pharmacy/stock/inventory', [PharmacyStockController::class, 'storeInventory'])
-        ->name('pharmacy.stock.inventory.store')->middleware('can:stock.adjust');
-    Route::get('/pharmacy/stock/adjustments/create', [PharmacyStockController::class, 'createAdjustment'])
-        ->name('pharmacy.stock.adjustments.create')->middleware('can:stock.adjust');
-    Route::post('/pharmacy/stock/adjustments', [PharmacyStockController::class, 'storeAdjustment'])
-        ->name('pharmacy.stock.adjustments.store')->middleware('can:stock.adjust');
-    Route::get('/pharmacy/stock/{medicine}', [PharmacyStockController::class, 'show'])
-        ->name('pharmacy.stock.show')->middleware('can:stock.view');
-
-    // ADR-104 — la vente comptoir anonyme est retirée : toute vente de
-    // médicament est prise à la Réception, sur un dossier patient et un
-    // passage. L'URL reste valide et mène là où le travail se fait
-    // désormais ; les ventes déjà enregistrées restent lisibles.
-    Route::get('/pharmacy/counter-sales/create', fn () => redirect()
-        ->route('reception.patients.create')
-        ->with('status', 'La vente de médicaments se prend désormais à la Réception, sur un dossier patient.'))
-        ->name('pharmacy.counter-sales.create')
-        ->middleware('can:pharmacy.counter_sales.create');
-
-    Route::get('/pharmacy/dispenses', [PharmacyDispenseController::class, 'index'])
-        ->name('pharmacy.dispenses.index')->middleware('can:prescriptions.view');
-    Route::post('/pharmacy/dispenses/{dispense}/invoice', [PharmacyDispenseController::class, 'prepareInvoice'])
-        ->name('pharmacy.dispenses.invoice.store')->middleware('can:pharmacy.dispense.prepare_invoice');
-    Route::get('/pharmacy/dispenses/{dispense}/ticket', [PharmacyDispenseController::class, 'ticket'])
-        ->name('pharmacy.dispenses.ticket.show')->middleware('can:pharmacy.dispense.print');
-    Route::post('/pharmacy/dispenses/{dispense}/deliveries', [PharmacyDispenseController::class, 'deliver'])
-        ->name('pharmacy.dispenses.deliveries.store')->middleware('can:pharmacy.dispense');
-
-    Route::get('/pharmacy/care-consumables', [PharmacyCareConsumableController::class, 'index'])
-        ->name('pharmacy.care-consumables.index')->middleware('can:care_consumables.view');
-    Route::post('/pharmacy/care-consumables/{careConsumableRequest}/serve', [PharmacyCareConsumableController::class, 'serve'])
-        ->name('pharmacy.care-consumables.serve')->middleware('can:care_consumables.serve');
-
-    // ADR-098 — merged into « Médicaments & stock »; the address still works.
-    Route::get('/pharmacy/medicines', [PharmacyMedicineController::class, 'index'])
-        ->name('pharmacy.medicines.index')->middleware('can:view-pharmacy-catalog');
-    Route::get('/pharmacy/purchases', PharmacyPurchasesController::class)
-        ->name('pharmacy.purchases.index')->middleware('can:view-pharmacy-purchases');
-    Route::get('/pharmacy/medicines/create', [PharmacyMedicineController::class, 'create'])
-        ->name('pharmacy.medicines.create')->middleware('can:medicines.create');
-    Route::post('/pharmacy/setup/categories', [PharmacyMedicineController::class, 'storeCategory'])
-        ->name('pharmacy.setup.categories.store')->middleware('can:medicine_categories.create');
-    // ADR-098 — correcting the catalog: a medicine is deactivated, never deleted.
-    Route::get('/pharmacy/medicines/{medicine}/edit', [PharmacyMedicineController::class, 'edit'])
-        ->name('pharmacy.medicines.edit')->middleware('can:medicines.update');
-    Route::put('/pharmacy/medicines/{medicine}', [PharmacyMedicineController::class, 'update'])
-        ->name('pharmacy.medicines.update')->middleware('can:medicines.update');
-    // ADR-174 — the pharmacy sets its own sale price, nothing else.
-    Route::put('/pharmacy/medicines/{medicine}/sale-price', [PharmacyMedicineController::class, 'updateSalePrice'])
-        ->name('pharmacy.medicines.sale-price')->middleware('can:medicines.sale_price.update');
-    Route::post('/pharmacy/medicines/{medicine}/deactivate', [PharmacyMedicineController::class, 'deactivate'])
-        ->name('pharmacy.medicines.deactivate')->middleware('can:medicines.delete');
-    Route::post('/pharmacy/medicines/{medicine}/reactivate', [PharmacyMedicineController::class, 'reactivate'])
-        ->name('pharmacy.medicines.reactivate')->middleware('can:medicines.restore');
-    Route::put('/pharmacy/setup/categories/{category}', [PharmacyMedicineController::class, 'updateCategory'])
-        ->name('pharmacy.setup.categories.update')->middleware('can:medicine_categories.update');
-    Route::delete('/pharmacy/setup/categories/{category}', [PharmacyMedicineController::class, 'archiveCategory'])
-        ->name('pharmacy.setup.categories.destroy')->middleware('can:medicine_categories.delete');
-    Route::post('/pharmacy/setup/categories/{category}/restore', [PharmacyMedicineController::class, 'restoreCategory'])
-        ->name('pharmacy.setup.categories.restore')->middleware('can:medicine_categories.restore')->withTrashed();
-    Route::post('/pharmacy/setup/medicines', [PharmacyMedicineController::class, 'store'])
-        ->name('pharmacy.setup.medicines.store')->middleware('can:medicines.create');
-    Route::get('/pharmacy/setup/medicines/import-template', [PharmacyMedicineController::class, 'template'])
-        ->name('pharmacy.setup.medicines.import-template')->middleware('can:medicines.import');
-    Route::post('/pharmacy/setup/medicines/import', [PharmacyMedicineController::class, 'import'])
-        ->name('pharmacy.setup.medicines.import')->middleware('can:medicines.import');
-
-    // ADR-097/098 — Fournisseurs : un dossier par fournisseur (catalogues,
-    // commandes, factures, prix), ouvert à la clinique en consultation.
-    Route::get('/pharmacy/suppliers/catalog-template', SupplierCatalogTemplateController::class)
-        ->name('pharmacy.suppliers.catalog-template')->middleware('can:supplier_catalogs.view');
-    Route::get('/pharmacy/suppliers', [SupplierController::class, 'index'])
-        ->name('pharmacy.suppliers.index')->middleware('can:medicine_suppliers.view');
-    Route::post('/pharmacy/setup/suppliers', [SupplierController::class, 'store'])
-        ->name('pharmacy.setup.suppliers.store')->middleware('can:medicine_suppliers.create');
-    Route::get('/pharmacy/suppliers/{supplier}', [SupplierController::class, 'show'])
-        ->name('pharmacy.suppliers.show')->middleware('can:medicine_suppliers.view');
-    Route::get('/pharmacy/suppliers/{supplier}/catalogs', [SupplierController::class, 'catalogs'])
-        ->name('pharmacy.suppliers.catalogs.index')->middleware('can:view-supplier-catalogs');
-    Route::get('/pharmacy/suppliers/{supplier}/catalogs/{catalog}/items', [SupplierController::class, 'catalogItems'])
-        ->name('pharmacy.suppliers.catalogs.items')->middleware('can:view-supplier-catalogs')->withTrashed();
-    Route::get('/pharmacy/suppliers/{supplier}/products', [SupplierController::class, 'products'])
-        ->name('pharmacy.suppliers.products')->middleware('can:view-supplier-offers');
-    Route::get('/pharmacy/suppliers/{supplier}/catalogs/{catalog}/import', [SupplierCatalogController::class, 'preview'])
-        ->name('pharmacy.suppliers.catalogs.import.preview')->middleware('can:supplier_catalogs.create');
-
-    Route::post('/pharmacy/suppliers/{supplier}/catalogs', [SupplierCatalogController::class, 'store'])
-        ->name('pharmacy.suppliers.catalogs.store')->middleware('can:supplier_catalogs.create');
-    Route::get('/pharmacy/suppliers/{supplier}/catalogs/{catalog}', [SupplierCatalogController::class, 'show'])
-        ->name('pharmacy.suppliers.catalogs.show')->middleware('can:view-supplier-catalogs')->withTrashed();
-    Route::get('/pharmacy/suppliers/{supplier}/catalogs/{catalog}/download', [SupplierCatalogController::class, 'download'])
-        ->name('pharmacy.suppliers.catalogs.download')->middleware('can:view-supplier-catalogs')->withTrashed();
-    Route::patch('/pharmacy/suppliers/{supplier}/catalogs/{catalog}', [SupplierCatalogController::class, 'update'])
-        ->name('pharmacy.suppliers.catalogs.update')->middleware('can:supplier_catalogs.update');
-    Route::post('/pharmacy/suppliers/{supplier}/catalogs/{catalog}/activate', [SupplierCatalogController::class, 'activate'])
-        ->name('pharmacy.suppliers.catalogs.activate')->middleware('can:supplier_catalogs.update');
-    Route::post('/pharmacy/suppliers/{supplier}/catalogs/{catalog}/import', [SupplierCatalogController::class, 'import'])
-        ->name('pharmacy.suppliers.catalogs.import')->middleware('can:supplier_catalogs.create');
-    Route::delete('/pharmacy/suppliers/{supplier}/catalogs/{catalog}', [SupplierCatalogController::class, 'destroy'])
-        ->name('pharmacy.suppliers.catalogs.destroy')->middleware('can:supplier_catalogs.delete');
-    Route::post('/pharmacy/suppliers/{supplier}/catalogs/{catalog}/restore', [SupplierCatalogController::class, 'restore'])
-        ->name('pharmacy.suppliers.catalogs.restore')->middleware('can:supplier_catalogs.restore')->withTrashed();
-    Route::post('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}/link', [SupplierCatalogController::class, 'linkItem'])
-        ->name('pharmacy.suppliers.catalog-items.link')->middleware('can:set-medicine-supplier-offer');
-    // ADR-098 — a catalogue line is a transcription of the supplier's own
-    // document: it is corrected and withdrawn with the catalogue's rights.
-    Route::put('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}', [SupplierCatalogController::class, 'updateItem'])
-        ->name('pharmacy.suppliers.catalog-items.update')->middleware('can:supplier_catalogs.update');
-    Route::delete('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}', [SupplierCatalogController::class, 'destroyItem'])
-        ->name('pharmacy.suppliers.catalog-items.destroy')->middleware('can:supplier_catalogs.delete');
-    Route::post('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}/restore', [SupplierCatalogController::class, 'restoreItem'])
-        ->name('pharmacy.suppliers.catalog-items.restore')->middleware('can:supplier_catalogs.restore')->withTrashed();
-    Route::post('/pharmacy/suppliers/{supplier}/catalog-items/{catalogItem}/unlink', [SupplierCatalogController::class, 'unlinkItem'])
-        ->name('pharmacy.suppliers.catalog-items.unlink')->middleware('can:medicine_supplier_offers.update');
-
-    Route::post('/pharmacy/suppliers/{supplier}/offers', [MedicineSupplierOfferController::class, 'store'])
-        ->name('pharmacy.suppliers.offers.store')->middleware('can:set-medicine-supplier-offer');
-
-    Route::get('/pharmacy/purchase-orders', [PurchaseOrderController::class, 'index'])
-        ->name('pharmacy.purchase-orders.index')->middleware('can:view-supplier-orders');
-    Route::get('/pharmacy/purchase-orders/create', [PurchaseOrderController::class, 'create'])
-        ->name('pharmacy.purchase-orders.create')->middleware('can:purchase_orders.create');
-    Route::post('/pharmacy/suppliers/{supplier}/purchase-orders', [PurchaseOrderController::class, 'store'])
-        ->name('pharmacy.suppliers.purchase-orders.store')->middleware('can:purchase_orders.create');
-    Route::get('/pharmacy/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'show'])
-        ->name('pharmacy.purchase-orders.show')->middleware('can:view-supplier-orders');
-    Route::match(['put', 'patch'], '/pharmacy/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'update'])
-        ->name('pharmacy.purchase-orders.update')->middleware('can:purchase_orders.update');
-    Route::get('/pharmacy/purchase-orders/{purchaseOrder}/edit', [PurchaseOrderController::class, 'edit'])
-        ->name('pharmacy.purchase-orders.edit')->middleware('can:purchase_orders.update');
-    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/submit', [PurchaseOrderController::class, 'submit'])
-        ->name('pharmacy.purchase-orders.submit')->middleware('can:purchase_orders.submit');
-    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/cancel', [PurchaseOrderController::class, 'cancel'])
-        ->name('pharmacy.purchase-orders.cancel')->middleware('can:purchase_orders.cancel');
-    Route::delete('/pharmacy/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'destroy'])
-        ->name('pharmacy.purchase-orders.destroy')->middleware('can:purchase_orders.delete');
-
-    // ADR-179 — la confirmation du fournisseur, les ruptures et la clôture.
-    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/confirmation', [PurchaseOrderController::class, 'confirm'])
-        ->name('pharmacy.purchase-orders.confirm')->middleware('can:purchase_orders.confirm');
-    Route::delete('/pharmacy/purchase-orders/{purchaseOrder}/confirmation', [PurchaseOrderController::class, 'unconfirm'])
-        ->name('pharmacy.purchase-orders.unconfirm')->middleware('can:purchase_orders.confirm');
-    Route::get('/pharmacy/purchase-orders/{purchaseOrder}/confirmation/document', [PurchaseOrderController::class, 'confirmationDocument'])
-        ->name('pharmacy.purchase-orders.confirmation.document')->middleware('can:view-supplier-orders');
-    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/lines/{line}/shortage', [PurchaseOrderController::class, 'shortage'])
-        ->name('pharmacy.purchase-orders.lines.shortage')->middleware('can:goods_receipts.create');
-    Route::delete('/pharmacy/purchase-orders/{purchaseOrder}/lines/{line}/shortage', [PurchaseOrderController::class, 'revertShortage'])
-        ->name('pharmacy.purchase-orders.lines.shortage.revert')->middleware('can:goods_receipts.create');
-    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/close', [PurchaseOrderController::class, 'close'])
-        ->name('pharmacy.purchase-orders.close')->middleware('can:purchase_orders.cancel');
-
-    Route::get('/pharmacy/purchase-orders/{purchaseOrder}/receive', [GoodsReceiptController::class, 'create'])
-        ->name('pharmacy.purchase-orders.receive')->middleware('can:goods_receipts.create');
-    Route::post('/pharmacy/purchase-orders/{purchaseOrder}/receipts', [GoodsReceiptController::class, 'store'])
-        ->name('pharmacy.purchase-orders.receipts.store')->middleware('can:goods_receipts.create');
-    Route::get('/pharmacy/receipts', [GoodsReceiptController::class, 'index'])
-        ->name('pharmacy.receipts.index')->middleware('can:goods_receipts.view');
-    Route::get('/pharmacy/receipts/{goodsReceipt}', [GoodsReceiptController::class, 'show'])
-        ->name('pharmacy.receipts.show')->middleware('can:goods_receipts.view');
-    // ADR-175 — la facture d'une réception enregistrée sans elle.
-    Route::get('/pharmacy/receipts/{goodsReceipt}/invoice', [GoodsReceiptController::class, 'createInvoice'])
-        ->name('pharmacy.receipts.invoice.create')->middleware('can:supplier_invoices.create');
-    Route::post('/pharmacy/receipts/{goodsReceipt}/invoice', [GoodsReceiptController::class, 'storeInvoice'])
-        ->name('pharmacy.receipts.invoice.store')->middleware('can:supplier_invoices.create');
-
-    Route::get('/pharmacy/supplier-invoices', [SupplierInvoiceController::class, 'index'])
-        ->name('pharmacy.supplier-invoices.index')->middleware('can:view-supplier-invoices');
-    Route::get('/pharmacy/supplier-invoices/create', [SupplierInvoiceController::class, 'create'])
-        ->name('pharmacy.supplier-invoices.create')->middleware('can:supplier_invoices.create');
-    Route::post('/pharmacy/suppliers/{supplier}/invoices', [SupplierInvoiceController::class, 'store'])
-        ->name('pharmacy.suppliers.invoices.store')->middleware('can:supplier_invoices.create');
-    Route::get('/pharmacy/supplier-invoices/{supplierInvoice}', [SupplierInvoiceController::class, 'show'])
-        ->name('pharmacy.supplier-invoices.show')->middleware('can:view-supplier-invoices');
-    Route::get('/pharmacy/supplier-invoices/{supplierInvoice}/attachment', [SupplierInvoiceController::class, 'attachment'])
-        ->name('pharmacy.supplier-invoices.attachment')->middleware('can:view-supplier-invoices')->withTrashed();
-    Route::get('/pharmacy/supplier-invoices/{supplierInvoice}/edit', [SupplierInvoiceController::class, 'edit'])
-        ->name('pharmacy.supplier-invoices.edit')->middleware('can:supplier_invoices.update');
-    // POST: a corrected invoice may carry a new document.
-    Route::post('/pharmacy/supplier-invoices/{supplierInvoice}/update', [SupplierInvoiceController::class, 'update'])
-        ->name('pharmacy.supplier-invoices.update')->middleware('can:supplier_invoices.update');
-    Route::delete('/pharmacy/supplier-invoices/{supplierInvoice}', [SupplierInvoiceController::class, 'destroy'])
-        ->name('pharmacy.supplier-invoices.destroy')->middleware('can:supplier_invoices.delete');
-    Route::post('/pharmacy/supplier-invoices/{supplierInvoice}/restore', [SupplierInvoiceController::class, 'restore'])
-        ->name('pharmacy.supplier-invoices.restore')->middleware('can:supplier_invoices.restore')->withTrashed();
+    // ADR-098 / ADR-189 — la Pharmacie, partagée avec l'API du portail (routes/pharmacy.php).
+    Route::prefix('pharmacy')->name('pharmacy.')->group(base_path('routes/pharmacy.php'));
 
     // Administration locale des comptes de ce site. Les comptes sont
     // désactivés, jamais supprimés, afin de préserver leurs traces d'audit.
@@ -825,6 +648,12 @@ Route::middleware(['site.type:clinic', 'auth', 'account.active', 'account.deploy
     Route::post('/patients/{patient}/payments', [PaymentController::class, 'store'])->name('payments.store')->middleware('can:payments.create');
     Route::post('/invoices/{invoice}/payments', [PaymentController::class, 'storeInvoice'])->name('invoices.payments.store')->middleware('can:payments.create');
     Route::post('/payments/{payment}/cancel', [PaymentController::class, 'cancel'])->name('payments.cancel')->middleware('can:payments.cancel');
+    // ADR-192 — remises : à la Caisse sur une facture, et propres à un patient.
+    Route::get('/invoices/{invoice}/discounts', [InvoiceDiscountController::class, 'show'])->name('invoices.discounts.show')->middleware('can:discounts.view');
+    Route::post('/invoices/{invoice}/discount', [InvoiceDiscountController::class, 'store'])->name('invoices.discount.store')->middleware('can:discounts.create');
+    Route::delete('/invoices/{invoice}/discount', [InvoiceDiscountController::class, 'destroy'])->name('invoices.discount.destroy')->middleware('can:discounts.create');
+    Route::post('/patients/{patient}/discounts', [PatientDiscountController::class, 'store'])->name('patients.discounts.store')->middleware('can:discounts.approve');
+    Route::post('/patient-discounts/{patientDiscount}/cancel', [PatientDiscountController::class, 'cancel'])->name('patient-discounts.cancel')->middleware('can:discounts.approve');
     Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show')->middleware('can:receipts.view');
 
     Route::post('/patients/{patient}/episodes', [EpisodeController::class, 'store'])->name('episodes.store')->middleware('can:episodes.create');

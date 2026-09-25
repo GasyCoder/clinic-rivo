@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\SuperAdmin\PermissionController as SuperAdminPer
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyCatalogController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacyProcurementController;
 use App\Http\Controllers\Api\V1\SuperAdmin\PharmacySupplierController;
+use App\Http\Controllers\Api\V1\SuperAdmin\ProfessionalMailboxController;
 use App\Http\Controllers\Api\V1\SuperAdmin\ReportController as SuperAdminReportController;
 use App\Http\Controllers\Api\V1\SuperAdmin\RoleController as SuperAdminRoleController;
 use App\Http\Controllers\Api\V1\SuperAdmin\TrashController;
@@ -32,6 +33,24 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
             ->name('hr.')
             ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
             ->group(base_path('routes/hr.php'));
+
+        // ADR-189 — la Pharmacie du site, vue et administrée depuis le portail :
+        // mêmes routes, contrôleurs et droits que /pharmacy (routes/pharmacy.php).
+        // Préfixe distinct de /pharmacy/*, qui sert déjà le stock et les
+        // fournisseurs du portail (ADR-042, ADR-098).
+        Route::prefix('site-pharmacy')
+            ->name('site-pharmacy.')
+            ->middleware(['rivo.remote-actor', 'rivo.hr-screens'])
+            ->group(base_path('routes/pharmacy.php'));
+
+        // ADR-190 — adresses email professionnelles : le portail agit chez l'hébergeur, le site enregistre.
+        Route::get('/professional-mailboxes', [ProfessionalMailboxController::class, 'index'])->name('professional-mailboxes.index');
+        Route::post('/professional-mailboxes', [ProfessionalMailboxController::class, 'store'])->name('professional-mailboxes.store');
+        Route::get('/professional-mailboxes/{mailboxUuid}', [ProfessionalMailboxController::class, 'show'])->name('professional-mailboxes.show');
+        Route::post('/professional-mailboxes/{mailboxUuid}/activate', [ProfessionalMailboxController::class, 'activate'])->name('professional-mailboxes.activate');
+        Route::post('/professional-mailboxes/{mailboxUuid}/reject', [ProfessionalMailboxController::class, 'reject'])->name('professional-mailboxes.reject');
+        Route::post('/professional-mailboxes/{mailboxUuid}/suspend', [ProfessionalMailboxController::class, 'suspend'])->name('professional-mailboxes.suspend');
+        Route::post('/professional-mailboxes/{mailboxUuid}/reactivate', [ProfessionalMailboxController::class, 'reactivate'])->name('professional-mailboxes.reactivate');
 
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/{category}/{uuid}/restore', [TrashController::class, 'restore'])->name('trash.restore');
@@ -164,6 +183,9 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         Route::put('/app-settings', [AppSettingsController::class, 'update'])->name('app-settings.update');
         Route::post('/app-settings/assets/{kind}', [AppSettingsController::class, 'storeAsset'])->name('app-settings.assets.store');
         Route::delete('/app-settings/assets/{kind}', [AppSettingsController::class, 'destroyAsset'])->name('app-settings.assets.destroy');
+        // ADR-192 — les coupons de remise de ce site.
+        Route::post('/app-settings/coupons', [AppSettingsController::class, 'storeCoupon'])->name('app-settings.coupons.store');
+        Route::post('/app-settings/coupons/{coupon}/archive', [AppSettingsController::class, 'archiveCoupon'])->name('app-settings.coupons.archive');
 
         // ADR-133 — seuils des patients VIP de ce site.
         Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');

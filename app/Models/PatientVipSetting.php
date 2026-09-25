@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\DiscountType;
 use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -13,8 +14,11 @@ use Illuminate\Database\Eloquent\Model;
  * chaque lecture depuis les passages et les encaissements de la fenêtre, si
  * bien qu'un patient entre dans la catégorie — ou en sort — sans que personne
  * n'ait à la mettre à jour.
+ *
+ * ADR-192 — la remise VIP se règle ici, avec les seuils : facultative, un
+ * pourcentage ou un montant sur la part à la charge du patient.
  */
-#[Fillable(['enabled', 'min_episodes', 'min_amount', 'window_months', 'updated_by', 'external_updated_by_uuid', 'external_updated_by_name'])]
+#[Fillable(['enabled', 'min_episodes', 'min_amount', 'window_months', 'discount_type', 'discount_value', 'updated_by', 'external_updated_by_uuid', 'external_updated_by_name'])]
 class PatientVipSetting extends Model
 {
     use Auditable;
@@ -26,6 +30,8 @@ class PatientVipSetting extends Model
             'min_episodes' => 'integer',
             'min_amount' => 'decimal:2',
             'window_months' => 'integer',
+            'discount_type' => DiscountType::class,
+            'discount_value' => 'decimal:2',
         ];
     }
 

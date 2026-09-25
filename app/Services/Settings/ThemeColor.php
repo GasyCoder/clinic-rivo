@@ -90,6 +90,45 @@ final class ThemeColor
         return $this->format($this->hue, min($this->saturation, 65), 76);
     }
 
+    public function hue(): float
+    {
+        return $this->hue;
+    }
+
+    public function saturation(): float
+    {
+        return $this->saturation;
+    }
+
+    public function lightness(): float
+    {
+        return $this->lightness;
+    }
+
+    /** La couleur en triplet HSL, tel que les variables de l'interface l'attendent. */
+    public function triplet(): string
+    {
+        return $this->format($this->hue, $this->saturation, $this->lightness);
+    }
+
+    /** Luminance relative WCAG. */
+    public function relativeLuminance(): float
+    {
+        return self::luminance($this->hue, $this->saturation, $this->lightness);
+    }
+
+    /** Le contraste WCAG entre deux couleurs (4,5 : texte courant lisible ; 3 : gros texte). */
+    public static function contrastBetween(self $a, self $b): float
+    {
+        return self::contrast($a->relativeLuminance(), $b->relativeLuminance());
+    }
+
+    /** Un triplet HSL borné (teinte 0-360, saturation et luminosité 0-100). */
+    public static function hsl(float $h, float $s, float $l): string
+    {
+        return sprintf('%d %d%% %d%%', (int) round(fmod($h + 360, 360)), (int) round(max(0, min(100, $s))), (int) round(max(0, min(100, $l))));
+    }
+
     /** Le contraste WCAG entre la couleur et un texte blanc (≥ 4,5 : texte courant lisible). */
     public function contrastWithWhite(): float
     {

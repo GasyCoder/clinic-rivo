@@ -22,8 +22,12 @@ use App\Models\Employee;
 use App\Models\EmploymentContract;
 use App\Models\HrDocument;
 use App\Models\HrReferenceValue;
+use App\Models\ProfessionalMailbox;
+use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Administration\HrPresenter;
+use App\Services\Administration\ProfessionalMailboxPresenter;
 use App\Services\Spreadsheet\ExcelWorkbook;
+use App\Support\ProfessionalEmailAddress;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -83,7 +87,14 @@ class EmployeeController extends Controller
     {
         Gate::forUser($request->user())->authorize('create', Employee::class);
 
-        return Inertia::render('Administration/Employees/Create', $this->formData($request));
+        $numbers = app(EmployeeNumberAllocator::class);
+
+        return Inertia::render('Administration/Employees/Create', [
+            ...$this->formData($request),
+            // ADR-191 — proposé, jamais réservé : le RH peut le corriger.
+            'suggestedEmployeeNumber' => $numbers->suggest(),
+            'employeeNumberModel' => $numbers->format()->format(0),
+        ]);
     }
 
     public function show(Request $request, Employee $employee): Response
@@ -114,7 +125,36 @@ class EmployeeController extends Controller
             'documents' => $documents,
             'documentOptions' => $this->documentOptions(),
             'attestationTypes' => $this->references(HrReferenceType::AttestationType),
+            'professionalEmail' => $this->professionalEmail($request, $employee),
         ]);
+    }
+
+    /**
+     * ADR-190 — l'adresse email professionnelle de l'employé : la dernière
+     * connue (ouverte, ou la plus récente refusée ou annulée) et, s'il peut en
+     * demander une, la proposition prenom.nom@domaine. Rien sans le droit de la voir.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function professionalEmail(Request $request, Employee $employee): ?array
+    {
+        $user = $request->user();
+        if (! $user->can('professional_emails.view') && ! $user->can('professional_emails.request')) {
+            return null;
+        }
+
+        $mailbox = ProfessionalMailbox::query()->where('employee_id', $employee->getKey())
+            ->orderByRaw('CASE WHEN active_key IS NULL THEN 1 ELSE 0 END')
+            ->latest('requested_at')->latest('id')
+            ->first();
+
+        return [
+            'domain' => ProfessionalEmailAddress::domain(),
+            'configured' => ProfessionalEmailAddress::configured(),
+            'current' => $mailbox ? app(ProfessionalMailboxPresenter::class)->present($mailbox) : null,
+            'suggestion' => ProfessionalEmailAddress::configured() ? ProfessionalEmailAddress::suggest($employee) : '',
+            'can_request' => $user->can('professional_emails.request') && $employee->active && ! $employee->trashed(),
+        ];
     }
 
     public function edit(Request $request, Employee $employee): Response
@@ -227,7 +267,8 @@ class EmployeeController extends Controller
     {
         abort_unless($request->user()->can('employees.import'), 403);
 
-        return $excel->download('modele-import-employes', 'Employés', $this->exportHeaders(), []);
+        // Le modèle à remplir n'a pas de colonne Email (ADR-190) ; l'export, lui, montre l'adresse pro.
+        return $excel->download('modele-import-employes', 'Employés', array_values(array_diff($this->exportHeaders(), ['Email'])), []);
     }
 
     public function import(ImportEmployeesRequest $request, ImportEmployeesAction $action): RedirectResponse
@@ -308,7 +349,7 @@ class EmployeeController extends Controller
     private function importColumns(): array
     {
         return [
-            ['name' => 'Matricule', 'required' => true, 'format' => 'Unique, y compris parmi les archives'],
+            ['name' => 'Matricule', 'required' => false, 'format' => 'Unique, y compris parmi les archives ; vide, le prochain matricule du modèle du site'],
             ['name' => 'Nom', 'required' => true, 'format' => 'Texte'],
             ['name' => 'Prénoms', 'required' => false, 'format' => 'Texte'],
             ['name' => 'Genre', 'required' => true, 'format' => 'M, F, Homme, Femme, Masculin ou Féminin'],
@@ -329,7 +370,6 @@ class EmployeeController extends Controller
             ['name' => 'Détails enfants', 'required' => false, 'format' => 'Note administrative libre'],
             ['name' => 'Badge', 'required' => false, 'format' => 'Texte'],
             ['name' => 'Blouse', 'required' => false, 'format' => 'Texte'],
-            ['name' => 'Email', 'required' => false, 'format' => 'Adresse email valide'],
             ['name' => 'Téléphone', 'required' => false, 'format' => 'Texte'],
             ['name' => 'Observation', 'required' => false, 'format' => 'Texte'],
         ];

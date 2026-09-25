@@ -44,6 +44,8 @@ class User extends Authenticatable
             'active' => 'boolean',
             'last_login_at' => 'datetime',
             'deactivated_at' => 'datetime',
+            // ADR-191 — taille du texte, animations, contraste choisis dans « Mon profil ».
+            'ui_preferences' => 'array',
         ];
     }
 

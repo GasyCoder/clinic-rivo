@@ -221,6 +221,32 @@ return [
     |
     */
 
+    /*
+     * ADR-190 — adresses email professionnelles.
+     *
+     * Le domaine est celui de la clinique : le même sur les trois sites et le
+     * portail. L'hébergeur (API cPanel) n'est lu que par le portail : son jeton
+     * donne accès à tout l'hébergement, il ne se pose jamais sur un site clinique.
+     */
+    'professional_email' => [
+        'domain' => env('RIVO_PROFESSIONAL_EMAIL_DOMAIN', ''),
+        'hosting' => [
+            // ex. https://abyssin.o2switch.net:2083
+            'url' => env('RIVO_MAIL_HOSTING_URL'),
+            'user' => env('RIVO_MAIL_HOSTING_USER'),
+            // Un jeton API de préférence ; à défaut (outil absent de l'offre o2switch),
+            // le mot de passe du compte cPanel. Le jeton l'emporte s'il est renseigné.
+            'token' => env('RIVO_MAIL_HOSTING_TOKEN'),
+            'password' => env('RIVO_MAIL_HOSTING_PASSWORD'),
+            // Taille de chaque boîte créée, en Mo (réglage technique, modifiable).
+            'quota_mb' => (int) env('RIVO_MAIL_HOSTING_QUOTA_MB', 1024),
+            'timeout' => (int) env('RIVO_MAIL_HOSTING_TIMEOUT', 15),
+            // Mode mot de passe : minutes pendant lesquelles une session cPanel est
+            // réutilisée (la connexion est l'étape lente). 0 = une session par opération.
+            'session_minutes' => (int) env('RIVO_MAIL_HOSTING_SESSION_MINUTES', 10),
+        ],
+    ],
+
     'site_api' => [
         'token' => env('RIVO_SITE_API_TOKEN'),
         'timeout' => (int) env('RIVO_SITE_API_TIMEOUT', 5),

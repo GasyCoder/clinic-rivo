@@ -39,6 +39,9 @@
         <env name="RIVO_SITE_CODE" value="M"/>
         <env name="RIVO_SITE_NAME" value="Mampikony"/>
         <env name="RIVO_SITE_TYPE" value="clinic"/>
+        <!-- Jamais les accès réels à l'hébergeur du poste : chaque test pose les siens (ADR-190). -->
+        <env name="RIVO_MAIL_HOSTING_TOKEN" value="" force="true"/>
+        <env name="RIVO_MAIL_HOSTING_PASSWORD" value="" force="true"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

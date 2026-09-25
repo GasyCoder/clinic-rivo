@@ -4,6 +4,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import MedicineForm from '@/Components/Pharmacy/MedicineForm.vue';
 import MedicineStatusPanel from '@/Components/Pharmacy/MedicineStatusPanel.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -21,7 +22,7 @@ defineProps({
     <Head :title="`Modifier ${medicine.name}`" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: '/pharmacy/stock' }, { label: medicine.name, href: `/pharmacy/stock/${medicine.uuid}` }, { label: 'Modifier' }]" />
+        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: pharmacyUrl('/pharmacy/stock') }, { label: medicine.name, href: pharmacyUrl(`/pharmacy/stock/${medicine.uuid}`) }, { label: 'Modifier' }]" />
 
         <div>
             <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Modifier {{ medicine.name }}</h1>
@@ -33,11 +34,11 @@ defineProps({
             :categories="categories"
             :suppliers="suppliers"
             :medicine-forms="medicineForms"
-            :submit-url="`/pharmacy/medicines/${medicine.uuid}`"
-            cancel-href="/pharmacy/stock"
+            :submit-url="pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}`)"
+            :cancel-href="pharmacyUrl('/pharmacy/stock')"
             :can-change-price="can.change_price"
         />
 
-        <MedicineStatusPanel :medicine="medicine" :can="can" :base-url="`/pharmacy/medicines/${medicine.uuid}`" />
+        <MedicineStatusPanel :medicine="medicine" :can="can" :base-url="pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}`)" />
     </div>
 </template>

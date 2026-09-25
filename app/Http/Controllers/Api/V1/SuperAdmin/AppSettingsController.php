@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
+use App\Actions\Discounts\ArchiveDiscountCouponAction;
+use App\Actions\Discounts\CreateDiscountCouponAction;
 use App\Actions\Settings\StoreAppSettingAssetAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
 use App\Http\Controllers\Controller;
+use App\Models\DiscountCoupon;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\AppSettingsPresenter;
@@ -66,6 +69,36 @@ class AppSettingsController extends Controller
 
         return response()->json([
             'message' => AppSettings::assetMessage($kind, 'retiré', ' pour ce site'),
+            'data' => $presenter->payload(),
+        ]);
+    }
+
+    /** ADR-192 — un coupon de remise, créé sur ce site depuis le portail. */
+    public function storeCoupon(Request $request, CreateDiscountCouponAction $action, AppSettingsPresenter $presenter): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, 'discount_coupons.create');
+        $validated = $request->validate(AppSettingsRules::coupon(), AppSettingsRules::couponMessages());
+
+        $coupon = $action->execute($validated, $actor);
+
+        return response()->json([
+            'message' => "Coupon {$coupon->code} créé pour ce site.",
+            'data' => $presenter->payload(),
+        ], 201);
+    }
+
+    public function archiveCoupon(Request $request, DiscountCoupon $coupon, ArchiveDiscountCouponAction $action, AppSettingsPresenter $presenter): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, 'discount_coupons.archive');
+        $validated = $request->validate(
+            ['reason' => ['required', 'string', 'min:3', 'max:500']],
+            ['reason.required' => 'Indiquez pourquoi ce coupon est archivé.', 'reason.min' => 'Le motif tient en 3 caractères au moins.'],
+        );
+
+        $action->execute($coupon, $validated['reason'], $actor);
+
+        return response()->json([
+            'message' => "Coupon {$coupon->code} archivé.",
             'data' => $presenter->payload(),
         ]);
     }

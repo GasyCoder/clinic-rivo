@@ -22,11 +22,17 @@ class UpdateAppSettingsAction
 {
     public const FIELDS = [
         'app_name', 'app_tagline', 'primary_color', 'search_engines_hidden',
+        'theme_preset', 'light_background', 'light_foreground', 'dark_primary_color', 'dark_background', 'dark_foreground',
+        'ui_font_size', 'ui_density', 'ui_radius', 'ui_motion', 'ui_contrast',
+        'patient_number_prefix', 'patient_number_year', 'patient_number_digits', 'patient_number_separator',
+        'patient_number_reset', 'episode_number_digits',
+        'employee_number_prefix', 'employee_number_separator', 'employee_number_digits',
         'auth_template', 'profile_template',
         'currency_label', 'currency_position', 'currency_decimals',
         'baby_max_age', 'child_max_age',
         'director_name', 'director_title',
         'legal_nif', 'legal_stat', 'legal_address', 'legal_phone', 'legal_email', 'bank_name', 'bank_account',
+        'staff_discount_type', 'staff_discount_value',
     ];
 
     public function __construct(
@@ -52,6 +58,16 @@ class UpdateAppSettingsAction
             foreach (self::FIELDS as $field) {
                 $value = $data[$field] ?? null;
                 $values[$field] = is_string($value) && trim($value) === '' ? null : $value;
+            }
+
+            // ADR-192 — la remise personnel : un type sans valeur n'en est pas une, et inversement.
+            if ($values['staff_discount_type'] === null || $values['staff_discount_value'] === null) {
+                $values['staff_discount_type'] = $values['staff_discount_value'] = null;
+            }
+
+            // Un préfixe s'écrit dans les numéros en majuscules.
+            foreach (['patient_number_prefix', 'employee_number_prefix'] as $field) {
+                $values[$field] = $values[$field] === null ? null : strtoupper(trim((string) $values[$field]));
             }
 
             $setting->fill([

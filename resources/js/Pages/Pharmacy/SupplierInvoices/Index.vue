@@ -9,13 +9,14 @@ import { Paperclip, Pencil, Plus, Search } from 'lucide-vue-next';
 import PurchasesHeader from '@/Components/Pharmacy/PurchasesHeader.vue';
 import { formatDate } from '@/utilities/date';
 import { formatMoney } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
 const props = defineProps({ invoices: Object, filters: Object, can: Object, purchases: Object });
 
 const search = ref(props.filters?.q ?? '');
-const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
+const submitSearch = () => router.get(pharmacyUrl('/pharmacy/supplier-invoices'), {
     q: search.value || undefined,
     supplier: props.filters?.supplier || undefined,
 }, { preserveState: true, replace: true });
@@ -27,7 +28,7 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
     <div class="w-full space-y-5">
         <PurchasesHeader active="invoices" :purchases="purchases">
             <template #actions>
-                <Button v-if="can.create" :as="Link" href="/pharmacy/supplier-invoices/create" size="rg">
+                <Button v-if="can.create" :as="Link" :href="pharmacyUrl('/pharmacy/supplier-invoices/create')" size="rg">
                     <Plus class="h-4 w-4" /><span class="ms-2">Enregistrer une facture</span>
                 </Button>
             </template>
@@ -36,8 +37,8 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
         <div v-if="filters?.supplier_name" class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-200 bg-primary-50/60 px-4 py-3 text-sm dark:border-primary-900 dark:bg-primary-950/20">
             <span class="text-primary-900 dark:text-primary-100">Factures du fournisseur <strong>{{ filters.supplier_name }}</strong></span>
             <span class="flex gap-4">
-                <Link :href="`/pharmacy/suppliers/${filters.supplier}`" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">Ouvrir son dossier</Link>
-                <Link href="/pharmacy/supplier-invoices" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">Toutes les factures</Link>
+                <Link :href="pharmacyUrl(`/pharmacy/suppliers/${filters.supplier}`)" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">Ouvrir son dossier</Link>
+                <Link :href="pharmacyUrl('/pharmacy/supplier-invoices')" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">Toutes les factures</Link>
             </span>
         </div>
 
@@ -62,7 +63,7 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
             <template #grid>
                 <ExplorerTile v-for="invoice in invoices.data"
                     :key="invoice.uuid"
-                    :href="`/pharmacy/supplier-invoices/${invoice.uuid}`"
+                    :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}`)"
                     icon="file-text"
                     tone="violet"
                     :badge="invoice.has_attachment ? 'Document' : null"
@@ -72,8 +73,8 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
                     :meta="formatDate(invoice.invoice_date)"
                 >
                     <template v-if="can.update || invoice.has_attachment" #actions>
-                        <Button v-if="invoice.has_attachment" as="a" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Paperclip class="h-4 w-4" /></Button>
-                        <Button v-if="can.update" :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/edit`" size="sm" variant="white-outline" title="Modifier"><Pencil class="h-4 w-4" /></Button>
+                        <Button v-if="invoice.has_attachment" as="a" :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`)" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Paperclip class="h-4 w-4" /></Button>
+                        <Button v-if="can.update" :as="Link" :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}/edit`)" size="sm" variant="white-outline" title="Modifier"><Pencil class="h-4 w-4" /></Button>
                     </template>
                 </ExplorerTile>
             </template>
@@ -97,9 +98,9 @@ const submitSearch = () => router.get('/pharmacy/supplier-invoices', {
                             <td class="px-4 py-3.5 text-end tabular-nums">{{ formatMoney(invoice.total_amount) }}</td>
                             <td class="px-5 py-3.5">
                                 <div class="flex justify-end gap-1.5 whitespace-nowrap">
-                                    <Button :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}`" size="sm" variant="white-outline">Voir</Button>
-                                    <Button v-if="can.update" :as="Link" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${invoice.invoice_number}`"><Pencil class="h-4 w-4" /></Button>
-                                    <Button v-if="invoice.has_attachment" as="a" :href="`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Paperclip class="h-4 w-4" /></Button>
+                                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}`)" size="sm" variant="white-outline">Voir</Button>
+                                    <Button v-if="can.update" :as="Link" :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}/edit`)" size="sm" variant="white-outline" :title="`Modifier ${invoice.invoice_number}`"><Pencil class="h-4 w-4" /></Button>
+                                    <Button v-if="invoice.has_attachment" as="a" :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}/attachment`)" target="_blank" size="sm" variant="white-outline" title="Ouvrir le document"><Paperclip class="h-4 w-4" /></Button>
                                 </div>
                             </td>
                         </tr>

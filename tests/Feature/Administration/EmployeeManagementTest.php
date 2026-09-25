@@ -58,7 +58,7 @@ class EmployeeManagementTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('Administration/Employees/Import')
-                ->has('columns', 24)
+                ->has('columns', 23)
                 ->where('limits.rows', 1000)
                 ->where('limits.megabytes', 5)
                 ->has('referenceValues.departments'));
@@ -323,6 +323,35 @@ class EmployeeManagementTest extends TestCase
         ]);
     }
 
+    /** ADR-190 : l'email d'un employé est son adresse professionnelle ; il ne se saisit pas, et une fiche ne l'efface jamais. */
+    public function test_the_employee_email_is_never_typed_and_never_wiped_by_an_update(): void
+    {
+        $actor = $this->userWithRole('ADMINISTRATION');
+
+        $this->actingAs($actor)->post('/administration/employees', [...$this->validPayload(), 'email' => 'soa@gmail.com'])
+            ->assertSessionHasErrors(['email' => 'L’email d’un employé est son adresse professionnelle : elle se demande depuis sa fiche, une fois l’employé enregistré.']);
+        $this->assertSame(0, Employee::query()->count());
+
+        $this->actingAs($actor)->post('/administration/employees', $this->validPayload())->assertSessionHasNoErrors();
+        $employee = Employee::query()->sole();
+        $this->assertNull($employee->email);
+
+        // Posée par l'activation de l'adresse professionnelle.
+        $employee->forceFill(['email' => 'soa.rabe@cbdc.mg'])->save();
+
+        foreach ([[], ['email' => '']] as $extra) {
+            $this->actingAs($actor)
+                ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'first_name' => 'Soavina', ...$extra])
+                ->assertSessionHasNoErrors();
+            $this->assertSame('soa.rabe@cbdc.mg', $employee->fresh()->email, 'modifier la fiche n’efface pas l’adresse professionnelle');
+        }
+
+        $this->actingAs($actor)
+            ->put("/administration/employees/{$employee->uuid}", [...$this->validPayload(), 'email' => 'autre@gmail.com'])
+            ->assertSessionHasErrors('email');
+        $this->assertSame('soa.rabe@cbdc.mg', $employee->fresh()->email);
+    }
+
     /** @return array<string, mixed> */
     private function validPayload(): array
     {
@@ -339,7 +368,6 @@ class EmployeeManagementTest extends TestCase
             'children_count' => 2,
             'profession' => 'Personnel administratif',
             'phone' => '0320000000',
-            'email' => 'soa.rabe@clinic.test',
             'address_entry_uuid' => null,
             'new_address_label' => null,
             'active' => true,

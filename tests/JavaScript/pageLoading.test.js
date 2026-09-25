@@ -47,7 +47,7 @@ test('the layout keeps the page mounted behind the skeleton', () => {
 
     assert.match(layout, /<PageSkeleton v-if="pageLoading\.active" :path="pageLoading\.path" \/>/);
     // ADR-187 — la barre RH du portail précède la page, dans le même bloc masqué.
-    assert.match(layout, /<div v-show="! pageLoading\.active">\s*(?:<HrPortalBar v-if="page\.props\.hrContext" \/>\s*)?<slot \/>/, 'cachée, jamais démontée : une visite annulée rend la page intacte');
+    assert.match(layout, /<div v-show="! pageLoading\.active">\s*(?:<HrPortalBar v-if="page\.props\.hrContext" \/>\s*)?(?:<PharmacyPortalBar v-if="page\.props\.pharmacyContext" \/>\s*)?<slot \/>/, 'cachée, jamais démontée : une visite annulée rend la page intacte');
     assert.match(app, /installPageLoading\(router\)/);
     assert.match(skeleton, /role="status"/);
     assert.match(skeleton, /Chargement de la page…/);

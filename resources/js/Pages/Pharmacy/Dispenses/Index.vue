@@ -5,6 +5,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import DispenseDeliveryWorkspace from '@/Pages/Pharmacy/Partials/DispenseDeliveryWorkspace.vue';
 import DispenseQueue from '@/Pages/Pharmacy/Partials/DispenseQueue.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -16,7 +17,7 @@ defineProps({
 const deliveryTarget = ref(null);
 const deliveryForm = useForm({ lines: [], notes: '' });
 
-const prepareInvoice = (dispense) => router.post(`/pharmacy/dispenses/${dispense.uuid}/invoice`, {}, { preserveScroll: true });
+const prepareInvoice = (dispense) => router.post(pharmacyUrl(`/pharmacy/dispenses/${dispense.uuid}/invoice`), {}, { preserveScroll: true });
 
 const openDelivery = (dispense) => {
     deliveryTarget.value = dispense;
@@ -34,7 +35,7 @@ const submitDelivery = () => deliveryForm
             .filter((line) => Number(line.quantity) > 0)
             .map((line) => ({ uuid: line.uuid, quantity: Number(line.quantity) })),
     }))
-    .post(`/pharmacy/dispenses/${deliveryTarget.value.uuid}/deliveries`, {
+    .post(pharmacyUrl(`/pharmacy/dispenses/${deliveryTarget.value.uuid}/deliveries`), {
         preserveScroll: true,
         onSuccess: () => { deliveryTarget.value = null; },
     });

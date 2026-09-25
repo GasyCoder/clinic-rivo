@@ -31,6 +31,10 @@ const props = defineProps({
     /** Ce qui s'affiche quand rien n'est déposé — l'image par défaut du déploiement. */
     fallbackUrl: { type: String, default: '' },
     fallbackLabel: { type: String, default: 'Par défaut' },
+    /** ADR-191 — vignette réduite, pour une page de paramètres plus dense. */
+    compact: { type: Boolean, default: false },
+    /** Le libellé et la phrase sont déjà écrits à côté (ligne de réglage) : ils ne restent que pour les lecteurs d'écran. */
+    hideLabel: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['saved']);
@@ -112,13 +116,16 @@ const remove = () => {
 </script>
 
 <template>
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+    <div :class="cn('flex flex-col sm:flex-row sm:items-start', compact ? 'gap-3' : 'gap-4')">
         <div
             :class="cn(
-                'grid shrink-0 place-items-center overflow-hidden rounded-xl border border-dashed border-border',
-                shape === 'square' ? 'h-24 w-24' : shape === 'cover' ? 'relative aspect-video w-full sm:w-64' : 'h-24 w-full sm:w-56',
+                'grid shrink-0 place-items-center overflow-hidden rounded-md border border-border',
+                compact
+                    ? (shape === 'square' ? 'h-16 w-16' : shape === 'cover' ? 'relative aspect-video w-40' : 'h-16 w-full sm:w-40')
+                    : (shape === 'square' ? 'h-24 w-24' : shape === 'cover' ? 'relative aspect-video w-full sm:w-64' : 'h-24 w-full sm:w-56'),
                 shape === 'paper' ? 'bg-white' : 'bg-muted/40',
-                pending ? 'border-solid border-primary ring-2 ring-primary/20' : '',
+                ! shownUrl && ! showsFallback && 'border-dashed',
+                pending ? 'border-primary ring-2 ring-primary/20' : '',
             )"
         >
             <img
@@ -130,22 +137,22 @@ const remove = () => {
                     shape === 'square' ? 'p-2' : shape === 'cover' ? '' : 'p-3',
                 )"
             />
-            <span v-else class="flex flex-col items-center gap-1 text-xs text-muted-foreground"><ImageOff class="h-5 w-5" />Aucun fichier</span>
+            <span v-else class="flex flex-col items-center gap-1 text-xs text-muted-foreground"><ImageOff class="h-5 w-5" /><span :class="compact && shape === 'square' ? 'sr-only' : ''">Aucun fichier</span></span>
             <span v-if="showsFallback" class="absolute bottom-1.5 start-1.5 rounded bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">{{ fallbackLabel }}</span>
         </div>
 
         <div class="min-w-0 flex-1">
-            <p class="text-sm font-semibold text-foreground">{{ label }}</p>
-            <p v-if="description" class="mt-0.5 text-xs leading-5 text-muted-foreground">{{ description }}</p>
-            <p class="mt-1 text-[11px] text-muted-foreground">{{ formats }} · {{ maxKb }} Ko au plus</p>
+            <p :class="hideLabel ? 'sr-only' : 'text-sm font-semibold text-foreground'">{{ label }}</p>
+            <p v-if="description" :class="hideLabel ? 'sr-only' : 'mt-0.5 text-xs leading-5 text-muted-foreground'">{{ description }}</p>
+            <p :class="cn('text-[0.8rem] text-muted-foreground', ! hideLabel && 'mt-1')">{{ formats }} · {{ maxKb }} Ko au plus</p>
 
-            <p v-if="pending" class="mt-2 text-xs font-medium text-primary">Nouveau fichier prêt : {{ pending.name }} — pas encore enregistré.</p>
-            <p v-if="localError || serverError" class="mt-2 text-xs font-medium text-destructive" role="alert">{{ localError || serverError }}</p>
+            <p v-if="pending" class="mt-2 text-[0.8rem] font-medium text-foreground">Nouveau fichier prêt : {{ pending.name }} — pas encore enregistré.</p>
+            <p v-if="localError || serverError" class="mt-2 text-[0.8rem] font-medium text-destructive" role="alert">{{ localError || serverError }}</p>
 
-            <div v-if="! readonly" class="mt-3 flex flex-wrap items-center gap-2">
+            <div v-if="! readonly" class="mt-2 flex flex-wrap items-center gap-2">
                 <input ref="input" type="file" class="sr-only" :accept="accept" :aria-label="`Choisir : ${label}`" @change="choose" />
                 <template v-if="pending">
-                    <Button type="button" size="sm" variant="primary" :disabled="processing" @click="save">
+                    <Button type="button" size="sm" :disabled="processing" @click="save">
                         <Loader2 v-if="processing" class="h-4 w-4 animate-spin" /><Upload v-else class="h-4 w-4" />Enregistrer
                     </Button>
                     <Button type="button" size="sm" variant="ghost" :disabled="processing" @click="clearPending">Annuler</Button>

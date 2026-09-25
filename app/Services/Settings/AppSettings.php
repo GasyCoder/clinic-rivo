@@ -3,8 +3,14 @@
 namespace App\Services\Settings;
 
 use App\Enums\AuthTemplate;
+use App\Enums\DiscountType;
 use App\Enums\ProfileTemplate;
 use App\Models\AppSetting;
+use App\Models\User;
+use App\Support\Numbering\EmployeeNumberFormat;
+use App\Support\Numbering\PatientNumberFormat;
+use App\Support\Settings\ThemePresets;
+use App\Support\Settings\UiOptions;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -63,8 +69,8 @@ class AppSettings
     public const NOT_INSTALLED_MESSAGE = 'Les paramètres ne sont pas à jour sur cette base : '
         .'les migrations doivent d’abord être jouées (php artisan migrate).';
 
-    /** La dernière colonne ajoutée : présente, toutes les migrations des paramètres sont jouées. */
-    private const LATEST_COLUMN = 'profile_template';
+    /** Une colonne de chaque migration des paramètres : toutes présentes, la base est à jour. */
+    private const REQUIRED_COLUMNS = ['app_tagline', 'profile_template', 'theme_preset', 'employee_number_digits', 'staff_discount_value'];
 
     private ?AppSetting $setting = null;
 
@@ -95,7 +101,7 @@ class AppSettings
     public function ensureInstalled(string $errorKey): void
     {
         try {
-            $installed = Schema::hasTable('app_settings') && Schema::hasColumn('app_settings', self::LATEST_COLUMN);
+            $installed = Schema::hasTable('app_settings') && Schema::hasColumns('app_settings', self::REQUIRED_COLUMNS);
         } catch (Throwable) {
             $installed = false;
         }
@@ -110,6 +116,20 @@ class AppSettings
     {
         $this->loaded = false;
         $this->setting = null;
+    }
+
+    /**
+     * ADR-192 — la remise du personnel sur ce site : `null` quand elle n'est pas
+     * réglée. Aucune valeur par défaut : sans réglage, personne n'a de remise. La
+     * remise VIP, elle, se règle avec les seuils VIP (`PatientVipClassifier::discount()`).
+     *
+     * @return array{type: DiscountType, value: string}|null
+     */
+    public function staffDiscount(): ?array
+    {
+        $setting = $this->setting();
+
+        return DiscountType::rule($setting?->staff_discount_type, $setting?->staff_discount_value);
     }
 
     public function brand(): string
@@ -350,30 +370,98 @@ class AppSettings
     }
 
     /**
-     * La couleur principale réglée, déclinée pour le thème clair et le sombre.
-     * Seules les variables de marque changent — primaire, anneau de focus,
-     * accent — ; les couleurs d'état (rouge, ambre, vert) restent celles qui
-     * disent le danger ou la réussite.
+     * Le thème réglé (ADR-191), traduit en variables de l'interface pour le mode
+     * clair et le sombre. Seules les couleurs de marque et de surface changent ;
+     * les couleurs d'état (rouge, ambre, vert) restent celles qui disent le danger
+     * ou la réussite. Toujours au moins les règles du contraste renforcé.
      */
-    public function themeCss(): ?string
+    public function themeCss(): string
     {
-        $hex = $this->primaryColor();
+        return ThemePalette::fromSetting($this->setting())->css();
+    }
 
-        if ($hex === null || ! ThemeColor::isValid($hex)) {
-            return null;
+    /** Le préréglage appliqué : réglé, sinon « Personnalisé » si une couleur l'est, sinon RIVO. */
+    public function themePreset(): string
+    {
+        $setting = $this->setting();
+        $preset = (string) $setting?->theme_preset;
+
+        if (in_array($preset, ThemePresets::keys(), true)) {
+            return $preset;
         }
 
-        $theme = ThemeColor::fromHex($hex);
+        $colored = collect(['primary_color', 'light_background', 'light_foreground', 'dark_primary_color', 'dark_background', 'dark_foreground'])
+            ->contains(fn (string $field) => $this->filled($setting?->{$field}) !== null);
 
-        return ':root{'
-            .'--primary:'.$theme->light().';--ring:'.$theme->light().';'
-            .'--primary-foreground:'.$theme->lightForeground().';'
-            .'--accent:'.$theme->lightAccent().';--accent-foreground:'.$theme->lightAccentForeground().';'
-            .'}.dark{'
-            .'--primary:'.$theme->dark().';--ring:'.$theme->dark().';'
-            .'--primary-foreground:'.$theme->darkForeground().';'
-            .'--accent:'.$theme->darkAccent().';--accent-foreground:'.$theme->darkAccentForeground().';'
-            .'}';
+        return $colored ? ThemePresets::CUSTOM : ThemePresets::DEFAULT;
+    }
+
+    /**
+     * Les réglages « Avancé » : ceux du site, ce que l'utilisateur a choisi pour
+     * lui-même, et ce qui s'applique. Seuls la taille du texte, les animations et
+     * le contraste sont personnels ; densité et arrondis restent ceux du site.
+     *
+     * @return array{site: array<string, int|string>, user: array<string, int|string|null>, effective: array<string, int|string>}
+     */
+    public function appearance(?User $user = null): array
+    {
+        $setting = $this->setting();
+        $site = [];
+
+        foreach (UiOptions::DEFAULTS as $key => $default) {
+            $site[$key] = UiOptions::clean($key, $setting?->{'ui_'.$key}) ?? $default;
+        }
+
+        $preferences = is_array($user?->ui_preferences) ? $user->ui_preferences : [];
+        $personal = [];
+
+        foreach (UiOptions::PERSONAL as $key) {
+            $personal[$key] = UiOptions::clean($key, $preferences[$key] ?? null);
+        }
+
+        return [
+            'site' => $site,
+            'user' => $personal,
+            'effective' => array_merge($site, array_filter($personal, fn ($value) => $value !== null)),
+        ];
+    }
+
+    /** La forme des numéros de patient et de passage (ADR-191 ; par défaut celle de l'ADR-030). */
+    public function patientNumbering(): PatientNumberFormat
+    {
+        $setting = $this->setting();
+        $defaults = PatientNumberFormat::DEFAULTS;
+        $siteCode = strtoupper(trim((string) config('rivo.site.code'))) ?: 'X';
+        $year = in_array($setting?->patient_number_year, PatientNumberFormat::YEARS, true) ? $setting->patient_number_year : $defaults['year'];
+        $reset = in_array($setting?->patient_number_reset, PatientNumberFormat::RESETS, true) ? $setting->patient_number_reset : $defaults['reset'];
+
+        return new PatientNumberFormat(
+            prefix: strtoupper($this->filled($setting?->patient_number_prefix) ?? $siteCode),
+            year: $year,
+            digits: $this->bounded($setting?->patient_number_digits, PatientNumberFormat::MIN_DIGITS, PatientNumberFormat::MAX_DIGITS, $defaults['digits']),
+            separator: in_array($setting?->patient_number_separator, PatientNumberFormat::SEPARATORS, true) ? $setting->patient_number_separator : $defaults['separator'],
+            // Sans année dans le numéro, une remise à 1 annuelle redonnerait les mêmes numéros.
+            reset: $year === 'none' ? 'never' : $reset,
+            episodeDigits: $this->bounded($setting?->episode_number_digits, 2, 4, $defaults['episode_digits']),
+        );
+    }
+
+    /** Le modèle du matricule proposé aux RH (ADR-191). */
+    public function employeeNumbering(): EmployeeNumberFormat
+    {
+        $setting = $this->setting();
+        $defaults = EmployeeNumberFormat::DEFAULTS;
+
+        return new EmployeeNumberFormat(
+            prefix: strtoupper($this->filled($setting?->employee_number_prefix) ?? $defaults['prefix']),
+            separator: in_array($setting?->employee_number_separator, EmployeeNumberFormat::SEPARATORS, true) ? $setting->employee_number_separator : $defaults['separator'],
+            digits: $this->bounded($setting?->employee_number_digits, EmployeeNumberFormat::MIN_DIGITS, EmployeeNumberFormat::MAX_DIGITS, $defaults['digits']),
+        );
+    }
+
+    private function bounded(mixed $value, int $min, int $max, int $default): int
+    {
+        return is_numeric($value) && (int) $value >= $min && (int) $value <= $max ? (int) $value : $default;
     }
 
     private function filled(?string $value): ?string

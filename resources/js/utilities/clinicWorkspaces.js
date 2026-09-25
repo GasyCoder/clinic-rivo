@@ -1,4 +1,5 @@
 import {
+    AtSign,
     Activity,
     Ambulance,
     Baby,
@@ -135,6 +136,7 @@ export const CLINIC_WORKSPACES = [
             { code: 'hr-employees', icon: Users, label: 'Employés', link: '/administration/employees', activeLinks: ['/administration/employees'], permission: 'employees.view' },
             { code: 'hr-contracts', icon: FileText, label: 'Contrats', link: '/administration/contracts', activeLinks: ['/administration/contracts'], permission: 'contracts.view' },
             { code: 'hr-documents', icon: Copy, label: 'Documents', link: '/administration/generated-documents', activeLinks: ['/administration/generated-documents'], permission: 'generated_documents.view' },
+            { code: 'hr-professional-emails', icon: AtSign, label: 'Emails professionnels', link: '/administration/professional-emails', activeLinks: ['/administration/professional-emails'], permission: 'professional_emails.view' },
             { code: 'hr-attendance', icon: Clock, label: 'Présences', link: '/administration/attendance', activeLinks: ['/administration/attendance'], permission: 'attendance.view' },
             { code: 'hr-leave', icon: CalendarDays, label: 'Congés', link: '/administration/leave', activeLinks: ['/administration/leave'], permission: 'leave.view' },
             { code: 'hr-planning', icon: CalendarRange, label: 'Planning', link: '/administration/planning', activeLinks: ['/administration/planning'], permission: 'planning.view' },

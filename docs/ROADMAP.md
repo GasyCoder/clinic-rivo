@@ -107,7 +107,8 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [x] Fiche de sortie imprimable après la sortie administrative, distinguant sortie médicale et sortie administrative (le papier les confondait), avec QR pour le contrôle de gardiennage (ADR-116)
 - [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
 - [ ] Remboursements autorisés
-- [ ] Remises autorisées
+- [x] Remises : une par facture, la plus avantageuse, sur la part patient — VIP (réglée avec les seuils dans Patients VIP) et personnel (Paramètres › Remises), par site, remise propre à un patient (discounts.approve), coupons (portail) ; appliquée à la Caisse avant tout paiement, retirée tracée (ADR-192)
+- [ ] Remise appliquée d'office à la création de la facture, remise libre du caissier avec validation hiérarchique, total des remises dans les rapports — à décider (ADR-192)
 - [ ] Reçus
 - [ ] Ouverture caisse
 - [ ] Clôture caisse
@@ -665,6 +666,7 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Rapports RH
 - [x] RH d'un site gérées depuis le portail : les mêmes écrans, règles et actions que l'accueil RH du site, par son API, chaque geste signé du Super Admin (ADR-187)
 - [x] Page « Ressources humaines » du portail refaite en shadcn : vue d'ensemble avec « À traiter » et comparatif des sites (chaque chiffre ouvre sa liste), vue d'un site avec accès direct aux rubriques, site gardé dans l'adresse (ADR-187)
+- [x] Barre RH du portail en deux niveaux — thèmes (Personnel, Temps de travail, Pilotage) puis rubriques du thème ouvert — sans barre de défilement, sur une ou deux lignes selon la largeur ; thèmes partagés avec l'accueil RH (ADR-187, amendement du 2026-09-25)
 - [x] Accueil RH en shadcn : compteurs compacts en deux groupes, rubriques rangées en Personnel / Temps de travail / Pilotage, cartes avec bordure et ombre, pastille de ce qui attend une décision (ADR-099, ADR-187)
 - [x] Rubriques de l'accueil RH arrangeables : « Personnaliser », glisser-déposer d'une colonne à l'autre, flèches pour le tactile et le clavier, disposition gardée sur le poste, « Réinitialiser »
 - [x] Liste des employés en shadcn-vue, au site comme au portail : bouton « Modèle Excel » à côté d'Importer et Exporter (même droit que l'import), cartes-compteurs qui filtrent (Tous, Actifs, Inactifs, Archivés, avec leur part), recherche lancée d'elle-même, pastilles d'état, contacts cliquables, dates en jj/mm/aaaa, actions en icônes, état vide qui propose de créer, d'importer ou de télécharger le modèle ; pagination RH en shadcn
@@ -676,6 +678,15 @@ AUCUN ENCAISSEMENT DANS LA CHIRURGIE
 - [x] Modules « Départements » et « Fonctions » dans le menu RH, au site comme au portail : liste avec nombre de dossiers, compteurs-filtres, création (code déduit du libellé), modification, archivage avec motif, restauration — même référentiel et mêmes droits que les Paramètres RH (ADR-188)
 - [x] « Compte de connexion » retiré du formulaire Employé ; à la création d'un compte, choix « Personnel clinique » (fiche Employé, nom et email proposés) ou « Externe », dans l'assistant du portail et l'écran Utilisateurs du site ; une fiche, un compte ; audité (ADR-188)
 - [x] Formulaire Employé (création et modification) en shadcn-vue : parcours en cinq étapes avec icônes, référentiels archivés visibles mais non choisissables, résumé des erreurs qui mène au champ
+- [x] Compte « Personnel clinique » : recherche de la personne en auto-complétion d'abord (accents ignorés, clavier, surlignage), Nom et Email ensuite, repris de sa fiche RH — au portail comme au site (ADR-188, amendement du 2026-09-25)
+- [x] Adresses email professionnelles : demande par le RH depuis la fiche employé, création par le Super Admin chez l'hébergeur (API cPanel o2switch), mot de passe montré une fois, adresse reportée sur la fiche (ADR-190)
+- [x] Suspension au départ de l'employé (vue « À suspendre »), réactivation, nouveau mot de passe ; jamais de suppression ; reprise sans double création si le site ne confirme pas (ADR-190)
+- [x] Accès à l'hébergeur vérifié sur abyssin.o2switch.net avec le mot de passe du compte : o2switch refuse l'authentification Basic sur l'API, le client ouvre une session cPanel puis la ferme (ADR-190, correction du 2026-09-25)
+- [x] Première création réelle d'une boîte sur cbdc.mg depuis le portail (ADR-190)
+- [x] Création accélérée : session cPanel gardée quelques minutes et ouverte d'avance à l'ouverture de la fenêtre ; une opération passe de 5–17 s à 2–3 s (ADR-190)
+- [x] Page RH « Emails professionnels » sur chaque site ; un RH à qui le Super Admin accorde le droit crée, suspend, réactive ou renouvelle le mot de passe depuis son site (accès à l'hébergeur posés aussi sur le site) (ADR-190, amendement)
+- [x] Plus de champ email à la création ni à l'import d'un employé : son email est l'adresse pro, posée à son activation ; une modification de fiche ne l'efface plus (ADR-190, amendement du 2026-09-25)
+- [ ] Domaine officiel de la clinique à la place de cbdc.mg (ADR-190)
 
 ---
 
@@ -776,9 +787,25 @@ admin.rivo.mg
 - [x] Page « Mon profil » : identité, rôle, droits effectifs, et changement de son mot de passe (ancien exigé, autres sessions fermées, audité) ; deux modèles choisis par site (ADR-184, amendement bis)
 - [x] Apparence Clair / Système / Sombre (barre du haut à côté de la cloche, menu du compte sur téléphone, pages de connexion), « Système » suivant l'appareil en direct, sans éclair au chargement (ADR-185)
 - [x] Squelette de chargement shadcn sur toutes les pages de la mise en page principale, à la forme de la page qui arrive (tableau de bord, liste, fiche, formulaire, document, réglages) (ADR-185)
+- [x] Thème par site : préréglages (RIVO, Océan, Forêt, Ardoise, Prune, Ambre, Nuit), couleurs du mode clair et du mode sombre côte à côte, texte illisible refusé, export / copie / import JSON (ADR-191)
+- [x] Réglages avancés du site (taille du texte, densité, arrondis, animations, contraste) appliqués dès le rendu serveur ; chacun ajuste taille, animations et contraste dans « Mon profil › Apparence », gardé sur son compte (ADR-191)
+- [x] Numéro de patient et de passage réglables par site (préfixe, année, chiffres, séparateur, remise annuelle ou continue) ; défaut inchangé, aucun numéro réécrit ni redonné (ADR-191)
+- [x] Matricule d'employé proposé selon un modèle (EMP-0001), modifiable ; attribué à une ligne d'import sans matricule (ADR-191)
+- [x] Pastilles de choix désactivées en lecture seule dans les paramètres (ADR-191)
+- [x] « Paramètres » refaits sur la page « Settings » de shadcn/ui : site réglé en en-tête, menu des modules à gauche, champs empilés (listes, onglets clair/sombre, vignettes radio, interrupteur), « Enregistrer » en bas, garde des modifications (ADR-191, amendement du 2026-09-25)
+- [x] « Paramètres » : module dans une carte bordée (icône et groupe en tête, pied collant « Enregistrer »), menu des modules à droite en carte, rangé par groupe avec icônes ; ligne qui défile au-dessus du module sur téléphone (ADR-191, complément du 2026-09-25)
+- [x] « Paramètres » sur toute la largeur : champs à trois colonnes quand la carte est large (requêtes de conteneur), site choisi en un clic avec son état, Ctrl+S pour enregistrer (ADR-191, complément du 2026-09-25)
+- [x] Vignette de couleurs (clair / sombre) devant chaque thème de départ, reprise dans le champ fermé ; slot `leading` sur le `Select` partagé (ADR-191)
+- [x] Repère visuel devant chaque option de l'affichage avancé (taille, densité, arrondis, animations, contraste) (ADR-191)
+- [x] Repères dans les listes de la Numérotation et de la Monnaie ; icône en tête des champs texte (Identité, Identité légale, Direction, Âges, préfixes) et des aperçus (ADR-191)
+- [x] « Moteurs de recherche » : carte d'état (Masquée / Visible), trois consignes en cartes, liens vers les outils de retrait, robots.txt et en-tête copiables (ADR-191)
+- [ ] Couleurs d'alerte et format des autres numéros (factures, reçus, commandes) réglables — à décider (ADR-191)
 - [x] Assistant « Créer / Modifier un utilisateur » refondu en shadcn : étapes iconées, champs avec aide en ligne et contrôle de l'email, rôles en cartes compactes (recherche au-delà de six rôles), profil choisi dans une fenêtre quand le rôle en a (Annuler rend le choix précédent), aperçu du compte et liste de contrôle, barre d'actions qui dit ce qui manque ; mot de passe replié en modification
 - [x] Défauts corrigés dans l'assistant : Entrée à l'étape 1 envoyait le compte avec le premier rôle de la liste — elle mène désormais au rôle, aucun rôle n'est présélectionné ; une erreur du site sur le nom ou l'email ramène à l'étape 1 au lieu de rester invisible
 - [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)
+- [x] Pharmacie d'un site lisible depuis le portail (ordonnances, consommables, stock, achats, fournisseurs) : les mêmes écrans et règles que le site, par son API, arrivée sur « Médicaments & stock » (ADR-189)
+- [x] L'administratif de la Pharmacie géré depuis le portail (médicaments, prix de vente, familles, fournisseurs, commandes, factures), signé du Super Admin ; les actes physiques refusés par le site et montrés verrouillés (ADR-189)
+- [ ] Fusionner l'espace « Fournisseurs pharmacie » du portail (ADR-098) avec les écrans du site servis au portail — doublon signalé (ADR-189)
 - [x] Import Excel des fournisseurs avec aperçu ligne par ligne puis écriture tout ou rien, export Excel par site ou tous sites
 - [x] Correction, archivage avec motif (refusé si commande en cours) et restauration d'un fournisseur depuis le portail
 - [x] Dossier fournisseur au portail identique à la clinique (catalogues, commandes, factures, produits et prix)

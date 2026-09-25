@@ -20,6 +20,7 @@ import SupplierInvoiceFields from '@/Components/Pharmacy/SupplierInvoiceFields.v
 import { cn } from '@/lib/cn';
 import { formatDate, localToday } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -247,7 +248,7 @@ const submitShortage = () => {
     if (!shortageReason.value.trim() || shortageSending.value) return;
     shortageSending.value = true;
     router.post(
-        `/pharmacy/purchase-orders/${props.order.uuid}/lines/${shortage.value.purchase_order_line_id}/shortage`,
+        pharmacyUrl(`/pharmacy/purchase-orders/${props.order.uuid}/lines/${shortage.value.purchase_order_line_id}/shortage`),
         { reason: shortageReason.value.trim() },
         {
             preserveScroll: true,
@@ -276,7 +277,7 @@ const submit = () => {
                 sale_name: line.sale_name?.trim() || null,
             })),
         invoice: invoiceStarted.value ? data.invoice : null,
-    })).post(`/pharmacy/purchase-orders/${props.order.uuid}/receipts`, {
+    })).post(pharmacyUrl(`/pharmacy/purchase-orders/${props.order.uuid}/receipts`), {
         forceFormData: true,
         onError: () => {
             confirming.value = false;
@@ -297,8 +298,8 @@ const steps = [
 
     <div class="w-full space-y-6 pb-28">
         <Breadcrumb :items="[
-            { label: 'Achats', href: '/pharmacy/purchase-orders' },
-            { label: order.order_number, href: `/pharmacy/purchase-orders/${order.uuid}` },
+            { label: 'Achats', href: pharmacyUrl('/pharmacy/purchase-orders') },
+            { label: order.order_number, href: pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}`) },
             { label: 'Réceptionner' },
         ]" />
 
@@ -347,7 +348,7 @@ const steps = [
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground"><Hash class="h-5 w-5" /></span>
                 <div>
                     <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Commande</p>
-                    <Link :href="`/pharmacy/purchase-orders/${order.uuid}`" class="font-mono font-semibold text-primary hover:underline">{{ order.order_number }}</Link>
+                    <Link :href="pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}`)" class="font-mono font-semibold text-primary hover:underline">{{ order.order_number }}</Link>
                 </div>
             </div>
             <div class="flex items-start gap-3">
@@ -626,7 +627,7 @@ const steps = [
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2">
                     <Button v-if="step === 2" type="button" variant="ghost" @click="step = 1"><ArrowLeft class="h-4 w-4" />Revenir aux produits</Button>
-                    <Button :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}`" variant="outline">Annuler</Button>
+                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}`)" variant="outline">Annuler</Button>
                     <Button v-if="step === 1 && can.record_invoice" :disabled="Boolean(step1Error)" @click="step = 2">
                         Continuer vers la facture<ArrowRight class="h-4 w-4" />
                     </Button>

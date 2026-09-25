@@ -168,6 +168,44 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), $method, 'super-admin/hospital-beds/'.ltrim($path, '/'), $payload, $actor);
     }
 
+    /**
+     * ADR-190 — les adresses email professionnelles de chaque site.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function professionalMailboxesForAllSites(User $actor): array
+    {
+        return collect(config('rivo.clinics', []))
+            ->map(fn (array $site) => $this->request($site, 'GET', 'super-admin/professional-mailboxes', [], $actor))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * ADR-190 — « Nouvelle adresse » : le portail enregistre la demande sur le site.
+     *
+     * @param  array{employee_uuid: string, local_part: string, note?: string}  $payload
+     * @return array<string, mixed>
+     */
+    public function requestProfessionalMailbox(string $siteCode, array $payload, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/professional-mailboxes', $payload, $actor);
+    }
+
+    /**
+     * ADR-190 — une adresse, ou une commande sur elle (`activate`, `reject`,
+     * `suspend`, `reactivate`). Le site revérifie le droit et la transition.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function professionalMailbox(string $siteCode, string $mailboxUuid, User $actor, ?string $command = null, array $payload = []): array
+    {
+        $path = 'super-admin/professional-mailboxes/'.rawurlencode($mailboxUuid).($command ? '/'.$command : '');
+
+        return $this->request($this->site($siteCode), $command ? 'POST' : 'GET', $path, $payload, $actor);
+    }
+
     /** @return array<string, mixed> */
     public function createCashRegister(string $siteCode, string $name, User $actor): array
     {
@@ -302,6 +340,19 @@ class PortalSiteApiClient
     public function deleteAppSettingAsset(string $siteCode, string $kind, User $actor): array
     {
         return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/assets/'.rawurlencode($kind), [], $actor);
+    }
+
+    /** ADR-192 — un coupon de remise sur le site. @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function createDiscountCoupon(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/coupons', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function archiveDiscountCoupon(string $siteCode, string $couponUuid, string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/coupons/'.rawurlencode($couponUuid).'/archive', ['reason' => $reason], $actor);
     }
 
     /** @return array<int, array<string, mixed>> */

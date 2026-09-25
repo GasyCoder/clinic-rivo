@@ -28,6 +28,10 @@ class UpdateEmployeeAction
     /** @param array<string, mixed> $data */
     public function execute(Employee $employee, array $data, User $actor): Employee
     {
+        // ADR-190 : l'email de la fiche n'est posé que par la création de l'adresse
+        // professionnelle ; une fiche enregistrée ne l'écrit ni ne l'efface jamais.
+        unset($data['email']);
+
         Gate::forUser($actor)->authorize('update', $employee);
 
         return DB::transaction(function () use ($employee, $data, $actor): Employee {

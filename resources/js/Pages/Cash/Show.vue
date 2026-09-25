@@ -18,6 +18,7 @@ import Avatar from '@/Components/Shadcn/Avatar.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
 import Card from '@/Components/Shadcn/Card.vue';
+import InvoiceDiscountPanel from '@/Components/Billing/InvoiceDiscountPanel.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import Input from '@/Components/Shadcn/Input.vue';
 import FormError from '@/Components/UI/FormError.vue';
@@ -411,6 +412,27 @@ const openPaymentDialog = (invoice) => {
     paymentForm.amount = invoice.balance_amount;
     paymentForm.reference = '';
     paymentForm.notes = '';
+    resetTender();
+};
+
+/**
+ * ADR-192 — une remise posée ou retirée change le reste à payer : la fenêtre relit
+ * la facture dans les listes rechargées. Ramenée à zéro, elle quitte « À encaisser »
+ * (réglée sans paiement) : la fenêtre se ferme.
+ */
+const refreshPaymentTarget = () => {
+    const uuid = paymentTarget.value?.uuid;
+    const fresh = [...(props.outstandingInvoices ?? []), ...(props.pharmacyLookup?.matches ?? [])]
+        .find((invoice) => invoice.uuid === uuid);
+
+    if (! fresh || Number(fresh.balance_amount) <= 0) {
+        paymentTarget.value = null;
+
+        return;
+    }
+
+    paymentTarget.value = fresh;
+    paymentForm.amount = fresh.balance_amount;
     resetTender();
 };
 
@@ -945,10 +967,13 @@ onBeforeUnmount(() => {
                         <p class="mt-0.5 font-heading text-3xl font-bold text-slate-800 dark:text-white">{{ formatMoney(paymentTarget.balance_amount) }}</p>
                     </div>
                     <dl class="flex gap-5 text-xs">
+                        <div v-if="Number(paymentTarget.discount_amount) > 0"><dt class="text-slate-400">Remise</dt><dd class="mt-0.5 font-bold tabular-nums text-emerald-600 dark:text-emerald-400">−{{ formatMoney(paymentTarget.discount_amount) }}</dd></div>
                         <div><dt class="text-slate-400">Total facture</dt><dd class="mt-0.5 font-bold tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(paymentTarget.total_amount) }}</dd></div>
                         <div><dt class="text-slate-400">Déjà payé</dt><dd class="mt-0.5 font-bold tabular-nums text-slate-600 dark:text-slate-300">{{ formatMoney(paymentTarget.paid_amount) }}</dd></div>
                     </dl>
                 </div>
+
+                <InvoiceDiscountPanel v-if="can('discounts.view')" class="mb-5" :invoice="paymentTarget" :can-apply="can('discounts.create')" @changed="refreshPaymentTarget" />
 
                 <form class="space-y-4" @submit.prevent="recordPayment">
                     <div>

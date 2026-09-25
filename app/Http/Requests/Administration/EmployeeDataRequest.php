@@ -21,7 +21,7 @@ abstract class EmployeeDataRequest extends FormRequest
         foreach ([
             'employee_number', 'first_name', 'last_name',
             'identity_document_number', 'phone',
-            'email', 'new_address_label', 'birth_place',
+            'new_address_label', 'birth_place',
             'identity_document_issued_at', 'diploma', 'education_level',
             'children_details', 'badge', 'blouse', 'observation',
         ] as $field) {
@@ -39,10 +39,6 @@ abstract class EmployeeDataRequest extends FormRequest
             $normalized[$field] = $value === '' ? null : $value;
         }
 
-        if (isset($normalized['email'])) {
-            $normalized['email'] = mb_strtolower($normalized['email']);
-        }
-
         if ($normalized !== []) {
             $this->merge($normalized);
         }
@@ -53,7 +49,8 @@ abstract class EmployeeDataRequest extends FormRequest
     {
         return [
             'employee_number' => [
-                'required',
+                // ADR-191 — à la création, un matricule laissé vide reçoit le prochain du modèle du site.
+                $employee === null ? 'nullable' : 'required',
                 'string',
                 'max:255',
                 Rule::unique('employees', 'employee_number')->ignore($employee),
@@ -121,7 +118,9 @@ abstract class EmployeeDataRequest extends FormRequest
             'badge' => ['nullable', 'string', 'max:255'],
             'blouse' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
-            'email' => ['nullable', 'email', 'max:255'],
+            // ADR-190 : l'email d'un employé est son adresse professionnelle, posée par sa
+            // création ; il ne se saisit ni à la création, ni à la modification, ni à l'import.
+            'email' => ['prohibited'],
             'address_entry_uuid' => [
                 'nullable',
                 'uuid',
@@ -220,6 +219,7 @@ abstract class EmployeeDataRequest extends FormRequest
         return [
             'employee_number.unique' => 'Ce matricule est déjà utilisé, y compris par un dossier archivé.',
             'user_uuid.prohibited' => 'Le compte de connexion se relie depuis « Utilisateurs », à la création ou à la modification du compte.',
+            'email.prohibited' => 'L’email d’un employé est son adresse professionnelle : elle se demande depuis sa fiche, une fois l’employé enregistré.',
         ];
     }
 }

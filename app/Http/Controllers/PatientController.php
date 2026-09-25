@@ -21,21 +21,26 @@ use App\Models\BillableItem;
 use App\Models\CashSession;
 use App\Models\MaternityRecord;
 use App\Models\Patient;
+use App\Models\PatientDiscount;
 use App\Models\PatientNewbornLink;
-use App\Models\User;
+use App\Models\PatientStaffLink;
 use App\Models\PaymentMethod;
+use App\Models\User;
 use App\Services\Audit\Auditor;
 use App\Services\Billing\BillableCatalogDirectory;
 use App\Services\Patient\PatientDirectory;
 use App\Services\Patient\PatientServiceNeeds;
+use App\Services\Patient\PatientVipClassifier;
+use App\Services\Settings\AppSettings;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use App\Support\EpisodePathwayTimeline;
+use App\Support\Money;
 use App\Support\NewbornFiche;
 use App\Support\Reception\MotherNewborns;
-use App\Support\Money;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -468,7 +473,56 @@ class PatientController extends Controller
             'paymentMethods' => $paymentMethods,
             'openCashSessions' => $openCashSessions,
             'billingCatalog' => $billingCatalog,
+            // ADR-192 — ses remises : servies seulement à qui peut les voir.
+            'discounts' => $request->user()->can('discounts.view') ? $this->discountsFor($patient) : null,
         ]);
+    }
+
+    /**
+     * ADR-192 — la remise propre à ce patient (en vigueur et passées), et celles
+     * que son statut lui ouvre sur ce site (VIP, personnel), telles que la Caisse
+     * les lira.
+     *
+     * @return array<string, mixed>
+     */
+    private function discountsFor(Patient $patient): array
+    {
+        $settings = app(AppSettings::class);
+        $status = [];
+
+        $vip = PatientVipClassifier::current();
+
+        if (($rule = $vip->discount()) !== null && $vip->isVip($patient->id)) {
+            $status[] = ['source' => 'VIP', 'label' => 'Patient VIP', 'describe' => $rule['type']->describe($rule['value'])];
+        }
+
+        if (($rule = $settings->staffDiscount()) !== null
+            && PatientStaffLink::query()->active()->where('patient_id', $patient->id)
+                ->whereHas('employee', fn ($query) => $query->where('active', true))->exists()) {
+            $status[] = ['source' => 'STAFF', 'label' => 'Personnel de la clinique', 'describe' => $rule['type']->describe($rule['value'])];
+        }
+
+        $items = PatientDiscount::query()
+            ->where('patient_id', $patient->id)
+            ->with(['creator:id,name', 'canceller:id,name'])
+            ->latest('id')
+            ->limit(30)
+            ->get()
+            ->map(fn (PatientDiscount $discount) => [
+                'uuid' => $discount->uuid,
+                'discount_type' => $discount->discount_type->value,
+                'describe' => $discount->discount_type->describe((string) $discount->discount_value),
+                'reason' => $discount->reason,
+                'valid_from' => $discount->valid_from->toDateString(),
+                'valid_until' => $discount->valid_until?->toDateString(),
+                'in_force' => $discount->isInForce(),
+                'created_by' => $discount->creator?->name,
+                'cancelled_at' => $discount->cancelled_at?->toIso8601String(),
+                'cancel_reason' => $discount->cancel_reason,
+            ])
+            ->all();
+
+        return ['status' => $status, 'items' => $items];
     }
 
     /**
@@ -485,7 +539,7 @@ class PatientController extends Controller
      * Une requête pour toute la page : le répertoire est paginé, et une lecture par ligne ferait
      * dépendre son temps du nombre de patients affichés.
      *
-     * @param  \Illuminate\Support\Collection<int, Patient>  $patients
+     * @param  Collection<int, Patient>  $patients
      * @return array<int, array<string, mixed>>
      */
     private function newbornOrigins($patients): array
@@ -520,7 +574,7 @@ class PatientController extends Controller
      * été accueilli est né ici tout autant. Une requête pour toute la page, comme les autres repères du
      * répertoire — une lecture par ligne ferait dépendre son temps du nombre de patients affichés.
      *
-     * @param  \Illuminate\Support\Collection<int, Patient>  $patients
+     * @param  Collection<int, Patient>  $patients
      * @return array<int, int>
      */
     private function newbornChildrenCounts($patients): array

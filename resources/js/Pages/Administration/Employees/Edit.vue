@@ -22,7 +22,7 @@ const form = useForm({
     marital_status: props.employee.marital_status ?? '', children_count: props.employee.children_count ?? '',
     diploma: props.employee.diploma ?? '', education_level: props.employee.education_level ?? '',
     children_details: props.employee.children_details ?? '', badge: props.employee.badge ?? '', blouse: props.employee.blouse ?? '',
-    phone: props.employee.phone ?? '', email: props.employee.email ?? '', address_entry_uuid: props.employee.address_entry_uuid ?? '',
+    phone: props.employee.phone ?? '', address_entry_uuid: props.employee.address_entry_uuid ?? '',
     new_address_label: '', observation: props.employee.observation ?? '', active: props.employee.active,
 });
 
@@ -35,6 +35,6 @@ const submit = () => form.put(hrUrl(`/administration/employees/${props.employee.
         <HrPageHeader :eyebrow="`${employee.employee_number} · Parcours guidé`" :title="`Modifier ${employee.name}`" description="Les changements d’identité sont synchronisés avec le dossier Patient lié lorsqu’il existe." icon="edit">
             <template #actions><Button :as="Link" :href="hrUrl(`/administration/employees/${employee.uuid}`)" variant="outline"><ArrowLeft class="h-4 w-4" />Retour au dossier</Button></template>
         </HrPageHeader>
-        <EmployeeForm :form="form" :options="options" :departments="departments" :job-titles="jobTitles" :addresses="addresses" submit-label="Enregistrer les modifications" :cancel-href="hrUrl(`/administration/employees/${employee.uuid}`)" @submit="submit" />
+        <EmployeeForm :form="form" :options="options" :departments="departments" :job-titles="jobTitles" :addresses="addresses" :current-email="employee.email" submit-label="Enregistrer les modifications" :cancel-href="hrUrl(`/administration/employees/${employee.uuid}`)" @submit="submit" />
     </div>
 </template>

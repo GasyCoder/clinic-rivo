@@ -16639,6 +16639,25 @@ Un chiffre masqué par les droits s'écrit « — », jamais 0 (ADR-102). Libell
 rubriques sont écrits une fois (`utilities/hrFigures.js`, `utilities/hrSections.js`) et partagés par l'accueil
 RH du site, la barre RH et cette page.
 
+## Amendement du 2026-09-25 — la barre RH du portail ne défile plus
+
+Constat du propriétaire : treize rubriques sur une seule ligne faisaient apparaître une barre de défilement
+horizontale. La barre se lit désormais en deux niveaux, **sans rien cacher dans un menu** :
+
+```text
+thèmes      Accueil RH · Personnel (4) · Temps de travail (3) · Pilotage (5) — un clic mène à la
+            première rubrique du thème
+rubriques   celles du thème de la page affichée, juste à côté ; aucune sur l'accueil RH
+disposition une seule ligne si la barre fait au moins 77 rem (mesuré : 1 236 px pour Pilotage),
+            thèmes puis rubriques l'un sous l'autre sinon (requête de conteneur) ; jamais de
+            défilement, pas de séparateur isolé en bout de ligne
+```
+
+Les thèmes sont ceux de l'accueil RH, désormais écrits une seule fois (`HR_SECTION_GROUPS`,
+`groupHrSections` dans `utilities/hrSections.js`) : chaque rubrique appartient à un thème et un seul, un
+thème sans rubrique permise disparaît, et une rubrique ajoutée au menu RH sans thème rejoint le dernier
+plutôt que de disparaître. Présentation seulement : ni route, ni droit, ni adresse ne change.
+
 ## Signalé, non tranché
 
 - Les écrans RH sont encore en DashWind : seules leurs adresses ont été touchées (ADR-099).
@@ -16722,3 +16741,656 @@ Les comptes déjà reliés depuis une fiche gardent leur lien. Aucune donnée n'
 création de compte (`users.create`, `roles.assign`) et de paramétrage RH (`hr_settings.*`) sont
 inchangés.
 
+## Amendement du 2026-09-25 — on cherche la personne d'abord, son nom et son email suivent
+
+Demande du propriétaire : avec « Personnel clinique », le Nom et l'Email ne doivent pas s'afficher d'emblée ;
+on cherche d'abord la personne, en auto-complétion, et sa fiche donne le nom et l'email.
+
+```text
+recherche     un champ unique (nom, matricule, fonction, service, email), le curseur y est placé dès
+              « Personnel clinique » ; accents et casse ignorés, tous les mots dans n'importe quel ordre,
+              correspondances surlignées ; clavier ↑ ↓ Entrée Échap, Entrée relie sans soumettre
+rapidité      aucun appel par frappe : la recherche porte sur les fiches déjà servies avec le formulaire
+              (`utilities/staffSearch.js`) — 6 fiches en aperçu, 8 résultats, « N autres — précisez »
+fiche prise   listée après les libres avec « Compte : … », jamais reliable
+choisie       une carte « Fiche RH reliée » et « Changer » ; puis Nom et Email apparaissent, repris
+              de la fiche (« Repris de la fiche RH — modifiable »)
+sans email    la fiche RH n'a pas d'email : le champ reste vide, le curseur y va, et l'écran le dit
+changer       une valeur reprise et non retouchée suit la nouvelle fiche ; une saisie à la main n'est
+              jamais écrasée ; passer à « Externe » vide ce qui venait d'une fiche
+Externe       Nom et Email saisis directement, comme avant ; en modification, ils restent toujours
+              visibles (le compte existe déjà)
+```
+
+Correction au passage : changer de fiche gardait l'email de la précédente quand la nouvelle n'en avait pas.
+Rien ne change côté serveur : ni règle, ni permission, ni donnée.
+
+
+---
+
+# ADR-189 — Le Super Admin voit toute la Pharmacie d'un site depuis le portail, et en gère l'administratif
+
+**Status:** ACCEPTED (2026-09-25 — constat du propriétaire : « le module Pharmacie n'est pas affiché dans le
+Super Admin, alors que le Super Admin peut tout voir » ; arbitrage explicite : « Voir tout, gérer
+l'administratif »)
+
+**Étend à la Pharmacie le mécanisme de l'ADR-187** (RH d'un site servies au portail) et **applique
+l'ADR-098** : les actes physiques restent au site. Le CDC §18 donne au Super Admin un accès global et §2 dit
+que le portail « consulte et administre » les sites par API. Aucune règle de la Pharmacie ne change.
+
+## Le constat
+
+« Établissements › site › Pharmacie » ne menait qu'à une vitrine (description et rubriques en texte). Le
+portail avait bien deux espaces Pharmacie — la supervision du stock (ADR-042) et les dossiers fournisseurs
+(ADR-098) —, mais aucune ordonnance, aucun consommable, aucune fiche de médicament ni aucune réception d'un
+site n'y était lisible.
+
+## L'arbitrage
+
+```text
+visible depuis le portail   tous les écrans de la Pharmacie du site : ordonnances, consommables,
+                            médicaments & stock, fiches, achats (commandes, réceptions, factures),
+                            fournisseurs et leurs catalogues
+géré depuis le portail      l'administratif : médicaments, prix de vente, familles, fournisseurs,
+                            catalogues, prix d'achat, commandes (confirmer, clôturer), factures
+reste au site               les actes physiques, faits par la personne qui a les produits en main
+```
+
+## Un seul jeu de routes, servi deux fois
+
+`routes/pharmacy.php` porte les routes de la Pharmacie une seule fois :
+
+```text
+/pharmacy/...                            le site, pour ses comptes (inchangé)
+/api/v1/super-admin/site-pharmacy/...    la même, pour le portail, derrière le jeton du site
+                                         (rivo.remote-actor + rivo.hr-screens, ADR-187)
+/super-admin/sites/{site}/pharmacie/...  le relais du portail (SitePharmacyController, pharmacy.view)
+```
+
+Le portail transmet la requête à l'API du site et affiche **la même page Vue**. Jamais d'accès à la base du
+site (ADR-004, ADR-027). La mécanique de relais est désormais commune aux RH et à la Pharmacie :
+`SiteScreenGateway` / `SiteScreenController` (abstraits), déclinés en `SiteHrGateway` et
+`SitePharmacyGateway` — l'écran d'arrivée de la Pharmacie est « Médicaments & stock ». Un lien
+`?module=PHARMACY` mène à ces écrans, comme `?module=HR` (ADR-187).
+
+## Les actes physiques restent au site, et le site le garantit
+
+Le middleware `rivo.site-only` (`KeepPhysicalActsAtSite`) refuse au Super Admin distant, avec un 403 qui dit
+pourquoi, les routes qui changent l'état physique du stock ou remettent un produit :
+
+```text
+délivrer et préparer le ticket, imprimer le ticket du patient
+servir un consommable
+entrer en stock (écran et envoi)
+inventaire (écran et envoi), ajustement (écran et envoi)
+réceptionner (écran et envoi)
+constater ou lever une rupture ligne à ligne (ADR-179 : c'est un constat de réception)
+```
+
+Le refus vaut **même avec la permission** : c'est une règle de lieu, pas de droit. Sur le portail, ces
+boutons sont **montrés verrouillés** avec leur raison (`SiteOnlyAction`), jamais masqués (ADR-158) ; sur le
+site ils sont rendus tels quels, et le pharmacien garde exactement ses écrans. Clôturer toute une commande
+reste une décision d'acheteur, possible des deux côtés (ADR-179).
+
+## Qui a fait quoi
+
+Le Super Admin agit comme `RemoteSuperAdmin` (ADR-187), sans compte local. `CatalogActor::fromUser()` le
+reconnaît et le représente en acteur distant (UUID, nom, droits transmis) : toutes les actions
+administratives de la Pharmacie, qui passaient déjà par `CatalogActor`, l'attribuent donc dans l'audit et
+dans leurs colonnes `external_*`. `CreateMedicineProductAction` (ajout d'un médicament, import Excel) garde
+désormais cet auteur externe au lieu d'un `created_by` local. Aucun utilisateur n'est créé sur le site.
+
+## Côté écran
+
+Chaque adresse d'un écran Pharmacie passe par `pharmacyUrl()` (`utilities/pharmacyUrl.js`) : inchangée sur
+le site, ramenée à `/super-admin/sites/{site}/pharmacie` sur le portail, qui fournit `pharmacyContext`. La
+barre `PharmacyPortalBar` reprend les rubriques du menu Pharmacie du site avec leurs droits
+(`pharmacySections`, une seule liste), dit de quel site on lit la Pharmacie, permet de passer aux autres et
+rappelle que les gestes physiques restent au site. `PharmacyHomePanel` (Vue d'ensemble du site) n'est pas
+servi au portail.
+
+## Ce qui ne change pas
+
+Les permissions de chaque écran et de chaque geste, revérifiées par le site ; la Pharmacie n'encaisse rien
+(ADR-013) ; la supervision du stock (ADR-042) et les dossiers fournisseurs du portail (ADR-098) restent en
+place. Aucune permission nouvelle, aucune migration.
+
+## Signalé, non tranché
+
+- Les dossiers fournisseurs existent désormais **deux fois** au portail : l'espace « Fournisseurs pharmacie »
+  de l'ADR-098 (ses propres pages, son API) et ces écrans du site. Les fusionner est une décision à part.
+- Le middleware `rivo.hr-screens` sert maintenant les RH **et** la Pharmacie : son nom ne dit plus tout ce
+  qu'il fait.
+- La réserve de l'ADR-186 sur la taille de l'en-tête des droits transmis vaut ici aussi.
+
+---
+
+# ADR-190 — Adresses email professionnelles : le RH demande, le Super Admin crée chez l'hébergeur
+
+**Status:** ACCEPTED (2026-09-25 — demande du propriétaire, quatre arbitrages explicites)
+
+Le CDC ne décrit aucune adresse email professionnelle : les règles ci-dessous sont celles du propriétaire.
+L'hébergeur est o2switch (cPanel) ; le domaine de test est `cbdc.mg`, remplacé par le domaine officiel de la
+clinique à son achat — il se règle dans l'environnement, jamais dans le code.
+
+## Les arbitrages
+
+```text
+qui crée        le RH du site demande depuis la fiche employé ; le Super Admin crée sur le portail,
+                seul à détenir le jeton de l'hébergeur
+mot de passe    généré (16 caractères, sans caractère ambigu), montré UNE fois à celui qui crée,
+                jamais enregistré ni journalisé dans RIVO
+départ          la boîte est suspendue (connexion bloquée, messages gardés), jamais supprimée
+fiche RH        adresse proposée prenom.nom@domaine (modifiable, chiffre si homonyme) ; une fois créée,
+                elle devient l'email de la fiche, donc celui du compte RIVO (ADR-188)
+```
+
+## Pourquoi le jeton ne quitte jamais le portail
+
+Un jeton API cPanel donne le **contrôle complet de l'hébergement** (fichiers, bases, toutes les boîtes) : il
+n'est pas limité aux emails. Le poser sur les trois sites cliniques multiplierait l'exposition. Il vit dans le
+`.env` du portail (`RIVO_MAIL_HOSTING_URL`, `_USER`, `_TOKEN`), n'est jamais servi à l'écran (seul le nom du
+serveur l'est), et aucun site ne parle à l'hébergeur.
+
+## Le circuit
+
+```text
+site     RH : fiche employé › « Demander la création »       professional_mailboxes, REQUESTED
+portail  Super Admin : « Créer »
+           1. relit la demande sur le site (encore en attente ?)
+           2. crée la boîte chez l'hébergeur (UAPI Email::add_pop)
+           3. retient ce qu'il a créé (professional_mailbox_provisions, sans mot de passe)
+           4. l'active sur le site par son API                 ACTIVE, email de la fiche mis à jour
+```
+
+L'hébergeur d'abord, le site ensuite : un site ne dit jamais « active » une boîte qui n'existe pas. Si le site
+ne confirme pas (panne, délai), le mot de passe est quand même montré — la boîte existe — et « Réessayer »
+ne fait que confirmer au site : le registre du portail empêche toute seconde création. Même principe pour la
+suspension (`host_suspended_at`) : un nouvel essai ne redemande pas à l'hébergeur ce qu'il a déjà fait.
+
+## Ce qui se passe à chaque état
+
+```text
+REQUESTED   demandée ; le RH peut l'annuler ; le Super Admin crée (adresse ajustable) ou refuse (motif)
+ACTIVE      en service ; nouveau mot de passe possible (UAPI passwd_pop, montré une fois)
+SUSPENDED   connexion, envoi et lecture bloqués chez l'hébergeur (UAPI suspend_login) ; réactivable
+            (unsuspend_login), avec l'ancien mot de passe
+REJECTED    refusée, avec motif ; CANCELLED annulée par le RH — les deux libèrent l'adresse
+```
+
+Une adresse n'est **jamais supprimée** (le modèle le refuse, ADR-010). Une adresse ouverte est unique, et un
+employé n'en a qu'une ouverte (`active_key`, `employee_active_key`, index uniques). Un employé qui n'est plus
+en poste ne peut pas en recevoir de nouvelle. Au départ, sa boîte encore active apparaît dans la vue
+**« À suspendre »** du portail, et la fiche le dit au RH : la suspension reste un geste du Super Admin, puisque
+le site n'a pas le jeton.
+
+## Écrans
+
+```text
+site      fiche employé : carte « Email professionnel » (shadcn) — proposition, note, état, annulation
+          (servie aussi au portail par les écrans RH relayés, ADR-187)
+portail   Organisation › Emails professionnels (/super-admin/professional-emails) : Demandes,
+          À suspendre, Actives, Suspendues, Historique ; filtre par site, recherche ; créer, refuser,
+          suspendre, réactiver, nouveau mot de passe
+```
+
+## Permissions
+
+```text
+professional_emails.view        voir                              ADMINISTRATION, SUPER_ADMIN
+professional_emails.request     demander, annuler sa demande      ADMINISTRATION, SUPER_ADMIN
+professional_emails.create      créer chez l'hébergeur            SUPER_ADMIN
+professional_emails.reject      refuser une demande               SUPER_ADMIN
+professional_emails.deactivate  suspendre                         SUPER_ADMIN
+professional_emails.activate    réactiver                         SUPER_ADMIN
+professional_emails.update      nouveau mot de passe              SUPER_ADMIN
+```
+
+Enregistrées par la migration `2026_10_31_090000` (sites et portail) ; le Super Admin du portail les reçoit par
+la synchronisation de l'ADR-186. Chaque transition est auditée sur le site (identité du Super Admin distant),
+chaque geste chez l'hébergeur sur le portail (`professional_email.host_create`, `.host_suspend`,
+`.host_unsuspend`, `.password_reset`) — jamais avec un mot de passe.
+
+## Signalé, non tranché
+
+- **Accès du portail à l'hébergeur** : o2switch peut exiger que l'adresse IP du serveur du portail soit
+  autorisée ; un 401/403 est affiché comme tel. À vérifier au premier essai réel.
+- La réponse de l'hébergeur quand on suspend une boîte déjà suspendue n'est pas documentée : c'est pourquoi le
+  portail retient ce qu'il a fait plutôt que de rejouer.
+- Taille des boîtes : 1024 Mo par défaut (`RIVO_MAIL_HOSTING_QUOTA_MB`), réglage technique à confirmer.
+- Adresses non nominatives (contact@, secretariat@) : hors périmètre — ce module relie une adresse à une fiche.
+- Changer le domaine plus tard ne renomme aucune boîte existante : ce serait une migration chez l'hébergeur.
+
+## Amendement du même jour — sans outil « jetons API », le mot de passe du compte cPanel
+
+Constat du propriétaire : sur son offre o2switch, la page cPanel « Manage API Tokens » n'affiche que
+l'avertissement « The API Tokens feature is experimental », sans bouton de création. La FAQ o2switch réserve
+l'outil aux offres Unique Growth, Unique Cloud, Unique Pro et aux serveurs managés.
+
+```text
+RIVO_MAIL_HOSTING_TOKEN     de préférence : Authorization: cpanel utilisateur:jeton
+RIVO_MAIL_HOSTING_PASSWORD  à défaut : le mot de passe du compte cPanel, par une session (ci-dessous)
+les deux                    le jeton l'emporte
+```
+
+Le mot de passe est moins sûr qu'un jeton : il ouvre aussi l'interface cPanel et ne se révoque pas séparément.
+L'écran du portail le signale et invite à passer au jeton dès que l'offre le permet. Il ne vit, comme le
+jeton, que dans le `.env` du portail et n'est jamais servi à l'écran.
+
+**Correction du 2026-09-25 — une session, pas l'authentification Basic.** Premier essai réel sur
+`abyssin.o2switch.net` : l'API répond 401 à l'authentification Basic **avec le bon mot de passe**, alors que
+la connexion par le navigateur réussit. o2switch n'accepte le mot de passe que par une session. Le client
+fait donc ce que fait le navigateur, à chaque appel :
+
+```text
+POST /login/?login_only=1            utilisateur et mot de passe dans le corps, jamais dans l'URL
+                                     → cookie cpsession et chemin /cpsessNNN
+POST /cpsessNNN/execute/Email/...    l'appel UAPI, avec le cookie de session
+```
+
+Un mauvais mot de passe (401) ou une double authentification (aucun jeton de session rendu) sont refusés
+avant tout appel à l'API, avec un message qui le dit. Le mode jeton n'est pas touché. Vérifié contre le
+serveur réel par la lecture seule (« Tester la connexion ») : les boîtes existantes du compte sont lues,
+rien n'est créé. **La double authentification ne doit pas être activée sur ce compte** tant que RIVO utilise
+le mot de passe : la connexion serait refusée.
+
+**Le même jour — une création trop lente.** Mesuré sur le serveur réel : la connexion cPanel prend de 2 à
+9 secondes selon l'heure, la déconnexion de 2 à 8, l'appel lui-même 2. Ouvrir et fermer une session à chaque
+opération faisait attendre jusqu'à une vingtaine de secondes. Deux changements, sans toucher aux règles :
+
+```text
+session gardée       chiffrée dans le cache, réutilisée par les opérations suivantes pendant
+                     RIVO_MAIL_HOSTING_SESSION_MINUTES (10 par défaut) ; 0 = une session par
+                     opération, fermée après la réponse
+session expirée      cPanel répond 401 sans rien exécuter : une nouvelle est ouverte et l'appel
+                     rejoué, une seule fois — une boîte n'est jamais créée deux fois
+connexion d'avance   l'ouverture d'une fenêtre qui touchera l'hébergeur (créer, nouvelle adresse,
+                     suspendre, réactiver, nouveau mot de passe) ouvre la session pendant qu'on la
+                     remplit — POST …/professional-emails/prepare, au portail comme au site, pour
+                     qui détient un des droits qui passent par l'hébergeur ; aucune boîte touchée
+« Tester »           ouvre toujours une session neuve, pour éprouver vraiment le mot de passe
+```
+
+Mesuré : une opération sur une session gardée prend 2 à 3 secondes, au lieu de 5 à 17. Garder la session
+ne crée pas de nouveau secret : elle ne vaut que pour ce compte, que le mot de passe du même `.env` ouvre
+déjà, et elle est chiffrée avec la clé de l'application.
+
+## Amendement du même jour — « Nouvelle adresse » depuis le portail
+
+Constat du propriétaire : sans demande en attente, le portail n'offrait aucun bouton de création. Le bouton
+**« Nouvelle adresse »** laisse le Super Admin choisir lui-même le site et l'employé (recherche sur les employés en
+poste sans adresse ouverte, servis par l'API du site avec leur adresse proposée), ajuster l'adresse, puis créer.
+
+La demande est d'abord **enregistrée sur le site** (`POST /api/v1/super-admin/professional-mailboxes`, même règle
+et même trace qu'une demande du RH, note « Créée directement depuis le portail »), puis la boîte est créée
+exactement comme depuis « Demandes » (un seul chemin de création). Si l'hébergeur refuse, la demande reste en
+attente et se reprend depuis « Demandes ». Droits : `professional_emails.create` et `professional_emails.request`.
+
+## Amendement du même jour — le RH qui en a reçu le droit crée lui-même, depuis son site
+
+Demande du propriétaire, arbitrage explicite : « tous les accès pour le Super Admin ; pour le RH, si le Super Admin
+lui donne la permission, il peut le faire et le voir ».
+
+**Divergence signalée avec la décision initiale** (« le jeton ne quitte jamais le portail ») : les accès à
+l'hébergeur (`RIVO_MAIL_HOSTING_*`) peuvent désormais être posés **aussi dans le `.env` d'un site**. Sans eux, le
+site continue de n'offrir que la demande, et la création reste au portail. Avec le mot de passe cPanel (l'offre
+o2switch n'ouvrant pas les jetons), c'est l'accès à tout l'hébergement qui est copié sur chaque site qui le
+reçoit : à remplacer par un jeton dès que possible.
+
+```text
+voir     page RH « Emails professionnels » (/administration/professional-emails, menu Ressources humaines),
+         professional_emails.view — la même liste que le portail, limitée au site ; servie aussi au
+         portail par les écrans RH relayés (ADR-187)
+faire    créer, « Nouvelle adresse », refuser, suspendre, réactiver, nouveau mot de passe — chacun avec son
+         droit (.create, .reject, .deactivate, .activate, .update), que le Super Admin accorde au RH depuis
+         « Rôles & permissions » ; par défaut le RH ne fait que voir et demander
+```
+
+Un seul chemin pour tous : `MailboxProvisioner` (hébergeur d'abord, registre de ce qui a été fait, reprise sans
+double création), que le portail emploie par l'API du site (`RemoteMailboxRegistry`) et le site par sa propre base
+(`LocalMailboxRegistry`, le même `ProfessionalMailboxWorkflow` qui revérifie chaque droit). Un seul écran aussi
+(`ProfessionalEmailsWorkspace`), ouvert sur le portail pour tous les sites ou sur la page RH pour un seul.
+
+## Amendement du 2026-09-25 — l'email d'un employé ne se saisit plus
+
+Constat du propriétaire : la création et l'import d'un employé demandaient un email, alors que l'adresse
+professionnelle ne peut être créée qu'une fois l'employé enregistré — et qu'à son activation elle
+**remplaçait** l'email de la fiche, faisant disparaître sans avertissement celui qu'on avait saisi. Deux
+issues ont été posées (garder un email personnel à côté de l'adresse pro, ou retirer le champ) ; le
+propriétaire a choisi de **retirer le champ**.
+
+```text
+création        plus de champ Email ; le formulaire dit que l'email est l'adresse professionnelle,
+                demandée depuis la fiche une fois l'employé enregistré
+modification    l'email s'affiche en lecture seule (« posé par l'adresse professionnelle »)
+serveur         `email` est refusé (prohibited, message nommé) à la création comme à la
+                modification ; Create/UpdateEmployeeAction ne l'écrivent jamais — une fiche
+                modifiée n'efface plus l'adresse pro
+import          aucun email lu ; une colonne « Email » est ignorée (un fichier exporté se
+                réimporte), une adresse dans « Email/Tél » n'est ni un email ni un téléphone
+modèle Excel    sans colonne Email ; l'export, lui, garde l'email (l'adresse pro existante)
+```
+
+L'email d'une fiche n'est donc plus posé que par l'activation de l'adresse professionnelle. Conséquences
+assumées : un employé qui n'aura jamais d'adresse pro n'a pas d'email dans RIVO, et son compte de connexion
+(« Personnel clinique », ADR-188) reçoit un email saisi à la main. Les emails déjà présents sur des fiches
+**ne sont pas effacés** (ADR-010) : ils s'affichent en lecture seule et seront remplacés à l'activation d'une
+adresse pro. Aucune migration, aucune permission nouvelle. Les tests ne lisent plus les accès réels à
+l'hébergeur du poste (`phpunit.xml` les force à vide).
+
+---
+
+# ADR-191 — Thème, réglages avancés et numérotation propres à chaque site
+
+**Status:** ACCEPTED (2026-09-25 — demande explicite du propriétaire : « améliorer UI et UX de la page
+`/super-admin/settings` : réduire la taille des cards, ajouter Thèmes, Avancé, couleur en mode sombre et en
+mode clair, paramétrer le numéro de patient et de passage, le matricule de l'employé » ; quatre arbitrages
+posés question par question)
+
+**Complète l'ADR-184** (paramètres par site) et **l'ADR-185** (Clair / Système / Sombre), **rend réglable
+l'ADR-030** (format des numéros de patient et de passage) sans en changer la valeur par défaut. Le CDC ne décrit
+ni thème, ni réglage d'affichage, ni format de numéro : les règles ci-dessous sont celles du propriétaire.
+
+## Les arbitrages
+
+```text
+thème         « le site, et chacun ajuste » : le Super Admin fixe le thème de chaque site (préréglage,
+              couleurs du mode clair et du mode sombre) ; chaque utilisateur garde Clair / Système /
+              Sombre et ajuste, dans « Mon profil », la taille du texte, les animations et le contraste
+avancé        taille du texte, densité et arrondis, réduire les animations, contraste — les quatre
+numéros       préfixe, année (aucune / 2 / 4 chiffres), chiffres, séparateur, remise à 1 chaque année ou
+              compteur continu ; passage = numéro patient + rang ; aucun numéro existant réécrit
+matricule     proposé automatiquement selon un modèle (EMP-0001 par défaut), modifiable par le RH ;
+              à l'import, une ligne sans matricule reçoit le suivant
+```
+
+## Thème
+
+`app_settings` reçoit `theme_preset` et, par mode, trois couleurs : accentuation (`primary_color` reste celle
+du mode clair, `dark_primary_color`), arrière-plan et avant-plan (`light_*`, `dark_*`). Toutes vides par défaut :
+un site non réglé s'affiche exactement comme avant. Les surfaces (cartes, zones atténuées, bordures, texte
+secondaire) sont **déduites** de l'arrière-plan et de l'avant-plan (`ThemePalette`) ; l'accent sombre non réglé
+est déduit de l'accent clair, comme avant. Seul ce qui est réglé est redéfini dans `<style id="rivo-theme">`.
+Les couleurs d'alerte (rouge, ambre, vert) ne changent jamais.
+
+```text
+préréglages   RIVO (d'origine), Océan, Forêt, Ardoise, Prune, Ambre, Nuit (ThemePresets) — chaque
+              avant-plan contraste d'au moins 7 avec son arrière-plan, vérifié par test ; retoucher une
+              couleur fait passer le thème en « Personnalisé »
+lisibilité    un avant-plan qui contrasterait à moins de 4,5 (WCAG AA) avec l'arrière-plan du même mode
+              est refusé par le serveur (ReadableThemeColors), une couleur vide valant celle d'origine ;
+              l'écran le dit avant l'envoi
+échange       export en fichier JSON, copie, import (`{"rivo_theme":1,"light":…,"dark":…}`) : rien n'est
+              enregistré avant « Enregistrer les paramètres »
+aperçu        les deux modes côte à côte, chacun avec ses trois couleurs, son aperçu et son contraste ;
+              le calcul de l'écran (utilities/themePalette.js) reproduit celui du serveur, vérifié par test
+```
+
+Le fond de page lit désormais `bg-background` (il était codé `bg-gray-50 dark:bg-gray-1000`) : l'arrière-plan
+du thème s'applique partout.
+
+## Réglages avancés
+
+`ui_font_size` (14 à 18 px, 16 par défaut), `ui_density` (compacte / normale / aérée), `ui_radius` (droits /
+normaux / arrondis), `ui_motion` (système / réduites / complètes), `ui_contrast` (standard / élevé / maximal)
+sont les valeurs par défaut du site (`UiOptions`). Ils sont posés sur `<html>` **dès le rendu serveur**
+(`data-density`, `data-radius`, `data-motion`, `data-contrast`, `font-size` en %), sans script : aucun éclair au
+chargement. Hauteur des champs et boutons (`--control-h`) et arrondis (`--radius-scale`) sont des variables.
+
+**Chacun ajuste pour lui-même** taille du texte, animations et contraste dans « Mon profil » › Apparence
+(`PUT /profil/apparence`, aucune permission : c'est son compte). La préférence est gardée **sur le compte**
+(`users.ui_preferences`), pas sur le poste : un poste de soins est partagé, et les réglages d'une personne ne
+suivent pas la suivante. Vide, la valeur du site s'applique. La densité et les arrondis restent ceux du site.
+Le mode Clair / Système / Sombre reste une préférence du poste (ADR-185).
+
+## Numérotation
+
+`AppSettings::patientNumbering()` rend un `PatientNumberFormat` : préfixe (vide = code du site), année
+(`none`, `2`, `4`), chiffres (3 à 8), séparateur (`-` `/` `.` `_`), remise à 1 (`yearly` / `never`), chiffres du
+rang du passage (2 à 4). **Sans réglage, c'est exactement l'ADR-030** : `A-26-0001`, `A-26-0001-01`,
+`A-26-0001-B1`.
+
+```text
+compteur continu   la ligne de séquence de clé 0 ; « sans année » l'impose (une remise à 1 annuelle
+                   redonnerait les mêmes numéros — refusé par la validation)
+jamais redonné     le générateur saute tout numéro qui existe déjà, archives comprises : un ancien format
+                   peut avoir produit la même chaîne
+jamais réécrit     un réglage ne vaut que pour les numéros à venir
+aperçu             le prochain numéro est lu sans être consommé (PatientNumberGenerator::peek())
+```
+
+Le rang du passage se relit quel que soit le séparateur réglé (`EpisodeNumberGenerator::sequenceFromNumber`).
+
+## Matricule proposé
+
+`EmployeeNumberAllocator` propose, à la création d'un employé, le matricule suivant le plus grand déjà écrit
+selon le modèle du site (préfixe, séparateur, chiffres ; `EMP-0001` par défaut), **archives comprises** : un
+matricule n'est jamais redonné. Un matricule écrit autrement ne compte pas. Le RH peut le corriger — c'est une
+proposition, seul le caractère unique est exigé — et un matricule laissé vide à la création reçoit la
+proposition. À l'import, une ligne sans matricule reçoit le suivant, après ceux que le fichier écrit déjà.
+
+## Écran
+
+`/super-admin/settings` est découpé en une page par module, sur le modèle de la page « Settings » de shadcn/ui
+(amendement ci-dessous), sans défilement horizontal jusqu'à 390 px. shadcn-vue seulement (ADR-099). « Mon
+profil » garde ses pastilles de choix (`OptionPills`) pour l'apparence personnelle.
+
+## Droits et données
+
+Aucune permission nouvelle : `settings.view` / `settings.update` (ADR-184), revérifiés par l'API du site.
+Migrations `2026_11_01_090000_add_theme_and_numbering_to_app_settings` et
+`2026_11_01_091000_add_ui_preferences_to_users_table`, colonnes toutes nullables, à jouer sur chaque site et
+sur le portail. Une base non migrée le dit au lieu d'une erreur SQL (`AppSettings::ensureInstalled()`).
+
+## Signalé, non tranché
+
+```text
+couleurs d'alerte      rouge, ambre, vert fixes ; les rendre réglables est une autre décision
+taille du code, marqueurs de différence   vus sur les captures fournies, sans objet dans RIVO
+numéros hors patient   factures, reçus, commandes gardent leur format ; les rendre réglables est à décider
+```
+
+## Amendement du 2026-09-25 — les paramètres suivent la page « Settings » de shadcn/ui
+
+Constat du propriétaire, le jour même, en quatre temps : dix sujets sans rapport dans un seul formulaire, une
+page saturée ; puis un accueil en cartes « éparpillé » ; puis des lignes à deux colonnes « trop coincées » ;
+enfin un écran jugé comme un mélange de DashWind et de shadcn. Arbitrage : la page « Settings » de shadcn/ui,
+refaite entièrement, sans rien garder des essais précédents (ADR-099).
+
+```text
+entrée      /super-admin/settings ouvre directement le premier module (Identité) ; le site choisi
+            (?site=) suit la redirection
+en-tête     « Paramètres » et sa phrase ; à droite, le site réglé (liste déroulante, avec « non
+            configuré » ou « injoignable ») et « Réglé le … par … » ; puis un filet
+gauche      le menu des modules : dix liens, celui qui est ouvert sur fond atténué, les autres
+            soulignés au survol ; sur un écran étroit, une ligne qui défile
+droite      le module ouvert, dans une colonne de lecture (max-w-2xl) : un titre, une phrase, un
+            filet, puis ses champs empilés — libellé au-dessus, champ, phrase d'aide dessous —,
+            deux ou trois par ligne quand ils vont ensemble ; en bas, « Enregistrer », « Annuler »
+            et le nombre de modifications non enregistrées
+garde       changer de site ou de module avec des modifications demande confirmation ; un module
+            inconnu répond 404
+```
+
+Seules les primitives shadcn servent : `Input`, `Select` (chaque choix à plusieurs valeurs), `Tabs` (mode clair
+et mode sombre du thème), `RadioGroup` en vignettes (modèles de connexion et de « Mon profil », flèches du
+clavier), `Switch` dans un cadre (moteurs de recherche), `Label`, `Separator`. Les pastilles de choix, les champs
+à icône et la barre d'enregistrement flottante disparaissent de la page.
+
+**Aucune règle ne change.** Le formulaire porte toujours toutes les valeurs du site : un module n'en modifie que
+les siennes et l'enregistrement renvoie le reste tel que le site le porte, par le même `PUT /super-admin/settings`,
+la même validation et la même API du site. Une valeur par défaut choisie dans une liste vide le champ, comme
+avant : le site n'enregistre que ce qui s'écarte de la configuration. La liste des modules est écrite une fois
+(`utilities/settingsSections.js`) et le serveur n'accepte que la même (`AppSettingsController::SECTIONS`,
+vérifié par test). Chaque module est un composant (`IdentitySettings`, `ThemeSettings`, `AdvancedSettings`,
+`ScreenTemplates`, `NumberingSettings`, `AgeBandSettings`, `CurrencySettings`, `LegalSettings`,
+`DirectionSettings`, `SearchVisibilitySettings`) écrit avec deux briques : `SettingsSection` (titre, phrase,
+filet) et `SettingsField` (un champ de formulaire). Mêmes droits : `settings.view` pour lire, `settings.update`
+pour enregistrer.
+
+**Écrans & modèles** : trois champs, une question chacun — modèle des pages de connexion, image de fond, modèle
+de « Mon profil ». Les vignettes sont des schémas teintés de la couleur principale ; la photo n'apparaît que dans
+son champ, et la phrase du modèle choisi s'écrit une fois, dessous. Avec le modèle Centré, le champ de l'image dit
+qu'elle servira au prochain changement de modèle.
+
+**Complément du même jour — le module dans une carte, le menu à sa droite.** Demande du propriétaire : le
+menu des modules passe à droite, avec les icônes, et la page du module dans une carte bordée. Le module ouvert
+est une carte (`rounded-xl border bg-card`) : en tête son icône et son groupe, lus sur `settingsSections` et
+jamais recopiés ; au pied, collant au bas de l'écran, l'état de la saisie et « Enregistrer ». Le menu est une
+carte à droite, sticky, rangée par groupe (Apparence, Patients & personnel, Établissement & documents,
+Confidentialité), chaque module avec son icône ; sur un écran étroit, il passe au-dessus du module en une ligne
+qui défile et ramène le module ouvert en vue. Présentation seulement : ni route, ni droit, ni règle ne change.
+
+**Complément du même jour — toute la largeur.** Demande du propriétaire : la page occupe toute la largeur de
+l'écran (la limite `max-w-6xl` est retirée). Pour que cette largeur serve, la carte du module est un conteneur
+(`cq`, petit plugin Tailwind : `cq-2xl:` / `cq-4xl:` / `cq-6xl:` suivent la largeur de la carte, jamais celle de
+l'écran, puisqu'elle est bordée par le menu latéral et le menu des modules) : Numérotation, Affichage avancé et
+Identité légale passent à trois colonnes, nom et devise côte à côte dans Identité ; les aperçus en liste gardent
+une largeur de lecture. Le site réglé se choisit en un clic dans un groupe radio (`SettingsSiteSwitcher`), un
+bouton par site et un pour le portail, chacun avec son état (joignable, non configuré, injoignable) ; changer de
+site avec des modifications en cours reste confirmé. Ctrl+S (⌘+S sur Mac) enregistre le module — jamais sans
+droit ni sur un site injoignable, et jamais la page du navigateur. Aucune route, aucun droit, aucune règle ne
+change.
+
+**Complément du même jour — la vignette de chaque thème.** Dans « Thème de départ », chaque thème porte sa
+vignette : sa moitié claire et sa moitié sombre, chacune sur son arrière-plan avec sa couleur d'accentuation
+(`ThemeSwatch`). « Personnalisé » montre les couleurs réellement réglées, et la vignette du thème choisi est
+reprise dans le champ fermé. Le `Select` partagé reçoit pour cela un slot `leading`, placé hors du texte de
+l'option que lisent le clavier et le champ fermé ; les autres listes ne changent pas.
+
+**Complément du même jour — un repère par option de l'affichage avancé.** Les listes « Taille du texte »,
+« Densité », « Arrondis », « Animations » et « Contraste » portent le même slot `leading` : chaque option montre ce
+qu'elle change (`AppearanceOptionIcon`) — « Aa » à la taille choisie, lignes plus ou moins serrées, coins droits ou
+arrondis, appareil / pause / animations, disque plus ou moins contrasté. Décoratif, le nom de l'option restant écrit.
+
+**Complément du même jour — des repères dans tous les modules.** Demande du propriétaire, module par module. Les
+listes de la Numérotation (année « 26 » / « 2026 », séparateur lui-même, autant de barres que de chiffres, remise
+annuelle ou compteur sans fin) et de la Monnaie (« Ar1 » / « 1Ar », « 1 » / « 1,00 ») portent leur vignette, dans le
+même carré partagé (`OptionTile`) que l'affichage avancé. Les champs texte d'Identité, d'Identité légale, de Direction,
+des Âges et des préfixes de numérotation retrouvent une icône en tête (`IconInput`, primitive shadcn) : cela revient sur
+les « champs à icône » retirés plus tôt le même jour, à la demande du propriétaire. Les aperçus en liste portent aussi
+la leur (patient, passage, bébé, matricule, montant). Présentation seulement.
+
+**Complément du même jour — « Moteurs de recherche » relu.** L'interrupteur est une carte qui montre l'état qu'il
+produit : œil barré et pastille « Masquée des moteurs » en vert, œil et « Visible par les moteurs » en ambre, avec une
+phrase qui change selon l'état. Les trois consignes (robots.txt, balise des pages, en-tête HTTP) deviennent trois
+cartes, chacune avec son icône et un état appliqué / non appliqué. Les outils de retrait d'une page déjà référencée
+(Google Search Console, Bing Webmaster Tools) sont des liens. Ce que le site sert — robots.txt et l'en-tête
+X-Robots-Tag — se lit dans deux encadrés côte à côte, chacun avec un bouton « Copier ». Présentation seulement.
+
+---
+
+# ADR-192 — Remises : une par facture, la plus avantageuse, sur la part patient
+
+**Status:** ACCEPTED (2026-09-25 — demande du propriétaire, quatre arbitrages explicites)
+
+Le CDC prévoit les remises sans en fixer les règles : les droits `discounts.view/create/approve` (§12), le
+reste à payer = prestations − paiements − « avoirs / remises autorisés » (§33.2), et « toute remise doit avoir
+un motif, un utilisateur, une date, et éventuellement une validation hiérarchique » (§34.2 règle 7). Rien sur le
+VIP, le personnel, les coupons ni le choix entre pourcentage et montant. `invoices.discount_amount` existait,
+toujours à 0 ; aucun des droits n'était enregistré.
+
+## Les arbitrages du propriétaire
+
+```text
+cumul            une seule remise par facture : la plus avantageuse pour le patient
+base             la part patient, après la mutuelle et la prise en charge Personnel
+personnel        la prise en charge de l'ADR-052 ne change pas ; la remise porte sur ce qui reste
+                 à sa charge (prestations non couvertes, dépassement du crédit Bloc)
+« par utilisateur »  un patient précis
+```
+
+**Amende l'ADR-133** (« le statut VIP ne change aucun tarif ; aucune remise n'est créée ») : une remise VIP
+réglée par site s'applique désormais. Le statut reste calculé, jamais stocké, et la remise ne vaut que si la
+catégorie VIP est active. **Respecte l'ADR-052** (aucune
+remise ne simule l'avantage Personnel : il reste une couverture ; la remise vient après) **et l'ADR-047** (la
+mutuelle paie toujours sa part contractuelle sur le tarif).
+
+## Quatre sources, une remise
+
+```text
+Patient   remise propre à un patient, en vigueur (patient_discounts) — décision de discounts.approve
+Personnel patient relié à la fiche d'un employé en poste (PatientStaffLink actif), règle du site
+VIP       patient VIP sur ce site (ADR-133), remise réglée avec les seuils VIP
+Coupon    code saisi à la Caisse (discount_coupons), valable aujourd'hui, non épuisé, non archivé
+```
+
+Chacune est un **pourcentage** (0 < x ≤ 100) ou un **montant** (> 0), à deux décimales
+(`DiscountType`, `DiscountRules`). Un montant est plafonné à la part patient : une facture ne devient jamais
+négative. `InvoiceDiscountResolver` liste celles auxquelles la facture a droit et retient la plus avantageuse ;
+à égalité, patient > personnel > VIP > coupon — un coupon qui n'apporte rien de plus n'est pas consommé. Rien
+n'est déduit d'un nom : chaque droit se lit sur un fait enregistré.
+
+## À la Caisse, avant tout paiement
+
+La fenêtre d'encaissement porte un bloc « Remise » (`InvoiceDiscountPanel`) : la meilleure remise, celles qui
+sont moins avantageuses, un champ de coupon (« Vérifier »), et « Appliquer ». Le serveur choisit et calcule ;
+le navigateur n'envoie qu'un code (`ApplyInvoiceDiscountAction`, `POST /invoices/{facture}/discount`,
+`discounts.create`). Une remise ne se pose ou ne se retire (`RemoveInvoiceDiscountAction`, `DELETE`) que sur
+une facture brouillon ou à encaisser **qui n'a encore rien reçu** — même règle que l'ajout d'une ligne
+(ADR-054). Une seule en vigueur par facture (`invoice_discounts.active_key` unique).
+
+```text
+trace       invoice_discounts : source, libellé (le motif), type, valeur, part patient, montant, auteur,
+            date ; une remise retirée reste, datée et signée ; le coupon retrouve son usage
+totaux      InvoiceDiscountTotals : discount_amount, total_amount = part − remise, balance recalculée
+ligne ajoutée  la remise suit la nouvelle part (un % se recalcule, un montant reste plafonné)
+à zéro      facture réglée sans paiement : statut COVERED (« Prise en charge »), comme une couverture à
+            100 % — aucun paiement ni reçu fabriqué ; retirer la remise la rend « À encaisser »
+audit       billing.discount.apply / billing.discount.remove, anciens et nouveaux montants
+```
+
+## Remise d'un patient
+
+Depuis son dossier, carte « Remises » : son statut (VIP, personnel) et sa remise propre. L'accorder ou
+l'annuler exige `discounts.approve` (`GrantPatientDiscountAction`, `CancelPatientDiscountAction`), avec un motif,
+une date de début (aujourd'hui par défaut) et une fin facultative. Jamais supprimée : annulée avec motif ; les
+factures qui l'ont reçue gardent leur remise (un instantané). Audit `patient.discount.grant/cancel`.
+
+## Réglages et coupons, depuis le portail
+
+Chaque règle se règle là où vit ce qui la déclenche, par l'API du site ; vide = aucune remise, jamais de
+valeur par défaut :
+
+```text
+remise VIP        module Patients VIP (/super-admin/patient-vip), avec les seuils qui font un patient VIP :
+                  patient_vip_settings.discount_type/value, mêmes droits patient_vip.view/update, même audit
+                  patient_vip.settings.update, mêmes règles côté portail et côté site
+                  (PatientVipSettingsController::rules()) ; sans effet si la catégorie est désactivée
+remise personnel  Paramètres › Remises : app_settings.staff_discount_type/value, enregistrés avec le reste
+```
+
+Un premier jet plaçait aussi la remise VIP dans `app_settings` : deux écrans auraient réglé le même patient
+VIP, l'un ses seuils, l'autre sa remise. Le module « Remises » n'en montre rien, pas même un rappel : elle vit
+dans Patients VIP, et seulement là. Les **coupons** se créent et s'archivent tout
+de suite (`/api/v1/super-admin/app-settings/coupons`, `discount_coupons.create/archive`) : code unique pour
+toujours, archives comprises ; validité et nombre d'utilisations facultatifs ; acteur central gardé
+(`external_*`). Sur la cible « Portail », le module dit de choisir un site : le portail n'émet aucune facture.
+
+## Droits
+
+```text
+discounts.view / create      RECEPTION (la Caisse applique en encaissant)
+discounts.view / approve     ADMINISTRATION (une remise durable est une dérogation habilitée)
+discount_coupons.view / create / archive   SUPER_ADMIN du portail (ADR-186)
+```
+
+Migration `2026_11_02_090000_create_discounts` (tables, colonnes de `app_settings` et `patient_vip_settings`,
+droits), à jouer sur chaque site et sur le portail.
+
+## Crédit du personnel
+
+Il existe déjà : c'est le crédit Bloc du module RH (ADR-052), registre immuable avec allocation manuelle.
+Rien n'y change. Sa période et son renouvellement restent à définir (ADR-052).
+
+## Signalé, non tranché
+
+```text
+application automatique   la remise se pose à la Caisse, en un clic ; la poser d'office à la création de
+                          la facture est à décider
+remise libre du caissier  non construite : une remise manuelle au-delà d'un seuil, validée par
+                          discounts.approve (§34.2 « validation hiérarchique »), est à décider
+rapports                  « facturé » lit total_amount, désormais net de remise ; un total des remises par
+                          période n'est pas encore affiché
+restauration d'un coupon  non prévue : un coupon archivé ne revient pas, on en crée un autre
+```

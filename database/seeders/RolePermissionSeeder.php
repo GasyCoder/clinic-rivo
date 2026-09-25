@@ -20,6 +20,10 @@ class RolePermissionSeeder extends Seeder
      */
     private const GRANTS = [
         'ADMINISTRATION' => [
+            // ADR-192 — une remise durable accordée à un patient est une dérogation habilitée.
+            'discounts.view', 'discounts.approve',
+            // ADR-190 — le RH demande l'adresse ; le Super Admin la crée.
+            'professional_emails.view', 'professional_emails.request',
             'employees.view', 'employees.create', 'employees.update',
             'employees.delete', 'employees.restore',
             'employees.import', 'employees.export', 'employees.print',
@@ -89,6 +93,8 @@ class RolePermissionSeeder extends Seeder
         'MAINTENANCE' => [],
         'RECEPTION' => [
             'reception.view',
+            // ADR-192 — la Caisse applique la remise en encaissant.
+            'discounts.view', 'discounts.create',
             // ADR-114 — l'accueil organise la sortie d'un patient transféré.
             'transfers.view', 'transfers.manage',
             'employees.patient_lookup',

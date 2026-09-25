@@ -11,7 +11,10 @@ use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\AppSettingsPresenter;
 use App\Services\SuperAdmin\PortalSiteApiClient;
+use App\Support\Numbering\EmployeeNumberFormat;
+use App\Support\Numbering\PatientNumberFormat;
 use App\Support\Settings\AppSettingsRules;
+use App\Support\Settings\ThemePresets;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -28,8 +31,23 @@ class AppSettingsController extends Controller
 {
     public const PORTAL = 'PORTAL';
 
-    public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter): Response
+    /**
+     * ADR-191 — les modules des paramètres, chacun sa page. La même liste, dans le
+     * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
+     * le premier s'ouvre quand on arrive sur « Paramètres ».
+     */
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'monnaie', 'remises', 'legal', 'direction', 'visibilite'];
+
+    /**
+     * La page d'un module. Sans module, le premier : comme dans les paramètres de
+     * ChatGPT ou de Claude, « Paramètres » ouvre directement ses réglages.
+     */
+    public function index(Request $request, PortalSiteApiClient $client, AppSettingsPresenter $presenter, ?string $section = null): Response|RedirectResponse
     {
+        if ($section === null) {
+            return redirect()->route('super-admin.settings.section', ['section' => self::SECTIONS[0], ...$request->query()]);
+        }
+
         $portal = [
             'site' => ['code' => self::PORTAL, 'name' => 'Portail Super Admin'],
             'kind' => 'portal',
@@ -44,6 +62,7 @@ class AppSettingsController extends Controller
             ->all();
 
         return Inertia::render('SuperAdmin/Settings/Index', [
+            'section' => $section,
             'targets' => [...$sites, $portal],
             'limits' => [
                 'baby_max_age' => AppSettingsRules::BABY_MAX_AGE_LIMIT,
@@ -61,6 +80,15 @@ class AppSettingsController extends Controller
                 'value' => $template->value,
                 'label' => $template->label(),
             ])->all(),
+            // ADR-191 — thèmes proposés et bornes de la numérotation : une seule source.
+            'themePresets' => ThemePresets::all(),
+            'numberingOptions' => [
+                'separators' => PatientNumberFormat::SEPARATORS,
+                'patient_digits' => [PatientNumberFormat::MIN_DIGITS, PatientNumberFormat::MAX_DIGITS],
+                'employee_digits' => [EmployeeNumberFormat::MIN_DIGITS, EmployeeNumberFormat::MAX_DIGITS],
+                'episode_digits' => [2, 4],
+                'defaults' => ['patient' => PatientNumberFormat::DEFAULTS, 'employee' => EmployeeNumberFormat::DEFAULTS],
+            ],
         ]);
     }
 
@@ -111,6 +139,41 @@ class AppSettingsController extends Controller
         }
 
         return $this->relay($client->deleteAppSettingAsset($target, $kind, $request->user()), AppSettings::assetMessage($kind, 'retiré'), 'file');
+    }
+
+    /**
+     * ADR-192 — un coupon se crée sur un site, jamais sur le portail : le portail
+     * n'émet aucune facture. Le site revalide tout et garde l'identité du Super
+     * Administrateur.
+     */
+    public function storeCoupon(Request $request, PortalSiteApiClient $client): RedirectResponse
+    {
+        $target = $this->siteTarget($request);
+        $validated = $request->validate(AppSettingsRules::coupon(), AppSettingsRules::couponMessages());
+
+        return $this->relay($client->createDiscountCoupon($target, $validated, $request->user()), 'Coupon créé.', 'code');
+    }
+
+    public function archiveCoupon(Request $request, string $coupon, PortalSiteApiClient $client): RedirectResponse
+    {
+        $target = $this->siteTarget($request);
+        $validated = $request->validate(
+            ['reason' => ['required', 'string', 'min:3', 'max:500']],
+            ['reason.required' => 'Indiquez pourquoi ce coupon est archivé.', 'reason.min' => 'Le motif tient en 3 caractères au moins.'],
+        );
+
+        return $this->relay($client->archiveDiscountCoupon($target, $coupon, $validated['reason'], $request->user()), 'Coupon archivé.', 'reason');
+    }
+
+    /** Un site, jamais le portail : les remises ne portent que sur les factures des sites. */
+    private function siteTarget(Request $request): string
+    {
+        $codes = collect(config('rivo.clinics', []))->pluck('code')->all();
+
+        return $request->validate(
+            ['site_code' => ['required', Rule::in($codes)]],
+            ['site_code.in' => 'Les coupons se créent sur un site : le portail n’émet aucune facture.'],
+        )['site_code'];
     }
 
     private function target(Request $request): string

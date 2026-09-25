@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\SuperAdmin;
 
+use App\Http\Controllers\Api\V1\SuperAdmin\PatientVipSettingsController as SitePatientVipSettingsController;
 use App\Http\Controllers\Controller;
 use App\Services\SuperAdmin\PortalSiteApiClient;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +13,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Seuils des patients VIP, site par site (ADR-133). Le portail ne lit ni
+ * Seuils des patients VIP et leur remise, site par site (ADR-133, ADR-192). Le portail ne lit ni
  * n'écrit jamais une base clinique : chaque appel passe par l'API du site.
  */
 class PatientVipSettingsController extends Controller
@@ -53,11 +54,8 @@ class PatientVipSettingsController extends Controller
     {
         return $request->validate([
             'site_code' => ['required', Rule::in(collect(config('rivo.clinics', []))->pluck('code')->all())],
-            'enabled' => ['required', 'boolean'],
-            'min_episodes' => ['required', 'integer', 'min:1', 'max:1000'],
-            'min_amount' => ['required', 'numeric', 'min:0', 'max:999999999999'],
-            'window_months' => ['required', 'integer', 'min:1', 'max:120'],
-        ]);
+            ...SitePatientVipSettingsController::rules(),
+        ], SitePatientVipSettingsController::messages());
     }
 
     /**

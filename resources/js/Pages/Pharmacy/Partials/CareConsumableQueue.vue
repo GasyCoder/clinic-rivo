@@ -21,6 +21,8 @@ import FormError from '@/Components/UI/FormError.vue';
 import { formatDateTime, formatRelativeTime } from '@/utilities/date';
 import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
 import { cn } from '@/lib/cn';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 const props = defineProps({
     careConsumables: { type: Object, required: true },
@@ -136,7 +138,7 @@ const confirmServe = () => {
     }
 
     router.post(
-        `/pharmacy/care-consumables/${serveTarget.value.uuid}/serve`,
+        pharmacyUrl(`/pharmacy/care-consumables/${serveTarget.value.uuid}/serve`),
         { lines },
         {
             preserveScroll: true,
@@ -195,13 +197,11 @@ const confirmServe = () => {
                             <span class="block text-2xl font-bold leading-none tabular-nums text-amber-600 dark:text-amber-300">{{ remainingUnits(request) }}</span>
                             <span class="mt-1 block text-[11px] text-muted-foreground">unité{{ remainingUnits(request) > 1 ? 's' : '' }} à sortir</span>
                         </p>
-                        <Button
-                            v-if="capabilities.can_serve_care_consumables"
-                            type="button"
-                            @click="openServeDialog(request)"
-                        >
-                            <Truck class="h-4 w-4" aria-hidden="true" />Servir et sortir le stock
-                        </Button>
+                        <SiteOnlyAction v-if="capabilities.can_serve_care_consumables" label="Servir et sortir le stock" size="default" variant="default">
+                            <Button type="button" @click="openServeDialog(request)">
+                                <Truck class="h-4 w-4" aria-hidden="true" />Servir et sortir le stock
+                            </Button>
+                        </SiteOnlyAction>
                     </div>
                 </div>
 

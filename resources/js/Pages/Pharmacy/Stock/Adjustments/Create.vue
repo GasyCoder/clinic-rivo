@@ -8,6 +8,7 @@ import EmptyState from '@/Components/UI/EmptyState.vue';
 import { Save } from 'lucide-vue-next';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
 import { formatDate } from '@/utilities/date';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -30,7 +31,7 @@ const selectedLot = computed(() => props.lots.find((lot) => lot.uuid === form.lo
 const inputClass = 'h-11 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-gray-800 dark:bg-gray-950 dark:text-white';
 const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-white';
 
-const submit = () => form.post('/pharmacy/stock/adjustments');
+const submit = () => form.post(pharmacyUrl('/pharmacy/stock/adjustments'));
 const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(key)}"]`)?.focus();
 </script>
 
@@ -38,7 +39,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
     <Head title="Corriger le stock" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Stock', href: '/pharmacy/stock' }, { label: 'Corriger le stock' }]" />
+        <Breadcrumb :items="[{ label: 'Stock', href: pharmacyUrl('/pharmacy/stock') }, { label: 'Corriger le stock' }]" />
 
         <div>
             <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Corriger le stock</h1>
@@ -87,7 +88,7 @@ const focusInvalidField = (key) => document.querySelector(`[name="${CSS.escape(k
             </label>
 
             <div class="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 dark:border-gray-900 sm:flex-row sm:justify-end">
-                <Button :as="Link" href="/pharmacy/stock" size="lg" variant="white-outline">Annuler</Button>
+                <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock')" size="lg" variant="white-outline">Annuler</Button>
                 <Button type="submit" size="lg" :disabled="form.processing"><Save class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Enregistrement…' : 'Enregistrer la correction' }}</span></Button>
             </div>
         </form>

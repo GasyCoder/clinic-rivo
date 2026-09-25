@@ -10,6 +10,7 @@ use App\Http\Controllers\Administration\HrReportController;
 use App\Http\Controllers\Administration\HrStructureController;
 use App\Http\Controllers\Administration\LeaveController;
 use App\Http\Controllers\Administration\PlanningController;
+use App\Http\Controllers\Administration\ProfessionalMailboxController;
 use App\Http\Controllers\Administration\StaffBlockCreditController;
 use App\Http\Controllers\AdministrationController;
 use Illuminate\Support\Facades\Route;
@@ -38,6 +39,20 @@ Route::get('/employees/create', [EmployeeController::class, 'create'])->name('em
 Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store')->middleware('can:employees.create');
 Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->name('employees.show')->middleware('can:employees.view')->withTrashed();
 Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit')->middleware('can:employees.update');
+// ADR-190 — l'adresse email professionnelle : le RH la demande, le Super Admin la crée depuis le portail.
+Route::post('/employees/{employee}/professional-mailbox', [ProfessionalMailboxController::class, 'store'])->name('employees.professional-mailbox.store')->middleware('can:professional_emails.request');
+Route::post('/professional-mailboxes/{mailbox}/cancel', [ProfessionalMailboxController::class, 'cancel'])->name('professional-mailboxes.cancel')->middleware('can:professional_emails.request');
+// ADR-190 (amendement du 2026-09-25) — la page RH des adresses du site. Créer, refuser, suspendre,
+// réactiver et renouveler le mot de passe suivent le droit accordé par le Super Admin.
+Route::get('/professional-emails', [ProfessionalMailboxController::class, 'index'])->name('professional-emails.index')->middleware('can:professional_emails.view');
+Route::post('/professional-emails/check', [ProfessionalMailboxController::class, 'check'])->name('professional-emails.check')->middleware('can:professional_emails.create');
+Route::post('/professional-emails/prepare', [ProfessionalMailboxController::class, 'prepare'])->name('professional-emails.prepare');
+Route::post('/professional-emails/direct', [ProfessionalMailboxController::class, 'direct'])->name('professional-emails.direct')->middleware('can:professional_emails.create');
+Route::post('/professional-emails/{mailbox}/create', [ProfessionalMailboxController::class, 'create'])->name('professional-emails.create')->middleware('can:professional_emails.create');
+Route::post('/professional-emails/{mailbox}/reject', [ProfessionalMailboxController::class, 'reject'])->name('professional-emails.reject')->middleware('can:professional_emails.reject');
+Route::post('/professional-emails/{mailbox}/suspend', [ProfessionalMailboxController::class, 'suspend'])->name('professional-emails.suspend')->middleware('can:professional_emails.deactivate');
+Route::post('/professional-emails/{mailbox}/reactivate', [ProfessionalMailboxController::class, 'reactivate'])->name('professional-emails.reactivate')->middleware('can:professional_emails.activate');
+Route::post('/professional-emails/{mailbox}/password', [ProfessionalMailboxController::class, 'resetPassword'])->name('professional-emails.password')->middleware('can:professional_emails.update');
 Route::get('/employees/{employee}/print', [EmployeeController::class, 'print'])->name('employees.print')->middleware('can:employees.print')->withTrashed();
 Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update')->middleware('can:employees.update');
 Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy')->middleware('can:employees.delete');

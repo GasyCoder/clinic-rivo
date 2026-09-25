@@ -2,6 +2,7 @@
 
 namespace App\Services\Catalog;
 
+use App\Models\RemoteSuperAdmin;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -36,6 +37,13 @@ final readonly class CatalogActor
 
     public static function fromUser(User $user): self
     {
+        // ADR-189 — le Super Admin du portail, venu par l'API d'un site (ADR-187) :
+        // il n'a pas de compte local. Il agit comme un acteur distant, attribué
+        // par son UUID et son nom, avec les seuls droits transmis par le portail.
+        if ($user instanceof RemoteSuperAdmin) {
+            return new self(null, $user->externalUuid(), $user->name, $user->effectivePermissionNames()->values()->all());
+        }
+
         return new self($user, null, null, []);
     }
 

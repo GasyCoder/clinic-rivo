@@ -4,6 +4,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import { FileSpreadsheet } from 'lucide-vue-next';
 import CatalogImportPreview from '@/Components/Pharmacy/CatalogImportPreview.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -19,9 +20,9 @@ defineProps({
 
     <div class="w-full space-y-5">
         <Breadcrumb :items="[
-            { label: 'Fournisseurs', href: '/pharmacy/suppliers' },
-            { label: supplier.name, href: `/pharmacy/suppliers/${supplier.uuid}` },
-            { label: 'Catalogues', href: `/pharmacy/suppliers/${supplier.uuid}/catalogs` },
+            { label: 'Fournisseurs', href: pharmacyUrl('/pharmacy/suppliers') },
+            { label: supplier.name, href: pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}`) },
+            { label: 'Catalogues', href: pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}/catalogs`) },
             { label: 'Vérifier avant import' },
         ]" />
 
@@ -35,8 +36,8 @@ defineProps({
 
         <CatalogImportPreview :catalog="catalog"
             :preview="preview"
-            :import-url="`/pharmacy/suppliers/${supplier.uuid}/catalogs/${catalog.uuid}/import`"
-            :cancel-href="`/pharmacy/suppliers/${supplier.uuid}/catalogs`"
+            :import-url="pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}/catalogs/${catalog.uuid}/import`)"
+            :cancel-href="pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}/catalogs`)"
         />
     </div>
 </template>

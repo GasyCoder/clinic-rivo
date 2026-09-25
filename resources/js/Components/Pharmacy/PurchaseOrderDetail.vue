@@ -11,6 +11,7 @@ import { Ban, CheckCheck, FileText, Info, Mail, Package, PackageX, Paperclip, Pe
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney, statusTone } from '@/utilities/pharmacyStatus';
 import { openSupplierOrderMail } from '@/utilities/supplierOrderMail';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 import { usePage } from '@inertiajs/vue3';
 
 /**
@@ -166,7 +167,7 @@ const revertShortage = (line) => router.delete(props.links.shortage(line.id), { 
                 -->
                 <div class="flex flex-1 flex-wrap items-center gap-2 sm:justify-end">
                     <Button v-if="can.submit && order.status === 'DRAFT'" size="rg" @click="sending = true"><Send class="h-4 w-4" />Envoyer la commande</Button>
-                    <Button v-if="can.receive && links.receive && awaitingGoods()" :as="Link" :href="links.receive" size="rg"><Package class="h-4 w-4" />Réceptionner</Button>
+                    <SiteOnlyAction v-if="can.receive && links.receive && awaitingGoods()" label="Réceptionner" size="rg" variant="default"><Button :as="Link" :href="links.receive" size="rg"><Package class="h-4 w-4" />Réceptionner</Button></SiteOnlyAction>
                     <Button v-if="can.update && links.edit && order.status === 'DRAFT'" :as="Link" :href="links.edit" size="rg" variant="white-outline"><Pencil class="h-4 w-4" />Modifier</Button>
                     <Button v-if="can.create_invoice && links.newInvoice && order.status !== 'CANCELLED' && order.status !== 'DRAFT'" :as="Link" :href="links.newInvoice" size="rg" variant="white-outline"><FileText class="h-4 w-4" />Enregistrer la facture</Button>
                     <Button v-if="canMail" size="rg" variant="white-outline" type="button" :title="`Écrire à ${supplierEmail}`" @click="mailToSupplier()"><Mail class="h-4 w-4" />Envoyer par e-mail</Button>
@@ -241,14 +242,15 @@ const revertShortage = (line) => router.delete(props.links.shortage(line.id), { 
                                     <span class="inline-flex items-center gap-1 font-semibold"><PackageX class="h-3.5 w-3.5" />En rupture</span>
                                     <span class="text-muted-foreground">{{ line.shortage.reason }}</span>
                                     <span v-if="line.shortage.by" class="text-muted-foreground">· {{ line.shortage.by }}, {{ formatDate(line.shortage.at) }}</span>
-                                    <button
-                                        v-if="can.shortage && links.shortage && order.status !== 'CANCELLED'"
-                                        type="button"
-                                        class="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
-                                        @click="revertShortage(line)"
-                                    >
-                                        <Undo2 class="h-3 w-3" />Le fournisseur le livre finalement
-                                    </button>
+                                    <SiteOnlyAction v-if="can.shortage && links.shortage && order.status !== 'CANCELLED'" label="Le fournisseur le livre finalement" size="xs" variant="ghost">
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                                            @click="revertShortage(line)"
+                                        >
+                                            <Undo2 class="h-3 w-3" />Le fournisseur le livre finalement
+                                        </button>
+                                    </SiteOnlyAction>
                                 </p>
                             </td>
                             <td class="px-4 py-3.5 text-end tabular-nums">{{ line.quantity_ordered }}</td>

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
-import { Check, Crown, ShieldCheck, Users } from 'lucide-vue-next';
+import { Ban, Banknote, BadgePercent, Check, Crown, Percent, ShieldCheck, Users } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -9,6 +9,8 @@ import Card from '@/Components/Shadcn/Card.vue';
 import Checkbox from '@/Components/Shadcn/Checkbox.vue';
 import FormField from '@/Components/Shadcn/FormField.vue';
 import Input from '@/Components/Shadcn/Input.vue';
+import Select from '@/Components/Shadcn/Select.vue';
+import OptionTile from '@/Components/Settings/OptionTile.vue';
 import FormError from '@/Components/UI/FormError.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
@@ -22,6 +24,10 @@ defineOptions({ layout: AppLayout });
  * ici pour chaque site ; le statut lui-même n'est jamais saisi, il se recalcule
  * à chaque lecture. Ce que ces seuils donnent aujourd'hui s'affiche avant
  * d'enregistrer : régler un seuil à l'aveugle n'aurait pas de sens.
+ *
+ * ADR-192 — la remise VIP se règle ici aussi, avec les seuils : facultative, un
+ * pourcentage ou un montant sur la part à la charge du patient, appliquée par la
+ * Caisse si elle est la plus avantageuse.
  */
 const props = defineProps({
     sites: { type: Array, default: () => [] },
@@ -35,7 +41,21 @@ const selected = computed(() => props.sites.find((site) => site.site.code === se
 // Les valeurs viennent du site lui-même : chacun répond pour ses propres seuils.
 const current = computed(() => selected.value?.data ?? null);
 
-const form = useForm({ site_code: '', enabled: true, min_episodes: 5, min_amount: 1000000, window_months: 12 });
+const form = useForm({ site_code: '', enabled: true, min_episodes: 5, min_amount: 1000000, window_months: 12, discount_type: '', discount_value: '' });
+
+const DISCOUNT_TYPES = [
+    { value: '', label: 'Aucune remise', icon: Ban },
+    { value: 'PERCENT', label: 'Pourcentage', icon: Percent },
+    { value: 'AMOUNT', label: 'Montant fixe', icon: Banknote },
+];
+const discountIcon = (value) => DISCOUNT_TYPES.find((type) => type.value === (value ?? ''))?.icon ?? Ban;
+/** « Aucune remise » vide aussi la valeur : les deux vont ensemble. */
+const chooseDiscountType = (value) => {
+    form.discount_type = value || '';
+    if (! value) form.discount_value = '';
+};
+/** « 10 », jamais « 10.00 » : la même valeur ne compte pas deux fois comme modifiée. */
+const plain = (value) => (value === null || value === undefined || value === '' ? '' : String(Number(value)));
 
 const load = () => {
     const data = current.value;
@@ -50,6 +70,8 @@ const load = () => {
     form.min_episodes = data?.min_episodes ?? 5;
     form.min_amount = data?.min_amount !== null && data?.min_amount !== undefined ? Number(data.min_amount) : 1000000;
     form.window_months = data?.window_months ?? 12;
+    form.discount_type = data?.discount_type ?? '';
+    form.discount_value = plain(data?.discount_value);
 };
 
 watch(selectedCode, load, { immediate: true });
@@ -65,7 +87,9 @@ const dirty = computed(() => {
     return form.enabled !== Boolean(data.enabled)
         || Number(form.min_episodes) !== Number(data.min_episodes)
         || Number(form.min_amount) !== Number(data.min_amount)
-        || Number(form.window_months) !== Number(data.window_months);
+        || Number(form.window_months) !== Number(data.window_months)
+        || (form.discount_type || '') !== (data.discount_type ?? '')
+        || plain(form.discount_value) !== plain(data.discount_value);
 });
 
 // --- Aperçu : ce que ces seuils donneraient sur ce site, sans rien écrire.
@@ -148,6 +172,8 @@ const submit = () => {
         min_episodes: Number(data.min_episodes),
         min_amount: Number(data.min_amount),
         window_months: Number(data.window_months),
+        discount_type: data.discount_type || null,
+        discount_value: data.discount_type && data.discount_value !== '' ? Number(data.discount_value) : null,
     })).put('/super-admin/patient-vip', { preserveScroll: true });
 };
 </script>
@@ -235,6 +261,30 @@ const submit = () => {
                         jamais un montant facturé ni une prise en charge de mutuelle. Les passages annulés ne comptent pas.
                     </p>
 
+                    <!-- ADR-192 — la remise VIP, réglée avec les seuils. -->
+                    <div class="space-y-4 rounded-lg border border-border p-4">
+                        <div>
+                            <h3 class="flex items-center gap-2 text-sm font-semibold text-foreground"><BadgePercent class="h-4 w-4 text-primary" />Remise VIP</h3>
+                            <p class="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                Facultative. Calculée sur la part à la charge du patient ; la Caisse l’applique si c’est la plus avantageuse (une seule remise par facture).
+                            </p>
+                        </div>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <FormField label="Remise" :error="form.errors.discount_type">
+                                <Select id="vip-discount-type" :model-value="form.discount_type || ''" :options="DISCOUNT_TYPES" class="w-full" :disabled="!canUpdate" @update:model-value="chooseDiscountType">
+                                    <template #leading="{ option }"><OptionTile><component :is="discountIcon(option.value)" class="h-3.5 w-3.5" /></OptionTile></template>
+                                </Select>
+                            </FormField>
+                            <FormField v-if="form.discount_type" label="Valeur" required :error="form.errors.discount_value">
+                                <div class="relative">
+                                    <Input id="vip-discount-value" v-model="form.discount_value" type="number" min="0" :max="form.discount_type === 'PERCENT' ? 100 : undefined" step="0.01" class="pe-10" :disabled="!canUpdate" />
+                                    <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-sm text-muted-foreground">{{ form.discount_type === 'PERCENT' ? '%' : 'Ar' }}</span>
+                                </div>
+                            </FormField>
+                        </div>
+                        <p v-if="form.discount_type && !form.enabled" class="text-xs text-amber-700 dark:text-amber-300">La catégorie VIP est désactivée : cette remise ne s’appliquera à personne.</p>
+                    </div>
+
                     <FormError :message="form.errors.site_code" />
 
                     <div v-if="canUpdate" class="flex justify-end gap-3 border-t border-border pt-4">
@@ -265,6 +315,7 @@ const submit = () => {
                             <span class="font-semibold tabular-nums">{{ number(current.vip_count) }}</span>
                             patient{{ current.vip_count > 1 ? 's' : '' }} VIP
                             <span class="block text-xs text-muted-foreground">{{ current.enabled ? current.rule : 'Désactivé' }}</span>
+                            <span class="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><BadgePercent class="h-3.5 w-3.5" />{{ current.discount ? `Remise VIP : ${current.discount}` : 'Aucune remise VIP' }}</span>
                             <span v-if="current.updated_at" class="mt-1 block text-xs text-muted-foreground">
                                 Modifié le {{ formatDate(current.updated_at) }}<template v-if="current.updated_by"> par {{ current.updated_by }}</template>
                             </span>

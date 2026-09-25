@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Actions\User\ChangeOwnPasswordAction;
 use App\Http\Requests\UpdateOwnPasswordRequest;
 use App\Models\Permission;
+use App\Support\Settings\UiOptions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -42,6 +44,35 @@ class ProfileController extends Controller
                 'label' => $labels[$name] ?? $name,
             ])->all(),
         ]);
+    }
+
+    /**
+     * ADR-191 — la taille du texte, les animations et le contraste de ce compte.
+     * Une valeur vide reprend celle du site. Gardé sur le compte, pas sur le poste :
+     * un poste est partagé, et les réglages d'une personne ne suivent pas la suivante.
+     */
+    public function updateAppearance(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'font_size' => ['nullable', 'integer', Rule::in(UiOptions::FONT_SIZES)],
+            'motion' => ['nullable', Rule::in(UiOptions::MOTIONS)],
+            'contrast' => ['nullable', Rule::in(UiOptions::CONTRASTS)],
+        ], [
+            'font_size.in' => 'Choisissez une taille proposée.',
+            'motion.in' => 'Choisissez un réglage d’animation proposé.',
+            'contrast.in' => 'Choisissez un niveau de contraste proposé.',
+        ]);
+
+        $preferences = [];
+        foreach (UiOptions::PERSONAL as $key) {
+            if (($value = UiOptions::clean($key, $data[$key] ?? null)) !== null) {
+                $preferences[$key] = $value;
+            }
+        }
+
+        $request->user()->forceFill(['ui_preferences' => $preferences ?: null])->save();
+
+        return back()->with('status', $preferences ? 'Apparence enregistrée.' : 'Apparence du site rétablie.');
     }
 
     public function updatePassword(UpdateOwnPasswordRequest $request, ChangeOwnPasswordAction $action): RedirectResponse

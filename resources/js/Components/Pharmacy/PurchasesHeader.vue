@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import PageHeader from '@/Components/UI/PageHeader.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 /**
  * ADR-098 — « Achats »: orders, goods awaiting reception, receptions and
@@ -14,10 +15,10 @@ const props = defineProps({
 });
 
 const tabs = computed(() => [
-    { key: 'orders', label: 'Commandes', href: '/pharmacy/purchase-orders', show: props.purchases.can?.orders, count: props.purchases.counts?.orders },
-    { key: 'to-receive', label: 'À réceptionner', href: '/pharmacy/purchase-orders?status=TO_RECEIVE', show: props.purchases.can?.orders, count: props.purchases.counts?.to_receive, highlight: true },
-    { key: 'receipts', label: 'Réceptions', href: '/pharmacy/receipts', show: props.purchases.can?.receipts, count: props.purchases.counts?.receipts },
-    { key: 'invoices', label: 'Factures fournisseurs', href: '/pharmacy/supplier-invoices', show: props.purchases.can?.invoices, count: props.purchases.counts?.invoices },
+    { key: 'orders', label: 'Commandes', href: pharmacyUrl('/pharmacy/purchase-orders'), show: props.purchases.can?.orders, count: props.purchases.counts?.orders },
+    { key: 'to-receive', label: 'À réceptionner', href: pharmacyUrl('/pharmacy/purchase-orders?status=TO_RECEIVE'), show: props.purchases.can?.orders, count: props.purchases.counts?.to_receive, highlight: true },
+    { key: 'receipts', label: 'Réceptions', href: pharmacyUrl('/pharmacy/receipts'), show: props.purchases.can?.receipts, count: props.purchases.counts?.receipts },
+    { key: 'invoices', label: 'Factures fournisseurs', href: pharmacyUrl('/pharmacy/supplier-invoices'), show: props.purchases.can?.invoices, count: props.purchases.counts?.invoices },
 ].filter((tab) => tab.show));
 </script>
 

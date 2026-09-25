@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import {
     ArrowUpDown,
-    CalendarClock,
     CalendarPlus,
     Check,
     ChevronDown,
@@ -14,9 +13,7 @@ import {
     Move,
     RotateCcw,
     ShieldCheck,
-    SlidersHorizontal,
     UserPlus,
-    Users,
 } from 'lucide-vue-next';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -28,7 +25,7 @@ import { copyLayout, locate, moveCard, neighbourColumn, normalizeLayout, sameLay
 import { HR_FIGURE_TONES } from '@/utilities/hrFigures';
 import { HR_SITE_BASE } from '@/utilities/hrPath';
 import { hrContext, hrUrl } from '@/utilities/hrUrl';
-import { hrSections } from '@/utilities/hrSections';
+import { HR_SECTION_GROUPS, hrSections } from '@/utilities/hrSections';
 
 defineOptions({ layout: AppLayout });
 
@@ -64,6 +61,7 @@ const DETAILS = {
     'hr-employees': { description: 'Dossiers du personnel', tone: 'primary' },
     'hr-contracts': { description: 'CDI, CDD, stages…', tone: 'sky', pending: 'contracts_ending_soon', pendingLabel: 'finissent ≤ 30 j' },
     'hr-documents': { description: 'Attestations et courriers', tone: 'violet' },
+    'hr-professional-emails': { description: 'Adresses @domaine du personnel', tone: 'sky' },
     'hr-attendance': { description: 'Entrées et sorties', tone: 'emerald', pending: 'open_attendance', pendingLabel: 'sans sortie' },
     'hr-leave': { description: 'Demandes et décisions', tone: 'amber', pending: 'pending_leave', pendingLabel: 'à décider' },
     'hr-planning': { description: 'Créneaux des équipes', tone: 'violet' },
@@ -74,11 +72,8 @@ const DETAILS = {
     'hr-settings': { description: 'Contrats, congés, attestations', tone: 'slate' },
 };
 
-const GROUPS = [
-    { key: 'people', label: 'Personnel', icon: Users, codes: ['hr-employees', 'hr-contracts', 'hr-documents'] },
-    { key: 'time', label: 'Temps de travail', icon: CalendarClock, codes: ['hr-attendance', 'hr-leave', 'hr-planning'] },
-    { key: 'steering', label: 'Pilotage', icon: SlidersHorizontal, codes: ['hr-reports', 'hr-block-credit', 'hr-departments', 'hr-job-titles', 'hr-settings'] },
-];
+// Les thèmes sont ceux de la barre RH du portail : une seule liste (hrSections).
+const GROUPS = HR_SECTION_GROUPS;
 
 const TONES = { ...HR_FIGURE_TONES, slate: 'bg-muted text-muted-foreground' };
 

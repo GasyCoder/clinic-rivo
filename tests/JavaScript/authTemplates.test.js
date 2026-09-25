@@ -73,9 +73,20 @@ test('the profile page follows the site template, shadcn only', () => {
 
 test('the settings page chooses the templates and the background', () => {
     const page = read('resources/js/Pages/SuperAdmin/Settings/Index.vue');
+    const screens = read('resources/js/Components/Settings/ScreenTemplates.vue');
 
-    assert.match(page, /id="reglages-ecrans"/);
-    assert.match(page, /@click="form\.auth_template = option\.value"/);
-    assert.match(page, /@click="form\.profile_template = option\.value"/);
-    assert.match(page, /kind="background"/);
+    assert.match(page, /<ScreenTemplates\b/);
+    assert.match(screens, /<SettingsSection id="ecrans"/);
+    // Le choix d'un modèle est un groupe radio shadcn : flèches du clavier, un seul choix.
+    assert.match(screens, /<RadioGroup v-model="form\.auth_template"/);
+    assert.match(screens, /<RadioGroup v-model="form\.profile_template"/);
+    assert.equal(screens.match(/<RadioGroupItem :value="option\.value" class="sr-only" \/>/g).length, 2);
+    assert.match(screens, /kind="background"/);
+    // Section allégée : des vignettes schématiques (la photo ne s'affiche qu'une fois, dans sa ligne),
+    // la description du modèle choisi écrite une seule fois, une question par ligne.
+    assert.doesNotMatch(screens, /<img\b/, 'aucune photo répétée dans les vignettes');
+    assert.equal(screens.match(/<SettingsAssetField\b/g).length, 1);
+    assert.match(screens, /chosenAuth\.label/);
+    assert.match(screens, /chosenProfile\.label/);
+    assert.equal(screens.match(/<SettingsField\b/g).length, 3, 'trois champs : connexion, image de fond, « Mon profil »');
 });

@@ -16,6 +16,7 @@ import StockEntryTable from '@/Components/Pharmacy/StockEntryTable.vue';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -262,7 +263,7 @@ const submit = () => {
             sale_price: salePrice(row),
             sale_name: saleName(row),
         })),
-    })).post('/pharmacy/stock/entries/batch', {
+    })).post(pharmacyUrl('/pharmacy/stock/entries/batch'), {
         preserveScroll: true,
         onSuccess: () => { confirming.value = false; },
         onError: () => { confirming.value = false; },
@@ -274,7 +275,7 @@ const submit = () => {
     <Head title="Entrée en stock" />
 
     <div class="w-full space-y-6 pb-28">
-        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: '/pharmacy/stock' }, { label: 'Entrée en stock' }]" />
+        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: pharmacyUrl('/pharmacy/stock') }, { label: 'Entrée en stock' }]" />
 
         <PageHeader
             eyebrow="Pharmacie"
@@ -284,7 +285,7 @@ const submit = () => {
             tone="emerald"
         >
             <template #actions>
-                <Button :as="Link" href="/pharmacy/purchase-orders?status=TO_RECEIVE" variant="outline"><Truck class="h-4 w-4" />Commandes à réceptionner</Button>
+                <Button :as="Link" :href="pharmacyUrl('/pharmacy/purchase-orders?status=TO_RECEIVE')" variant="outline"><Truck class="h-4 w-4" />Commandes à réceptionner</Button>
             </template>
         </PageHeader>
 
@@ -308,7 +309,7 @@ const submit = () => {
             <p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
                 Le stock n’entre que depuis une livraison réceptionnée : réceptionnez d’abord la commande, ses produits arriveront ici déjà remplis.
             </p>
-            <Button :as="Link" href="/pharmacy/purchase-orders?status=TO_RECEIVE" variant="outline" class="mt-4"><Truck class="h-4 w-4" />Commandes à réceptionner</Button>
+            <Button :as="Link" :href="pharmacyUrl('/pharmacy/purchase-orders?status=TO_RECEIVE')" variant="outline" class="mt-4"><Truck class="h-4 w-4" />Commandes à réceptionner</Button>
         </section>
 
         <template v-else>

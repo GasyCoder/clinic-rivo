@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\SuperAdmin;
 
+use App\Http\Controllers\SuperAdmin\AppSettingsController;
 use App\Models\AppSetting;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
@@ -11,6 +13,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -54,7 +57,7 @@ class AppSettingsPortalTest extends TestCase
         ]);
 
         $this->actingAs($this->superAdmin)
-            ->get('/super-admin/settings')
+            ->get('/super-admin/settings/identite')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('SuperAdmin/Settings/Index')
@@ -68,6 +71,45 @@ class AppSettingsPortalTest extends TestCase
                 ->where('limits.child_max_age', 20));
 
         Http::assertSent(fn ($request) => str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'settings.view'));
+    }
+
+    /** ADR-191 — « Paramètres » ouvre le premier module ; chaque module a sa page, les mêmes données, son propre enregistrement. */
+    public function test_settings_open_the_first_module_and_each_module_has_its_own_page(): void
+    {
+        Http::fake(['*' => Http::response(['data' => $this->sitePayload('M', 'Mampikony')])]);
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/settings')->assertRedirect('/super-admin/settings/identite');
+        $this->actingAs($this->superAdmin)->get('/super-admin/settings?site=A')->assertRedirect('/super-admin/settings/identite?site=A');
+
+        foreach (AppSettingsController::SECTIONS as $section) {
+            $this->actingAs($this->superAdmin)
+                ->get("/super-admin/settings/{$section}?site=M")
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->component('SuperAdmin/Settings/Index')
+                    ->where('section', $section)
+                    ->has('targets', 3)
+                    ->has('themePresets.rivo')
+                    ->has('numberingOptions.separators'));
+        }
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/settings/inconnu')->assertNotFound();
+    }
+
+    public function test_a_module_page_needs_the_same_right_as_the_home_page(): void
+    {
+        // Un DENY individuel l'emporte sur le socle du Super Admin (ADR-033).
+        DB::table('user_permissions')->insert([
+            'user_id' => $this->superAdmin->id,
+            'permission_id' => Permission::query()->where('name', 'settings.view')->value('id'),
+            'effect' => 'deny',
+            'source' => 'MANUAL',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->superAdmin)->get('/super-admin/settings')->assertForbidden();
+        $this->actingAs($this->superAdmin)->get('/super-admin/settings/theme')->assertForbidden();
     }
 
     public function test_the_former_workspace_address_leads_to_the_settings(): void

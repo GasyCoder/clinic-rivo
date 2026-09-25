@@ -23,6 +23,8 @@ import { formatDate } from '@/utilities/date';
 import { printMedicineLabels } from '@/utilities/medicineLabels';
 import { cn } from '@/lib/cn';
 import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -63,7 +65,7 @@ const openPricing = (medicine) => {
 };
 
 const savePrice = () => {
-    priceForm.put(`/pharmacy/medicines/${pricing.value.uuid}/sale-price`, {
+    priceForm.put(pharmacyUrl(`/pharmacy/medicines/${pricing.value.uuid}/sale-price`), {
         preserveScroll: true,
         onSuccess: () => { pricing.value = null; },
     });
@@ -122,7 +124,7 @@ const visible = computed(() => {
 
 const selectStatus = (value) => {
     status.value = value;
-    router.replace({ url: value === 'ALL' ? '/pharmacy/stock' : `/pharmacy/stock?status=${value}`, preserveState: true, preserveScroll: true });
+    router.replace({ url: value === 'ALL' ? pharmacyUrl('/pharmacy/stock') : pharmacyUrl(`/pharmacy/stock?status=${value}`), preserveState: true, preserveScroll: true });
 };
 
 const TILE = {
@@ -134,7 +136,7 @@ const TILE = {
     NEVER_RECEIVED: { tone: 'sky', badge: 'Jamais reçu' },
 };
 const tile = (medicine) => (showStock.value ? TILE[medicine.status] : null) ?? { tone: medicine.active ? 'primary' : 'slate', badge: null };
-const tileHref = (medicine) => (showStock.value ? `/pharmacy/stock/${medicine.uuid}` : (props.capabilities.can_update_medicine ? `/pharmacy/medicines/${medicine.uuid}/edit` : null));
+const tileHref = (medicine) => (showStock.value ? pharmacyUrl(`/pharmacy/stock/${medicine.uuid}`) : (props.capabilities.can_update_medicine ? pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}/edit`) : null));
 
 // QR labels: tick medicines (or all the visible ones), then print one sheet.
 const selected = ref([]);
@@ -155,7 +157,7 @@ const printLabels = async (list) => {
 const printSelection = () => printLabels(medicines.value.filter((medicine) => selected.value.includes(medicine.uuid)));
 
 const importForm = useForm({ file: null });
-const submitImport = () => importForm.post('/pharmacy/setup/medicines/import', {
+const submitImport = () => importForm.post(pharmacyUrl('/pharmacy/setup/medicines/import'), {
     preserveScroll: true,
     forceFormData: true,
     onSuccess: () => importForm.reset(),
@@ -184,21 +186,27 @@ const summaryCards = computed(() => (showStock.value ? [
             tone="emerald"
         >
             <template #actions>
-                <Button v-if="capabilities.can_adjust_stock && capabilities.can_view_lots" :as="Link" href="/pharmacy/stock/inventory" size="rg" variant="white-outline">
-                    <ListChecks class="h-4 w-4" /><span class="ms-2">Inventaire</span>
-                </Button>
-                <Button v-if="capabilities.can_adjust_stock" :as="Link" href="/pharmacy/stock/adjustments/create" size="rg" variant="white-outline">
-                    <Pencil class="h-4 w-4" /><span class="ms-2">Corriger</span>
-                </Button>
-                <Button v-if="capabilities.can_create_medicine" :as="Link" href="/pharmacy/medicines/create" size="rg" variant="white-outline">
+                <SiteOnlyAction v-if="capabilities.can_adjust_stock && capabilities.can_view_lots" label="Inventaire" size="rg" variant="white-outline">
+                    <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock/inventory')" size="rg" variant="white-outline">
+                        <ListChecks class="h-4 w-4" /><span class="ms-2">Inventaire</span>
+                    </Button>
+                </SiteOnlyAction>
+                <SiteOnlyAction v-if="capabilities.can_adjust_stock" label="Corriger" size="rg" variant="white-outline">
+                    <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock/adjustments/create')" size="rg" variant="white-outline">
+                        <Pencil class="h-4 w-4" /><span class="ms-2">Corriger</span>
+                    </Button>
+                </SiteOnlyAction>
+                <Button v-if="capabilities.can_create_medicine" :as="Link" :href="pharmacyUrl('/pharmacy/medicines/create')" size="rg" variant="white-outline">
                     <Plus class="h-4 w-4" /><span class="ms-2">Nouveau médicament</span>
                 </Button>
                 <!-- ADR-182 — le stock n'entre que depuis une livraison
                      réceptionnée : le bouton dit ce qui attend d'être rangé. -->
-                <Button v-if="capabilities.can_record_entry" :as="Link" href="/pharmacy/stock/entries/create" size="rg" title="Ranger au stock ce qui a été réceptionné">
-                    <Package class="h-4 w-4" /><span class="ms-2">Entrée en stock</span>
-                    <span v-if="awaitingStockCount" class="ms-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold tabular-nums">{{ formatNumber(awaitingStockCount) }} à ranger</span>
-                </Button>
+                <SiteOnlyAction v-if="capabilities.can_record_entry" :label="awaitingStockCount ? `Entrée en stock · ${formatNumber(awaitingStockCount)} à ranger` : 'Entrée en stock'" size="rg" variant="default">
+                    <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock/entries/create')" size="rg" title="Ranger au stock ce qui a été réceptionné">
+                        <Package class="h-4 w-4" /><span class="ms-2">Entrée en stock</span>
+                        <span v-if="awaitingStockCount" class="ms-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold tabular-nums">{{ formatNumber(awaitingStockCount) }} à ranger</span>
+                    </Button>
+                </SiteOnlyAction>
             </template>
         </PageHeader>
 
@@ -304,7 +312,7 @@ const summaryCards = computed(() => (showStock.value ? [
                     @toggle="toggle(medicine.uuid)"
                 >
                     <template #actions>
-                        <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Pencil class="h-4 w-4" /></Button>
+                        <Button v-if="capabilities.can_update_medicine" :as="Link" :href="pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}/edit`)" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Pencil class="h-4 w-4" /></Button>
                         <Button size="sm" variant="white-outline" type="button" :title="`Étiquette QR de ${medicine.name}`" @click="printLabels([medicine])"><QrCode class="h-4 w-4" /></Button>
                     </template>
                 </ExplorerTile>
@@ -360,9 +368,9 @@ const summaryCards = computed(() => (showStock.value ? [
                             </td>
                             <td class="px-5 py-3.5">
                                 <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                                    <Button v-if="showStock" :as="Link" :href="`/pharmacy/stock/${medicine.uuid}`" size="sm" variant="white-outline">Lots</Button>
+                                    <Button v-if="showStock" :as="Link" :href="pharmacyUrl(`/pharmacy/stock/${medicine.uuid}`)" size="sm" variant="white-outline">Lots</Button>
                                     <Button v-if="capabilities.can_set_sale_price && medicine.active" size="sm" :variant="medicine.sale_price ? 'white-outline' : 'primary'" type="button" :title="`Prix de vente de ${medicine.name}`" @click="openPricing(medicine)">Prix</Button>
-                                    <Button v-if="capabilities.can_update_medicine" :as="Link" :href="`/pharmacy/medicines/${medicine.uuid}/edit`" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Pencil class="h-4 w-4" /></Button>
+                                    <Button v-if="capabilities.can_update_medicine" :as="Link" :href="pharmacyUrl(`/pharmacy/medicines/${medicine.uuid}/edit`)" size="sm" variant="white-outline" :title="`Modifier ${medicine.name}`"><Pencil class="h-4 w-4" /></Button>
                                     <Button size="sm" variant="white-outline" type="button" :title="`Étiquette QR de ${medicine.name}`" @click="printLabels([medicine])"><QrCode class="h-4 w-4" /></Button>
                                 </div>
                             </td>
@@ -384,7 +392,7 @@ const summaryCards = computed(() => (showStock.value ? [
                 <MedicineFamilies
                     :categories="categories"
                     :can="{ create: capabilities.can_create_category, update: capabilities.can_update_category, delete: capabilities.can_archive_category, restore: capabilities.can_restore_category }"
-                    base-url="/pharmacy/setup/categories"
+                    :base-url="pharmacyUrl('/pharmacy/setup/categories')"
                     :selected-name="family"
                     @select="family = $event"
                 />
@@ -398,7 +406,7 @@ const summaryCards = computed(() => (showStock.value ? [
                         <p class="mt-0.5 text-sm text-slate-500">Remplissez le modèle Excel, puis envoyez-le. Si une seule ligne est incorrecte, rien n’est ajouté.</p>
                     </div>
                 </div>
-                <a href="/pharmacy/setup/medicines/import-template" class="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 hover:underline"><Download class="h-4 w-4" />Télécharger le modèle</a>
+                <a :href="pharmacyUrl('/pharmacy/setup/medicines/import-template')" class="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 hover:underline"><Download class="h-4 w-4" />Télécharger le modèle</a>
                 <form class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center" @submit.prevent="submitImport">
                     <input name="file" type="file" accept=".xlsx,.xls,.csv" class="block flex-1 text-sm text-slate-500 file:me-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-semibold dark:file:bg-gray-900" required @input="importForm.file = $event.target.files[0]">
                     <Button size="rg" type="submit" :disabled="importForm.processing || !importForm.file"><Upload class="h-4 w-4" /><span class="ms-2">Envoyer</span></Button>

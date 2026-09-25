@@ -10,6 +10,8 @@ import Button from '@/Components/Shadcn/Button.vue';
 import { cn } from '@/lib/cn';
 import { formatDate, formatDateTime } from '@/utilities/date';
 import { formatMoney, formatNumber } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -34,7 +36,7 @@ const invoice = computed(() => props.receipt.invoices[0] ?? null);
     <Head :title="`Réception ${receipt.receipt_number}`" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Achats', href: '/pharmacy/purchase-orders' }, { label: 'Réceptions', href: '/pharmacy/receipts' }, { label: receipt.receipt_number }]" />
+        <Breadcrumb :items="[{ label: 'Achats', href: pharmacyUrl('/pharmacy/purchase-orders') }, { label: 'Réceptions', href: pharmacyUrl('/pharmacy/receipts') }, { label: receipt.receipt_number }]" />
 
         <PageHeader
             eyebrow="Réception"
@@ -44,10 +46,12 @@ const invoice = computed(() => props.receipt.invoices[0] ?? null);
             tone="violet"
         >
             <template #actions>
-                <Button v-if="can.stock && awaiting.length" :as="Link" :href="`/pharmacy/stock/entries/create?fournisseur=${receipt.supplier_uuid}&commande=${receipt.order_uuid}`">
-                    <PackageCheck class="h-4 w-4" />Entrer en stock
-                </Button>
-                <Button v-if="can.record_invoice && !invoice" :as="Link" :href="`/pharmacy/receipts/${receipt.uuid}/invoice`" variant="outline">
+                <SiteOnlyAction v-if="can.stock && awaiting.length" label="Entrer en stock" size="default" variant="default">
+                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/stock/entries/create?fournisseur=${receipt.supplier_uuid}&commande=${receipt.order_uuid}`)">
+                        <PackageCheck class="h-4 w-4" />Entrer en stock
+                    </Button>
+                </SiteOnlyAction>
+                <Button v-if="can.record_invoice && !invoice" :as="Link" :href="pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}/invoice`)" variant="outline">
                     <Receipt class="h-4 w-4" />Enregistrer la facture
                 </Button>
             </template>
@@ -61,7 +65,7 @@ const invoice = computed(() => props.receipt.invoices[0] ?? null);
             </div>
             <div class="flex items-start gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground"><Hash class="h-5 w-5" /></span>
-                <div><p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Commande</p><Link :href="`/pharmacy/purchase-orders/${receipt.order_uuid}`" class="font-mono font-semibold text-primary hover:underline">{{ receipt.order_number }}</Link></div>
+                <div><p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Commande</p><Link :href="pharmacyUrl(`/pharmacy/purchase-orders/${receipt.order_uuid}`)" class="font-mono font-semibold text-primary hover:underline">{{ receipt.order_number }}</Link></div>
             </div>
             <div :class="cn('flex items-start gap-3 rounded-xl border p-4 shadow-sm', awaiting.length ? 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20' : 'border-border bg-card')">
                 <span :class="cn('grid h-10 w-10 shrink-0 place-items-center rounded-xl', awaiting.length ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300')">
@@ -77,7 +81,7 @@ const invoice = computed(() => props.receipt.invoices[0] ?? null);
                 <div class="min-w-0">
                     <p class="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Facture</p>
                     <template v-if="invoice">
-                        <Link v-if="can.view_invoices" :href="`/pharmacy/supplier-invoices/${invoice.uuid}`" class="truncate font-semibold text-primary hover:underline">{{ invoice.invoice_number }}</Link>
+                        <Link v-if="can.view_invoices" :href="pharmacyUrl(`/pharmacy/supplier-invoices/${invoice.uuid}`)" class="truncate font-semibold text-primary hover:underline">{{ invoice.invoice_number }}</Link>
                         <span v-else class="font-semibold text-foreground">{{ invoice.invoice_number }}</span>
                         <p class="text-xs text-muted-foreground">{{ formatMoney(invoice.total_amount) }}<span v-if="invoice.due_date"> · échéance {{ formatDate(invoice.due_date) }}</span></p>
                     </template>
@@ -122,7 +126,7 @@ const invoice = computed(() => props.receipt.invoices[0] ?? null);
                                 <p v-if="line.stocked_by" class="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"><User class="h-3 w-3" />{{ line.stocked_by }}</p>
                             </td>
                             <td class="px-5 py-3.5 text-end">
-                                <Button :as="Link" :href="`/pharmacy/stock/${line.medicine_uuid}`" size="sm" variant="outline">Voir le stock</Button>
+                                <Button :as="Link" :href="pharmacyUrl(`/pharmacy/stock/${line.medicine_uuid}`)" size="sm" variant="outline">Voir le stock</Button>
                             </td>
                         </tr>
                     </tbody>
@@ -130,14 +134,16 @@ const invoice = computed(() => props.receipt.invoices[0] ?? null);
             </div>
             <footer v-if="awaiting.length" class="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-amber-50/60 px-5 py-4 text-sm dark:bg-amber-950/10">
                 <p class="text-amber-800 dark:text-amber-200">Cette marchandise n’est pas encore disponible : elle entre au stock quand elle est rangée.</p>
-                <Button v-if="can.stock" :as="Link" :href="`/pharmacy/stock/entries/create?fournisseur=${receipt.supplier_uuid}&commande=${receipt.order_uuid}`" size="sm">
-                    <PackageCheck class="h-4 w-4" />Entrer en stock
-                </Button>
+                <SiteOnlyAction v-if="can.stock" label="Entrer en stock" size="sm" variant="default">
+                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/stock/entries/create?fournisseur=${receipt.supplier_uuid}&commande=${receipt.order_uuid}`)" size="sm">
+                        <PackageCheck class="h-4 w-4" />Entrer en stock
+                    </Button>
+                </SiteOnlyAction>
             </footer>
         </section>
 
         <div class="flex justify-end">
-            <Button :as="Link" href="/pharmacy/receipts" variant="outline"><Truck class="h-4 w-4" />Toutes les réceptions</Button>
+            <Button :as="Link" :href="pharmacyUrl('/pharmacy/receipts')" variant="outline"><Truck class="h-4 w-4" />Toutes les réceptions</Button>
         </div>
     </div>
 </template>

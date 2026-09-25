@@ -54,6 +54,12 @@ const props = defineProps({
     addresses: Array,
     submitLabel: String,
     cancelHref: String,
+    // L'email de la fiche, en lecture : c'est l'adresse professionnelle, posée par sa
+    // création (ADR-190). Absent à la création d'un employé.
+    currentEmail: { type: String, default: null },
+    // ADR-191 — à la création : le matricule proposé selon le modèle du site.
+    suggestedEmployeeNumber: { type: String, default: '' },
+    employeeNumberModel: { type: String, default: '' },
 });
 const emit = defineEmits(['submit']);
 const { can } = usePermissions();
@@ -68,7 +74,7 @@ const steps = [
 const stepFields = {
     1: ['sex', 'last_name', 'first_name', 'birth_date', 'birth_place'],
     2: ['employee_number', 'department_uuid', 'job_title_uuid', 'hire_date'],
-    3: ['phone', 'email', 'address_entry_uuid', 'new_address_label', 'identity_document_type', 'identity_document_number', 'identity_document_issued_on', 'identity_document_issued_at'],
+    3: ['phone', 'address_entry_uuid', 'new_address_label', 'identity_document_type', 'identity_document_number', 'identity_document_issued_on', 'identity_document_issued_at'],
     4: ['marital_status', 'children_count', 'children_details', 'diploma', 'education_level', 'badge', 'blouse', 'observation', 'active'],
     5: [],
 };
@@ -109,7 +115,7 @@ const identityTypeOptions = computed(() => listOptions(props.options?.identity_d
 const maritalOptions = computed(() => listOptions(props.options?.marital_statuses, 'Non renseignée'));
 
 const optionalDetailsCount = computed(() => [
-    props.form.phone, props.form.email, props.form.address_entry_uuid, props.form.new_address_label,
+    props.form.phone, props.form.address_entry_uuid, props.form.new_address_label,
     props.form.identity_document_number, props.form.marital_status, props.form.children_count,
     props.form.diploma, props.form.education_level, props.form.badge, props.form.blouse,
 ].filter((value) => value !== '' && value !== null && value !== undefined).length);
@@ -188,7 +194,7 @@ watch(
 const recap = computed(() => [
     { step: 1, label: 'Identité', icon: User, tone: 'text-primary', title: `${derivedCivility.value} · ${employeeName.value}`, lines: [frenchDate(props.form.birth_date) ? `Né(e) le ${frenchDate(props.form.birth_date)}${props.form.birth_place ? ` à ${props.form.birth_place}` : ''}` : 'Naissance non renseignée'] },
     { step: 2, label: 'Poste', icon: Briefcase, tone: 'text-sky-600 dark:text-sky-400', title: props.form.employee_number || 'Matricule à saisir', mono: true, lines: [`${selectedJobTitle.value} · ${selectedDepartment.value}`] },
-    { step: 3, label: 'Contact', icon: Phone, tone: 'text-cyan-600 dark:text-cyan-400', title: props.form.phone || props.form.email || 'Aucun contact renseigné', lines: [selectedAddress.value] },
+    { step: 3, label: 'Contact', icon: Phone, tone: 'text-cyan-600 dark:text-cyan-400', title: props.form.phone || props.currentEmail || 'Aucun contact renseigné', lines: [selectedAddress.value] },
     { step: 4, label: 'Compléments', icon: ListPlus, tone: 'text-violet-600 dark:text-violet-400', title: `${optionalDetailsCount.value} information(s) complémentaire(s)`, lines: [props.form.active ? 'Dossier actif' : 'Dossier inactif'] },
 ]);
 </script>
@@ -320,8 +326,12 @@ const recap = computed(() => [
             </aside>
             <div class="grid content-start gap-4 p-5 sm:grid-cols-2 sm:p-6">
                 <FormField label="Matricule" required :error="form.errors.employee_number">
-                    <IconInput id="employee_number" v-model="form.employee_number" :icon="Hash" autocomplete="off" placeholder="Ex. RH-2026-001" :aria-invalid="invalid('employee_number')" :class="cn('font-mono', fieldClass('employee_number'))" />
-                    <span class="mt-1.5 block text-xs text-muted-foreground">Unique sur le site, y compris dans les archives.</span>
+                    <IconInput id="employee_number" v-model="form.employee_number" :icon="Hash" autocomplete="off" :placeholder="suggestedEmployeeNumber || 'Ex. RH-2026-001'" :aria-invalid="invalid('employee_number')" :class="cn('font-mono', fieldClass('employee_number'))" />
+                    <span v-if="suggestedEmployeeNumber" class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>Proposé selon le modèle <span class="font-mono text-foreground">{{ employeeNumberModel }}</span> — modifiable. Unique sur le site, archives comprises.</span>
+                        <button v-if="form.employee_number !== suggestedEmployeeNumber" type="button" class="font-semibold text-primary hover:underline" @click="form.employee_number = suggestedEmployeeNumber">Reprendre {{ suggestedEmployeeNumber }}</button>
+                    </span>
+                    <span v-else class="mt-1.5 block text-xs text-muted-foreground">Unique sur le site, y compris dans les archives.</span>
                 </FormField>
                 <FormField as="div" label="Date d’entrée" :error="form.errors.hire_date">
                     <DatePicker id="hire_date" v-model="form.hire_date" aria-label="Date d’entrée" :invalid="invalid('hire_date')" />
@@ -356,16 +366,27 @@ const recap = computed(() => [
                         <span class="grid h-8 w-8 place-items-center rounded-lg bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-300"><Contact class="h-4 w-4" /></span>
                         <div>
                             <h3 id="employee-contact-title" class="text-sm font-bold text-foreground">Contact</h3>
-                            <p class="text-[11px] text-muted-foreground">Téléphone, email et adresse de la personne.</p>
+                            <p class="text-[11px] text-muted-foreground">Téléphone et adresse de la personne.</p>
                         </div>
                     </div>
                     <div class="grid gap-4 sm:grid-cols-2">
                         <FormField label="Téléphone" :error="form.errors.phone">
                             <IconInput id="phone" v-model="form.phone" :icon="Phone" type="tel" autocomplete="tel" :class="fieldClass('phone')" />
                         </FormField>
-                        <FormField label="Email" :error="form.errors.email">
-                            <IconInput id="email" v-model="form.email" :icon="Mail" type="email" autocomplete="email" :class="fieldClass('email')" />
-                        </FormField>
+                        <div class="space-y-2">
+                            <p class="text-sm font-medium text-foreground">Email</p>
+                            <div class="flex min-h-10 items-start gap-2.5 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2">
+                                <Mail class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                <p v-if="currentEmail" class="min-w-0 text-sm">
+                                    <span class="block truncate font-medium text-foreground">{{ currentEmail }}</span>
+                                    <span class="block text-xs text-muted-foreground">Posé par l’adresse professionnelle — il ne se modifie pas ici.</span>
+                                </p>
+                                <p v-else class="text-xs leading-5 text-muted-foreground">
+                                    L’email d’un employé est son adresse professionnelle : elle se demande depuis sa fiche, une fois l’employé enregistré.
+                                </p>
+                            </div>
+                            <p v-if="form.errors.email" class="text-xs font-medium text-destructive">{{ form.errors.email }}</p>
+                        </div>
                     </div>
                     <FormField as="div" label="Adresse" :error="form.errors.address_entry_uuid || form.errors.new_address_label">
                         <template #action>

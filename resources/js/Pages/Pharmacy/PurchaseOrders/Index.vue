@@ -17,6 +17,8 @@ import PurchasesHeader from '@/Components/Pharmacy/PurchasesHeader.vue';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/utilities/date';
 import { formatMoney, formatNumber, statusTone } from '@/utilities/pharmacyStatus';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -39,7 +41,7 @@ const props = defineProps({
 const toReceive = computed(() => props.filters.status === 'TO_RECEIVE');
 
 const search = ref(props.filters.q ?? '');
-const apply = (changes = {}) => router.get('/pharmacy/purchase-orders', {
+const apply = (changes = {}) => router.get(pharmacyUrl('/pharmacy/purchase-orders'), {
     q: search.value || undefined,
     status: (changes.status ?? props.filters.status) || undefined,
     supplier: (changes.supplier ?? props.filters.supplier) || undefined,
@@ -55,7 +57,7 @@ watch(search, () => {
 });
 
 const filtered = computed(() => Boolean(props.filters.q || props.filters.status || props.filters.supplier || props.filters.from || props.filters.to));
-const reset = () => { search.value = ''; router.get('/pharmacy/purchase-orders', {}, { preserveState: true, replace: true }); };
+const reset = () => { search.value = ''; router.get(pharmacyUrl('/pharmacy/purchase-orders'), {}, { preserveState: true, replace: true }); };
 
 // Les compteurs sont le filtre : cliquer une carte filtre la liste.
 const cards = computed(() => [
@@ -107,7 +109,7 @@ const idleReason = (order) => {
 // --- Envoyer ------------------------------------------------------------------
 const sending = ref(null);
 const sendForm = useForm({});
-const send = () => sendForm.post(`/pharmacy/purchase-orders/${sending.value.uuid}/submit`, {
+const send = () => sendForm.post(pharmacyUrl(`/pharmacy/purchase-orders/${sending.value.uuid}/submit`), {
     preserveScroll: true,
     onSuccess: () => { sending.value = null; },
 });
@@ -115,7 +117,7 @@ const send = () => sendForm.post(`/pharmacy/purchase-orders/${sending.value.uuid
 // --- Corbeille ----------------------------------------------------------------
 const trashing = ref(null);
 const trashForm = useForm({ reason: '' });
-const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value.uuid}`, {
+const trash = () => trashForm.delete(pharmacyUrl(`/pharmacy/purchase-orders/${trashing.value.uuid}`), {
     preserveScroll: true,
     onSuccess: () => { trashing.value = null; trashForm.reset(); },
 });
@@ -127,7 +129,7 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
     <div class="w-full space-y-5">
         <PurchasesHeader :active="toReceive ? 'to-receive' : 'orders'" :purchases="purchases">
             <template #actions>
-                <Button v-if="can.create" :as="Link" :href="filters.supplier ? `/pharmacy/purchase-orders/create?supplier=${filters.supplier}` : '/pharmacy/purchase-orders/create'">
+                <Button v-if="can.create" :as="Link" :href="filters.supplier ? pharmacyUrl(`/pharmacy/purchase-orders/create?supplier=${filters.supplier}`) : pharmacyUrl('/pharmacy/purchase-orders/create')">
                     <Plus class="h-4 w-4" />Nouvelle commande
                 </Button>
             </template>
@@ -136,8 +138,8 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
         <div v-if="filters.supplier_name" class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
             <span class="inline-flex items-center gap-2 text-foreground"><Building2 class="h-4 w-4 text-primary" />Commandes de <strong>{{ filters.supplier_name }}</strong></span>
             <span class="flex gap-4">
-                <Link :href="`/pharmacy/suppliers/${filters.supplier}`" class="font-semibold text-primary hover:underline">Ouvrir son dossier</Link>
-                <Link href="/pharmacy/purchase-orders" class="font-semibold text-primary hover:underline">Toutes les commandes</Link>
+                <Link :href="pharmacyUrl(`/pharmacy/suppliers/${filters.supplier}`)" class="font-semibold text-primary hover:underline">Ouvrir son dossier</Link>
+                <Link :href="pharmacyUrl('/pharmacy/purchase-orders')" class="font-semibold text-primary hover:underline">Toutes les commandes</Link>
             </span>
         </div>
 
@@ -189,7 +191,7 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
                     <tbody class="divide-y divide-border">
                         <tr v-for="order in orders.data" :key="order.uuid" :class="cn('transition-colors hover:bg-muted/20', order.status === 'CANCELLED' && 'opacity-60')">
                             <td class="px-5 py-3.5">
-                                <Link :href="`/pharmacy/purchase-orders/${order.uuid}`" class="font-mono font-semibold text-foreground hover:text-primary hover:underline">{{ order.order_number }}</Link>
+                                <Link :href="pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}`)" class="font-mono font-semibold text-foreground hover:text-primary hover:underline">{{ order.order_number }}</Link>
                             </td>
                             <td class="px-4 py-3.5 text-foreground">{{ order.supplier }}</td>
                             <td class="px-4 py-3.5 text-muted-foreground">
@@ -201,10 +203,10 @@ const trash = () => trashForm.delete(`/pharmacy/purchase-orders/${trashing.value
                             <td class="px-4 py-3.5 text-end font-semibold tabular-nums text-foreground">{{ formatMoney(order.total_amount) }}</td>
                             <td class="px-5 py-3.5">
                                 <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                                    <Button :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}`" size="sm" variant="outline">Voir</Button>
-                                    <Button v-if="can.update && isDraft(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/edit`" size="icon" variant="outline" :title="`Modifier ${order.order_number}`"><Pencil class="h-4 w-4" /></Button>
+                                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}`)" size="sm" variant="outline">Voir</Button>
+                                    <Button v-if="can.update && isDraft(order)" :as="Link" :href="pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}/edit`)" size="icon" variant="outline" :title="`Modifier ${order.order_number}`"><Pencil class="h-4 w-4" /></Button>
                                     <Button v-if="can.submit && isDraft(order)" size="sm" @click="sending = order"><Send class="h-4 w-4" />Envoyer</Button>
-                                    <Button v-if="can.receive && awaitingGoods(order)" :as="Link" :href="`/pharmacy/purchase-orders/${order.uuid}/receive`" size="sm"><PackageCheck class="h-4 w-4" />Réceptionner</Button>
+                                    <SiteOnlyAction v-if="can.receive && awaitingGoods(order)" label="Réceptionner" size="sm" variant="default"><Button :as="Link" :href="pharmacyUrl(`/pharmacy/purchase-orders/${order.uuid}/receive`)" size="sm"><PackageCheck class="h-4 w-4" />Réceptionner</Button></SiteOnlyAction>
                                     <Button v-if="can.delete && canTrash(order)" size="icon" variant="ghost" class="text-muted-foreground hover:text-red-600" :title="`Mettre ${order.order_number} à la corbeille`" @click="trashing = order"><Trash2 class="h-4 w-4" /></Button>
                                     <span v-if="!hasRowAction(order)" class="text-xs text-muted-foreground">{{ idleReason(order) }}</span>
                                 </div>

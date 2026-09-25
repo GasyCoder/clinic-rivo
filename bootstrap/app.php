@@ -8,6 +8,7 @@ use App\Http\Middleware\EnsureApiIdempotency;
 use App\Http\Middleware\EnsureDeploymentAccount;
 use App\Http\Middleware\EnsureSiteType;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\KeepPhysicalActsAtSite;
 use App\Http\Middleware\ServeHrScreensAsJson;
 use App\Support\RequiredAbilities;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -52,6 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
             // ADR-187 — les Ressources humaines d'un site, gérées depuis le portail.
             'rivo.remote-actor' => ActAsRemoteSuperAdmin::class,
             'rivo.hr-screens' => ServeHrScreensAsJson::class,
+            'rivo.site-only' => KeepPhysicalActsAtSite::class,
         ]);
 
         $middleware->redirectGuestsTo('/login');

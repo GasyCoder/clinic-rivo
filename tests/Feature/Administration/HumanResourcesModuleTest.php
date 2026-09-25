@@ -434,6 +434,42 @@ class HumanResourcesModuleTest extends TestCase
         $this->assertDatabaseMissing('employees', ['employee_number' => 'RH-IMPORT-002']);
     }
 
+    /** ADR-190 : l'import ne lit aucun email ; le modèle à remplir n'a plus de colonne Email. */
+    public function test_the_employee_import_never_reads_an_email(): void
+    {
+        $csv = implode("\n", [
+            'MATRICULE,NOM,GENRE,EMAIL,EMAIL TEL,STATUS',
+            'RH-MAIL-001,Rabe,Femme,soa@gmail.com,,Actif',
+            'RH-MAIL-002,Rakoto,Homme,,rakoto@gmail.com,Actif',
+            'RH-MAIL-003,Rasoa,Femme,,0340000000,Actif',
+        ]);
+
+        $this->actingAs($this->administration)->post('/administration/employees/import', [
+            'file' => UploadedFile::fake()->createWithContent('personnel.csv', $csv),
+        ])->assertSessionHasNoErrors();
+
+        $employees = Employee::query()->whereIn('employee_number', ['RH-MAIL-001', 'RH-MAIL-002', 'RH-MAIL-003'])->get()->keyBy('employee_number');
+        $this->assertCount(3, $employees);
+        $this->assertTrue($employees->every(fn (Employee $employee) => $employee->email === null));
+        $this->assertNull($employees['RH-MAIL-002']->phone, 'une adresse dans « Email/Tél » n’est ni un email ni un téléphone');
+        $this->assertSame('0340000000', $employees['RH-MAIL-003']->phone);
+
+        $template = $this->actingAs($this->administration)->get('/administration/employees/import-template')->assertOk()->streamedContent();
+        $path = tempnam(sys_get_temp_dir(), 'rivo-template');
+        file_put_contents($path, $template);
+        $zip = new \ZipArchive;
+        $this->assertTrue($zip->open($path) === true);
+        $xml = '';
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $xml .= (string) $zip->getFromIndex($index);
+        }
+        $zip->close();
+        unlink($path);
+
+        $this->assertStringContainsString('Téléphone', $xml);
+        $this->assertStringNotContainsString('>Email<', $xml);
+    }
+
     public function test_authorized_exports_templates_and_print_views_are_operational(): void
     {
         foreach ([

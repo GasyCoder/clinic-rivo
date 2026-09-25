@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
 use App\Actions\Patient\UpdatePatientVipSettingsAction;
+use App\Enums\DiscountType;
 use App\Http\Controllers\Controller;
 use App\Models\Patient;
 use App\Models\PatientVipSetting;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Patient\PatientVipClassifier;
+use App\Support\Billing\DiscountRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -50,26 +52,49 @@ class PatientVipSettingsController extends Controller
         ]);
     }
 
-    /** @return array{enabled: bool, min_episodes: int, min_amount: string, window_months: int} */
+    /** @return array{enabled: bool, min_episodes: int, min_amount: string, window_months: int, discount_type: ?string, discount_value: ?string} */
     private function validated(Request $request): array
     {
-        $validated = $request->validate([
-            'enabled' => ['required', 'boolean'],
-            'min_episodes' => ['required', 'integer', 'min:1', 'max:1000'],
-            // Ariary : pas de subdivision utile, mais la colonne est décimale.
-            'min_amount' => ['required', 'numeric', 'min:0', 'max:999999999999'],
-            'window_months' => ['required', 'integer', 'min:1', 'max:120'],
-        ], [
-            'min_episodes.min' => 'Il faut au moins un passage.',
-            'window_months.min' => 'La période est d’au moins un mois.',
-            'window_months.max' => 'La période ne peut pas dépasser 120 mois.',
-        ]);
+        $validated = $request->validate(self::rules(), self::messages());
+        $discount = DiscountType::rule($validated['discount_type'] ?? null, $validated['discount_value'] ?? null);
 
         return [
             'enabled' => (bool) $validated['enabled'],
             'min_episodes' => (int) $validated['min_episodes'],
             'min_amount' => number_format((float) $validated['min_amount'], 2, '.', ''),
             'window_months' => (int) $validated['window_months'],
+            'discount_type' => $discount['type']->value ?? null,
+            'discount_value' => $discount !== null ? number_format((float) $discount['value'], 2, '.', '') : null,
+        ];
+    }
+
+    /**
+     * Les règles des seuils et de la remise VIP, partagées avec le portail : deux
+     * copies finiraient par accepter d'un côté ce que l'autre refuse.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public static function rules(): array
+    {
+        return [
+            'enabled' => ['required', 'boolean'],
+            'min_episodes' => ['required', 'integer', 'min:1', 'max:1000'],
+            // Ariary : pas de subdivision utile, mais la colonne est décimale.
+            'min_amount' => ['required', 'numeric', 'min:0', 'max:999999999999'],
+            'window_months' => ['required', 'integer', 'min:1', 'max:120'],
+            // ADR-192 — la remise VIP, facultative.
+            ...DiscountRules::pair('discount_type', 'discount_value', required: false),
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function messages(): array
+    {
+        return [
+            'min_episodes.min' => 'Il faut au moins un passage.',
+            'window_months.min' => 'La période est d’au moins un mois.',
+            'window_months.max' => 'La période ne peut pas dépasser 120 mois.',
+            ...DiscountRules::messages('discount_type', 'discount_value'),
         ];
     }
 
@@ -85,6 +110,10 @@ class PatientVipSettingsController extends Controller
             'min_episodes' => $setting?->min_episodes,
             'min_amount' => $setting !== null ? (string) $setting->min_amount : null,
             'window_months' => $setting?->window_months,
+            // ADR-192 — la remise VIP réglée avec ces seuils.
+            'discount_type' => $setting?->discount_type?->value,
+            'discount_value' => $setting?->discount_value !== null ? (string) $setting->discount_value : null,
+            'discount' => $setting?->discount_type?->describe((string) $setting->discount_value),
             'rule' => $classifier->rule(),
             // Ce que ces seuils donnent aujourd'hui sur ce site.
             'vip_count' => count($classifier->vipIds()),

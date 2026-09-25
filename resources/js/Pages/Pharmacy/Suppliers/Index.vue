@@ -9,6 +9,7 @@ import { lucideIcon } from '@/lib/icons';
 import { FolderPlus, Search } from 'lucide-vue-next';
 import PageHeader from '@/Components/UI/PageHeader.vue';
 import ValidationErrorSummary from '@/Components/UI/ValidationErrorSummary.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -28,7 +29,7 @@ const visible = computed(() => {
 
 const creating = ref(false);
 const form = useForm({ code: '', name: '', contact_name: '', phone: '', email: '', address: '' });
-const submit = () => form.post('/pharmacy/setup/suppliers', {
+const submit = () => form.post(pharmacyUrl('/pharmacy/setup/suppliers'), {
     preserveScroll: true,
     onSuccess: () => { form.reset(); creating.value = false; },
 });
@@ -80,7 +81,7 @@ const labelClass = 'mb-1.5 block text-sm font-medium text-slate-700 dark:text-wh
             <div v-if="visible.length" class="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
                 <FolderCard v-for="supplier in visible"
                     :key="supplier.uuid"
-                    :href="`/pharmacy/suppliers/${supplier.uuid}`"
+                    :href="pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}`)"
                     :title="supplier.name"
                     :subtitle="supplier.contact_name || supplier.phone || supplier.code"
                     :meta="supplier.catalogs_count ? `${supplier.catalogs_count} catalogue${supplier.catalogs_count > 1 ? 's' : ''}` : 'Aucun catalogue'"

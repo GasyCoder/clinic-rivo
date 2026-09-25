@@ -8,6 +8,8 @@ import ExplorerTile from '@/Components/UI/ExplorerTile.vue';
 import ExplorerView from '@/Components/UI/ExplorerView.vue';
 import PurchasesHeader from '@/Components/Pharmacy/PurchasesHeader.vue';
 import { formatDateTime } from '@/utilities/date';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
+import SiteOnlyAction from '@/Components/Pharmacy/SiteOnlyAction.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -18,7 +20,7 @@ defineOptions({ layout: AppLayout });
  */
 defineProps({ receipts: Object, purchases: Object, can: { type: Object, default: () => ({}) } });
 
-const stockHref = (receipt) => `/pharmacy/stock/entries/create?fournisseur=${receipt.supplier_uuid}&commande=${receipt.order_uuid}`;
+const stockHref = (receipt) => pharmacyUrl(`/pharmacy/stock/entries/create?fournisseur=${receipt.supplier_uuid}&commande=${receipt.order_uuid}`);
 </script>
 
 <template>
@@ -39,7 +41,7 @@ const stockHref = (receipt) => `/pharmacy/stock/entries/create?fournisseur=${rec
                 <ExplorerTile
                     v-for="receipt in receipts.data"
                     :key="receipt.uuid"
-                    :href="`/pharmacy/receipts/${receipt.uuid}`"
+                    :href="pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}`)"
                     icon="package"
                     :tone="receipt.awaiting_stock_count ? 'amber' : 'emerald'"
                     :badge="receipt.awaiting_stock_count ? `${receipt.awaiting_stock_count} à ranger` : 'Rangée'"
@@ -49,8 +51,8 @@ const stockHref = (receipt) => `/pharmacy/stock/entries/create?fournisseur=${rec
                     :meta="formatDateTime(receipt.received_at)"
                 >
                     <template #actions>
-                        <Button v-if="can.stock && receipt.awaiting_stock_count" :as="Link" :href="stockHref(receipt)" size="sm"><PackageCheck class="h-4 w-4" />Entrer en stock</Button>
-                        <Button v-else-if="can.record_invoice && receipt.invoice_pending" :as="Link" :href="`/pharmacy/receipts/${receipt.uuid}/invoice`" size="sm" variant="outline"><Receipt class="h-4 w-4" />Facture</Button>
+                        <SiteOnlyAction v-if="can.stock && receipt.awaiting_stock_count" label="Entrer en stock" size="sm" variant="default"><Button :as="Link" :href="stockHref(receipt)" size="sm"><PackageCheck class="h-4 w-4" />Entrer en stock</Button></SiteOnlyAction>
+                        <Button v-else-if="can.record_invoice && receipt.invoice_pending" :as="Link" :href="pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}/invoice`)" size="sm" variant="outline"><Receipt class="h-4 w-4" />Facture</Button>
                     </template>
                 </ExplorerTile>
             </template>
@@ -86,9 +88,9 @@ const stockHref = (receipt) => `/pharmacy/stock/entries/create?fournisseur=${rec
                             <td class="px-4 py-3.5 text-muted-foreground">{{ formatDateTime(receipt.received_at) }}<span v-if="receipt.received_by" class="block text-xs">{{ receipt.received_by }}</span></td>
                             <td class="px-5 py-3.5">
                                 <div class="flex justify-end gap-1.5 whitespace-nowrap">
-                                    <Button :as="Link" :href="`/pharmacy/receipts/${receipt.uuid}`" size="sm" variant="outline">Voir</Button>
-                                    <Button v-if="can.stock && receipt.awaiting_stock_count" :as="Link" :href="stockHref(receipt)" size="sm"><PackageCheck class="h-4 w-4" />Entrer en stock</Button>
-                                    <Button v-else-if="can.record_invoice && receipt.invoice_pending" :as="Link" :href="`/pharmacy/receipts/${receipt.uuid}/invoice`" size="sm" variant="outline"><Receipt class="h-4 w-4" />Facture</Button>
+                                    <Button :as="Link" :href="pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}`)" size="sm" variant="outline">Voir</Button>
+                                    <SiteOnlyAction v-if="can.stock && receipt.awaiting_stock_count" label="Entrer en stock" size="sm" variant="default"><Button :as="Link" :href="stockHref(receipt)" size="sm"><PackageCheck class="h-4 w-4" />Entrer en stock</Button></SiteOnlyAction>
+                                    <Button v-else-if="can.record_invoice && receipt.invoice_pending" :as="Link" :href="pharmacyUrl(`/pharmacy/receipts/${receipt.uuid}/invoice`)" size="sm" variant="outline"><Receipt class="h-4 w-4" />Facture</Button>
                                 </div>
                             </td>
                         </tr>

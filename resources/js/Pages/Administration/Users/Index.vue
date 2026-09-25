@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Avatar from '@/Components/Shadcn/Avatar.vue';
@@ -51,10 +51,15 @@ const accountKindLabel = (user) => (user.account_kind === 'STAFF' ? 'Personnel c
 
 /** Choisir une fiche propose son nom et son email, sans écraser une saisie. */
 const prefilled = ref({ name: '', email: '' });
+// ADR-188 — la fiche choisie donne le nom et l'email du compte. Une saisie
+// faite à la main n'est jamais écrasée ; une valeur reprise d'une fiche
+// précédente, si : changer de personne ne garde pas l'email de l'autre.
 const onEmployeePick = (employee) => {
     if (form.name.trim() === '' || form.name === prefilled.value.name) form.name = employee.name;
-    if (employee.email && (form.email.trim() === '' || form.email === prefilled.value.email)) form.email = employee.email;
+    if (form.email.trim() === '' || form.email === prefilled.value.email) form.email = employee.email ?? '';
     prefilled.value = { name: employee.name, email: employee.email ?? '' };
+    // La fiche RH n'a pas d'email : c'est la seule chose qui reste à saisir.
+    if (! employee.email) nextTick(() => document.getElementById('user_email')?.focus());
 };
 
 const deactivationForm = useForm({ reason: '' });
@@ -62,6 +67,19 @@ const deactivationForm = useForm({ reason: '' });
 const canCreate = computed(() => can('users.create') && can('roles.assign'));
 const canAssignPermissions = computed(() => can('permissions.assign'));
 const isEditing = computed(() => editingUser.value !== null);
+/** Le nom et l'email se montrent quand on sait de qui il s'agit — jamais avant d'avoir cherché la personne. */
+const identityVisible = computed(() => isEditing.value
+    || form.account_kind === 'EXTERNAL'
+    || (form.account_kind === 'STAFF' && form.employee_uuid !== '')
+    || Boolean(form.errors.name || form.errors.email));
+const fromStaffRecord = computed(() => form.account_kind === 'STAFF' && form.employee_uuid !== '');
+// Passer à « Externe » : ce qui venait d'une fiche, et n'a pas été retouché, ne suit pas vers une autre personne.
+watch(() => form.account_kind, (kind) => {
+    if (kind !== 'EXTERNAL') return;
+    if (prefilled.value.name !== '' && form.name === prefilled.value.name) form.name = '';
+    if (prefilled.value.email !== '' && form.email === prefilled.value.email) form.email = '';
+    prefilled.value = { name: '', email: '' };
+});
 const selectedRole = computed(() => props.roles.find((role) => Number(role.id) === Number(form.role_id)) ?? null);
 const selectedRoleProfiles = computed(() => selectedRole.value?.profiles ?? []);
 const selectedProfile = computed(() => selectedRoleProfiles.value.find(
@@ -609,16 +627,21 @@ const canManage = (user) => user.role?.code !== 'SUPER_ADMIN' || can('users.assi
                         />
 
                         <div class="grid gap-4 sm:grid-cols-2">
-                            <div>
-                                <label for="user_name" class="mb-1.5 block text-sm font-medium text-foreground">Nom complet <span class="text-red-500">*</span></label>
-                                <Input id="user_name" v-model="form.name" autocomplete="name" :aria-invalid="Boolean(form.errors.name)" />
-                                <FormError v-if="form.errors.name">{{ form.errors.name }}</FormError>
-                            </div>
-                            <div>
-                                <label for="user_email" class="mb-1.5 block text-sm font-medium text-foreground">Email professionnel <span class="text-red-500">*</span></label>
-                                <Input id="user_email" v-model="form.email" type="email" autocomplete="off" :aria-invalid="Boolean(form.errors.email)" />
-                                <FormError v-if="form.errors.email">{{ form.errors.email }}</FormError>
-                            </div>
+                            <template v-if="identityVisible">
+                                <div>
+                                    <label for="user_name" class="mb-1.5 block text-sm font-medium text-foreground">Nom complet <span class="text-red-500">*</span></label>
+                                    <Input id="user_name" v-model="form.name" autocomplete="name" :aria-invalid="Boolean(form.errors.name)" />
+                                    <FormError v-if="form.errors.name">{{ form.errors.name }}</FormError>
+                                    <p v-else-if="fromStaffRecord && form.name === prefilled.name" class="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300"><Check class="h-3.5 w-3.5" />Repris de la fiche RH — modifiable.</p>
+                                </div>
+                                <div>
+                                    <label for="user_email" class="mb-1.5 block text-sm font-medium text-foreground">Email professionnel <span class="text-red-500">*</span></label>
+                                    <Input id="user_email" v-model="form.email" type="email" autocomplete="off" :aria-invalid="Boolean(form.errors.email)" />
+                                    <FormError v-if="form.errors.email">{{ form.errors.email }}</FormError>
+                                    <p v-else-if="fromStaffRecord && prefilled.email === '' && form.email.trim() === ''" class="mt-1.5 text-xs text-amber-700 dark:text-amber-300">La fiche RH n’a pas d’email : saisissez l’adresse professionnelle.</p>
+                                    <p v-else-if="fromStaffRecord && prefilled.email !== '' && form.email === prefilled.email" class="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300"><Check class="h-3.5 w-3.5" />Repris de la fiche RH.</p>
+                                </div>
+                            </template>
                             <div :class="selectedRoleProfiles.length ? '' : 'sm:col-span-2'">
                                 <label for="user_role" class="mb-1.5 block text-sm font-medium text-foreground">Rôle métier <span class="text-red-500">*</span></label>
                                 <select id="user_role" v-model="form.role_id" :disabled="editingUser?.is_current" class="block h-9 w-full rounded border-border bg-card py-1.5 ps-3 pe-9 text-sm text-foreground focus:border-primary focus:ring-ring/25 disabled:bg-muted disabled:text-muted-foreground" :aria-invalid="Boolean(form.errors.role_id)" @change="onRoleChange">

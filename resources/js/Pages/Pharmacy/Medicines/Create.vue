@@ -3,6 +3,7 @@ import { Head, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import MedicineForm from '@/Components/Pharmacy/MedicineForm.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -20,7 +21,7 @@ const query = new URLSearchParams(usePage().url.split('?')[1] ?? '');
     <Head title="Ajouter un médicament" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: '/pharmacy/stock' }, { label: 'Ajouter un médicament' }]" />
+        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: pharmacyUrl('/pharmacy/stock') }, { label: 'Ajouter un médicament' }]" />
 
         <div>
             <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Ajouter un médicament</h1>
@@ -31,8 +32,8 @@ const query = new URLSearchParams(usePage().url.split('?')[1] ?? '');
             :categories="categories"
             :suppliers="suppliers"
             :medicine-forms="medicineForms"
-            submit-url="/pharmacy/setup/medicines"
-            cancel-href="/pharmacy/stock"
+            :submit-url="pharmacyUrl('/pharmacy/setup/medicines')"
+            :cancel-href="pharmacyUrl('/pharmacy/stock')"
             :supplier-catalog-item-uuid="query.get('supplier_catalog_item') ?? ''"
             :initial-name="query.get('name') ?? ''"
         />

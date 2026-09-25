@@ -1,4 +1,5 @@
 import {
+    AtSign,
     Activity,
     Ambulance,
     Archive,
@@ -100,6 +101,7 @@ import {
     Syringe,
     Tag,
     Tags,
+    TicketPercent,
     TestTube,
     TestTubes,
     Timer,
@@ -242,6 +244,8 @@ export const PERMISSION_CATEGORIES = {
     cash_registers: { label: 'Postes de caisse', module: 'finance', icon: Calculator },
     payment_methods: { label: 'Modes de paiement', module: 'finance', icon: CreditCard },
     debts: { label: 'Créances et sorties avec dette', module: 'finance', icon: HandCoins },
+    discounts: { label: 'Remises (facture, patient)', module: 'finance', icon: BadgePercent },
+    discount_coupons: { label: 'Coupons de remise', module: 'finance', icon: TicketPercent },
     reports: { label: 'Rapports financiers', module: 'finance', icon: ChartColumn },
 
     // Tarifs & mutuelles
@@ -261,6 +265,7 @@ export const PERMISSION_CATEGORIES = {
     staff_block_credits: { label: 'Crédit Bloc du personnel', module: 'hr', icon: Coins },
     hr_reports: { label: 'Rapports RH', module: 'hr', icon: ChartPie },
     hr_settings: { label: 'Paramètres RH (services, fonctions…)', module: 'hr', icon: SlidersHorizontal },
+    professional_emails: { label: 'Adresses email professionnelles', module: 'hr', icon: AtSign },
 
     // Logistique & sécurité
     logistics: { label: 'Logistique', module: 'logistics', icon: Truck },

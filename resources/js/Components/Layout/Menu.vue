@@ -2,6 +2,7 @@
 import { computed, watch } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import {
+    AtSign,
     Activity,
     ArrowUpDown,
     BedDouble,
@@ -126,6 +127,7 @@ const adminMenu = computed(() => [
     { icon: Crown, text: 'Patients VIP', link: '/super-admin/patient-vip', permission: 'patient_vip.view' },
     { heading: 'Organisation' },
     { icon: Briefcase, text: 'Ressources humaines', link: '/super-admin/workspaces/hr', permission: 'employees.view' },
+    { icon: AtSign, text: 'Emails professionnels', link: '/super-admin/professional-emails', permission: 'professional_emails.view' },
     { icon: Package, text: 'Logistique & équipements', link: '/super-admin/workspaces/logistics', permission: 'logistics.view' },
     { icon: ShieldCheck, text: 'Gardiennage', link: '/super-admin/workspaces/guarding', permission: 'guarding.view' },
     { heading: 'Sécurité & système' },
@@ -183,8 +185,8 @@ const isChildActive = (item, child) => {
     if (isAdminPortal.value) {
         return page.url === child.link
             || (child.code === 'OVERVIEW' && currentPath.value === child.link.split('?')[0])
-            // ADR-187 — l'espace RH d'un site a ses propres pages.
-            || (child.code === 'HR' && (currentPath.value === child.link || currentPath.value.startsWith(`${child.link}/`)));
+            // ADR-187 / ADR-189 — les RH et la Pharmacie d'un site ont leurs propres pages.
+            || (['HR', 'PHARMACY'].includes(child.code) && (currentPath.value === child.link || currentPath.value.startsWith(`${child.link}/`)));
     }
 
     if (!isActive(item)) return false;

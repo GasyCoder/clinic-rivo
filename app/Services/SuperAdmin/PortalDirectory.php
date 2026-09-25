@@ -120,11 +120,14 @@ class PortalDirectory
             'integration_status' => $site['integration_status'],
             'modules' => collect($this->modules())->map(fn (array $module) => [
                 ...$module,
-                // ADR-187 — les RH d'un site se gèrent réellement depuis le
-                // portail : l'entrée mène à son espace RH, pas à une vitrine.
-                'link' => $module['code'] === 'HR'
-                    ? '/super-admin/sites/'.$site['code'].'/rh'
-                    : '/super-admin/sites/'.$site['code'].'?module='.$module['code'],
+                // ADR-187 / ADR-189 — les RH et la Pharmacie d'un site se
+                // gèrent réellement depuis le portail : l'entrée mène à leurs
+                // écrans, pas à une vitrine.
+                'link' => match ($module['code']) {
+                    'HR' => '/super-admin/sites/'.$site['code'].'/rh',
+                    'PHARMACY' => '/super-admin/sites/'.$site['code'].'/pharmacie',
+                    default => '/super-admin/sites/'.$site['code'].'?module='.$module['code'],
+                },
             ])->all(),
         ])->all();
     }

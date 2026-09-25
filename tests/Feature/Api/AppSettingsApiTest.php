@@ -55,7 +55,8 @@ class AppSettingsApiTest extends TestCase
         $settings = app(AppSettings::class);
         $this->assertSame('Clinique Saint Georges', $settings->brand());
         $this->assertSame('NIF-CONFIG', $settings->documents()['nif']);
-        $this->assertNull($settings->themeCss());
+        // ADR-191 — aucune couleur redéfinie : seules les règles du contraste renforcé, que chacun peut choisir.
+        $this->assertStringStartsWith('html[data-contrast="high"]{', $settings->themeCss());
     }
 
     public function test_reading_and_writing_each_need_their_own_permission(): void

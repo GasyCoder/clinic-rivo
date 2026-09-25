@@ -4,6 +4,7 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import { Folder } from 'lucide-vue-next';
 import SupplierOfferTables from '@/Components/Pharmacy/SupplierOfferTables.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -18,7 +19,7 @@ defineProps({
     <Head :title="`Produits et prix · ${supplier.name}`" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Fournisseurs', href: '/pharmacy/suppliers' }, { label: supplier.name, href: `/pharmacy/suppliers/${supplier.uuid}` }, { label: 'Produits et prix' }]" />
+        <Breadcrumb :items="[{ label: 'Fournisseurs', href: pharmacyUrl('/pharmacy/suppliers') }, { label: supplier.name, href: pharmacyUrl(`/pharmacy/suppliers/${supplier.uuid}`) }, { label: 'Produits et prix' }]" />
 
         <div class="flex items-center gap-3">
             <Folder class="text-4xl leading-none text-emerald-500 h-4 w-4" />
@@ -28,6 +29,6 @@ defineProps({
             </div>
         </div>
 
-        <SupplierOfferTables :offers="offers" :history="history" :stock-href="(uuid) => `/pharmacy/stock/${uuid}`" />
+        <SupplierOfferTables :offers="offers" :history="history" :stock-href="(uuid) => pharmacyUrl(`/pharmacy/stock/${uuid}`)" />
     </div>
 </template>

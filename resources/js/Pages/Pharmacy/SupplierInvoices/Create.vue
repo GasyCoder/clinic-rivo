@@ -3,6 +3,7 @@ import { Head, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Breadcrumb from '@/Components/UI/Breadcrumb.vue';
 import SupplierInvoiceForm from '@/Components/Pharmacy/SupplierInvoiceForm.vue';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -16,7 +17,7 @@ const initialSupplier = new URLSearchParams(page.url.split('?')[1] ?? '').get('s
     <Head title="Enregistrer une facture fournisseur" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Factures fournisseurs', href: '/pharmacy/supplier-invoices' }, { label: 'Enregistrer une facture' }]" />
+        <Breadcrumb :items="[{ label: 'Factures fournisseurs', href: pharmacyUrl('/pharmacy/supplier-invoices') }, { label: 'Enregistrer une facture' }]" />
 
         <div>
             <h1 class="font-heading text-2xl font-bold text-slate-800 dark:text-white">Enregistrer une facture fournisseur</h1>
@@ -27,8 +28,8 @@ const initialSupplier = new URLSearchParams(page.url.split('?')[1] ?? '').get('s
             :suppliers="suppliers"
             :supplier-uuid="initialSupplier"
             :medicines="medicines"
-            :submit-url="(uuid) => `/pharmacy/suppliers/${uuid}/invoices`"
-            cancel-href="/pharmacy/supplier-invoices"
+            :submit-url="(uuid) => pharmacyUrl(`/pharmacy/suppliers/${uuid}/invoices`)"
+            :cancel-href="pharmacyUrl('/pharmacy/supplier-invoices')"
         />
     </div>
 </template>

@@ -33,6 +33,12 @@ class Employee extends Model
 {
     use Auditable, HasUuid, SoftDeletable;
 
+    /** ADR-190 — ses adresses email professionnelles, ouvertes ou non. */
+    public function professionalMailboxes(): HasMany
+    {
+        return $this->hasMany(ProfessionalMailbox::class);
+    }
+
     protected function casts(): array
     {
         return [

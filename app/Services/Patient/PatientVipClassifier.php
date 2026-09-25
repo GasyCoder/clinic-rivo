@@ -2,6 +2,7 @@
 
 namespace App\Services\Patient;
 
+use App\Enums\DiscountType;
 use App\Enums\EpisodeStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Episode;
@@ -104,6 +105,21 @@ final class PatientVipClassifier
     public function isVip(int $patientId): bool
     {
         return in_array($patientId, $this->vipIds(), true);
+    }
+
+    /**
+     * ADR-192 — la remise VIP réglée avec ces seuils : `null` si la catégorie est
+     * désactivée ou si aucune remise n'est réglée.
+     *
+     * @return array{type: DiscountType, value: string}|null
+     */
+    public function discount(): ?array
+    {
+        if (! $this->isConfigured()) {
+            return null;
+        }
+
+        return DiscountType::rule($this->settings->discount_type, $this->settings->discount_value);
     }
 
     /**

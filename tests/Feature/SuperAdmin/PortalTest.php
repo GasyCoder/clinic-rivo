@@ -69,15 +69,19 @@ class PortalTest extends TestCase
         $actor = $this->user('SUPER_ADMIN');
 
         foreach (['M', 'A', 'B'] as $siteCode) {
-            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=PHARMACY")
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=LABORATORY")
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page
                     ->component('SuperAdmin/Sites/Show')
                     ->where('clinic.code', $siteCode)
                     ->has('clinic.modules', 14)
-                    ->where('selectedModule.code', 'PHARMACY')
-                    ->where('selectedModule.areas.1', 'Lots et péremptions')
-                    ->where('selectedModule.areas.3', 'Inventaires'));
+                    ->where('selectedModule.code', 'LABORATORY')
+                    ->where('selectedModule.areas.1', 'Prélèvements')
+                    ->where('selectedModule.areas.3', 'Résultats validés'));
+
+            // ADR-189 — la Pharmacie n'a plus de vitrine : ses écrans sont ceux du site.
+            $this->actingAs($actor)->get("/super-admin/sites/{$siteCode}?module=PHARMACY")
+                ->assertRedirect("/super-admin/sites/{$siteCode}/pharmacie");
         }
     }
 

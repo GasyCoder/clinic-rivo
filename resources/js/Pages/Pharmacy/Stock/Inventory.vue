@@ -11,6 +11,7 @@ import { Check, Printer, Search } from 'lucide-vue-next';
 import { formatDate } from '@/utilities/date';
 import { formatNumber, statusTone } from '@/utilities/pharmacyStatus';
 import { escapeHtml, openPrintWindow, writeAndPrint } from '@/utilities/printWindow';
+import { pharmacyUrl } from '@/utilities/pharmacyUrl';
 
 defineOptions({ layout: AppLayout });
 
@@ -66,7 +67,7 @@ const submit = () => {
     form.transform((data) => ({
         reason: data.reason,
         counts: counted.value.map((lot) => ({ lot_uuid: lot.uuid, counted_quantity: Number(counts[lot.uuid]) })),
-    })).post('/pharmacy/stock/inventory', {
+    })).post(pharmacyUrl('/pharmacy/stock/inventory'), {
         preserveScroll: true,
         onSuccess: () => { confirming.value = false; },
         onError: () => { confirming.value = false; },
@@ -103,7 +104,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
     <Head title="Inventaire" />
 
     <div class="w-full space-y-5">
-        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: '/pharmacy/stock' }, { label: 'Inventaire' }]" />
+        <Breadcrumb :items="[{ label: 'Médicaments & stock', href: pharmacyUrl('/pharmacy/stock') }, { label: 'Inventaire' }]" />
 
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -173,7 +174,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                                     </td>
                                     <td class="px-5 py-3 text-end">
                                         <button v-if="isCounted(lot)" type="button" class="text-xs font-bold text-slate-500 hover:text-slate-700" @click="counts[lot.uuid] = ''">Effacer</button>
-                                        <Link v-else :href="`/pharmacy/stock/${lot.medicine_uuid}`" class="text-xs font-bold text-primary-600 hover:underline">Voir</Link>
+                                        <Link v-else :href="pharmacyUrl(`/pharmacy/stock/${lot.medicine_uuid}`)" class="text-xs font-bold text-primary-600 hover:underline">Voir</Link>
                                     </td>
                                 </tr>
                                 <tr v-if="errorFor(lot) || (isCounted(lot) && Number(counts[lot.uuid]) < lot.reserved_quantity)">
@@ -195,7 +196,7 @@ const inputClass = 'h-10 w-24 rounded-lg border border-gray-200 bg-white px-2 te
                     <span v-if="form.errors.reason || form.errors.counts" class="mt-1 block text-xs text-red-600">{{ form.errors.reason || form.errors.counts }}</span>
                 </label>
                 <div class="flex gap-2">
-                    <Button :as="Link" href="/pharmacy/stock" size="lg" variant="white-outline">Annuler</Button>
+                    <Button :as="Link" :href="pharmacyUrl('/pharmacy/stock')" size="lg" variant="white-outline">Annuler</Button>
                     <Button type="button" size="lg" :disabled="form.processing || !counted.length || form.reason.trim().length < 3" @click="confirming = true">
                         <Check class="h-4 w-4" /><span class="ms-2">{{ form.processing ? 'Validation…' : `Valider l’inventaire (${counted.length})` }}</span>
                     </Button>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 
 import Sidebar from '@/Components/Layout/Sidebar.vue';
@@ -8,9 +8,11 @@ import Footer from '@/Components/Layout/Footer.vue';
 import ToastContainer from '@/Components/UI/ToastContainer.vue';
 import PageSkeleton from '@/Components/Layout/PageSkeleton.vue';
 import HrPortalBar from '@/Components/Administration/HrPortalBar.vue';
+import PharmacyPortalBar from '@/Components/Pharmacy/PharmacyPortalBar.vue';
 import { usePageLoading } from '@/composables/usePageLoading';
 
 import { useThemeSync } from '@/composables/useThemeSync';
+import { applyAppearance } from '@/utilities/appearance';
 
 defineProps({
     container: {
@@ -25,8 +27,13 @@ useThemeSync();
 // annulée, elle réapparaît telle qu'elle était, saisie comprise.
 const pageLoading = usePageLoading();
 
-// ADR-187 — un écran RH d'un site, affiché par le portail : sa navigation RH.
+// ADR-187 / ADR-189 — un écran RH ou Pharmacie d'un site, affiché par le
+// portail : sa navigation.
 const page = usePage();
+
+// ADR-191 — réappliqué quand l'utilisateur change sa taille de texte, ses animations ou
+// son contraste dans « Mon profil » : le serveur ne les pose sur <html> qu'au premier rendu.
+watch(() => JSON.stringify(page.props.appearance?.effective ?? null), () => applyAppearance(page.props.appearance?.effective));
 
 const sidebarVisibility = ref(false);
 const sidebarCompact = ref(false);
@@ -45,6 +52,7 @@ const sidebarCompact = ref(false);
                     <PageSkeleton v-if="pageLoading.active" :path="pageLoading.path" />
                     <div v-show="! pageLoading.active">
                         <HrPortalBar v-if="page.props.hrContext" />
+                        <PharmacyPortalBar v-if="page.props.pharmacyContext" />
                         <slot />
                     </div>
                 </div>

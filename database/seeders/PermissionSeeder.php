@@ -63,6 +63,14 @@ class PermissionSeeder extends Seeder
 
         // CDC officiel §17, affiné par la décision projet qui sépare RH,
         // Logistique, Support et Maintenance en responsabilités autonomes.
+        // ADR-190 — adresses email professionnelles.
+        'professional_emails.view' => 'Voir les adresses email professionnelles',
+        'professional_emails.request' => 'Demander une adresse email professionnelle pour un employé',
+        'professional_emails.create' => 'Créer une adresse email professionnelle chez l’hébergeur',
+        'professional_emails.reject' => 'Refuser une demande d’adresse email professionnelle',
+        'professional_emails.deactivate' => 'Suspendre une adresse email professionnelle',
+        'professional_emails.activate' => 'Réactiver une adresse email professionnelle suspendue',
+        'professional_emails.update' => 'Réinitialiser le mot de passe d’une adresse email professionnelle',
         'employees.view' => 'Voir les employés',
         'employees.create' => 'Créer un employé',
         'employees.update' => 'Modifier un employé',
@@ -318,9 +326,15 @@ class PermissionSeeder extends Seeder
 
         // CDC §15 / §34.2 — seule Réception / Caisse encaisse. Les
         // L'annulation contrôlée d'un paiement reste dans la session de
-        // caisse ouverte qui l'a reçu. Remboursements, dettes et remises
-        // restent absents tant que leurs validations distinctes ne sont pas
-        // définies et implémentées.
+        // caisse ouverte qui l'a reçu. Les remboursements restent absents
+        // tant que leur validation distincte n'est pas définie et implémentée.
+        // ADR-192 — remises : une par facture, la plus avantageuse, sur la part patient.
+        'discounts.view' => 'Voir les remises d’une facture et d’un patient',
+        'discounts.create' => 'Appliquer ou retirer une remise sur une facture à encaisser',
+        'discounts.approve' => 'Accorder ou annuler la remise propre à un patient',
+        'discount_coupons.view' => 'Voir les coupons de remise',
+        'discount_coupons.create' => 'Créer un coupon de remise',
+        'discount_coupons.archive' => 'Archiver un coupon de remise',
         'billing.view' => 'Voir les factures et soldes',
         'billing.create' => 'Créer une facture',
         'billing.validate' => 'Valider une facture',

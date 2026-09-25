@@ -105,8 +105,11 @@ test('the HR home lists its sections as shadcn cards, from the one list of HR se
 
     assert.doesNotMatch(home, /Components\/UI\/(Icon|Button)\.vue|class="[^"]*\bni ni-|slate-800|gray-200/, 'plus de DashWind ni de couleurs codées en dur');
     assert.match(home, /hrSections\(hrContext\(\)\?\.base \?\? HR_SITE_BASE, can\)/, 'mêmes rubriques, adresses et droits que le menu RH');
+    // Les thèmes sont partagés avec la barre RH du portail (hrSections.js).
+    const sections = fs.readFileSync('resources/js/utilities/hrSections.js', 'utf8');
+    assert.match(home, /const GROUPS = HR_SECTION_GROUPS;/);
     for (const group of ['Personnel', 'Temps de travail', 'Pilotage']) {
-        assert.match(home, new RegExp(`label: '${group}'`));
+        assert.match(sections, new RegExp(`label: '${group}'`));
     }
     assert.match(home, /rounded-xl border bg-card p-3\.5 shadow-sm/);
     assert.match(home, /'border-border hover:-translate-y-0\.5 hover:border-primary\/40 hover:shadow-md/);

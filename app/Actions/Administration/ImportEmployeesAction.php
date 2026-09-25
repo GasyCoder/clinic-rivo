@@ -8,6 +8,7 @@ use App\Models\EmploymentContract;
 use App\Models\HrReferenceValue;
 use App\Models\User;
 use App\Services\Administration\EmployeeIdentityNormalizer;
+use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Spreadsheet\ExcelWorkbook;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -23,6 +24,7 @@ class ImportEmployeesAction
     public function __construct(
         private readonly ExcelWorkbook $excel,
         private readonly EmployeeIdentityNormalizer $identityNormalizer,
+        private readonly EmployeeNumberAllocator $numbers,
     ) {}
 
     /** @return array{created: int, contracts: int} */
@@ -51,9 +53,19 @@ class ImportEmployeesAction
         $errors = [];
         $seenNumbers = [];
 
+        // ADR-191 — une ligne sans matricule reçoit le prochain du modèle du site, sans
+        // jamais reprendre un matricule écrit ailleurs dans le même fichier.
+        $reserved = array_values(array_filter(array_map(fn (array $row) => (string) $this->value($row, 'matricule', 'immatricule'), $rows)));
+
         foreach ($rows as $index => $row) {
             $line = $index + 2;
             $data = $this->prepareRow($row, $references, $line, $errors);
+
+            if (trim((string) ($data['employee_number'] ?? '')) === '') {
+                $data['employee_number'] = $this->numbers->sequence(1, $reserved)[0];
+                $reserved[] = $data['employee_number'];
+            }
+
             $validator = Validator::make($data, [
                 'employee_number' => ['required', 'string', 'max:255'],
                 'last_name' => ['required', 'string', 'max:255'],
@@ -61,7 +73,6 @@ class ImportEmployeesAction
                 'sex' => ['required', 'in:M,F'],
                 'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
                 'hire_date' => ['nullable', 'date'],
-                'email' => ['nullable', 'email', 'max:255'],
                 'phone' => ['nullable', 'string', 'max:50'],
                 'children_count' => ['nullable', 'integer', 'min:0', 'max:65535'],
                 'active' => ['required', 'boolean'],
@@ -147,11 +158,12 @@ class ImportEmployeesAction
             $lastName = $this->value($row, 'nome_et_prenoms', 'nom_et_prenoms');
         }
 
-        $email = $this->value($row, 'email');
+        // ADR-190 : aucun email n'est importé — celui d'un employé est son adresse
+        // professionnelle, créée après son enregistrement. Une colonne « Email » est ignorée.
         $phone = $this->value($row, 'telephone', 'tel');
         $combinedContact = $this->value($row, 'email_tel');
-        if ($combinedContact && ! $email && ! $phone) {
-            str_contains($combinedContact, '@') ? $email = $combinedContact : $phone = $combinedContact;
+        if ($combinedContact && ! $phone && ! str_contains($combinedContact, '@')) {
+            $phone = $combinedContact;
         }
 
         $hireDate = $this->date($this->value($row, 'date_entree'));
@@ -181,7 +193,6 @@ class ImportEmployeesAction
             'blouse' => $this->value($row, 'blouse'),
             'profession' => $job?->label,
             'phone' => $phone,
-            'email' => $email ? mb_strtolower($email) : null,
             'address' => $this->value($row, 'adresse'),
             'observation' => $this->value($row, 'observation'),
             'active' => $this->active($this->value($row, 'statut', 'status')),

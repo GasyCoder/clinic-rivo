@@ -1,4 +1,4 @@
-import { BadgePercent, Baby, Coins, Globe, Hash, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal } from 'lucide-vue-next';
+import { BadgePercent, Baby, Coins, Construction, Globe, Hash, Landmark, LayoutTemplate, Palette, PenLine, SearchX, SlidersHorizontal } from 'lucide-vue-next';
 
 /**
  * Les modules des paramètres de l'application (ADR-191, amendement du 2026-09-25) :
@@ -14,6 +14,7 @@ export const SETTINGS_GROUPS = Object.freeze([
     { id: 'dossiers', label: 'Patients & personnel', description: 'Les numéros attribués et le formulaire d’un nouveau patient.' },
     { id: 'etablissement', label: 'Établissement & documents', description: 'Ce qui s’imprime sur les factures, reçus et documents, et les remises.' },
     { id: 'confidentialite', label: 'Confidentialité', description: 'Ce que l’extérieur peut voir de l’application.' },
+    { id: 'exploitation', label: 'Exploitation', description: 'La disponibilité de chaque site pour ses utilisateurs.' },
 ]);
 
 export const SETTINGS_SECTIONS = Object.freeze([
@@ -74,6 +75,13 @@ export const SETTINGS_SECTIONS = Object.freeze([
         id: 'visibilite', group: 'confidentialite', label: 'Moteurs de recherche', icon: SearchX,
         description: 'Masquer l’application de Google, Bing et des autres.',
         fields: ['search_engines_hidden'],
+    },
+    {
+        // ADR-193 — une commande qui part tout de suite, avec ses propres droits :
+        // aucun champ du formulaire commun, donc pas de « Enregistrer » en pied.
+        id: 'maintenance', group: 'exploitation', label: 'Maintenance', icon: Construction,
+        description: 'Fermer un site pour une intervention, avec un message.',
+        fields: [],
     },
 ]);
 

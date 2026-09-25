@@ -6,6 +6,7 @@ use App\Actions\Role\SyncPortalSuperAdminPermissionsAction;
 use App\Models\Permission;
 use App\Models\User;
 use App\Services\Settings\AppSettings;
+use App\Services\Settings\SiteMaintenanceState;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Database\Events\NoPendingMigrations;
 use Illuminate\Database\Schema\Blueprint;
@@ -24,6 +25,8 @@ class AppServiceProvider extends ServiceProvider
         // Les paramètres du site sont lus à chaque page : une seule lecture
         // par requête, jamais d'une requête à l'autre (ADR-184).
         $this->app->scoped(AppSettings::class);
+        // ADR-193 — la maintenance du site, lue une fois par requête.
+        $this->app->scoped(SiteMaintenanceState::class);
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Services\Settings\AppSettings;
+use App\Services\Settings\SiteMaintenanceState;
 use App\Services\SuperAdmin\PortalDirectory;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -83,6 +84,9 @@ class HandleInertiaRequests extends Middleware
                 'iconUrl' => $settings->iconUrl(),
                 'currency' => $settings->currency(),
                 'ageBands' => $settings->ageBands(),
+                // ADR-193 — la maintenance du site : bandeau d'avertissement avant son
+                // début, bandeau pour le compte qui la traverse, avis sur la connexion.
+                'maintenance' => app(SiteMaintenanceState::class)->sharedProp($user),
             ],
             // ADR-191 — taille du texte, densité, arrondis, animations, contraste :
             // ceux du site, ajustés par l'utilisateur. Appliqués sur <html> dès le rendu

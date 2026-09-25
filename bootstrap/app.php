@@ -3,6 +3,7 @@
 use App\Http\Middleware\ActAsRemoteSuperAdmin;
 use App\Http\Middleware\ApplySearchEngineVisibility;
 use App\Http\Middleware\AuthenticateRivoSiteApi;
+use App\Http\Middleware\EnforceSiteMaintenance;
 use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\EnsureApiIdempotency;
 use App\Http\Middleware\EnsureDeploymentAccount;
@@ -28,6 +29,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             HandleInertiaRequests::class,
+            // ADR-193 — un site en maintenance répond par sa page de maintenance.
+            EnforceSiteMaintenance::class,
         ]);
 
         // ADR-184 — masquée aux moteurs de recherche, l'application le dit sur

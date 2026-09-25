@@ -31,12 +31,14 @@ class AppSettingsController extends Controller
 {
     public const PORTAL = 'PORTAL';
 
+    private const MAINTENANCE_PORTAL_REFUSAL = 'La maintenance se règle pour un site : tous les comptes du portail la traverseraient.';
+
     /**
      * ADR-191 — les modules des paramètres, chacun sa page. La même liste, dans le
      * même ordre, que `resources/js/utilities/settingsSections.js` (vérifié par test) ;
      * le premier s'ouvre quand on arrive sur « Paramètres ».
      */
-    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'monnaie', 'remises', 'legal', 'direction', 'visibilite'];
+    public const SECTIONS = ['identite', 'theme', 'avance', 'ecrans', 'numerotation', 'ages', 'monnaie', 'remises', 'legal', 'direction', 'visibilite', 'maintenance'];
 
     /**
      * La page d'un module. Sans module, le premier : comme dans les paramètres de
@@ -165,14 +167,43 @@ class AppSettingsController extends Controller
         return $this->relay($client->archiveDiscountCoupon($target, $coupon, $validated['reason'], $request->user()), 'Coupon archivé.', 'reason');
     }
 
-    /** Un site, jamais le portail : les remises ne portent que sur les factures des sites. */
-    private function siteTarget(Request $request): string
+    /** ADR-192 — seul un coupon archivé qui n'a jamais servi se supprime ; le site le vérifie. */
+    public function destroyCoupon(Request $request, string $coupon, PortalSiteApiClient $client): RedirectResponse
+    {
+        $target = $this->siteTarget($request);
+
+        return $this->relay($client->deleteDiscountCoupon($target, $coupon, $request->user()), 'Coupon supprimé.', 'coupon');
+    }
+
+    /**
+     * ADR-193 — la maintenance d'un site, jamais du portail : tous ses comptes sont
+     * Super Administrateurs et la traverseraient. Le site revalide tout et garde
+     * l'identité du Super Administrateur.
+     */
+    public function updateMaintenance(Request $request, PortalSiteApiClient $client): RedirectResponse
+    {
+        $target = $this->siteTarget($request, self::MAINTENANCE_PORTAL_REFUSAL);
+        $validated = $request->validate(AppSettingsRules::maintenance(), AppSettingsRules::maintenanceMessages());
+
+        return $this->relay($client->updateSiteMaintenance($target, $validated, $request->user()), 'Maintenance enregistrée.', 'maintenance');
+    }
+
+    public function liftMaintenance(Request $request, PortalSiteApiClient $client): RedirectResponse
+    {
+        $target = $this->siteTarget($request, self::MAINTENANCE_PORTAL_REFUSAL);
+        $validated = $request->validate(AppSettingsRules::maintenanceLift());
+
+        return $this->relay($client->liftSiteMaintenance($target, $validated['reason'] ?? null, $request->user()), 'Maintenance levée.', 'maintenance');
+    }
+
+    /** Un site, jamais le portail : les remises ne portent que sur les factures des sites, la maintenance que sur leurs comptes. */
+    private function siteTarget(Request $request, string $portalRefusal = 'Les coupons se créent sur un site : le portail n’émet aucune facture.'): string
     {
         $codes = collect(config('rivo.clinics', []))->pluck('code')->all();
 
         return $request->validate(
             ['site_code' => ['required', Rule::in($codes)]],
-            ['site_code.in' => 'Les coupons se créent sur un site : le portail n’émet aucune facture.'],
+            ['site_code.in' => $portalRefusal],
         )['site_code'];
     }
 

@@ -12,6 +12,7 @@ import DirectionSettings from '@/Components/Settings/DirectionSettings.vue';
 import DiscountSettings from '@/Components/Settings/DiscountSettings.vue';
 import IdentitySettings from '@/Components/Settings/IdentitySettings.vue';
 import LegalSettings from '@/Components/Settings/LegalSettings.vue';
+import MaintenanceSettings from '@/Components/Settings/MaintenanceSettings.vue';
 import NumberingSettings from '@/Components/Settings/NumberingSettings.vue';
 import ScreenTemplates from '@/Components/Settings/ScreenTemplates.vue';
 import SearchVisibilitySettings from '@/Components/Settings/SearchVisibilitySettings.vue';
@@ -56,6 +57,12 @@ const canUpdate = computed(() => can('settings.update'));
 
 /** Le module ouvert ; sans module, le premier (le serveur y redirige déjà). */
 const current = computed(() => settingsSection(props.section) ?? SETTINGS_SECTIONS[0]);
+/**
+ * ADR-193 — un module sans champ du formulaire commun (la maintenance) agit tout
+ * de suite, avec ses propres droits : ni « Enregistrer » en pied, ni l'avis
+ * « settings.update ».
+ */
+const usesCommonForm = computed(() => current.value.fields.length > 0);
 
 /* ------------------------------------------------------------------ */
 /* Cible                                                               */
@@ -249,7 +256,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
                 <form v-else novalidate @submit.prevent="submit">
                     <div class="space-y-8 p-5 sm:p-8">
-                        <p v-if="readonly" class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                        <p v-if="readonly && usesCommonForm" class="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
                             <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />Lecture seule : modifier les paramètres demande le droit « settings.update ».
                         </p>
 
@@ -305,6 +312,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                         <LegalSettings v-else-if="current.id === 'legal'" :form="form" :fallbacks="fallbacks" :site-name="target.site.name" :readonly="readonly" />
                         <DirectionSettings v-else-if="current.id === 'direction'" :form="form" :fallbacks="fallbacks" :assets="data.assets" :site-code="selectedCode" :limits="limits" :readonly="readonly" />
                         <SearchVisibilitySettings v-else-if="current.id === 'visibilite'" :form="form" :site-name="target.site.name" :readonly="readonly" />
+                        <MaintenanceSettings
+                            v-else-if="current.id === 'maintenance'"
+                            :maintenance="data.maintenance ?? {}"
+                            :site-code="selectedCode"
+                            :site-name="target.site.name"
+                            :is-portal="isPortal"
+                        />
 
                         <!-- Un refus qui ne porte sur aucun champ (site injoignable, base non migrée…) : dit ici, jamais tu. -->
                         <p v-if="form.errors.site_code" class="flex items-start gap-2 rounded-lg border border-destructive/40 px-4 py-3 text-sm text-destructive" role="alert">
@@ -313,7 +327,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                     </div>
 
                     <!-- Le pied de la carte : l'état de la saisie et l'enregistrement, toujours à portée même sur un long module. -->
-                    <div v-if="! readonly" class="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-b-xl border-t border-border bg-card/95 px-5 py-3 backdrop-blur sm:px-8 sm:py-4">
+                    <div v-if="! readonly && usesCommonForm" class="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-b-xl border-t border-border bg-card/95 px-5 py-3 backdrop-blur sm:px-8 sm:py-4">
                         <p class="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
                             <span :class="cn('h-2 w-2 shrink-0 rounded-full', form.isDirty ? 'bg-amber-500' : 'bg-emerald-500')" aria-hidden="true" />
                             <template v-if="form.isDirty">{{ changedCount }} modification{{ changedCount > 1 ? 's' : '' }} non enregistrée{{ changedCount > 1 ? 's' : '' }}</template>

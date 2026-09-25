@@ -107,7 +107,7 @@ test('the settings read module by module: the open module in a card, the modules
     const COMPONENTS = {
         identite: 'IdentitySettings', theme: 'ThemeSettings', avance: 'AdvancedSettings', ecrans: 'ScreenTemplates',
         numerotation: 'NumberingSettings', ages: 'AgeBandSettings', monnaie: 'CurrencySettings', remises: 'DiscountSettings', legal: 'LegalSettings',
-        direction: 'DirectionSettings', visibilite: 'SearchVisibilitySettings',
+        direction: 'DirectionSettings', visibilite: 'SearchVisibilitySettings', maintenance: 'MaintenanceSettings',
     };
     assert.deepEqual(Object.keys(COMPONENTS), [...SETTINGS_SECTION_IDS]);
     assert.match(section, /:id="`reglages-\$\{id\}`"/);

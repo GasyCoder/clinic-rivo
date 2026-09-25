@@ -17367,12 +17367,29 @@ de suite (`/api/v1/super-admin/app-settings/coupons`, `discount_coupons.create/a
 toujours, archives comprises ; validité et nombre d'utilisations facultatifs ; acteur central gardé
 (`external_*`). Sur la cible « Portail », le module dit de choisir un site : le portail n'émet aucune facture.
 
+## Supprimer un coupon archivé jamais utilisé (amendement du 2026-09-25)
+
+Demande du propriétaire : une corbeille sur les coupons archivés. **Exception étroite** à « rien n'est supprimé »
+(ADR-010), sur le modèle de l'ADR-062 pour un compte jamais utilisé :
+
+```text
+supprimable   archivé ET jamais servi : uses_count = 0 et aucune remise de facture qui le cite (même retirée)
+refusé        encore actif (« Archivez d'abord ce coupon ») ou a servi (« a servi sur N factures : il reste
+              archivé ») — la base le refuse aussi (invoice_discounts.discount_coupon_id, restrictOnDelete)
+```
+
+`DeleteDiscountCouponAction` verrouille le coupon, revérifie (`DiscountCoupon::deletionBlocker()`), garde dans
+l'audit ce qu'il était (`discount_coupon.force_delete`, identité du Super Admin distant) puis le supprime ; son code
+redevient libre, puisqu'il n'a jamais désigné aucune remise. Portail : icône corbeille sur chaque coupon archivé,
+désactivée avec sa raison quand il a servi, confirmation obligatoire ; `DELETE /api/v1/super-admin/app-settings/coupons/{uuid}`.
+Migration `2026_11_03_100000_add_discount_coupon_force_delete_permission`.
+
 ## Droits
 
 ```text
 discounts.view / create      RECEPTION (la Caisse applique en encaissant)
 discounts.view / approve     ADMINISTRATION (une remise durable est une dérogation habilitée)
-discount_coupons.view / create / archive   SUPER_ADMIN du portail (ADR-186)
+discount_coupons.view / create / archive / force_delete   SUPER_ADMIN du portail (ADR-186)
 ```
 
 Migration `2026_11_02_090000_create_discounts` (tables, colonnes de `app_settings` et `patient_vip_settings`,
@@ -17392,5 +17409,100 @@ remise libre du caissier  non construite : une remise manuelle au-delà d'un seu
                           discounts.approve (§34.2 « validation hiérarchique »), est à décider
 rapports                  « facturé » lit total_amount, désormais net de remise ; un total des remises par
                           période n'est pas encore affiché
-restauration d'un coupon  non prévue : un coupon archivé ne revient pas, on en crée un autre
+restauration d'un coupon  non prévue : un coupon archivé ne revient pas, on en crée un autre (ou, s'il n'a
+                          jamais servi, on le supprime et on réutilise son code)
 ```
+
+---
+
+# ADR-193 — Mode maintenance d'un site, avec message personnalisable
+
+**Status:** ACCEPTED (2026-09-25 — demande du propriétaire, trois arbitrages explicites)
+
+Le CDC ne décrit aucun mode maintenance (§18 ne cite que `settings.*` pour le Super Admin) : les règles
+ci-dessous sont celles du propriétaire.
+
+## Les arbitrages du propriétaire
+
+```text
+qui passe      seuls les comptes qui ont un droit dédié (app_maintenance.bypass), donné à personne par
+               défaut : le Super Admin l'accorde, par exemple au technicien informatique qui vérifie le site
+quand          maintenant, ou programmée (début et fin) ; bandeau d'avertissement avant le début,
+               réouverture automatique à la fin prévue
+portée         site par site, depuis Paramètres › Maintenance, comme tous les réglages (ADR-184)
+```
+
+## Les sites seulement, jamais le portail
+
+Tous les comptes du portail sont Super Administrateurs (ADR-027) et détiennent toutes les permissions
+(ADR-186) : une maintenance du portail ne fermerait rien à personne. La maintenance ne concerne donc que les
+trois sites cliniques ; l'action refuse sur le portail et l'écran le dit (cible « Portail »).
+
+## Une fenêtre, lue à chaque requête
+
+`site_maintenances` garde une ligne par maintenance, jamais effacée : titre, message, début, fin prévue
+(facultative), qui l'a posée, modifiée, levée, quand et pourquoi. Son état se lit à chaque requête, sans
+traitement planifié :
+
+```text
+UPCOMING   le début n'est pas atteint ; bandeau dans les 24 heures qui précèdent
+ACTIVE     commencée, ni levée ni à sa fin prévue : le site est fermé
+ENDED      sa fin prévue est passée : le site a rouvert de lui-même
+LIFTED     levée à la main (ou annulée avant son début)
+```
+
+Une seule est ouverte à la fois : `SetSiteMaintenanceAction` verrouille celle qui existe et la modifie. « Maintenant »
+prend l'heure du serveur, et une maintenance déjà en cours garde son heure de début (on n'en corrige que le
+message ou la fin) ; « programmer » une maintenance en cours la reporte — le site rouvre jusqu'au nouveau début,
+et la confirmation le dit. `LiftSiteMaintenanceAction` lève (ou annule), motif facultatif. Audit
+`app_maintenance.start / schedule / update / lift / cancel`, avec l'identité du Super Admin distant.
+
+## Ce que voit le site
+
+`EnforceSiteMaintenance` (groupe `web`, après `HandleInertiaRequests`) répond par la page `Maintenance` en **503**,
+avec `Retry-After` quand la fin est prévue ; un appel qui attend du JSON reçoit du JSON. Restent ouverts :
+
+```text
+connexion, déconnexion, mot de passe oublié   le compte autorisé doit pouvoir entrer
+logo, icône, robots.txt, /up                  la page de maintenance les utilise
+l'API du site (hors groupe web)               le portail garde la main pour lever la maintenance
+```
+
+La page montre la marque du site, le titre et le message (texte simple, retours à la ligne gardés, jamais de HTML),
+l'heure de retour prévue, « Réessayer », et se recharge d'elle-même à la fin prévue. Un compte connecté sans le droit
+y lit qu'il n'a pas accès et peut se déconnecter ; un visiteur voit le lien de connexion réservée. La page de connexion
+dit que le site est fermé. Un compte avec le droit travaille normalement, sous un bandeau qui le lui rappelle.
+
+`SiteMaintenanceState` (liaison `scoped`) lit la fenêtre une fois par requête et sert la prop partagée
+`site.maintenance` (`ACTIVE` avec `bypassing`, ou `UPCOMING`, sinon `null`). Une base sans la table ne ferme jamais
+le site (constat de l'ADR-100).
+
+## Depuis le portail
+
+Paramètres › Exploitation › **Maintenance** : l'état du site, le titre et le message avec leur aperçu (le composant
+même de la page du site), « Maintenant » ou « Programmer », début, fin prévue (+30 min, +1 h, +2 h, +4 h, ou sans
+fin), « Lever / Annuler la maintenance » avec motif, et l'historique. Les gestes partent tout de suite par l'API du
+site (`PUT /api/v1/super-admin/app-settings/maintenance`, `POST …/maintenance/lift`, idempotents), hors du formulaire
+commun des paramètres : le module n'a pas de pied « Enregistrer ». Mettre en maintenance maintenant, programmer ou
+reporter demande confirmation.
+
+## Droits
+
+```text
+app_maintenance.update   mettre, programmer, modifier, lever   SUPER_ADMIN du portail (ADR-186) ; aucun rôle du site
+app_maintenance.bypass   utiliser le site pendant sa maintenance   aucun rôle ; accordé nominativement
+```
+
+Distincts de `settings.update` : fermer un site n'est pas changer une couleur. Le Super Admin les reçoit comme tous
+les autres, à la migration de la base du portail (ADR-186) : tant que `php artisan migrate --env=admin` n'est pas
+joué, ces droits n'existent pas dans cette base et le module reste en lecture seule (constaté le 2026-09-25 en
+local ; un compte Super Admin désactivé, lui, n'a aucun droit — ADR-022). Un site dont la base n'a pas la table
+refuse la commande par une phrase qui le dit ; un site qui ne sert rien de lisible n'est jamais affiché « ouvert ». Distincts aussi du rôle MAINTENANCE
+et de `equipment.maintenance.manage` (maintenance des équipements) — d'où le préfixe `app_maintenance`. Migration
+`2026_11_03_090000_create_site_maintenances_table`, à jouer sur chaque site et sur le portail.
+
+## Hors périmètre
+
+La maintenance technique de déploiement (`php artisan down`, base arrêtée) reste celle de Laravel : elle ne peut pas
+lire un message rangé en base. Une saisie non enregistrée au moment de la fermeture peut être perdue : le bandeau des
+24 heures sert à l'éviter ; les brouillons serveur existants (ADR-073) restent.

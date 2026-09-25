@@ -55,6 +55,9 @@ class PermissionSeeder extends Seeder
         'reports.financial.view' => 'Voir les rapports financiers par site',
         'settings.view' => 'Voir les paramètres globaux',
         'settings.update' => 'Modifier les paramètres globaux',
+        // ADR-193 — la maintenance d'un site : la mettre, et la traverser.
+        'app_maintenance.update' => 'Mettre un site en maintenance, la programmer ou la lever',
+        'app_maintenance.bypass' => 'Utiliser le site pendant sa maintenance',
         'audit.view' => 'Voir le journal d’audit',
         'api.view' => 'Voir l’état des intégrations API',
         'trash.view' => 'Voir la corbeille multi-sites',
@@ -335,6 +338,7 @@ class PermissionSeeder extends Seeder
         'discount_coupons.view' => 'Voir les coupons de remise',
         'discount_coupons.create' => 'Créer un coupon de remise',
         'discount_coupons.archive' => 'Archiver un coupon de remise',
+        'discount_coupons.force_delete' => 'Supprimer définitivement un coupon archivé jamais utilisé',
         'billing.view' => 'Voir les factures et soldes',
         'billing.create' => 'Créer une facture',
         'billing.validate' => 'Valider une facture',

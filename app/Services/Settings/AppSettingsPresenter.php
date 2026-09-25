@@ -5,6 +5,7 @@ namespace App\Services\Settings;
 use App\Actions\Settings\UpdateAppSettingsAction;
 use App\Models\DiscountCoupon;
 use App\Models\PatientStaffLink;
+use App\Models\SiteMaintenance;
 use App\Services\Administration\EmployeeNumberAllocator;
 use App\Services\Patient\PatientNumberGenerator;
 use App\Support\Numbering\EmployeeNumberFormat;
@@ -78,12 +79,67 @@ class AppSettingsPresenter
             'appearance' => $this->settings->appearance()['site'],
             'numbering' => $this->numbering(),
             'discounts' => $this->discounts(),
+            'maintenance' => $this->maintenance(),
             'assets' => collect(AppSettings::ASSET_KINDS)->mapWithKeys(fn (string $kind) => [$kind => [
                 'present' => $this->settings->assetExists($kind),
                 'data_url' => $this->settings->assetPreviewDataUri($kind),
             ]])->all(),
             'updated_at' => $setting?->updated_at?->toIso8601String(),
             'updated_by' => $setting?->external_updated_by_name ?? $setting?->updatedBy?->name,
+        ];
+    }
+
+    /**
+     * ADR-193 — la maintenance de ce site : celle qui est en cours ou à venir, les
+     * dernières terminées ou levées, et le message proposé par défaut. Sur le
+     * portail, `applies` est faux : il n'est jamais mis en maintenance.
+     *
+     * @return array<string, mixed>
+     */
+    private function maintenance(): array
+    {
+        $base = [
+            'applies' => SiteMaintenanceState::applies(),
+            'warning_hours' => SiteMaintenanceState::WARNING_HOURS,
+            'defaults' => ['title' => SiteMaintenanceState::DEFAULT_TITLE, 'message' => SiteMaintenanceState::DEFAULT_MESSAGE],
+        ];
+
+        try {
+            $current = SiteMaintenance::current();
+            $history = SiteMaintenance::query()
+                ->when($current, fn ($query) => $query->whereKeyNot($current->getKey()))
+                ->with(['creator:id,name', 'lifter:id,name'])
+                ->latest('starts_at')
+                ->limit(10)
+                ->get();
+        } catch (Throwable) {
+            return [...$base, 'available' => false, 'current' => null, 'history' => []];
+        }
+
+        return [
+            ...$base,
+            'available' => true,
+            'current' => $current ? $this->presentMaintenance($current) : null,
+            'history' => $history->map(fn (SiteMaintenance $maintenance) => $this->presentMaintenance($maintenance))->all(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function presentMaintenance(SiteMaintenance $maintenance): array
+    {
+        return [
+            'uuid' => $maintenance->uuid,
+            'state' => $maintenance->state(),
+            'title' => $maintenance->title,
+            'message' => $maintenance->message,
+            'starts_at' => $maintenance->starts_at->toIso8601String(),
+            'ends_at' => $maintenance->ends_at?->toIso8601String(),
+            'created_by' => $maintenance->createdByName(),
+            'created_at' => $maintenance->created_at?->toIso8601String(),
+            'updated_by' => $maintenance->external_updated_by_name,
+            'lifted_at' => $maintenance->lifted_at?->toIso8601String(),
+            'lifted_by' => $maintenance->liftedByName(),
+            'lift_reason' => $maintenance->lift_reason,
         ];
     }
 
@@ -97,7 +153,7 @@ class AppSettingsPresenter
     private function discounts(): array
     {
         try {
-            $coupons = DiscountCoupon::query()->latest('id')->limit(200)->get();
+            $coupons = DiscountCoupon::query()->withCount('invoiceDiscounts')->latest('id')->limit(200)->get();
             $staffLinked = PatientStaffLink::query()->active()->count();
         } catch (Throwable) {
             return ['available' => false, 'coupons' => []];
@@ -119,6 +175,8 @@ class AppSettingsPresenter
                 'uses_count' => $coupon->uses_count,
                 'archived' => $coupon->archived_at !== null,
                 'unusable_reason' => $coupon->unusableReason(),
+                // Un coupon archivé qui n'a jamais servi se supprime ; sinon, pourquoi pas.
+                'deletion_blocker' => $coupon->deletionBlocker(),
                 'created_at' => $coupon->created_at?->toIso8601String(),
                 'created_by' => $coupon->external_created_by_name,
             ])->all(),

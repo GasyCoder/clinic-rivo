@@ -355,6 +355,25 @@ class PortalSiteApiClient
         return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/coupons/'.rawurlencode($couponUuid).'/archive', ['reason' => $reason], $actor);
     }
 
+    /** ADR-192 — supprimer définitivement un coupon archivé jamais utilisé. @return array<string, mixed> */
+    public function deleteDiscountCoupon(string $siteCode, string $couponUuid, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'DELETE', 'super-admin/app-settings/coupons/'.rawurlencode($couponUuid), [], $actor);
+    }
+
+    /** ADR-193 — mettre le site en maintenance, la programmer ou la modifier. @param array<string, mixed> $data
+     * @return array<string, mixed> */
+    public function updateSiteMaintenance(string $siteCode, array $data, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'PUT', 'super-admin/app-settings/maintenance', $data, $actor);
+    }
+
+    /** @return array<string, mixed> */
+    public function liftSiteMaintenance(string $siteCode, ?string $reason, User $actor): array
+    {
+        return $this->request($this->site($siteCode), 'POST', 'super-admin/app-settings/maintenance/lift', ['reason' => $reason], $actor);
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function usersForAllSites(User $actor, array $query = []): array
     {

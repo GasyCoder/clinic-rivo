@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useForm } from '@inertiajs/vue3';
-import { Archive, Ban, Banknote, Info, Percent, Plus, TicketPercent, UserCheck } from 'lucide-vue-next';
+import { Archive, Ban, Banknote, Info, Percent, Plus, TicketPercent, Trash2, UserCheck } from 'lucide-vue-next';
 import Badge from '@/Components/Shadcn/Badge.vue';
 import Button from '@/Components/Shadcn/Button.vue';
+import ConfirmModal from '@/Components/Shadcn/ConfirmModal.vue';
 import DatePicker from '@/Components/Shadcn/DatePicker.vue';
 import Dialog from '@/Components/Shadcn/Dialog.vue';
 import IconInput from '@/Components/Shadcn/IconInput.vue';
@@ -85,6 +86,24 @@ const submitCoupon = () => couponForm
     .post('/super-admin/settings/coupons', {
         preserveScroll: true,
         onSuccess: () => { couponOpen.value = false; },
+    });
+
+/**
+ * Supprimer définitivement un coupon archivé : seulement s'il n'a jamais servi
+ * (le serveur le dit par `deletion_blocker`, et le revérifie). Un coupon qui a
+ * servi reste archivé, pour l'historique des factures qui le citent.
+ */
+const deleteTarget = ref(null);
+const deleteForm = useForm({});
+const openDelete = (coupon) => {
+    deleteForm.clearErrors();
+    deleteTarget.value = coupon;
+};
+const submitDelete = () => deleteForm
+    .transform(() => ({ site_code: props.siteCode }))
+    .delete(`/super-admin/settings/coupons/${deleteTarget.value.uuid}`, {
+        preserveScroll: true,
+        onSuccess: () => { deleteTarget.value = null; },
     });
 
 const archiveTarget = ref(null);
@@ -169,12 +188,35 @@ const submitArchive = () => archiveForm
                     </ul>
                     <p v-else class="px-4 py-6 text-center text-sm text-muted-foreground">Aucun coupon sur ce site.</p>
                 </div>
-                <details v-if="archivedCoupons.length" class="text-xs">
-                    <summary class="cursor-pointer text-muted-foreground hover:text-foreground">Coupons archivés ({{ archivedCoupons.length }})</summary>
-                    <ul class="mt-2 space-y-1 text-muted-foreground">
-                        <li v-for="coupon in archivedCoupons" :key="coupon.uuid"><span class="font-mono font-medium text-foreground">{{ coupon.code }}</span> · {{ coupon.describe }} · {{ coupon.uses_count }} utilisation{{ coupon.uses_count > 1 ? 's' : '' }}</li>
+                <details v-if="archivedCoupons.length" class="overflow-hidden rounded-lg border border-border" data-archived-coupons>
+                    <summary class="flex cursor-pointer items-center gap-2 bg-muted/30 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+                        <Archive class="h-4 w-4" aria-hidden="true" />Coupons archivés ({{ archivedCoupons.length }})
+                    </summary>
+                    <ul class="divide-y divide-border border-t border-border">
+                        <li v-for="coupon in archivedCoupons" :key="coupon.uuid" class="flex flex-wrap items-center gap-3 px-4 py-2.5">
+                            <OptionTile><component :is="typeIcon(coupon.discount_type)" class="h-3.5 w-3.5" /></OptionTile>
+                            <div class="min-w-0 flex-1">
+                                <p class="flex flex-wrap items-center gap-2 text-sm"><span class="font-mono font-semibold text-foreground">{{ coupon.code }}</span><span class="text-muted-foreground">{{ coupon.describe }}</span><Badge variant="outline">Archivé</Badge></p>
+                                <p class="text-xs text-muted-foreground">{{ coupon.label ? `${coupon.label} · ` : '' }}{{ coupon.uses_count }} utilisation{{ coupon.uses_count > 1 ? 's' : '' }}</p>
+                            </div>
+                            <Button
+                                v-if="can('discount_coupons.force_delete')"
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                class="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                :disabled="Boolean(coupon.deletion_blocker)"
+                                :title="coupon.deletion_blocker || `Supprimer définitivement ${coupon.code}`"
+                                :aria-label="coupon.deletion_blocker ? `${coupon.code} : ${coupon.deletion_blocker}` : `Supprimer définitivement le coupon ${coupon.code}`"
+                                data-delete-coupon
+                                @click="openDelete(coupon)"
+                            >
+                                <Trash2 class="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                        </li>
                     </ul>
                 </details>
+                <p v-if="deleteForm.errors.coupon || deleteForm.errors.site_code" class="text-[0.8rem] font-medium text-destructive" role="alert">{{ deleteForm.errors.coupon || deleteForm.errors.site_code }}</p>
             </SettingsField>
         </template>
     </SettingsSection>
@@ -216,6 +258,18 @@ const submitArchive = () => archiveForm
             <Button type="submit" form="coupon-form" :disabled="couponForm.processing"><Plus class="h-4 w-4" />Créer le coupon</Button>
         </template>
     </Dialog>
+
+    <ConfirmModal
+        :open="deleteTarget !== null"
+        :title="deleteTarget ? `Supprimer définitivement ${deleteTarget.code} ?` : ''"
+        description="Ce coupon n’a jamais servi : il disparaît de la liste et son code pourra être réutilisé. L’audit garde la trace de ce qu’il était. Cette suppression ne peut pas être annulée."
+        confirm-label="Supprimer définitivement"
+        tone="danger"
+        :icon="Trash2"
+        :processing="deleteForm.processing"
+        @update:open="(open) => { if (! open) deleteTarget = null; }"
+        @confirm="submitDelete"
+    />
 
     <Dialog :open="archiveTarget !== null" title="Archiver ce coupon ?" :description="archiveTarget ? `${archiveTarget.code} ne pourra plus servir. Les factures qui l’ont reçu gardent leur remise.` : ''" :dismissible="! archiveForm.processing" @update:open="(open) => { if (! open) archiveTarget = null; }">
         <form id="coupon-archive-form" @submit.prevent="submitArchive">

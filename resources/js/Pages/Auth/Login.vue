@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Head, useForm, usePage } from '@inertiajs/vue3';
-import { Loader2, LogIn, Mail } from 'lucide-vue-next';
+import { Construction, Loader2, LogIn, Mail } from 'lucide-vue-next';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
 import AuthShell from '@/Components/Auth/AuthShell.vue';
 import Button from '@/Components/Shadcn/Button.vue';
@@ -29,6 +29,8 @@ const submit = () => {
 const page = usePage();
 const site = computed(() => page.props.site);
 const isAdminPortal = computed(() => site.value.type === 'admin');
+/** ADR-193 — la maintenance en cours du site, s'il y en a une. */
+const maintenance = computed(() => (site.value.maintenance?.state === 'ACTIVE' ? site.value.maintenance : null));
 const accessLabel = computed(() => isAdminPortal.value
     ? 'Super Administration'
     : `Clinique de ${site.value.name}`);
@@ -42,6 +44,12 @@ const accessLabel = computed(() => isAdminPortal.value
         title="Connexion à votre espace"
         description="Utilisez les identifiants de votre compte professionnel."
     >
+        <!-- ADR-193 — le site est fermé : seuls les comptes autorisés peuvent entrer. -->
+        <p v-if="maintenance" class="mb-5 flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" role="status">
+            <Construction class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+            <span><span class="font-semibold">{{ maintenance.title }}</span> — seuls les comptes autorisés peuvent se connecter pendant la maintenance.</span>
+        </p>
+
         <!-- En colonne flex : FormField est un <label>, en ligne, sur lequel space-y ne s'applique pas. -->
         <form class="flex flex-col gap-5" @submit.prevent="submit">
             <FormField label="Adresse email" :error="form.errors.email">

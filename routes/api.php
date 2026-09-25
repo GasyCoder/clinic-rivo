@@ -186,6 +186,10 @@ Route::middleware(['rivo.site-api', 'api.idempotent'])
         // ADR-192 — les coupons de remise de ce site.
         Route::post('/app-settings/coupons', [AppSettingsController::class, 'storeCoupon'])->name('app-settings.coupons.store');
         Route::post('/app-settings/coupons/{coupon}/archive', [AppSettingsController::class, 'archiveCoupon'])->name('app-settings.coupons.archive');
+        Route::delete('/app-settings/coupons/{coupon}', [AppSettingsController::class, 'destroyCoupon'])->name('app-settings.coupons.destroy');
+        // ADR-193 — la maintenance du site, pilotée depuis le portail.
+        Route::put('/app-settings/maintenance', [AppSettingsController::class, 'updateMaintenance'])->name('app-settings.maintenance.update');
+        Route::post('/app-settings/maintenance/lift', [AppSettingsController::class, 'liftMaintenance'])->name('app-settings.maintenance.lift');
 
         // ADR-133 — seuils des patients VIP de ce site.
         Route::get('/patient-vip-settings', [PatientVipSettingsController::class, 'show'])->name('patient-vip-settings.show');

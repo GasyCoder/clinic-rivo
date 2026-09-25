@@ -260,6 +260,10 @@ Route::middleware(['site.type:admin', 'auth', 'account.active', 'account.deploym
         // ADR-192 — les coupons de remise d'un site.
         Route::post('/settings/coupons', [SuperAdminAppSettingsController::class, 'storeCoupon'])->name('settings.coupons.store')->middleware('can:discount_coupons.create');
         Route::post('/settings/coupons/{coupon}/archive', [SuperAdminAppSettingsController::class, 'archiveCoupon'])->name('settings.coupons.archive')->middleware('can:discount_coupons.archive');
+        Route::delete('/settings/coupons/{coupon}', [SuperAdminAppSettingsController::class, 'destroyCoupon'])->name('settings.coupons.destroy')->middleware('can:discount_coupons.force_delete');
+        // ADR-193 — la maintenance d'un site, par son API.
+        Route::put('/settings/maintenance', [SuperAdminAppSettingsController::class, 'updateMaintenance'])->name('settings.maintenance.update')->middleware('can:app_maintenance.update');
+        Route::post('/settings/maintenance/lift', [SuperAdminAppSettingsController::class, 'liftMaintenance'])->name('settings.maintenance.lift')->middleware('can:app_maintenance.update');
         // ADR-190 — adresses email professionnelles : le portail seul parle à l'hébergeur.
         Route::get('/professional-emails', [SuperAdminProfessionalEmailController::class, 'index'])->name('professional-emails.index')->middleware('can:professional_emails.view');
         Route::post('/professional-emails/check', [SuperAdminProfessionalEmailController::class, 'check'])->name('professional-emails.check')->middleware('can:professional_emails.create');

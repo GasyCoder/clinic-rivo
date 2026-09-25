@@ -108,6 +108,7 @@ https://github.com/GasyCoder/cdc-clinic-george
 - [ ] Créances : suivi et règlement ultérieur d'une créance (aucune règle CDC — hors périmètre ADR-090)
 - [ ] Remboursements autorisés
 - [x] Remises : une par facture, la plus avantageuse, sur la part patient — VIP (réglée avec les seuils dans Patients VIP) et personnel (Paramètres › Remises), par site, remise propre à un patient (discounts.approve), coupons (portail) ; appliquée à la Caisse avant tout paiement, retirée tracée (ADR-192)
+- [x] Coupon archivé jamais utilisé supprimable définitivement (corbeille, confirmation, audit, code libéré) ; un coupon qui a servi reste archivé, la corbeille le dit (ADR-192, amendement du 2026-09-25)
 - [ ] Remise appliquée d'office à la création de la facture, remise libre du caissier avec validation hiérarchique, total des remises dans les rapports — à décider (ADR-192)
 - [ ] Reçus
 - [ ] Ouverture caisse
@@ -800,6 +801,7 @@ admin.rivo.mg
 - [x] Repères dans les listes de la Numérotation et de la Monnaie ; icône en tête des champs texte (Identité, Identité légale, Direction, Âges, préfixes) et des aperçus (ADR-191)
 - [x] « Moteurs de recherche » : carte d'état (Masquée / Visible), trois consignes en cartes, liens vers les outils de retrait, robots.txt et en-tête copiables (ADR-191)
 - [ ] Couleurs d'alerte et format des autres numéros (factures, reçus, commandes) réglables — à décider (ADR-191)
+- [x] Mode maintenance par site depuis Paramètres › Maintenance : maintenant ou programmée, message personnalisable avec aperçu, bandeau 24 h avant, réouverture automatique à la fin prévue, levée tracée ; seul le droit `app_maintenance.bypass` traverse, connexion et API restent ouvertes (ADR-193)
 - [x] Assistant « Créer / Modifier un utilisateur » refondu en shadcn : étapes iconées, champs avec aide en ligne et contrôle de l'email, rôles en cartes compactes (recherche au-delà de six rôles), profil choisi dans une fenêtre quand le rôle en a (Annuler rend le choix précédent), aperçu du compte et liste de contrôle, barre d'actions qui dit ce qui manque ; mot de passe replié en modification
 - [x] Défauts corrigés dans l'assistant : Entrée à l'étape 1 envoyait le compte avec le premier rôle de la liste — elle mène désormais au rôle, aucun rôle n'est présélectionné ; une erreur du site sur le nom ou l'email ramène à l'étape 1 au lieu de rester invisible
 - [x] Fournisseurs pharmacie et catalogues gérés depuis le portail par API du site (ADR-098)

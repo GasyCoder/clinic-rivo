@@ -88,6 +88,56 @@ class DiscountCouponApiTest extends TestCase
         $this->assertSame('Ce coupon est archivé.', $coupon->unusableReason());
     }
 
+    public function test_an_archived_coupon_that_never_served_is_deleted_for_good_and_its_code_freed(): void
+    {
+        $actor = (string) Str::uuid();
+        $coupon = DiscountCoupon::create(['code' => 'TESTC26', 'discount_type' => 'PERCENT', 'discount_value' => '20', 'archived_at' => now(), 'archive_reason' => 'Essai']);
+
+        $this->withHeaders($this->headers(['settings.view'], $actor))
+            ->getJson(self::URL)
+            ->assertOk()
+            ->assertJsonPath('data.discounts.coupons.0.deletion_blocker', null);
+
+        // Archiver n'est pas supprimer : son propre droit.
+        $this->withHeaders($this->headers(['discount_coupons.archive']))
+            ->deleteJson(self::URL."/coupons/{$coupon->uuid}")
+            ->assertForbidden();
+
+        $this->withHeaders($this->headers(['discount_coupons.force_delete'], $actor))
+            ->deleteJson(self::URL."/coupons/{$coupon->uuid}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Coupon TESTC26 supprimé définitivement.');
+
+        $this->assertSame(0, DiscountCoupon::query()->count());
+        $audit = AuditLog::query()->where('action', 'discount_coupon.force_delete')->sole();
+        $this->assertSame($actor, $audit->external_actor_uuid);
+        $this->assertSame('TESTC26', $audit->old_values['code']);
+
+        // Il n'a jamais servi : son code redevient libre.
+        $this->withHeaders($this->headers(['discount_coupons.create']))
+            ->postJson(self::URL.'/coupons', ['code' => 'TESTC26', 'discount_type' => 'PERCENT', 'discount_value' => 10])
+            ->assertCreated();
+    }
+
+    public function test_a_coupon_still_in_use_or_that_served_is_never_deleted(): void
+    {
+        $active = DiscountCoupon::create(['code' => 'ACTIF', 'discount_type' => 'PERCENT', 'discount_value' => '10']);
+        $served = DiscountCoupon::create(['code' => 'SERVI', 'discount_type' => 'AMOUNT', 'discount_value' => '5000', 'uses_count' => 2, 'archived_at' => now()]);
+
+        $this->withHeaders($this->headers(['discount_coupons.force_delete']))
+            ->deleteJson(self::URL."/coupons/{$active->uuid}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['coupon' => 'Archivez d’abord ce coupon.']);
+
+        $this->withHeaders($this->headers(['discount_coupons.force_delete']))
+            ->deleteJson(self::URL."/coupons/{$served->uuid}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['coupon' => 'Ce coupon a servi sur 2 factures : il reste archivé, pour l’historique.']);
+
+        $this->assertSame(2, DiscountCoupon::query()->count());
+        $this->assertSame('Ce coupon a servi sur 2 factures : il reste archivé, pour l’historique.', $served->refresh()->deletionBlocker());
+    }
+
     public function test_the_staff_discount_is_saved_with_the_other_settings_and_the_vip_one_is_not(): void
     {
         $this->withHeaders($this->headers(['settings.update', 'settings.view']))

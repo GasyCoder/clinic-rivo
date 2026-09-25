@@ -226,6 +226,85 @@ class AppSettingsPortalTest extends TestCase
     }
 
     /** @return array<string, mixed> */
+    /** ADR-192 — supprimer un coupon archivé part à l'API du site, qui décide s'il a servi. */
+    public function test_an_archived_coupon_is_deleted_through_the_site_api(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/app-settings/coupons/*' => Http::response(['message' => 'Coupon TESTC26 supprimé définitivement.', 'data' => []]),
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->delete('/super-admin/settings/coupons/0b1d7c3e-1111-4a2b-9c3d-123456789abc', ['site_code' => 'M'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Coupon TESTC26 supprimé définitivement.');
+
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && $request->url() === 'https://m.test/api/v1/super-admin/app-settings/coupons/0b1d7c3e-1111-4a2b-9c3d-123456789abc'
+            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'discount_coupons.force_delete'));
+    }
+
+    /** ADR-193 — la maintenance d'un site part à son API, avec l'identité du Super Admin et une clé d'idempotence. */
+    public function test_a_site_is_put_in_maintenance_and_reopened_through_its_api(): void
+    {
+        Http::fake([
+            'https://m.test/api/v1/super-admin/app-settings/maintenance' => Http::response(['message' => 'Le site est en maintenance.', 'data' => []]),
+            'https://m.test/api/v1/super-admin/app-settings/maintenance/lift' => Http::response(['message' => 'Maintenance levée : le site est de nouveau ouvert.', 'data' => []]),
+        ]);
+
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/settings/maintenance', ['site_code' => 'M', 'mode' => 'now', 'title' => 'Mise à jour', 'message' => 'Retour vers 16 h.'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Le site est en maintenance.');
+
+        $this->actingAs($this->superAdmin)
+            ->post('/super-admin/settings/maintenance/lift', ['site_code' => 'M', 'reason' => 'Terminé'])
+            ->assertSessionHas('status', 'Maintenance levée : le site est de nouveau ouvert.');
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && $request->url() === 'https://m.test/api/v1/super-admin/app-settings/maintenance'
+            && $request['mode'] === 'now'
+            && $request['title'] === 'Mise à jour'
+            && $request->hasHeader('Idempotency-Key')
+            && str_contains($request->header('X-Rivo-Actor-Permissions')[0] ?? '', 'app_maintenance.update'));
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->url() === 'https://m.test/api/v1/super-admin/app-settings/maintenance/lift'
+            && $request['reason'] === 'Terminé');
+    }
+
+    public function test_the_portal_itself_is_never_put_in_maintenance_and_bad_windows_never_leave(): void
+    {
+        Http::fake();
+
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/settings/maintenance', ['site_code' => AppSettingsController::PORTAL, 'mode' => 'now', 'title' => 'Mise à jour'])
+            ->assertSessionHasErrors(['site_code' => 'La maintenance se règle pour un site : tous les comptes du portail la traverseraient.']);
+
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/settings/maintenance', ['site_code' => 'M', 'mode' => 'scheduled', 'title' => 'Mise à jour'])
+            ->assertSessionHasErrors(['starts_at' => 'Indiquez quand la maintenance commence.']);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_putting_a_site_in_maintenance_needs_its_own_right(): void
+    {
+        DB::table('user_permissions')->insert([
+            'user_id' => $this->superAdmin->id,
+            'permission_id' => Permission::query()->where('name', 'app_maintenance.update')->value('id'),
+            'effect' => 'deny',
+            'source' => 'MANUAL',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        Http::fake();
+
+        $this->actingAs($this->superAdmin)
+            ->put('/super-admin/settings/maintenance', ['site_code' => 'M', 'mode' => 'now', 'title' => 'Mise à jour'])
+            ->assertForbidden();
+
+        Http::assertNothingSent();
+    }
+
     private function sitePayload(string $code, string $name): array
     {
         return [

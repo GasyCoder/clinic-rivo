@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api\V1\SuperAdmin;
 
 use App\Actions\Discounts\ArchiveDiscountCouponAction;
 use App\Actions\Discounts\CreateDiscountCouponAction;
+use App\Actions\Discounts\DeleteDiscountCouponAction;
+use App\Actions\Settings\LiftSiteMaintenanceAction;
+use App\Actions\Settings\SetSiteMaintenanceAction;
 use App\Actions\Settings\StoreAppSettingAssetAction;
 use App\Actions\Settings\UpdateAppSettingsAction;
 use App\Http\Controllers\Controller;
@@ -11,6 +14,7 @@ use App\Models\DiscountCoupon;
 use App\Services\Catalog\CatalogActor;
 use App\Services\Settings\AppSettings;
 use App\Services\Settings\AppSettingsPresenter;
+use App\Services\Settings\SiteMaintenanceState;
 use App\Support\Settings\AppSettingsRules;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -99,6 +103,51 @@ class AppSettingsController extends Controller
 
         return response()->json([
             'message' => "Coupon {$coupon->code} archivé.",
+            'data' => $presenter->payload(),
+        ]);
+    }
+
+    /** ADR-192 — un coupon archivé qui n'a jamais servi, supprimé définitivement. */
+    public function destroyCoupon(Request $request, DiscountCoupon $coupon, DeleteDiscountCouponAction $action, AppSettingsPresenter $presenter): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, DeleteDiscountCouponAction::PERMISSION);
+        $code = $coupon->code;
+
+        $action->execute($coupon, $actor);
+
+        return response()->json([
+            'message' => "Coupon {$code} supprimé définitivement.",
+            'data' => $presenter->payload(),
+        ]);
+    }
+
+    /**
+     * ADR-193 — mettre ce site en maintenance maintenant, la programmer, ou modifier
+     * celle qui est en cours ou à venir. Ses propres droits, pas `settings.update` :
+     * fermer un site n'est pas changer une couleur.
+     */
+    public function updateMaintenance(Request $request, SetSiteMaintenanceAction $action, AppSettingsPresenter $presenter): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, SiteMaintenanceState::MANAGE_PERMISSION);
+        $validated = $request->validate(AppSettingsRules::maintenance(), AppSettingsRules::maintenanceMessages());
+
+        $maintenance = $action->execute($validated, $actor);
+
+        return response()->json([
+            'message' => $maintenance->isActive() ? 'Le site est en maintenance.' : 'Maintenance programmée pour ce site.',
+            'data' => $presenter->payload(),
+        ]);
+    }
+
+    public function liftMaintenance(Request $request, LiftSiteMaintenanceAction $action, AppSettingsPresenter $presenter): JsonResponse
+    {
+        $actor = $this->authorizeActor($request, SiteMaintenanceState::MANAGE_PERMISSION);
+        $validated = $request->validate(AppSettingsRules::maintenanceLift());
+
+        $maintenance = $action->execute($validated['reason'] ?? null, $actor);
+
+        return response()->json([
+            'message' => $maintenance->starts_at->isFuture() ? 'Maintenance programmée annulée.' : 'Maintenance levée : le site est de nouveau ouvert.',
             'data' => $presenter->payload(),
         ]);
     }

@@ -117,6 +117,48 @@ final class AppSettingsRules
         ];
     }
 
+    /**
+     * ADR-193 — mettre un site en maintenance, maintenant ou à une date. Les mêmes
+     * règles au portail et au site : le site revalide de toute façon.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public static function maintenance(): array
+    {
+        $scheduled = fn (Fluent $input) => $input->get('mode') === 'scheduled';
+
+        return [
+            'mode' => ['required', Rule::in(['now', 'scheduled'])],
+            'title' => ['required', 'string', 'max:120'],
+            'message' => ['nullable', 'string', 'max:2000'],
+            'starts_at' => ['required_if:mode,scheduled', 'nullable', 'date', 'after:now'],
+            'ends_at' => ['nullable', 'date', 'after:now', Rule::when($scheduled, ['after:starts_at'])],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function maintenanceMessages(): array
+    {
+        return [
+            'mode.required' => 'Choisissez « maintenant » ou « programmer ».',
+            'mode.in' => 'Choisissez « maintenant » ou « programmer ».',
+            'title.required' => 'Donnez un titre au message.',
+            'title.max' => 'Le titre tient en 120 caractères au plus.',
+            'message.max' => 'Le message tient en 2 000 caractères au plus.',
+            'starts_at.required_if' => 'Indiquez quand la maintenance commence.',
+            'starts_at.date' => 'Le début est une date et une heure.',
+            'starts_at.after' => 'Le début est à venir : pour fermer le site tout de suite, choisissez « maintenant ».',
+            'ends_at.date' => 'La fin prévue est une date et une heure.',
+            'ends_at.after' => 'La fin prévue suit le début, et elle est à venir.',
+        ];
+    }
+
+    /** ADR-193 — lever une maintenance : un motif, facultatif. @return array<string, array<int, string>> */
+    public static function maintenanceLift(): array
+    {
+        return ['reason' => ['nullable', 'string', 'max:500']];
+    }
+
     /** @return array<string, string> */
     public static function messages(): array
     {
